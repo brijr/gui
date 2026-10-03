@@ -91,6 +91,11 @@ export class ProjectWindow {
   /** Panel position, anchored to the window's right edge so it tracks resizes. */
   private anchor = { fromRight: 12, top: TOOLBAR_HEIGHT + 4 }
   private disposed = false
+  /** Bumped per openProject; async steps of a superseded open must not touch the window. */
+  private openGeneration = 0
+  private opening: string | null = null
+  /** Bumped per element pick; a slow inspection must not overwrite a newer pick. */
+  private pickGeneration = 0
 
   constructor() {
     this.state = {
@@ -104,6 +109,7 @@ export class ProjectWindow {
         error: null,
         viewport: 'desktop',
         selecting: false,
+        selectable: false,
         visible: false,
       },
       agentId: 'claude',
@@ -134,6 +140,8 @@ export class ProjectWindow {
       },
     })
     this.preview.setVisible(false)
+    // Start from a committed blank page; tooling (and CDP clients) expect one.
+    this.preview.webContents.loadURL('about:blank').catch(() => undefined)
 
     this.chatView = new WebContentsView({
       webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true },
@@ -156,8 +164,12 @@ export class ProjectWindow {
     this.win.on('closed', () => this.dispose())
 
     windows.add(this)
-    void loadRenderer(this.win.webContents, 'index')
-    void loadRenderer(this.chatView.webContents, 'chat')
+    for (const [wc, page] of [
+      [this.win.webContents, 'index'],
+      [this.chatView.webContents, 'chat'],
+    ] as const) {
+      loadRenderer(wc, page).catch((error) => console.error(`[grat] failed to load ${page}`, error))
+    }
     void loadRecent().then((recent) => this.patch({ recent }))
   }
 
@@ -184,49 +196,65 @@ export class ProjectWindow {
         error: null,
         modeName: null,
         selection: null,
+        selectionError: null,
         minimized: false,
-        canRedo: false,
+        redoTurnIds: [],
       },
       turns: [],
     }
   }
 
+  /** True as soon as a project starts opening, so a second open goes to a new window. */
   get hasProject() {
-    return this.state.project !== null
+    return this.state.project !== null || this.opening !== null
+  }
+
+  /** Root of the project open in (or opening in) this window. */
+  get projectRoot() {
+    return this.state.project?.root ?? this.opening
   }
 
   async openProject(root: string) {
+    const generation = ++this.openGeneration
+    this.opening = root
     this.closeProject()
-    const project = await detectProject(root)
-    if (this.disposed) return
+    const current = () => !this.disposed && generation === this.openGeneration
+    try {
+      const [project, env] = await Promise.all([detectProject(root), getShellEnv()])
+      if (!current()) return
 
-    const env = await getShellEnv()
-    const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env)
-    const chat = new ChatController(root, checkpoints, this.state.agentId)
-    chat.on('meta', (meta) => {
-      this.sendChat(Events.chatMeta, meta)
-      if (!meta.selection) void this.inspector.clearHighlight()
+      const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env)
+      const chat = new ChatController(root, checkpoints, this.state.agentId)
+      chat.on('meta', (meta) => {
+        this.sendChat(Events.chatMeta, meta)
+        if (!meta.selection) void this.inspector.clearHighlight()
+        this.layout()
+      })
+      chat.on('turn', (turn) => this.sendChat(Events.chatTurn, turn))
+      chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
+      chat.on('attention', () => this.focusChat())
+      this.chat = chat
+      this.sendChat(Events.chatReset, chat.snapshot())
+
+      const devServer = new DevServer(root)
+      devServer.on('data', (chunk) => this.send(Events.logs, chunk))
+      devServer.on('change', (state) => this.onDevServer(state))
+      devServer.on('stalled', () => this.patch({ logsOpen: true }))
+      this.devServer = devServer
+
+      this.win.setTitle(project.name)
+      this.win.setRepresentedFilename(root)
+      this.patch({ project, devServer: devServer.state, logsOpen: !project.devCommand })
       this.layout()
-    })
-    chat.on('turn', (turn) => this.sendChat(Events.chatTurn, turn))
-    chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
-    this.chat = chat
-    this.sendChat(Events.chatReset, chat.snapshot())
 
-    const devServer = new DevServer(root)
-    devServer.on('data', (chunk) => this.send(Events.logs, chunk))
-    devServer.on('change', (state) => this.onDevServer(state))
-    this.devServer = devServer
-
-    this.win.setTitle(project.name)
-    this.win.setRepresentedFilename(root)
-    this.patch({ project, devServer: devServer.state, logsOpen: !project.devCommand })
-    this.layout()
-
-    const recent = await addRecent({ root, name: project.name })
-    this.patch({ recent })
-    if (project.devCommand && (await this.confirmDevScript(project))) {
-      if (this.devServer === devServer) void devServer.start(project.devCommand)
+      const recent = await addRecent({ root, name: project.name })
+      if (!current()) return
+      this.patch({ recent })
+      if (project.devCommand && (await this.confirmDevScript(project)) && current()) {
+        void devServer.start(project.devCommand)
+      }
+    } finally {
+      if (generation === this.openGeneration) this.opening = null
     }
   }
 
@@ -254,7 +282,7 @@ export class ProjectWindow {
     this.chat = null
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
-    void this.preview.webContents.loadURL('about:blank')
+    this.preview.webContents.loadURL('about:blank').catch(() => undefined)
     this.patch({
       project: null,
       devServer: idleDevServer(),
@@ -304,9 +332,12 @@ export class ProjectWindow {
 
   navigate(input: string) {
     const base = this.state.devServer.url ?? this.state.preview.url
+    const trimmed = input.trim()
+    // `localhost:5173/x` would otherwise parse as the scheme "localhost:".
+    const withScheme = /^[\w.-]+:\d+(\/|$)/.test(trimmed) ? `http://${trimmed}` : trimmed
     let url: string
     try {
-      url = new URL(input.trim(), base ?? undefined).toString()
+      url = new URL(withScheme, base ?? undefined).toString()
     } catch {
       return
     }
@@ -363,7 +394,11 @@ export class ProjectWindow {
       this.patchPreview({ error: `${description} — ${url}`, visible: false, loading: false })
     })
     wc.on('render-process-gone', (_event, details) => {
-      this.patchPreview({ error: `The preview crashed (${details.reason}).`, visible: false })
+      this.patchPreview({
+        error: `The preview crashed (${details.reason}).`,
+        visible: false,
+        selecting: false,
+      })
     })
     wc.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === 'Escape' && this.state.preview.selecting) {
@@ -374,7 +409,7 @@ export class ProjectWindow {
     wc.setWindowOpenHandler(({ url }) => {
       const origin = this.devOrigin()
       if (origin && originOf(url) === origin) void this.loadPreview(url)
-      else if (/^https?:/.test(url)) void shell.openExternal(url)
+      else if (/^https?:/.test(url)) shell.openExternal(url).catch(() => undefined)
       return { action: 'deny' }
     })
     // Navigating off-site is allowed (OAuth round-trips), but never to app protocols.
@@ -390,7 +425,12 @@ export class ProjectWindow {
   private onNavigated(url: string) {
     if (url === 'about:blank') return
     const history = this.preview.webContents.navigationHistory
-    this.patchPreview({ url, canGoBack: history.canGoBack(), canGoForward: history.canGoForward() })
+    this.patchPreview({
+      url,
+      selectable: isLoopback(url),
+      canGoBack: history.canGoBack(),
+      canGoForward: history.canGoForward(),
+    })
   }
 
   // Selection
@@ -415,17 +455,21 @@ export class ProjectWindow {
 
   private async onPick(nodeId: number) {
     this.patchPreview({ selecting: false })
+    const generation = ++this.pickGeneration
     const root = this.state.project?.root
     const chat = this.chat
-    if (!root || !chat) return
+    if (!root || !chat || !isLoopback(this.preview.webContents.getURL())) return
     try {
-      if (!isLoopback(this.preview.webContents.getURL())) return
       const element = await this.inspector.inspect(nodeId, root, this.devOrigin())
+      if (generation !== this.pickGeneration || chat !== this.chat) return
       chat.setSelection(element)
       await this.inspector.highlight(nodeId)
       this.focusChat()
     } catch (error) {
-      console.error('[grat] element inspection failed', error)
+      if (generation !== this.pickGeneration || chat !== this.chat) return
+      const message = error instanceof Error ? error.message : String(error)
+      chat.setSelectionError(`Couldn't read that element: ${message}`)
+      this.focusChat()
     }
   }
 
@@ -436,7 +480,7 @@ export class ProjectWindow {
   // Chat
 
   sendChatMessage(text: string) {
-    return this.chat?.send(text)
+    return this.chat?.send(text) ?? false
   }
 
   cancelChat() {
@@ -456,7 +500,7 @@ export class ProjectWindow {
   }
 
   newChat() {
-    this.chat?.reset()
+    void this.chat?.reset()
   }
 
   clearSelection() {
@@ -465,7 +509,7 @@ export class ProjectWindow {
 
   setAgent(agentId: AgentId) {
     this.patch({ agentId })
-    this.chat?.setAgent(agentId)
+    void this.chat?.setAgent(agentId)
   }
 
   toggleChat() {
@@ -568,7 +612,9 @@ export class ProjectWindow {
       {
         label: 'Open in browser',
         enabled: !!url,
-        click: () => url && void shell.openExternal(this.state.preview.url ?? url),
+        click: () => {
+          if (url) shell.openExternal(this.state.preview.url ?? url).catch(() => undefined)
+        },
       },
     ]
     Menu.buildFromTemplate(template).popup({ window: this.win })
@@ -657,7 +703,7 @@ export class ProjectWindow {
 /** App UI never navigates; links open in the user's browser instead. */
 function guardAppContents(wc: WebContents) {
   const openExternal = (url: string) => {
-    if (/^https?:/.test(url)) void shell.openExternal(url)
+    if (/^https?:/.test(url)) shell.openExternal(url).catch(() => undefined)
   }
   wc.on('will-navigate', (event, url) => {
     if (url === wc.getURL()) return

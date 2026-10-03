@@ -107,8 +107,8 @@ function BlockView({ block, turnId }: { block: Block; turnId: string }) {
     case 'plan':
       return (
         <ul className="flex flex-col gap-1 rounded-lg border border-line px-2.5 py-2">
-          {block.entries.map((entry) => (
-            <li key={entry.content} className="flex items-start gap-2 text-[12px]">
+          {withKeys(block.entries).map(({ key, entry }) => (
+            <li key={key} className="flex items-start gap-2 text-[12px]">
               {entry.status === 'completed' ? (
                 <Check className="mt-0.5 size-3 shrink-0 text-success" aria-hidden="true" />
               ) : entry.status === 'in_progress' ? (
@@ -138,6 +138,16 @@ function BlockView({ block, turnId }: { block: Block; turnId: string }) {
         </p>
       )
   }
+}
+
+/** Plan entries have no ids; key by content, numbering repeats. */
+function withKeys<T extends { content: string }>(entries: T[]) {
+  const seen = new Map<string, number>()
+  return entries.map((entry) => {
+    const count = seen.get(entry.content) ?? 0
+    seen.set(entry.content, count + 1)
+    return { key: `${entry.content}#${count}`, entry }
+  })
 }
 
 function Thought({ text }: { text: string }) {

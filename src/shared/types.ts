@@ -47,6 +47,8 @@ export interface PreviewState {
   error: string | null
   viewport: Viewport
   selecting: boolean
+  /** Element picking is only allowed on the local app, not off-site pages */
+  selectable: boolean
   visible: boolean
 }
 
@@ -102,8 +104,11 @@ export interface ChatMeta {
   error: string | null
   modeName: string | null
   selection: ElementContext | null
+  /** Why the last element pick failed, shown until the next pick */
+  selectionError: string | null
   minimized: boolean
-  canRedo: boolean
+  /** Turns the pending redo would bring back; empty when there's nothing to redo */
+  redoTurnIds: string[]
 }
 
 export type ToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed'

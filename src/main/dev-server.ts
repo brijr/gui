@@ -16,16 +16,22 @@ const LOCAL_URL =
 const stripAnsi = (text: string) => text.replace(ANSI, '')
 
 function normalizeUrl(raw: string) {
-  const url = new URL(raw.replace(/[).,;]+$/, ''))
-  if (url.hostname === '0.0.0.0' || url.hostname === '[::]' || url.hostname === '[::1]') {
-    url.hostname = 'localhost'
+  try {
+    const url = new URL(raw.replace(/[).,;]+$/, ''))
+    if (url.hostname === '0.0.0.0' || url.hostname === '[::]' || url.hostname === '[::1]') {
+      url.hostname = 'localhost'
+    }
+    return url.toString()
+  } catch {
+    return null
   }
-  return url.toString()
 }
 
 export interface DevServerEvents {
   data: [chunk: string]
   change: [state: DevServerState]
+  /** The printed URL never became reachable; worth showing the logs. */
+  stalled: []
 }
 
 /** Runs the project's dev script in a real PTY and detects when its URL is reachable. */
@@ -33,7 +39,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   state: DevServerState = { status: 'idle', command: null, url: null, exitCode: null, lastLine: '' }
   private proc: IPty | null = null
   private log = ''
-  private scan = ''
+  /** Incomplete last line of output; URLs and escape codes can span PTY reads. */
+  private partial = ''
+  private lastLineTimer: NodeJS.Timeout | null = null
+  private pendingLastLine: string | null = null
   private size = { cols: 120, rows: 30 }
   private run = 0
   private stopping = false
@@ -53,7 +62,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (run !== this.run) return
 
     this.stopping = false
-    this.scan = ''
+    this.partial = ''
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
     this.update({ status: 'starting', command, url: null, exitCode: null })
 
@@ -119,11 +128,16 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   resize(cols: number, rows: number) {
     if (cols < 2 || rows < 2) return
     this.size = { cols, rows }
-    this.proc?.resize(cols, rows)
+    try {
+      this.proc?.resize(cols, rows)
+    } catch {
+      // The process exited and onExit hasn't fired yet.
+    }
   }
 
   dispose() {
     this.run++
+    if (this.lastLineTimer) clearTimeout(this.lastLineTimer)
     if (this.proc) killGroup(this.proc.pid, 'SIGKILL')
     this.proc = null
     this.removeAllListeners()
@@ -131,18 +145,33 @@ export class DevServer extends EventEmitter<DevServerEvents> {
 
   private onData(chunk: string) {
     this.write(chunk)
-    const text = stripAnsi(chunk)
-    const lines = text.split(/\r\n|\n|\r/).map((line) => line.trim())
-    const last = lines.filter(Boolean).at(-1)
-    if (last && last !== this.state.lastLine) this.update({ lastLine: last.slice(0, 300) })
+    const parts = (this.partial + chunk).split(/\r\n|\n|\r/)
+    this.partial = (parts.pop() ?? '').slice(-8000)
+    const lines = parts.map((line) => stripAnsi(line).trim()).filter(Boolean)
+    const last = lines.at(-1)
+    if (last) this.setLastLine(last)
 
     if (this.state.status !== 'starting' || this.state.url) return
-    this.scan = (this.scan + text).slice(-8000)
-    const match = this.scan.match(LOCAL_URL)
-    if (!match) return
-    const url = normalizeUrl(match[0])
-    this.update({ url })
-    void this.waitUntilReachable(url, this.run)
+    for (const line of lines) {
+      const match = line.match(LOCAL_URL)
+      const url = match ? normalizeUrl(match[0]) : null
+      if (!url) continue
+      this.update({ url })
+      void this.waitUntilReachable(url, this.run)
+      return
+    }
+  }
+
+  /** Chatty servers print constantly; coalesce status-line updates. */
+  private setLastLine(line: string) {
+    this.pendingLastLine = line.slice(0, 300)
+    this.lastLineTimer ??= setTimeout(() => {
+      this.lastLineTimer = null
+      if (this.pendingLastLine !== null && this.pendingLastLine !== this.state.lastLine) {
+        this.update({ lastLine: this.pendingLastLine })
+      }
+      this.pendingLastLine = null
+    }, 100)
   }
 
   private async waitUntilReachable(url: string, run: number) {
@@ -160,6 +189,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
         return
       }
       await new Promise((resolve) => setTimeout(resolve, 400))
+    }
+    if (live()) {
+      // Forget the URL so a later one in the output can still be picked up.
+      this.update({ url: null, lastLine: `No response from ${url} yet. Check the logs.` })
+      this.emit('stalled')
     }
   }
 

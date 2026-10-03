@@ -11,6 +11,7 @@ import {
   type ToolStatus,
   type Turn,
   type TurnItem,
+  type TurnStatus,
 } from '../shared/types'
 import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
 import type { Checkpoints } from './checkpoints'
@@ -22,12 +23,16 @@ interface ChatEvents {
   meta: [meta: ChatMeta]
   turn: [turn: Turn]
   reset: [snapshot: ChatSnapshot]
+  /** Something needs the user (e.g. a permission prompt) and the panel should be visible. */
+  attention: []
 }
 
 interface TurnRecord {
   turn: Turn
   before: string | null
   after: string | null
+  cancelRequested: boolean
+  settled: Promise<void>
 }
 
 interface RedoPoint {
@@ -43,8 +48,20 @@ interface RedoPoint {
 const SENSITIVE_PATH =
   /(^|\/)\.|(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|[^/]*\.lock|[^/]*\.config\.[cm]?[jt]s|tsconfig[^/]*\.json|Dockerfile|Makefile|[^/]*\.(sh|bash|zsh))$|(^|\/)(node_modules|scripts|bin)\//i
 
+const START_TIMEOUT_MS = 60_000
+const RESET_SETTLE_MS = 5000
+
 const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
+  let timer: NodeJS.Timeout | undefined
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
+}
 
 /** Owns the conversation with one agent: turns, streaming updates, permissions, and checkpoints. */
 export class ChatController extends EventEmitter<ChatEvents> {
@@ -52,8 +69,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private records: TurnRecord[] = []
   private agent: AgentSession | null = null
   private agentInfo: AgentInfo | null = null
-  private primed = false
+  /** The agent that already received the preamble. */
+  private primedAgent: AgentSession | null = null
+  /** Whether this transcript has had an agent session (to notice when context is lost). */
+  private hadSession = false
   private active: TurnRecord | null = null
+  /**
+   * Turns, restores, redos, and resets are mutually exclusive. The holder is the
+   * operation's own token, so a superseded operation can't release someone else's lock.
+   */
+  private lock: object | null = null
+  /** Bumped by reset; work started in an older epoch must not touch current state. */
+  private epoch = 0
   private permissions = new Map<string, PermissionResolver>()
   private emitTimers = new Map<string, NodeJS.Timeout>()
   private redoPoint: RedoPoint | null = null
@@ -71,8 +98,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
       error: null,
       modeName: null,
       selection: null,
+      selectionError: null,
       minimized: false,
-      canRedo: false,
+      redoTurnIds: [],
     }
   }
 
@@ -80,38 +108,51 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return { meta: this.meta, turns: this.records.map((record) => record.turn) }
   }
 
-  get running() {
-    return this.active !== null
-  }
-
-  setAgent(agentId: AgentId) {
+  async setAgent(agentId: AgentId) {
     if (agentId === this.meta.agentId) return
-    this.reset()
+    await this.reset()
     this.patchMeta({ agentId, agentName: agentName(agentId) })
   }
 
   /** Drops the agent process and transcript; the next message starts a fresh session. */
-  reset() {
-    void this.cancel()
+  async reset() {
+    const token = {}
+    this.lock = token
+    this.epoch++
+    const running = this.active
+    if (running) {
+      // Let the agent stop on its own before killing it, so it isn't cut off mid-write.
+      running.cancelRequested = true
+      this.resolvePendingPermissions(running)
+      await this.agent?.cancel().catch(() => undefined)
+      await Promise.race([running.settled, sleep(RESET_SETTLE_MS)])
+    }
     this.stopAgent()
     this.active = null
     this.records = []
     this.redoPoint = null
-    this.patchMeta({ status: 'idle', error: null, modeName: null, canRedo: false })
+    this.hadSession = false
+    if (this.lock === token) this.lock = null
+    this.patchMeta({ status: 'idle', error: null, modeName: null, redoTurnIds: [] })
     this.emit('reset', this.snapshot())
   }
 
   setSelection(selection: ElementContext | null) {
-    this.patchMeta({ selection })
+    this.patchMeta({ selection, selectionError: null })
+  }
+
+  setSelectionError(message: string) {
+    this.patchMeta({ selectionError: message })
   }
 
   setMinimized(minimized: boolean) {
     this.patchMeta({ minimized })
   }
 
-  async send(text: string) {
+  /** Starts a turn. Returns false (and does nothing) when another operation is in progress. */
+  send(text: string): boolean {
     const prompt = text.trim()
-    if (!prompt || this.active) return
+    if (!prompt || this.lock) return false
 
     const selection = this.meta.selection
     const record: TurnRecord = {
@@ -130,64 +171,30 @@ export class ChatController extends EventEmitter<ChatEvents> {
       },
       before: null,
       after: null,
+      cancelRequested: false,
+      settled: Promise.resolve(),
     }
     this.records.push(record)
     this.active = record
-    this.redoPoint = null
-    this.patchMeta({ selection: null, canRedo: false })
+    this.lock = record
+    this.patchMeta({ selection: null })
     this.flushTurn(record)
-
-    try {
-      const info = await this.ensureAgent()
-      record.before = await this.trySnapshot(record, `before turn ${record.turn.index + 1}`)
-      this.patchMeta({ status: 'working' })
-      const blocks = buildPrompt({
-        text: prompt,
-        selection,
-        preamble: !this.primed,
-        images: info.supportsImages,
-      })
-      this.primed = true
-      const agent = this.agent
-      if (!agent) throw new Error('Agent stopped before the prompt was sent')
-      const response = await agent.prompt(blocks)
-      record.turn.status = response.stopReason === 'cancelled' ? 'cancelled' : 'done'
-      if (response.stopReason === 'refusal' || response.stopReason === 'max_tokens') {
-        this.pushItem(record, {
-          kind: 'notice',
-          id: randomUUID(),
-          tone: 'error',
-          text:
-            response.stopReason === 'refusal'
-              ? 'The agent declined this request.'
-              : 'The agent hit its output limit.',
-        })
-      }
-    } catch (error) {
-      record.turn.status = 'error'
-      record.turn.error = errorMessage(error)
-    } finally {
-      this.resolvePendingPermissions(record)
-      if (record.before) {
-        record.after = await this.trySnapshot(record, `after turn ${record.turn.index + 1}`)
-        if (record.after) {
-          record.turn.changes = await this.checkpoints
-            .diff(record.before, record.after)
-            .catch(() => null)
-        }
-      }
-      record.turn.endedAt = Date.now()
-      if (this.active === record) this.active = null
-      this.flushTurn(record)
-      if (this.meta.status === 'working') this.patchMeta({ status: 'ready' })
-    }
+    record.settled = this.runTurn(record, selection, this.epoch)
+    return true
   }
 
   async cancel() {
     const record = this.active
     if (!record) return
+    record.cancelRequested = true
     this.resolvePendingPermissions(record)
-    await this.agent?.cancel().catch(() => undefined)
+    if (this.meta.status === 'starting') {
+      // Nothing to cancel yet; abandoning the start makes the turn finish as cancelled.
+      this.stopAgent()
+      this.patchMeta({ status: 'idle' })
+    } else {
+      await this.agent?.cancel().catch(() => undefined)
+    }
   }
 
   respondPermission(turnId: string, itemId: string, optionId: string | null) {
@@ -204,42 +211,59 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
   }
 
-  /** Restores every file changed since this turn began, so this turn and later ones are undone. */
+  /**
+   * Undoes this turn and every later one by restoring the files those turns changed
+   * to how they were before this turn began. Files only the user touched are left alone.
+   */
   async restoreTurn(turnId: string) {
-    if (this.active) throw new Error('Wait for the agent to finish before restoring')
+    if (this.lock) throw new Error('Wait for the agent to finish first.')
     const record = this.records.find((r) => r.turn.id === turnId)
-    if (!record?.before) throw new Error('No checkpoint for this turn')
-
-    const current = await this.checkpoints.snapshot(
-      `before restoring turn ${record.turn.index + 1}`,
-    )
-    const changes = await this.checkpoints.diff(record.before, current)
-    const paths = changes.map((change) => change.path)
-    await this.checkpoints.restore(record.before, paths)
-
-    const undone = this.records.filter((r) => r.turn.index >= record.turn.index && !r.turn.reverted)
-    for (const r of undone) {
-      r.turn.reverted = true
-      this.flushTurn(r)
+    if (!record?.before) throw new Error('This turn has no checkpoint to restore.')
+    const token = {}
+    this.lock = token
+    try {
+      const undone = this.records.filter(
+        (r) => r.turn.index >= record.turn.index && !r.turn.reverted,
+      )
+      const current = await this.checkpoints.snapshot(
+        `before restoring turn ${record.turn.index + 1}`,
+      )
+      const paths = await this.changedPaths(undone, record.before, current)
+      // Record the way back first, so a restore that fails halfway can still be redone.
+      this.redoPoint = { sha: current, paths, turnIds: undone.map((r) => r.turn.id) }
+      for (const r of undone) {
+        r.turn.reverted = true
+        this.flushTurn(r)
+      }
+      this.patchMeta({ redoTurnIds: this.redoPoint.turnIds })
+      await this.checkpoints.restore(record.before, paths)
+    } finally {
+      if (this.lock === token) this.lock = null
     }
-    this.redoPoint = { sha: current, paths, turnIds: undone.map((r) => r.turn.id) }
-    this.patchMeta({ canRedo: true })
   }
 
   async redo() {
     const point = this.redoPoint
-    if (!point || this.active) return
-    await this.checkpoints.restore(point.sha, point.paths)
-    for (const r of this.records) {
-      if (!point.turnIds.includes(r.turn.id)) continue
-      r.turn.reverted = false
-      this.flushTurn(r)
+    if (!point) return
+    if (this.lock) throw new Error('Wait for the agent to finish first.')
+    const token = {}
+    this.lock = token
+    try {
+      await this.checkpoints.restore(point.sha, point.paths)
+      for (const r of this.records) {
+        if (!point.turnIds.includes(r.turn.id)) continue
+        r.turn.reverted = false
+        this.flushTurn(r)
+      }
+      this.redoPoint = null
+      this.patchMeta({ redoTurnIds: [] })
+    } finally {
+      if (this.lock === token) this.lock = null
     }
-    this.redoPoint = null
-    this.patchMeta({ canRedo: false })
   }
 
   dispose() {
+    this.epoch++
     for (const timer of this.emitTimers.values()) clearTimeout(timer)
     this.emitTimers.clear()
     for (const resolve of this.permissions.values()) resolve(null)
@@ -248,9 +272,74 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.removeAllListeners()
   }
 
-  private async ensureAgent(): Promise<AgentInfo> {
-    if (this.agent && this.agentInfo) return this.agentInfo
+  private async runTurn(record: TurnRecord, selection: ElementContext | null, epoch: number) {
+    const live = () => this.epoch === epoch
+    const stopped = () => !live() || record.cancelRequested
+    let status: TurnStatus = 'done'
+    try {
+      const { agent, info } = await this.ensureAgent(record)
+      if (stopped()) {
+        status = 'cancelled'
+        return
+      }
+      record.before = await this.trySnapshot(record, `before turn ${record.turn.index + 1}`)
+      if (stopped()) {
+        status = 'cancelled'
+        return
+      }
+      // New work makes the previous undo unrecoverable by redo.
+      this.redoPoint = null
+      this.patchMeta({ status: 'working', redoTurnIds: [] })
+      const blocks = buildPrompt({
+        text: record.turn.prompt,
+        selection,
+        preamble: this.primedAgent !== agent,
+        images: info.supportsImages,
+      })
+      this.primedAgent = agent
+      const response = await agent.prompt(blocks)
+      status = response.stopReason === 'cancelled' ? 'cancelled' : 'done'
+      if (response.stopReason === 'refusal' || response.stopReason === 'max_tokens') {
+        this.pushItem(record, {
+          kind: 'notice',
+          id: randomUUID(),
+          tone: 'error',
+          text:
+            response.stopReason === 'refusal'
+              ? 'The agent declined this request.'
+              : 'The agent hit its output limit.',
+        })
+      }
+    } catch (error) {
+      if (stopped()) status = 'cancelled'
+      else {
+        status = 'error'
+        record.turn.error = errorMessage(error)
+      }
+    } finally {
+      this.resolvePendingPermissions(record)
+      if (record.before) {
+        record.after = await this.trySnapshot(record, `after turn ${record.turn.index + 1}`)
+        if (record.after) {
+          record.turn.changes = await this.checkpoints
+            .diff(record.before, record.after)
+            .catch(() => null)
+        }
+      }
+      // Only now is the turn over; reporting it earlier would let a send race the snapshot.
+      record.turn.status = status
+      record.turn.endedAt = Date.now()
+      if (this.active === record) this.active = null
+      if (this.lock === record) this.lock = null
+      this.flushTurn(record)
+      if (live() && this.meta.status === 'working') this.patchMeta({ status: 'ready' })
+    }
+  }
+
+  private async ensureAgent(record: TurnRecord): Promise<{ agent: AgentSession; info: AgentInfo }> {
+    if (this.agent && this.agentInfo) return { agent: this.agent, info: this.agentInfo }
     this.stopAgent()
+    const name = this.meta.agentName
     this.patchMeta({ status: 'starting', error: null })
     const agent = new AgentSession(this.meta.agentId, this.root, {
       onUpdate: (update) => this.onUpdate(update),
@@ -259,14 +348,31 @@ export class ChatController extends EventEmitter<ChatEvents> {
     })
     this.agent = agent
     try {
-      const info = await agent.start()
-      if (this.agent !== agent) throw new Error('Agent was replaced while starting')
+      const info = await withTimeout(
+        agent.start(),
+        START_TIMEOUT_MS,
+        `${name} didn't start within a minute. Check that it's installed and signed in.`,
+      )
+      if (this.agent !== agent) throw new Error(`${name} was stopped while starting.`)
       this.agentInfo = info
       this.patchMeta({ status: 'ready', modeName: info.modeName })
-      return info
+      if (this.hadSession) {
+        this.pushItem(record, {
+          kind: 'notice',
+          id: randomUUID(),
+          tone: 'info',
+          text: `Started a new ${name} session. It doesn't remember earlier turns.`,
+        })
+      }
+      this.hadSession = true
+      return { agent, info }
     } catch (error) {
-      if (this.agent === agent) this.stopAgent()
-      this.patchMeta({ status: 'error', error: errorMessage(error) })
+      if (this.agent === agent) {
+        this.stopAgent()
+        this.patchMeta({ status: 'error', error: errorMessage(error) })
+      } else {
+        agent.dispose()
+      }
       throw error
     }
   }
@@ -275,14 +381,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.agent?.dispose()
     this.agent = null
     this.agentInfo = null
-    this.primed = false
+    this.primedAgent = null
   }
 
   private onAgentExit(agent: AgentSession, error: string | null) {
     if (this.agent !== agent) return
-    this.agent = null
-    this.agentInfo = null
-    this.primed = false
+    this.stopAgent()
     this.patchMeta({ status: 'error', error })
   }
 
@@ -349,7 +453,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   private onPermission(request: RequestPermissionRequest, resolve: PermissionResolver) {
     const record = this.active
-    if (!record) {
+    if (!record || record.cancelRequested) {
       resolve(null)
       return
     }
@@ -365,10 +469,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.pushItem(record, {
       kind: 'permission',
       id,
-      title: request.toolCall.title ?? 'The agent wants to run a tool',
+      title: request.toolCall.title
+        ? this.relativize(request.toolCall.title)
+        : 'The agent wants to run a tool',
       options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resolved: null,
     })
+    this.emit('attention')
   }
 
   /** Edits to ordinary source files inside the project are what Grat is for; approve those. */
@@ -387,6 +494,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
         this.respondPermission(record.turn.id, item.id, null)
       }
     }
+  }
+
+  /** Paths the given turns changed; falls back to everything since `before` if a diff is missing. */
+  private async changedPaths(turns: TurnRecord[], before: string, current: string) {
+    if (turns.every((r) => r.turn.changes !== null)) {
+      return [...new Set(turns.flatMap((r) => r.turn.changes?.map((c) => c.path) ?? []))]
+    }
+    return (await this.checkpoints.diff(before, current)).map((change) => change.path)
   }
 
   private updateMode(modeId: string) {

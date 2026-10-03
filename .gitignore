@@ -5,3 +5,6 @@ release/
 .DS_Store
 *.log
 .env*
+
+# Local agent tooling notes
+.claude/agent-memory/

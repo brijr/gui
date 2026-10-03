@@ -143,8 +143,6 @@ function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
 
   if (turns.length === 0) return <EmptyTranscript />
 
-  const firstReverted = turns.find((turn) => turn.reverted)?.id
-
   return (
     <div
       ref={scroller}
@@ -156,11 +154,7 @@ function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
     >
       <div className="flex flex-col gap-5">
         {turns.map((turn) => (
-          <TurnView
-            key={turn.id}
-            turn={turn}
-            showRedo={meta.canRedo && turn.id === firstReverted}
-          />
+          <TurnView key={turn.id} turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
         ))}
       </div>
     </div>

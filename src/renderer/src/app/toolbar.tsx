@@ -50,7 +50,7 @@ export function Toolbar({ state }: { state: WindowState }) {
         </IconButton>
       </div>
 
-      <AddressBar key={preview.url ?? ''} url={preview.url} disabled={!project} />
+      <AddressBar url={preview.url} disabled={!project} />
 
       <fieldset
         aria-label="Viewport"
@@ -77,7 +77,7 @@ export function Toolbar({ state }: { state: WindowState }) {
       <button
         type="button"
         aria-pressed={preview.selecting}
-        disabled={!preview.visible}
+        disabled={!preview.visible || !preview.selectable}
         onClick={() => grat.toggleSelect()}
         title="Select element (⇧⌘C)"
         className={cn(
@@ -146,11 +146,15 @@ function DevServerPill({ state }: { state: WindowState }) {
 }
 
 function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }) {
-  const [value, setValue] = useState(url ?? '')
+  // While focused, the field shows the user's draft; otherwise it follows navigation.
+  const [draft, setDraft] = useState<string | null>(null)
+  const value = draft ?? url ?? ''
 
-  const submit = (event: FormEvent) => {
+  const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (value.trim()) grat.navigate(value)
+    setDraft(null)
+    event.currentTarget.querySelector('input')?.blur()
   }
 
   return (
@@ -160,8 +164,15 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
         value={value}
         disabled={disabled}
         spellCheck={false}
-        onChange={(event) => setValue(event.target.value)}
-        onFocus={(event) => event.target.select()}
+        onChange={(event) => setDraft(event.target.value)}
+        onFocus={(event) => {
+          setDraft(url ?? '')
+          event.target.select()
+        }}
+        onBlur={() => setDraft(null)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') event.currentTarget.blur()
+        }}
         placeholder={disabled ? '' : 'http://localhost:3000'}
         className="h-7 w-full rounded-md border border-transparent bg-hover px-2.5 font-mono text-[11.5px] text-fg outline-none placeholder:text-subtle focus:border-accent focus:bg-raised disabled:opacity-40"
       />

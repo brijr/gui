@@ -12,25 +12,28 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
 
   useEffect(() => grat.onChatFocus(() => input.current?.focus()), [])
 
-  const submit = (event?: FormEvent) => {
+  const submit = async (event?: FormEvent) => {
     event?.preventDefault()
     if (!text.trim() || running) return
-    void grat.send(text)
-    setText('')
+    // Keep the draft unless main actually started the turn.
+    if (await grat.send(text)) setText('')
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
-      submit()
+      void submit()
     } else if (event.key === 'Escape' && meta.selection) {
       grat.clearSelection()
     }
   }
 
   return (
-    <form onSubmit={submit} className="shrink-0 border-t border-line p-2">
+    <form onSubmit={(event) => void submit(event)} className="shrink-0 border-t border-line p-2">
       <AgentStatus meta={meta} />
+      {meta.selectionError && (
+        <p className="mb-2 select-text px-1 text-[12px] text-danger">{meta.selectionError}</p>
+      )}
       {meta.selection && (
         <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-1.5">
           {meta.selection.screenshot ? (

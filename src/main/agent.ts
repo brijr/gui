@@ -56,6 +56,8 @@ export class AgentSession {
   private sessionId: string | null = null
   private stderr = ''
   private disposed = false
+  /** Rejects with the agent's own error output if the process dies. */
+  private exited: Promise<never> = new Promise(() => {})
 
   constructor(
     readonly agentId: AgentId,
@@ -66,26 +68,30 @@ export class AgentSession {
   async start(): Promise<AgentInfo> {
     const spec = spawnSpec(this.agentId)
     const shellEnv = await getShellEnv()
+    if (this.disposed) throw new Error('Agent was stopped')
+    // Own process group, so dispose() can stop the agent and everything it started.
     const child = spawn(spec.command, spec.args, {
       cwd: this.cwd,
       env: { ...shellEnv, ...spec.env },
       stdio: ['pipe', 'pipe', 'pipe'],
+      detached: true,
     })
     this.child = child
     child.stderr?.setEncoding('utf8')
     child.stderr?.on('data', (chunk: string) => {
       this.stderr = (this.stderr + chunk).slice(-4000)
     })
-    child.once('exit', (code, signal) => {
-      if (this.disposed) return
-      const detail = this.stderr.trim().split('\n').slice(-3).join('\n')
-      this.handlers.onExit(`Agent exited (${signal ?? code})${detail ? `: ${detail}` : ''}`)
+    this.exited = new Promise<never>((_resolve, reject) => {
+      child.once('exit', (code, signal) => reject(new Error(this.exitMessage(code, signal))))
     })
-    const spawned = new Promise<void>((resolve, reject) => {
+    this.exited.catch(() => undefined)
+    child.once('exit', (code, signal) => {
+      if (!this.disposed) this.handlers.onExit(this.exitMessage(code, signal))
+    })
+    await new Promise<void>((resolve, reject) => {
       child.once('spawn', resolve)
       child.once('error', reject)
     })
-    await spawned
 
     if (!child.stdin || !child.stdout) throw new Error('Agent process has no stdio')
     const stream = acp.ndJsonStream(
@@ -110,17 +116,19 @@ export class AgentSession {
     this.connection = app.connect(stream)
     const agent = this.connection.agent
 
-    const init = await agent.request(acp.methods.agent.initialize, {
-      protocolVersion: acp.PROTOCOL_VERSION,
-      clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-      clientInfo: { name: 'grat', version: '0.1.0' },
-    })
+    const init = await this.untilExit(
+      agent.request(acp.methods.agent.initialize, {
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientInfo: { name: 'grat', version: '0.1.0' },
+      }),
+    )
 
-    const session = await agent
-      .request(acp.methods.agent.session.new, { cwd: this.cwd, mcpServers: [] })
-      .catch((error: unknown) => {
-        throw new Error(describeStartError(error, this.agentId))
-      })
+    const session = await this.untilExit(
+      agent.request(acp.methods.agent.session.new, { cwd: this.cwd, mcpServers: [] }),
+    ).catch((error: unknown) => {
+      throw new Error(describeStartError(error, this.agentId))
+    })
     this.sessionId = session.sessionId
 
     // Keep the mode the user's own agent config chose; Grat's permission policy
@@ -139,7 +147,9 @@ export class AgentSession {
   async prompt(blocks: acp.ContentBlock[]): Promise<acp.PromptResponse> {
     const { connection, sessionId } = this
     if (!connection || !sessionId) throw new Error('Agent is not running')
-    return connection.agent.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks })
+    return this.untilExit(
+      connection.agent.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks }),
+    )
   }
 
   async cancel() {
@@ -149,11 +159,39 @@ export class AgentSession {
   }
 
   dispose() {
+    if (this.disposed) return
     this.disposed = true
     this.connection?.close()
     this.connection = null
-    if (this.child && this.child.exitCode === null) this.child.kill('SIGTERM')
+    const child = this.child
     this.child = null
+    if (!child?.pid || child.exitCode !== null) return
+    const pid = child.pid
+    killGroup(pid, 'SIGTERM')
+    setTimeout(() => {
+      if (child.exitCode === null && child.signalCode === null) killGroup(pid, 'SIGKILL')
+    }, 2000).unref()
+  }
+
+  private untilExit<T>(promise: Promise<T>) {
+    return Promise.race([promise, this.exited])
+  }
+
+  private exitMessage(code: number | null, signal: NodeJS.Signals | null) {
+    const detail = this.stderr.trim().split('\n').slice(-3).join('\n')
+    return `Agent exited (${signal ?? code})${detail ? `: ${detail}` : ''}`
+  }
+}
+
+function killGroup(pid: number, signal: NodeJS.Signals) {
+  try {
+    process.kill(-pid, signal)
+  } catch {
+    try {
+      process.kill(pid, signal)
+    } catch {
+      // already gone
+    }
   }
 }
 

@@ -84,7 +84,8 @@ export interface GratApi {
   onChatTurn(cb: (turn: Turn) => void): Unsubscribe
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
-  send(text: string): Promise<void>
+  /** Resolves false when the chat is busy and the message wasn't accepted */
+  send(text: string): Promise<boolean>
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
   restoreTurn(turnId: string): Promise<void>

@@ -1,4 +1,4 @@
-import { stat } from 'node:fs/promises'
+import { realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import {
   app,
@@ -28,19 +28,44 @@ async function isDirectory(path: string) {
   }
 }
 
+/** Real paths currently being opened, so a double-click can't open one project twice. */
+const opening = new Set<string>()
+
+const canonical = (path: string) => realpath(path).catch(() => path)
+
 /** Opens in the given window if it's empty, otherwise in a new window. */
 async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   if (!(await isDirectory(root))) {
     dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
-  const existing = allWindows().find((w) => w.getState().project?.root === root)
-  if (existing) {
-    existing.win.focus()
+  const real = await canonical(root)
+  const roots = await Promise.all(
+    allWindows().map(async (w) => ({ w, root: w.projectRoot && (await canonical(w.projectRoot)) })),
+  )
+  // Checked and claimed with no await in between.
+  const existing = roots.find((entry) => entry.root === real)?.w
+  if (existing || opening.has(real)) {
+    existing?.win.focus()
     return
   }
-  const win = target && !target.hasProject ? target : createWindow()
-  await win.openProject(root)
+  opening.add(real)
+  try {
+    const empty = target && !target.hasProject ? target : allWindows().find((w) => !w.hasProject)
+    await (empty ?? createWindow()).openProject(real)
+  } finally {
+    opening.delete(real)
+  }
+}
+
+/** For user-initiated opens: surface failures instead of dropping them. */
+function openSafely(target: ProjectWindow | undefined, root: string) {
+  openProjectIn(target, root).catch((error: unknown) => {
+    dialog.showErrorBox(
+      "Couldn't open project",
+      error instanceof Error ? error.message : String(error),
+    )
+  })
 }
 
 async function pickProject(target: ProjectWindow | undefined) {
@@ -54,7 +79,7 @@ async function pickProject(target: ProjectWindow | undefined) {
     ? await dialog.showOpenDialog(parent, options)
     : await dialog.showOpenDialog(options)
   const root = result.filePaths[0]
-  if (!result.canceled && root) await openProjectIn(target, root)
+  if (!result.canceled && root) openSafely(target, root)
 }
 
 function createWindow() {
@@ -84,10 +109,10 @@ function registerIpc() {
     if (!isString(root)) return
     // Only paths the user opened before; anything else goes through the folder picker.
     if (!(await loadRecent()).some((project) => project.root === root)) return
-    return openProjectIn(windowFor(event), root)
+    openSafely(windowFor(event), root)
   })
   ipcMain.handle(Invoke.send, (event, text: unknown) => {
-    if (isString(text)) return windowFor(event)?.sendChatMessage(text)
+    return isString(text) ? (windowFor(event)?.sendChatMessage(text) ?? false) : false
   })
   ipcMain.handle(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (isString(turnId)) return windowFor(event)?.restoreTurn(turnId)
@@ -109,7 +134,7 @@ function registerIpc() {
   on(Send.showProjectMenu, (win) =>
     win.showProjectMenu(
       () => void pickProject(win),
-      (root) => void openProjectIn(win, root),
+      (root) => openSafely(win, root),
     ),
   )
   on(Send.setAgent, (win, agentId) => {
@@ -280,20 +305,20 @@ function buildMenu() {
 
 app.on('open-file', (event, path) => {
   event.preventDefault()
-  void app.whenReady().then(() => openProjectIn(focusedWindow(), path))
+  // At cold launch no window is focused yet; reuse the empty one created on ready.
+  void app.whenReady().then(() => openSafely(focusedWindow(), path))
 })
 
-app.whenReady().then(async () => {
+app.whenReady().then(() => {
   lockDownSessions()
   registerIpc()
   buildMenu()
-  const initial = process.env.GRAT_OPEN
-  const win = createWindow()
-  if (initial) await openProjectIn(win, resolve(initial))
-
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+  const win = createWindow()
+  const initial = process.env.GRAT_OPEN
+  if (initial) openSafely(win, resolve(initial))
 })
 
 app.on('before-quit', () => {

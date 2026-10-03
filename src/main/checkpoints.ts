@@ -158,6 +158,10 @@ export class Checkpoints {
     const repo: Repo = { root, gitDir: join(this.storeDir, `${id}.git`) }
 
     await mkdir(this.storeDir, { recursive: true })
+    // One window owns a project's shadow repo and serializes its git calls, so a lock
+    // left at setup is from a git process that was killed mid-commit; it would block
+    // every later snapshot.
+    await rm(join(repo.gitDir, 'index.lock'), { force: true })
     await this.git(repo, ['init', '--quiet'], false)
     const config: Array<[string, string]> = [
       ['core.quotepath', 'false'],
