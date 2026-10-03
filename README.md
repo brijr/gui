@@ -22,6 +22,7 @@ Open a project folder (⌘O). Grat detects the package manager and `dev` script,
 | --- | --- |
 | Select element | ⇧⌘C (Esc cancels) |
 | Toggle chat | ⌘J |
+| Dock chat beside the preview | ⇧⌘D |
 | Toggle dev server logs | ⇧⌘L |
 | Desktop / tablet / mobile viewport | ⌘1 / ⌘2 / ⌘3 |
 | Reload preview | ⌘R |
@@ -44,13 +45,22 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - **Selection** (`src/main/inspector.ts`) — Chrome DevTools Protocol `Overlay.setInspectMode`, the same picker DevTools uses, so nothing is injected into your DOM. HTML, attributes, computed styles, and the box come from protocol commands that page scripts can't spoof; only the React owner chain is read from the page, and it's validated. Element data is sent to the agent marked as untrusted.
 - **Source mapping** (`src/main/source-resolver.ts`) — React 19 records where each JSX element was created (`_debugStack`); Grat resolves that frame through the dev server's source maps to `file:line`. Exact for Vite and Next.js (Turbopack); approximate for Next.js (webpack). Server-rendered pages wait for hydration before reading fibers.
 - **Agents** (`src/main/agent.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com) via `@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp`, run on Electron's bundled Node. Each session keeps the permission mode your own agent config picks, and your CLAUDE.md, hooks, and Codex config apply as usual. When the agent asks, Grat auto-approves edits to ordinary source files in the project and asks you in the chat about everything else — config files, dotfiles, lockfiles, scripts, `package.json`, and commands.
+- **Preview tools for the agent** (`src/main/mcp-server.ts`, `preview-tools.ts`) — each window serves an MCP server on loopback (random port, bearer token) that Grat passes to every agent session. Agents can `preview_screenshot` (an element, the full page, or at a viewport width like 390), `preview_inspect` (computed styles, box, and source file for a selector), `preview_console`, `preview_navigate`, `preview_reload`, and `dev_server_logs` — so they check their own visual changes instead of guessing.
+- **Errors** (`src/main/problems.ts`) — console errors since the last navigation and dev-server build errors since the last successful rebuild show above the composer with a **Fix** button, and ride along with every prompt as untrusted context.
+- **History** (`src/main/history.ts`) — each project's transcript, checkpoints, and agent session are saved, so after a restart the chat is still there, old turns can still be undone, and the agent resumes its session (ACP `session/load`) with its memory.
 - **Checkpoints** (`src/main/checkpoints.ts`) — before and after every turn the working tree is snapshotted into a shadow git repo under the app's data folder (your `.git` is never touched). **Undo** restores the files that turn (and any later ones) changed to how they were before it; files you edited yourself are left alone. **Redo** reverses the undo.
 
 ## Scripts
 
 - `bun run dev` — app with hot reload
 - `bun run build` — production bundle in `out/`
+- `bun run dist` — packaged macOS app in `release/` (see below)
+- `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GRAT_E2E_AGENT=claude|codex`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
+
+## Packaging
+
+`CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist` builds an unsigned arm64 `.app`, `.dmg`, and `.zip` (~850 MB unpacked: the bundled Claude Code and Codex runtimes are most of it). For a signed, notarized build, put a Developer ID Application certificate in your keychain (or set `CSC_LINK` + `CSC_KEY_PASSWORD`) and one set of notarization credentials (`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or an App Store Connect API key) before `bun run dist`. `electron-builder.yml` explains each fuse and entitlement. Unsigned builds get a new ad-hoc signature each time, so macOS asks for keychain access on first launch.
 
 ## Security model
 
@@ -58,4 +68,4 @@ The preview runs your app plus whatever third-party scripts it loads, so it is t
 
 ## Not yet
 
-Packaging/signing (with Electron fuses), chat history persistence, multi-select, agent self-verification tools (MCP), console errors as context, and parallel variations are planned for later phases. Source-map resolution currently runs on the main thread; very large Next.js maps can briefly stall the UI on pick — moving it to a worker is planned.
+Multi-select and region annotation, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, a model picker, auto-update, and parallel variations. Source-map resolution runs on the main thread; very large Next.js maps can briefly stall the UI on pick — moving it to a worker is planned.
