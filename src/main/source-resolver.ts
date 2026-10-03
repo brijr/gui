@@ -37,6 +37,7 @@ interface MappedPosition {
 }
 
 const FETCH_TIMEOUT_MS = 3000
+const MAX_FETCH_BYTES = 32 * 1024 * 1024
 const CACHE_TTL_MS = 5000
 const CACHE_MAX = 20
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
@@ -140,9 +141,14 @@ export function normalizeSourcePath(source: string, projectRoot: string): string
   return cleanRelative(s)
 }
 
+/**
+ * `origin` restricts which server we fetch scripts and maps from. Stacks come from
+ * the previewed page, so without it a page could make us probe any loopback port.
+ */
 export async function resolveFrame(
   frame: StackFrame,
   projectRoot: string,
+  origin?: string,
 ): Promise<SourceLocation | null> {
   try {
     const { url, line, column } = frame
@@ -155,7 +161,8 @@ export async function resolveFrame(
     if (/^https?:/i.test(url)) {
       const parsed = new URL(url)
       if (!LOCAL_HOSTS.has(parsed.hostname)) return null
-      const mapped = await mapPosition(parsed.href, line, column)
+      const mapped =
+        !origin || parsed.origin === origin ? await mapPosition(parsed.href, line, column) : null
       if (mapped) {
         const rel = normalizeSourcePath(mapped.source, projectRoot)
         const loc = await locate(rel, mapped.line, mapped.column, false, projectRoot)
@@ -177,10 +184,11 @@ export async function resolveFrame(
 export async function resolveStack(
   stack: string,
   projectRoot: string,
+  origin?: string,
 ): Promise<SourceLocation | null> {
   for (const frame of parseStack(stack)) {
     if (isFrameworkFrame(frame)) continue
-    const loc = await resolveFrame(frame, projectRoot)
+    const loc = await resolveFrame(frame, projectRoot, origin)
     if (loc) return loc
   }
   return null
@@ -300,14 +308,32 @@ async function fetchText(url: string): Promise<string | null> {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       redirect: 'error',
     })
-    if (!res.ok) {
+    if (!res.ok || !res.body) {
       await res.body?.cancel()
       return null
     }
-    return await res.text()
+    return await readCapped(res.body)
   } catch {
     return null
   }
+}
+
+/** Reads a response body as text, giving up past MAX_FETCH_BYTES. */
+async function readCapped(body: ReadableStream<Uint8Array>): Promise<string | null> {
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > MAX_FETCH_BYTES) {
+      await reader.cancel()
+      return null
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString('utf8')
 }
 
 function resolveUrl(ref: string, base: string): string {
@@ -355,6 +381,8 @@ async function fetchMap(scriptUrl: string): Promise<LoadedMap | null> {
     text = decodeDataUrl(ref)
   } else {
     baseUrl = new URL(ref, scriptUrl).href
+    // Maps must come from the same server as the script that referenced them.
+    if (new URL(baseUrl).origin !== new URL(scriptUrl).origin) return null
     text = await fetchText(baseUrl)
   }
   if (text === null) return null

@@ -7,6 +7,13 @@ const components: Components = {
       {children}
     </a>
   ),
+  // Never auto-load remote images from agent output: that's an exfiltration channel.
+  img: ({ src, alt }) =>
+    typeof src === 'string' && src ? (
+      <a href={src} target="_blank" rel="noreferrer" className="text-accent underline">
+        {alt || src}
+      </a>
+    ) : null,
 }
 
 export function Markdown({ text }: { text: string }) {

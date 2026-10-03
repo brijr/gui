@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { stat } from 'node:fs/promises'
+import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import type { ElementContext, Rect, SourceLocation } from '../shared/types'
 import { normalizeSourcePath, resolveStack } from './source-resolver'
@@ -14,29 +16,59 @@ const HIGHLIGHT = {
   borderColor: { r: 59, g: 130, b: 246, a: 0.95 },
 }
 
+const STYLE_KEYS = new Set([
+  'display',
+  'position',
+  'width',
+  'height',
+  'margin',
+  'padding',
+  'gap',
+  'flex-direction',
+  'align-items',
+  'justify-content',
+  'grid-template-columns',
+  'color',
+  'background-color',
+  'background-image',
+  'font-family',
+  'font-size',
+  'font-weight',
+  'line-height',
+  'letter-spacing',
+  'text-align',
+  'text-transform',
+  'border',
+  'border-radius',
+  'box-shadow',
+  'opacity',
+  'overflow',
+  'z-index',
+])
+const DEFAULT_STYLE_VALUES = new Set([
+  '',
+  'none',
+  'normal',
+  'auto',
+  '0px',
+  'rgba(0, 0, 0, 0)',
+  'static',
+  'visible',
+])
+const MAX_HTML = 4000
+const REACT_TIMEOUT_MS = 4000
+
 /**
- * Runs in the page's main world with `this` bound to the picked element. Plain JS
- * string so bundling can't inject helpers that don't exist in the page.
+ * The only part of extraction that runs as page JavaScript: React's fiber data is
+ * reachable nowhere else. Everything it returns is untrusted and validated in main.
+ * Plain JS string so bundling can't inject helpers that don't exist in the page.
  */
-const EXTRACT = `async function () {
+const REACT_INFO = `async function () {
   const el = this
   const fiberKey = () => Object.keys(el).find((k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'))
   // Server-rendered React pages are clickable before hydration attaches fibers.
   const ssr = self.__next_f || self.__NEXT_DATA__ || self.__reactRouterContext || self.__remixContext
   for (let i = 0; ssr && !fiberKey() && i < 30; i++) await new Promise((r) => setTimeout(r, 100))
-  const cs = getComputedStyle(el)
-  const keys = ['display','position','width','height','margin','padding','gap','flex-direction',
-    'align-items','justify-content','grid-template-columns','color','background-color',
-    'background-image','font-family','font-size','font-weight','line-height','letter-spacing',
-    'text-align','text-transform','border','border-radius','box-shadow','opacity','overflow','z-index']
-  const skip = new Set(['', 'none', 'normal', 'auto', '0px', 'rgba(0, 0, 0, 0)', 'static', 'visible'])
-  const styles = {}
-  for (const key of keys) {
-    const value = cs.getPropertyValue(key)
-    if (!skip.has(value)) styles[key] = value.length > 200 ? value.slice(0, 200) + '…' : value
-  }
-  const attributes = {}
-  for (const attr of el.attributes) attributes[attr.name] = attr.value.slice(0, 300)
 
   const path = []
   for (let node = el; node && node.nodeType === 1 && path.length < 6; node = node.parentElement) {
@@ -57,7 +89,7 @@ const EXTRACT = `async function () {
   let debugSource = null
   if (key) {
     const fiber = el[key]
-    for (let f = fiber; f && !debugStack && !debugSource; f = f._debugOwner || null) {
+    for (let f = fiber, steps = 0; f && !debugStack && !debugSource && steps < 50; f = f._debugOwner || null, steps++) {
       if (f._debugStack && typeof f._debugStack.stack === 'string') debugStack = f._debugStack.stack
       if (f._debugSource) debugSource = { fileName: f._debugSource.fileName, lineNumber: f._debugSource.lineNumber, columnNumber: f._debugSource.columnNumber }
     }
@@ -77,26 +109,12 @@ const EXTRACT = `async function () {
       if (name && !internal.test(name) && componentStack[componentStack.length - 1] !== name) componentStack.push(name)
     }
   }
-
-  const rect = el.getBoundingClientRect()
-  const html = el.outerHTML
-  return {
-    url: location.href,
-    viewport: { width: innerWidth, height: innerHeight },
-    tag: el.localName,
-    selector: path.join(' > '),
-    text: (el.innerText || el.textContent || '').trim().replace(/\\s+/g, ' ').slice(0, 300),
-    attributes,
-    outerHTML: html.length > 4000 ? html.slice(0, 4000) + '…' : html,
-    rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-    styles,
-    componentStack,
-    debugStack,
-    debugSource,
-  }
+  return { selector: path.join(' > '), componentStack, debugStack, debugSource }
 }`
 
-interface RawElement extends Omit<ElementContext, 'id' | 'source' | 'screenshot'> {
+interface ReactInfo {
+  selector: string
+  componentStack: string[]
   debugStack: string | null
   debugSource: { fileName: string; lineNumber: number; columnNumber?: number } | null
 }
@@ -141,39 +159,123 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     await this.cmd('Overlay.hideHighlight').catch(() => undefined)
   }
 
-  async inspect(backendNodeId: number, projectRoot: string): Promise<ElementContext> {
+  /**
+   * DOM facts come from protocol commands, which page scripts can't intercept,
+   * so the picked element's HTML and styles reflect the real node.
+   */
+  async inspect(
+    backendNodeId: number,
+    projectRoot: string,
+    devOrigin: string | null,
+  ): Promise<ElementContext> {
     await this.ready()
-    const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
-      backendNodeId,
-    })
-    let raw: RawElement
-    try {
-      const { result, exceptionDetails } = await this.cmd<{
-        result: { value: RawElement }
-        exceptionDetails?: { text: string }
-      }>('Runtime.callFunctionOn', {
-        objectId: object.objectId,
-        functionDeclaration: EXTRACT,
-        returnByValue: true,
-        awaitPromise: true,
-      })
-      if (exceptionDetails) throw new Error(`Element extraction failed: ${exceptionDetails.text}`)
-      raw = result.value
-    } finally {
-      void this.cmd('Runtime.releaseObject', { objectId: object.objectId }).catch(() => undefined)
-    }
-
-    const { debugStack, debugSource, ...element } = raw
-    const [source, screenshot] = await Promise.all([
-      locateSource(debugStack, debugSource, projectRoot),
-      this.capture(element.rect, element.viewport),
+    const [described, outer, rect, viewport, styles, react] = await Promise.all([
+      this.cmd<{ node: { localName: string; attributes?: string[] } }>('DOM.describeNode', {
+        backendNodeId,
+      }),
+      this.cmd<{ outerHTML: string }>('DOM.getOuterHTML', { backendNodeId }),
+      this.boxRect(backendNodeId),
+      this.viewport(),
+      this.computedStyles(backendNodeId),
+      this.reactInfo(backendNodeId),
     ])
-    return { ...element, id: randomUUID(), source, screenshot }
+
+    const attributes: Record<string, string> = {}
+    const attrs = described.node.attributes ?? []
+    for (let i = 0; i + 1 < attrs.length; i += 2) {
+      attributes[attrs[i]] = attrs[i + 1].slice(0, 300)
+    }
+    const html = outer.outerHTML
+    const [source, screenshot] = await Promise.all([
+      locateSource(react, projectRoot, devOrigin),
+      this.capture(rect, viewport),
+    ])
+
+    return {
+      id: randomUUID(),
+      url: this.wc.getURL(),
+      viewport,
+      tag: described.node.localName,
+      selector: react?.selector || described.node.localName,
+      text: textFromHtml(html).slice(0, 300),
+      attributes,
+      outerHTML: html.length > MAX_HTML ? `${html.slice(0, MAX_HTML)}…` : html,
+      rect,
+      styles,
+      componentStack: react?.componentStack ?? [],
+      source,
+      screenshot,
+    }
   }
 
   dispose() {
     this.removeAllListeners()
     if (this.dbg.isAttached()) this.dbg.detach()
+  }
+
+  private async boxRect(backendNodeId: number): Promise<Rect> {
+    try {
+      const { model } = await this.cmd<{ model: { border: number[] } }>('DOM.getBoxModel', {
+        backendNodeId,
+      })
+      const xs = [model.border[0], model.border[2], model.border[4], model.border[6]]
+      const ys = [model.border[1], model.border[3], model.border[5], model.border[7]]
+      const x = Math.min(...xs)
+      const y = Math.min(...ys)
+      return { x, y, width: Math.max(...xs) - x, height: Math.max(...ys) - y }
+    } catch {
+      // Elements without layout (display: contents, hidden) have no box model.
+      return { x: 0, y: 0, width: 0, height: 0 }
+    }
+  }
+
+  private async viewport() {
+    const { cssLayoutViewport } = await this.cmd<{
+      cssLayoutViewport: { clientWidth: number; clientHeight: number }
+    }>('Page.getLayoutMetrics')
+    return { width: cssLayoutViewport.clientWidth, height: cssLayoutViewport.clientHeight }
+  }
+
+  private async computedStyles(backendNodeId: number) {
+    await this.cmd('DOM.getDocument', { depth: 0 })
+    const { nodeIds } = await this.cmd<{ nodeIds: number[] }>(
+      'DOM.pushNodesByBackendIdsToFrontend',
+      { backendNodeIds: [backendNodeId] },
+    )
+    await this.cmd('CSS.enable')
+    const { computedStyle } = await this.cmd<{
+      computedStyle: { name: string; value: string }[]
+    }>('CSS.getComputedStyleForNode', { nodeId: nodeIds[0] })
+    const styles: Record<string, string> = {}
+    for (const { name, value } of computedStyle) {
+      if (STYLE_KEYS.has(name) && !DEFAULT_STYLE_VALUES.has(value)) {
+        styles[name] = value.length > 200 ? `${value.slice(0, 200)}…` : value
+      }
+    }
+    return styles
+  }
+
+  /** Untrusted page data: bounded in time and validated field by field. */
+  private async reactInfo(backendNodeId: number): Promise<ReactInfo | null> {
+    let objectId: string | undefined
+    try {
+      const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
+        backendNodeId,
+      })
+      objectId = object.objectId
+      const call = this.cmd<{ result: { value: unknown }; exceptionDetails?: unknown }>(
+        'Runtime.callFunctionOn',
+        { objectId, functionDeclaration: REACT_INFO, returnByValue: true, awaitPromise: true },
+      )
+      const timeout = new Promise<null>((resolve) => setTimeout(resolve, REACT_TIMEOUT_MS, null))
+      const response = await Promise.race([call, timeout])
+      if (!response || response.exceptionDetails) return null
+      return parseReactInfo(response.result.value)
+    } catch {
+      return null
+    } finally {
+      if (objectId) void this.cmd('Runtime.releaseObject', { objectId }).catch(() => undefined)
+    }
   }
 
   private async capture(rect: Rect, viewport: { width: number; height: number }) {
@@ -204,17 +306,76 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   }
 }
 
+const COMPONENT_NAME = /^[A-Za-z_$][\w$.]{0,79}$/
+
+function oneLine(value: unknown, max: number) {
+  return typeof value === 'string' ? value.replace(/[\s\p{Cc}]+/gu, ' ').slice(0, max) : ''
+}
+
+function parseReactInfo(value: unknown): ReactInfo | null {
+  if (!value || typeof value !== 'object') return null
+  const raw = value as Record<string, unknown>
+  const componentStack = Array.isArray(raw.componentStack)
+    ? raw.componentStack
+        .filter((name): name is string => typeof name === 'string' && COMPONENT_NAME.test(name))
+        .slice(0, 6)
+    : []
+  let debugSource: ReactInfo['debugSource'] = null
+  const source = raw.debugSource as Record<string, unknown> | null
+  if (
+    source &&
+    typeof source.fileName === 'string' &&
+    source.fileName.length < 1000 &&
+    Number.isInteger(source.lineNumber) &&
+    (source.lineNumber as number) > 0
+  ) {
+    debugSource = {
+      fileName: source.fileName,
+      lineNumber: source.lineNumber as number,
+      columnNumber: Number.isInteger(source.columnNumber)
+        ? (source.columnNumber as number)
+        : undefined,
+    }
+  }
+  return {
+    selector: oneLine(raw.selector, 300),
+    componentStack,
+    debugStack: typeof raw.debugStack === 'string' ? raw.debugStack.slice(0, 20_000) : null,
+    debugSource,
+  }
+}
+
+const ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  '#39': "'",
+  nbsp: ' ',
+}
+
+function textFromHtml(html: string) {
+  return html
+    .replace(/<(script|style|template)[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&(amp|lt|gt|quot|#39|nbsp);/g, (_match, name: string) => ENTITIES[name] ?? ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 // React's replayed server-component frames wrap the real URL: rsc://React/Server/<url>?<n>
 const SERVER_FRAME = /(?:rsc|about):\/\/React\/[^/\s]+\/(.+?)\?\d+(?=:\d+:\d+)/g
 
 async function locateSource(
-  debugStack: string | null,
-  debugSource: RawElement['debugSource'],
+  react: ReactInfo | null,
   projectRoot: string,
+  devOrigin: string | null,
 ): Promise<SourceLocation | null> {
+  if (!react) return null
+  const { debugSource, debugStack } = react
   if (debugSource) {
     const file = normalizeSourcePath(debugSource.fileName, projectRoot)
-    if (file) {
+    if (file && (await isFile(join(projectRoot, file)))) {
       return {
         file,
         line: debugSource.lineNumber,
@@ -231,5 +392,13 @@ async function locateSource(
       return inner
     }
   })
-  return resolveStack(unwrapped, projectRoot)
+  return resolveStack(unwrapped, projectRoot, devOrigin ?? undefined)
+}
+
+async function isFile(path: string) {
+  try {
+    return (await stat(path)).isFile()
+  } catch {
+    return false
+  }
 }

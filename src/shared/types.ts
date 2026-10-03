@@ -17,6 +17,8 @@ export interface ProjectInfo {
   name: string
   packageManager: PackageManager
   devCommand: string | null
+  /** Body of the package.json script devCommand runs */
+  devScript: string | null
 }
 
 export interface RecentProject {

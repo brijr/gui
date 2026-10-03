@@ -13,7 +13,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "package": "electron-vite build && electron-builder --mac --dir",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
   },
   "trustedDependencies": [
@@ -39,7 +38,6 @@
     "@xterm/xterm": "^6.0.0",
     "babel-plugin-react-compiler": "^1.0.0",
     "electron": "^44.5.1",
-    "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
     "lucide-react": "^1.51.0",
     "react": "^19.3.0",

@@ -1,0 +1,2 @@
+- [Grat stack](project_grat_stack.md) — Electron 44 + electron-vite app; Next.js/React Router reviewer checks don't apply
+- [Review focus](feedback_review_focus.md) — defect-focused, read-only reviews; no style or memoization nits

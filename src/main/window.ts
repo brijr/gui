@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import {
   app,
   BrowserWindow,
+  dialog,
   Menu,
   type MenuItemConstructorOptions,
   nativeTheme,
@@ -16,6 +17,7 @@ import {
   type ChatSnapshot,
   type DevServerState,
   type PreviewState,
+  type ProjectInfo,
   type Rect,
   type Viewport,
   type WindowState,
@@ -27,6 +29,7 @@ import { Inspector } from './inspector'
 import { detectProject } from './project'
 import { addRecent, loadRecent } from './recent'
 import { getShellEnv } from './shell-env'
+import { isTrusted, trust } from './trust'
 
 const TOOLBAR_HEIGHT = 44
 const PANEL = { width: 400, height: 640 }
@@ -55,6 +58,9 @@ export function allWindows() {
 }
 
 function rendererUrl(page: 'index' | 'chat') {
+  // Never honor the dev-server override in packaged builds: it would load remote
+  // content into renderers that have the privileged preload.
+  if (app.isPackaged) return null
   const dev = process.env.ELECTRON_RENDERER_URL
   return dev ? `${dev}/${page}.html` : null
 }
@@ -219,7 +225,26 @@ export class ProjectWindow {
 
     const recent = await addRecent({ root, name: project.name })
     this.patch({ recent })
-    if (project.devCommand) void devServer.start(project.devCommand)
+    if (project.devCommand && (await this.confirmDevScript(project))) {
+      if (this.devServer === devServer) void devServer.start(project.devCommand)
+    }
+  }
+
+  /** Opening a folder must not run its scripts until the user has seen them once. */
+  private async confirmDevScript(project: ProjectInfo) {
+    if (await isTrusted(project.root)) return true
+    if (this.disposed) return false
+    const { response } = await dialog.showMessageBox(this.win, {
+      type: 'question',
+      message: `Run ${project.devCommand}?`,
+      detail: `Grat starts the project's dev server to preview it. This runs:\n\n${project.devScript ?? project.devCommand}\n\nOnly run scripts from projects you trust.`,
+      buttons: ['Run dev server', 'Not now'],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    if (response !== 0) return false
+    await trust(project.root)
+    return true
   }
 
   closeProject() {
@@ -239,9 +264,12 @@ export class ProjectWindow {
 
   // Dev server
 
+  /** Starting from the UI is an explicit choice, so it also trusts the project. */
   startDevServer() {
-    const command = this.state.project?.devCommand
-    if (command) void this.devServer?.start(command)
+    const project = this.state.project
+    if (!project?.devCommand) return
+    void trust(project.root)
+    void this.devServer?.start(project.devCommand)
   }
 
   stopDevServer() {
@@ -344,10 +372,18 @@ export class ProjectWindow {
       }
     })
     wc.setWindowOpenHandler(({ url }) => {
-      const origin = this.state.devServer.url ? new URL(this.state.devServer.url).origin : null
-      if (origin && url.startsWith(origin)) void this.loadPreview(url)
+      const origin = this.devOrigin()
+      if (origin && originOf(url) === origin) void this.loadPreview(url)
       else if (/^https?:/.test(url)) void shell.openExternal(url)
       return { action: 'deny' }
+    })
+    // Navigating off-site is allowed (OAuth round-trips), but never to app protocols.
+    wc.on('will-navigate', (event, url) => {
+      if (!/^(https?|about):/i.test(url)) event.preventDefault()
+    })
+    wc.on('select-bluetooth-device', (event, _devices, callback) => {
+      event.preventDefault()
+      callback('')
     })
   }
 
@@ -364,7 +400,9 @@ export class ProjectWindow {
   }
 
   async setSelecting(on: boolean) {
-    if (on && (!this.state.preview.visible || !this.chat)) return
+    // Only pick from the local app: element data is sent to the agent.
+    const local = isLoopback(this.preview.webContents.getURL())
+    if (on && (!this.state.preview.visible || !this.chat || !local)) return
     this.patchPreview({ selecting: on })
     try {
       await this.inspector.setInspecting(on)
@@ -381,13 +419,18 @@ export class ProjectWindow {
     const chat = this.chat
     if (!root || !chat) return
     try {
-      const element = await this.inspector.inspect(nodeId, root)
+      if (!isLoopback(this.preview.webContents.getURL())) return
+      const element = await this.inspector.inspect(nodeId, root, this.devOrigin())
       chat.setSelection(element)
       await this.inspector.highlight(nodeId)
       this.focusChat()
     } catch (error) {
       console.error('[grat] element inspection failed', error)
     }
+  }
+
+  private devOrigin() {
+    return this.state.devServer.url ? originOf(this.state.devServer.url) : null
   }
 
   // Chat
@@ -625,6 +668,25 @@ function guardAppContents(wc: WebContents) {
     openExternal(url)
     return { action: 'deny' }
   })
+}
+
+function originOf(url: string) {
+  try {
+    return new URL(url).origin
+  } catch {
+    return null
+  }
+}
+
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
+
+function isLoopback(url: string) {
+  try {
+    const { protocol, hostname } = new URL(url)
+    return /^https?:$/.test(protocol) && (LOOPBACK.has(hostname) || hostname.endsWith('.localhost'))
+  } catch {
+    return false
+  }
 }
 
 function clamp(value: number, min: number, max: number) {

@@ -9,9 +9,11 @@ import {
   ipcMain,
   Menu,
   type MenuItemConstructorOptions,
+  session,
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
 import { AGENTS, type AgentId, type Rect, type Viewport } from '../shared/types'
+import { loadRecent } from './recent'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
 app.setName('Grat')
@@ -78,8 +80,11 @@ function registerIpc() {
   ipcMain.handle(Invoke.getLogs, (event) => windowFor(event)?.getLogs() ?? '')
   ipcMain.handle(Invoke.getChat, (event) => windowFor(event)?.getChat())
   ipcMain.handle(Invoke.openProject, (event) => pickProject(windowFor(event)))
-  ipcMain.handle(Invoke.openRecent, (event, root: unknown) => {
-    if (isString(root)) return openProjectIn(windowFor(event), root)
+  ipcMain.handle(Invoke.openRecent, async (event, root: unknown) => {
+    if (!isString(root)) return
+    // Only paths the user opened before; anything else goes through the folder picker.
+    if (!(await loadRecent()).some((project) => project.root === root)) return
+    return openProjectIn(windowFor(event), root)
   })
   ipcMain.handle(Invoke.send, (event, text: unknown) => {
     if (isString(text)) return windowFor(event)?.sendChatMessage(text)
@@ -136,6 +141,51 @@ function registerIpc() {
   on(Send.setMinimized, (win, minimized) => win.setMinimized(minimized === true))
   on(Send.dragChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.dragChat(dx, dy))
   on(Send.endDragChat, (win) => win.endDragChat())
+}
+
+/** Permissions the previewed app may use, and only from a local origin. */
+const PREVIEW_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write', 'pointerLock'])
+
+function isLocalOrigin(url: string | undefined) {
+  if (!url) return false
+  try {
+    const { hostname } = new URL(url)
+    return ['localhost', '127.0.0.1', '[::1]'].includes(hostname) || hostname.endsWith('.localhost')
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Electron grants every permission unless a handler says otherwise. The preview runs
+ * the user's app plus whatever third-party scripts it loads, so deny by default.
+ */
+function lockDownSessions() {
+  const preview = session.fromPartition('persist:grat-preview')
+  preview.setPermissionRequestHandler((_wc, permission, callback, details) => {
+    callback(PREVIEW_PERMISSIONS.has(permission) && isLocalOrigin(details.requestingUrl))
+  })
+  preview.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
+    return PREVIEW_PERMISSIONS.has(permission) && isLocalOrigin(requestingOrigin)
+  })
+  preview.setDevicePermissionHandler(() => false)
+  preview.on('select-hid-device', (event, _details, callback) => {
+    event.preventDefault()
+    callback()
+  })
+  preview.on('select-serial-port', (event, _ports, _wc, callback) => {
+    event.preventDefault()
+    callback('')
+  })
+  preview.on('select-usb-device', (event, _details, callback) => {
+    event.preventDefault()
+    callback()
+  })
+  // The app's own UI never needs device or media access.
+  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) =>
+    callback(false),
+  )
+  session.defaultSession.setPermissionCheckHandler(() => false)
 }
 
 function buildMenu() {
@@ -234,6 +284,7 @@ app.on('open-file', (event, path) => {
 })
 
 app.whenReady().then(async () => {
+  lockDownSessions()
   registerIpc()
   buildMenu()
   const initial = process.env.GRAT_OPEN

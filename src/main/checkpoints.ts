@@ -37,6 +37,16 @@ const EXCLUDES = [
   '.parcel-cache/',
   '*.log',
   '.DS_Store',
+  // Never copy secrets into the shadow repo, even if the project doesn't ignore them.
+  '.env',
+  '.env.*',
+  '!.env.example',
+  '*.pem',
+  '*.key',
+  '*.p12',
+  '.ssh/',
+  '.aws/',
+  '.npmrc',
 ]
 
 // Inherited vars that would point git at a repo other than the shadow one.

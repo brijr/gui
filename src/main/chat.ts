@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { isAbsolute, relative } from 'node:path'
+import { isAbsolute, relative, resolve as resolvePath } from 'node:path'
 import type { RequestPermissionRequest, SessionNotification } from '@agentclientprotocol/sdk'
 import {
   AGENTS,
@@ -35,6 +35,13 @@ interface RedoPoint {
   paths: string[]
   turnIds: string[]
 }
+
+/**
+ * Files that can change how code runs (build/tool config, dependencies, CI, hooks,
+ * dotfiles) always need the user's approval, even when edits are otherwise automatic.
+ */
+const SENSITIVE_PATH =
+  /(^|\/)\.|(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|[^/]*\.lock|[^/]*\.config\.[cm]?[jt]s|tsconfig[^/]*\.json|Dockerfile|Makefile|[^/]*\.(sh|bash|zsh))$|(^|\/)(node_modules|scripts|bin)\//i
 
 const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -346,6 +353,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolve(null)
       return
     }
+    const autoApprove = this.isRoutineEdit(request)
+      ? request.options.find((option) => option.kind === 'allow_once')
+      : undefined
+    if (autoApprove) {
+      resolve(autoApprove.optionId)
+      return
+    }
     const id = randomUUID()
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
     this.pushItem(record, {
@@ -354,6 +368,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
       title: request.toolCall.title ?? 'The agent wants to run a tool',
       options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resolved: null,
+    })
+  }
+
+  /** Edits to ordinary source files inside the project are what Grat is for; approve those. */
+  private isRoutineEdit(request: RequestPermissionRequest) {
+    const { kind, locations } = request.toolCall
+    if (kind !== 'edit' || !locations?.length) return false
+    return locations.every(({ path }) => {
+      const rel = relative(this.root, resolvePath(this.root, path))
+      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !SENSITIVE_PATH.test(rel)
     })
   }
 

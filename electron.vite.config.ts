@@ -30,6 +30,8 @@ export default defineConfig({
     build: { externalizeDeps: true, rollupOptions: { output: { format: 'cjs' } } },
   },
   renderer: {
+    // Keep Grat's own UI server off 5173/3000 so it never collides with the projects it previews.
+    server: { port: 5737, strictPort: true },
     plugins: [react({ babel: { plugins: ['babel-plugin-react-compiler'] } }), tailwindcss(), csp],
     build: {
       rollupOptions: {

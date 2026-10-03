@@ -2,14 +2,12 @@ import { type ChildProcess, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
+import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
 import type { AgentId } from '../shared/types'
 import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
-
-/** Modes that let the agent edit files without asking, in order of preference. */
-const PREFERRED_MODES = ['acceptEdits', 'auto', 'agent', 'default']
 
 interface SpawnSpec {
   command: string
@@ -26,13 +24,15 @@ const ADAPTERS: Record<AgentId, string> = {
   codex: '@agentclientprotocol/codex-acp',
 }
 
-/** Both adapters are Node programs; run them on Electron's bundled Node runtime. */
+/**
+ * Both adapters are Node programs; run them on Electron's bundled Node runtime.
+ * The bootstrap drops ELECTRON_RUN_AS_NODE once Node is up, so it doesn't leak into
+ * commands the agent runs (it would break any Electron binary they start).
+ */
 function spawnSpec(id: AgentId): SpawnSpec {
-  return {
-    command: process.execPath,
-    args: [join(packageDir(ADAPTERS[id]), 'dist/index.js')],
-    env: { ELECTRON_RUN_AS_NODE: '1' },
-  }
+  const entry = pathToFileURL(join(packageDir(ADAPTERS[id]), 'dist/index.js')).href
+  const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
+  return { command: process.execPath, args: ['-e', bootstrap], env: { ELECTRON_RUN_AS_NODE: '1' } }
 }
 
 export type PermissionResolver = (optionId: string | null) => void
@@ -123,24 +123,11 @@ export class AgentSession {
       })
     this.sessionId = session.sessionId
 
-    let modeName: string | null = null
+    // Keep the mode the user's own agent config chose; Grat's permission policy
+    // (ChatController.onPermission) decides what to auto-approve when the agent asks.
     const modes = session.modes
     const modeList = modes?.availableModes.map(({ id, name }) => ({ id, name })) ?? []
-    if (modes) {
-      const target = PREFERRED_MODES.map((id) =>
-        modes.availableModes.find((mode) => mode.id === id),
-      ).find(Boolean)
-      if (target && target.id !== modes.currentModeId) {
-        await agent
-          .request(acp.methods.agent.session.setMode, {
-            sessionId: session.sessionId,
-            modeId: target.id,
-          })
-          .catch(() => undefined)
-      }
-      const currentId = target?.id ?? modes.currentModeId
-      modeName = modes.availableModes.find((mode) => mode.id === currentId)?.name ?? null
-    }
+    const modeName = modeList.find((mode) => mode.id === modes?.currentModeId)?.name ?? null
 
     return {
       supportsImages: init.agentCapabilities?.promptCapabilities?.image === true,

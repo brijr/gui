@@ -53,5 +53,6 @@ export async function detectProject(root: string): Promise<ProjectInfo> {
     name: pkg?.name || basename(root),
     packageManager,
     devCommand: script ? `${packageManager} run ${script}` : null,
+    devScript: script ? (pkg?.scripts?.[script] ?? null) : null,
   }
 }
