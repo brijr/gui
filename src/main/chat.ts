@@ -21,7 +21,7 @@ import {
 import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
 import type { Checkpoints } from './checkpoints'
 import { type SavedChat, saveHistory } from './history'
-import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
+import { MCP_SERVER_NAME } from './mcp-server'
 import { buildPrompt } from './prompt'
 
 type SessionUpdate = SessionNotification['update']
@@ -79,9 +79,13 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
   preview_reload: 'Reload preview',
   dev_server_logs: 'Read dev server logs',
 }
-/** Claude reports `mcp__grat__preview_screenshot`, Codex `mcp.grat.preview_screenshot`. */
+/**
+ * Exact MCP identities for Grat's tools: Claude reports `mcp__grat__<tool>`, Codex
+ * `mcp.grat.<tool>`. Anchored at both ends: shell command titles are model-written
+ * text and must never be mistaken for a preview tool.
+ */
 const PREVIEW_TOOL_TITLE = new RegExp(
-  `^(?:mcp(?:__|[.:/]))?${MCP_SERVER_NAME}(?:__|[\\s:./-]+)(${Object.keys(PREVIEW_TOOL_LABELS).join('|')})`,
+  `^(?:mcp__${MCP_SERVER_NAME}__|mcp\\.${MCP_SERVER_NAME}\\.)(${Object.keys(PREVIEW_TOOL_LABELS).join('|')})$`,
 )
 
 const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
@@ -493,7 +497,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
         break
       }
       case 'tool_call': {
-        const preview = update.title.match(PREVIEW_TOOL_TITLE)?.[1]
+        const preview =
+          update.kind !== 'execute' ? update.title.match(PREVIEW_TOOL_TITLE)?.[1] : undefined
         items.push({
           kind: 'tool',
           id: update.toolCallId,
@@ -543,10 +548,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolve(null)
       return
     }
-    const autoApprove =
-      this.isRoutineEdit(request) || this.isPreviewTool(request)
-        ? request.options.find((option) => option.kind === 'allow_once')
-        : undefined
+    const autoApprove = this.isRoutineEdit(request)
+      ? request.options.find((option) => option.kind === 'allow_once')
+      : undefined
     if (autoApprove) {
       resolve(autoApprove.optionId)
       return
@@ -573,16 +577,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const rel = relative(this.root, resolvePath(this.root, path))
       return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !SENSITIVE_PATH.test(rel)
     })
-  }
-
-  /** Grat's own preview tools only look at (or navigate) the preview. */
-  private isPreviewTool(request: RequestPermissionRequest) {
-    // Agents name MCP tools like `mcp__grat__preview_screenshot`; `_` is a word
-    // character, so match names as substrings rather than with \b.
-    const label = `${request.toolCall.name ?? ''} ${request.toolCall.title ?? ''}`
-    return (
-      label.includes(MCP_SERVER_NAME) && PREVIEW_TOOL_NAMES.some((name) => label.includes(name))
-    )
   }
 
   private resolvePendingPermissions(record: TurnRecord) {

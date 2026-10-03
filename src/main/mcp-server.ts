@@ -6,6 +6,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
 import type { PreviewTools } from './preview-tools'
+import { fenceUntrusted } from './prompt'
 
 export const MCP_SERVER_NAME = 'grat'
 
@@ -23,6 +24,11 @@ const errorMessage = (error: unknown) => (error instanceof Error ? error.message
 
 function text(value: string) {
   return { content: [{ type: 'text' as const, text: value }] }
+}
+
+/** Page and dev-server content: data for the agent, never instructions. */
+function untrusted(label: string, value: string) {
+  return text(fenceUntrusted(label, value))
 }
 
 function failure(error: unknown) {
@@ -78,7 +84,7 @@ function buildServer(tools: PreviewTools) {
     async ({ selector }) => {
       try {
         const element = await tools.inspect(selector)
-        return text(JSON.stringify(element, null, 2))
+        return untrusted('preview_element', JSON.stringify(element, null, 2))
       } catch (error) {
         return failure(error)
       }
@@ -104,7 +110,7 @@ function buildServer(tools: PreviewTools) {
         lines.push(`Recent warnings (${warnings.length}):`)
         for (const warning of warnings.slice(-15)) lines.push(`- ${warning.message}`)
       }
-      return text(lines.join('\n'))
+      return untrusted('preview_console', lines.join('\n'))
     },
   )
 
@@ -151,7 +157,10 @@ function buildServer(tools: PreviewTools) {
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ lines }) => text(tools.logs(lines ?? 80) || '(no output yet)'),
+    async ({ lines }) => {
+      const output = tools.logs(lines ?? 80)
+      return output ? untrusted('dev_server_logs', output) : text('(no output yet)')
+    },
   )
 
   return server
@@ -175,6 +184,7 @@ export async function startMcpServer(tools: PreviewTools): Promise<RunningMcpSer
     return given.length === expected.length && timingSafeEqual(given, expected)
   }
 
+  let allowedHosts: string[] = []
   const http: Server = createServer((req, res) => {
     if (req.url !== '/mcp' || !authorized(req.headers.authorization)) {
       res.writeHead(401).end()
@@ -189,6 +199,8 @@ export async function startMcpServer(tools: PreviewTools): Promise<RunningMcpSer
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
+      allowedHosts,
+      enableDnsRebindingProtection: true,
     })
     res.on('close', () => {
       void transport.close()
@@ -208,6 +220,7 @@ export async function startMcpServer(tools: PreviewTools): Promise<RunningMcpSer
     http.listen(0, '127.0.0.1', () => resolve())
   })
   const { port } = http.address() as AddressInfo
+  allowedHosts = [`127.0.0.1:${port}`]
 
   return {
     config: {

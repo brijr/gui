@@ -14,6 +14,7 @@ import {
 import { Invoke, Send } from '../shared/ipc'
 import { AGENTS, type AgentId, type Rect, type Viewport } from '../shared/types'
 import { agentHealth } from './agent-status'
+import { isLoopback } from './loopback'
 import { loadRecent } from './recent'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
@@ -179,16 +180,6 @@ function registerIpc() {
 /** Permissions the previewed app may use, and only from a local origin. */
 const PREVIEW_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write', 'pointerLock'])
 
-function isLocalOrigin(url: string | undefined) {
-  if (!url) return false
-  try {
-    const { hostname } = new URL(url)
-    return ['localhost', '127.0.0.1', '[::1]'].includes(hostname) || hostname.endsWith('.localhost')
-  } catch {
-    return false
-  }
-}
-
 /**
  * Electron grants every permission unless a handler says otherwise. The preview runs
  * the user's app plus whatever third-party scripts it loads, so deny by default.
@@ -196,10 +187,10 @@ function isLocalOrigin(url: string | undefined) {
 function lockDownSessions() {
   const preview = session.fromPartition('persist:grat-preview')
   preview.setPermissionRequestHandler((_wc, permission, callback, details) => {
-    callback(PREVIEW_PERMISSIONS.has(permission) && isLocalOrigin(details.requestingUrl))
+    callback(PREVIEW_PERMISSIONS.has(permission) && isLoopback(details.requestingUrl))
   })
   preview.setPermissionCheckHandler((_wc, permission, requestingOrigin) => {
-    return PREVIEW_PERMISSIONS.has(permission) && isLocalOrigin(requestingOrigin)
+    return PREVIEW_PERMISSIONS.has(permission) && isLoopback(requestingOrigin)
   })
   preview.setDevicePermissionHandler(() => false)
   preview.on('select-hid-device', (event, _details, callback) => {

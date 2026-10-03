@@ -5,6 +5,7 @@ import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
 import type { AgentId } from '../shared/types'
+import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
@@ -17,6 +18,16 @@ interface SpawnSpec {
 
 function packageDir(name: string) {
   return dirname(require.resolve(`${name}/package.json`)).replace('app.asar', 'app.asar.unpacked')
+}
+
+/**
+ * Claude asks before calling MCP tools; Grat's preview tools only look at the preview,
+ * so allow them up front by exact name. (Codex reviews these calls itself.)
+ */
+function sessionMeta(id: AgentId) {
+  if (id !== 'claude') return undefined
+  const allowedTools = PREVIEW_TOOL_NAMES.map((tool) => `mcp__${MCP_SERVER_NAME}__${tool}`)
+  return { claudeCode: { options: { allowedTools } } }
 }
 
 const ADAPTERS: Record<AgentId, string> = {
@@ -187,6 +198,7 @@ export class AgentSession {
           sessionId: resumeSessionId,
           cwd: this.cwd,
           mcpServers,
+          _meta: sessionMeta(this.agentId),
         }),
       ).catch(() => null)
       if (loaded) {
@@ -195,7 +207,11 @@ export class AgentSession {
       }
     }
     session ??= await this.untilExit(
-      agent.request(acp.methods.agent.session.new, { cwd: this.cwd, mcpServers }),
+      agent.request(acp.methods.agent.session.new, {
+        cwd: this.cwd,
+        mcpServers,
+        _meta: sessionMeta(this.agentId),
+      }),
     ).catch((error: unknown) => {
       if (!isAuthError(error)) throw error
       const methods = (init.authMethods ?? []).map((method) => ({

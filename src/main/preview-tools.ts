@@ -1,6 +1,7 @@
 import type { WebContents } from 'electron'
 import type { ElementContext } from '../shared/types'
 import type { Inspector } from './inspector'
+import { isLoopback } from './loopback'
 import type { Problems } from './problems'
 
 const MAX_IMAGE_WIDTH = 1600
@@ -141,10 +142,10 @@ export class PreviewTools {
   }
 
   async navigate(path: string) {
-    const base = this.deps.devOrigin() ?? this.deps.currentUrl()
-    if (!base) throw new Error('The dev server is not running')
+    const base = this.deps.devOrigin()
+    if (!base || !isLoopback(base)) throw new Error('The dev server is not running')
     const url = new URL(path, base)
-    if (url.origin !== new URL(base).origin) {
+    if (url.origin !== new URL(base).origin || !/^https?:$/.test(url.protocol)) {
       throw new Error('Only paths on the dev server can be opened')
     }
     await this.deps.navigate(url.toString())
@@ -168,8 +169,11 @@ export class PreviewTools {
     return text.split('\n').slice(-lines).join('\n')
   }
 
+  /** The tools only ever act on the user's own local app, never a page it linked to. */
   private assertLoaded() {
-    if (!this.deps.currentUrl()) throw new Error('The preview has no page loaded yet')
+    const url = this.deps.currentUrl()
+    if (!url) throw new Error('The preview has no page loaded yet')
+    if (!isLoopback(url)) throw new Error('The preview is not showing the local dev server')
   }
 
   private async find(selector: string) {

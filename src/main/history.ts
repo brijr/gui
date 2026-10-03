@@ -46,8 +46,26 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
   }
 }
 
-/** Synchronous so the last save also lands when the app is quitting. */
+/** Query strings and fragments can carry tokens; history only needs the page. */
+function withoutQuery(url: string) {
+  try {
+    const parsed = new URL(url)
+    return `${parsed.origin}${parsed.pathname}`
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Synchronous so the last save also lands when the app is quitting. Owner-only:
+ * history holds prompts and page content.
+ */
 export function saveHistory(file: string, chat: SavedChat) {
-  mkdirSync(dir(), { recursive: true })
-  writeFileSync(file, JSON.stringify(chat))
+  mkdirSync(dir(), { recursive: true, mode: 0o700 })
+  const turns = chat.turns.map((turn) =>
+    turn.context
+      ? { ...turn, context: { ...turn.context, url: withoutQuery(turn.context.url) } }
+      : turn,
+  )
+  writeFileSync(file, JSON.stringify({ ...chat, turns }), { mode: 0o600 })
 }

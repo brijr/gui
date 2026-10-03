@@ -66,6 +66,10 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 
 The preview runs your app plus whatever third-party scripts it loads, so it is treated as semi-trusted: it has no preload or IPC access, its session denies permission requests (camera, clipboard reads, devices, external protocols) by default, and element picking only works on local origins.
 
+Agents get Grat's preview tools over a loopback MCP server that needs a per-window token and rejects other `Host` headers. The tools only act on the local dev server. Everything they return from the page or dev server (element data, console, logs) is fenced and marked as untrusted, the same as selected-element context. Claude's preview tools are pre-allowed by exact name; nothing is auto-approved by matching a tool's title. Chat history is stored owner-only (`0600`), without URL query strings.
+
+Before shipping a signed build, note that the `runAsNode` fuse is on because the agent adapters run on Electron's bundled Node. Any process that can launch the signed app binary with `ELECTRON_RUN_AS_NODE=1` inherits the app's TCC grants. Running the adapters on a separately signed Node binary would allow the fuse to be turned off.
+
 ## Not yet
 
 Multi-select and region annotation, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, a model picker, auto-update, and parallel variations. Source-map resolution runs on the main thread; very large Next.js maps can briefly stall the UI on pick — moving it to a worker is planned.

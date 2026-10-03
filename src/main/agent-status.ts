@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { app } from 'electron'
 import { AGENTS, type AgentHealth, type AgentId } from '../shared/types'
 import { AgentAuthError, AgentSession } from './agent'
 
@@ -69,8 +69,8 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
       status: authenticate ? 'signing-in' : 'checking',
       message: authenticate ? 'Finish signing in in your browser…' : null,
     })
-    const dir = join(tmpdir(), 'grat-agent-check')
-    await mkdir(dir, { recursive: true })
+    const dir = join(app.getPath('userData'), 'agent-check')
+    await mkdir(dir, { recursive: true, mode: 0o700 })
     const session = new AgentSession(id, dir, noopHandlers)
     try {
       await withTimeout(

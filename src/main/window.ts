@@ -28,6 +28,7 @@ import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { historyFile, loadHistory } from './history'
 import { Inspector } from './inspector'
+import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
 import { getPrefs, setPrefs } from './prefs'
 import { PreviewTools } from './preview-tools'
@@ -895,17 +896,6 @@ function originOf(url: string) {
     return new URL(url).origin
   } catch {
     return null
-  }
-}
-
-const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]', '0.0.0.0'])
-
-function isLoopback(url: string) {
-  try {
-    const { protocol, hostname } = new URL(url)
-    return /^https?:$/.test(protocol) && (LOOPBACK.has(hostname) || hostname.endsWith('.localhost'))
-  } catch {
-    return false
   }
 }
 
