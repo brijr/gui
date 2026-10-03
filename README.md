@@ -16,7 +16,7 @@ bun install
 bun run dev
 ```
 
-Open a project folder (⌘O). Grat detects the package manager and `dev` script, starts it, and loads the URL it prints. To open a project on launch: `GRAT_OPEN=/path/to/project bun run dev`.
+Open a project folder (⌘O). Grat detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. To open a project on launch: `GRAT_OPEN=/path/to/project bun run dev`.
 
 | Action | Shortcut |
 | --- | --- |
@@ -41,9 +41,9 @@ BrowserWindow
 The preview is a native view, so HTML can't overlay it — the chat panel is its own transparent view stacked on top, moved by the main process as you drag it.
 
 - **Dev server** (`src/main/dev-server.ts`) — runs the dev script in a PTY through your login shell, detects the printed URL, and only marks it ready once a listener in *its own process group* owns the port. If another project's server shadows `localhost` on the other address family, the preview pins to `127.0.0.1` or `[::1]`.
-- **Selection** (`src/main/inspector.ts`) — Chrome DevTools Protocol `Overlay.setInspectMode`, the same picker DevTools uses, so nothing is injected into your DOM. The picked node yields outer HTML, computed styles, a cropped screenshot, and the React owner chain.
+- **Selection** (`src/main/inspector.ts`) — Chrome DevTools Protocol `Overlay.setInspectMode`, the same picker DevTools uses, so nothing is injected into your DOM. HTML, attributes, computed styles, and the box come from protocol commands that page scripts can't spoof; only the React owner chain is read from the page, and it's validated. Element data is sent to the agent marked as untrusted.
 - **Source mapping** (`src/main/source-resolver.ts`) — React 19 records where each JSX element was created (`_debugStack`); Grat resolves that frame through the dev server's source maps to `file:line`. Exact for Vite and Next.js (Turbopack); approximate for Next.js (webpack). Server-rendered pages wait for hydration before reading fibers.
-- **Agents** (`src/main/agent.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com) via `@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp`, run on Electron's bundled Node. Sessions start in an edit-accepting mode when the agent offers one; other tool permissions are asked inline in the chat. Your agent config (CLAUDE.md, hooks, Codex config) applies as usual.
+- **Agents** (`src/main/agent.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com) via `@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp`, run on Electron's bundled Node. Each session keeps the permission mode your own agent config picks, and your CLAUDE.md, hooks, and Codex config apply as usual. When the agent asks, Grat auto-approves edits to ordinary source files in the project and asks you in the chat about everything else — config files, dotfiles, lockfiles, scripts, `package.json`, and commands.
 - **Checkpoints** (`src/main/checkpoints.ts`) — before and after every turn the working tree is snapshotted into a shadow git repo under the app's data folder (your `.git` is never touched). **Undo** restores files changed since that turn began; **Redo** reverses the undo.
 
 ## Scripts
@@ -52,6 +52,10 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - `bun run build` — production bundle in `out/`
 - `bun run typecheck` / `bun run lint` / `bun run format`
 
+## Security model
+
+The preview runs your app plus whatever third-party scripts it loads, so it is treated as semi-trusted: it has no preload or IPC access, its session denies permission requests (camera, clipboard reads, devices, external protocols) by default, and element picking only works on local origins.
+
 ## Not yet
 
-Packaging/signing, chat history persistence, multi-select, agent self-verification tools (MCP), console errors as context, and parallel variations are planned for later phases.
+Packaging/signing (with Electron fuses), chat history persistence, multi-select, agent self-verification tools (MCP), console errors as context, and parallel variations are planned for later phases. Source-map resolution currently runs on the main thread; very large Next.js maps can briefly stall the UI on pick — moving it to a worker is planned.
