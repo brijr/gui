@@ -10,3 +10,10 @@ release/
 .claude/agent-memory/
 .tldr/
 .tldrignore
+
+# E2E: Playwright output and fixture build artifacts (fixtures are committed as source only)
+test-results/
+playwright-report/
+e2e/fixtures/*/node_modules/
+e2e/fixtures/*/.next/
+e2e/fixtures/*/next-env.d.ts

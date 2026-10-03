@@ -516,9 +516,11 @@ export class ProjectWindow {
     // Only pick from the local app: element data is sent to the agent.
     const local = isLoopback(this.preview.webContents.getURL())
     if (on && (!this.state.preview.visible || !this.chat || !local)) return
-    this.patchPreview({ selecting: on })
     try {
+      // Report "selecting" only once inspect mode is live; a click before that would
+      // land on the page instead of picking.
       await this.inspector.setInspecting(on)
+      this.patchPreview({ selecting: on })
       if (on) this.preview.webContents.focus()
     } catch (error) {
       console.error('[grat] inspect mode failed', error)
