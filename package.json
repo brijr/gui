@@ -13,13 +13,18 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "package": "electron-vite build && electron-builder --mac --dir"
+    "package": "electron-vite build && electron-builder --mac --dir",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true"
   },
-  "trustedDependencies": ["electron", "esbuild", "node-pty"],
+  "trustedDependencies": [
+    "electron",
+    "esbuild",
+    "node-pty"
+  ],
   "dependencies": {
     "@agentclientprotocol/claude-agent-acp": "^0.85.1",
+    "@agentclientprotocol/codex-acp": "^2.1.1",
     "@agentclientprotocol/sdk": "^1.7.0",
-    "@zed-industries/codex-acp": "^0.16.0",
     "node-pty": "^1.1.0",
     "source-map-js": "^1.2.2"
   },
@@ -36,6 +41,7 @@
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "lucide-react": "^1.51.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
