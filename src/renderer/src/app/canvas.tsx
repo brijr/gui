@@ -1,7 +1,8 @@
-import { FolderOpen, TriangleAlert } from 'lucide-react'
-import { type ReactNode, useEffect, useRef } from 'react'
-import type { WindowState } from '../../../shared/types'
+import { Check, FolderOpen, TriangleAlert } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import { AGENTS, type AgentHealth, type WindowState } from '../../../shared/types'
 import { grat } from '../lib/api'
+import { cn } from '../lib/cn'
 import { Button, Spinner } from '../lib/ui'
 
 /**
@@ -131,20 +132,49 @@ function Message({ icon, title, detail, mono, action }: MessageProps) {
   )
 }
 
+const STEPS = [
+  ['Open a project', 'Grat starts its dev server and shows your app.'],
+  ['Point at something', 'Press ⇧⌘C and click any element in the preview.'],
+  ['Describe the change', 'Your agent edits the code; the preview updates live.'],
+] as const
+
 function EmptyState({ state }: { state: WindowState }) {
+  const firstRun = state.recent.length === 0
   return (
-    <div className="flex w-full max-w-sm flex-col gap-6">
+    <div className="flex w-full max-w-md flex-col gap-7">
       <div className="flex flex-col gap-1.5">
-        <h1 className="font-semibold text-[15px]">Open a project</h1>
-        <p className="text-muted">
-          Grat runs your dev server, shows your app, and lets your agent edit it while you point at
-          things.
+        <h1 className="font-semibold text-[15px]">
+          {firstRun ? 'Design your app with your own agents' : 'Open a project'}
+        </h1>
+        <p className="text-pretty text-muted">
+          Grat runs your dev server, shows your app, and lets your agent edit the real code while
+          you point at things.
         </p>
       </div>
+
+      {firstRun && (
+        <ol className="flex flex-col gap-2.5">
+          {STEPS.map(([title, detail], i) => (
+            <li key={title} className="flex gap-3">
+              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-hover text-[11px] font-medium tabular-nums text-muted">
+                {i + 1}
+              </span>
+              <span>
+                <span className="font-medium">{title}</span>
+                <span className="text-muted"> — {detail}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+
       <Button variant="primary" className="h-8 self-start" onClick={() => void grat.openProject()}>
         <FolderOpen className="size-3.5" aria-hidden="true" />
         Open project…
       </Button>
+
+      <Agents state={state} />
+
       {state.recent.length > 0 && (
         <div className="flex flex-col gap-1">
           <p className="font-medium text-[11px] text-subtle uppercase tracking-wide">Recent</p>
@@ -168,4 +198,95 @@ function EmptyState({ state }: { state: WindowState }) {
       )}
     </div>
   )
+}
+
+function Agents({ state }: { state: WindowState }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-baseline justify-between">
+        <p className="font-medium text-[11px] text-subtle uppercase tracking-wide">Agents</p>
+        <button
+          type="button"
+          onClick={() => grat.checkAgents()}
+          className="text-[11px] text-subtle hover:text-fg"
+        >
+          Check again
+        </button>
+      </div>
+      <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
+        {state.agents.map((health) => (
+          <AgentRow key={health.id} health={health} selected={health.id === state.agentId} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+function AgentRow({ health, selected }: { health: AgentHealth; selected: boolean }) {
+  const [error, setError] = useState<string | null>(null)
+  const name = AGENTS.find((agent) => agent.id === health.id)?.name ?? health.id
+  const busy = health.status === 'checking' || health.status === 'signing-in'
+
+  const signIn = async () => {
+    setError(null)
+    try {
+      await grat.signIn(health.id)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    }
+  }
+
+  return (
+    <li className="flex items-start gap-3 px-3 py-2.5">
+      <button
+        type="button"
+        aria-pressed={selected}
+        aria-label={`Use ${name} by default`}
+        onClick={() => grat.setAgent(health.id)}
+        className={cn(
+          'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
+          selected ? 'border-accent bg-accent text-accent-fg' : 'border-line-strong',
+        )}
+      >
+        {selected && <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />}
+      </button>
+      <div className="min-w-0 flex-1">
+        <p className="flex items-center gap-2">
+          <span className="font-medium">{name}</span>
+          <AgentStatusLabel health={health} />
+        </p>
+        {health.status !== 'ready' && (health.message || error) && (
+          <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">
+            {error ?? health.message}
+          </p>
+        )}
+      </div>
+      {health.signIn && health.status !== 'ready' && (
+        <Button disabled={busy} onClick={() => void signIn()}>
+          {health.status === 'signing-in' ? 'Waiting…' : health.signIn.label}
+        </Button>
+      )}
+    </li>
+  )
+}
+
+function AgentStatusLabel({ health }: { health: AgentHealth }) {
+  switch (health.status) {
+    case 'ready':
+      return <span className="text-[11.5px] text-success">Ready</span>
+    case 'checking':
+    case 'signing-in':
+      return (
+        <span className="flex items-center gap-1.5 text-[11.5px] text-subtle">
+          <Spinner className="size-2.5" />
+          {health.status === 'checking' ? 'Checking' : 'Signing in'}
+        </span>
+      )
+    case 'signed-out':
+      return <span className="text-[11.5px] text-warning">Not signed in</span>
+    case 'error':
+      return <span className="text-[11.5px] text-danger">Unavailable</span>
+    default:
+      return null
+  }
 }

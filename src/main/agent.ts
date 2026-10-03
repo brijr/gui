@@ -32,7 +32,20 @@ const ADAPTERS: Record<AgentId, string> = {
 function spawnSpec(id: AgentId): SpawnSpec {
   const entry = pathToFileURL(join(packageDir(ADAPTERS[id]), 'dist/index.js')).href
   const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
-  return { command: process.execPath, args: ['-e', bootstrap], env: { ELECTRON_RUN_AS_NODE: '1' } }
+  const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' }
+  // codex-acp otherwise launches `process.execPath codex.js`, which in a packaged app
+  // is Grat itself, so point it at Codex's native binary.
+  if (id === 'codex') env.CODEX_PATH = codexBinary()
+  return { command: process.execPath, args: ['-e', bootstrap], env }
+}
+
+function codexBinary() {
+  const fromCodex = createRequire(require.resolve('@openai/codex/package.json'))
+  const pkg = dirname(
+    fromCodex.resolve(`@openai/codex-${process.platform}-${process.arch}/package.json`),
+  )
+  const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`
+  return join(pkg, 'vendor', triple, 'bin', 'codex').replace('app.asar', 'app.asar.unpacked')
 }
 
 export type PermissionResolver = (optionId: string | null) => void
@@ -44,9 +57,43 @@ export interface AgentHandlers {
 }
 
 export interface AgentInfo {
+  sessionId: string
+  /** True when an earlier session was resumed, so the agent remembers prior turns */
+  resumed: boolean
   supportsImages: boolean
   modeName: string | null
   modes: { id: string; name: string }[]
+}
+
+export interface StartOptions {
+  mcpServers: acp.McpServer[]
+  /** Session to resume (via session/load) when the agent supports it */
+  resumeSessionId?: string | null
+  /** ACP auth method to run before creating the session (e.g. a browser sign-in) */
+  authenticate?: string
+}
+
+export interface AuthMethod {
+  id: string
+  name: string
+  description: string | null
+}
+
+/** The agent is installed but needs the user to sign in. */
+export class AgentAuthError extends Error {
+  constructor(
+    message: string,
+    readonly methods: AuthMethod[],
+  ) {
+    super(message)
+  }
+}
+
+function isAuthError(error: unknown) {
+  const code = (error as { code?: unknown } | null)?.code
+  const message = error instanceof Error ? error.message : String(error)
+  // -32000 is ACP's auth_required.
+  return code === -32000 || /auth|log ?in|sign ?in|credential|api key/i.test(message)
 }
 
 /** One ACP agent process with a single session rooted at the project. */
@@ -65,7 +112,7 @@ export class AgentSession {
     private readonly handlers: AgentHandlers,
   ) {}
 
-  async start(): Promise<AgentInfo> {
+  async start({ mcpServers, resumeSessionId, authenticate }: StartOptions): Promise<AgentInfo> {
     const spec = spawnSpec(this.agentId)
     const shellEnv = await getShellEnv()
     if (this.disposed) throw new Error('Agent was stopped')
@@ -124,10 +171,39 @@ export class AgentSession {
       }),
     )
 
-    const session = await this.untilExit(
-      agent.request(acp.methods.agent.session.new, { cwd: this.cwd, mcpServers: [] }),
+    if (authenticate) {
+      await this.untilExit(
+        agent.request(acp.methods.agent.authenticate, { methodId: authenticate }),
+      )
+    }
+
+    // sessionId stays null while loading, so the agent's replay of the old
+    // transcript isn't mistaken for a new turn's updates.
+    let session: { sessionId: string; modes?: acp.SessionModeState | null } | null = null
+    let resumed = false
+    if (resumeSessionId && init.agentCapabilities?.loadSession) {
+      const loaded = await this.untilExit(
+        agent.request(acp.methods.agent.session.load, {
+          sessionId: resumeSessionId,
+          cwd: this.cwd,
+          mcpServers,
+        }),
+      ).catch(() => null)
+      if (loaded) {
+        session = { sessionId: resumeSessionId, modes: loaded.modes }
+        resumed = true
+      }
+    }
+    session ??= await this.untilExit(
+      agent.request(acp.methods.agent.session.new, { cwd: this.cwd, mcpServers }),
     ).catch((error: unknown) => {
-      throw new Error(describeStartError(error, this.agentId))
+      if (!isAuthError(error)) throw error
+      const methods = (init.authMethods ?? []).map((method) => ({
+        id: method.id,
+        name: method.name,
+        description: method.description ?? null,
+      }))
+      throw new AgentAuthError(signInMessage(this.agentId), methods)
     })
     this.sessionId = session.sessionId
 
@@ -138,6 +214,8 @@ export class AgentSession {
     const modeName = modeList.find((mode) => mode.id === modes?.currentModeId)?.name ?? null
 
     return {
+      sessionId: session.sessionId,
+      resumed,
       supportsImages: init.agentCapabilities?.promptCapabilities?.image === true,
       modeName,
       modes: modeList,
@@ -195,12 +273,8 @@ function killGroup(pid: number, signal: NodeJS.Signals) {
   }
 }
 
-function describeStartError(error: unknown, agentId: AgentId) {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/auth/i.test(message)) {
-    return agentId === 'claude'
-      ? 'Claude Code is not signed in. Run `claude` in a terminal and log in, then retry.'
-      : 'Codex is not signed in. Run `codex login` in a terminal, then retry.'
-  }
-  return message
+function signInMessage(agentId: AgentId) {
+  return agentId === 'claude'
+    ? 'Claude Code is not signed in. Run `claude` in a terminal and use /login, then try again.'
+    : 'Codex is not signed in. Sign in with ChatGPT from the Grat start screen, or run `codex login`.'
 }

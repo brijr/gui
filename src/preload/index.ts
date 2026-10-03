@@ -29,6 +29,8 @@ const api: GratApi = {
   showAgentMenu: send(Send.showAgentMenu),
   showProjectMenu: send(Send.showProjectMenu),
   setAgent: send(Send.setAgent),
+  checkAgents: send(Send.checkAgents),
+  signIn: (agentId) => ipcRenderer.invoke(Invoke.signIn, agentId),
 
   navigate: send(Send.navigate),
   back: send(Send.back),
@@ -54,6 +56,8 @@ const api: GratApi = {
   newSession: send(Send.newSession),
   clearSelection: send(Send.clearSelection),
   setMinimized: send(Send.setMinimized),
+  toggleDock: send(Send.toggleDock),
+  fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
   dragChat: send(Send.dragChat),
   endDragChat: send(Send.endDragChat),
 }

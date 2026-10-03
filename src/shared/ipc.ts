@@ -10,6 +10,8 @@ export const Invoke = {
   send: 'chat:send',
   restoreTurn: 'chat:restore',
   redo: 'chat:redo',
+  fixProblems: 'chat:fix-problems',
+  signIn: 'agents:sign-in',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -21,6 +23,7 @@ export const Send = {
   showAgentMenu: 'menu:agent',
   showProjectMenu: 'menu:project',
   setAgent: 'agent:set',
+  checkAgents: 'agents:check',
   navigate: 'preview:navigate',
   back: 'preview:back',
   forward: 'preview:forward',
@@ -36,6 +39,7 @@ export const Send = {
   newSession: 'chat:new',
   clearSelection: 'chat:clear-selection',
   setMinimized: 'chat:minimize',
+  toggleDock: 'chat:dock',
   dragChat: 'chat:drag',
   endDragChat: 'chat:drag-end',
 } as const
@@ -67,6 +71,9 @@ export interface GratApi {
   showAgentMenu(): void
   showProjectMenu(): void
   setAgent(agentId: AgentId): void
+  checkAgents(): void
+  /** Runs the agent's sign-in flow (opens the browser) and re-checks it */
+  signIn(agentId: AgentId): Promise<void>
 
   navigate(url: string): void
   back(): void
@@ -93,6 +100,9 @@ export interface GratApi {
   newSession(): void
   clearSelection(): void
   setMinimized(minimized: boolean): void
+  toggleDock(): void
+  /** Sends the current preview errors to the agent; false if busy or nothing to fix */
+  fixProblems(): Promise<boolean>
   dragChat(dx: number, dy: number): void
   endDragChat(): void
 }

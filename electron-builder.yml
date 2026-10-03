@@ -1,0 +1,90 @@
+# macOS packaging for Grat. Build with `bun run dist` → release/.
+#
+# Unsigned local build (no certificate needed; the app gets an ad-hoc signature):
+#   CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist
+# Every unsigned build has a new ad-hoc signature, so on its first launch macOS asks for
+# access to the "Grat Safe Storage" keychain item (cookie encryption); the preview stays
+# blank until that prompt is answered. Signed builds keep a stable identity and don't.
+#
+# Signed + notarized build: a "Developer ID Application" certificate in the login keychain
+# (or CSC_LINK=<.p12 path/base64> + CSC_KEY_PASSWORD; CSC_NAME picks one of several), plus
+# ONE set of notarization credentials:
+#   APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID
+#   APPLE_API_KEY (path to AuthKey_XXXX.p8) + APPLE_API_KEY_ID + APPLE_API_ISSUER
+#   APPLE_KEYCHAIN_PROFILE (+ APPLE_KEYCHAIN)   # from `xcrun notarytool store-credentials`
+# Without any of them notarization is skipped with a warning.
+
+appId: dev.grat.app
+productName: Grat
+copyright: Copyright © 2026 Grat
+
+directories:
+  output: release
+  buildResources: build
+
+# Renderer libraries are devDependencies bundled by Vite into out/; only `dependencies`
+# reach node_modules. Nothing else from the repo (src, e2e, docs, .claude…) is packaged.
+files:
+  - out/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/node_modules/**/*.{d.ts,d.mts,d.cts,md,markdown}"
+  # node-pty: only its JS and the darwin-arm64 prebuild are used at runtime.
+  - "!**/node_modules/node-pty/{src,deps,third_party,scripts,typings,binding.gyp}"
+  - "!**/node_modules/node-pty/prebuilds/{win32-*,darwin-x64}"
+
+asar: true
+# The agent adapters are spawned as `Grat -e "import('…/app.asar.unpacked/node_modules/…')"`
+# with ELECTRON_RUN_AS_NODE (src/main/agent.ts), and Node resolves their imports by walking
+# app.asar.unpacked/node_modules. So the adapters, their dependency trees, their peer deps
+# (@modelcontextprotocol/sdk, zod) and the native Claude/Codex binaries must all be real
+# files. Unpacking all of node_modules is the simplest setup that stays correct as the
+# dependency graph changes. The app's own code (out/) stays in app.asar, which the asar
+# integrity fuse validates; unpacked files are covered only by the code signature seal.
+asarUnpack:
+  - node_modules/**
+
+# node-pty ships N-API prebuilds that load in Electron as-is. A rebuild would compile it
+# into node_modules/node-pty/build/Release, which node-pty prefers over the prebuilds.
+npmRebuild: false
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  target:
+    - target: dmg
+      arch: arm64
+    - target: zip
+      arch: arm64
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  # Leave the bundled Claude Code and Codex CLIs with their vendor Developer ID signatures
+  # (hardened runtime, secure timestamp, their own JIT/library-validation entitlements).
+  # Re-signing them under our identity strips those entitlements and changes their
+  # keychain identity: Codex then needs approval to read its "Codex MCP Credentials"
+  # keychain items, and session/new hangs behind that prompt.
+  signIgnore:
+    - 'app\.asar\.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-[^/]+/'
+    - 'app\.asar\.unpacked/node_modules/@openai/codex-darwin-[^/]+/'
+  extendInfo:
+    # Agents run arbitrary commands (osascript etc.); macOS attributes their Apple Events
+    # to Grat and denies them unless Grat declares why it sends them.
+    NSAppleEventsUsageDescription: Commands run by your coding agent may control other apps.
+
+electronFuses:
+  # The agent adapters run on Electron's bundled Node via ELECTRON_RUN_AS_NODE.
+  runAsNode: true
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  loadBrowserProcessSpecificV8Snapshot: false
+  # Must stay on while the renderer is loaded with loadFile(): turning it off drops
+  # Electron's asar-aware file:// handler, so out/renderer/*.html inside app.asar fails
+  # with ERR_FILE_NOT_FOUND. Turn it off once the renderer is served from a custom protocol.
+  grantFileProtocolExtraPrivileges: true
+  # Flipping fuses edits the main executable; re-apply an ad-hoc signature so unsigned
+  # arm64 builds still launch. Real signing, when a certificate is found, replaces it.
+  resetAdHocDarwinSignature: true

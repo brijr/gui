@@ -16,35 +16,87 @@ const HIGHLIGHT = {
   borderColor: { r: 59, g: 130, b: 246, a: 0.95 },
 }
 
-const STYLE_KEYS = new Set([
+/** Properties worth showing a designer or an agent, in reading order. */
+const STYLE_KEYS = [
   'display',
   'position',
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'z-index',
   'width',
   'height',
+  'min-width',
+  'max-width',
+  'min-height',
+  'max-height',
+  'aspect-ratio',
   'margin',
   'padding',
-  'gap',
   'flex-direction',
+  'flex-wrap',
+  'flex',
   'align-items',
   'justify-content',
+  'gap',
   'grid-template-columns',
-  'color',
-  'background-color',
-  'background-image',
+  'grid-template-rows',
   'font-family',
   'font-size',
   'font-weight',
+  'font-style',
   'line-height',
   'letter-spacing',
   'text-align',
   'text-transform',
-  'border',
+  'text-decoration-line',
+  'white-space',
+  'color',
+  'background-color',
+  'background-image',
+  'border-width',
+  'border-style',
+  'border-color',
   'border-radius',
   'box-shadow',
+  'outline',
   'opacity',
+  'transform',
+  'transition',
   'overflow',
-  'z-index',
-])
+  'object-fit',
+  'cursor',
+]
+/** Computed styles come back as longhands; these fold back into their shorthand. */
+const BOX_SHORTHANDS: Record<string, string[]> = {
+  margin: ['margin-top', 'margin-right', 'margin-bottom', 'margin-left'],
+  padding: ['padding-top', 'padding-right', 'padding-bottom', 'padding-left'],
+  'border-width': [
+    'border-top-width',
+    'border-right-width',
+    'border-bottom-width',
+    'border-left-width',
+  ],
+  'border-style': [
+    'border-top-style',
+    'border-right-style',
+    'border-bottom-style',
+    'border-left-style',
+  ],
+  'border-color': [
+    'border-top-color',
+    'border-right-color',
+    'border-bottom-color',
+    'border-left-color',
+  ],
+  'border-radius': [
+    'border-top-left-radius',
+    'border-top-right-radius',
+    'border-bottom-right-radius',
+    'border-bottom-left-radius',
+  ],
+}
 const DEFAULT_STYLE_VALUES = new Set([
   '',
   'none',
@@ -55,6 +107,17 @@ const DEFAULT_STYLE_VALUES = new Set([
   'static',
   'visible',
 ])
+/** Initial values that are only noise for one specific property. */
+const PROPERTY_DEFAULTS: Record<string, string[]> = {
+  'flex-direction': ['row'],
+  'flex-wrap': ['nowrap'],
+  flex: ['0 1 auto'],
+  'text-align': ['start'],
+  opacity: ['1'],
+  'object-fit': ['fill'],
+  transition: ['all', 'all 0s ease 0s'],
+  cursor: ['default'],
+}
 const MAX_HTML = 4000
 const REACT_TIMEOUT_MS = 4000
 
@@ -167,6 +230,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     backendNodeId: number,
     projectRoot: string,
     devOrigin: string | null,
+    options: { screenshot?: boolean } = {},
   ): Promise<ElementContext> {
     await this.ready()
     const [described, outer, rect, viewport, styles, react] = await Promise.all([
@@ -188,7 +252,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     const html = outer.outerHTML
     const [source, screenshot] = await Promise.all([
       locateSource(react, projectRoot, devOrigin),
-      this.capture(rect, viewport),
+      options.screenshot === false ? null : this.capture(rect, viewport),
     ])
 
     return {
@@ -206,6 +270,12 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       source,
       screenshot,
     }
+  }
+
+  /** Raw CDP access for the agent's preview tools; shares this debugger session. */
+  async command<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+    await this.ready()
+    return this.cmd<T>(method, params)
   }
 
   dispose() {
@@ -246,11 +316,20 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     const { computedStyle } = await this.cmd<{
       computedStyle: { name: string; value: string }[]
     }>('CSS.getComputedStyleForNode', { nodeId: nodeIds[0] })
+    const computed = new Map(computedStyle.map(({ name, value }) => [name, value]))
+    for (const [shorthand, longhands] of Object.entries(BOX_SHORTHANDS)) {
+      const values = longhands.map((name) => computed.get(name) ?? '')
+      if (values.some((value) => !value)) continue
+      computed.set(shorthand, collapseBox(values))
+    }
+    const borderless = computed.get('border-style') === 'none'
     const styles: Record<string, string> = {}
-    for (const { name, value } of computedStyle) {
-      if (STYLE_KEYS.has(name) && !DEFAULT_STYLE_VALUES.has(value)) {
-        styles[name] = value.length > 200 ? `${value.slice(0, 200)}…` : value
-      }
+    for (const name of STYLE_KEYS) {
+      const value = computed.get(name) ?? ''
+      if (DEFAULT_STYLE_VALUES.has(value) || PROPERTY_DEFAULTS[name]?.includes(value)) continue
+      if (name === 'outline' && /\snone\s/.test(` ${value} `)) continue
+      if (borderless && name.startsWith('border-') && name !== 'border-radius') continue
+      styles[name] = value.length > 200 ? `${value.slice(0, 200)}…` : value
     }
     return styles
   }
@@ -304,6 +383,15 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   private cmd<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
     return this.dbg.sendCommand(method, params) as Promise<T>
   }
+}
+
+/** Writes four box values the way a person would: `8px`, `8px 16px`, `8px 16px 4px`. */
+function collapseBox([top, right, bottom, left]: string[]) {
+  if (right === left) {
+    if (top === bottom) return top === right ? top : `${top} ${right}`
+    return `${top} ${right} ${bottom}`
+  }
+  return `${top} ${right} ${bottom} ${left}`
 }
 
 const COMPONENT_NAME = /^[A-Za-z_$][\w$.]{0,79}$/

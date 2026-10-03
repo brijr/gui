@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Main executable (Grat.app/Contents/MacOS/Grat), signed with the hardened runtime. The agent
+  adapters run as this same executable via ELECTRON_RUN_AS_NODE, so this applies to them too.
+
+  Deliberately absent:
+  - allow-unsigned-executable-memory: V8 only needs MAP_JIT pages (allow-jit).
+  - disable-library-validation: everything loaded in-process (Electron Framework, node-pty's
+    pty.node) is re-signed with our Team ID. The Claude/Codex CLIs keep their vendor
+    signatures (mac.signIgnore) but are exec'd, never loaded, so library validation doesn't
+    apply to them. Only an ad-hoc *hardened* build (identity "-") would need it.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- V8 JIT in the main process and in the RunAsNode agent adapter processes. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>

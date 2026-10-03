@@ -5,6 +5,7 @@ import {
   Circle,
   CircleDot,
   Crosshair,
+  Eye,
   FilePen,
   FileText,
   Globe,
@@ -174,6 +175,7 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   execute: SquareTerminal,
   fetch: Globe,
   think: Brain,
+  preview: Eye,
 }
 
 function ToolGroup({ tools }: { tools: ToolItem[] }) {

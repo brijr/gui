@@ -13,6 +13,7 @@ import {
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
 import { AGENTS, type AgentId, type Rect, type Viewport } from '../shared/types'
+import { agentHealth } from './agent-status'
 import { loadRecent } from './recent'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
@@ -118,6 +119,11 @@ function registerIpc() {
     if (isString(turnId)) return windowFor(event)?.restoreTurn(turnId)
   })
   ipcMain.handle(Invoke.redo, (event) => windowFor(event)?.redo())
+  ipcMain.handle(Invoke.fixProblems, (event) => windowFor(event)?.fixProblems() ?? false)
+  ipcMain.handle(Invoke.signIn, async (_event, agentId: unknown) => {
+    const agent = AGENTS.find((a) => a.id === agentId)
+    if (agent) await agentHealth.signIn(agent.id)
+  })
 
   const on = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
@@ -141,6 +147,7 @@ function registerIpc() {
     const agent = AGENTS.find((a) => a.id === agentId)
     if (agent) win.setAgent(agent.id)
   })
+  on(Send.checkAgents, () => agentHealth.checkAll())
   on(Send.navigate, (win, url) => isString(url) && win.navigate(url))
   on(Send.back, (win) => win.back())
   on(Send.forward, (win) => win.forward())
@@ -164,6 +171,7 @@ function registerIpc() {
   on(Send.newSession, (win) => win.newChat())
   on(Send.clearSelection, (win) => win.clearSelection())
   on(Send.setMinimized, (win, minimized) => win.setMinimized(minimized === true))
+  on(Send.toggleDock, (win) => win.toggleDock())
   on(Send.dragChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.dragChat(dx, dy))
   on(Send.endDragChat, (win) => win.endDragChat())
 }
@@ -251,6 +259,11 @@ function buildMenu() {
           click: withWindow((w) => w.toggleChat()),
         },
         {
+          label: 'Dock Chat',
+          accelerator: 'CmdOrCtrl+Shift+D',
+          click: withWindow((w) => w.toggleDock()),
+        },
+        {
           label: 'Toggle Logs',
           accelerator: 'CmdOrCtrl+Shift+L',
           click: withWindow((w) => w.setLogsOpen(!w.getState().logsOpen)),
@@ -317,6 +330,8 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
   const win = createWindow()
+  // Know up front whether each agent is ready or needs sign-in; costs no usage.
+  agentHealth.checkAll()
   const initial = process.env.GRAT_OPEN
   if (initial) openSafely(win, resolve(initial))
 })

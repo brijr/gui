@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { isAbsolute, relative, resolve as resolvePath } from 'node:path'
-import type { RequestPermissionRequest, SessionNotification } from '@agentclientprotocol/sdk'
+import type {
+  McpServer,
+  RequestPermissionRequest,
+  SessionNotification,
+} from '@agentclientprotocol/sdk'
 import {
   AGENTS,
   type AgentId,
   type ChatMeta,
   type ChatSnapshot,
   type ElementContext,
+  type Problem,
   type ToolStatus,
   type Turn,
   type TurnItem,
@@ -15,6 +20,8 @@ import {
 } from '../shared/types'
 import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
 import type { Checkpoints } from './checkpoints'
+import { type SavedChat, saveHistory } from './history'
+import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { buildPrompt } from './prompt'
 
 type SessionUpdate = SessionNotification['update']
@@ -25,6 +32,17 @@ interface ChatEvents {
   reset: [snapshot: ChatSnapshot]
   /** Something needs the user (e.g. a permission prompt) and the panel should be visible. */
   attention: []
+  /** A turn finished in the current session. */
+  turnEnd: [turn: Turn]
+}
+
+export interface ChatOptions {
+  agentId: AgentId
+  docked: boolean
+  saved: SavedChat | null
+  historyFile: string
+  /** Grat's preview tools, offered to every agent session */
+  mcpServers: () => McpServer[]
 }
 
 interface TurnRecord {
@@ -49,7 +67,22 @@ const SENSITIVE_PATH =
   /(^|\/)\.|(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|[^/]*\.lock|[^/]*\.config\.[cm]?[jt]s|tsconfig[^/]*\.json|Dockerfile|Makefile|[^/]*\.(sh|bash|zsh))$|(^|\/)(node_modules|scripts|bin)\//i
 
 const START_TIMEOUT_MS = 60_000
+const PERSIST_DELAY_MS = 400
 const RESET_SETTLE_MS = 5000
+
+/** Readable labels for Grat's own preview tools, which agents report by raw MCP name. */
+const PREVIEW_TOOL_LABELS: Record<string, string> = {
+  preview_screenshot: 'Screenshot the preview',
+  preview_inspect: 'Inspect element',
+  preview_console: 'Check preview errors',
+  preview_navigate: 'Open page in preview',
+  preview_reload: 'Reload preview',
+  dev_server_logs: 'Read dev server logs',
+}
+/** Claude reports `mcp__grat__preview_screenshot`, Codex `mcp.grat.preview_screenshot`. */
+const PREVIEW_TOOL_TITLE = new RegExp(
+  `^(?:mcp(?:__|[.:/]))?${MCP_SERVER_NAME}(?:__|[\\s:./-]+)(${Object.keys(PREVIEW_TOOL_LABELS).join('|')})`,
+)
 
 const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -84,13 +117,19 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private permissions = new Map<string, PermissionResolver>()
   private emitTimers = new Map<string, NodeJS.Timeout>()
   private redoPoint: RedoPoint | null = null
+  /** Current agent session, persisted so the next launch can resume it. */
+  private sessionId: string | null = null
+  private resumeSessionId: string | null = null
+  private persistTimer: NodeJS.Timeout | null = null
 
   constructor(
     private readonly root: string,
     private readonly checkpoints: Checkpoints,
-    agentId: AgentId,
+    private readonly options: ChatOptions,
   ) {
     super()
+    const saved = options.saved
+    const agentId = saved?.agentId ?? options.agentId
     this.meta = {
       agentId,
       agentName: agentName(agentId),
@@ -100,7 +139,22 @@ export class ChatController extends EventEmitter<ChatEvents> {
       selection: null,
       selectionError: null,
       minimized: false,
-      redoTurnIds: [],
+      docked: options.docked,
+      redoTurnIds: saved?.redo?.turnIds ?? [],
+      problems: [],
+    }
+    if (saved) {
+      this.records = saved.turns.map((turn) => ({
+        turn,
+        before: saved.checkpoints[turn.id]?.before ?? null,
+        after: saved.checkpoints[turn.id]?.after ?? null,
+        cancelRequested: false,
+        settled: Promise.resolve(),
+      }))
+      this.redoPoint = saved.redo
+      this.resumeSessionId = saved.sessionId
+      this.sessionId = saved.sessionId
+      this.hadSession = this.records.length > 0
     }
   }
 
@@ -112,6 +166,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (agentId === this.meta.agentId) return
     await this.reset()
     this.patchMeta({ agentId, agentName: agentName(agentId) })
+    this.schedulePersist()
   }
 
   /** Drops the agent process and transcript; the next message starts a fresh session. */
@@ -132,6 +187,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.records = []
     this.redoPoint = null
     this.hadSession = false
+    this.sessionId = null
+    this.resumeSessionId = null
+    this.schedulePersist()
     if (this.lock === token) this.lock = null
     this.patchMeta({ status: 'idle', error: null, modeName: null, redoTurnIds: [] })
     this.emit('reset', this.snapshot())
@@ -147,6 +205,20 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setMinimized(minimized: boolean) {
     this.patchMeta({ minimized })
+  }
+
+  setDocked(docked: boolean) {
+    this.patchMeta({ docked, minimized: false })
+  }
+
+  setProblems(problems: Problem[]) {
+    this.patchMeta({ problems })
+  }
+
+  /** Asks the agent to fix what's currently broken; the errors ride along in the prompt. */
+  fixProblems() {
+    if (this.meta.problems.length === 0) return false
+    return this.send('The preview has errors. Find the cause and fix them.')
   }
 
   /** Starts a turn. Returns false (and does nothing) when another operation is in progress. */
@@ -236,6 +308,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         this.flushTurn(r)
       }
       this.patchMeta({ redoTurnIds: this.redoPoint.turnIds })
+      this.schedulePersist()
       await this.checkpoints.restore(record.before, paths)
     } finally {
       if (this.lock === token) this.lock = null
@@ -257,6 +330,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
       this.redoPoint = null
       this.patchMeta({ redoTurnIds: [] })
+      this.schedulePersist()
     } finally {
       if (this.lock === token) this.lock = null
     }
@@ -264,6 +338,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   dispose() {
     this.epoch++
+    this.persistNow()
     for (const timer of this.emitTimers.values()) clearTimeout(timer)
     this.emitTimers.clear()
     for (const resolve of this.permissions.values()) resolve(null)
@@ -293,6 +368,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const blocks = buildPrompt({
         text: record.turn.prompt,
         selection,
+        problems: this.meta.problems,
         preamble: this.primedAgent !== agent,
         images: info.supportsImages,
       })
@@ -332,7 +408,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (this.active === record) this.active = null
       if (this.lock === record) this.lock = null
       this.flushTurn(record)
-      if (live() && this.meta.status === 'working') this.patchMeta({ status: 'ready' })
+      if (live()) {
+        if (this.meta.status === 'working') this.patchMeta({ status: 'ready' })
+        this.emit('turnEnd', record.turn)
+      }
     }
   }
 
@@ -348,15 +427,21 @@ export class ChatController extends EventEmitter<ChatEvents> {
     })
     this.agent = agent
     try {
+      const resumeSessionId = this.resumeSessionId
+      this.resumeSessionId = null
       const info = await withTimeout(
-        agent.start(),
+        agent.start({ mcpServers: this.options.mcpServers(), resumeSessionId }),
         START_TIMEOUT_MS,
         `${name} didn't start within a minute. Check that it's installed and signed in.`,
       )
       if (this.agent !== agent) throw new Error(`${name} was stopped while starting.`)
       this.agentInfo = info
+      this.sessionId = info.sessionId
+      this.schedulePersist()
       this.patchMeta({ status: 'ready', modeName: info.modeName })
-      if (this.hadSession) {
+      // A resumed session already has the instructions and remembers earlier turns.
+      if (info.resumed) this.primedAgent = agent
+      else if (this.hadSession) {
         this.pushItem(record, {
           kind: 'notice',
           id: randomUUID(),
@@ -408,11 +493,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
         break
       }
       case 'tool_call': {
+        const preview = update.title.match(PREVIEW_TOOL_TITLE)?.[1]
         items.push({
           kind: 'tool',
           id: update.toolCallId,
-          title: this.relativize(update.title),
-          toolKind: update.kind ?? 'other',
+          title: preview ? PREVIEW_TOOL_LABELS[preview] : this.relativize(update.title),
+          toolKind: preview ? 'preview' : (update.kind ?? 'other'),
           status: update.status ?? 'pending',
           locations: (update.locations ?? []).map((l) => this.displayPath(l.path, l.line)),
         })
@@ -421,8 +507,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       case 'tool_call_update': {
         const item = items.find((i) => i.kind === 'tool' && i.id === update.toolCallId)
         if (item?.kind !== 'tool') break
-        if (update.title) item.title = this.relativize(update.title)
-        if (update.kind) item.toolKind = update.kind
+        if (update.title && item.toolKind !== 'preview') item.title = this.relativize(update.title)
+        if (update.kind && item.toolKind !== 'preview') item.toolKind = update.kind
         if (update.status) item.status = update.status as ToolStatus
         if (update.locations) {
           item.locations = update.locations.map((l) => this.displayPath(l.path, l.line))
@@ -457,9 +543,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolve(null)
       return
     }
-    const autoApprove = this.isRoutineEdit(request)
-      ? request.options.find((option) => option.kind === 'allow_once')
-      : undefined
+    const autoApprove =
+      this.isRoutineEdit(request) || this.isPreviewTool(request)
+        ? request.options.find((option) => option.kind === 'allow_once')
+        : undefined
     if (autoApprove) {
       resolve(autoApprove.optionId)
       return
@@ -486,6 +573,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const rel = relative(this.root, resolvePath(this.root, path))
       return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !SENSITIVE_PATH.test(rel)
     })
+  }
+
+  /** Grat's own preview tools only look at (or navigate) the preview. */
+  private isPreviewTool(request: RequestPermissionRequest) {
+    // Agents name MCP tools like `mcp__grat__preview_screenshot`; `_` is a word
+    // character, so match names as substrings rather than with \b.
+    const label = `${request.toolCall.name ?? ''} ${request.toolCall.title ?? ''}`
+    return (
+      label.includes(MCP_SERVER_NAME) && PREVIEW_TOOL_NAMES.some((name) => label.includes(name))
+    )
   }
 
   private resolvePendingPermissions(record: TurnRecord) {
@@ -552,7 +649,32 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (timer) clearTimeout(timer)
     this.emitTimers.delete(record.turn.id)
     // Turns from a session that was reset since are no longer part of the transcript.
-    if (this.records.includes(record)) this.emit('turn', record.turn)
+    if (!this.records.includes(record)) return
+    this.emit('turn', record.turn)
+    this.schedulePersist()
+  }
+
+  private schedulePersist() {
+    this.persistTimer ??= setTimeout(() => this.persistNow(), PERSIST_DELAY_MS)
+  }
+
+  private persistNow() {
+    if (this.persistTimer) clearTimeout(this.persistTimer)
+    this.persistTimer = null
+    const checkpoints: SavedChat['checkpoints'] = {}
+    for (const { turn, before, after } of this.records) checkpoints[turn.id] = { before, after }
+    try {
+      saveHistory(this.options.historyFile, {
+        version: 1,
+        agentId: this.meta.agentId,
+        sessionId: this.sessionId,
+        turns: this.records.map((r) => r.turn),
+        checkpoints,
+        redo: this.redoPoint,
+      })
+    } catch (error) {
+      console.error('[grat] failed to save chat history', error)
+    }
   }
 
   private patchMeta(patch: Partial<ChatMeta>) {

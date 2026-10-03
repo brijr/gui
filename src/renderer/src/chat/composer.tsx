@@ -1,4 +1,4 @@
-import { ArrowUp, Crosshair, Square, X } from 'lucide-react'
+import { ArrowUp, Crosshair, Square, TriangleAlert, X } from 'lucide-react'
 import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMeta } from '../../../shared/types'
 import { grat } from '../lib/api'
@@ -31,6 +31,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   return (
     <form onSubmit={(event) => void submit(event)} className="shrink-0 border-t border-line p-2">
       <AgentStatus meta={meta} />
+      {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
       {meta.selectionError && (
         <p className="mb-2 select-text px-1 text-[12px] text-danger">{meta.selectionError}</p>
       )}
@@ -94,6 +95,34 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         </div>
       </div>
     </form>
+  )
+}
+
+function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
+  const count = meta.problems.length
+  const latest = meta.problems.at(-1)
+  return (
+    <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface py-1.5 pr-1.5 pl-2.5">
+      <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-medium">
+          {count === 1 ? '1 error' : `${count} errors`} in the preview
+        </p>
+        {latest && (
+          <p className="truncate font-mono text-[10.5px] text-subtle" title={latest.message}>
+            {latest.message.split('\n')[0]}
+          </p>
+        )}
+      </div>
+      <button
+        type="button"
+        disabled={running}
+        onClick={() => void grat.fixProblems()}
+        className="h-7 shrink-0 rounded-md border border-line-strong bg-raised px-2.5 text-[12px] font-medium hover:bg-hover disabled:opacity-40"
+      >
+        Fix
+      </button>
+    </div>
   )
 }
 

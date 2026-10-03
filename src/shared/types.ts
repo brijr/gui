@@ -10,6 +10,14 @@ export const AGENTS: readonly AgentInfo[] = [
   { id: 'codex', name: 'Codex' },
 ]
 
+export interface AgentHealth {
+  id: AgentId
+  status: 'unknown' | 'checking' | 'signing-in' | 'ready' | 'signed-out' | 'error'
+  message: string | null
+  /** A sign-in flow Grat can start for this agent, when it offers one */
+  signIn: { methodId: string; label: string } | null
+}
+
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm'
 
 export interface ProjectInfo {
@@ -60,6 +68,7 @@ export interface WindowState {
   chatVisible: boolean
   logsOpen: boolean
   recent: RecentProject[]
+  agents: AgentHealth[]
 }
 
 export interface Rect {
@@ -95,6 +104,13 @@ export interface ElementContext {
   screenshot: string | null
 }
 
+export interface Problem {
+  id: string
+  source: 'console' | 'server'
+  message: string
+  at: number
+}
+
 export type AgentStatus = 'idle' | 'starting' | 'ready' | 'working' | 'error'
 
 export interface ChatMeta {
@@ -107,8 +123,12 @@ export interface ChatMeta {
   /** Why the last element pick failed, shown until the next pick */
   selectionError: string | null
   minimized: boolean
+  /** Docked to the right edge of the canvas instead of floating over the preview */
+  docked: boolean
   /** Turns the pending redo would bring back; empty when there's nothing to redo */
   redoTurnIds: string[]
+  /** Current errors in the preview and dev server */
+  problems: Problem[]
 }
 
 export type ToolStatus = 'pending' | 'in_progress' | 'completed' | 'failed'

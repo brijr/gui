@@ -22,10 +22,16 @@ import {
   type Viewport,
   type WindowState,
 } from '../shared/types'
+import { agentHealth } from './agent-status'
 import { ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
+import { historyFile, loadHistory } from './history'
 import { Inspector } from './inspector'
+import { type RunningMcpServer, startMcpServer } from './mcp-server'
+import { getPrefs, setPrefs } from './prefs'
+import { PreviewTools } from './preview-tools'
+import { Problems } from './problems'
 import { detectProject } from './project'
 import { addRecent, loadRecent } from './recent'
 import { getShellEnv } from './shell-env'
@@ -34,6 +40,9 @@ import { isTrusted, trust } from './trust'
 const TOOLBAR_HEIGHT = 44
 const PANEL = { width: 400, height: 640 }
 const MINI = { width: 248, height: 52 }
+const DOCK_WIDTH = 400
+/** Wait for hot reload to apply before re-finding the element a turn edited. */
+const REHIGHLIGHT_DELAY_MS = 900
 /** Transparent margin around the floating panel so its shadow isn't clipped. */
 const SHADOW = 18
 const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobile: 390 }
@@ -87,6 +96,10 @@ export class ProjectWindow {
   private state: WindowState
   private devServer: DevServer | null = null
   private chat: ChatController | null = null
+  private mcp: RunningMcpServer | null = null
+  private readonly problems = new Problems()
+  /** Selection shown in the chat last time meta changed, to clear the highlight only when it goes away. */
+  private shownSelectionId: string | null = null
   private canvas: Rect = { x: 0, y: 0, width: 0, height: 0 }
   /** Panel position, anchored to the window's right edge so it tracks resizes. */
   private anchor = { fromRight: 12, top: TOOLBAR_HEIGHT + 4 }
@@ -112,10 +125,11 @@ export class ProjectWindow {
         selectable: false,
         visible: false,
       },
-      agentId: 'claude',
+      agentId: getPrefs().agentId,
       chatVisible: true,
       logsOpen: false,
       recent: [],
+      agents: agentHealth.list(),
     }
 
     this.win = new BrowserWindow({
@@ -155,6 +169,8 @@ export class ProjectWindow {
     this.inspector = new Inspector(this.preview.webContents)
     this.inspector.on('pick', (nodeId) => void this.onPick(nodeId))
     this.inspector.on('cancel', () => this.patchPreview({ selecting: false }))
+    this.problems.on('change', (problems) => this.chat?.setProblems(problems))
+    agentHealth.on('change', this.onAgentHealth)
 
     this.bindPreview()
     guardAppContents(this.win.webContents)
@@ -198,7 +214,9 @@ export class ProjectWindow {
         selection: null,
         selectionError: null,
         minimized: false,
+        docked: getPrefs().chatDocked,
         redoTurnIds: [],
+        problems: [],
       },
       turns: [],
     }
@@ -220,24 +238,69 @@ export class ProjectWindow {
     this.closeProject()
     const current = () => !this.disposed && generation === this.openGeneration
     try {
-      const [project, env] = await Promise.all([detectProject(root), getShellEnv()])
+      const file = await historyFile(root)
+      const [project, env, saved] = await Promise.all([
+        detectProject(root),
+        getShellEnv(),
+        loadHistory(file),
+      ])
       if (!current()) return
 
+      const tools = new PreviewTools({
+        wc: this.preview.webContents,
+        inspector: this.inspector,
+        problems: this.problems,
+        projectRoot: () => this.state.project?.root ?? null,
+        devOrigin: () => this.devOrigin(),
+        currentUrl: () => this.state.preview.url,
+        navigate: (url) => this.loadPreview(url),
+        logs: () => this.getLogs(),
+      })
+      const mcp = await startMcpServer(tools).catch((error: unknown) => {
+        console.error('[grat] preview tools unavailable', error)
+        return null
+      })
+      if (!current()) {
+        mcp?.close()
+        return
+      }
+      this.mcp = mcp
+
       const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env)
-      const chat = new ChatController(root, checkpoints, this.state.agentId)
+      const chat = new ChatController(root, checkpoints, {
+        agentId: this.state.agentId,
+        docked: getPrefs().chatDocked,
+        saved,
+        historyFile: file,
+        mcpServers: () => (this.mcp ? [this.mcp.config] : []),
+      })
       chat.on('meta', (meta) => {
         this.sendChat(Events.chatMeta, meta)
-        if (!meta.selection) void this.inspector.clearHighlight()
+        // Clear the pick highlight only when the selection goes away (sent or removed).
+        const selectionId = meta.selection?.id ?? null
+        if (this.shownSelectionId && !selectionId) void this.inspector.clearHighlight()
+        this.shownSelectionId = selectionId
+        if (meta.agentId !== this.state.agentId) this.patch({ agentId: meta.agentId })
         this.layout()
       })
       chat.on('turn', (turn) => this.sendChat(Events.chatTurn, turn))
       chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
       chat.on('attention', () => this.focusChat())
+      chat.on('turnEnd', (turn) => {
+        if (turn.status === 'done' && turn.context && turn.changes?.length) {
+          setTimeout(
+            () => void this.highlightSelector(turn.context?.selector),
+            REHIGHLIGHT_DELAY_MS,
+          )
+        }
+      })
       this.chat = chat
+      this.patch({ agentId: chat.meta.agentId })
       this.sendChat(Events.chatReset, chat.snapshot())
 
       const devServer = new DevServer(root)
       devServer.on('data', (chunk) => this.send(Events.logs, chunk))
+      devServer.on('line', (line) => this.problems.addServerLine(line))
       devServer.on('change', (state) => this.onDevServer(state))
       devServer.on('stalled', () => this.patch({ logsOpen: true }))
       this.devServer = devServer
@@ -280,6 +343,9 @@ export class ProjectWindow {
     this.devServer = null
     this.chat?.dispose()
     this.chat = null
+    this.mcp?.close()
+    this.mcp = null
+    this.problems.clear()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
     this.preview.webContents.loadURL('about:blank').catch(() => undefined)
@@ -384,7 +450,14 @@ export class ProjectWindow {
     wc.on('dom-ready', () => {
       if (wc.getURL() !== 'about:blank') this.patchPreview({ visible: true, error: null })
     })
-    wc.on('did-navigate', (_event, url) => this.onNavigated(url))
+    wc.on('did-navigate', (_event, url) => {
+      this.problems.clearConsole()
+      this.onNavigated(url)
+    })
+    wc.on('console-message', (event) => {
+      const where = event.sourceId ? `${event.sourceId}:${event.lineNumber}` : ''
+      this.problems.addConsole(event.level, event.message, where)
+    })
     wc.on('did-navigate-in-page', (_event, url, isMainFrame) => {
       if (isMainFrame) this.onNavigated(url)
     })
@@ -465,6 +538,7 @@ export class ProjectWindow {
       chat.setSelection(element)
       await this.inspector.highlight(nodeId)
       this.focusChat()
+      this.dodge(element.rect)
     } catch (error) {
       if (generation !== this.pickGeneration || chat !== this.chat) return
       const message = error instanceof Error ? error.message : String(error)
@@ -508,8 +582,47 @@ export class ProjectWindow {
   }
 
   setAgent(agentId: AgentId) {
+    setPrefs({ agentId })
     this.patch({ agentId })
     void this.chat?.setAgent(agentId)
+  }
+
+  toggleDock() {
+    if (!this.chat) return
+    const docked = !this.chat.meta.docked
+    setPrefs({ chatDocked: docked })
+    this.chat.setDocked(docked)
+    if (!this.state.chatVisible) this.patch({ chatVisible: true })
+    this.layout()
+  }
+
+  fixProblems() {
+    const sent = this.chat?.fixProblems() ?? false
+    if (sent) this.focusChat()
+    return sent
+  }
+
+  /** Re-finds an element after hot reload (its old node is gone) and highlights it. */
+  private async highlightSelector(selector: string | undefined) {
+    if (!selector || !this.state.preview.visible || this.chat?.meta.selection) return
+    try {
+      const { root } = await this.inspector.command<{ root: { nodeId: number } }>(
+        'DOM.getDocument',
+        { depth: 0 },
+      )
+      const { nodeId } = await this.inspector.command<{ nodeId: number }>('DOM.querySelector', {
+        nodeId: root.nodeId,
+        selector,
+      })
+      if (!nodeId) return
+      const { node } = await this.inspector.command<{ node: { backendNodeId: number } }>(
+        'DOM.describeNode',
+        { nodeId },
+      )
+      await this.inspector.highlight(node.backendNodeId)
+    } catch {
+      // The element may legitimately be gone after the edit.
+    }
   }
 
   toggleChat() {
@@ -552,24 +665,37 @@ export class ProjectWindow {
   private layout() {
     if (this.disposed) return
     const [contentWidth, contentHeight] = this.win.getContentSize()
+    const showChat = this.state.chatVisible && this.hasProject
+    const docked = showChat && (this.chat?.meta.docked ?? false)
 
+    // A docked panel takes a column on the right; the preview gets what's left.
+    const area = docked
+      ? { ...this.canvas, width: Math.max(0, this.canvas.width - DOCK_WIDTH) }
+      : this.canvas
     const preview = this.state.preview
     const maxWidth = VIEWPORT_WIDTH[preview.viewport]
-    const width =
-      maxWidth > 0 ? Math.min(maxWidth, this.canvas.width - 24) : Math.max(0, this.canvas.width)
-    const x = this.canvas.x + Math.round((this.canvas.width - width) / 2)
+    const width = maxWidth > 0 ? Math.min(maxWidth, area.width - 24) : Math.max(0, area.width)
+    const x = area.x + Math.round((area.width - width) / 2)
     const inset = maxWidth > 0 ? 12 : 0
     this.preview.setBounds({
       x: Math.round(x),
-      y: Math.round(this.canvas.y + inset),
+      y: Math.round(area.y + inset),
       width: Math.max(0, Math.round(width)),
-      height: Math.max(0, Math.round(this.canvas.height - inset * 2)),
+      height: Math.max(0, Math.round(area.height - inset * 2)),
     })
-    this.preview.setVisible(preview.visible && this.canvas.width > 0)
+    this.preview.setVisible(preview.visible && area.width > 0)
 
-    const showChat = this.state.chatVisible && this.hasProject
     this.chatView.setVisible(showChat)
     if (!showChat) return
+    if (docked) {
+      this.chatView.setBounds({
+        x: Math.round(this.canvas.x + this.canvas.width - DOCK_WIDTH),
+        y: Math.round(this.canvas.y),
+        width: DOCK_WIDTH,
+        height: Math.max(0, Math.round(this.canvas.height)),
+      })
+      return
+    }
     const minimized = this.chat?.meta.minimized ?? false
     const panel = minimized
       ? MINI
@@ -588,6 +714,40 @@ export class ProjectWindow {
       width: viewWidth,
       height: viewHeight,
     })
+  }
+
+  /** Moves the floating panel to the other side if it covers the element just picked. */
+  private dodge(rect: Rect) {
+    if (!this.chat || this.chat.meta.docked || !this.state.chatVisible) return
+    const previewBounds = this.preview.getBounds()
+    const element = {
+      x: previewBounds.x + rect.x,
+      y: previewBounds.y + rect.y,
+      width: rect.width,
+      height: rect.height,
+    }
+    const view = this.chatView.getBounds()
+    const panel = {
+      x: view.x + SHADOW,
+      y: view.y + SHADOW,
+      width: view.width - SHADOW * 2,
+      height: view.height - SHADOW * 2,
+    }
+    const overlaps =
+      element.x < panel.x + panel.width &&
+      element.x + element.width > panel.x &&
+      element.y < panel.y + panel.height &&
+      element.y + element.height > panel.y
+    if (!overlaps) return
+    const [contentWidth] = this.win.getContentSize()
+    const elementCenter = element.x + element.width / 2
+    const margin = 12 - SHADOW
+    // Put the panel against whichever edge is farther from the element.
+    this.anchor.fromRight =
+      elementCenter > contentWidth / 2
+        ? contentWidth - view.width - (this.canvas.x + margin)
+        : margin
+    this.layout()
   }
 
   // Native menus
@@ -622,14 +782,22 @@ export class ProjectWindow {
 
   showAgentMenu() {
     const template: MenuItemConstructorOptions[] = [
-      ...AGENTS.map(
-        (agent): MenuItemConstructorOptions => ({
+      ...AGENTS.map((agent): MenuItemConstructorOptions => {
+        const health = this.state.agents.find((h) => h.id === agent.id)
+        const note =
+          health?.status === 'signed-out'
+            ? 'Not signed in'
+            : health?.status === 'error'
+              ? 'Unavailable'
+              : undefined
+        return {
           label: agent.name,
+          sublabel: note,
           type: 'radio',
           checked: agent.id === this.state.agentId,
           click: () => this.setAgent(agent.id),
-        }),
-      ),
+        }
+      }),
       { type: 'separator' },
       { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
     ]
@@ -683,12 +851,16 @@ export class ProjectWindow {
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.send(channel, payload)
   }
 
+  private onAgentHealth = (agents: WindowState['agents']) => this.patch({ agents })
+
   private dispose() {
     if (this.disposed) return
     this.disposed = true
     windows.delete(this)
+    agentHealth.off('change', this.onAgentHealth)
     this.devServer?.dispose()
     this.chat?.dispose()
+    this.mcp?.close()
     this.inspector.dispose()
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()

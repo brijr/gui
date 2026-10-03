@@ -1,4 +1,12 @@
-import { GripHorizontal, Maximize2, Minus, MousePointer2, SquarePen } from 'lucide-react'
+import {
+  GripHorizontal,
+  Maximize2,
+  Minus,
+  MousePointer2,
+  PanelRight,
+  PanelRightClose,
+  SquarePen,
+} from 'lucide-react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from 'react'
 import type { ChatMeta, Turn } from '../../../shared/types'
 import { grat } from '../lib/api'
@@ -17,6 +25,16 @@ export function ChatPanel() {
   if (!meta) return null
 
   const running = turns.some((turn) => turn.status === 'running')
+
+  if (meta.docked) {
+    return (
+      <div className="flex h-dvh flex-col border-l border-line bg-raised">
+        <Header meta={meta} />
+        <Transcript turns={turns} meta={meta} />
+        <Composer meta={meta} running={running} />
+      </div>
+    )
+  }
 
   return (
     <div className="h-dvh p-[18px]">
@@ -89,10 +107,15 @@ function Header({ meta }: { meta: ChatMeta }) {
   const running = meta.status === 'working'
   return (
     <div
-      onPointerDown={onDragStart}
-      className="flex h-10 shrink-0 cursor-grab items-center gap-2 border-b border-line pr-1.5 pl-3 active:cursor-grabbing"
+      onPointerDown={meta.docked ? undefined : onDragStart}
+      className={cn(
+        'flex h-10 shrink-0 items-center gap-2 border-b border-line pr-1.5 pl-3',
+        !meta.docked && 'cursor-grab active:cursor-grabbing',
+      )}
     >
-      <GripHorizontal className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+      {!meta.docked && (
+        <GripHorizontal className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+      )}
       <StatusDot meta={meta} running={running} />
       <span className="truncate font-medium">{meta.agentName}</span>
       {meta.modeName && (
@@ -104,9 +127,21 @@ function Header({ meta }: { meta: ChatMeta }) {
         <IconButton label="New chat (⇧⌘K)" onClick={() => grat.newSession()}>
           <SquarePen className="size-3.5" />
         </IconButton>
-        <IconButton label="Minimize" onClick={() => grat.setMinimized(true)}>
-          <Minus className="size-4" />
+        <IconButton
+          label={meta.docked ? 'Float panel (⇧⌘D)' : 'Dock to the side (⇧⌘D)'}
+          onClick={() => grat.toggleDock()}
+        >
+          {meta.docked ? (
+            <PanelRightClose className="size-3.5" />
+          ) : (
+            <PanelRight className="size-3.5" />
+          )}
         </IconButton>
+        {!meta.docked && (
+          <IconButton label="Minimize" onClick={() => grat.setMinimized(true)}>
+            <Minus className="size-4" />
+          </IconButton>
+        )}
       </div>
     </div>
   )

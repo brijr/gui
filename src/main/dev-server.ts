@@ -32,6 +32,8 @@ export interface DevServerEvents {
   change: [state: DevServerState]
   /** The printed URL never became reachable; worth showing the logs. */
   stalled: []
+  /** One complete line of output, escape codes stripped */
+  line: [line: string]
 }
 
 /** Runs the project's dev script in a real PTY and detects when its URL is reachable. */
@@ -148,6 +150,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const parts = (this.partial + chunk).split(/\r\n|\n|\r/)
     this.partial = (parts.pop() ?? '').slice(-8000)
     const lines = parts.map((line) => stripAnsi(line).trim()).filter(Boolean)
+    for (const line of lines) this.emit('line', line)
     const last = lines.at(-1)
     if (last) this.setLastLine(last)
 

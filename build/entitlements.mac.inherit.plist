@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Everything else osx-sign signs: Electron's helper apps (renderer, GPU, utility) and
+  node-pty's spawn-helper. The Claude and Codex CLIs are excluded from re-signing
+  (mac.signIgnore) and keep their vendor entitlements.
+-->
+<plist version="1.0">
+  <dict>
+    <!-- V8 JIT in renderer processes. -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+  </dict>
+</plist>
