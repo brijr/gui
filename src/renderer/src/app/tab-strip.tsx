@@ -259,7 +259,7 @@ export function TabStrip({ state }: { state: WindowState }) {
           )
         })}
       </div>
-      <IconButton label="New tab (⌘T)" icon={Plus} onClick={() => gui.newTab()} />
+      <IconButton label="New tab" shortcut="newTab" icon={Plus} onClick={() => gui.newTab()} />
     </nav>
   )
 }

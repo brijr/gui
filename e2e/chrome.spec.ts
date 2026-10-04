@@ -122,9 +122,13 @@ test('the start tab shows only the project menu; a project fills the toolbar, wi
   await expect(address(session)).toHaveValue(state.preview.url ?? '')
   const bar = toolbar(session)
   await expect(bar.getByRole('button', { name: 'gui-e2e-vite' })).toBeVisible()
-  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Toggle chat (⌘L)']) {
+  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Toggle chat']) {
     await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
   }
+  // Each names its shortcut in its tooltip, and to assistive tech.
+  const chat = bar.getByRole('button', { name: 'Toggle chat', exact: true })
+  await expect(chat).toHaveAttribute('title', 'Toggle chat (⌘L)')
+  await expect(chat).toHaveAttribute('aria-keyshortcuts', 'Meta+L')
   await expect(bar.getByRole('group', { name: 'Viewport' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'Select', exact: true })).toBeVisible()
   // The agent is switched from the chat's header (and the start screen), not the toolbar.
@@ -154,7 +158,7 @@ test('logs open in the drawer from the status menu and ⌘J; a crash shows a bar
   )
   expect(offered).toEqual(['Restart dev server', 'Stop dev server', 'Show logs', 'Open in browser'])
   await session.shot('logs')
-  await session.chrome.getByRole('button', { name: 'Hide terminal (⌘J)' }).click()
+  await session.chrome.getByRole('button', { name: 'Hide terminal', exact: true }).click()
   await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close')
   await expect(logsTab(session)).toHaveCount(0)
 
@@ -288,7 +292,7 @@ test('⌘L shows the chat with the cursor in its message box, and from there hid
   }
 
   // Hidden (with the toolbar's button): ⌘L shows it, with the cursor in the message box.
-  await toolbar(session).getByRole('button', { name: 'Toggle chat (⌘L)' }).click()
+  await toolbar(session).getByRole('button', { name: 'Toggle chat', exact: true }).click()
   await waitFor(async () => !(await visible()), 'the chat to hide')
   await clickMenu(session, 'Toggle Chat')
   await waitFor(visible, 'the chat to show')

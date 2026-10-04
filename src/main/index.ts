@@ -16,6 +16,12 @@ import {
 } from 'electron'
 import { Invoke, MAX_TERMINAL_INPUT, Send } from '../shared/ipc'
 import {
+  SHORTCUTS,
+  type ShortcutId,
+  type ShortcutSpec,
+  VIEWPORT_SHORTCUTS,
+} from '../shared/shortcuts'
+import {
   type CustomAgentEntry,
   type ImageAttachment,
   isAgentId,
@@ -28,7 +34,6 @@ import {
   type ShipRequest,
   type StorageKind,
   VIEWPORTS,
-  viewportKey,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
@@ -671,19 +676,35 @@ function buildMenu() {
       const win = menuWindow()
       if (win) fn(win)
     }
-  // Safari's other keys for the same commands; they work while hidden from the menu.
-  const alternate = (item: MenuItemConstructorOptions): MenuItemConstructorOptions => ({
-    ...item,
-    visible: false,
-    acceleratorWorksWhenHidden: true,
-  })
+  /**
+   * A shortcut's item, its label and keys from the registry (src/shared/shortcuts.ts), with
+   * its other keys after it: hidden from the menu, they work all the same (Safari's ⇧⌘] for
+   * the next tab).
+   */
+  const item = (
+    id: ShortcutId,
+    options: MenuItemConstructorOptions = {},
+  ): MenuItemConstructorOptions[] => {
+    const { label, accelerator, alternates = [] }: ShortcutSpec = SHORTCUTS[id]
+    const visible = { label, accelerator, ...options }
+    const hidden = alternates.map(
+      (keys): MenuItemConstructorOptions => ({
+        ...visible,
+        id: undefined,
+        accelerator: keys,
+        visible: false,
+        acceleratorWorksWhenHidden: true,
+      }),
+    )
+    return [visible, ...hidden]
+  }
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
       submenu: [
         { role: 'about' },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
+        ...item('settings', { click: () => openSettings() }),
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -697,24 +718,20 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: newTab },
-        { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => createWindow() },
-        {
-          label: 'Open Project…',
-          accelerator: 'CmdOrCtrl+O',
-          click: () => void pickProject(focusedWindow()),
-        },
+        ...item('newTab', { click: newTab }),
+        ...item('newWindow', { click: () => createWindow() }),
+        ...item('openProject', { click: () => void pickProject(focusedWindow()) }),
         { role: 'recentDocuments', submenu: [{ role: 'clearRecentDocuments' }] },
         { type: 'separator' },
-        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: closeTab },
-        { role: 'close', label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W' },
+        ...item('closeTab', { click: closeTab }),
+        ...item('closeWindow', { role: 'close' }),
       ],
     },
     {
       label: 'Edit',
       submenu: [
-        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => void editHistory('undo') },
-        { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: () => void editHistory('redo') },
+        ...item('undo', { click: () => void editHistory('undo') }),
+        ...item('redo', { click: () => void editHistory('redo') }),
         { type: 'separator' },
         { role: 'cut' },
         { role: 'copy' },
@@ -727,51 +744,23 @@ function buildMenu() {
     {
       label: 'View',
       submenu: [
-        {
-          label: 'Select Element',
-          accelerator: 'CmdOrCtrl+Shift+C',
-          click: withWindow((w) => void w.toggleSelect()),
-        },
-        {
-          // Shows the chat and its message box; from the message box, hides it (Cursor's ⌘L).
-          label: 'Toggle Chat',
-          accelerator: 'CmdOrCtrl+L',
-          click: withWindow((w) => void w.toggleChatFocus()),
-        },
-        {
-          label: 'Dock Chat',
-          accelerator: 'CmdOrCtrl+Shift+D',
-          click: withWindow((w) => w.toggleDock()),
-        },
-        {
-          // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
-          label: 'Toggle Terminal',
-          accelerator: 'CmdOrCtrl+J',
-          click: withWindow((w) => w.toggleDrawer()),
-        },
+        ...item('selectElement', { click: withWindow((w) => void w.toggleSelect()) }),
+        // Shows the chat and its message box; from the message box, hides it (Cursor's ⌘L).
+        ...item('toggleChat', { click: withWindow((w) => void w.toggleChatFocus()) }),
+        ...item('dockChat', { click: withWindow((w) => w.toggleDock()) }),
+        // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
+        ...item('toggleTerminal', { click: withWindow((w) => w.toggleDrawer()) }),
         { type: 'separator' },
-        {
-          label: 'Reload Preview',
-          accelerator: 'CmdOrCtrl+R',
-          click: withWindow((w) => w.reload()),
-        },
-        { label: 'Back', accelerator: 'CmdOrCtrl+[', click: withWindow((w) => w.back()) },
-        { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: withWindow((w) => w.forward()) },
+        ...item('reload', { click: withWindow((w) => w.reload()) }),
+        ...item('back', { click: withWindow((w) => w.back()) }),
+        ...item('forward', { click: withWindow((w) => w.forward()) }),
         { type: 'separator' },
-        ...VIEWPORTS.map(
-          ({ id, name }): MenuItemConstructorOptions => ({
-            label: `${name} Viewport`,
-            accelerator: `CmdOrCtrl+${viewportKey(id)}`,
-            click: withWindow((w) => w.setViewport(id)),
-          }),
+        ...VIEWPORTS.flatMap(({ id }) =>
+          item(VIEWPORT_SHORTCUTS[id], { click: withWindow((w) => w.setViewport(id)) }),
         ),
         { type: 'separator' },
-        {
-          label: 'Preview Developer Tools',
-          accelerator: 'Alt+CmdOrCtrl+I',
-          click: withWindow((w) => w.toggleDevTools()),
-        },
-        { role: 'toggleDevTools', label: 'App Developer Tools', accelerator: 'Alt+CmdOrCtrl+J' },
+        ...item('previewDevTools', { click: withWindow((w) => w.toggleDevTools()) }),
+        ...item('appDevTools', { role: 'toggleDevTools' }),
       ],
     },
     {
@@ -785,20 +774,10 @@ function buildMenu() {
           () => openSettings('agents'),
         ),
         { type: 'separator' },
-        {
-          label: 'New Chat',
-          accelerator: 'CmdOrCtrl+Shift+K',
-          click: withWindow((w) => w.newChat()),
-        },
-        { label: 'Stop', accelerator: 'CmdOrCtrl+.', click: withWindow((w) => w.cancelChat()) },
+        ...item('newChat', { click: withWindow((w) => w.newChat()) }),
+        ...item('stop', { click: withWindow((w) => w.cancelChat()) }),
         { type: 'separator' },
-        {
-          id: AUTO_MODE_ITEM,
-          label: 'Auto Mode',
-          type: 'checkbox',
-          accelerator: 'Shift+CmdOrCtrl+A',
-          click: toggleAutoMode,
-        },
+        ...item('autoMode', { id: AUTO_MODE_ITEM, type: 'checkbox', click: toggleAutoMode }),
       ],
     },
     {
@@ -808,26 +787,8 @@ function buildMenu() {
         { role: 'minimize' },
         { role: 'zoom' },
         { type: 'separator' },
-        {
-          label: 'Show Previous Tab',
-          accelerator: 'Ctrl+Shift+Tab',
-          click: withTabs((w) => w.showAdjacentTab(-1)),
-        },
-        {
-          label: 'Show Next Tab',
-          accelerator: 'Ctrl+Tab',
-          click: withTabs((w) => w.showAdjacentTab(1)),
-        },
-        alternate({
-          label: 'Show Previous Tab',
-          accelerator: 'Shift+CmdOrCtrl+[',
-          click: withTabs((w) => w.showAdjacentTab(-1)),
-        }),
-        alternate({
-          label: 'Show Next Tab',
-          accelerator: 'Shift+CmdOrCtrl+]',
-          click: withTabs((w) => w.showAdjacentTab(1)),
-        }),
+        ...item('previousTab', { click: withTabs((w) => w.showAdjacentTab(-1)) }),
+        ...item('nextTab', { click: withTabs((w) => w.showAdjacentTab(1)) }),
         {
           id: MOVE_TAB_ITEM,
           label: 'Move Tab to New Window',

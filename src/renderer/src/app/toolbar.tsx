@@ -16,7 +16,8 @@ import {
 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
-import { VIEWPORTS, type Viewport, viewportKey, type WindowState } from '../../../shared/types'
+import { VIEWPORT_SHORTCUTS } from '../../../shared/shortcuts'
+import { VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { Input } from '../lib/field'
 import { StatusDot } from '../lib/status'
@@ -29,15 +30,15 @@ const VIEWPORT_ICONS: Record<Viewport, LucideIcon> = {
   tablet: Tablet,
   mobile: Smartphone,
 }
-/** Named with their shortcut, like the View menu's items; the tooltip adds the size. */
+/** Named like the View menu's items, with their shortcut; the tooltip adds the size. */
 const VIEWPORT_SEGMENTS = VIEWPORTS.map(({ id, name, size }) => {
-  const key = `⌘${viewportKey(id)}`
   const detail = size ? `${size.width} × ${size.height}` : 'fills the window'
   return {
     value: id,
-    label: `${name} (${key})`,
-    title: `${name} · ${detail} (${key})`,
+    label: name,
+    title: `${name} · ${detail}`,
     icon: VIEWPORT_ICONS[id],
+    shortcut: VIEWPORT_SHORTCUTS[id],
   }
 })
 const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached' } as const
@@ -68,18 +69,21 @@ export function Toolbar({ state }: { state: WindowState }) {
           <div className="flex items-center gap-0.5">
             <IconButton
               label="Back"
+              shortcut="back"
               icon={ArrowLeft}
               disabled={!preview.canGoBack}
               onClick={() => gui.back()}
             />
             <IconButton
               label="Forward"
+              shortcut="forward"
               icon={ArrowRight}
               disabled={!preview.canGoForward}
               onClick={() => gui.forward()}
             />
             <IconButton
               label="Reload preview"
+              shortcut="reload"
               icon={RotateCw}
               spinning={preview.loading}
               disabled={!preview.url}
@@ -105,14 +109,16 @@ export function Toolbar({ state }: { state: WindowState }) {
               icon={MousePointer2}
               disabled={!capturable}
               onClick={() => gui.toggleSelect()}
-              title="Select element (⇧⌘C)"
+              title="Select element"
+              shortcut="selectElement"
             >
               Select
             </Toggle>
           </div>
 
           <IconButton
-            label="Toggle chat (⌘L)"
+            label="Toggle chat"
+            shortcut="toggleChat"
             icon={MessageSquare}
             pressed={state.chatVisible}
             onClick={() => gui.toggleChat()}

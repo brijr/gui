@@ -221,7 +221,8 @@ export function Drawer({ state }: { state: WindowState }) {
               )}
             </div>
             <IconButton
-              label="Hide terminal (⌘J)"
+              label="Hide terminal"
+              shortcut="toggleTerminal"
               icon={ChevronDown}
               size="sm"
               onClick={() => gui.setDrawerOpen(false)}

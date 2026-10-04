@@ -233,13 +233,15 @@ function Header({ meta }: { meta: ChatMeta }) {
         />
         <IconButton
           size="sm"
-          label="New chat (⇧⌘K)"
+          label="New chat"
+          shortcut="newChat"
           icon={SquarePen}
           onClick={() => gui.newSession()}
         />
         <IconButton
           size="sm"
-          label={meta.docked ? 'Float panel (⇧⌘D)' : 'Dock to the side (⇧⌘D)'}
+          label={meta.docked ? 'Float panel' : 'Dock to the side'}
+          shortcut="dockChat"
           icon={meta.docked ? PanelRightClose : PanelRight}
           onClick={() => gui.toggleDock()}
         />

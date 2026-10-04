@@ -275,9 +275,9 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
   ])
   const segments = session.chrome.getByRole('group', { name: 'Viewport' }).getByRole('button')
   await expect(segments).toHaveCount(4)
-  const names = VIEWPORTS.map(({ name }, i) => `${name} (⌘${i + 1})`)
-  for (const [i, name] of names.entries()) {
+  for (const [i, { name }] of VIEWPORTS.entries()) {
     await expect(segments.nth(i)).toHaveAccessibleName(name)
+    await expect(segments.nth(i)).toHaveAttribute('aria-keyshortcuts', `Meta+${i + 1}`)
   }
   await expect(segments.nth(1)).toHaveAttribute('title', 'Laptop · 1440 × 900 (⌘2)')
   await expect(segments.nth(0)).toHaveAttribute('aria-pressed', 'true')

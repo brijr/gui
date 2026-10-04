@@ -18,8 +18,8 @@ export function AutoToggle({ meta }: { meta: ChatMeta }) {
         icon={on ? ShieldOff : Shield}
         aria-label="Auto mode"
         aria-describedby={helpId}
-        aria-keyshortcuts="Shift+Meta+A"
-        title={`${HELP} (⇧⌘A)`}
+        title={HELP}
+        shortcut="autoMode"
         // Only from the user's own click (or Agent → Auto Mode): agents never get to turn this on.
         onClick={() => gui.setAutoApprove(!on)}
       >

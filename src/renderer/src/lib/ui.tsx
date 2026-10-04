@@ -1,5 +1,11 @@
 import type { LucideIcon } from 'lucide-react'
 import { type ComponentProps, type ReactNode, useId } from 'react'
+import {
+  ariaShortcut,
+  type ShortcutId,
+  shortcutText,
+  withShortcut,
+} from '../../../shared/shortcuts'
 import { cn } from './cn'
 
 /*
@@ -7,7 +13,8 @@ import { cn } from './cn'
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
  * tints, pressed or selected is accent-soft with accent text, disabled fades to 40%, focus
  * is the global accent ring. Icons inside controls are 14px; chevrons and other trailing
- * glyphs 12px.
+ * glyphs 12px. A control with a keyboard shortcut takes its id (`shortcut`, from
+ * src/shared/shortcuts.ts): its tooltip names the keys and `aria-keyshortcuts` gives them.
  */
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
@@ -43,6 +50,8 @@ interface ButtonProps extends ComponentProps<'button'> {
   trailingIcon?: LucideIcon
   /** Working: a spinner replaces the icon and the button is disabled */
   loading?: boolean
+  /** Its keyboard shortcut, shown as keys at the end */
+  shortcut?: ShortcutId
 }
 
 /** A labelled action. Use IconButton when the action is an icon alone, Toggle for on/off. */
@@ -52,6 +61,7 @@ export function Button({
   icon: Icon,
   trailingIcon: Trailing,
   loading = false,
+  shortcut,
   disabled,
   className,
   children,
@@ -62,11 +72,18 @@ export function Button({
       type="button"
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       className={cn(CONTROL, BUTTON_SIZE[size], VARIANT[variant], className)}
       {...props}
     >
       {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
       {children}
+      {shortcut && (
+        // On a filled button the keys take its text color.
+        <Kbd tone={variant === 'primary' || variant === 'danger' ? 'inherit' : 'muted'}>
+          {shortcutText(shortcut)}
+        </Kbd>
+      )}
       {Trailing && <Trailing className="size-3 shrink-0" aria-hidden="true" />}
     </button>
   )
@@ -75,6 +92,8 @@ export function Button({
 interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   /** What it does, in words: the accessible name and the tooltip (required) */
   label: string
+  /** Its keyboard shortcut, named in the tooltip */
+  shortcut?: ShortcutId
   icon: LucideIcon
   size?: 'sm' | 'md'
   /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
@@ -90,6 +109,7 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
 /** An action shown as an icon alone. Toolbars, panel headers, remove buttons in rows. */
 export function IconButton({
   label,
+  shortcut,
   icon: Icon,
   size = 'md',
   variant = 'ghost',
@@ -103,7 +123,8 @@ export function IconButton({
     <button
       type="button"
       aria-label={label}
-      title={label}
+      title={shortcut ? withShortcut(label, shortcut) : label}
+      aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       aria-pressed={pressed}
       className={cn(
         CONTROL,
@@ -131,6 +152,8 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
    * mode the whole window is in (Select).
    */
   emphasis?: 'soft' | 'strong'
+  /** Its keyboard shortcut, named after the tooltip (`title`) */
+  shortcut?: ShortcutId
 }
 
 /** A labelled on/off control (aria-pressed). Its weight never changes with its state. */
@@ -138,6 +161,8 @@ export function Toggle({
   pressed,
   icon: Icon,
   emphasis = 'soft',
+  shortcut,
+  title,
   className,
   children,
   ...props
@@ -146,6 +171,8 @@ export function Toggle({
     <button
       type="button"
       aria-pressed={pressed}
+      title={title && shortcut ? withShortcut(title, shortcut) : title}
+      aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       className={cn(
         CONTROL,
         BUTTON_SIZE.md,
@@ -169,6 +196,8 @@ interface Segment<T extends string> {
   icon?: LucideIcon
   /** Tooltip, when it should say more than the label */
   title?: string
+  /** Its keyboard shortcut, named in the tooltip */
+  shortcut?: ShortcutId
 }
 
 interface SegmentedControlProps<T extends string> {
@@ -211,13 +240,15 @@ export function SegmentedControl<T extends string>({
       {segments.map((segment) => {
         const on = segment.value === value
         const Icon = segment.icon
+        const title = segment.title ?? (iconOnly ? segment.label : undefined)
         return (
           <button
             key={segment.value}
             type="button"
             aria-pressed={on}
             aria-label={iconOnly ? segment.label : undefined}
-            title={segment.title ?? (iconOnly ? segment.label : undefined)}
+            title={title && segment.shortcut ? withShortcut(title, segment.shortcut) : title}
+            aria-keyshortcuts={segment.shortcut && ariaShortcut(segment.shortcut)}
             onClick={() => onChange(segment.value)}
             className={cn(
               'flex h-6 items-center justify-center rounded-sm text-small font-medium transition-colors',
@@ -318,11 +349,33 @@ export function Switch({
   )
 }
 
+interface KbdProps {
+  children: ReactNode
+  /** muted (default) in running text; inherit takes the text's color, inside a filled button */
+  tone?: 'muted' | 'inherit'
+}
+
 /** A key or shortcut named in running text, e.g. ⇧⌘C. */
-export function Kbd({ children }: { children: ReactNode }) {
+export function Kbd({ children, tone = 'muted' }: KbdProps) {
   return (
-    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-fill px-1 font-sans text-caption font-medium text-muted">
+    <kbd
+      className={cn(
+        'inline-flex h-4 min-w-4 items-center justify-center rounded-sm px-1 font-sans text-caption font-medium',
+        tone === 'muted' ? 'bg-fill text-muted' : 'bg-current/15 text-current',
+      )}
+    >
       {children}
+    </kbd>
+  )
+}
+
+/** A shortcut as keycaps, one per key: ⇧ ⌘ L. */
+export function Keys({ keys }: { keys: readonly string[] }) {
+  return (
+    <kbd className="inline-flex shrink-0 items-center gap-0.5">
+      {keys.map((key) => (
+        <Kbd key={key}>{key}</Kbd>
+      ))}
     </kbd>
   )
 }

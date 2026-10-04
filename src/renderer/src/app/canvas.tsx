@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
+import { shortcutText } from '../../../shared/shortcuts'
 import {
   type ProjectSetup,
   type Viewport,
@@ -444,7 +445,7 @@ const STEPS: readonly [string, ReactNode][] = [
   [
     'Point at something',
     <>
-      Press <Kbd>⇧⌘C</Kbd> and click any element in your app.
+      Press <Kbd>{shortcutText('selectElement')}</Kbd> and click any element in your app.
     </>,
   ],
   ['Describe the change', 'Your agent edits the code, and you see the result right away.'],

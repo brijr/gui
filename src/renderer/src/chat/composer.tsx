@@ -226,7 +226,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         />
         <div className="flex items-center gap-1 px-1.5 pb-1.5">
           <IconButton
-            label="Select element (⇧⌘C)"
+            label="Select element"
+            shortcut="selectElement"
             icon={MousePointer2}
             pressed={meta.selecting}
             onClick={() => gui.toggleSelect()}
@@ -268,7 +269,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           {running && (
             <IconButton
               variant="secondary"
-              label="Stop (⌘.)"
+              label="Stop"
+              shortcut="stop"
               icon={Square}
               filled
               onClick={() => gui.cancel()}
