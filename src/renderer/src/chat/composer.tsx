@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ChatMeta } from '../../../shared/types'
+import type { ChatMeta, Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
@@ -278,16 +278,22 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   )
 }
 
+/** Where the errors are: the preview's console, the dev server's output, or both. */
+function problemsTitle(problems: Problem[]) {
+  const errors = problems.length === 1 ? '1 error' : `${problems.length} errors`
+  const fromServer = problems.filter((problem) => problem.source === 'server').length
+  if (fromServer === 0) return `${errors} in the preview`
+  if (fromServer === problems.length) return `${errors} from the dev server`
+  return `${errors} in the preview and dev server`
+}
+
 function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
-  const count = meta.problems.length
   const latest = meta.problems.at(-1)
   return (
     <Card tone="inset" className="flex items-center gap-2 py-1.5 pr-1.5 pl-2.5">
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-small font-medium">
-          {count === 1 ? '1 error' : `${count} errors`} in the preview
-        </p>
+        <p className="text-small font-medium">{problemsTitle(meta.problems)}</p>
         {latest && (
           <p className="truncate font-mono text-caption text-subtle" title={latest.message}>
             {latest.message.split('\n')[0]}

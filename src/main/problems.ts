@@ -23,6 +23,39 @@ const HMR_STARTED = /^\[Fast Refresh\] rebuilding\b/
  * console.debug, Next.js via console.log. Anything logged before it is stale.
  */
 const HMR_APPLIED = /^\[Fast Refresh\] done\b|^\[vite\] hot updated:/
+/**
+ * What a dev server or the browser puts in front of an error's own text: a timestamp,
+ * Vite's `[vite] (client) [Unhandled error]` when it re-logs a browser error, the
+ * browser's `Uncaught (in promise)`.
+ */
+const ERROR_PREFIXES = [
+  /^\d{1,2}:\d{2}:\d{2}(?:\s?[AP]M)?\s+/i,
+  /^\[vite\]\s*(?:\(client\)\s*)?(?:\[[^\]]+\]\s*)?/i,
+  /^Uncaught\s+(?:\(in promise\)\s+)?/i,
+]
+
+/** An error's first line without its prefixes: the same error reads the same wherever it's logged. */
+function errorKey(message: string) {
+  let key = message.split('\n', 1)[0]?.trim() ?? ''
+  for (const prefix of ERROR_PREFIXES) key = key.replace(prefix, '')
+  return key
+}
+
+/**
+ * One problem per error. Vite re-logs an uncaught browser error on the dev server, and
+ * pages can log one error more than once; the browser's own report wins, keeping the
+ * place of the first.
+ */
+function distinct(problems: Problem[]) {
+  const byKey = new Map<string, Problem>()
+  for (const problem of problems) {
+    const key = errorKey(problem.message)
+    const seen = byKey.get(key)
+    if (!seen) byKey.set(key, problem)
+    else if (seen.source === 'server' && problem.source === 'console') byKey.set(key, problem)
+  }
+  return [...byKey.values()]
+}
 
 export interface ConsoleEntry {
   level: 'warning' | 'error'
@@ -46,7 +79,7 @@ export class Problems extends EventEmitter<{ change: [problems: Problem[]] }> {
   /** Problem ids last emitted, to skip updates that change nothing. */
   private emittedIds = ''
 
-  /** Current errors, newest last. */
+  /** Current errors, each once, newest last. */
   list(): Problem[] {
     const consoleErrors = this.messages
       .filter((m) => m.level === 'error')
@@ -58,7 +91,8 @@ export class Problems extends EventEmitter<{ change: [problems: Problem[]] }> {
           at: m.at,
         }),
       )
-    return [...consoleErrors, ...this.serverErrors].sort((a, b) => a.at - b.at).slice(-10)
+    const all = [...consoleErrors, ...this.serverErrors].sort((a, b) => a.at - b.at)
+    return distinct(all).slice(-10)
   }
 
   /** Recent console warnings and errors, for the agent's console tool. */

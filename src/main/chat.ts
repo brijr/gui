@@ -115,7 +115,8 @@ const RESET_SETTLE_MS = 5000
 /** Paths listed in the overwrite warning before it summarizes the rest. */
 const OVERWRITE_LIST_MAX = 8
 
-const FIX_PROMPT = 'The preview has errors. Find the cause and fix them.'
+/** The errors may be the preview's or the dev server's; the prompt lists them with their source. */
+const FIX_PROMPT = 'The app has errors. Find the cause and fix them.'
 
 /** What an image sent without text asks for; also what the transcript and history show. */
 const imagePrompt = (count: number) =>
