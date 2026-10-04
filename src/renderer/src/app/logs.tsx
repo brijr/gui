@@ -1,11 +1,13 @@
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
-import { ChevronDown, ChevronUp, SquareTerminal } from 'lucide-react'
+import { SquareTerminal, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Button, IconButton } from '../lib/ui'
+import { crashed } from './server-status'
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -21,36 +23,76 @@ function terminalTheme() {
   }
 }
 
+/**
+ * The dev server's output, as a drawer under the canvas. It opens from the address bar's
+ * status menu, ⇧⌘L, or "Show logs" where something went wrong; closed, nothing shows here
+ * unless the dev server crashed under a live preview, which gets a slim bar instead of raw
+ * output. (With no preview to show, the canvas says so itself.)
+ */
 export function Logs({ state }: { state: WindowState }) {
   if (!state.project) return null
   const open = state.logsOpen
+  const failed = crashed(state)
 
   return (
-    <section aria-label="Dev server logs" className="shrink-0 border-t border-line bg-surface">
-      <button
-        type="button"
-        onClick={() => gui.setLogsOpen(!open)}
-        aria-expanded={open}
-        className="flex h-7 w-full items-center gap-2 px-3 text-left text-muted transition-colors hover:bg-hover hover:text-fg"
+    <>
+      {!open && failed && state.preview.visible && <CrashBar />}
+      {/* Kept mounted while closed, so the terminal keeps its scrollback and place. */}
+      <section
+        aria-label="Dev server logs"
+        inert={!open}
+        className={cn('shrink-0 bg-surface', open && 'border-t border-line')}
       >
-        <SquareTerminal className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate font-mono text-caption">
-          {state.devServer.lastLine || state.devServer.command || 'No output yet'}
-        </span>
-        {open ? (
-          <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
-        ) : (
-          <ChevronUp className="size-3 shrink-0" aria-hidden="true" />
+        {open && (
+          <div className="flex h-9 items-center gap-2 pr-1.5 pl-3">
+            <SquareTerminal className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+            <h2 className="shrink-0 text-small font-medium">Logs</h2>
+            <span className="min-w-0 flex-1 truncate font-mono text-caption text-subtle">
+              {state.devServer.command}
+            </span>
+            {failed && (
+              <>
+                <span className="shrink-0 text-small text-danger">Stopped with an error</span>
+                <Button size="sm" onClick={() => gui.restartDevServer()}>
+                  Restart
+                </Button>
+              </>
+            )}
+            <IconButton
+              label="Hide logs (⇧⌘L)"
+              icon={X}
+              size="sm"
+              onClick={() => gui.setLogsOpen(false)}
+            />
+          </div>
         )}
-      </button>
-      <div
-        className={cn('overflow-hidden bg-canvas px-3', open ? 'h-56 py-2' : 'h-0')}
-        aria-hidden={!open}
-      >
-        {/* Keyed by project so each project gets a fresh terminal with its own log history. */}
-        <LogsTerminal key={state.project.root} />
-      </div>
-    </section>
+        <div className={cn('overflow-hidden bg-canvas px-3', open ? 'h-56 py-2' : 'h-0')}>
+          {/* Keyed by project so each project gets a fresh terminal with its own log history. */}
+          <LogsTerminal key={state.project.root} />
+        </div>
+      </section>
+    </>
+  )
+}
+
+/** The dev server crashed while its last page is still on screen. */
+function CrashBar() {
+  return (
+    <div
+      role="alert"
+      className="flex h-9 shrink-0 items-center gap-2 border-t border-line bg-danger-soft pr-1.5 pl-3"
+    >
+      <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
+      <p className="min-w-0 flex-1 truncate text-small">
+        Your app stopped with an error, so the preview won't update.
+      </p>
+      <Button variant="ghost" size="sm" onClick={() => gui.setLogsOpen(true)}>
+        Show logs
+      </Button>
+      <Button size="sm" onClick={() => gui.restartDevServer()}>
+        Restart
+      </Button>
+    </div>
   )
 }
 

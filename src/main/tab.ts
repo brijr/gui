@@ -433,7 +433,6 @@ export class ProjectTab {
       devServer.on('data', (chunk) => this.send(Events.logs, chunk))
       devServer.on('line', (line) => this.problems.addServerLine(line))
       devServer.on('change', (state) => this.onDevServer(state))
-      devServer.on('stalled', () => this.patch({ logsOpen: true }))
       this.devServer = devServer
       this.apps = apps
 
@@ -441,7 +440,7 @@ export class ProjectTab {
         project,
         setup,
         devServer: devServer.state,
-        logsOpen: !project.devCommand && !choosing,
+        logsOpen: false,
       })
       this.layout()
 
@@ -565,8 +564,9 @@ export class ProjectTab {
     if (state.status === 'running' && state.url && !wasRunning) {
       void this.loadPreview(state.url)
     } else if (state.status === 'exited') {
-      this.patch({ logsOpen: true })
-      this.patchPreview({ visible: false, selecting: false, loading: false })
+      // Its last page stays on screen, as after Stop, while the toolbar (and for a crash, a bar
+      // under the canvas) says it won't update. Without a page, the canvas says it stopped.
+      this.patchPreview({ selecting: false, loading: false })
     }
   }
 
@@ -884,7 +884,6 @@ export class ProjectTab {
       return true
     }
     this.patchSetup({ dependencies: 'failed' })
-    this.patch({ logsOpen: true })
     return false
   }
 
@@ -1443,6 +1442,9 @@ export class ProjectTab {
       { type: 'separator' },
       {
         label: this.state.logsOpen ? 'Hide logs' : 'Show logs',
+        // The View menu's shortcut, shown here as a reminder.
+        accelerator: 'Shift+CmdOrCtrl+L',
+        registerAccelerator: false,
         click: () => this.setLogsOpen(!this.state.logsOpen),
       },
       {

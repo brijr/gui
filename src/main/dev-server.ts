@@ -32,8 +32,6 @@ function normalizeUrl(raw: string) {
 export interface DevServerEvents {
   data: [chunk: string]
   change: [state: DevServerState]
-  /** The printed URL never became reachable; worth showing the logs. */
-  stalled: []
   /** One complete line of output, escape codes stripped */
   line: [line: string]
 }
@@ -276,7 +274,6 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (live()) {
       // Forget the URL so a later one in the output can still be picked up.
       this.update({ url: null, lastLine: `No response from ${url} yet. Check the logs.` })
-      this.emit('stalled')
     }
   }
 

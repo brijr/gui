@@ -608,11 +608,11 @@ function closeTab() {
 }
 
 function buildMenu() {
-  /** For the focused window's active tab: menu commands act on the project it shows. */
+  /** For the active tab of the window menus act on (`menuTab`): the project it shows. */
   const withWindow =
     (fn: (tab: ProjectTab) => void): MenuItemConstructorOptions['click'] =>
     () => {
-      const tab = focusedWindow()?.activeTab
+      const tab = menuTab()
       if (tab) fn(tab)
     }
   /** For the tabs of the window menus act on (`menuWindow`). */
