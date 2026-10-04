@@ -360,7 +360,7 @@ interface KbdProps {
   tone?: 'muted' | 'inherit'
 }
 
-/** A key or shortcut named in running text, e.g. ⇧⌘C. */
+/** A key or shortcut named in running text, e.g. ⌘D. */
 export function Kbd({ children, tone = 'muted' }: KbdProps) {
   return (
     <kbd

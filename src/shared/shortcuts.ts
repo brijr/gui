@@ -168,7 +168,9 @@ export const SHORTCUTS = {
   },
   selectElement: {
     label: 'Select Element',
-    accelerator: 'Shift+CmdOrCtrl+C',
+    accelerator: 'CmdOrCtrl+D',
+    // Chrome DevTools' key for the same, which Gui had first.
+    alternates: ['Shift+CmdOrCtrl+C'],
     menu: 'view',
     group: 'preview',
     description: 'Pick an element to change (Esc cancels)',
@@ -237,7 +239,6 @@ export const SHORTCUTS = {
     group: 'chat',
     description: "Auto or Ask for the agent's permission requests",
   },
-
   allow: {
     label: 'Allow',
     accelerator: 'CmdOrCtrl+Enter',
