@@ -30,11 +30,13 @@ const DONE_MS = 1500
 
 export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
+  // With two or more tabs the traffic lights sit in the tab row above (tab-strip.tsx).
+  const inset = state.tabs.length > 1 ? undefined : TRAFFIC_LIGHTS_INSET
 
   return (
     <header
-      className="drag flex shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2"
-      style={{ height: TOOLBAR_HEIGHT, paddingLeft: TRAFFIC_LIGHTS_INSET }}
+      className="drag flex shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2 pl-2"
+      style={{ height: TOOLBAR_HEIGHT, paddingLeft: inset }}
     >
       <button
         type="button"

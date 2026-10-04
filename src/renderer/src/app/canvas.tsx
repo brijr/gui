@@ -337,12 +337,16 @@ function EnvRow({ env }: { env: EnvSetup }) {
   )
 }
 
+/** Projects whose env banner was dismissed; it stays that way across tab switches. */
+const dismissedEnv = new Set<string>()
+
 /**
  * The same offer as a slim bar above the preview once it's up, since many apps start
  * without their env and only break later. Dismissed for the rest of the session.
  */
 export function EnvBanner({ state }: { state: WindowState }) {
-  const [dismissed, setDismissed] = useState(false)
+  const root = state.project?.root ?? ''
+  const [dismissed, setDismissed] = useState(() => dismissedEnv.has(root))
   const env = state.setup?.env
   if (!env || dismissed || !state.preview.visible) return null
   return (
@@ -352,7 +356,14 @@ export function EnvBanner({ state }: { state: WindowState }) {
         <EnvText env={env} />
       </p>
       <EnvButton env={env} />
-      <IconButton label="Dismiss" icon={X} onClick={() => setDismissed(true)} />
+      <IconButton
+        label="Dismiss"
+        icon={X}
+        onClick={() => {
+          dismissedEnv.add(root)
+          setDismissed(true)
+        }}
+      />
     </div>
   )
 }
