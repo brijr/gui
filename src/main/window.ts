@@ -1,12 +1,17 @@
 import { execFile } from 'node:child_process'
+import { writeFile } from 'node:fs/promises'
 import { join, posix } from 'node:path'
 import {
   app,
   BrowserWindow,
+  ClipboardItem,
+  clipboard,
   dialog,
   Menu,
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
+  type NativeImage,
+  nativeImage,
   nativeTheme,
   shell,
   type WebContents,
@@ -41,7 +46,7 @@ import { historyFile, loadHistory } from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
-import { getPrefs, setPrefs } from './prefs'
+import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
@@ -60,12 +65,20 @@ import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
 import { thumbnail } from './thumbnail'
-import { isTrusted, promptName, promptText, trust } from './trust'
+import { askToTrust, isTrusted, promptName, promptText } from './trust'
 
 const TOOLBAR_HEIGHT = 44
-const PANEL = { width: 400, height: 640 }
+const PANEL_MIN = { width: 320, height: 360 }
+/** Space the floating panel's size leaves around it in the window. */
+const PANEL_MARGIN = 12
 const MINI = { width: 248, height: 52 }
-const DOCK_WIDTH = 400
+const DOCK_MIN_WIDTH = 320
+/** The docked panel leaves the preview at least the rest of the canvas. */
+const DOCK_MAX_SHARE = 0.6
+/** A screenshot attached to the chat, sized like the composer's images (images.ts). */
+const ATTACH_EDGE = 1568
+const ATTACH_THUMBNAIL_EDGE = 160
+const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
 /** Transparent margin around the floating panel so its shadow isn't clipped. */
@@ -75,6 +88,9 @@ const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobi
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
 const windows = new Set<ProjectWindow>()
+
+type ScreenshotAction = 'copy' | 'copy-full-page' | 'save' | 'attach'
+type ScreenshotResult = 'copied' | 'saved' | 'attached'
 
 export function findWindow(sender: WebContents) {
   for (const win of windows) if (win.owns(sender)) return win
@@ -117,6 +133,13 @@ export class ProjectWindow {
   private canvas: Rect = { x: 0, y: 0, width: 0, height: 0 }
   /** Panel position, anchored to the window's right edge so it tracks resizes. */
   private anchor = { fromRight: 12, top: TOOLBAR_HEIGHT + 4 }
+  /** The floating panel's size as the user left it; drawn smaller when the window is. */
+  private panelSize: ChatSize = getPrefs().chatSize
+  private dockWidth = getPrefs().chatDockWidth
+  /** Which size the resize in progress changes, to remember it when it ends. */
+  private resizing: 'floating' | 'docked' | null = null
+  /** The screenshot menu is open or its capture is running. */
+  private screenshotting = false
   private disposed = false
   /** Bumped per openProject; async steps of a superseded open must not touch the window. */
   private openGeneration = 0
@@ -420,20 +443,9 @@ export class ProjectWindow {
   }
 
   /** The trust prompt; agreeing trusts the project from then on. */
-  private async askToTrust(root: string, options: MessageBoxOptions) {
-    if (this.disposed) return false
-    const { response } = await dialog.showMessageBox(this.win, {
-      type: 'question',
-      defaultId: 0,
-      cancelId: 1,
-      ...options,
-    })
-    if (response !== 0) return false
-    // If it can't be saved, this run still goes ahead and the next one asks again.
-    await trust(root).catch((error: unknown) => {
-      console.error('[grat] failed to trust the project', error)
-    })
-    return true
+  private askToTrust(root: string, options: MessageBoxOptions) {
+    if (this.disposed) return Promise.resolve(false)
+    return askToTrust(root, options, this.win)
   }
 
   closeProject() {
@@ -959,6 +971,137 @@ export class ProjectWindow {
     this.layout()
   }
 
+  /**
+   * Chat panel resizing: `dx` moves the left edge (floating or docked), `dy` the floating
+   * panel's bottom edge. The floating panel keeps its right and top edges where they are.
+   */
+  resizeChat(dx: number, dy: number) {
+    if (!this.state.chatVisible || !this.hasProject) return
+    if (this.chat?.meta.docked ?? getPrefs().chatDocked) {
+      const width = this.dockedWidth() - dx
+      this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, this.canvas.width * DOCK_MAX_SHARE))
+      this.resizing = 'docked'
+    } else {
+      if (this.chat?.meta.minimized) return
+      const [contentWidth, contentHeight] = this.win.getContentSize()
+      // From the size on screen, which may be less than the remembered one.
+      const { width, height } = this.floatingSize(contentWidth, contentHeight)
+      const max = maxFloatingSize(contentWidth, contentHeight)
+      // The panel grows toward the window's left and bottom edges and stops there.
+      const right = contentWidth - this.anchor.fromRight - SHADOW
+      const top = this.anchor.top + SHADOW
+      this.panelSize = {
+        width: Math.round(clamp(width - dx, PANEL_MIN.width, Math.min(max.width, right))),
+        height: Math.round(
+          clamp(height + dy, PANEL_MIN.height, Math.min(max.height, contentHeight - top)),
+        ),
+      }
+      this.resizing = 'floating'
+    }
+    this.layout()
+  }
+
+  /** Remembers the new size for this and later windows. */
+  endResizeChat() {
+    if (this.resizing === 'docked') setPrefs({ chatDockWidth: this.dockWidth })
+    else if (this.resizing === 'floating') setPrefs({ chatSize: this.panelSize })
+    this.resizing = null
+  }
+
+  /**
+   * Screenshot menu for the preview: copy, copy full page, save, attach to chat. Resolves
+   * with what was done; null when dismissed, cancelled or the capture failed.
+   */
+  async screenshotMenu(): Promise<ScreenshotResult | null> {
+    const tools = this.previewTools
+    const project = this.state.project
+    if (this.screenshotting) return null
+    if (!tools || !project || !this.canCapture()) {
+      shell.beep()
+      return null
+    }
+    this.screenshotting = true
+    try {
+      const action = await this.chooseScreenshot()
+      if (!action || tools !== this.previewTools || !this.canCapture()) return null
+      // Inspect mode's hover highlight is drawn into the page, so leave it first.
+      if (this.state.preview.selecting) await this.setSelecting(false)
+      // At the display's own resolution, and without the selection highlight.
+      const shot = await tools.screenshot({
+        fullPage: action === 'copy-full-page',
+        fullResolution: true,
+      })
+      const name = screenshotName(project.name)
+      const png = Buffer.from(shot.data, 'base64')
+      switch (action) {
+        case 'copy':
+        case 'copy-full-page':
+          await clipboard.write([
+            new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) }),
+          ])
+          return 'copied'
+        case 'save':
+          return (await this.saveScreenshot(png, name)) ? 'saved' : null
+        case 'attach':
+          return this.attachScreenshot(png, name) ? 'attached' : null
+      }
+    } catch (error) {
+      console.error('[grat] screenshot failed', error)
+      shell.beep()
+      return null
+    } finally {
+      this.screenshotting = false
+    }
+  }
+
+  /** Like the agent's tools: only the local app, never a page it linked to. */
+  private canCapture() {
+    return this.state.preview.visible && isLoopback(this.preview.webContents.getURL())
+  }
+
+  /** Resolves with the chosen item, or null when the menu closes without a choice. */
+  private chooseScreenshot() {
+    return new Promise<ScreenshotAction | null>((resolve) => {
+      const item = (
+        label: string,
+        action: ScreenshotAction,
+        enabled = true,
+      ): MenuItemConstructorOptions => ({ label, enabled, click: () => resolve(action) })
+      Menu.buildFromTemplate([
+        item('Copy Screenshot', 'copy'),
+        item('Copy Full Page', 'copy-full-page'),
+        item('Save Screenshot…', 'save'),
+        { type: 'separator' },
+        item('Attach to Chat', 'attach', this.chat !== null),
+      ]).popup({
+        window: this.win,
+        // Electron runs a chosen item's click before this, so this only settles a dismissal.
+        callback: () => resolve(null),
+      })
+    })
+  }
+
+  /** False when the user cancelled the save panel. */
+  private async saveScreenshot(png: Buffer, name: string) {
+    const { canceled, filePath } = await dialog.showSaveDialog(this.win, {
+      defaultPath: join(app.getPath('desktop'), `${name}.png`),
+      filters: [{ name: 'PNG Image', extensions: ['png'] }],
+    })
+    if (canceled || !filePath) return false
+    await writeFile(filePath, png)
+    return true
+  }
+
+  /** Adds the screenshot to the composer as a reference image, then shows the chat. */
+  private attachScreenshot(png: Buffer, name: string) {
+    if (!this.chat) return false
+    const image = nativeImage.createFromBuffer(png)
+    if (image.isEmpty()) throw new Error("Couldn't read the captured image")
+    this.focusChat()
+    this.sendChat(Events.chatAttach, chatImage(image, name))
+    return true
+  }
+
   endDragChat() {
     this.layout()
   }
@@ -988,8 +1131,9 @@ export class ProjectWindow {
     const docked = showChat && (this.chat?.meta.docked ?? getPrefs().chatDocked)
 
     // A docked panel takes a column on the right; the preview gets what's left.
+    const dockWidth = this.dockedWidth()
     const area = docked
-      ? { ...this.canvas, width: Math.max(0, this.canvas.width - DOCK_WIDTH) }
+      ? { ...this.canvas, width: Math.max(0, this.canvas.width - dockWidth) }
       : this.canvas
     const preview = this.state.preview
     const maxWidth = VIEWPORT_WIDTH[preview.viewport]
@@ -1008,20 +1152,15 @@ export class ProjectWindow {
     if (!showChat) return
     if (docked) {
       this.chatView.setBounds({
-        x: Math.round(this.canvas.x + this.canvas.width - DOCK_WIDTH),
+        x: Math.round(this.canvas.x + this.canvas.width - dockWidth),
         y: Math.round(this.canvas.y),
-        width: DOCK_WIDTH,
+        width: dockWidth,
         height: Math.max(0, Math.round(this.canvas.height)),
       })
       return
     }
     const minimized = this.chat?.meta.minimized ?? false
-    const panel = minimized
-      ? MINI
-      : {
-          width: PANEL.width,
-          height: Math.min(PANEL.height, contentHeight - TOOLBAR_HEIGHT - 24),
-        }
+    const panel = minimized ? MINI : this.floatingSize(contentWidth, contentHeight)
     const viewWidth = panel.width + SHADOW * 2
     const viewHeight = panel.height + SHADOW * 2
     const fromRight = clamp(this.anchor.fromRight, -SHADOW, contentWidth - viewWidth + SHADOW)
@@ -1033,6 +1172,20 @@ export class ProjectWindow {
       width: viewWidth,
       height: viewHeight,
     })
+  }
+
+  /** The docked panel's width: the remembered one, within what the canvas leaves room for. */
+  private dockedWidth() {
+    return Math.round(clamp(this.dockWidth, DOCK_MIN_WIDTH, this.canvas.width * DOCK_MAX_SHARE))
+  }
+
+  /** The floating panel's size: the remembered one, within the window. */
+  private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
+    const max = maxFloatingSize(contentWidth, contentHeight)
+    return {
+      width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
+      height: Math.round(clamp(this.panelSize.height, PANEL_MIN.height, max.height)),
+    }
   }
 
   /** Moves the floating panel to the other side if it covers the element just picked. */
@@ -1223,4 +1376,55 @@ function originOf(url: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max))
+}
+
+/** The largest the floating panel can be in a window this size. */
+function maxFloatingSize(contentWidth: number, contentHeight: number): ChatSize {
+  return {
+    width: contentWidth - PANEL_MARGIN * 2,
+    height: contentHeight - TOOLBAR_HEIGHT - PANEL_MARGIN * 2,
+  }
+}
+
+/** "<project> 2026-10-03 at 14.05.09", the way macOS names screenshots. */
+function screenshotName(project: string, date = new Date()) {
+  const pad = (value: number) => String(value).padStart(2, '0')
+  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+  const time = `${pad(date.getHours())}.${pad(date.getMinutes())}.${pad(date.getSeconds())}`
+  // Project names come from package.json, which can hold path separators ("@scope/app").
+  const base =
+    project
+      .replace(/[\p{Cc}/\\:]/gu, '-')
+      .trim()
+      .slice(0, 100) || 'Screenshot'
+  return `${base} ${day} at ${time}`
+}
+
+/**
+ * A screenshot as the composer attaches images: downscaled for the agent, a PNG unless
+ * that's photo-sized, plus a small thumbnail for the transcript.
+ */
+function chatImage(source: NativeImage, name: string): ImageAttachment {
+  const image = fitImage(source, ATTACH_EDGE)
+  const png = image.toPNG()
+  const jpeg = png.length > ATTACH_MAX_PNG_BYTES
+  const thumbnail = fitImage(source, ATTACH_THUMBNAIL_EDGE).toPNG()
+  return {
+    name: `${name}.${jpeg ? 'jpg' : 'png'}`,
+    mimeType: jpeg ? 'image/jpeg' : 'image/png',
+    data: (jpeg ? image.toJPEG(85) : png).toString('base64'),
+    thumbnail: `data:image/png;base64,${thumbnail.toString('base64')}`,
+  }
+}
+
+/** Scales an image down so its long side is at most `edge`. */
+function fitImage(image: NativeImage, edge: number) {
+  const { width, height } = image.getSize()
+  const scale = Math.min(1, edge / Math.max(width, height))
+  if (scale === 1) return image
+  return image.resize({
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+    quality: 'best',
+  })
 }

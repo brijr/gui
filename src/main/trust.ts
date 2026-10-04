@@ -1,6 +1,6 @@
 import { readFile, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, type BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 
 /**
  * Projects whose dev script the user has agreed to run. Opening a folder must not
@@ -45,6 +45,29 @@ export async function trust(root: string) {
   const trusted = await load()
   if (trusted.includes(path)) return
   await writeFile(file(), JSON.stringify([...trusted, path], null, 2))
+}
+
+/**
+ * The trust prompt, as a sheet on `parent` when there is one. Its first button agrees,
+ * which trusts the project from then on; `options` names the buttons and may move the
+ * default. Project text in it must go through `promptText`/`promptName`.
+ */
+export async function askToTrust(
+  root: string,
+  options: MessageBoxOptions,
+  parent: BrowserWindow | null,
+) {
+  const prompt: MessageBoxOptions = { type: 'question', defaultId: 0, cancelId: 1, ...options }
+  const { response } =
+    parent && !parent.isDestroyed()
+      ? await dialog.showMessageBox(parent, prompt)
+      : await dialog.showMessageBox(prompt)
+  if (response !== 0) return false
+  // If it can't be saved, this run still goes ahead and the next one asks again.
+  await trust(root).catch((error: unknown) => {
+    console.error('[grat] failed to trust the project', error)
+  })
+  return true
 }
 
 /** Script text longer than this is cut off in the trust prompt. */

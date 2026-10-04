@@ -32,7 +32,8 @@ export function ChatPanel() {
 
   if (meta.docked) {
     return (
-      <div className="flex h-dvh flex-col border-l border-line bg-raised">
+      <div className="relative flex h-dvh flex-col border-l border-line bg-raised">
+        <ResizeHandle edge="left" docked />
         <Header meta={meta} />
         {shipping ? (
           <ShipSheet />
@@ -51,30 +52,42 @@ export function ChatPanel() {
       {meta.minimized ? (
         <MiniPanel meta={meta} running={running} />
       ) : (
-        <div
-          className={cn(
-            'flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised',
-            PANEL_SHADOW,
-          )}
-        >
-          <Header meta={meta} />
-          {shipping ? (
-            <ShipSheet />
-          ) : (
-            <>
-              <Transcript turns={turns} meta={meta} />
-              <Composer meta={meta} running={running} />
-            </>
-          )}
+        <div className="relative h-full">
+          <div
+            className={cn(
+              'flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised',
+              PANEL_SHADOW,
+            )}
+          >
+            <Header meta={meta} />
+            {shipping ? (
+              <ShipSheet />
+            ) : (
+              <>
+                <Transcript turns={turns} meta={meta} />
+                <Composer meta={meta} running={running} />
+              </>
+            )}
+          </div>
+          {/* The panel is anchored by its top-right corner; the other edges resize it. */}
+          <ResizeHandle edge="left" />
+          <ResizeHandle edge="bottom" />
+          <ResizeHandle edge="corner" />
         </div>
       )}
     </div>
   )
 }
 
-/** Pointer drags move the native view; deltas are batched per frame. */
-function onDragStart(event: ReactPointerEvent<HTMLElement>) {
-  if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+/**
+ * Follows a pointer drag in screen coordinates, since the native view moves and resizes
+ * under the pointer, and reports the deltas batched per frame.
+ */
+function trackDrag(
+  event: ReactPointerEvent<HTMLElement>,
+  onMove: (dx: number, dy: number) => void,
+  onEnd: () => void,
+) {
   const el = event.currentTarget
   el.setPointerCapture(event.pointerId)
   let last = { x: event.screenX, y: event.screenY }
@@ -83,7 +96,7 @@ function onDragStart(event: ReactPointerEvent<HTMLElement>) {
 
   const flush = () => {
     frame = 0
-    if (pending.dx || pending.dy) grat.dragChat(pending.dx, pending.dy)
+    if (pending.dx || pending.dy) onMove(pending.dx, pending.dy)
     pending = { dx: 0, dy: 0 }
   }
   const move = (e: PointerEvent) => {
@@ -97,11 +110,61 @@ function onDragStart(event: ReactPointerEvent<HTMLElement>) {
     el.removeEventListener('pointermove', move)
     el.removeEventListener('pointerup', end)
     el.removeEventListener('pointercancel', end)
-    grat.endDragChat()
+    onEnd()
   }
   el.addEventListener('pointermove', move)
   el.addEventListener('pointerup', end)
   el.addEventListener('pointercancel', end)
+}
+
+/** Dragging the header (or the minimized pill) moves the floating panel. */
+function onDragStart(event: ReactPointerEvent<HTMLElement>) {
+  if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+  trackDrag(
+    event,
+    (dx, dy) => grat.dragChat(dx, dy),
+    () => grat.endDragChat(),
+  )
+}
+
+type Edge = 'left' | 'bottom' | 'corner'
+
+/**
+ * Hit areas straddling the floating panel's edges (its view has a transparent margin
+ * for the shadow), with a hairline over the border on hover.
+ */
+const EDGE_CLASS: Record<Edge, string> = {
+  left: 'inset-y-3 -left-[3px] w-1.5 cursor-ew-resize after:inset-y-0 after:left-[3px] after:w-px',
+  bottom:
+    'inset-x-3 -bottom-[3px] h-1.5 cursor-ns-resize after:inset-x-0 after:bottom-[3px] after:h-px',
+  corner: '-bottom-1 -left-1 size-4 cursor-nesw-resize',
+}
+/** The docked panel's left edge is its view's, so the hit area stays inside. */
+const DOCKED_CLASS =
+  'inset-y-0 left-0 w-1.5 cursor-ew-resize after:inset-y-0 after:left-0 after:w-px'
+
+/** An invisible handle that resizes the panel; main keeps the panel inside the window. */
+function ResizeHandle({ edge, docked = false }: { edge: Edge; docked?: boolean }) {
+  const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    if (event.button !== 0) return
+    // No text selection or focus change while dragging.
+    event.preventDefault()
+    trackDrag(
+      event,
+      (dx, dy) => grat.resizeChat(edge === 'bottom' ? 0 : dx, edge === 'left' ? 0 : dy),
+      () => grat.endResizeChat(),
+    )
+  }
+  return (
+    <div
+      aria-hidden="true"
+      onPointerDown={onPointerDown}
+      className={cn(
+        'absolute z-10 after:absolute after:bg-accent after:opacity-0 after:transition-opacity hover:after:opacity-70',
+        docked ? DOCKED_CLASS : EDGE_CLASS[edge],
+      )}
+    />
+  )
 }
 
 function StatusDot({ meta, running }: { meta: ChatMeta; running: boolean }) {

@@ -30,6 +30,7 @@ export const Invoke = {
   signIn: 'agents:sign-in',
   installAgent: 'agents:install',
   shipInfo: 'ship:info',
+  takeScreenshot: 'preview:screenshot',
   ship: 'ship:run',
   getSettings: 'settings:get',
   saveCustomAgent: 'settings:save-custom-agent',
@@ -66,6 +67,8 @@ export const Send = {
   setMinimized: 'chat:minimize',
   toggleDock: 'chat:dock',
   dragChat: 'chat:drag',
+  resizeChat: 'chat:resize',
+  endResizeChat: 'chat:resize-end',
   endDragChat: 'chat:drag-end',
   chooseApp: 'setup:choose-app',
   installDependencies: 'setup:install',
@@ -86,6 +89,7 @@ export const Events = {
   chatTurn: 'chat:turn',
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
+  chatAttach: 'chat:attach',
   settings: 'settings',
   settingsSection: 'settings:section',
 } as const
@@ -154,6 +158,17 @@ export interface GratApi {
   fixProblems(): Promise<boolean>
   dragChat(dx: number, dy: number): void
   endDragChat(): void
+
+  /**
+   * Shows the screenshot menu (copy, copy full page, save, attach to chat) for the
+   * preview; resolves with what was done, or null when dismissed or nothing is loaded.
+   */
+  takeScreenshot(): Promise<'copied' | 'saved' | 'attached' | null>
+  /** Resizes the chat panel by a pointer delta: dx moves its left edge, dy its bottom edge */
+  resizeChat(dx: number, dy: number): void
+  endResizeChat(): void
+  /** An image main wants added to the composer (e.g. a screenshot of the preview) */
+  onChatAttach(cb: (image: ImageAttachment) => void): Unsubscribe
 
   /** Null without a project */
   getShipInfo(): Promise<ShipInfo | null>

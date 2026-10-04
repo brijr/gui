@@ -47,7 +47,6 @@ export type BinaryStatus =
 
 export class AgentMissingError extends Error {}
 
-
 /**
  * The pinned CLI for this Mac. Unpackaged builds (dev, e2e) may swap the manifest via
  * GRAT_AGENT_MANIFEST to install from a local registry; packaged builds never do.
@@ -178,7 +177,10 @@ export async function requireAgentBinary(id: PinnedAgentId): Promise<ResolvedBin
   throw new AgentMissingError(missingMessage(id, status))
 }
 
-export function missingMessage(id: PinnedAgentId, status: Extract<BinaryStatus, { kind: 'missing' }>) {
+export function missingMessage(
+  id: PinnedAgentId,
+  status: Extract<BinaryStatus, { kind: 'missing' }>,
+) {
   const name = agentName(id)
   if (!status.found) return `${name} isn't installed yet. Grat can set it up for you.`
   const age = status.mismatch === 'newer' ? 'newer' : 'older'

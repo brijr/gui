@@ -13,7 +13,7 @@ import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton, Spinner, TechnicalDetails } from '../lib/ui'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
-import { addAttachments, removeAttachments, setDraft, useChat } from './store'
+import { addAttachments, removeAttachments, setDraft, setNotice, useChat } from './store'
 import { elementLabel } from './turn-view'
 
 const NOTICE_MS = 5000
@@ -30,8 +30,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   const processing = useRef(0)
   const [pending, setPending] = useState(0)
   const [dropping, setDropping] = useState(false)
-  /** Why a file wasn't attached; quiet and short-lived. */
-  const [notice, setNotice] = useState<string | null>(null)
+  /** Why a file wasn't attached; quiet and short-lived. In the store, as main can set it too. */
+  const notice = useChat((s) => s.notice)
 
   useEffect(() => grat.onChatFocus(() => input.current?.focus()), [])
   useEffect(() => {

@@ -11,6 +11,11 @@ import type { Problems } from './problems'
 const MAX_IMAGE_WIDTH = 1600
 const MAX_IMAGE_HEIGHT = 1960
 const MAX_FULL_PAGE_HEIGHT = 8000
+/**
+ * The compositor's texture limit, in device pixels: past it, a full-page capture repeats
+ * the page instead of continuing it.
+ */
+const MAX_CAPTURE_PIXELS = 16_384
 /** First visits can compile the route on demand, which takes a while on large apps. */
 const NAVIGATION_TIMEOUT_MS = 30_000
 const RELOAD_TIMEOUT_MS = 10_000
@@ -47,6 +52,8 @@ export interface ScreenshotOptions {
   selector?: string
   width?: number
   fullPage?: boolean
+  /** For the user rather than the agent: a PNG at the display's own resolution, uncapped. */
+  fullResolution?: boolean
 }
 
 export interface PreviewToolsDeps {
@@ -178,6 +185,7 @@ export class PreviewTools {
       if (width) await this.emulateWidth(width, initial.cssLayoutViewport.clientHeight)
       const metrics = width ? await this.cmd<LayoutMetrics>('Page.getLayoutMetrics') : initial
       const viewportWidth = metrics.cssLayoutViewport.clientWidth
+      const dpr = await this.devicePixelRatio()
       let clip: Clip
       let visible = visibleRect(metrics)
       if (options.selector) {
@@ -202,22 +210,22 @@ export class PreviewTools {
           height: Math.max(...ys) - Math.min(...ys) + pad * 2,
         }
       } else if (options.fullPage) {
+        const maxHeight = options.fullResolution
+          ? Math.floor(MAX_CAPTURE_PIXELS / dpr)
+          : MAX_FULL_PAGE_HEIGHT
         clip = {
           x: 0,
           y: 0,
           width: metrics.cssContentSize.width,
-          height: Math.min(metrics.cssContentSize.height, MAX_FULL_PAGE_HEIGHT),
+          height: Math.min(metrics.cssContentSize.height, maxHeight),
         }
       } else {
         clip = visible
       }
-      const dpr = await this.devicePixelRatio()
-      const scale = Math.min(
-        1,
-        MAX_IMAGE_WIDTH / (clip.width * dpr),
-        MAX_IMAGE_HEIGHT / (clip.height * dpr),
-      )
-      const jpeg = options.fullPage === true && !options.selector
+      const scale = options.fullResolution
+        ? 1
+        : Math.min(1, MAX_IMAGE_WIDTH / (clip.width * dpr), MAX_IMAGE_HEIGHT / (clip.height * dpr))
+      const jpeg = !options.fullResolution && options.fullPage === true && !options.selector
       const { data } = await this.cmd<{ data: string }>('Page.captureScreenshot', {
         format: jpeg ? 'jpeg' : 'png',
         quality: jpeg ? 80 : undefined,

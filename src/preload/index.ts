@@ -71,6 +71,10 @@ const api: GratApi = {
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
   dragChat: send(Send.dragChat),
   endDragChat: send(Send.endDragChat),
+  takeScreenshot: () => ipcRenderer.invoke(Invoke.takeScreenshot),
+  resizeChat: send(Send.resizeChat),
+  endResizeChat: send(Send.endResizeChat),
+  onChatAttach: (cb) => subscribe(Events.chatAttach, cb),
   getShipInfo: () => ipcRenderer.invoke(Invoke.shipInfo),
   ship: (request) => ipcRenderer.invoke(Invoke.ship, request),
 

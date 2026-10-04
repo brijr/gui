@@ -90,7 +90,14 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.stopping = false
     this.partial = ''
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
-    this.update({ status: 'starting', command, url: null, exitCode: null, lastLine: '', slow: false })
+    this.update({
+      status: 'starting',
+      command,
+      url: null,
+      exitCode: null,
+      lastLine: '',
+      slow: false,
+    })
     setTimeout(() => {
       if (run === this.run && this.state.status === 'starting') this.update({ slow: true })
     }, SLOW_START_MS).unref()

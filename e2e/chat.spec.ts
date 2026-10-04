@@ -13,6 +13,8 @@ function sendTwice() {
 test('busy chat rejects sends and a cancelled start leaves no trace', async ({ launch }) => {
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
+  // The project is trusted, so no agent trust prompt may appear; one would be declined here.
+  await session.declineConsentDialogs()
   const { root } = session.fixture
 
   // One turn at a time: the second message must be refused, not queued or interleaved.
@@ -35,4 +37,5 @@ test('busy chat rejects sends and a cancelled start leaves no trace', async ({ l
   const second = await session.waitForTurn(1, 30_000)
   expect(second.turn.status).toBe('cancelled')
   expect(gitStatus(root)).toBe('')
+  expect(await session.consentPrompts()).toEqual([])
 })

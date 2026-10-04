@@ -4,9 +4,18 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { type AgentId, DEFAULT_AGENT_ID, isAgentId } from '../shared/types'
 
+export interface ChatSize {
+  width: number
+  height: number
+}
+
 export interface Prefs {
   agentId: AgentId
   chatDocked: boolean
+  /** The floating chat panel's size, without its shadow margin; windows clamp it to fit */
+  chatSize: ChatSize
+  /** The docked chat panel's width */
+  chatDockWidth: number
   /** The app each monorepo previews: project root → app dir relative to it */
   apps: Record<string, string>
   /** Agents switched off in Settings; everything installed is on by default */
@@ -16,9 +25,13 @@ export interface Prefs {
 const DEFAULTS: Prefs = {
   agentId: DEFAULT_AGENT_ID,
   chatDocked: false,
+  chatSize: { width: 400, height: 640 },
+  chatDockWidth: 400,
   apps: {},
   disabledAgents: [],
 }
+/** Anything outside this isn't a size a window could have set. */
+const MAX_LENGTH = 10_000
 const file = () => join(app.getPath('userData'), 'prefs.json')
 let cached: Prefs | null = null
 
@@ -33,6 +46,20 @@ function stringRecord(value: unknown): Record<string, string> {
   )
 }
 
+function length(value: unknown, fallback: number) {
+  return typeof value === 'number' && value > 0 && value <= MAX_LENGTH
+    ? Math.round(value)
+    : fallback
+}
+
+function chatSize(value: unknown): ChatSize {
+  const size = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  return {
+    width: length(size.width, DEFAULTS.chatSize.width),
+    height: length(size.height, DEFAULTS.chatSize.height),
+  }
+}
+
 export function getPrefs(): Prefs {
   if (cached) return cached
   try {
@@ -40,13 +67,15 @@ export function getPrefs(): Prefs {
     cached = {
       agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
       chatDocked: parsed.chatDocked === true,
+      chatSize: chatSize(parsed.chatSize),
+      chatDockWidth: length(parsed.chatDockWidth, DEFAULTS.chatDockWidth),
       apps: stringRecord(parsed.apps),
       disabledAgents: Array.isArray(parsed.disabledAgents)
         ? parsed.disabledAgents.filter(isAgentId)
         : [],
     }
   } catch {
-    cached = { ...DEFAULTS, apps: {} }
+    cached = { ...DEFAULTS, chatSize: { ...DEFAULTS.chatSize }, apps: {} }
   }
   return cached
 }

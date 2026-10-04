@@ -154,9 +154,15 @@ function isCustomAgentEntry(value: unknown): value is CustomAgentEntry {
   )
 }
 
-/** Settings may be changed from the Settings window or a project window, nothing else. */
+/** Settings themselves are changed from the Settings window only. */
+const fromSettings = (event: IpcMainEvent | IpcMainInvokeEvent) => isSettingsContents(event.sender)
+
+/**
+ * The Settings window or a project window's own UI (toolbar, start screen), which set
+ * agents up. Not the chat panel: it renders what agents write.
+ */
 const fromAppUi = (event: IpcMainEvent | IpcMainInvokeEvent) =>
-  isSettingsContents(event.sender) || windowFor(event) !== undefined
+  fromSettings(event) || windowFor(event)?.win.webContents === event.sender
 
 /** Errors cross IPC as `{ error }` so the page shows the message without Electron's prefix. */
 async function reportError(task: () => Promise<unknown>) {
@@ -233,6 +239,7 @@ function registerIpc() {
     return windowFor(event)?.sendChatMessage(text, attached) ?? false
   })
   ipcMain.handle(Invoke.shipInfo, (event) => windowFor(event)?.getShipInfo() ?? null)
+  ipcMain.handle(Invoke.takeScreenshot, (event) => windowFor(event)?.screenshotMenu() ?? null)
   ipcMain.handle(Invoke.ship, (event, request: unknown) => {
     if (!isShipRequest(request)) throw new Error('Invalid request')
     const win = windowFor(event)
@@ -244,11 +251,11 @@ function registerIpc() {
   })
   ipcMain.handle(Invoke.redo, (event) => windowFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => windowFor(event)?.fixProblems() ?? false)
-  ipcMain.handle(Invoke.signIn, async (_event, agentId: unknown) => {
-    if (isAgentId(agentId)) await agentHealth.signIn(agentId)
+  ipcMain.handle(Invoke.signIn, async (event, agentId: unknown) => {
+    if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.signIn(agentId)
   })
-  ipcMain.handle(Invoke.installAgent, async (_event, agentId: unknown) => {
-    if (isAgentId(agentId)) await agentHealth.install(agentId)
+  ipcMain.handle(Invoke.installAgent, async (event, agentId: unknown) => {
+    if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.install(agentId)
   })
 
   const on = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
@@ -276,10 +283,15 @@ function registerIpc() {
     handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
   ) => {
     ipcMain.handle(channel, (event, ...args: unknown[]) =>
-      fromAppUi(event) ? handler(event, ...args) : undefined,
+      fromSettings(event) ? handler(event, ...args) : undefined,
     )
   }
   const onSettings = (channel: string, handler: (...args: unknown[]) => void) => {
+    ipcMain.on(channel, (event, ...args: unknown[]) => {
+      if (fromSettings(event)) handler(...args)
+    })
+  }
+  const onAppUi = (channel: string, handler: (...args: unknown[]) => void) => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
       if (fromAppUi(event)) handler(...args)
     })
@@ -305,13 +317,13 @@ function registerIpc() {
   handleSettings(Invoke.clearStorage, (_event, kind) =>
     STORAGE_KINDS.includes(kind as StorageKind) ? confirmAndClear(kind as StorageKind) : false,
   )
-  onSettings(Send.openSettings, (section) =>
+  onAppUi(Send.openSettings, (section) =>
     openSettings(
       SECTIONS.includes(section as SettingsSection) ? (section as SettingsSection) : undefined,
     ),
   )
-  onSettings(Send.checkAgents, () => void agentHealth.checkAll())
-  onSettings(Send.setAgentEnabled, (agentId, enabled) => {
+  onAppUi(Send.checkAgents, () => void agentHealth.checkAll())
+  onAppUi(Send.setAgentEnabled, (agentId, enabled) => {
     if (isAgentId(agentId) && typeof enabled === 'boolean') setAgentEnabled(agentId, enabled)
   })
   onSettings(Send.setDefaultAgent, (agentId) => isAgentId(agentId) && setDefaultAgent(agentId))
@@ -343,6 +355,8 @@ function registerIpc() {
   on(Send.toggleDock, (win) => win.toggleDock())
   on(Send.dragChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.dragChat(dx, dy))
   on(Send.endDragChat, (win) => win.endDragChat())
+  on(Send.resizeChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.resizeChat(dx, dy))
+  on(Send.endResizeChat, (win) => win.endResizeChat())
   on(Send.chooseApp, (win, dir) => isString(dir) && win.chooseApp(dir))
   on(Send.installDependencies, (win) => win.installDependencies())
   on(Send.createEnvFile, (win) => win.createEnvFile())

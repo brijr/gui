@@ -134,7 +134,9 @@ export function setAgentEnabled(id: AgentId, enabled: boolean) {
   setPrefs({ disabledAgents: [...disabled] })
 }
 
+/** Only an agent Grat knows (built in or in agents.json) can be the default. */
 export function setDefaultAgent(id: AgentId) {
+  if (!agentHealth.has(id)) return
   agentHealth.ensureChecked(id)
   setPrefs({ agentId: id })
 }
@@ -218,7 +220,8 @@ export async function confirmAndClear(kind: StorageKind) {
     ? await dialog.showMessageBox(win, options)
     : await dialog.showMessageBox(options)
   if (response !== 0) return false
-  await clearStorageData(kind, open)
+  // Projects opened while the dialog was up keep theirs too.
+  await clearStorageData(kind, openRoots())
   await remeasure()
   return true
 }

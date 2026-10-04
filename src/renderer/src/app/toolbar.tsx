@@ -1,6 +1,8 @@
 import {
   ArrowLeft,
   ArrowRight,
+  Camera,
+  Check,
   ChevronDown,
   MessageSquare,
   Monitor,
@@ -9,7 +11,7 @@ import {
   Smartphone,
   Tablet,
 } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { agentName, type Viewport, type WindowState } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -20,6 +22,9 @@ const VIEWPORTS: { id: Viewport; label: string; icon: typeof Monitor }[] = [
   { id: 'tablet', label: 'Tablet', icon: Tablet },
   { id: 'mobile', label: 'Mobile', icon: Smartphone },
 ]
+const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached' } as const
+/** How long the screenshot button shows what it did. */
+const DONE_MS = 1500
 
 export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
@@ -79,6 +84,9 @@ export function Toolbar({ state }: { state: WindowState }) {
         ))}
       </fieldset>
 
+      {/* The menu only captures the local app, like element picking. */}
+      <ScreenshotButton disabled={!preview.visible || !preview.selectable} />
+
       <button
         type="button"
         aria-pressed={preview.selecting}
@@ -115,6 +123,39 @@ export function Toolbar({ state }: { state: WindowState }) {
         <MessageSquare className="size-4" />
       </IconButton>
     </header>
+  )
+}
+
+/** Opens the screenshot menu; briefly shows a check once something was done. */
+function ScreenshotButton({ disabled }: { disabled: boolean }) {
+  // A new object per result, so a second screenshot restarts the timer.
+  const [done, setDone] = useState<{ label: string } | null>(null)
+
+  useEffect(() => {
+    if (!done) return
+    const timer = setTimeout(() => setDone(null), DONE_MS)
+    return () => clearTimeout(timer)
+  }, [done])
+
+  const take = async () => {
+    const result = await grat.takeScreenshot()
+    if (result) setDone({ label: SCREENSHOT_DONE[result] })
+  }
+
+  return (
+    <>
+      <IconButton
+        label="Screenshot"
+        title={done?.label ?? 'Screenshot'}
+        disabled={disabled}
+        onClick={() => void take()}
+      >
+        {done ? <Check className="size-3.5" /> : <Camera className="size-3.5" />}
+      </IconButton>
+      <span aria-live="polite" className="sr-only">
+        {done?.label}
+      </span>
+    </>
   )
 }
 

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
-import type { ChatMeta, ChatSnapshot, Turn } from '../../../shared/types'
+import type { ChatMeta, ChatSnapshot, ImageAttachment, Turn } from '../../../shared/types'
 import { grat } from '../lib/api'
-import type { DraftImage } from './images'
+import { type DraftImage, MAX_IMAGES } from './images'
 
 interface ChatStore {
   meta: ChatMeta | null
@@ -10,6 +10,8 @@ interface ChatStore {
   draft: string
   /** Images attached to the draft, already downscaled; kept here for the same reason */
   attachments: DraftImage[]
+  /** Why an image wasn't attached; the composer shows it briefly */
+  notice: string | null
 }
 
 export const useChat = create<ChatStore>(() => ({
@@ -17,10 +19,15 @@ export const useChat = create<ChatStore>(() => ({
   turns: [],
   draft: '',
   attachments: [],
+  notice: null,
 }))
 
 export function setDraft(draft: string) {
   useChat.setState({ draft })
+}
+
+export function setNotice(notice: string | null) {
+  useChat.setState({ notice })
 }
 
 export function addAttachments(images: DraftImage[]) {
@@ -32,6 +39,15 @@ export function removeAttachments(ids: string[]) {
   useChat.setState(({ attachments }) => ({
     attachments: attachments.filter((image) => !ids.includes(image.id)),
   }))
+}
+
+/** An image main prepared for the draft, such as a screenshot of the preview. */
+function attachFromMain(image: ImageAttachment) {
+  if (useChat.getState().attachments.length >= MAX_IMAGES) {
+    setNotice(`Up to ${MAX_IMAGES} images per message.`)
+    return
+  }
+  addAttachments([{ ...image, id: crypto.randomUUID() }])
 }
 
 function applySnapshot(snapshot: ChatSnapshot) {
@@ -53,6 +69,8 @@ export function connectChat() {
     grat.onChatMeta((meta) => useChat.setState({ meta })),
     grat.onChatTurn(upsertTurn),
     grat.onChatReset(applySnapshot),
+    // Here rather than in the composer, which isn't mounted while the panel is minimized.
+    grat.onChatAttach(attachFromMain),
   ]
   void grat.getChat().then((snapshot) => {
     if (!useChat.getState().meta) applySnapshot(snapshot)

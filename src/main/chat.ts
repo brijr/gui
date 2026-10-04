@@ -1,12 +1,23 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { isAbsolute, relative, resolve as resolvePath } from 'node:path'
+import type { Stats } from 'node:fs'
+import { lstat, realpath } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import {
+  basename,
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve as resolvePath,
+  sep,
+} from 'node:path'
 import type {
   McpServer,
   RequestPermissionRequest,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
-import { BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
+import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import {
   type AgentId,
   agentName,
@@ -28,6 +39,7 @@ import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { buildPrompt } from './prompt'
 import { thumbnail } from './thumbnail'
+import { askToTrust, isTrusted, promptName } from './trust'
 
 type SessionUpdate = SessionNotification['update']
 
@@ -68,6 +80,17 @@ interface RedoPoint {
 interface Baseline {
   sha: string
   complete: boolean
+}
+
+/** Where an edit may be approved without asking; see `projectEditPath`. */
+export interface EditScope {
+  /** The project root as the agent was given it */
+  root: string
+  realRoot: string
+  /** Real home folder: its dotfiles and dot-folders, and ~/Library, always ask. */
+  home: string
+  /** Other real folders whose files always ask, like Grat's own data */
+  protectedDirs: string[]
 }
 
 /**
@@ -164,6 +187,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Saved session to resume; kept until an agent actually starts. */
   private resumeSessionId: string | null = null
   private persistTimer: NodeJS.Timeout | null = null
+  /** Resolved on the first edit the agent asks about, then kept. */
+  private editScope: Promise<EditScope> | null = null
   private readonly history: HistoryWriter
 
   constructor(
@@ -483,6 +508,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const stopped = () => !live() || record.cancelRequested
     let status: TurnStatus = 'done'
     try {
+      if (!(await this.confirmTrust())) {
+        status = 'cancelled'
+        if (live()) this.notTrusted(record)
+        return
+      }
+      if (stopped()) {
+        status = 'cancelled'
+        return
+      }
       const { agent, info } = await this.ensureAgent(record)
       if (stopped()) {
         status = 'cancelled'
@@ -566,6 +600,45 @@ export class ChatController extends EventEmitter<ChatEvents> {
         this.emit('turnEnd', record.turn)
       }
     }
+  }
+
+  /**
+   * Agents load the project's own agent settings (Claude Code's .claude/settings.json,
+   * OpenCode's opencode.json and plugins, and so on), which can run commands, so none works
+   * in a project the user hasn't trusted. Checked every turn: trust revoked in Settings
+   * asks again.
+   */
+  private async confirmTrust() {
+    if (await isTrusted(this.root)) return true
+    if (this.disposed) return false
+    // A custom agent's name comes from agents.json, which an agent could have written.
+    const agent = promptName(this.meta.agentName)
+    return askToTrust(
+      this.root,
+      {
+        message: `Let ${agent} work in ${promptName(basename(this.root))}?`,
+        detail: `${agent} loads this project's own agent settings (for example .claude/settings.json or opencode.json), which can run commands on your Mac. Only continue for projects you trust. Grat won't ask again for this project.`,
+        buttons: ['Continue', 'Cancel'],
+        // It follows Return in the composer; pressing it again mustn't be what agrees.
+        defaultId: 1,
+      },
+      BrowserWindow.getFocusedWindow(),
+    )
+  }
+
+  /** Declined: the turn ends unstarted, and an agent still running here (trust was revoked) stops. */
+  private notTrusted(record: TurnRecord) {
+    this.pushItem(record, {
+      kind: 'notice',
+      id: randomUUID(),
+      tone: 'info',
+      text: "Not started: this project isn't trusted.",
+    })
+    if (!this.agent) return
+    this.stopAgent()
+    // A later turn, once trusted, picks the conversation back up.
+    this.resumeSessionId = this.sessionId
+    this.patchMeta({ status: 'idle' })
   }
 
   private async ensureAgent(record: TurnRecord): Promise<{ agent: AgentSession; info: AgentInfo }> {
@@ -711,7 +784,23 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolve(null)
       return
     }
-    const autoApprove = this.isRoutineEdit(request)
+    void this.isRoutineEdit(request)
+      .catch(() => false)
+      .then((routine) => this.askPermission(record, request, resolve, routine))
+  }
+
+  private askPermission(
+    record: TurnRecord,
+    request: RequestPermissionRequest,
+    resolve: PermissionResolver,
+    routine: boolean,
+  ) {
+    // The turn may have ended or been stopped while the edit's paths were checked.
+    if (this.active !== record || record.cancelRequested || this.disposed) {
+      resolve(null)
+      return
+    }
+    const autoApprove = routine
       ? request.options.find((option) => option.kind === 'allow_once')
       : undefined
     if (autoApprove) {
@@ -743,19 +832,34 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /** Edits to ordinary source files inside the project are what Grat is for; approve those. */
-  private isRoutineEdit(request: RequestPermissionRequest) {
+  private async isRoutineEdit(request: RequestPermissionRequest) {
     const { kind, locations } = request.toolCall
     if (kind !== 'edit' || !locations?.length) return false
-    return locations.every(({ path }) => {
-      const rel = this.projectPath(path)
-      return rel !== null && !SENSITIVE_PATH.test(rel)
-    })
+    const scope = await this.scope()
+    const paths = await Promise.all(locations.map(({ path }) => projectEditPath(path, scope)))
+    return paths.every((rel) => rel !== null && !SENSITIVE_PATH.test(rel))
   }
 
-  /** The path relative to the project root, or null when it points outside the project. */
+  private scope() {
+    this.editScope ??= (async () => {
+      const real = (path: string) => realpath(path).catch(() => path)
+      const [realRoot, home, userData] = await Promise.all([
+        real(this.root),
+        real(homedir()),
+        real(app.getPath('userData')),
+      ])
+      return { root: this.root, realRoot, home, protectedDirs: [userData] }
+    })()
+    return this.editScope
+  }
+
+  /**
+   * The path relative to the project root, or null when it points outside the project.
+   * Only for labels: it doesn't follow symlinks (see `projectEditPath`).
+   */
   private projectPath(path: string) {
     const rel = relative(this.root, resolvePath(this.root, path))
-    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : null
+    return rel !== '' && !isOutside(rel) ? rel : null
   }
 
   private resolvePendingPermissions(record: TurnRecord) {
@@ -922,6 +1026,81 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.meta = { ...this.meta, ...patch }
     if (!this.disposed) this.emit('meta', this.meta)
   }
+}
+
+/** A relative path that climbs out of the folder it's relative to (or isn't relative at all). */
+const isOutside = (rel: string) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
+
+/** `path` relative to `dir`, or null when it isn't inside `dir` (or `dir` itself). */
+function within(dir: string, path: string) {
+  const rel = relative(dir, path)
+  return isOutside(rel) ? null : rel
+}
+
+const isMissing = (error: unknown) =>
+  typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
+
+/** The real path of `path`'s deepest existing folder (or itself), with the rest put back. */
+async function realLocation(path: string) {
+  const rest: string[] = []
+  let current = path
+  for (;;) {
+    try {
+      return join(await realpath(current), ...rest)
+    } catch (error) {
+      const parent = dirname(current)
+      if (!isMissing(error) || parent === current) throw error
+      rest.unshift(basename(current))
+      current = parent
+    }
+  }
+}
+
+/**
+ * Where an edit to `path` lands, relative to the project root, when it may be approved
+ * without asking; otherwise null. That's never outside the project, never through a
+ * symlink inside it (a link can point anywhere, Grat's own data included), only to a plain
+ * file or one that doesn't exist yet, and never in the home folder's dotfiles, ~/Library
+ * or `protectedDirs`, for projects that contain those.
+ */
+export async function projectEditPath(path: string, scope: EditScope): Promise<string | null> {
+  // `..` after a symlink climbs out of where the link points, not where it sits.
+  if (path.includes('\0') || path.split(/[\\/]/).includes('..')) return null
+  const target = resolvePath(scope.root, path)
+  const rel = [scope.root, scope.realRoot]
+    .map((root) => relative(root, target))
+    .find((candidate) => candidate !== '' && !isOutside(candidate))
+  if (rel === undefined) return null
+
+  // Walks down from the real root; what doesn't exist yet can't be a link.
+  const parts = rel.split(sep)
+  let current = scope.realRoot
+  for (const [index, part] of parts.entries()) {
+    current = join(current, part)
+    let stats: Stats
+    try {
+      stats = await lstat(current)
+    } catch (error) {
+      if (isMissing(error)) break
+      return null
+    }
+    if (stats.isSymbolicLink()) return null
+    if (index < parts.length - 1 ? !stats.isDirectory() : !stats.isFile()) return null
+    // A file with other hard links is also a file somewhere else.
+    if (stats.isFile() && stats.nlink > 1) return null
+  }
+
+  // Where it really lands, as macOS resolves it (realpath also settles letter case).
+  const real = await realLocation(join(scope.realRoot, rel)).catch(() => null)
+  if (real === null || !within(scope.realRoot, real)) return null
+  if (scope.protectedDirs.some((dir) => within(dir, real) !== null)) return null
+  // ~/Library and home dotfiles only matter when the project is the home folder (or one
+  // above it): projects in iCloud Drive or Dropbox live under ~/Library themselves.
+  if (within(scope.realRoot, scope.home) !== null) {
+    if (within(join(scope.home, 'Library'), real) !== null) return null
+    if (within(scope.home, real)?.startsWith('.')) return null
+  }
+  return rel
 }
 
 /** The newest checkpoint of these turns, i.e. how Grat last left the files they touched. */

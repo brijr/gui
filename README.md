@@ -31,7 +31,7 @@ bun run dev
 
 Open a project folder (⌘O). Grat detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. A fresh clone just works: Grat installs missing dependencies (in the same confirmation), asks which app to preview in a monorepo, and offers to create `.env.local` from `.env.example`. To open a project on launch: `GRAT_OPEN=/path/to/project bun run dev`.
 
-In the chat, paste or drop reference images ("make it look like this"); the agent sees them. When you're happy, the pull-request button in the chat header commits the changes to a new branch, pushes it, and opens the pull request (with `gh` when it's signed in, otherwise GitHub's or GitLab's new-PR page). Env files and keys are never committed.
+In the chat, paste or drop reference images ("make it look like this"); the agent sees them. The camera button in the toolbar copies or saves a full-resolution screenshot of the preview (the visible area or the full page), or attaches it to the chat. Drag the chat panel's left or bottom edge to resize it (docked: its left edge); Grat remembers the size. When you're happy, the pull-request button in the chat header commits the changes to a new branch, pushes it, and opens the pull request (with `gh` when it's signed in, otherwise GitHub's or GitLab's new-PR page). Env files and keys are never committed.
 
 | Action | Shortcut |
 | --- | --- |
