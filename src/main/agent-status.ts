@@ -87,12 +87,8 @@ const unchecked = (
  * Code or Codex when missing, and runs sign-in.
  */
 class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }> {
-  private health = new Map<AgentId, AgentHealth>(
-    AGENTS.map((agent) => [
-      agent.id,
-      unchecked({ ...agent, command: null, installUrl: null }, true),
-    ]),
-  )
+  /** Every agent by id, once first used; see `health`. */
+  private known: Map<AgentId, AgentHealth> | null = null
   private running = new Map<AgentId, Promise<void>>()
   /** Sign-in methods the agent offered when it said the user isn't signed in */
   private methods = new Map<AgentId, AuthMethod>()
@@ -116,6 +112,21 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     // Every window and every chat listens.
     this.setMaxListeners(0)
     prefsEvents.on('change', () => this.syncEnabled())
+  }
+
+  /**
+   * The built-in agents until the first scan. Made on first use rather than when this
+   * module is imported: whether each is enabled comes from prefs, and index.ts moves
+   * userData only after its imports have run.
+   */
+  private get health() {
+    this.known ??= new Map(
+      AGENTS.map((agent) => [
+        agent.id,
+        unchecked({ ...agent, command: null, installUrl: null }, true),
+      ]),
+    )
+    return this.known
   }
 
   list(): AgentHealth[] {
@@ -378,7 +389,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     const changed =
       customError !== this.customError ||
       JSON.stringify([...next.values()]) !== JSON.stringify(this.list())
-    this.health = next
+    this.known = next
     this.customError = customError
     if (changed) this.emit('change', this.list())
   }

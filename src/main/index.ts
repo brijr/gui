@@ -115,7 +115,9 @@ function adoptGratData(from: string, to: string) {
 
 // Dev builds keep their own data: sharing the installed app's would let both work on one
 // project's history and shadow repo at once. Tests pick a folder with --user-data-dir.
-// Must run before anything reads userData, including the single-instance lock below.
+// Must run before anything reads userData, including the single-instance lock below. The
+// imports above have already run by now, so no module may read userData (prefs included)
+// as it's imported.
 if (!app.commandLine.hasSwitch('user-data-dir')) {
   const appData = app.getPath('appData')
   if (app.isPackaged) {
