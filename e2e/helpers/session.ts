@@ -30,6 +30,13 @@ export interface LaunchOptions {
   colorScheme?: 'light' | 'dark'
   /** More environment for the app, e.g. the `SHELL` its terminals start */
   env?: Record<string, string>
+  /**
+   * Reduce motion, whatever the machine is set to (CI's runner has it on): 'no-preference'
+   * (the default) moves things, 'reduce' doesn't. Main gets it through GUI_E2E_REDUCED_MOTION,
+   * the window's chrome and chat pages through media emulation. (Pages that open later, such as
+   * another tab's chat, keep Playwright's own default, 'no-preference'.)
+   */
+  reducedMotion?: 'reduce' | 'no-preference'
 }
 
 export interface ConsentPrompt {
@@ -88,6 +95,38 @@ async function drawLayers({ width, height, out }: Layers): Promise<string> {
     ctx.drawImage(img, layer.x * scale, layer.y * scale, img.width, img.height)
   }
   return canvas.toDataURL('image/png')
+}
+
+const REDUCED_MOTION = '(prefers-reduced-motion: reduce)'
+/** The motion environment is logged once per run, from the first launch. */
+let motionLogged = false
+
+/**
+ * What the machine says about motion, before the tests' own settings: the system's Reduce
+ * motion and refresh rate as main reads them, whether the window has focus, and what each page
+ * matches as Playwright attached it. CI's output shows it, to tell its runner apart.
+ */
+async function logMotionEnvironment(app: ElectronApplication, chrome: Page, chat: Page) {
+  if (motionLogged) return
+  motionLogged = true
+  const main = await app
+    .evaluate(({ BrowserWindow, screen, systemPreferences }) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      return {
+        animationSettings: systemPreferences.getAnimationSettings(),
+        displayFrequency: win ? screen.getDisplayMatching(win.getBounds()).displayFrequency : null,
+        windowFocused: win?.isFocused() ?? null,
+        windowVisible: win?.isVisible() ?? null,
+      }
+    })
+    .catch((error: unknown) => ({ error: String(error) }))
+  const matches = (page: Page) =>
+    page.evaluate((query) => matchMedia(query).matches, REDUCED_MOTION).catch(() => null)
+  const pages = {
+    chromeReducedMotion: await matches(chrome),
+    chatReducedMotion: await matches(chat),
+  }
+  console.log(`[e2e] motion environment: ${JSON.stringify({ ...main, ...pages })}`)
 }
 
 /** A launched Gui window plus the helpers every test needs to drive and inspect it. */
@@ -303,6 +342,7 @@ export async function launchGui(
     writeFileSync(join(copy.userData, RECENT_FILE), JSON.stringify(recent))
   }
 
+  const reducedMotion = options.reducedMotion ?? 'no-preference'
   const app = await electron.launch({
     executablePath: electronExecutable(),
     args: [REPO_ROOT, `--user-data-dir=${copy.userData}`],
@@ -310,6 +350,7 @@ export async function launchGui(
       ...options.env,
       GUI_OPEN: options.open === 'recent' ? '' : copy.root,
       GUI_AGENT_STAND_INS: standInsFile(copy),
+      GUI_E2E_REDUCED_MOTION: reducedMotion === 'reduce' ? '1' : '0',
     }),
     colorScheme: options.colorScheme ?? 'light',
     timeout: 60_000,
@@ -327,6 +368,9 @@ export async function launchGui(
     // The preload exposes window.gui before page scripts run, but be explicit.
     await chrome.waitForFunction(() => 'gui' in window)
     await chat.waitForFunction(() => 'gui' in window)
+    await logMotionEnvironment(app, chrome, chat)
+    await chrome.emulateMedia({ reducedMotion })
+    await chat.emulateMedia({ reducedMotion })
     return new GuiSession(app, chrome, chat, copy, testInfo, output)
   } catch (error) {
     await closeApp(app)

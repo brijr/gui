@@ -256,13 +256,8 @@ test('grabbing the panel mid-flight catches it where it is', async ({ launch }) 
 })
 
 test('with Reduce motion on, the panel jumps to its corner', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   await ready(session)
-  // The system setting, as main reads it.
-  await session.app.evaluate(({ systemPreferences }) => {
-    const settings = systemPreferences.getAnimationSettings()
-    systemPreferences.getAnimationSettings = () => ({ ...settings, prefersReducedMotion: true })
-  })
   const { end, samples } = await throwPanel(
     session,
     { dx: 40, dy: -40 },
@@ -430,9 +425,8 @@ test('minimizing morphs the panel into its pill and back', async ({ launch }) =>
 })
 
 test('with reduced motion the bubble cross-fades in place', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   const start = await ready(session)
-  await session.chat.emulateMedia({ reducedMotion: 'reduce' })
   await session.chat.evaluate(startRecording)
   await setSelecting(session, true)
   await layoutWhen(session, 'the bubble', ({ chat }) => chat.width === BUBBLE_VIEW)

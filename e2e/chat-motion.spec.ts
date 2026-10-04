@@ -138,6 +138,8 @@ async function useStandIn(session: GuiSession) {
 interface Recorded {
   before: string[]
   after: string[]
+  /** Its update has applied (it runs a frame or so after the transition starts) */
+  updated: boolean
   ran: boolean | null
 }
 
@@ -162,11 +164,12 @@ function recordTransitions() {
       .map(describe)
   const start = document.startViewTransition.bind(document)
   document.startViewTransition = ((update: () => void) => {
-    const entry: Recorded = { before: named(), after: [], ran: null }
+    const entry: Recorded = { before: named(), after: [], updated: false, ran: null }
     log.push(entry)
     const transition = start(() => {
       update()
       entry.after = named()
+      entry.updated = true
     })
     transition.ready.then(
       () => {
@@ -182,6 +185,18 @@ function recordTransitions() {
 
 const transitions = (chat: Page) =>
   chat.evaluate(() => (globalThis as unknown as RecorderStore).guiTransitions ?? [])
+
+/**
+ * The `index`th transition once it has played its part: its update applied and it has started
+ * (or been skipped). A transition is logged as it starts, a frame or two before either, and a
+ * slow machine (CI's) shows that gap.
+ */
+function transitionAt(chat: Page, index: number, label: string) {
+  return waitFor(async () => {
+    const entry = (await transitions(chat))[index]
+    return entry?.updated && entry.ran !== null ? entry : null
+  }, label)
+}
 
 /** Types `text` in the composer and presses Return, as the user sends. */
 async function type(chat: Page, text: string) {
@@ -202,11 +217,10 @@ test('a sent message rises from the composer, and a queued one moves into its tu
 
   // Sent: the composer's text becomes the turn's message.
   await type(chat, 'BRIEF Tighten the heading.')
-  await expect(chat.getByText('Tighten the heading.', { exact: false })).toBeVisible()
-  await waitFor(async () => (await transitions(chat)).length > 0, 'the send transition')
-  const [sent] = await transitions(chat)
-  expect(sent?.before).toEqual(['chat-message:composer'])
-  expect(sent?.after).toEqual(['chat-message:userMessage'])
+  const sent = await transitionAt(chat, 0, 'the send transition')
+  expect(sent.before).toEqual(['chat-message:composer'])
+  expect(sent.after).toEqual(['chat-message:userMessage'])
+  await expect(chat.getByRole('article').getByText('Tighten the heading.')).toBeVisible()
   await expect(chat.getByRole('textbox', { name: /^Message / })).toHaveValue('')
 
   // Sent while it works: into the queue. (Once the first move is over: one that comes while
@@ -215,24 +229,18 @@ test('a sent message rises from the composer, and a queued one moves into its tu
   await type(chat, 'Then the button.')
   const queued = chat.getByRole('list', { name: 'Queued messages' }).getByRole('listitem')
   await expect(queued).toHaveCount(1)
-  await waitFor(async () => (await transitions(chat)).length > 1, 'the queue transition')
-  const toQueue = (await transitions(chat))[1]
-  expect(toQueue?.before).toEqual([expect.stringMatching(/^queue-.+:composer$/)])
-  expect(toQueue?.after).toEqual([expect.stringMatching(/^queue-.+:queueItem$/)])
+  const toQueue = await transitionAt(chat, 1, 'the queue transition')
+  expect(toQueue.before).toEqual([expect.stringMatching(/^queue-.+:composer$/)])
+  expect(toQueue.after).toEqual([expect.stringMatching(/^queue-.+:queueItem$/)])
 
   // The first turn ends and the queued message starts: it moves out of the queue into it.
   await session.waitForTurn(0, 30_000)
   await waitFor(async () => (await session.chatSnapshot()).turns.length === 2, 'the queued turn')
-  await waitFor(async () => (await transitions(chat)).length > 2, 'the move into the transcript')
-  const started = (await transitions(chat))[2]
-  expect(started?.before).toEqual(['chat-message:queueItem'])
-  expect(started?.after).toEqual(['chat-message:userMessage'])
+  const started = await transitionAt(chat, 2, 'the move into the transcript')
+  expect(started.before).toEqual(['chat-message:queueItem'])
+  expect(started.after).toEqual(['chat-message:userMessage'])
   await expect(queued).toHaveCount(0)
   // Each one ran, rather than being skipped.
-  await waitFor(
-    async () => (await transitions(chat)).every((entry) => entry.ran !== null),
-    'the transitions to start',
-  )
   for (const entry of await transitions(chat)) expect(entry.ran).toBe(true)
   await session.waitForTurn(1, 30_000)
 })
@@ -273,12 +281,12 @@ test('an answered permission card collapses into its line; new rows fade up once
   await sleep(300)
   await reject.click()
   await expect(chat.getByText('Not allowed')).toBeVisible()
-  // Read once it has started (or been skipped): the line is in the page a frame or two before.
+  // Read once it has played its part (see transitionAt).
   const collapse = await waitFor(async () => {
     const found = (await transitions(chat)).find((t) =>
       t.before.includes('chat-permission-0:permission'),
     )
-    return found?.ran === null ? null : found
+    return found?.updated && found.ran !== null ? found : null
   }, 'the card collapsing')
   expect(collapse.after).toEqual(['chat-permission-0:permission'])
   expect(collapse.ran).toBe(true)
@@ -286,12 +294,11 @@ test('an answered permission card collapses into its line; new rows fade up once
 })
 
 test('with reduced motion nothing moves: rows fade in place', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   await session.declineConsentDialogs()
   await useStandIn(session)
   const { chat } = session
   await session.waitForPreview()
-  await chat.emulateMedia({ reducedMotion: 'reduce' })
   await chat.evaluate(recordTransitions)
   await type(chat, 'Look at the footer.')
   await session.waitForTurn(0, 30_000)

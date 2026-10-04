@@ -33,6 +33,8 @@ interface Point {
 
 /** Transparent margin around the floating chat panel (PANEL_SHADOW_MARGIN). */
 const SHADOW = 18
+/** Space the floating panel keeps from the canvas's edges in its corner (PANEL_MARGIN). */
+const PANEL_MARGIN = 12
 const SMALL_WINDOW = { width: 960, height: 640 }
 const LARGE_WINDOW = { width: 1640, height: 1180 }
 
@@ -444,11 +446,19 @@ test('picking in a scaled frame finds, highlights and frames the right element',
   // An element far from the page's origin, under the floating chat as drawn: the chat moves
   // off it. The chat is thrown into the canvas's bottom-right corner, and the element goes
   // under its middle: at page coordinates that, unscaled, would be past the window's right edge.
-  const resting = await session.app.evaluate(views)
+  // Wherever it was (the pick above may have dodged it there already), and whether it springs
+  // or jumps: its visible panel against the canvas's right and bottom edges, staying put.
   await session.chat.evaluate(() => window.gui.endDragChat({ x: 3000, y: 3000 }))
+  const canvas = await canvasRect(session)
+  const cornered = (chat: Rect) => {
+    const panel = inner(chat)
+    const right = canvas.x + canvas.width - (panel.x + panel.width)
+    const bottom = canvas.y + canvas.height - (panel.y + panel.height)
+    return Math.abs(right - PANEL_MARGIN) <= 1 && Math.abs(bottom - PANEL_MARGIN) <= 1
+  }
   const layout = await waitFor(async () => {
     const now = await session.app.evaluate(views)
-    if (!now?.chat || !resting?.chat || now.chat.x <= resting.chat.x) return null
+    if (!now?.chat || !cornered(now.chat)) return null
     await sleep(300)
     const later = await session.app.evaluate(views)
     return later?.chat && later.chat.x === now.chat.x && later.chat.y === now.chat.y ? later : null
