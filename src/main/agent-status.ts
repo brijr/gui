@@ -252,7 +252,26 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     this.awaitingTerminal.clear()
     const preferred = this.health.get(getPrefs().agentId)
     if (preferred?.enabled && preferred.status === 'unknown') ids.add(preferred.id)
+    for (const id of await this.newlyInstalled()) ids.add(id)
     await Promise.all([...ids].map((id) => this.check(id)))
+  }
+
+  /**
+   * Claude Code or Codex shown as missing that the user has since installed (or updated)
+   * themselves. Only looks for the CLI, without a visible "Checking", so focusing Grat
+   * doesn't flicker every missing agent.
+   */
+  private async newlyInstalled() {
+    const found: AgentId[] = []
+    for (const agent of this.list()) {
+      const pinned = pinnedAgent(agent.id)
+      if (!pinned || !agent.enabled || agent.status !== 'not-installed') continue
+      if (this.running.has(agent.id)) continue
+      forgetBinaries(pinned)
+      const binary = await agentBinary(pinned).catch(() => null)
+      if (binary?.kind === 'ready') found.push(agent.id)
+    }
+    return found
   }
 
   /** Stops every check, download and sign-in in progress (a sign-in would outlive Grat). */
