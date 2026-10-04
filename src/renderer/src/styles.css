@@ -1,28 +1,87 @@
 @import "tailwindcss";
 
+/*
+ * Gui's design tokens: the only place raw values live. Components use the utilities these
+ * generate (bg-surface, text-small, rounded-lg, shadow-popover…), never arbitrary values.
+ * Tailwind's default palette, type sizes, radii and shadows are switched off so nothing
+ * else can creep in.
+ *
+ * Control heights (Tailwind spacing): 24px h-6 (sm: in-row actions, queue and turn
+ * actions), 28px h-7 (md: default buttons, fields, toolbar and composer controls), 32px h-8
+ * (lg: the canvas's primary call to action only). Icons: 14px (size-3.5) in every control,
+ * 12px (size-3) for chevrons, disclosure and check glyphs inside rows, 16px (size-4) only
+ * for canvas message icons. Spacing follows the 4px grid; stacks use gap, not margins.
+ */
+
+/* Colors switch with the appearance, so utilities read them through the raw variables below. */
 @theme inline {
+  --color-*: initial;
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-raised: var(--raised);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
+  --color-fill: var(--fill);
+  --color-hover: var(--hover);
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-subtle: var(--subtle);
-  --color-hover: var(--hover);
   --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-text: var(--accent-text);
   --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
   --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
   --color-danger: var(--danger);
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
-  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+  --color-danger-soft: var(--danger-soft);
+  --color-knob: var(--knob);
+
+  --shadow-*: initial;
+  --shadow-raised: var(--elevation-raised);
+  --shadow-popover: var(--elevation-popover);
+  --shadow-panel: var(--elevation-panel);
 }
 
 @theme {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+
+  /*
+   * Type scale. caption: metadata, group labels, badges, mono paths, timestamps. small:
+   * controls, buttons, secondary lines, rows in dense UI. body: the default, chat prose,
+   * fields, panel and section titles (with weight). title: canvas and settings page titles.
+   * Weights: 400 body, 500 labels, controls and row titles, 600 titles only; never by state.
+   */
+  --text-*: initial;
+  --text-caption: 11px;
+  --text-caption--line-height: 14px;
+  --text-small: 12px;
+  --text-small--line-height: 16px;
+  --text-body: 13px;
+  --text-body--line-height: 18px;
+  --text-title: 15px;
+  --text-title--line-height: 20px;
+
+  /* sm: chips, inline code, tiny targets. md: buttons, fields, rows. lg: cards, popovers,
+     thumbnails, menus. xl: panels and sheets. Bubbles and pills use rounded-full. */
+  --radius-*: initial;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+
+  /* Motion (durations in :root): every transition eases out and defaults to the press
+     duration. Only opacity and transform animate. */
+  --ease-*: initial;
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --default-transition-duration: var(--motion-press);
+  --default-transition-timing-function: var(--ease-out);
+
   /* The chat bubble popping in where the floating panel was. */
-  --animate-bubble-in: bubble-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  --animate-bubble-in: bubble-in var(--motion-pop) var(--ease-out);
 
   @keyframes bubble-in {
     from {
@@ -32,43 +91,103 @@
   }
 }
 
+/*
+ * Light and dark values. Text tokens (fg, muted, subtle, accent-text, the status colors)
+ * keep at least 4.5:1 on canvas, surface and raised; accent-fg on accent too.
+ * src/shared/theme.ts repeats --surface and --accent for native colors: keep them in sync.
+ */
 :root {
   color-scheme: light dark;
-  --canvas: #e9e9e7;
-  --surface: #f6f6f5;
+  /* Hover and press colors */
+  --motion-press: 120ms;
+  /* Popovers and the bubble popping in (duration-(--motion-pop)) */
+  --motion-pop: 160ms;
+  /* Panels and sheets moving in */
+  --motion-panel: 220ms;
+
+  /* Behind the preview, and the start screen */
+  --canvas: #ececec;
+  /* Toolbar, panel chrome, the Settings window */
+  --surface: #f7f7f7;
+  /* Cards, popovers, fields, the chat panel's body */
   --raised: #ffffff;
   --line: rgb(0 0 0 / 0.08);
-  --line-strong: rgb(0 0 0 / 0.15);
-  --fg: #1b1b1a;
-  --muted: #62625e;
-  --subtle: #8f8f8a;
-  --hover: rgb(0 0 0 / 0.05);
-  --accent: #2563eb;
+  --line-strong: rgb(0 0 0 / 0.14);
+  /* Neutral fills: switch tracks, idle dots, inline code, badges, segmented tracks */
+  --fill: rgb(0 0 0 / 0.06);
+  --hover: rgb(0 0 0 / 0.045);
+  --fg: #18181a;
+  --muted: #545458;
+  --subtle: #68686d;
+  /* The brand blue from the app icon */
+  --accent: #0066ff;
+  --accent-hover: #005be5;
   --accent-fg: #ffffff;
-  --accent-soft: rgb(37 99 235 / 0.1);
-  --success: #15803d;
-  --warning: #b45309;
-  --danger: #c2410c;
+  --accent-soft: rgb(0 102 255 / 0.1);
+  /* Accent for text and glyphs, a step darker than the fill so it reads on accent-soft */
+  --accent-text: #0058e0;
+  --success: #147a3a;
+  --success-soft: rgb(20 122 58 / 0.1);
+  --warning: #a84d08;
+  --warning-soft: rgb(168 77 8 / 0.1);
+  --danger: #b83d0b;
+  --danger-soft: rgb(184 61 11 / 0.1);
+  /* A switch's thumb */
+  --knob: #ffffff;
+  --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
+  --elevation-popover: 0 8px 24px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
+  /* Stays within the floating chat view's transparent margin (PANEL_SHADOW_MARGIN, 18px). */
+  --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --canvas: #0d0d0d;
-    --surface: #181818;
-    --raised: #1f1f1f;
+    --canvas: #0e0e0f;
+    --surface: #18181a;
+    --raised: #202023;
     --line: rgb(255 255 255 / 0.08);
-    --line-strong: rgb(255 255 255 / 0.16);
-    --fg: #ececea;
-    --muted: #a3a39e;
-    --subtle: #75756f;
-    --hover: rgb(255 255 255 / 0.07);
-    --accent: #6b9bff;
-    --accent-fg: #0b1220;
-    --accent-soft: rgb(107 155 255 / 0.16);
+    --line-strong: rgb(255 255 255 / 0.15);
+    --fill: rgb(255 255 255 / 0.08);
+    --hover: rgb(255 255 255 / 0.06);
+    --fg: #ededef;
+    --muted: #ababb0;
+    --subtle: #8c8c91;
+    --accent: #5c9dff;
+    --accent-hover: #4b8ff7;
+    --accent-fg: #04122b;
+    --accent-soft: rgb(92 157 255 / 0.16);
+    --accent-text: #5c9dff;
     --success: #4ade80;
+    --success-soft: rgb(74 222 128 / 0.16);
     --warning: #fbbf24;
+    --warning-soft: rgb(251 191 36 / 0.16);
     --danger: #fb923c;
+    --danger-soft: rgb(251 146 60 / 0.16);
+    --knob: #f2f2f4;
+    --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4);
+    --elevation-popover:
+      0 8px 24px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
+    /* Stronger, with a dark outline and an inner highlight, so it holds over dark previews. */
+    --elevation-panel:
+      0 4px 14px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(0 0 0 / 0.5),
+      inset 0 1px 0 rgb(255 255 255 / 0.07);
   }
+}
+
+/* Hover on a control with its own fill (secondary button): tints it the way bg-hover tints a
+   transparent one, on any background. */
+@utility tint {
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
+
+/* Code inside running text (commands, file names): a step smaller than the text around it.
+   Used by the Code primitive and by agent markdown. */
+@utility inline-code {
+  border-radius: var(--radius-sm);
+  background: var(--fill);
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
 }
 
 html,
@@ -82,7 +201,7 @@ body {
   overflow: hidden;
   background: var(--surface);
   color: var(--fg);
-  font: 13px / 1.45 var(--font-sans);
+  font: var(--text-body) / var(--text-body--line-height) var(--font-sans);
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
@@ -101,9 +220,15 @@ html.transparent body {
 }
 
 @layer base {
+  /* Buttons and rows; fields replace it with an accent border and ring (lib/field.tsx). */
   :focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
+  }
+
+  /* Lucide icons at the system's lighter stroke. */
+  .lucide {
+    stroke-width: 1.75;
   }
 }
 
@@ -130,18 +255,16 @@ html.transparent body {
   padding-left: 1.25em;
 }
 .markdown code {
-  border-radius: 4px;
-  background: var(--hover);
-  padding: 0.1em 0.3em;
-  font-family: var(--font-mono);
-  font-size: 0.88em;
+  @apply inline-code;
 }
 .markdown pre {
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
-  padding: 0.6em 0.75em;
+  padding: 8px 12px;
+  font-size: var(--text-small);
+  line-height: var(--text-small--line-height);
 }
 .markdown pre code {
   background: none;
