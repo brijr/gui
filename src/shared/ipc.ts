@@ -56,6 +56,7 @@ export const Send = {
   reload: 'preview:reload',
   setViewport: 'preview:viewport',
   toggleSelect: 'preview:select',
+  stopSelecting: 'preview:select-stop',
   setCanvasRect: 'layout:canvas',
   toggleChat: 'chat:toggle',
   setLogsOpen: 'logs:open',
@@ -94,6 +95,7 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatAttach: 'chat:attach',
+  chatBubble: 'chat:bubble',
   settings: 'settings',
   settingsSection: 'settings:section',
 } as const
@@ -138,6 +140,8 @@ export interface GuiApi {
   reload(): void
   setViewport(viewport: Viewport): void
   toggleSelect(): void
+  /** Ends element picking (the chat bubble's click) */
+  stopSelecting(): void
   setCanvasRect(rect: Rect): void
   toggleChat(): void
   setLogsOpen(open: boolean): void
@@ -148,6 +152,11 @@ export interface GuiApi {
   onChatTurn(cb: (turn: Turn) => void): Unsubscribe
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
+  /**
+   * Whether the floating panel is drawn as a bubble: while the user picks an element, the
+   * view shrinks to it so it doesn't cover the page.
+   */
+  onChatBubble(cb: (bubble: boolean) => void): Unsubscribe
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project).

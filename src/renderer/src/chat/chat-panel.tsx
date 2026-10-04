@@ -2,13 +2,14 @@ import {
   GitPullRequest,
   GripHorizontal,
   Maximize2,
+  MessageCircle,
   Minus,
   MousePointer2,
   PanelRight,
   PanelRightClose,
   SquarePen,
 } from 'lucide-react'
-import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from 'react'
+import { type PointerEvent as ReactPointerEvent, useEffect, useId, useRef } from 'react'
 import type { ChatMeta, Turn } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -26,6 +27,7 @@ export function ChatPanel() {
   const turns = useChat((s) => s.turns)
   // "Create pull request" takes over the transcript and composer until it's closed.
   const shipping = useShipSheet((s) => s.open)
+  const bubble = useChat((s) => s.bubble)
   if (!meta) return null
 
   const running = turns.some((turn) => turn.status === 'running')
@@ -46,6 +48,8 @@ export function ChatPanel() {
       </div>
     )
   }
+
+  if (bubble) return <ChatBubble turns={turns} running={running} />
 
   return (
     <div className="h-dvh p-[18px]">
@@ -253,6 +257,56 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
       <IconButton label="Expand chat" onClick={() => gui.setMinimized(false)}>
         <Maximize2 className="size-3.5" />
       </IconButton>
+    </div>
+  )
+}
+
+/**
+ * The floating panel while the user picks an element: main shrinks the view to this bubble
+ * at the panel's top-right corner. Clicking it stops picking, which brings the panel back.
+ */
+function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
+  const statusId = useId()
+  // A permission card in the running turn; it shows once the panel is back.
+  const waiting = turns.some(
+    (turn) =>
+      turn.status === 'running' &&
+      turn.items.some((item) => item.kind === 'permission' && item.resolved === null),
+  )
+  const status = waiting
+    ? 'The agent is waiting for you. '
+    : running
+      ? 'The agent is working. '
+      : ''
+  return (
+    // At the view's top-right, so it stays put while the view resizes around it.
+    <div className="flex h-dvh justify-end p-[18px]">
+      <button
+        type="button"
+        aria-label="Show chat"
+        aria-describedby={statusId}
+        title="Show chat (stops selecting)"
+        onClick={() => gui.stopSelecting()}
+        className={cn(
+          'relative flex size-11 shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-muted transition-colors hover:text-fg motion-safe:animate-bubble-in',
+          PANEL_SHADOW,
+        )}
+      >
+        {running ? (
+          <Spinner className="size-4" />
+        ) : (
+          <MessageCircle className="size-[18px]" aria-hidden="true" />
+        )}
+        {waiting && (
+          <span
+            aria-hidden="true"
+            className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-accent ring-2 ring-raised"
+          />
+        )}
+      </button>
+      <span id={statusId} hidden>
+        {status}Stops selecting.
+      </span>
     </div>
   )
 }

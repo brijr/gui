@@ -356,6 +356,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return this.lock !== null
   }
 
+  /** A permission card is waiting for the user's answer. */
+  get awaitingPermission() {
+    return this.permissions.size > 0
+  }
+
   /**
    * Starts a turn, or queues the message (`meta.queue`) while another operation is in
    * progress. Returns false only when nothing was accepted (an empty message, or disposed).

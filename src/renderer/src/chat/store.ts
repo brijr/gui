@@ -12,6 +12,8 @@ interface ChatStore {
   attachments: DraftImage[]
   /** Why an image wasn't attached; the composer shows it briefly */
   notice: string | null
+  /** The floating panel is a bubble while the user picks an element (main sizes the view) */
+  bubble: boolean
 }
 
 export const useChat = create<ChatStore>(() => ({
@@ -20,6 +22,7 @@ export const useChat = create<ChatStore>(() => ({
   draft: '',
   attachments: [],
   notice: null,
+  bubble: false,
 }))
 
 export function setDraft(draft: string) {
@@ -71,6 +74,7 @@ export function connectChat() {
     gui.onChatReset(applySnapshot),
     // Here rather than in the composer, which isn't mounted while the panel is minimized.
     gui.onChatAttach(attachFromMain),
+    gui.onChatBubble((bubble) => useChat.setState({ bubble })),
   ]
   void gui.getChat().then((snapshot) => {
     if (!useChat.getState().meta) applySnapshot(snapshot)

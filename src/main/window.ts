@@ -73,6 +73,8 @@ const PANEL_MIN = { width: 320, height: 360 }
 /** Space the floating panel's size leaves around it in the window. */
 const PANEL_MARGIN = 12
 const MINI = { width: 248, height: 52 }
+/** The floating panel while the user picks an element: a round button at its top-right. */
+const BUBBLE = { width: 44, height: 44 }
 const DOCK_MIN_WIDTH = 320
 /** The docked panel leaves the preview at least the rest of the canvas. */
 const DOCK_MAX_SHARE = 0.6
@@ -139,6 +141,10 @@ export class ProjectWindow {
   private dockWidth = getPrefs().chatDockWidth
   /** Which size the resize in progress changes, to remember it when it ends. */
   private resizing: 'floating' | 'docked' | null = null
+  /** The chat view was last told to draw the bubble (Events.chatBubble). */
+  private bubbleShown = false
+  /** A permission card came up while the user picked over the bubble; shown when picking ends. */
+  private attentionWaiting = false
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
   private disposed = false
@@ -356,7 +362,7 @@ export class ProjectWindow {
         if (turn.status === 'running') this.cancelRehighlight()
       })
       chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
-      chat.on('attention', () => this.focusChat())
+      chat.on('attention', () => this.onAttention())
       chat.on('turnEnd', (turn) => {
         if (turn.status === 'done' && turn.context && turn.changes?.length) {
           const selector = turn.context.selector
@@ -995,7 +1001,8 @@ export class ProjectWindow {
   toggleChat() {
     this.patch({ chatVisible: !this.state.chatVisible })
     this.layout()
-    if (this.state.chatVisible) this.focusChat()
+    // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
+    if (this.state.chatVisible && !this.bubbled) this.focusChat()
   }
 
   setMinimized(minimized: boolean) {
@@ -1144,6 +1151,13 @@ export class ProjectWindow {
   }
 
   private focusChat() {
+    // The floating panel is wanted in full, so picking over it ends first.
+    if (this.state.preview.selecting && this.hasProject && !this.docked) {
+      void this.setSelecting(false).then(() => {
+        if (!this.state.preview.selecting) this.focusChat()
+      })
+      return
+    }
     if (!this.state.chatVisible) {
       this.patch({ chatVisible: true })
     }
@@ -1151,6 +1165,33 @@ export class ProjectWindow {
     this.layout()
     this.chatView.webContents.focus()
     this.sendChat(Events.chatFocus, null)
+  }
+
+  /**
+   * Something needs the user, such as a permission card. While they pick over the floating
+   * panel it stays a bubble, with a badge, rather than cover the page; the card shows when
+   * picking ends.
+   */
+  private onAttention() {
+    if (!this.state.preview.selecting || this.docked) return this.focusChat()
+    this.attentionWaiting = true
+    if (!this.state.chatVisible) {
+      this.patch({ chatVisible: true })
+      this.layout()
+    }
+  }
+
+  /** Docked to the side: the chat's own setting, or the saved one while a project opens. */
+  private get docked() {
+    return this.chat?.meta.docked ?? getPrefs().chatDocked
+  }
+
+  /**
+   * While the user picks an element, the floating panel is drawn as a bubble at its top-right
+   * corner, out of the way. Its size, place and minimized state stay as they were.
+   */
+  private get bubbled() {
+    return this.state.preview.selecting && this.state.chatVisible && this.hasProject && !this.docked
   }
 
   // Layout
@@ -1165,7 +1206,7 @@ export class ProjectWindow {
     const [contentWidth, contentHeight] = this.win.getContentSize()
     const showChat = this.state.chatVisible && this.hasProject
     // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
-    const docked = showChat && (this.chat?.meta.docked ?? getPrefs().chatDocked)
+    const docked = showChat && this.docked
 
     // A docked panel takes a column on the right; the preview gets what's left.
     const dockWidth = this.dockedWidth()
@@ -1185,8 +1226,10 @@ export class ProjectWindow {
     })
     this.preview.setVisible(preview.visible && area.width > 0)
 
+    // The chat view draws the bubble before shrinking to it, and the panel after growing back.
+    const bubble = this.bubbled
+    if (bubble) this.showBubble(true)
     this.chatView.setVisible(showChat)
-    if (!showChat) return
     if (docked) {
       this.chatView.setBounds({
         x: Math.round(this.canvas.x + this.canvas.width - dockWidth),
@@ -1194,21 +1237,41 @@ export class ProjectWindow {
         width: dockWidth,
         height: Math.max(0, Math.round(this.canvas.height)),
       })
-      return
+    } else if (showChat) {
+      this.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, bubble))
     }
+    this.showBubble(bubble)
+  }
+
+  /**
+   * The floating panel's view at its anchor, kept inside the window along with the anchor.
+   * The bubble sits at the panel's top-right corner and leaves its anchor as it was.
+   */
+  private floatingBounds(contentWidth: number, contentHeight: number, bubble: boolean): Rect {
     const minimized = this.chat?.meta.minimized ?? false
-    const panel = minimized ? MINI : this.floatingSize(contentWidth, contentHeight)
+    const panel = bubble
+      ? BUBBLE
+      : minimized
+        ? MINI
+        : this.floatingSize(contentWidth, contentHeight)
     const viewWidth = panel.width + SHADOW * 2
     const viewHeight = panel.height + SHADOW * 2
     const fromRight = clamp(this.anchor.fromRight, -SHADOW, contentWidth - viewWidth + SHADOW)
     const top = clamp(this.anchor.top, TOOLBAR_HEIGHT - SHADOW, contentHeight - viewHeight + SHADOW)
-    this.anchor = { fromRight, top }
-    this.chatView.setBounds({
+    if (!bubble) this.anchor = { fromRight, top }
+    return {
       x: Math.round(contentWidth - viewWidth - fromRight),
       y: Math.round(top),
       width: viewWidth,
       height: viewHeight,
-    })
+    }
+  }
+
+  /** Tells the chat view whether to draw the bubble, when that changes. */
+  private showBubble(bubble: boolean) {
+    if (bubble === this.bubbleShown) return
+    this.bubbleShown = bubble
+    this.sendChat(Events.chatBubble, bubble)
   }
 
   /** The docked panel's width: the remembered one, within what the canvas leaves room for. */
@@ -1227,7 +1290,8 @@ export class ProjectWindow {
 
   /** Moves the floating panel to the other side if it covers the element just picked. */
   private dodge(rect: Rect) {
-    if (!this.chat || this.chat.meta.docked || !this.state.chatVisible) return
+    // Picking again already: the view is the bubble, not the panel to move.
+    if (!this.chat || this.chat.meta.docked || !this.state.chatVisible || this.bubbled) return
     const previewBounds = this.preview.getBounds()
     const element = {
       x: previewBounds.x + rect.x,
@@ -1347,9 +1411,16 @@ export class ProjectWindow {
   }
 
   private patchPreview(patch: Partial<PreviewState>) {
-    const prevVisible = this.state.preview.visible
+    const { visible, selecting } = this.state.preview
     this.patch({ preview: { ...this.state.preview, ...patch } })
-    if (this.state.preview.visible !== prevVisible) this.layout()
+    const preview = this.state.preview
+    // Picking draws the floating chat as a bubble (see `bubbled`).
+    if (preview.visible !== visible || preview.selecting !== selecting) this.layout()
+    if (preview.selecting === selecting) return
+    const attention = this.attentionWaiting
+    this.attentionWaiting = false
+    // A permission card that came up while the user picked shows now, as it would have then.
+    if (!preview.selecting && attention && this.chat?.awaitingPermission) this.focusChat()
   }
 
   private send(channel: string, payload: unknown) {

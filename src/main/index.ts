@@ -400,6 +400,7 @@ function registerIpc() {
     if (VIEWPORTS.includes(viewport as Viewport)) win.setViewport(viewport as Viewport)
   })
   on(Send.toggleSelect, (win) => void win.toggleSelect())
+  on(Send.stopSelecting, (win) => void win.setSelecting(false))
   on(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   on(Send.toggleChat, (win) => win.toggleChat())
   on(Send.setLogsOpen, (win, open) => win.setLogsOpen(open === true))
