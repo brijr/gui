@@ -334,6 +334,9 @@ export type TurnItem =
       toolKind: string
       status: ToolStatus
       locations: string[]
+      /** When Gui first heard of it, and when it completed or failed; missing in older history */
+      startedAt?: number
+      endedAt?: number | null
     }
   | { kind: 'plan'; id: string; entries: { content: string; status: string }[] }
   | {

@@ -157,6 +157,8 @@ function previewTool(agentId: AgentId, title: string, kind: string | undefined) 
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+const isFinished = (status: ToolStatus) => status === 'completed' || status === 'failed'
+
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
@@ -1023,13 +1025,17 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
       case 'tool_call': {
         const preview = previewTool(this.meta.agentId, update.title, update.kind)
+        const status = update.status ?? 'pending'
+        const now = Date.now()
         items.push({
           kind: 'tool',
           id: update.toolCallId,
           title: preview ? PREVIEW_TOOL_LABELS[preview] : this.relativize(update.title),
           toolKind: preview ? 'preview' : (update.kind ?? 'other'),
-          status: update.status ?? 'pending',
+          status,
           locations: (update.locations ?? []).map((l) => this.displayPath(l.path, l.line)),
+          startedAt: now,
+          endedAt: isFinished(status) ? now : null,
         })
         break
       }
@@ -1039,6 +1045,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
         if (update.title && item.toolKind !== 'preview') item.title = this.relativize(update.title)
         if (update.kind && item.toolKind !== 'preview') item.toolKind = update.kind
         if (update.status) item.status = update.status as ToolStatus
+        // For how long a run of steps took.
+        if (isFinished(item.status)) item.endedAt ??= Date.now()
         if (update.locations) {
           item.locations = update.locations.map((l) => this.displayPath(l.path, l.line))
         }
