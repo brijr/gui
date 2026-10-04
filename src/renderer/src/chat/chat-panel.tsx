@@ -32,7 +32,7 @@ export function ChatPanel() {
 
   if (meta.docked) {
     return (
-      <div className="relative flex h-dvh flex-col border-l border-line bg-raised">
+      <div data-chat-panel className="relative flex h-dvh flex-col border-l border-line bg-raised">
         <ResizeHandle edge="left" docked />
         <Header meta={meta} />
         {shipping ? (
@@ -54,6 +54,7 @@ export function ChatPanel() {
       ) : (
         <div className="relative h-full">
           <div
+            data-chat-panel
             className={cn(
               'flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised',
               PANEL_SHADOW,

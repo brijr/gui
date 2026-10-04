@@ -333,9 +333,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * it. A running session switches now when it's between turns, else before the next prompt.
    */
   setAgentSetting(configId: string, value: string) {
-    const { models } = this.meta
-    const setting = [models?.model, models?.effort].find((s) => s?.id === configId)
-    if (!setting?.options.some((option) => option.value === value)) return
+    if (!offersChoice(this.meta.models, configId, value)) return
     // Picking it again is a reason to try again.
     this.refused.delete(configId)
     saveAgentSetting(this.meta.agentId, configId, value)
@@ -1249,6 +1247,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
 export function availableModels(agentId: AgentId): ModelSettings | null {
   const models = agentHealth.list().find((agent) => agent.id === agentId)?.models ?? null
   return models && withChoices(models, agentId, null)
+}
+
+/** Whether `value` is one of the choices `models` lists for its setting `settingId`. */
+export function offersChoice(models: ModelSettings | null, settingId: string, value: string) {
+  const setting = [models?.model, models?.effort].find((s) => s?.id === settingId)
+  return setting?.options.some((option) => option.value === value) ?? false
 }
 
 /** `models` with the user's saved choices for `agentId` applied, where they still apply. */

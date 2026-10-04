@@ -27,6 +27,7 @@ import {
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
+import { offersChoice } from './chat'
 import { isLoopback } from './loopback'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
@@ -332,7 +333,6 @@ function registerIpc() {
   on(Send.devServerRestart, (win) => win.restartDevServer())
   on(Send.showDevServerMenu, (win) => win.showDevServerMenu())
   on(Send.showAgentMenu, (win) => win.showAgentMenu(() => openSettings('agents')))
-  on(Send.showModelMenu, (win, x, y) => isNumber(x) && isNumber(y) && win.showModelMenu(x, y))
   on(Send.showProjectMenu, (win) =>
     win.showProjectMenu(
       () => void pickProject(win),
@@ -410,6 +410,12 @@ function registerIpc() {
   on(Send.removeQueued, (win, id) => isString(id) && win.removeQueued(id))
   on(Send.sendQueuedNow, (win) => win.sendQueuedNow())
   on(Send.setAutoApprove, (win, on) => typeof on === 'boolean' && win.setAutoApprove(on))
+  on(Send.setAgentSetting, (win, settingId, value) => {
+    // Only a choice the composer offers right now: the chat panel renders what agents write.
+    if (isString(settingId) && isString(value) && offersChoice(win.chatModels, settingId, value)) {
+      win.setAgentSetting(settingId, value)
+    }
+  })
   on(Send.respondPermission, (win, turnId, itemId, optionId) => {
     if (isString(turnId) && isString(itemId) && (optionId === null || isString(optionId))) {
       win.respondPermission(turnId, itemId, optionId)

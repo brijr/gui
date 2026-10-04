@@ -21,7 +21,6 @@ import {
 import { Events } from '../shared/ipc'
 import {
   type AgentId,
-  type AgentSetting,
   agentName,
   type ChatSnapshot,
   type DevServerState,
@@ -896,6 +895,15 @@ export class ProjectWindow {
     if (root) saveAutoApprove(root, on)
   }
 
+  /** The model and effort settings the composer offers; null without a chat. */
+  get chatModels() {
+    return this.chat?.meta.models ?? null
+  }
+
+  setAgentSetting(settingId: string, value: string) {
+    this.chat?.setAgentSetting(settingId, value)
+  }
+
   respondPermission(turnId: string, itemId: string, optionId: string | null) {
     this.chat?.respondPermission(turnId, itemId, optionId)
   }
@@ -998,50 +1006,6 @@ export class ProjectWindow {
   dragChat(dx: number, dy: number) {
     this.anchor = { fromRight: this.anchor.fromRight - dx, top: this.anchor.top + dy }
     this.layout()
-  }
-
-  /** The composer's model menu, at (x, y) in the chat view: models, then an Effort submenu. */
-  showModelMenu(x: number, y: number) {
-    const chat = this.chat
-    const models = chat?.meta.models
-    if (!chat || !models) return
-    const choices = (setting: AgentSetting, options = setting.options) =>
-      options.map(
-        (option): MenuItemConstructorOptions => ({
-          label: option.name,
-          type: 'radio',
-          checked: option.value === setting.value,
-          click: () => {
-            // Another project may have opened while the menu was up.
-            if (chat === this.chat) chat.setAgentSetting(setting.id, option.value)
-          },
-        }),
-      )
-    const { model, effort } = models
-    const groups = [...new Set(model.options.map((option) => option.group))]
-    const inGroup = (group: string | null) => model.options.filter((o) => o.group === group)
-    let template: MenuItemConstructorOptions[]
-    if (groups.every((group) => group === null)) template = choices(model)
-    else if (groups.length > 2) {
-      // Many providers: one submenu each keeps the menu short.
-      template = groups.map((group) => ({
-        label: group ?? 'Other',
-        submenu: choices(model, inGroup(group)),
-      }))
-    } else {
-      template = groups.flatMap((group, index): MenuItemConstructorOptions[] => [
-        ...(index > 0 ? [{ type: 'separator' } as const] : []),
-        { label: group ?? 'Other', enabled: false },
-        ...choices(model, inGroup(group)),
-      ])
-    }
-    if (effort) template.push({ type: 'separator' }, { label: 'Effort', submenu: choices(effort) })
-    const view = this.chatView.getBounds()
-    Menu.buildFromTemplate(template).popup({
-      window: this.win,
-      x: Math.round(view.x + x),
-      y: Math.round(view.y + y),
-    })
   }
 
   /**

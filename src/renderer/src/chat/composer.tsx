@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, Crosshair, ImagePlus, Square, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, Crosshair, ImagePlus, Square, TriangleAlert, X } from 'lucide-react'
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -8,12 +8,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { AgentSetting, ChatMeta, ModelSettings } from '../../../shared/types'
+import type { ChatMeta } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton, Spinner, TechnicalDetails } from '../lib/ui'
 import { AutoToggle } from './auto-toggle'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
+import { ModelButton } from './model-picker'
 import { QueuedMessages } from './queue'
 import { addAttachments, removeAttachments, setDraft, setNotice, useChat } from './store'
 import { elementLabel } from './turn-view'
@@ -282,39 +283,6 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         </div>
       </div>
     </form>
-  )
-}
-
-/** The selected choice's name; null when the agent reports a value it doesn't list. */
-function choiceName(setting: AgentSetting) {
-  return setting.options.find((option) => option.value === setting.value)?.name ?? null
-}
-
-/** "OpenCode Zen/Big Pickle" reads as "Big Pickle"; the menu keeps the full name. */
-function shortName(name: string) {
-  return name.split('/').at(-1)?.trim() || name
-}
-
-/** What the next turn runs on; opens the native menu to change it. */
-function ModelButton({ models }: { models: ModelSettings }) {
-  const fullName = choiceName(models.model) ?? models.model.value
-  const model = shortName(fullName)
-  const effort = models.effort && (choiceName(models.effort) ?? models.effort.value)
-  return (
-    <button
-      type="button"
-      aria-haspopup="menu"
-      aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
-      title={effort ? `${fullName} · ${effort}` : fullName}
-      onClick={(event) => {
-        const rect = event.currentTarget.getBoundingClientRect()
-        gui.showModelMenu(rect.left, rect.bottom)
-      }}
-      className="no-drag flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
-    >
-      <span className="truncate">{effort ? `${model} · ${effort}` : model}</span>
-      <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
-    </button>
   )
 }
 

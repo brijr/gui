@@ -47,7 +47,6 @@ export const Send = {
   devServerRestart: 'devserver:restart',
   showDevServerMenu: 'menu:devserver',
   showAgentMenu: 'menu:agent',
-  showModelMenu: 'menu:model',
   showProjectMenu: 'menu:project',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
@@ -74,6 +73,7 @@ export const Send = {
   removeQueued: 'chat:queue-remove',
   sendQueuedNow: 'chat:queue-send',
   setAutoApprove: 'chat:auto-approve',
+  setAgentSetting: 'chat:agent-setting',
   chooseApp: 'setup:choose-app',
   installDependencies: 'setup:install',
   createEnvFile: 'setup:create-env',
@@ -113,11 +113,6 @@ export interface GuiApi {
   restartDevServer(): void
   showDevServerMenu(): void
   showAgentMenu(): void
-  /**
-   * From the chat composer: the model menu (models, plus an Effort submenu when the agent
-   * has levels), anchored at this point in the chat view's CSS pixels.
-   */
-  showModelMenu(x: number, y: number): void
   showProjectMenu(): void
   setAgent(agentId: AgentId): void
   checkAgents(): void
@@ -164,6 +159,11 @@ export interface GuiApi {
   sendQueuedNow(): void
   /** Auto mode on or off (see `ChatMeta.autoApprove`) */
   setAutoApprove(on: boolean): void
+  /**
+   * The user's pick for one of `ChatMeta.models` (its `model` or `effort` setting, by id).
+   * Ignored unless `value` is one of that setting's current options.
+   */
+  setAgentSetting(settingId: string, value: string): void
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
   restoreTurn(turnId: string): Promise<void>

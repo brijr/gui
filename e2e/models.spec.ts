@@ -1,35 +1,55 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Locator } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type ModelSettings } from '../src/shared/types'
 import { electronExecutable, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
-// The composer's model button and its native menu, against a stand-in ACP agent: a small
-// Node script that offers a model and an effort setting (under its own ids, found by
-// category) and records every request, so no agent login or usage is needed.
+// The composer's model button and its picker, against a stand-in ACP agent: a small Node
+// script that offers a model and an effort setting (under its own ids, found by category)
+// and records every request, so no agent login or usage is needed.
 
 const AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Models`
 
-/** What Playwright passes to `app.evaluate` callbacks. */
-type ElectronModule = typeof import('electron/main')
-
 /**
- * Speaks ACP (ndjson JSON-RPC) on stdio. The model list is grouped by provider; effort is
- * flat, and refuses "max". A `mode` setting stands in for the categories Gui ignores.
+ * Speaks ACP (ndjson JSON-RPC) on stdio. The model list is long and grouped by provider,
+ * like OpenCode's ("short": three models, ungrouped); effort is flat, and refuses "max".
+ * A `mode` setting stands in for the categories Gui ignores.
  */
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
-const log = process.argv[2]
+const [log, size] = process.argv.slice(2)
 const state = { llm: 'swift', depth: 'medium' }
+const PROVIDERS = {
+  Anthropic: ['Claude Opus 4.1', 'Claude Opus 4', 'Claude Sonnet 4.5', 'Claude Sonnet 4',
+    'Claude Haiku 4.5', 'Claude 3.7 Sonnet', 'Claude 3.5 Haiku'],
+  OpenAI: ['GPT-5', 'GPT-5 Mini', 'GPT-5 Nano', 'GPT-4.1', 'GPT-4.1 Mini', 'GPT-4o', 'o3', 'o4-mini'],
+  Google: ['Gemini 2.5 Pro', 'Gemini 2.5 Flash', 'Gemini 2.5 Flash Lite', 'Gemini 2.0 Flash',
+    'Gemma 3 27B', 'Gemma 3 12B'],
+  Mistral: ['Mistral Large', 'Mistral Medium 3', 'Codestral', 'Devstral Medium', 'Devstral Small'],
+  xAI: ['Grok 4', 'Grok 3', 'Grok 3 Mini', 'Grok Code Fast 1'],
+  DeepSeek: ['DeepSeek V3.1', 'DeepSeek R1', 'DeepSeek V3'],
+  Qwen: ['Qwen3 Coder', 'Qwen3 Max', 'Qwen3 235B', 'Qwen3 32B'],
+  'Moonshot AI': ['Kimi K2', 'Kimi K2 Turbo'],
+}
+const slug = (text) => text.toLowerCase().replace(/[^a-z0-9.]+/g, '-')
+const models = () => size === 'short'
+  ? ['Swift', 'Sage', 'Atlas'].map((name) => ({ value: slug(name), name }))
+  : [
+      { group: 'fast', name: 'Fast', options: [{ value: 'swift', name: 'Swift' }] },
+      { group: 'smart', name: 'Smart', options: [{ value: 'sage', name: 'Acme/Sage' }] },
+      ...Object.entries(PROVIDERS).map(([provider, names]) => ({
+        group: slug(provider),
+        name: provider,
+        options: names.map((name) => ({ value: slug(provider) + '/' + slug(name), name: provider + '/' + name })),
+      })),
+    ]
 const configOptions = () => [
   { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask',
     options: [{ value: 'ask', name: 'Ask' }] },
   { id: 'llm', name: 'Model', category: 'model', type: 'select', currentValue: state.llm,
-    options: [
-      { group: 'fast', name: 'Fast', options: [{ value: 'swift', name: 'Swift' }] },
-      { group: 'smart', name: 'Smart', options: [{ value: 'sage', name: 'Acme/Sage' }] },
-    ] },
+    options: models() },
   { id: 'depth', name: 'Thinking', category: 'thought_level', type: 'select',
     currentValue: state.depth,
     options: ['Low', 'Medium', 'High', 'Max'].map((name) => ({ value: name.toLowerCase(), name })) },
@@ -74,10 +94,11 @@ interface Call {
 type ChatRuns = () => Call[][]
 
 /**
- * Adds the stand-in agent to agents.json (run on Electron's own Node) and waits for Gui to
- * list it. Its health check starts a session too, outside the project.
+ * Adds the stand-in agent to agents.json (run on Electron's own Node), opens the project
+ * with it as the chat's agent, and waits for its models. Its health check starts a
+ * session too, outside the project.
  */
-async function addAgent(session: GuiSession): Promise<ChatRuns> {
+async function addAgent(session: GuiSession, size: 'long' | 'short' = 'long'): Promise<ChatRuns> {
   const { base, userData, root } = session.fixture
   const log = join(base, 'agent-calls.ndjson')
   const script = join(base, 'models-agent.cjs')
@@ -85,7 +106,7 @@ async function addAgent(session: GuiSession): Promise<ChatRuns> {
   const agents = {
     Models: {
       command: electronExecutable(),
-      args: [script, log],
+      args: [script, log, size],
       env: { ELECTRON_RUN_AS_NODE: '1' },
     },
   }
@@ -93,6 +114,9 @@ async function addAgent(session: GuiSession): Promise<ChatRuns> {
   await session.chrome.evaluate(() => window.gui.checkAgents())
   const listed = async () => (await session.state()).agents.some((agent) => agent.id === AGENT)
   await waitFor(listed, 'the agent to be listed')
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  await session.chrome.evaluate((id) => window.gui.setAgent(id), AGENT)
+  await waitFor(async () => (await models(session))?.model.id === 'llm', "the agent's models")
   return () => {
     if (!existsSync(log)) return []
     const calls = readFileSync(log, 'utf8')
@@ -104,64 +128,6 @@ async function addAgent(session: GuiSession): Promise<ChatRuns> {
       .map((call) => call.pid)
     return pids.map((pid) => calls.filter((call) => call.pid === pid))
   }
-}
-
-interface MenuStore {
-  /** Label of the menu item to choose next, searched through submenus */
-  guiMenuChoice?: string | null
-  guiMenuStubbed?: boolean
-  /** Where each answered menu would have popped up, in window coordinates */
-  guiMenuPopups?: { x: number | undefined; y: number | undefined }[]
-}
-
-/**
- * Runs in main: answers the next native menu that has `label` (in it or a submenu) by
- * clicking that item, instead of showing it. Like Electron, the click runs before the close
- * callback. The menu is built from the real template; only `popup` is replaced.
- */
-function answerMenu({ Menu }: ElectronModule, label: string) {
-  const store = globalThis as unknown as MenuStore
-  store.guiMenuChoice = label
-  store.guiMenuPopups ??= []
-  if (store.guiMenuStubbed) return
-  store.guiMenuStubbed = true
-  const build = Menu.buildFromTemplate.bind(Menu)
-  Menu.buildFromTemplate = (template) => {
-    const menu = build(template)
-    type Item = (typeof menu.items)[number]
-    const find = (items: Item[], choice: string): Item | undefined => {
-      for (const item of items) {
-        if (item.label === choice && item.enabled) return item
-        const inner = item.submenu && find(item.submenu.items, choice)
-        if (inner) return inner
-      }
-      return undefined
-    }
-    const choice = store.guiMenuChoice
-    if (!choice || !find(menu.items, choice)) return menu
-    menu.popup = (options) => {
-      store.guiMenuPopups?.push({ x: options?.x, y: options?.y })
-      store.guiMenuChoice = null
-      find(menu.items, choice)?.click()
-      options?.callback?.()
-    }
-    return menu
-  }
-}
-
-/** Runs in main: the chat view's position in the window. */
-function chatViewOrigin({ BrowserWindow, WebContentsView }: ElectronModule) {
-  const win = BrowserWindow.getAllWindows()[0]
-  const view = win?.contentView.children.find(
-    (child): child is InstanceType<typeof WebContentsView> =>
-      child instanceof WebContentsView && child.webContents.getURL().endsWith('/chat.html'),
-  )
-  const bounds = view?.getBounds()
-  return bounds ? { x: bounds.x, y: bounds.y } : null
-}
-
-function chooseFromMenu(session: GuiSession, label: string) {
-  return session.app.evaluate(answerMenu, label)
 }
 
 async function models(session: GuiSession): Promise<ModelSettings | null> {
@@ -184,22 +150,61 @@ const configCalls = (calls: Call[] | undefined) =>
 const send = (session: GuiSession, text: string) =>
   session.chat.evaluate((message) => window.gui.send(message), text)
 
-test('the composer picks the model and effort, and new sessions start with them', async ({
+/** The picker's parts, by role. */
+function pickerOf(session: GuiSession) {
+  const dialog = session.chat.getByRole('dialog', { name: 'Choose a model' })
+  return {
+    dialog,
+    search: dialog.getByRole('combobox', { name: 'Search models' }),
+    list: dialog.getByRole('listbox', { name: 'Models' }),
+    options: dialog.getByRole('option'),
+    effort: dialog.getByRole('group', { name: 'Effort' }),
+  }
+}
+
+/** The highlighted option, as the combobox (or list) points at it. */
+async function expectActive(owner: Locator, option: Locator) {
+  const id = await option.getAttribute('id')
+  expect(id).toBeTruthy()
+  await expect(owner).toHaveAttribute('aria-activedescendant', id ?? '')
+}
+
+/**
+ * Just above the button and inside the chat panel, against the button's right edge unless
+ * that would cross the panel's left edge.
+ */
+async function expectPlaced(session: GuiSession, dialog: Locator, button: Locator) {
+  const panel = await session.chat.locator('[data-chat-panel]').boundingBox()
+  const box = await dialog.boundingBox()
+  const anchor = await button.boundingBox()
+  if (!panel || !box || !anchor) throw new Error('The picker, its button or the panel has no box')
+  expect(box.x).toBeGreaterThanOrEqual(panel.x)
+  expect(box.y).toBeGreaterThanOrEqual(panel.y)
+  expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width)
+  expect(box.y + box.height).toBeLessThanOrEqual(anchor.y)
+  expect(anchor.y - (box.y + box.height)).toBeLessThanOrEqual(8)
+  const right = anchor.x + anchor.width
+  if (right - box.width >= panel.x + 8) expect(Math.abs(box.x + box.width - right)).toBeLessThan(1)
+  else expect(Math.abs(box.x - (panel.x + 8))).toBeLessThan(1)
+  return { panel, box }
+}
+
+test('the model picker searches the models, sets the model and effort, and new sessions start with them', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
   const runs = await addAgent(session)
-  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
-  await session.chrome.evaluate((id) => window.gui.setAgent(id), AGENT)
-  await waitFor(async () => (await models(session))?.model.id === 'llm', "the agent's models")
+  const { chat } = session
 
   // Before any chat session: the agent's list from its health check, groups flattened.
   // Settings are found by category, whatever the agent calls them; `mode` isn't one.
   const listed = await modelsAre(session, 'swift', 'medium')
-  expect(listed.model.options).toEqual([
+  expect(listed.model.options).toHaveLength(41)
+  expect(listed.model.options.slice(0, 3)).toEqual([
     { value: 'swift', name: 'Swift', group: 'Fast' },
     { value: 'sage', name: 'Acme/Sage', group: 'Smart' },
+    { value: 'anthropic/claude-opus-4.1', name: 'Anthropic/Claude Opus 4.1', group: 'Anthropic' },
   ])
   expect(listed.effort?.id).toBe('depth')
   expect(listed.effort?.options.map((option) => option.name)).toEqual([
@@ -219,36 +224,120 @@ test('the composer picks the model and effort, and new sessions start with them'
   expect(runs()).toHaveLength(1)
   expect(configCalls(runs()[0])).toEqual([])
 
-  // The composer's button opens the menu under itself; between turns the change applies now.
-  const button = session.chat.getByRole('button', { name: 'Model: Swift, effort Medium' })
-  await expect(button).toBeVisible()
-  await chooseFromMenu(session, 'Acme/Sage')
+  // The button opens the picker over the chat, next to itself: search field focused, the
+  // models under their provider, the current one marked.
+  const button = chat.getByRole('button', { name: 'Model: Swift, effort Medium' })
+  await expect(button).toHaveAttribute('aria-haspopup', 'dialog')
+  await expect(button).toHaveAttribute('aria-expanded', 'false')
   await button.click()
+  const { dialog, search, list, options, effort } = pickerOf(session)
+  await expect(dialog).toBeVisible()
+  await expect(button).toHaveAttribute('aria-expanded', 'true')
+  await expect(search).toBeFocused()
+  await expect(search).toHaveAttribute('aria-controls', (await list.getAttribute('id')) ?? '')
+  await expect(options).toHaveCount(41)
+  await expect(list.getByRole('option', { selected: true })).toHaveText('Swift')
+  await expectActive(search, list.getByRole('option', { name: 'Swift' }))
+  // "Anthropic/Claude Opus 4" reads as "Claude Opus 4" under its provider's header.
+  const anthropic = list.getByRole('group', { name: 'Anthropic' })
+  await expect(anthropic.getByRole('option')).toHaveCount(7)
+  await expect(anthropic.getByRole('option').first()).toHaveText('Claude Opus 4.1')
+  await expectPlaced(session, dialog, button)
+
+  // Every typed word matches somewhere in the name, value or provider, in any case.
+  await chat.keyboard.type('SON 4')
+  await expect(options).toHaveText(['Claude Sonnet 4.5', 'Claude Sonnet 4'])
+  await search.fill('qwen coder')
+  await expect(options).toHaveText(['Qwen3 Coder'])
+  await search.fill('nothing like this')
+  await expect(options).toHaveCount(0)
+  await expect(dialog.getByText('No models match')).toBeVisible()
+  await session.shot('model-picker-empty')
+
+  // ↑/↓ move the highlight from the first match and stop at the ends; so does hovering.
+  await search.fill('gpt 5')
+  await expect(options).toHaveText(['GPT-5', 'GPT-5 Mini', 'GPT-5 Nano'])
+  await expectActive(search, options.nth(0))
+  await search.press('ArrowDown')
+  await search.press('ArrowDown')
+  await search.press('ArrowDown')
+  await expectActive(search, options.nth(2))
+  await search.press('ArrowUp')
+  await expectActive(search, options.nth(1))
+  await options.nth(0).hover()
+  await expectActive(search, options.nth(0))
+  await session.shot('model-picker-search')
+
+  // Enter picks the highlighted model: it applies now (between turns), the picker closes
+  // and focus goes back to the button.
+  await search.fill('acme sage')
+  await expect(options).toHaveText(['Acme/Sage'])
+  await search.press('Enter')
+  await expect(dialog).toBeHidden()
   await modelsAre(session, 'sage', 'medium')
   await waitFor(() => configCalls(runs()[0]).length === 1, 'the model change')
   expect(configCalls(runs()[0])).toEqual([{ configId: 'llm', value: 'sage' }])
-  // "Provider/Model" names show the model; the menu has the full name.
-  await expect(
-    session.chat.getByRole('button', { name: 'Model: Sage, effort Medium' }),
-  ).toBeVisible()
+  // "Provider/Model" names show the model; the picker has the full name.
+  const sage = chat.getByRole('button', { name: 'Model: Sage, effort Medium' })
+  await expect(sage).toBeFocused()
   await session.shot('model-button')
-  const box = await session.chat.getByRole('button', { name: /^Model: / }).boundingBox()
-  const origin = await session.app.evaluate(chatViewOrigin)
-  const popups = await session.app.evaluate(
-    () => (globalThis as unknown as MenuStore).guiMenuPopups ?? [],
-  )
-  expect(box && origin).toBeTruthy()
-  expect(Math.abs((popups[0]?.x ?? 0) - ((origin?.x ?? 0) + (box?.x ?? 0)))).toBeLessThanOrEqual(1)
-  expect(
-    Math.abs((popups[0]?.y ?? 0) - ((origin?.y ?? 0) + (box?.y ?? 0) + (box?.height ?? 0))),
-  ).toBeLessThanOrEqual(1)
 
-  // The effort levels are in a submenu.
-  await chooseFromMenu(session, 'High')
-  await session.chat.evaluate(() => window.gui.showModelMenu(0, 0))
+  // Effort is a segmented control in the picker; it applies now and the picker stays.
+  await sage.click()
+  await expect(effort.getByRole('button', { name: 'Medium' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  await effort.getByRole('button', { name: 'High' }).click()
   await modelsAre(session, 'sage', 'high')
   await waitFor(() => configCalls(runs()[0]).length === 2, 'the effort change')
   expect(configCalls(runs()[0])[1]).toEqual({ configId: 'depth', value: 'high' })
+  await expect(dialog).toBeVisible()
+  await expect(effort.getByRole('button', { name: 'High' })).toHaveAttribute('aria-pressed', 'true')
+
+  // Typing while an effort level has focus goes to the search field; Esc closes the picker
+  // and returns focus to the button.
+  await expect(effort.getByRole('button', { name: 'High' })).toBeFocused()
+  await chat.keyboard.type('gem')
+  await expect(search).toBeFocused()
+  await expect(search).toHaveValue('gem')
+  await chat.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  const sageHigh = chat.getByRole('button', { name: 'Model: Sage, effort High' })
+  await expect(sageHigh).toBeFocused()
+  await expect(sageHigh).toHaveAttribute('aria-expanded', 'false')
+
+  // From the keyboard it opens fresh; a click elsewhere in the chat closes it, picking nothing.
+  await chat.keyboard.press('Enter')
+  await expect(search).toBeFocused()
+  await expect(search).toHaveValue('')
+  const message = chat.getByRole('textbox', { name: /^Message / })
+  await message.click({ position: { x: 12, y: 12 } })
+  await expect(dialog).toBeHidden()
+  await expect(message).toBeFocused()
+  expect(configCalls(runs()[0])).toHaveLength(2)
+
+  // At the panel's smallest it still fits inside the panel and scrolls its list.
+  const panel = chat.locator('[data-chat-panel]')
+  await chat.evaluate(() => {
+    window.gui.resizeChat(10_000, -10_000)
+    window.gui.endResizeChat()
+  })
+  await waitFor(async () => {
+    const box = await panel.boundingBox()
+    return box && box.width <= 320 && box.height <= 360
+  }, 'the smallest panel')
+  await sageHigh.click()
+  const small = await expectPlaced(session, dialog, sageHigh)
+  expect(small.box.height).toBeGreaterThan(200)
+  const listBox = await list.boundingBox()
+  expect(listBox?.height).toBeGreaterThan(100)
+  expect(await list.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true)
+  await chat.keyboard.type('grok')
+  await expect(options).toHaveCount(4)
+  await session.shot('model-picker-small')
+  await chat.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
 
   // Remembered per agent, under the agent's own ids.
   const prefsFile = join(session.fixture.userData, 'prefs.json')
@@ -259,7 +348,7 @@ test('the composer picks the model and effort, and new sessions start with them'
 
   // A new chat starts a new session at the agent's defaults; the choices go in before the
   // first prompt, the model before the effort.
-  await session.chat.evaluate(() => window.gui.newSession())
+  await chat.evaluate(() => window.gui.newSession())
   await waitFor(async () => (await session.chatSnapshot()).turns.length === 0, 'the new chat')
   await modelsAre(session, 'sage', 'high')
   expect(await send(session, 'Hello again')).toBe(true)
@@ -281,9 +370,10 @@ test('the composer picks the model and effort, and new sessions start with them'
   expect(second.meta.models?.effort?.value).toBe('high')
 
   // A refused choice doesn't fail the turn: it says so quietly and runs on the agent's own.
-  await chooseFromMenu(session, 'Max')
-  await session.chat.evaluate(() => window.gui.showModelMenu(0, 0))
+  await sageHigh.click()
+  await effort.getByRole('button', { name: 'Max' }).click()
   await modelsAre(session, 'sage', 'max')
+  await chat.keyboard.press('Escape')
   expect(await send(session, 'Think harder')).toBe(true)
   const third = await session.waitForTurn(1)
   expect(third.turn.status).toBe('done')
@@ -296,4 +386,46 @@ test('the composer picks the model and effort, and new sessions start with them'
   )
   expect(third.meta.models?.effort?.value).toBe('high')
   expect((runs()[1] ?? []).filter((call) => call.method === 'session/prompt')).toHaveLength(2)
+
+  // Main takes only a choice the agent offers; a click on a row picks it.
+  await chat.evaluate(() => window.gui.setAgentSetting('llm', 'not-a-model'))
+  await chat.evaluate(() => window.gui.setAgentSetting('mode', 'ask'))
+  await sageHigh.click()
+  await options.filter({ hasText: 'GPT-5 Nano' }).click()
+  await expect(dialog).toBeHidden()
+  await modelsAre(session, 'openai/gpt-5-nano', 'high')
+  const nano = { configId: 'llm', value: 'openai/gpt-5-nano' }
+  await waitFor(() => configCalls(runs()[1]).at(-1)?.value === nano.value, 'the model change')
+  const calls = configCalls(runs()[1])
+  expect(calls.at(-1)).toEqual(nano)
+  expect(calls.filter((call) => call.value === 'not-a-model' || call.configId === 'mode')).toEqual(
+    [],
+  )
+})
+
+test('a short model list has no search field and is driven from the list', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await addAgent(session, 'short')
+  await modelsAre(session, 'swift', 'medium')
+
+  const button = session.chat.getByRole('button', { name: 'Model: Swift, effort Medium' })
+  await button.click()
+  const { dialog, search, list, options } = pickerOf(session)
+  await expect(dialog).toBeVisible()
+  await expect(search).toHaveCount(0)
+  await expect(list).toBeFocused()
+  await expect(options).toHaveText(['Swift', 'Sage', 'Atlas'])
+  await expect(list.getByRole('group')).toHaveCount(0)
+  await expectPlaced(session, dialog, button)
+  await session.shot('model-picker-short')
+
+  await session.chat.keyboard.press('ArrowDown')
+  await expectActive(list, options.nth(1))
+  await session.chat.keyboard.press('Enter')
+  await expect(dialog).toBeHidden()
+  await modelsAre(session, 'sage', 'medium')
+  await expect(
+    session.chat.getByRole('button', { name: 'Model: Sage, effort Medium' }),
+  ).toBeFocused()
 })
