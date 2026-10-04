@@ -225,6 +225,46 @@ test('screenshots copy, save and attach the preview at full resolution', async (
   expect(turn.attachments).toEqual([{ name: attached.name, thumbnail: attached.thumbnail }])
 })
 
+/** Runs in main: resizes the window. */
+function setWindowSize({ BrowserWindow }: ElectronModule, size: Size) {
+  BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height)
+}
+
+// A device frame draws the page smaller when the window can't fit it; a screenshot is still
+// the page at the device's CSS size, in the display's pixels, and the frame stays as it was.
+test("a device frame's screenshot is the device's size at full resolution", async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  const preview = await session.previewPage()
+  await expect(preview.locator('h1')).toBeVisible({ timeout: 30_000 })
+  await session.app.evaluate(recordClipboard)
+  // Smaller than a laptop's screen, on any display.
+  await session.app.evaluate(setWindowSize, { width: 960, height: 640 })
+
+  const cases = [
+    { viewport: 'laptop', size: { width: 1440, height: 900 } },
+    { viewport: 'mobile', size: { width: 390, height: 844 } },
+  ] as const
+  for (const [i, { viewport, size }] of cases.entries()) {
+    await session.chrome.evaluate((id) => window.gui.setViewport(id), viewport)
+    const framed = async () => {
+      const { frame } = (await session.state()).preview
+      const page = await preview.evaluate(() => ({ width: innerWidth, height: innerHeight }))
+      return frame && frame.scale < 1 && page.width === size.width && page.height === size.height
+    }
+    await waitFor(framed, `the ${viewport} frame, scaled down`)
+    const { dpr } = await preview.evaluate(previewSize)
+    expect(await takeScreenshot(session, 'Copy screenshot')).toBe('copied')
+    const shot = (await stubs(session)).clipboard[i]
+    expectSize(
+      shot,
+      { width: Math.round(size.width * dpr), height: Math.round(size.height * dpr) },
+      `${viewport} screenshot`,
+    )
+    expect(await framed()).toBe(true)
+  }
+})
+
 interface Bounds {
   x: number
   y: number
