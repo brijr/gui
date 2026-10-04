@@ -14,9 +14,9 @@ import {
   Smartphone,
   Tablet,
 } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
-import { VIEWPORT_SHORTCUTS } from '../../../shared/shortcuts'
+import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
 import { VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { Input } from '../lib/field'
@@ -42,6 +42,10 @@ const VIEWPORT_SEGMENTS = VIEWPORTS.map(({ id, name, size }) => {
   }
 })
 const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached' } as const
+/** Between a button and the menu it opens under it. */
+const MENU_GAP = 4
+/** Frames to wait for the address field to show, after ⇧⌘L brings the toolbar back. */
+const FOCUS_FRAMES = 10
 /** How long the screenshot button shows what it did. */
 const DONE_MS = 1500
 
@@ -158,8 +162,19 @@ function ProjectMenuButton({ state, named }: { state: WindowState; named: boolea
   )
 }
 
-/** Opens the screenshot menu; briefly shows a check once something was done. */
+/** Opens the screenshot menu under `button`; resolves with what was done, or null. */
+async function screenshotUnder(button: HTMLElement | null) {
+  const box = button?.getBoundingClientRect()
+  const result = await gui.takeScreenshot(box && { x: box.left, y: box.bottom + MENU_GAP })
+  return result && SCREENSHOT_DONE[result]
+}
+
+/**
+ * Opens the screenshot menu under itself, from a click or ⇧⌘S; briefly shows a check once
+ * something was done.
+ */
 function ScreenshotButton({ disabled }: { disabled: boolean }) {
+  const button = useRef<HTMLButtonElement>(null)
   // A new object per result, so a second screenshot restarts the timer.
   const [done, setDone] = useState<{ label: string } | null>(null)
 
@@ -170,15 +185,29 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
   }, [done])
 
   const take = async () => {
-    const result = await gui.takeScreenshot()
-    if (result) setDone({ label: SCREENSHOT_DONE[result] })
+    const label = await screenshotUnder(button.current)
+    if (label) setDone({ label })
   }
+
+  // Main beeps when there's nothing to capture, so this asks even while the button is disabled.
+  useEffect(
+    () =>
+      gui.onCommand(async (command) => {
+        if (command !== 'screenshot') return
+        const label = await screenshotUnder(button.current)
+        if (label) setDone({ label })
+      }),
+    [],
+  )
 
   return (
     <>
       <IconButton
+        ref={button}
         label="Screenshot"
-        title={done?.label ?? 'Screenshot'}
+        shortcut="screenshot"
+        // The tooltip says what it did, for a moment.
+        title={done?.label}
         icon={done ? Check : Camera}
         disabled={disabled}
         onClick={() => void take()}
@@ -188,6 +217,22 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
       </span>
     </>
   )
+}
+
+const ADDRESS_ID = 'preview-address'
+
+/**
+ * Focuses the address field with its text selected (⇧⌘L, "Enter address"), once it's on
+ * screen: the toolbar can be on its way back.
+ */
+export function focusAddressBar(frames = FOCUS_FRAMES) {
+  const field = document.getElementById(ADDRESS_ID)
+  if (field instanceof HTMLInputElement) {
+    field.focus()
+    field.select()
+  } else if (frames > 0) {
+    requestAnimationFrame(() => focusAddressBar(frames - 1))
+  }
 }
 
 /**
@@ -222,8 +267,10 @@ function AddressBar({ state }: { state: WindowState }) {
   return (
     <form onSubmit={submit} className="no-drag min-w-0 flex-1">
       <Input
-        id="preview-address"
+        id={ADDRESS_ID}
         aria-label="App address"
+        title={withShortcut('App address', 'focusAddress')}
+        aria-keyshortcuts={ariaShortcut('focusAddress')}
         // Addresses in monospace; the status in its place in the UI's font.
         mono={value !== '' || draft !== null}
         value={value}

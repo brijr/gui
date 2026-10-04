@@ -719,6 +719,11 @@ export class ProjectTab {
     if (this.state.preview.url) this.preview.webContents.reload()
   }
 
+  /** Reloads without the cache, for a change a normal reload keeps serving stale. */
+  hardReload() {
+    if (this.state.preview.url) this.preview.webContents.reloadIgnoringCache()
+  }
+
   setViewport(viewport: Viewport) {
     this.patchPreview({ viewport })
     this.layout()
@@ -1297,10 +1302,14 @@ export class ProjectTab {
   }
 
   /**
-   * Screenshot menu for the preview: copy, copy full page, save, attach to chat. Resolves
-   * with what was done; null when dismissed, cancelled or the capture failed.
+   * Screenshot menu for the preview: copy, copy full page, save, attach to chat. At the
+   * pointer, or with its top-left corner at `at` in `sender`'s page (the toolbar's button, for
+   * ⇧⌘S). Resolves with what was done; null when dismissed, cancelled or the capture failed.
    */
-  async screenshotMenu(): Promise<ScreenshotResult | null> {
+  async screenshotMenu(
+    sender: WebContents | null = null,
+    at: { x: number; y: number } | null = null,
+  ): Promise<ScreenshotResult | null> {
     const tools = this.previewTools
     const project = this.state.project
     if (this.screenshotting) return null
@@ -1310,7 +1319,7 @@ export class ProjectTab {
     }
     this.screenshotting = true
     try {
-      const action = await this.chooseScreenshot()
+      const action = await this.chooseScreenshot(at && this.inWindow(sender, at))
       if (!action || tools !== this.previewTools || !this.canCapture()) return null
       // Inspect mode's hover highlight is drawn into the page, so leave it first.
       if (this.state.preview.selecting) await this.setSelecting(false)
@@ -1348,7 +1357,7 @@ export class ProjectTab {
   }
 
   /** Resolves with the chosen item, or null when the menu closes without a choice. */
-  private chooseScreenshot() {
+  private chooseScreenshot(at: { x: number; y: number } | null) {
     return new Promise<ScreenshotAction | null>((resolve) => {
       const item = (
         label: string,
@@ -1363,6 +1372,7 @@ export class ProjectTab {
         item('Attach to chat', 'attach', this.chat !== null),
       ]).popup({
         window: this.host.win,
+        ...at,
         // Electron runs a chosen item's click before this, so this only settles a dismissal.
         callback: () => resolve(null),
       })
@@ -1663,10 +1673,13 @@ export class ProjectTab {
     ]
     const menu = Menu.buildFromTemplate(template)
     const window = this.host.win
-    if (!at) return menu.popup({ window })
-    // Window coordinates: the chat is a view inside the window.
+    menu.popup({ window, ...(at && this.inWindow(sender, at)) })
+  }
+
+  /** `at` in `sender`'s page, in window coordinates: the chat is a view inside the window. */
+  private inWindow(sender: WebContents | null, at: { x: number; y: number }) {
     const view = sender === this.chatView.webContents ? this.chatView.getBounds() : { x: 0, y: 0 }
-    menu.popup({ window, x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) })
+    return { x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) }
   }
 
   showProjectMenu(openPicker: () => void, openRecent: (root: string) => void) {

@@ -1,12 +1,21 @@
-import { Fragment } from 'react'
+import { Fragment, useEffect } from 'react'
+import { gui } from '../lib/api'
 import { useWindowState } from '../lib/use-window-state'
 import { Canvas, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
 import { TabStrip } from './tab-strip'
-import { Toolbar } from './toolbar'
+import { focusAddressBar, Toolbar } from './toolbar'
 
 export function App() {
   const state = useWindowState()
+  // Here rather than in the toolbar, which may only be on its way.
+  useEffect(
+    () =>
+      gui.onCommand((command) => {
+        if (command === 'focusAddress') focusAddressBar()
+      }),
+    [],
+  )
   if (!state) return <div className="drag h-dvh bg-surface" />
   return (
     <div className="flex h-dvh flex-col">

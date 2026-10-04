@@ -94,6 +94,8 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   label: string
   /** Its keyboard shortcut, named in the tooltip */
   shortcut?: ShortcutId
+  /** A tooltip other than the label, such as what it just did */
+  title?: string
   icon: LucideIcon
   size?: 'sm' | 'md'
   /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
@@ -116,14 +118,17 @@ export function IconButton({
   pressed,
   spinning = false,
   filled = false,
+  title,
   className,
   ...props
 }: IconButtonProps) {
+  // A `title` of its own (what it just did) stands in for the label and keys for a moment.
+  const tooltip = title ?? (shortcut ? withShortcut(label, shortcut) : label)
   return (
     <button
       type="button"
       aria-label={label}
-      title={shortcut ? withShortcut(label, shortcut) : label}
+      title={tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       aria-pressed={pressed}
       className={cn(

@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { BrowserWindow, Menu, type WebContents } from 'electron'
+import { BrowserWindow, Menu, shell, type WebContents } from 'electron'
 import { Events } from '../shared/ipc'
 import {
   TAB_ROW_HEIGHT,
@@ -143,6 +143,21 @@ export class ProjectWindow implements TabHost {
   setCanvasRect(rect: Rect) {
     this.canvas = rect
     this.active.layout()
+  }
+
+  // Shortcuts for the chrome's own controls (UiCommand)
+
+  /** ⇧⌘L: the toolbar's address field, focused with its text selected. */
+  focusAddress() {
+    if (!this.active.getState().project) return shell.beep()
+    this.win.webContents.focus()
+    this.send(Events.command, 'focusAddress')
+  }
+
+  /** ⇧⌘S: the screenshot menu, under the toolbar's button, which shows what it did. */
+  screenshot() {
+    if (!this.active.getState().project) return shell.beep()
+    this.send(Events.command, 'screenshot')
   }
 
   // Tabs

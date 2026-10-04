@@ -25,6 +25,7 @@ const api: GuiApi = {
   onState: (cb) => subscribe(Events.state, cb),
   getLogs: () => ipcRenderer.invoke(Invoke.getLogs),
   onLogs: (cb) => subscribe(Events.logs, cb),
+  onCommand: (cb) => subscribe(Events.command, cb),
 
   openProject: () => ipcRenderer.invoke(Invoke.openProject),
   openRecent: (root) => ipcRenderer.invoke(Invoke.openRecent, root),
@@ -93,7 +94,7 @@ const api: GuiApi = {
   sendQueuedNow: send(Send.sendQueuedNow),
   setAutoApprove: send(Send.setAutoApprove),
   setAgentSetting: send(Send.setAgentSetting),
-  takeScreenshot: () => ipcRenderer.invoke(Invoke.takeScreenshot),
+  takeScreenshot: (at) => ipcRenderer.invoke(Invoke.takeScreenshot, at),
   resizeChat: send(Send.resizeChat),
   endResizeChat: send(Send.endResizeChat),
   onChatAttach: (cb) => subscribe(Events.chatAttach, cb),

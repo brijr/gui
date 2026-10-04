@@ -110,6 +110,7 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 /** Main → renderer */
 export const Events = {
   state: 'state',
+  command: 'command',
   logs: 'logs',
   terminalData: 'terminal:data',
   drawerFocus: 'drawer:focus',
@@ -131,11 +132,19 @@ export interface TerminalOutput {
   data: string
 }
 
+/**
+ * A menu command main hands to a page because the page owns what it acts on: the chrome's
+ * address field and screenshot button.
+ */
+export type UiCommand = 'focusAddress' | 'screenshot'
+
 export interface GuiApi {
   getState(): Promise<WindowState>
   onState(cb: (state: WindowState) => void): Unsubscribe
   getLogs(): Promise<string>
   onLogs(cb: (chunk: string) => void): Unsubscribe
+  /** A shortcut for something on this page (see `UiCommand`) */
+  onCommand(cb: (command: UiCommand) => void): Unsubscribe
 
   openProject(): Promise<void>
   openRecent(root: string): Promise<void>
@@ -260,9 +269,10 @@ export interface GuiApi {
 
   /**
    * Shows the screenshot menu (copy, copy full page, save, attach to chat) for the
-   * preview; resolves with what was done, or null when dismissed or nothing is loaded.
+   * preview, at the pointer or with its top-left corner at `at` (CSS pixels in the calling
+   * page); resolves with what was done, or null when dismissed or nothing is loaded.
    */
-  takeScreenshot(): Promise<'copied' | 'saved' | 'attached' | null>
+  takeScreenshot(at?: { x: number; y: number }): Promise<'copied' | 'saved' | 'attached' | null>
   /**
    * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged
    * edges move and the opposite ones stay put. Docked, only its left edge resizes it.

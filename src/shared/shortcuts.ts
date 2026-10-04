@@ -97,12 +97,26 @@ export const SHORTCUTS = {
     description: "Inspect Gui's own window",
   },
 
+  focusAddress: {
+    label: 'Focus Address Bar',
+    accelerator: 'Shift+CmdOrCtrl+L',
+    menu: 'view',
+    group: 'preview',
+    description: "Edit the preview's address",
+  },
   reload: {
     label: 'Reload Preview',
     accelerator: 'CmdOrCtrl+R',
     menu: 'view',
     group: 'preview',
     description: 'Reload the preview',
+  },
+  hardReload: {
+    label: 'Hard Reload Preview',
+    accelerator: 'Shift+CmdOrCtrl+R',
+    menu: 'view',
+    group: 'preview',
+    description: 'Reload the preview, ignoring the cache',
   },
   back: {
     label: 'Back',
@@ -128,6 +142,13 @@ export const SHORTCUTS = {
     menu: 'view',
     group: 'preview',
     description: 'Pick an element to change (Esc cancels)',
+  },
+  screenshot: {
+    label: 'Screenshot…',
+    accelerator: 'Shift+CmdOrCtrl+S',
+    menu: 'view',
+    group: 'preview',
+    description: 'Copy, save or attach a screenshot',
   },
   previewDevTools: {
     label: 'Preview Developer Tools',

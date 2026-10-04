@@ -360,7 +360,10 @@ function registerIpc() {
     return tabFor(event)?.sendChatMessage(text, attached) ?? false
   })
   ipcMain.handle(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
-  ipcMain.handle(Invoke.takeScreenshot, (event) => tabFor(event)?.screenshotMenu() ?? null)
+  ipcMain.handle(Invoke.takeScreenshot, (event, at: unknown) => {
+    const tab = tabFor(event)
+    return tab?.screenshotMenu(event.sender, isPoint(at) ? at : null) ?? null
+  })
   ipcMain.handle(Invoke.ship, (event, request: unknown) => {
     if (!isShipRequest(request)) throw new Error('Invalid request')
     const tab = tabFor(event)
@@ -751,13 +754,17 @@ function buildMenu() {
         // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
         ...item('toggleTerminal', { click: withWindow((w) => w.toggleDrawer()) }),
         { type: 'separator' },
+        ...item('focusAddress', { click: withTabs((w) => w.focusAddress()) }),
         ...item('reload', { click: withWindow((w) => w.reload()) }),
+        ...item('hardReload', { click: withWindow((w) => w.hardReload()) }),
         ...item('back', { click: withWindow((w) => w.back()) }),
         ...item('forward', { click: withWindow((w) => w.forward()) }),
         { type: 'separator' },
         ...VIEWPORTS.flatMap(({ id }) =>
           item(VIEWPORT_SHORTCUTS[id], { click: withWindow((w) => w.setViewport(id)) }),
         ),
+        { type: 'separator' },
+        ...item('screenshot', { click: withTabs((w) => w.screenshot()) }),
         { type: 'separator' },
         ...item('previewDevTools', { click: withWindow((w) => w.toggleDevTools()) }),
         ...item('appDevTools', { role: 'toggleDevTools' }),

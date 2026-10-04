@@ -27,6 +27,7 @@ import { TechnicalDetails } from '../lib/disclosure'
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Kbd, Spinner } from '../lib/ui'
+import { focusAddressBar } from './toolbar'
 
 /**
  * The preview is a native view layered over this element; we report our bounds so
@@ -215,7 +216,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         actions={
           <>
             <LogsToggle open={logsOpen} noun="logs" />
-            <Button variant="ghost" onClick={focusAddressBar}>
+            <Button variant="ghost" onClick={() => focusAddressBar()}>
               Enter address
             </Button>
           </>
@@ -243,7 +244,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="Gui doesn't know how to start this app"
         detail="Add a “dev” script to package.json, or enter your app's address in the bar above."
         actions={
-          <Button variant="ghost" onClick={focusAddressBar}>
+          <Button variant="ghost" onClick={() => focusAddressBar()}>
             Enter address
           </Button>
         }
@@ -335,10 +336,6 @@ function LogsToggle({ open, noun }: { open: boolean; noun: 'output' | 'logs' }) 
       {open ? 'Hide' : 'Show'} {noun}
     </Button>
   )
-}
-
-function focusAddressBar() {
-  document.getElementById('preview-address')?.focus()
 }
 
 function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
