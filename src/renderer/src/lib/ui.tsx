@@ -1,4 +1,5 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import { ChevronRight } from 'lucide-react'
+import { type ButtonHTMLAttributes, type ReactNode, useState } from 'react'
 import { cn } from './cn'
 
 interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -57,5 +58,31 @@ export function Spinner({ className }: { className?: string }) {
         className,
       )}
     />
+  )
+}
+
+/** Technical detail (exit codes, output, commands) one click away. */
+export function TechnicalDetails({ text, className }: { text: string; className?: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={cn('flex flex-col gap-1', className)}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className="flex items-center gap-1 self-start rounded text-[11px] text-subtle hover:text-muted"
+      >
+        <ChevronRight
+          className={cn('size-3 transition-transform', open && 'rotate-90')}
+          aria-hidden="true"
+        />
+        Details
+      </button>
+      {open && (
+        <pre className="max-h-48 select-text overflow-y-auto whitespace-pre-wrap break-words pl-4 font-mono text-[11px] text-muted">
+          {text}
+        </pre>
+      )}
+    </div>
   )
 }

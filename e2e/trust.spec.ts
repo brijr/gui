@@ -23,7 +23,9 @@ test('an untrusted project does not run its dev script', async ({ launch }) => {
 
   const prompts = await session.consentPrompts()
   expect(prompts).toHaveLength(1)
-  expect(prompts[0]?.message).toContain('bun run dev')
+  // The prompt names the project, and shows exactly what will run.
+  expect(prompts[0]?.message).toMatch(/^Start .+\?$/)
+  expect(prompts[0]?.detail).toContain('bun run dev')
   expect(prompts[0]?.detail).toContain('vite')
 
   const state = await session.state()

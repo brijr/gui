@@ -10,7 +10,7 @@ import {
   Tablet,
 } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { AGENTS, type Viewport, type WindowState } from '../../../shared/types'
+import { agentName, type Viewport, type WindowState } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton } from '../lib/ui'
@@ -23,7 +23,6 @@ const VIEWPORTS: { id: Viewport; label: string; icon: typeof Monitor }[] = [
 
 export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
-  const agent = AGENTS.find((a) => a.id === state.agentId)
 
   return (
     <header className="drag flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2 pl-[84px]">
@@ -103,7 +102,7 @@ export function Toolbar({ state }: { state: WindowState }) {
         onClick={() => grat.showAgentMenu()}
         className="no-drag flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-fg"
       >
-        {agent?.name}
+        {agentName(state.agentId)}
         <ChevronDown className="size-3.5 text-subtle" aria-hidden="true" />
       </button>
 
@@ -124,20 +123,27 @@ function DevServerPill({ state }: { state: WindowState }) {
   // Installing runs before the dev server, in the same terminal.
   const installing = state.setup?.dependencies === 'installing'
   const status = installing ? 'starting' : state.devServer.status
+  const crashed = status === 'exited' && exitCode !== 0
   const label = installing
     ? 'Installing…'
     : status === 'running' && url
       ? new URL(url).host
       : status === 'starting'
         ? 'Starting…'
-        : status === 'exited'
-          ? `Exited${exitCode !== null ? ` (${exitCode})` : ''}`
+        : crashed
+          ? 'Stopped with an error'
           : 'Stopped'
+  const title = [
+    state.devServer.command ?? 'Your app',
+    status === 'exited' && exitCode !== null ? `exited with code ${exitCode}` : null,
+  ]
+    .filter(Boolean)
+    .join(' — ')
   return (
     <button
       type="button"
       onClick={() => grat.showDevServerMenu()}
-      title={state.devServer.command ?? 'Dev server'}
+      title={title}
       className="no-drag flex h-6 items-center gap-1.5 rounded-full border border-line bg-raised px-2 font-mono text-[11px] text-muted hover:border-line-strong hover:text-fg"
     >
       <span
@@ -170,7 +176,8 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
   return (
     <form onSubmit={submit} className="no-drag min-w-0 flex-1">
       <input
-        aria-label="Preview URL"
+        id="preview-address"
+        aria-label="App address"
         value={value}
         disabled={disabled}
         spellCheck={false}

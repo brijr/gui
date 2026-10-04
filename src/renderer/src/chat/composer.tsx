@@ -11,7 +11,7 @@ import {
 import type { ChatMeta } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
-import { IconButton, Spinner } from '../lib/ui'
+import { IconButton, Spinner, TechnicalDetails } from '../lib/ui'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
 import { addAttachments, removeAttachments, setDraft, useChat } from './store'
 import { elementLabel } from './turn-view'
@@ -196,6 +196,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         )}
         <textarea
           ref={input}
+          // Empty, ⌘Z here undoes the agent's last change instead of typing.
+          data-undo-passthrough=""
           value={text}
           rows={1}
           onChange={(event) => setDraft(event.target.value)}
@@ -295,18 +297,18 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
 function SelectionLabel({ meta }: { meta: ChatMeta }) {
   const selection = meta.selection
   if (!selection) return null
-  const { tag, where } = elementLabel(selection)
+  const { name, where } = elementLabel(selection)
   return (
     <div className="min-w-0 flex-1">
-      <p className="truncate font-mono text-[11.5px]">
-        {tag}
-        {selection.text && (
-          <span className="font-sans text-muted"> {selection.text.slice(0, 60)}</span>
-        )}
+      <p className="truncate text-[12px]">
+        <span className="font-medium">{name}</span>
+        {selection.text && <span className="text-muted"> {selection.text.slice(0, 60)}</span>}
       </p>
-      <p className="truncate font-mono text-[10.5px] text-subtle" title={selection.source?.file}>
+      <p
+        className="truncate font-mono text-[10.5px] text-subtle"
+        title={selection.source?.file ?? selection.selector}
+      >
         {where ?? selection.selector}
-        {selection.source?.approximate && ' (approx.)'}
       </p>
     </div>
   )
@@ -323,9 +325,12 @@ function AgentStatus({ meta }: { meta: ChatMeta }) {
   }
   if (meta.status === 'error' && meta.error) {
     return (
-      <p className="mb-2 select-text px-1 text-[12px] text-danger">
-        {meta.error} Send a message to retry.
-      </p>
+      <div className="mb-2 flex flex-col gap-1 px-1">
+        <p className="select-text text-[12px] text-danger">
+          {meta.error} <span className="text-muted">Send a message to retry.</span>
+        </p>
+        {meta.errorDetail && <TechnicalDetails text={meta.errorDetail} />}
+      </div>
     )
   }
   return null

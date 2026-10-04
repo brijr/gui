@@ -8,7 +8,7 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { app } from 'electron'
 import type { AgentBinaries, AgentBinary } from '../../scripts/agent-binaries'
-import { AGENTS, type AgentBinarySource, type AgentId } from '../shared/types'
+import { type AgentBinarySource, type AgentId, agentName } from '../shared/types'
 import { getShellEnv } from './shell-env'
 
 declare const __GRAT_AGENT_BINARIES__: AgentBinaries
@@ -19,7 +19,14 @@ const DOWNLOAD_STALL_MS = 60_000
 /** Where installers put the CLIs, for when the login shell's PATH doesn't cover them. */
 const COMMON_BIN_DIRS = ['.local/bin', '.claude/local', '.npm-global/bin', '.bun/bin']
 const SYSTEM_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
-const COMMANDS: Record<AgentId, string> = { claude: 'claude', codex: 'codex' }
+const COMMANDS = { claude: 'claude', codex: 'codex' } as const
+
+/** The agents whose CLI Grat pins (and can download); other agents bring their own. */
+export type PinnedAgentId = keyof typeof COMMANDS
+
+export function pinnedAgent(id: AgentId): PinnedAgentId | null {
+  return id === 'claude' || id === 'codex' ? id : null
+}
 
 /** An agent CLI Grat can run, and where it came from. */
 export interface ResolvedBinary {
@@ -40,13 +47,12 @@ export type BinaryStatus =
 
 export class AgentMissingError extends Error {}
 
-const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
 
 /**
  * The pinned CLI for this Mac. Unpackaged builds (dev, e2e) may swap the manifest via
  * GRAT_AGENT_MANIFEST to install from a local registry; packaged builds never do.
  */
-async function pinned(id: AgentId): Promise<AgentBinary> {
+async function pinned(id: PinnedAgentId): Promise<AgentBinary> {
   let binaries = __GRAT_AGENT_BINARIES__
   const override = !app.isPackaged ? process.env.GRAT_AGENT_MANIFEST : undefined
   if (override) binaries = JSON.parse(await readFile(override, 'utf8')) as AgentBinaries
@@ -60,7 +66,7 @@ function registry() {
 }
 
 const agentsDir = () => join(app.getPath('userData'), 'agents')
-const installDir = (id: AgentId, spec: AgentBinary) => join(agentsDir(), id, spec.version)
+const installDir = (id: PinnedAgentId, spec: AgentBinary) => join(agentsDir(), id, spec.version)
 
 function parseVersion(text: string) {
   const match = text.match(/(\d+)\.(\d+)\.(\d+)/)
@@ -107,7 +113,7 @@ function cliVersion(path: string, env: NodeJS.ProcessEnv) {
 }
 
 /** The user's own install: first on their login-shell PATH, then where installers put it. */
-async function findInstalled(id: AgentId) {
+async function findInstalled(id: PinnedAgentId) {
   const env = await getShellEnv()
   const home = homedir()
   const dirs = [
@@ -127,7 +133,7 @@ async function findInstalled(id: AgentId) {
   return null
 }
 
-async function resolve(id: AgentId): Promise<BinaryStatus> {
+async function resolve(id: PinnedAgentId): Promise<BinaryStatus> {
   const spec = await pinned(id)
   // An exact copy Grat installed always matches its adapter.
   const own = join(installDir(id, spec), 'package', spec.bin)
@@ -147,10 +153,10 @@ async function resolve(id: AgentId): Promise<BinaryStatus> {
   return { kind: 'missing', found, mismatch: found ? mismatch(found.version, spec) : null }
 }
 
-const resolutions = new Map<AgentId, Promise<BinaryStatus>>()
+const resolutions = new Map<PinnedAgentId, Promise<BinaryStatus>>()
 
 /** Which CLI an agent would run with. Cached; `forgetBinaries` re-checks. */
-export function agentBinary(id: AgentId): Promise<BinaryStatus> {
+export function agentBinary(id: PinnedAgentId): Promise<BinaryStatus> {
   let resolution = resolutions.get(id)
   if (!resolution) {
     resolution = resolve(id)
@@ -160,19 +166,19 @@ export function agentBinary(id: AgentId): Promise<BinaryStatus> {
   return resolution
 }
 
-export function forgetBinaries(id?: AgentId) {
+export function forgetBinaries(id?: PinnedAgentId) {
   if (id) resolutions.delete(id)
   else resolutions.clear()
 }
 
 /** The CLI to run, or an error saying what's needed when there's none. */
-export async function requireAgentBinary(id: AgentId): Promise<ResolvedBinary> {
+export async function requireAgentBinary(id: PinnedAgentId): Promise<ResolvedBinary> {
   const status = await agentBinary(id)
   if (status.kind === 'ready') return status.binary
   throw new AgentMissingError(missingMessage(id, status))
 }
 
-export function missingMessage(id: AgentId, status: Extract<BinaryStatus, { kind: 'missing' }>) {
+export function missingMessage(id: PinnedAgentId, status: Extract<BinaryStatus, { kind: 'missing' }>) {
   const name = agentName(id)
   if (!status.found) return `${name} isn't installed yet. Grat can set it up for you.`
   const age = status.mismatch === 'newer' ? 'newer' : 'older'
@@ -191,7 +197,7 @@ export interface InstallProgress {
  * that folder changes; a user's own install is left alone.
  */
 export async function installAgentBinary(
-  id: AgentId,
+  id: PinnedAgentId,
   onProgress: (progress: InstallProgress) => void,
   signal: AbortSignal,
 ) {

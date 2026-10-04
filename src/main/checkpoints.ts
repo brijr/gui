@@ -63,6 +63,11 @@ const MAX_BUFFER = 64 * 1024 * 1024
 const PATH_CHUNK = 200
 const SHA_RE = /^[0-9a-f]{4,64}$/i
 
+/** Name of a project's shadow repo inside the checkpoint store, from its real path. */
+export function shadowRepoName(realRoot: string) {
+  return `${createHash('sha1').update(realRoot).digest('hex').slice(0, 16)}.git`
+}
+
 export class Checkpoints {
   private readonly projectRoot: string
   private readonly storeDir: string
@@ -190,8 +195,7 @@ export class Checkpoints {
 
   private async setup(): Promise<Repo> {
     const root = await realpath(this.projectRoot)
-    const id = createHash('sha1').update(root).digest('hex').slice(0, 16)
-    const repo: Repo = { root, gitDir: join(this.storeDir, `${id}.git`) }
+    const repo: Repo = { root, gitDir: join(this.storeDir, shadowRepoName(root)) }
 
     await mkdir(this.storeDir, { recursive: true })
     // One window owns a project's shadow repo and serializes its git calls, so a lock

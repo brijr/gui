@@ -8,8 +8,8 @@ import type {
 } from '@agentclientprotocol/sdk'
 import { BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import {
-  AGENTS,
   type AgentId,
+  agentName,
   type ChatMeta,
   type ChatSnapshot,
   type ElementContext,
@@ -23,9 +23,11 @@ import {
 import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
 import { AgentMissingError } from './agent-binaries'
 import type { Checkpoints } from './checkpoints'
+import { type DetailedError, describeError } from './errors'
 import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { buildPrompt } from './prompt'
+import { thumbnail } from './thumbnail'
 
 type SessionUpdate = SessionNotification['update']
 
@@ -103,18 +105,19 @@ const PREVIEW_TOOLS = Object.keys(PREVIEW_TOOL_LABELS).join('|')
  * `mcp__grat__<tool>` (never as `execute`); Codex reports every MCP call as an
  * `execute` titled `mcp.grat.<tool>`. Labels only: nothing is approved by title.
  */
-const PREVIEW_TOOL_TITLE: Record<AgentId, RegExp> = {
-  claude: new RegExp(`^mcp__${MCP_SERVER_NAME}__(${PREVIEW_TOOLS})$`),
-  codex: new RegExp(`^mcp\\.${MCP_SERVER_NAME}\\.(${PREVIEW_TOOLS})$`),
-}
+const CLAUDE_TOOL = new RegExp(`^mcp__${MCP_SERVER_NAME}__(${PREVIEW_TOOLS})$`)
+const CODEX_TOOL = new RegExp(`^mcp\\.${MCP_SERVER_NAME}\\.(${PREVIEW_TOOLS})$`)
+const ANY_TOOL = new RegExp(
+  `^(?:mcp__${MCP_SERVER_NAME}__|mcp\\.${MCP_SERVER_NAME}\\.|${MCP_SERVER_NAME}[_.])(${PREVIEW_TOOLS})$`,
+)
 
 function previewTool(agentId: AgentId, title: string, kind: string | undefined) {
-  if (agentId === 'claude' && kind === 'execute') return undefined
-  return title.match(PREVIEW_TOOL_TITLE[agentId])?.[1]
+  if (agentId === 'codex') return title.match(CODEX_TOOL)?.[1]
+  // Other agents name MCP calls their own way, but a shell command (`execute`) is never one.
+  if (kind === 'execute') return undefined
+  return title.match(agentId === 'claude' ? CLAUDE_TOOL : ANY_TOOL)?.[1]
 }
 
-const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
-const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
@@ -176,6 +179,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       agentName: agentName(agentId),
       status: 'idle',
       error: null,
+      errorDetail: null,
       modeName: null,
       selection: null,
       selectionError: null,
@@ -235,7 +239,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.resumeSessionId = null
     this.schedulePersist()
     if (this.lock === token) this.lock = null
-    this.patchMeta({ status: 'idle', error: null, modeName: null, redoTurnIds: [] })
+    this.patchMeta({
+      status: 'idle',
+      error: null,
+      errorDetail: null,
+      modeName: null,
+      redoTurnIds: [],
+    })
     if (!this.disposed) this.emit('reset', this.snapshot())
   }
 
@@ -354,6 +364,21 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
   }
 
+  /** The newest turn that can be undone, if any; for Edit → Undo. */
+  lastUndoableTurnId() {
+    if (this.lock) return null
+    const record = this.records.findLast((r) => r.before && !r.turn.reverted)
+    return record?.turn.id ?? null
+  }
+
+  /** Adds the after-hot-reload image of the picked element to a finished turn. */
+  setPreviewAfter(turnId: string, after: string | null) {
+    const record = this.records.find((r) => r.turn.id === turnId)
+    if (!record || !after) return
+    record.turn.preview = { before: record.turn.preview?.before ?? null, after }
+    this.flushTurn(record)
+  }
+
   async redo() {
     const point = this.redoPoint
     if (!point) return
@@ -415,6 +440,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
         index: this.records.length,
         prompt,
         context: selection ? { ...selection, screenshot: null } : null,
+        // The after image is added by the window once the change has hot-reloaded.
+        preview: selection?.screenshot
+          ? { before: thumbnail(selection.screenshot), after: null }
+          : null,
         items: [],
         status: 'running',
         error: null,
@@ -511,7 +540,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (stopped()) status = 'cancelled'
       else {
         status = 'error'
-        record.turn.error = errorMessage(error)
+        const { message, detail } = describeError(error)
+        record.turn.error = message
+        record.turn.errorDetail = detail
       }
     } finally {
       this.resolvePendingPermissions(record)
@@ -541,7 +572,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.agent && this.agentInfo) return { agent: this.agent, info: this.agentInfo }
     this.stopAgent()
     const name = this.meta.agentName
-    this.patchMeta({ status: 'starting', error: null })
+    this.patchMeta({ status: 'starting', error: null, errorDetail: null })
     const agent = new AgentSession(this.meta.agentId, this.root, {
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request, resolve) => this.onPermission(request, resolve),
@@ -557,7 +588,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       )
       if (this.agent !== agent) throw new Error(`${name} was stopped while starting.`)
       this.agentInfo = info
-      this.agentHasTools = mcpServers.length > 0
+      // Agents that can't take HTTP MCP servers (like Pi) start without them.
+      this.agentHasTools = info.previewTools
       // The saved session was resumed or replaced; a failed start keeps it for next time.
       this.resumeSessionId = null
       this.sessionId = info.sessionId
@@ -583,10 +615,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     } catch (error) {
       if (this.agent === agent) {
         this.stopAgent()
-        // The start screen's Agents list is where Grat installs a missing agent.
+        const { message, detail } = describeError(error)
+        // Settings → Agents is where Grat installs a missing agent.
         const hint =
-          error instanceof AgentMissingError ? ' Open a new window (⌘N) to set it up.' : ''
-        this.patchMeta({ status: 'error', error: `${errorMessage(error)}${hint}` })
+          error instanceof AgentMissingError ? ' Set it up in Settings → Agents (⌘,).' : ''
+        this.patchMeta({ status: 'error', error: `${message}${hint}`, errorDetail: detail })
       } else {
         agent.dispose()
       }
@@ -602,12 +635,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.primedAgent = null
   }
 
-  private onAgentExit(agent: AgentSession, error: string | null) {
+  private onAgentExit(agent: AgentSession, error: DetailedError) {
     if (this.agent !== agent) return
     this.stopAgent()
     // The next message restarts the agent; it should pick the conversation back up.
     this.resumeSessionId = this.sessionId
-    this.patchMeta({ status: 'error', error })
+    this.patchMeta({ status: 'error', error: error.message, errorDetail: error.detail })
   }
 
   private onUpdate(update: SessionUpdate) {
@@ -689,6 +722,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     // codex-acp asks about MCP calls with no title; the tool call it's asking about has one.
     // Only the label comes from it: the user still decides.
     const tool = record.turn.items.find((i) => i.kind === 'tool' && i.id === toolCallId)
+    const paths = (request.toolCall.locations ?? []).map(({ path }) => this.projectPath(path))
     const id = randomUUID()
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
     this.pushItem(record, {
@@ -699,6 +733,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
         : tool?.kind === 'tool'
           ? tool.title
           : 'The agent wants to run a tool',
+      toolKind: request.toolCall.kind ?? (tool?.kind === 'tool' ? tool.toolKind : 'other'),
+      locations: (request.toolCall.locations ?? []).map((l) => this.displayPath(l.path, l.line)),
+      sensitive: paths.some((rel) => rel !== null && SENSITIVE_PATH.test(rel)),
       options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resolved: null,
     })
@@ -710,9 +747,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const { kind, locations } = request.toolCall
     if (kind !== 'edit' || !locations?.length) return false
     return locations.every(({ path }) => {
-      const rel = relative(this.root, resolvePath(this.root, path))
-      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) && !SENSITIVE_PATH.test(rel)
+      const rel = this.projectPath(path)
+      return rel !== null && !SENSITIVE_PATH.test(rel)
     })
+  }
+
+  /** The path relative to the project root, or null when it points outside the project. */
+  private projectPath(path: string) {
+    const rel = relative(this.root, resolvePath(this.root, path))
+    return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel) ? rel : null
   }
 
   private resolvePendingPermissions(record: TurnRecord) {
@@ -811,7 +854,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
         kind: 'notice',
         id: randomUUID(),
         tone: 'error',
-        text: `Checkpoint failed, so this turn can't be undone: ${errorMessage(error)}`,
+        text: "Couldn't save a checkpoint, so this turn can't be undone.",
+        detail: describeError(error).message,
       })
       return null
     }

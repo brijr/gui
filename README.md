@@ -6,7 +6,20 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
 
 - macOS (Apple Silicon tested)
 - [Bun](https://bun.sh) 1.4+
-- **Claude Code** and/or **Codex**. Grat uses your installed CLI and its login when the version matches; otherwise the start screen installs it and runs its sign-in.
+- At least one coding agent. **Claude Code** and **Codex** need nothing set up beforehand: Grat uses your installed CLI and its login when the version matches, and otherwise the start screen installs the exact version it needs and runs its sign-in in the browser. Grat also bundles the ACP adapter for **Pi** (the community [`pi-acp`](https://github.com/svkozak/pi-acp) adapter, which drives your installed `pi` 0.81+). It runs these CLIs from your PATH when they're installed, reusing their logins:
+
+  | Agent | Runs | Sign in |
+  | --- | --- | --- |
+  | Grok Build | `grok agent stdio` | `grok login` |
+  | Kiro | `kiro-cli acp` | `kiro-cli login` |
+  | OpenCode | `opencode acp` | `opencode auth login` |
+  | Pi | `pi --mode rpc` (via `pi-acp`) | `pi`, then `/login` |
+
+  The start screen and **Settings → Agents** show your agent's state with one next step: **Install** downloads Claude Code or Codex (other agents: opens their install page), and **Sign in** runs its login in Terminal (Claude Code and Codex sign in from Grat directly); Grat re-checks when you come back. Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Grat's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
+
+  ```json
+  { "Amp": { "command": "amp-acp", "args": [], "env": {} } }
+  ```
 - git (Xcode Command Line Tools) — used for per-turn checkpoints
 
 ## Run
@@ -30,6 +43,8 @@ In the chat, paste or drop reference images ("make it look like this"); the agen
 | Reload preview | ⌘R |
 | New chat | ⇧⌘K |
 | Stop agent | ⌘. |
+| Undo / redo the agent's last change (outside a text field) | ⌘Z / ⇧⌘Z |
+| Settings | ⌘, |
 | Preview DevTools | ⌥⌘I |
 
 ## How it works
@@ -46,10 +61,11 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - **Dev server** (`src/main/dev-server.ts`) — runs the dev script in a PTY through your login shell, detects the printed URL, and only marks it ready once a listener in *its own process group* owns the port. If another project's server shadows `localhost` on the other address family, the preview pins to `127.0.0.1` or `[::1]`.
 - **Selection** (`src/main/inspector.ts`) — Chrome DevTools Protocol `Overlay.setInspectMode`, the same picker DevTools uses, so nothing is injected into your DOM. HTML, attributes, computed styles, and the box come from protocol commands that page scripts can't spoof; only the React owner chain is read from the page, and it's validated. Element data is sent to the agent marked as untrusted.
 - **Source mapping** (`src/main/source-resolver.ts`) — React 19 records where each JSX element was created (`_debugStack`); Grat resolves that frame through the dev server's source maps to `file:line`. Exact for Vite and Next.js (Turbopack); approximate for Next.js (webpack). Server-rendered pages wait for hydration before reading fibers.
-- **Agents** (`src/main/agent.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com) via `@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp`, run on Electron's bundled Node. Grat doesn't ship the Claude Code and Codex CLIs the adapters drive (`src/main/agent-binaries.ts`): it uses your own install when its version matches what the adapter was built for, and otherwise the start screen's **Install** button downloads that exact version from npm, checks it against the hash pinned in `bun.lock`, and keeps it in Grat's data folder (your own install is left alone). **Sign in** then runs the agent's own browser sign-in. Each session keeps the permission mode your own agent config picks, and your CLAUDE.md, hooks, and Codex config apply as usual. When the agent asks, Grat auto-approves edits to ordinary source files in the project and asks you in the chat about everything else — config files, dotfiles, lockfiles, scripts, `package.json`, and commands.
-- **Preview tools for the agent** (`src/main/mcp-server.ts`, `preview-tools.ts`) — each window serves an MCP server on loopback (random port, bearer token) that Grat passes to every agent session. Agents can `preview_screenshot` (an element, the full page, or at a viewport width like 390), `preview_inspect` (computed styles, box, and source file for a selector), `preview_console`, `preview_navigate`, `preview_reload`, and `dev_server_logs` — so they check their own visual changes instead of guessing.
+- **Agents** (`src/main/agents.ts`, `agent.ts`, `agent-status.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com). Claude Code, Codex, and Pi run through bundled adapters (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`, `pi-acp`) on Electron's Node. Grat doesn't ship the Claude Code and Codex CLIs those adapters drive (`src/main/agent-binaries.ts`): it uses your own install when its version matches what the adapter was built for, and otherwise **Install** downloads that exact version from npm, checks it against the hash pinned in `bun.lock`, and keeps it in Grat's data folder (your own install is left alone); Grok Build, Kiro, and OpenCode speak ACP themselves and are found on your login-shell PATH, as is the `pi` CLI the Pi adapter drives. Pi doesn't get Grat's preview tools: its adapter doesn't pass MCP servers through. On launch Grat checks the bundled agents and the one you picked by starting (but not prompting) a session; **Check again** on the start screen checks every installed agent. Each session keeps the permission mode your own agent config picks, and that agent's own config (CLAUDE.md, hooks, Codex/OpenCode/Pi settings, …) applies as usual. When the agent asks, Grat auto-approves edits to ordinary source files in the project and asks you in the chat about everything else — config files, dotfiles, lockfiles, scripts, `package.json`, and commands.
+- **Preview tools for the agent** (`src/main/mcp-server.ts`, `preview-tools.ts`) — each window serves an MCP server on loopback (random port, bearer token) that Grat passes to every agent session that accepts HTTP MCP servers. Agents can `preview_screenshot` (an element, the full page, or at a viewport width like 390), `preview_inspect` (computed styles, box, and source file for a selector), `preview_console`, `preview_navigate`, `preview_reload`, and `dev_server_logs` — so they check their own visual changes instead of guessing.
 - **Errors** (`src/main/problems.ts`) — console errors since the last navigation and dev-server build errors since the last successful rebuild show above the composer with a **Fix** button, and ride along with every prompt as untrusted context.
 - **History** (`src/main/history.ts`) — each project's transcript, checkpoints, and agent session are saved, so after a restart the chat is still there, old turns can still be undone, and the agent resumes its session (ACP `session/load`) with its memory.
+- **Settings** (`src/main/settings.ts`, `src/renderer/src/settings/`) — a separate window (⌘,) for switching agents on and off, signing in, adding custom agents, the default agent and chat docking, revoking trusted projects, clearing recent projects, and clearing chat history, checkpoints, and preview site data. Projects open in a window keep their chat history and checkpoints when those are cleared.
 - **Checkpoints** (`src/main/checkpoints.ts`) — before and after every turn the working tree is snapshotted into a shadow git repo under the app's data folder (your `.git` is never touched). **Undo** restores the files that turn (and any later ones) changed to how they were before it; files you edited yourself are left alone. **Redo** reverses the undo.
 
 ## Scripts
@@ -57,7 +73,7 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - `bun run dev` — app with hot reload
 - `bun run build` — production bundle in `out/`
 - `bun run dist` — packaged macOS app in `release/` (see below)
-- `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GRAT_E2E_AGENT=claude|codex`, since they use real usage)
+- `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GRAT_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, `grok`, `kiro`, `opencode`, or `pi`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
 
 ## Packaging

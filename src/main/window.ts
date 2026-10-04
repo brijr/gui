@@ -15,14 +15,15 @@ import {
 } from 'electron'
 import { Events } from '../shared/ipc'
 import {
-  AGENTS,
   type AgentId,
+  agentName,
   type ChatSnapshot,
   type DevServerState,
   type ImageAttachment,
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
+  type RecentProject,
   type Rect,
   type ShipInfo,
   type ShipRequest,
@@ -32,6 +33,7 @@ import {
   type WorkspaceApp,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
+import { agentMenuItems } from './agents'
 import { ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
@@ -44,6 +46,7 @@ import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
 import { addRecent, loadRecent } from './recent'
+import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import {
   createEnvFile,
   detectEnv,
@@ -55,6 +58,8 @@ import {
 } from './setup'
 import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
+import { PREVIEW_PARTITION } from './storage'
+import { thumbnail } from './thumbnail'
 import { isTrusted, promptName, promptText, trust } from './trust'
 
 const TOOLBAR_HEIGHT = 44
@@ -68,8 +73,6 @@ const SHADOW = 18
 const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobile: 390 }
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
-
-const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')
 
 const windows = new Set<ProjectWindow>()
 
@@ -88,26 +91,13 @@ export function allWindows() {
   return [...windows]
 }
 
-function rendererUrl(page: 'index' | 'chat') {
-  // Never honor the dev-server override in packaged builds: it would load remote
-  // content into renderers that have the privileged preload.
-  if (app.isPackaged) return null
-  const dev = process.env.ELECTRON_RENDERER_URL
-  return dev ? `${dev}/${page}.html` : null
-}
-
-function loadRenderer(wc: WebContents, page: 'index' | 'chat') {
-  const url = rendererUrl(page)
-  if (url) return wc.loadURL(url)
-  return wc.loadFile(join(import.meta.dirname, `../renderer/${page}.html`))
-}
-
 const idleDevServer = (): DevServerState => ({
   status: 'idle',
   command: null,
   url: null,
   exitCode: null,
   lastLine: '',
+  slow: false,
 })
 
 export class ProjectWindow {
@@ -119,6 +109,8 @@ export class ProjectWindow {
   private devServer: DevServer | null = null
   private chat: ChatController | null = null
   private mcp: RunningMcpServer | null = null
+  /** The current project's preview tools; also used to show how a change turned out. */
+  private previewTools: PreviewTools | null = null
   private readonly problems = new Problems()
   /** Selection shown in the chat last time meta changed, to clear the highlight only when it goes away. */
   private shownSelectionId: string | null = null
@@ -185,7 +177,7 @@ export class ProjectWindow {
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        partition: 'persist:grat-preview',
+        partition: PREVIEW_PARTITION,
       },
     })
     this.preview.setVisible(false)
@@ -232,19 +224,23 @@ export class ProjectWindow {
     return this.state
   }
 
+  setRecent(recent: RecentProject[]) {
+    this.patch({ recent })
+  }
+
   getLogs() {
     return this.devServer?.logs() ?? ''
   }
 
   getChat(): ChatSnapshot {
     if (this.chat) return this.chat.snapshot()
-    const agent = AGENTS.find((a) => a.id === this.state.agentId) ?? AGENTS[0]
     return {
       meta: {
-        agentId: agent.id,
-        agentName: agent.name,
+        agentId: this.state.agentId,
+        agentName: agentName(this.state.agentId),
         status: 'idle',
         error: null,
+        errorDetail: null,
         modeName: null,
         selection: null,
         selectionError: null,
@@ -298,6 +294,7 @@ export class ProjectWindow {
         navigate: (url) => this.loadPreview(url),
         logs: () => this.getLogs(),
       })
+      this.previewTools = tools
       const mcp = await startMcpServer(tools).catch((error: unknown) => {
         console.error('[grat] preview tools unavailable', error)
         return null
@@ -338,7 +335,10 @@ export class ProjectWindow {
           if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
           this.rehighlightTimer = setTimeout(() => {
             this.rehighlightTimer = null
-            void this.highlightSelector(selector)
+            // After hot reload: show how it looks now, then point at it again.
+            void this.captureAfter(chat, turn.id, selector).then(() =>
+              this.highlightSelector(selector),
+            )
           }, REHIGHLIGHT_DELAY_MS)
         }
       })
@@ -387,9 +387,9 @@ export class ProjectWindow {
     const script = promptText(project.devScript ?? project.devCommand ?? '')
     if (!install) {
       return this.askToTrust(project.root, {
-        message: `Run ${devCommand}?`,
-        detail: `Grat starts the project's dev server to preview it. This runs:\n\n${script}\n\nOnly run scripts from projects you trust.`,
-        buttons: ['Run dev server', 'Not now'],
+        message: `Start ${promptName(project.name)}?`,
+        detail: `To show your app, Grat runs its start command, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Grat won't ask again for this project.`,
+        buttons: ['Start App', 'Not Now'],
       })
     }
     const scripts = (await readPackageJson(project.root))?.scripts
@@ -399,9 +399,9 @@ export class ProjectWindow {
     })
     const installing = installs.length ? `Installing runs:\n\n${installs.join('\n\n')}\n\n` : ''
     return this.askToTrust(project.root, {
-      message: `Install dependencies and run ${devCommand}?`,
+      message: `Start ${promptName(project.name)}?`,
       detail: `Grat will install dependencies (${installCommand(project.packageManager)}) and start the dev server (${devCommand}) to preview the project. ${installing}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
-      buttons: ['Install and run', 'Not now'],
+      buttons: ['Install and Start', 'Not Now'],
     })
   }
 
@@ -445,6 +445,7 @@ export class ProjectWindow {
     this.chat = null
     this.mcp?.close()
     this.mcp = null
+    this.previewTools = null
     this.problems.clear()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
@@ -873,6 +874,8 @@ export class ProjectWindow {
   }
 
   setAgent(agentId: AgentId) {
+    if (!agentHealth.has(agentId)) return
+    agentHealth.ensureChecked(agentId)
     setPrefs({ agentId })
     this.patch({ agentId })
     void this.chat?.setAgent(agentId)
@@ -891,6 +894,26 @@ export class ProjectWindow {
     const sent = this.chat?.fixProblems() ?? false
     if (sent) this.focusChat()
     return sent
+  }
+
+  /** Shows the changed element in the turn, next to how it looked when it was picked. */
+  private async captureAfter(chat: ChatController, turnId: string, selector: string) {
+    const tools = this.previewTools
+    if (!tools || chat !== this.chat || !this.state.preview.visible) return
+    const shot = await tools.screenshot({ selector }).catch(() => null)
+    if (chat === this.chat) chat.setPreviewAfter(turnId, thumbnail(shot))
+  }
+
+  /** Undoes the newest turn that changed files and hasn't been undone. */
+  async undoLastChange() {
+    const turnId = this.chat?.lastUndoableTurnId()
+    if (!turnId) return shell.beep()
+    await this.chat?.restoreTurn(turnId).catch(() => shell.beep())
+  }
+
+  async redoLastChange() {
+    if (!this.chat?.meta.redoTurnIds.length) return shell.beep()
+    await this.chat.redo().catch(() => shell.beep())
   }
 
   /** Re-finds an element after hot reload (its old node is gone) and highlights it. */
@@ -1076,24 +1099,15 @@ export class ProjectWindow {
     Menu.buildFromTemplate(template).popup({ window: this.win })
   }
 
-  showAgentMenu() {
+  showAgentMenu(openSettings: () => void) {
     const template: MenuItemConstructorOptions[] = [
-      ...AGENTS.map((agent): MenuItemConstructorOptions => {
-        const health = this.state.agents.find((h) => h.id === agent.id)
-        const note =
-          health?.status === 'signed-out'
-            ? 'Not signed in'
-            : health?.status === 'error'
-              ? 'Unavailable'
-              : undefined
-        return {
-          label: agent.name,
-          sublabel: note,
-          type: 'radio',
-          checked: agent.id === this.state.agentId,
-          click: () => this.setAgent(agent.id),
-        }
-      }),
+      ...agentMenuItems(
+        agentHealth.list(),
+        agentHealth.customError,
+        this.state.agentId,
+        (id) => this.setAgent(id),
+        openSettings,
+      ),
       { type: 'separator' },
       { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
     ]
@@ -1180,20 +1194,6 @@ export class ProjectWindow {
 }
 
 /** App UI never navigates; links open in the user's browser instead. */
-function guardAppContents(wc: WebContents) {
-  const openExternal = (url: string) => {
-    if (/^https?:/.test(url)) shell.openExternal(url).catch(() => undefined)
-  }
-  wc.on('will-navigate', (event, url) => {
-    if (url === wc.getURL()) return
-    event.preventDefault()
-    openExternal(url)
-  })
-  wc.setWindowOpenHandler(({ url }) => {
-    openExternal(url)
-    return { action: 'deny' }
-  })
-}
 
 /** What the ship sheet shows when the user didn't let Grat run Git. */
 function cancelledShipInfo(): ShipInfo {

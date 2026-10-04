@@ -2,11 +2,15 @@ import type {
   AgentId,
   ChatMeta,
   ChatSnapshot,
+  CustomAgentEntry,
   ImageAttachment,
   Rect,
+  SettingsSection,
+  SettingsState,
   ShipInfo,
   ShipRequest,
   ShipResult,
+  StorageKind,
   Turn,
   Viewport,
   WindowState,
@@ -27,6 +31,12 @@ export const Invoke = {
   installAgent: 'agents:install',
   shipInfo: 'ship:info',
   ship: 'ship:run',
+  getSettings: 'settings:get',
+  saveCustomAgent: 'settings:save-custom-agent',
+  deleteCustomAgent: 'settings:delete-custom-agent',
+  untrustProject: 'settings:untrust-project',
+  clearRecent: 'settings:clear-recent',
+  clearStorage: 'settings:clear-storage',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -61,6 +71,11 @@ export const Send = {
   installDependencies: 'setup:install',
   createEnvFile: 'setup:create-env',
   openEnvFile: 'setup:open-env',
+  openSettings: 'settings:open',
+  setAgentEnabled: 'settings:agent-enabled',
+  setDefaultAgent: 'settings:default-agent',
+  setChatDocked: 'settings:chat-docked',
+  openCustomAgentsFile: 'settings:open-agents-file',
 } as const
 
 /** Main → renderer */
@@ -71,6 +86,8 @@ export const Events = {
   chatTurn: 'chat:turn',
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
+  settings: 'settings',
+  settingsSection: 'settings:section',
 } as const
 
 export type Unsubscribe = () => void
@@ -93,7 +110,10 @@ export interface GratApi {
   checkAgents(): void
   /** Runs the agent's sign-in flow (opens the browser) and re-checks it */
   signIn(agentId: AgentId): Promise<void>
-  /** Downloads the agent's CLI; progress and errors arrive through `WindowState.agents` */
+  /**
+   * Claude Code and Codex: downloads the CLI (progress and errors arrive through
+   * `WindowState.agents`). Other agents: opens their official install page.
+   */
   installAgent(agentId: AgentId): Promise<void>
 
   /** Project setup (`WindowState.setup`): pick the monorepo app to preview */
@@ -139,4 +159,23 @@ export interface GratApi {
   getShipInfo(): Promise<ShipInfo | null>
   /** Commits, pushes and opens the PR; rejects with a readable message */
   ship(request: ShipRequest): Promise<ShipResult>
+  /** Opens (or focuses) the Settings window, optionally at a section */
+  openSettings(section?: SettingsSection): void
+  getSettings(): Promise<SettingsState>
+  onSettings(cb: (settings: SettingsState) => void): Unsubscribe
+  /** Settings was asked to show a section (e.g. opened from the agent menu) */
+  onSettingsSection(cb: (section: SettingsSection) => void): Unsubscribe
+  setAgentEnabled(agentId: AgentId, enabled: boolean): void
+  setDefaultAgent(agentId: AgentId): void
+  setChatDocked(docked: boolean): void
+  /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */
+  saveCustomAgent(originalName: string | null, entry: CustomAgentEntry): Promise<void>
+  deleteCustomAgent(name: string): Promise<void>
+  /** Opens agents.json in the user's editor */
+  openCustomAgentsFile(): void
+  /** The project's dev script will ask before running again */
+  untrustProject(root: string): Promise<void>
+  clearRecent(): Promise<void>
+  /** Asks to confirm, then clears; false when the user cancelled */
+  clearStorage(kind: StorageKind): Promise<boolean>
 }

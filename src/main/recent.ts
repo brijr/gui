@@ -15,6 +15,11 @@ export async function loadRecent(): Promise<RecentProject[]> {
   }
 }
 
+export async function clearRecent() {
+  await writeFile(file(), '[]\n')
+  app.clearRecentDocuments()
+}
+
 export async function addRecent(project: Omit<RecentProject, 'openedAt'>) {
   const recent = (await loadRecent()).filter((p) => p.root !== project.root)
   recent.unshift({ ...project, openedAt: Date.now() })

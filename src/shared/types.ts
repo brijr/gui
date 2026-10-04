@@ -1,20 +1,42 @@
-export type AgentId = 'claude' | 'codex'
+/** A built-in agent's id, or `custom:<name>` for one the user added in agents.json */
+export type AgentId = string
 
 export interface AgentInfo {
   id: AgentId
   name: string
 }
 
+/** Built-in agents, in menu order. */
 export const AGENTS: readonly AgentInfo[] = [
   { id: 'claude', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
+  { id: 'grok', name: 'Grok Build' },
+  { id: 'kiro', name: 'Kiro' },
+  { id: 'opencode', name: 'OpenCode' },
+  { id: 'pi', name: 'Pi' },
 ]
+
+export const DEFAULT_AGENT_ID: AgentId = 'claude'
+export const CUSTOM_AGENT_PREFIX = 'custom:'
+
+/** Built-in ids, or a custom id (which may no longer exist in agents.json). */
+export function isAgentId(value: unknown): value is AgentId {
+  if (typeof value !== 'string') return false
+  if (value.startsWith(CUSTOM_AGENT_PREFIX)) return value.length > CUSTOM_AGENT_PREFIX.length
+  return AGENTS.some((agent) => agent.id === value)
+}
+
+export function agentName(id: AgentId) {
+  if (id.startsWith(CUSTOM_AGENT_PREFIX)) return id.slice(CUSTOM_AGENT_PREFIX.length)
+  return AGENTS.find((agent) => agent.id === id)?.name ?? id
+}
 
 /** Where an agent's CLI comes from: the user's own install, Grat's download, or dev's node_modules */
 export type AgentBinarySource = 'yours' | 'grat' | 'bundled'
 
 export interface AgentHealth {
   id: AgentId
+  name: string
   status:
     | 'unknown'
     | 'checking'
@@ -25,6 +47,14 @@ export interface AgentHealth {
     | 'signed-out'
     | 'error'
   message: string | null
+  /** Technical detail behind `message` (exit code, stderr), shown on request */
+  detail: string | null
+  /** The CLI this agent needs on PATH; null when Grat bundles everything it needs */
+  command: string | null
+  /** The agent's official install page, for agents the user installs themselves */
+  installUrl: string | null
+  /** Switched on in Settings; disabled agents are hidden from menus and not checked */
+  enabled: boolean
   /** A sign-in flow Grat can start for this agent, when it offers one */
   signIn: { methodId: string; label: string } | null
   /** Grat can download the agent's CLI: `update` when the user's own is incompatible */
@@ -85,6 +115,8 @@ export interface DevServerState {
   url: string | null
   exitCode: number | null
   lastLine: string
+  /** Still starting well after most apps are up (no reachable address yet) */
+  slow: boolean
 }
 
 export type Viewport = 'desktop' | 'tablet' | 'mobile'
@@ -161,6 +193,8 @@ export interface ChatMeta {
   agentName: string
   status: AgentStatus
   error: string | null
+  /** Technical detail behind `error` (exit code, stderr), shown on request */
+  errorDetail: string | null
   modeName: string | null
   selection: ElementContext | null
   /** Why the last element pick failed, shown until the next pick */
@@ -197,11 +231,25 @@ export type TurnItem =
   | {
       kind: 'permission'
       id: string
+      /** The agent's own description of the action, paths relative to the project */
       title: string
+      /** ACP tool kind (edit, delete, move, execute, fetch, read, …) */
+      toolKind: string
+      /** Files the action touches, relative to the project */
+      locations: string[]
+      /** It touches files that change how the project builds or runs (config, deps, scripts) */
+      sensitive: boolean
       options: PermissionChoice[]
       resolved: string | null
     }
-  | { kind: 'notice'; id: string; text: string; tone: 'info' | 'error' }
+  | {
+      kind: 'notice'
+      id: string
+      text: string
+      tone: 'info' | 'error'
+      /** Technical detail, shown on request */
+      detail?: string
+    }
 
 export interface FileChange {
   path: string
@@ -220,6 +268,13 @@ export interface Turn {
   items: TurnItem[]
   status: TurnStatus
   error: string | null
+  /** Technical detail behind `error`, shown on request */
+  errorDetail?: string | null
+  /**
+   * Small JPEG data URLs of the picked element before the turn and after hot reload.
+   * Kept in memory only (not in saved history); either may be missing.
+   */
+  preview?: { before: string | null; after: string | null } | null
   startedAt: number
   endedAt: number | null
   changes: FileChange[] | null
@@ -285,4 +340,37 @@ export interface ShipResult {
    */
   outcome: 'created' | 'compare' | 'pushed' | 'committed'
   url: string | null
+}
+
+/** An agent the user added in Settings (stored in agents.json). */
+export interface CustomAgentEntry {
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+}
+
+export type StorageKind = 'chats' | 'checkpoints' | 'previewData'
+
+/** Bytes on disk per kind; null while it's being measured. */
+export type StorageUsage = Record<StorageKind, number | null>
+
+export type SettingsSection = 'agents' | 'chat' | 'projects' | 'storage'
+
+export interface SettingsState {
+  /** Every known agent, enabled or not */
+  agents: AgentHealth[]
+  /** The agent new windows start with */
+  defaultAgentId: AgentId
+  /** Whether new chats start docked to the side */
+  chatDocked: boolean
+  customAgents: CustomAgentEntry[]
+  /** Why agents.json can't be read; custom agents can't be edited in Settings while set */
+  customAgentsError: string | null
+  /** Projects whose dev script runs without asking */
+  trustedProjects: string[]
+  recentProjects: RecentProject[]
+  storage: StorageUsage
+  /** Project roots open in a window; clearing storage keeps their data */
+  openProjects: string[]
 }

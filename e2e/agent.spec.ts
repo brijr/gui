@@ -1,4 +1,4 @@
-import type { AgentId } from '../src/shared/types'
+import { AGENTS, type AgentId } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
 import type { GratSession } from './helpers/session'
@@ -6,8 +6,9 @@ import { expect, test } from './helpers/test'
 
 // Real agent turns spend usage on the developer's own login, so they only run on request.
 const requested = process.env.GRAT_E2E_AGENT || undefined
-if (requested !== undefined && requested !== 'claude' && requested !== 'codex') {
-  throw new Error(`GRAT_E2E_AGENT must be "claude" or "codex", got "${requested}"`)
+if (requested !== undefined && !AGENTS.some((agent) => agent.id === requested)) {
+  const ids = AGENTS.map((agent) => agent.id).join(', ')
+  throw new Error(`GRAT_E2E_AGENT must be one of ${ids}; got "${requested}"`)
 }
 
 const BUTTON = 'button.counter'
@@ -56,11 +57,11 @@ async function finishTurn(session: GratSession, index: number, approved: string[
 // The product in one run: ask for a change on a picked element, see it land through hot
 // reload, then undo must put the project back exactly as it was and redo must reapply it.
 test.describe('agent turn', () => {
-  test.skip(!requested, 'Set GRAT_E2E_AGENT=claude|codex to run agent turns (spends real usage)')
+  test.skip(!requested, 'Set GRAT_E2E_AGENT to an agent id to run agent turns (spends real usage)')
 
   test('edit, undo and redo round-trip the picked element', async ({ launch }) => {
     test.setTimeout(10 * 60_000)
-    const agentId: AgentId = requested === 'codex' ? 'codex' : 'claude'
+    const agentId: AgentId = requested ?? 'claude'
     const session = await launch({ fixture: 'vite' })
     const { root } = session.fixture
     await session.waitForPreview()
@@ -89,6 +90,12 @@ test.describe('agent turn', () => {
     expect(gitStatus(root)).not.toBe('')
     // The edit has to show up in the running preview, not just on disk.
     await waitFor(isRed, 'the button to turn red in the preview', { timeout: 45_000 })
+    // The turn shows how the picked element looked before the change and after it reloaded.
+    const shown = async () => {
+      const preview = (await session.chatSnapshot()).turns[0]?.preview
+      return preview?.before && preview.after ? preview : null
+    }
+    await waitFor(shown, 'before/after images of the change', { timeout: 20_000 })
     await session.shot('edited')
 
     // Undo: the files go back to how they were before the turn, and the preview follows.
@@ -106,5 +113,15 @@ test.describe('agent turn', () => {
     expect(redone.turns[0]?.reverted).toBe(false)
     expect(redone.meta.redoTurnIds).toEqual([])
     await waitFor(isRed, 'the red background after redo', { timeout: 45_000 })
+
+    // Edit → Undo (⌘Z) undoes the last change when no text field has focus.
+    await session.chrome.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    })
+    await session.app.evaluate(({ Menu }) => {
+      const edit = Menu.getApplicationMenu()?.items.find((item) => item.label === 'Edit')
+      edit?.submenu?.items.find((item) => item.label === 'Undo')?.click()
+    })
+    await waitFor(isOriginal, 'the original background after Edit → Undo', { timeout: 45_000 })
   })
 })

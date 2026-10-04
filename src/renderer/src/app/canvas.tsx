@@ -1,17 +1,9 @@
-import { Check, ChevronRight, FolderOpen, KeyRound, TriangleAlert, X } from 'lucide-react'
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import {
-  AGENTS,
-  type AgentBinarySource,
-  type AgentHealth,
-  type ProjectSetup,
-  type WindowState,
-  type WorkspaceApp,
-} from '../../../shared/types'
+import { ChevronDown, ChevronRight, FolderOpen, KeyRound, TriangleAlert, X } from 'lucide-react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
+import type { ProjectSetup, WindowState, WorkspaceApp } from '../../../shared/types'
+import { AgentCard } from '../agents/agent-card'
 import { grat } from '../lib/api'
-import { cn } from '../lib/cn'
-import { readableError } from '../lib/errors'
-import { Button, IconButton, Spinner } from '../lib/ui'
+import { Button, IconButton, Spinner, TechnicalDetails } from '../lib/ui'
 
 /**
  * The preview is a native view layered over this element; we report our bounds so
@@ -56,7 +48,7 @@ export function Canvas({ state }: { state: WindowState }) {
  * installing, starting, and what went wrong. One card, one next step.
  */
 function CanvasMessage({ state }: { state: WindowState }) {
-  const { project, devServer, preview, setup } = state
+  const { project, devServer, preview, setup, logsOpen } = state
 
   if (!project) return <EmptyState state={state} />
 
@@ -71,7 +63,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={<Spinner className="size-4 text-muted" />}
         title="Installing dependencies…"
         detail="Getting the project ready to run. The first time can take a few minutes."
-        action={<OutputToggle open={state.logsOpen} />}
+        action={<LogsToggle open={logsOpen} noun="output" />}
         footer={env}
       />
     )
@@ -82,14 +74,14 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <Message
         icon={<TriangleAlert className="size-5 text-danger" aria-hidden="true" />}
         title="Couldn't install dependencies"
-        detail={devServer.lastLine || 'The install stopped with an error.'}
-        mono
+        detail="The install stopped with an error."
+        note={devServer.lastLine}
         action={
           <>
             <Button variant="primary" onClick={() => grat.installDependencies()}>
               Try again
             </Button>
-            <OutputToggle open={state.logsOpen} />
+            <LogsToggle open={logsOpen} noun="output" />
           </>
         }
         footer={env}
@@ -101,9 +93,34 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <Message
         icon={<TriangleAlert className="size-5 text-danger" aria-hidden="true" />}
-        title="The preview couldn't load"
+        title="Your app couldn't load"
         detail={preview.error}
-        action={<Button onClick={() => grat.reload()}>Retry</Button>}
+        action={
+          <>
+            <Button onClick={() => grat.reload()}>Try again</Button>
+            <LogsToggle open={logsOpen} noun="logs" />
+          </>
+        }
+        footer={env}
+      />
+    )
+  }
+
+  if (devServer.status === 'starting' && devServer.slow) {
+    return (
+      <Message
+        icon={<Spinner className="size-4 text-muted" />}
+        title="Your app is taking a while to start"
+        detail="Grat is waiting for it to show an address. Check the logs, or enter your app's address if it's already running."
+        note={devServer.lastLine}
+        action={
+          <>
+            <LogsToggle open={logsOpen} noun="logs" />
+            <Button variant="ghost" onClick={focusAddressBar}>
+              Enter address
+            </Button>
+          </>
+        }
         footer={env}
       />
     )
@@ -113,22 +130,29 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <Message
         icon={<Spinner className="size-4 text-muted" />}
-        title={devServer.status === 'starting' ? 'Starting dev server' : 'Loading preview'}
-        detail={devServer.lastLine || devServer.command || ''}
-        mono
+        title={devServer.status === 'starting' ? 'Starting your app…' : 'Loading your app…'}
+        note={devServer.lastLine || devServer.command || ''}
         footer={env}
       />
     )
   }
 
   if (devServer.status === 'exited') {
+    const crashed = devServer.exitCode !== 0
     return (
       <Message
         icon={<TriangleAlert className="size-5 text-danger" aria-hidden="true" />}
-        title="The dev server stopped"
-        detail={devServer.lastLine || `Exit code ${devServer.exitCode}`}
-        mono
-        action={<Button onClick={() => grat.restartDevServer()}>Restart</Button>}
+        title="Your app stopped"
+        detail={crashed ? 'It quit with an error. The logs show what happened.' : ''}
+        note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
+        action={
+          <>
+            <Button variant="primary" onClick={() => grat.restartDevServer()}>
+              Start again
+            </Button>
+            <LogsToggle open={logsOpen} noun="logs" />
+          </>
+        }
         footer={env}
       />
     )
@@ -137,8 +161,13 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (!project.devCommand && !preview.url) {
     return (
       <Message
-        title="No dev script found"
-        detail="Add a dev script to package.json, or enter your app's URL in the address bar."
+        title="Grat doesn't know how to start this app"
+        detail="Add a “dev” script to package.json, or enter your app's address in the bar above."
+        action={
+          <Button variant="ghost" onClick={focusAddressBar}>
+            Enter address
+          </Button>
+        }
       />
     )
   }
@@ -163,12 +192,11 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (devServer.status === 'idle' && !preview.visible) {
     return (
       <Message
-        title="Dev server is stopped"
-        detail={project.devCommand ?? ''}
-        mono
+        title="Your app isn't running"
+        note={project.devCommand ?? ''}
         action={
           <Button variant="primary" onClick={() => grat.startDevServer()}>
-            Start dev server
+            Start app
           </Button>
         }
         footer={env}
@@ -190,43 +218,41 @@ function Card({ children }: { children: ReactNode }) {
 interface MessageProps {
   icon?: ReactNode
   title: string
-  detail: string
-  mono?: boolean
+  /** Plain explanation */
+  detail?: string
+  /** The specifics (command, last output line), behind a Details toggle for people who want them */
+  note?: string
   action?: ReactNode
   /** A quiet extra row under a divider */
   footer?: ReactNode
 }
 
-function Message({ icon, title, detail, mono, action, footer }: MessageProps) {
+function Message({ icon, title, detail, note, action, footer }: MessageProps) {
   return (
     <Card>
       <div className="flex flex-col items-center gap-2">
         {icon}
         <p className="font-medium text-[13px]">{title}</p>
-        {detail && (
-          <p
-            className={
-              mono
-                ? 'line-clamp-3 select-text break-words font-mono text-[11px] text-subtle'
-                : 'text-pretty text-muted'
-            }
-          >
-            {detail}
-          </p>
-        )}
+        {detail && <p className="text-pretty text-muted">{detail}</p>}
         {action && <div className="mt-2 flex items-center gap-2">{action}</div>}
       </div>
+      {note && <TechnicalDetails text={note} className="text-left" />}
       {footer}
     </Card>
   )
 }
 
-function OutputToggle({ open }: { open: boolean }) {
+/** Opens the logs panel: "output" while setting up, "logs" once the app runs. */
+function LogsToggle({ open, noun }: { open: boolean; noun: 'output' | 'logs' }) {
   return (
     <Button variant="ghost" aria-expanded={open} onClick={() => grat.setLogsOpen(!open)}>
-      {open ? 'Hide output' : 'Show output'}
+      {open ? 'Hide' : 'Show'} {noun}
     </Button>
   )
+}
+
+function focusAddressBar() {
+  document.getElementById('preview-address')?.focus()
 }
 
 function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
@@ -329,9 +355,9 @@ export function EnvBanner({ state }: { state: WindowState }) {
 }
 
 const STEPS = [
-  ['Open a project', 'Grat starts its dev server and shows your app.'],
-  ['Point at something', 'Press ⇧⌘C and click any element in the preview.'],
-  ['Describe the change', 'Your agent edits the code; the preview updates live.'],
+  ['Open a project', 'Grat starts your app and shows it here.'],
+  ['Point at something', 'Press ⇧⌘C and click any element in your app.'],
+  ['Describe the change', 'Your agent edits the code, and you see the result right away.'],
 ] as const
 
 function EmptyState({ state }: { state: WindowState }) {
@@ -343,8 +369,8 @@ function EmptyState({ state }: { state: WindowState }) {
           {firstRun ? 'Design your app with your own agents' : 'Open a project'}
         </h1>
         <p className="text-pretty text-muted">
-          Grat runs your dev server, shows your app, and lets your agent edit the real code while
-          you point at things.
+          Grat runs your app, shows it here, and lets your agent edit the real code while you point
+          at things.
         </p>
       </div>
 
@@ -369,7 +395,25 @@ function EmptyState({ state }: { state: WindowState }) {
         Open project…
       </Button>
 
-      <Agents state={state} />
+      <div className="flex flex-col gap-1.5">
+        <AgentCard
+          agentId={state.agentId}
+          health={state.agents.find((agent) => agent.id === state.agentId) ?? null}
+          change={
+            <Button variant="ghost" onClick={() => grat.showAgentMenu()}>
+              Change
+              <ChevronDown className="size-3 text-subtle" aria-hidden="true" />
+            </Button>
+          }
+        />
+        <button
+          type="button"
+          onClick={() => grat.openSettings('agents')}
+          className="self-start text-[11.5px] text-subtle hover:text-fg"
+        >
+          All agents and settings
+        </button>
+      </div>
 
       {state.recent.length > 0 && (
         <div className="flex flex-col gap-1">
@@ -394,215 +438,4 @@ function EmptyState({ state }: { state: WindowState }) {
       )}
     </div>
   )
-}
-
-function Agents({ state }: { state: WindowState }) {
-  return (
-    <div className="flex flex-col gap-1">
-      <div className="flex items-baseline justify-between">
-        <p className="font-medium text-[11px] text-subtle uppercase tracking-wide">Agents</p>
-        <button
-          type="button"
-          onClick={() => grat.checkAgents()}
-          className="text-[11px] text-subtle hover:text-fg"
-        >
-          Check again
-        </button>
-      </div>
-      <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
-        {state.agents.map((health) => (
-          <AgentRow key={health.id} health={health} selected={health.id === state.agentId} />
-        ))}
-      </ul>
-    </div>
-  )
-}
-
-function AgentRow({ health, selected }: { health: AgentHealth; selected: boolean }) {
-  const [error, setError] = useState<string | null>(null)
-  const nameId = useId()
-  const name = AGENTS.find((agent) => agent.id === health.id)?.name ?? health.id
-  const busy = health.status === 'checking' || health.status === 'signing-in'
-  const action = agentAction(health)
-
-  // Install and sign-in report failures through health; this catches IPC failures.
-  const perform = async (run: () => Promise<void>) => {
-    setError(null)
-    try {
-      await run()
-    } catch (err) {
-      setError(readableError(err))
-    }
-  }
-
-  return (
-    <li className="flex items-start gap-3 px-3 py-2.5">
-      <button
-        type="button"
-        aria-pressed={selected}
-        aria-label={`Use ${name} by default`}
-        onClick={() => grat.setAgent(health.id)}
-        className={cn(
-          'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border',
-          selected ? 'border-accent bg-accent text-accent-fg' : 'border-line-strong',
-        )}
-      >
-        {selected && <Check className="size-2.5" strokeWidth={3} aria-hidden="true" />}
-      </button>
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2">
-          <span id={nameId} className="font-medium">
-            {name}
-          </span>
-          <AgentStatusLabel health={health} />
-        </p>
-        <AgentDetail health={health} name={name} error={error} />
-      </div>
-      {action && (
-        <Button
-          className="shrink-0"
-          aria-describedby={nameId}
-          disabled={busy}
-          onClick={() => void perform(action.run)}
-        >
-          {action.label}
-        </Button>
-      )}
-    </li>
-  )
-}
-
-/** The row's one next step: installing the CLI comes before signing in. */
-function agentAction(health: AgentHealth): { label: string; run: () => Promise<void> } | null {
-  if (health.install) {
-    if (health.status === 'installing') return null
-    return { label: installLabel(health), run: () => grat.installAgent(health.id) }
-  }
-  if (health.signIn && health.status !== 'ready') {
-    return {
-      label: health.status === 'signing-in' ? 'Waiting…' : health.signIn.label,
-      run: () => grat.signIn(health.id),
-    }
-  }
-  return null
-}
-
-/** `install` stays set after a failed download, so the same button retries it. */
-function installLabel(health: AgentHealth) {
-  if (health.status === 'error') return 'Try again'
-  return health.install === 'update' ? "Install Grat's copy" : 'Install'
-}
-
-const BINARY_SOURCES: Record<AgentBinarySource, string> = {
-  yours: 'Your install',
-  grat: 'Installed by Grat',
-  bundled: 'Bundled (dev)',
-}
-
-function AgentDetail({
-  health,
-  name,
-  error,
-}: {
-  health: AgentHealth
-  name: string
-  error: string | null
-}) {
-  if (health.status === 'installing') {
-    return <InstallProgress name={name} progress={health.progress} />
-  }
-
-  if (health.status === 'ready') {
-    if (!health.binary) return null
-    const { source, version } = health.binary
-    return (
-      <p className="mt-0.5 select-text truncate text-[11.5px] text-subtle tabular-nums">
-        {BINARY_SOURCES[source]}
-        {version && ` · ${version}`}
-      </p>
-    )
-  }
-
-  const text = error ?? health.message
-  if (!text) return null
-  return <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">{text}</p>
-}
-
-const megabytes = (bytes: number) => Math.round(bytes / 1e6)
-
-function progressText(received: number, total: number | null) {
-  if (received === 0) return 'Starting download…'
-  if (total === null) return `Downloading ${megabytes(received)} MB`
-  // The download is done; Grat is unpacking and checking it.
-  if (received >= total) return 'Finishing up…'
-  return `Downloading ${megabytes(received)} of ${megabytes(total)} MB`
-}
-
-function InstallProgress({ name, progress }: { name: string; progress: AgentHealth['progress'] }) {
-  const received = progress?.received ?? 0
-  const total = progress?.total ?? null
-  // Indeterminate until bytes arrive, and throughout when the server didn't send a size.
-  const fraction = received > 0 && total ? Math.min(received / total, 1) : null
-  const text = progressText(received, total)
-
-  return (
-    <div className="mt-1.5 flex flex-col gap-1">
-      <div
-        role="progressbar"
-        aria-label={`Installing ${name}`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
-        aria-valuetext={text}
-        className="h-1 overflow-hidden rounded-full bg-hover"
-      >
-        {fraction === null ? (
-          <div className="size-full animate-pulse bg-accent/40" />
-        ) : (
-          <div
-            className="size-full origin-left bg-accent transition-transform duration-150"
-            style={{ transform: `scaleX(${fraction})` }}
-          />
-        )}
-      </div>
-      {/* Read through the progress bar's value text */}
-      <p aria-hidden="true" className="text-[11.5px] text-subtle tabular-nums">
-        {text}
-      </p>
-    </div>
-  )
-}
-
-const PENDING_LABELS = {
-  checking: 'Checking',
-  'signing-in': 'Signing in',
-  installing: 'Installing',
-} as const
-
-function AgentStatusLabel({ health }: { health: AgentHealth }) {
-  switch (health.status) {
-    case 'ready':
-      return <span className="text-[11.5px] text-success">Ready</span>
-    case 'checking':
-    case 'signing-in':
-    case 'installing':
-      return (
-        <span className="flex items-center gap-1.5 text-[11.5px] text-subtle">
-          <Spinner className="size-2.5" />
-          {PENDING_LABELS[health.status]}
-        </span>
-      )
-    case 'not-installed':
-      return health.install === 'update' ? (
-        <span className="text-[11.5px] text-warning">Needs update</span>
-      ) : (
-        <span className="text-[11.5px] text-subtle">Not installed</span>
-      )
-    case 'signed-out':
-      return <span className="text-[11.5px] text-warning">Not signed in</span>
-    case 'error':
-      return <span className="text-[11.5px] text-danger">Unavailable</span>
-    default:
-      return null
-  }
 }

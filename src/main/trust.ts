@@ -23,6 +23,23 @@ export async function isTrusted(root: string) {
   return (await load()).includes(await canonical(root))
 }
 
+export function listTrusted() {
+  return load()
+}
+
+/** The project's dev script will ask again before it runs. */
+export async function untrust(root: string) {
+  const trusted = await load()
+  await writeFile(
+    file(),
+    JSON.stringify(
+      trusted.filter((path) => path !== root),
+      null,
+      2,
+    ),
+  )
+}
+
 export async function trust(root: string) {
   const path = await canonical(root)
   const trusted = await load()

@@ -6,6 +6,8 @@ import { getShellEnv } from './shell-env'
 
 const MAX_LOG = 512 * 1024
 const PROBE_TIMEOUT_MS = 120_000
+/** Most dev servers are up well within this; past it, the UI offers a way forward. */
+const SLOW_START_MS = 30_000
 /** After this long, accept any listener on the port even if we can't prove it's ours. */
 const OWNERSHIP_GRACE_MS = 20_000
 const ESC = '\u001b'
@@ -41,7 +43,14 @@ export interface DevServerEvents {
  * One-off setup commands (installing dependencies) run in the same terminal before it.
  */
 export class DevServer extends EventEmitter<DevServerEvents> {
-  state: DevServerState = { status: 'idle', command: null, url: null, exitCode: null, lastLine: '' }
+  state: DevServerState = {
+    status: 'idle',
+    command: null,
+    url: null,
+    exitCode: null,
+    lastLine: '',
+    slow: false,
+  }
   private proc: IPty | null = null
   /** Settles when `proc` has exited and its exit has been handled. */
   private exited: Promise<void> = Promise.resolve()
@@ -78,7 +87,14 @@ export class DevServer extends EventEmitter<DevServerEvents> {
 
     // The last line so far belongs to an earlier run or the install.
     this.pendingLastLine = null
-    this.update({ status: 'starting', command, url: null, exitCode: null, lastLine: '' })
+    this.stopping = false
+    this.partial = ''
+    this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
+    this.update({ status: 'starting', command, url: null, exitCode: null, lastLine: '', slow: false })
+    setTimeout(() => {
+      if (run === this.run && this.state.status === 'starting') this.update({ slow: true })
+    }, SLOW_START_MS).unref()
+
     let proc: IPty
     try {
       proc = this.spawn(command, this.cwd, env, run, false)
@@ -283,7 +299,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   private update(patch: Partial<DevServerState>) {
-    this.state = { ...this.state, ...patch }
+    // Only a server that's still starting can be slow to start.
+    const slow =
+      (patch.status ?? this.state.status) === 'starting' && (patch.slow ?? this.state.slow)
+    this.state = { ...this.state, ...patch, slow }
     this.emit('change', this.state)
   }
 }

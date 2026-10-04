@@ -1,18 +1,28 @@
+import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { AgentId } from '../shared/types'
+import { type AgentId, DEFAULT_AGENT_ID, isAgentId } from '../shared/types'
 
 export interface Prefs {
   agentId: AgentId
   chatDocked: boolean
   /** The app each monorepo previews: project root → app dir relative to it */
   apps: Record<string, string>
+  /** Agents switched off in Settings; everything installed is on by default */
+  disabledAgents: AgentId[]
 }
 
-const DEFAULTS: Prefs = { agentId: 'claude', chatDocked: false, apps: {} }
+const DEFAULTS: Prefs = {
+  agentId: DEFAULT_AGENT_ID,
+  chatDocked: false,
+  apps: {},
+  disabledAgents: [],
+}
 const file = () => join(app.getPath('userData'), 'prefs.json')
 let cached: Prefs | null = null
+
+export const prefsEvents = new EventEmitter<{ change: [prefs: Prefs] }>()
 
 function stringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -28,9 +38,12 @@ export function getPrefs(): Prefs {
   try {
     const parsed = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Prefs>
     cached = {
-      agentId: parsed.agentId === 'codex' ? 'codex' : 'claude',
+      agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
       chatDocked: parsed.chatDocked === true,
       apps: stringRecord(parsed.apps),
+      disabledAgents: Array.isArray(parsed.disabledAgents)
+        ? parsed.disabledAgents.filter(isAgentId)
+        : [],
     }
   } catch {
     cached = { ...DEFAULTS, apps: {} }
@@ -46,4 +59,9 @@ export function setPrefs(patch: Partial<Prefs>) {
   } catch (error) {
     console.error('[grat] failed to save preferences', error)
   }
+  prefsEvents.emit('change', cached)
+}
+
+export function isAgentEnabled(id: AgentId) {
+  return !getPrefs().disabledAgents.includes(id)
 }

@@ -11,19 +11,40 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   session,
+  type WebContents,
+  webContents,
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
 import {
-  AGENTS,
-  type AgentId,
+  type CustomAgentEntry,
   type ImageAttachment,
+  isAgentId,
   type Rect,
+  type SettingsSection,
   type ShipRequest,
+  type StorageKind,
   type Viewport,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
+import { agentMenuItems, openCustomAgents } from './agents'
 import { isLoopback } from './loopback'
+import { getPrefs } from './prefs'
 import { loadRecent } from './recent'
+import {
+  clearRecent,
+  confirmAndClear,
+  deleteCustom,
+  getSettings,
+  isSettingsContents,
+  openSettings,
+  saveCustom,
+  setAgentEnabled,
+  setChatDocked,
+  setDefaultAgent,
+  untrustProject,
+  watchSettings,
+} from './settings'
+import { PREVIEW_PARTITION } from './storage'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
 app.setName('Grat')
@@ -113,6 +134,40 @@ const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
+const SECTIONS: readonly SettingsSection[] = ['agents', 'chat', 'projects', 'storage']
+const STORAGE_KINDS: readonly StorageKind[] = ['chats', 'checkpoints', 'previewData']
+const isRecordOfStrings = (value: unknown): value is Record<string, string> =>
+  !!value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.values(value).every(isString)
+
+function isCustomAgentEntry(value: unknown): value is CustomAgentEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Record<string, unknown>
+  return (
+    isString(entry.name) &&
+    isString(entry.command) &&
+    Array.isArray(entry.args) &&
+    entry.args.every(isString) &&
+    isRecordOfStrings(entry.env)
+  )
+}
+
+/** Settings may be changed from the Settings window or a project window, nothing else. */
+const fromAppUi = (event: IpcMainEvent | IpcMainInvokeEvent) =>
+  isSettingsContents(event.sender) || windowFor(event) !== undefined
+
+/** Errors cross IPC as `{ error }` so the page shows the message without Electron's prefix. */
+async function reportError(task: () => Promise<unknown>) {
+  try {
+    await task()
+    return { error: null }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 function isRect(value: unknown): value is Rect {
   if (!value || typeof value !== 'object') return false
   const rect = value as Record<string, unknown>
@@ -190,12 +245,10 @@ function registerIpc() {
   ipcMain.handle(Invoke.redo, (event) => windowFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => windowFor(event)?.fixProblems() ?? false)
   ipcMain.handle(Invoke.signIn, async (_event, agentId: unknown) => {
-    const agent = AGENTS.find((a) => a.id === agentId)
-    if (agent) await agentHealth.signIn(agent.id)
+    if (isAgentId(agentId)) await agentHealth.signIn(agentId)
   })
   ipcMain.handle(Invoke.installAgent, async (_event, agentId: unknown) => {
-    const agent = AGENTS.find((a) => a.id === agentId)
-    if (agent) await agentHealth.install(agent.id)
+    if (isAgentId(agentId)) await agentHealth.install(agentId)
   })
 
   const on = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
@@ -209,18 +262,61 @@ function registerIpc() {
   on(Send.devServerStop, (win) => win.stopDevServer())
   on(Send.devServerRestart, (win) => win.restartDevServer())
   on(Send.showDevServerMenu, (win) => win.showDevServerMenu())
-  on(Send.showAgentMenu, (win) => win.showAgentMenu())
+  on(Send.showAgentMenu, (win) => win.showAgentMenu(() => openSettings('agents')))
   on(Send.showProjectMenu, (win) =>
     win.showProjectMenu(
       () => void pickProject(win),
       (root) => openSafely(win, root),
     ),
   )
-  on(Send.setAgent, (win, agentId) => {
-    const agent = AGENTS.find((a) => a.id === agentId)
-    if (agent) win.setAgent(agent.id)
+  on(Send.setAgent, (win, agentId) => isAgentId(agentId) && win.setAgent(agentId))
+
+  const handleSettings = (
+    channel: string,
+    handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
+  ) => {
+    ipcMain.handle(channel, (event, ...args: unknown[]) =>
+      fromAppUi(event) ? handler(event, ...args) : undefined,
+    )
+  }
+  const onSettings = (channel: string, handler: (...args: unknown[]) => void) => {
+    ipcMain.on(channel, (event, ...args: unknown[]) => {
+      if (fromAppUi(event)) handler(...args)
+    })
+  }
+  handleSettings(Invoke.getSettings, (event) => getSettings(event.sender))
+  handleSettings(Invoke.saveCustomAgent, (_event, originalName, entry) =>
+    reportError(async () => {
+      if ((originalName !== null && !isString(originalName)) || !isCustomAgentEntry(entry)) {
+        throw new Error('That agent entry is malformed.')
+      }
+      await saveCustom(originalName, entry)
+    }),
+  )
+  handleSettings(Invoke.deleteCustomAgent, (_event, name) =>
+    reportError(async () => {
+      if (isString(name)) await deleteCustom(name)
+    }),
+  )
+  handleSettings(Invoke.untrustProject, (_event, root) =>
+    isString(root) ? untrustProject(root) : undefined,
+  )
+  handleSettings(Invoke.clearRecent, () => clearRecent())
+  handleSettings(Invoke.clearStorage, (_event, kind) =>
+    STORAGE_KINDS.includes(kind as StorageKind) ? confirmAndClear(kind as StorageKind) : false,
+  )
+  onSettings(Send.openSettings, (section) =>
+    openSettings(
+      SECTIONS.includes(section as SettingsSection) ? (section as SettingsSection) : undefined,
+    ),
+  )
+  onSettings(Send.checkAgents, () => void agentHealth.checkAll())
+  onSettings(Send.setAgentEnabled, (agentId, enabled) => {
+    if (isAgentId(agentId) && typeof enabled === 'boolean') setAgentEnabled(agentId, enabled)
   })
-  on(Send.checkAgents, () => agentHealth.checkAll())
+  onSettings(Send.setDefaultAgent, (agentId) => isAgentId(agentId) && setDefaultAgent(agentId))
+  onSettings(Send.setChatDocked, (docked) => typeof docked === 'boolean' && setChatDocked(docked))
+  onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
   on(Send.navigate, (win, url) => isString(url) && win.navigate(url))
   on(Send.back, (win) => win.back())
   on(Send.forward, (win) => win.forward())
@@ -261,7 +357,7 @@ const PREVIEW_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write', 
  * the user's app plus whatever third-party scripts it loads, so deny by default.
  */
 function lockDownSessions() {
-  const preview = session.fromPartition('persist:grat-preview')
+  const preview = session.fromPartition(PREVIEW_PARTITION)
   preview.setPermissionRequestHandler((_wc, permission, callback, details) => {
     callback(PREVIEW_PERMISSIONS.has(permission) && isLoopback(details.requestingUrl))
   })
@@ -288,6 +384,40 @@ function lockDownSessions() {
   session.defaultSession.setPermissionCheckHandler(() => false)
 }
 
+/** Runs in an isolated world, so a previewed page can't fake where focus is. */
+const EDITING_TEXT = `(() => {
+  const el = document.activeElement
+  if (!el) return false
+  // The chat box keeps focus after sending; empty, it has no typing to undo.
+  if (el.hasAttribute('data-undo-passthrough') && el.value === '') return false
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true
+  return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type)
+})()`
+
+async function isEditingText(wc: WebContents) {
+  try {
+    return (await wc.executeJavaScriptInIsolatedWorld(1001, [{ code: EDITING_TEXT }])) === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Grat or the previewed app);
+ * otherwise, including from an empty chat box, they undo or redo the agent's last change.
+ */
+async function editHistory(direction: 'undo' | 'redo') {
+  const wc = webContents.getFocusedWebContents()
+  const textEdit = () => (direction === 'undo' ? wc?.undo() : wc?.redo())
+  if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
+  // With no Grat window focused (e.g. the menu clicked from a script), a lone project
+  // window is the only one it can mean.
+  const lone = BrowserWindow.getFocusedWindow() === null && allWindows().length === 1
+  const win = focusedWindow() ?? (lone ? allWindows()[0] : undefined)
+  if (!win) return textEdit()
+  await (direction === 'undo' ? win.undoLastChange() : win.redoLastChange())
+}
+
 function buildMenu() {
   const withWindow =
     (fn: (win: ProjectWindow) => void): MenuItemConstructorOptions['click'] =>
@@ -296,7 +426,22 @@ function buildMenu() {
       if (win) fn(win)
     }
   const template: MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
     {
       label: 'File',
       submenu: [
@@ -311,7 +456,20 @@ function buildMenu() {
         { role: 'close' },
       ],
     },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => void editHistory('undo') },
+        { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: () => void editHistory('redo') },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+      ],
+    },
     {
       label: 'View',
       submenu: [
@@ -363,11 +521,12 @@ function buildMenu() {
     {
       label: 'Agent',
       submenu: [
-        ...AGENTS.map(
-          (agent): MenuItemConstructorOptions => ({
-            label: agent.name,
-            click: withWindow((w) => w.setAgent(agent.id as AgentId)),
-          }),
+        ...agentMenuItems(
+          agentHealth.list(),
+          agentHealth.customError,
+          null,
+          (id) => focusedWindow()?.setAgent(id),
+          () => openSettings('agents'),
         ),
         { type: 'separator' },
         {
@@ -418,13 +577,18 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     lockDownSessions()
     registerIpc()
+    watchSettings()
     buildMenu()
+    // The Agent menu lists what's installed and signed in.
+    agentHealth.on('change', buildMenu)
+    // Pick up agents installed (or added to agents.json) while Grat was in the background.
+    app.on('browser-window-focus', () => void agentHealth.onAppFocus())
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
     const win = createWindow()
-    // Know up front whether each agent is ready or needs sign-in; costs no usage.
-    agentHealth.checkAll()
+    // Know up front whether the likely agents are ready or need sign-in; costs no usage.
+    void agentHealth.checkOnLaunch(getPrefs().agentId)
     const initial = process.env.GRAT_OPEN
     if (initial) openSafely(win, resolve(initial))
   })

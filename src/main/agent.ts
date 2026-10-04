@@ -4,8 +4,10 @@ import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
-import type { AgentId } from '../shared/types'
-import { requireAgentBinary } from './agent-binaries'
+import { type AgentId, agentName } from '../shared/types'
+import { pinnedAgent, requireAgentBinary } from './agent-binaries'
+import { type AgentDefinition, findExecutable, resolveAgent } from './agents'
+import { DetailedError } from './errors'
 import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
@@ -31,29 +33,42 @@ function sessionMeta(id: AgentId) {
   return { claudeCode: { options: { allowedTools } } }
 }
 
-const ADAPTERS: Record<AgentId, string> = {
-  claude: '@agentclientprotocol/claude-agent-acp',
-  codex: '@agentclientprotocol/codex-acp',
-}
-
-/** Each adapter reads its CLI's location from the environment (see agent-binaries.ts). */
-const CLI_PATH_ENV: Record<AgentId, string> = {
-  claude: 'CLAUDE_CODE_EXECUTABLE',
-  codex: 'CODEX_PATH',
-}
+/**
+ * Claude Code and Codex aren't shipped with Grat: each adapter reads where its CLI is
+ * (the user's own install, or the copy Grat downloaded) from the environment.
+ */
+const CLI_PATH_ENV = { claude: 'CLAUDE_CODE_EXECUTABLE', codex: 'CODEX_PATH' } as const
 
 /**
- * Both adapters are Node programs; run them on Electron's bundled Node runtime.
+ * Bundled adapters are Node programs; run them on Electron's bundled Node runtime.
  * The bootstrap drops ELECTRON_RUN_AS_NODE once Node is up, so it doesn't leak into
  * commands the agent runs (it would break any Electron binary they start).
+ * Every other agent is a CLI the user installed, resolved on their login-shell PATH.
  */
-async function spawnSpec(id: AgentId): Promise<SpawnSpec> {
-  const entry = pathToFileURL(join(packageDir(ADAPTERS[id]), 'dist/index.js')).href
+async function requireExecutable(agent: AgentDefinition, command: string, env: NodeJS.ProcessEnv) {
+  const path = await findExecutable(command, env.PATH)
+  if (!path) {
+    throw new DetailedError(
+      `${agent.name} isn't installed. Install it from Settings → Agents, then try again.`,
+      `\`${command}\` wasn't found on your login shell's PATH.`,
+    )
+  }
+  return path
+}
+
+async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promise<SpawnSpec> {
+  const { launch } = agent
+  if (launch.kind === 'command') {
+    const command = await requireExecutable(agent, launch.command, env)
+    return { command, args: launch.args, env: launch.env }
+  }
+  if (launch.requires) await requireExecutable(agent, launch.requires, env)
+  const entry = pathToFileURL(join(packageDir(launch.package), 'dist/index.js')).href
   const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
-  // Grat doesn't ship the agent CLIs: the user's own install or the copy Grat downloaded.
-  const binary = await requireAgentBinary(id)
-  const env = { ELECTRON_RUN_AS_NODE: '1', [CLI_PATH_ENV[id]]: binary.path }
-  return { command: process.execPath, args: ['-e', bootstrap], env }
+  const adapterEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1', ...launch.env?.() }
+  const pinned = pinnedAgent(agent.id)
+  if (pinned) adapterEnv[CLI_PATH_ENV[pinned]] = (await requireAgentBinary(pinned)).path
+  return { command: process.execPath, args: ['-e', bootstrap], env: adapterEnv }
 }
 
 export type PermissionResolver = (optionId: string | null) => void
@@ -61,7 +76,7 @@ export type PermissionResolver = (optionId: string | null) => void
 export interface AgentHandlers {
   onUpdate(update: acp.SessionNotification['update']): void
   onPermission(request: acp.RequestPermissionRequest, resolve: PermissionResolver): void
-  onExit(error: string | null): void
+  onExit(error: DetailedError): void
 }
 
 export interface AgentInfo {
@@ -69,6 +84,8 @@ export interface AgentInfo {
   /** True when an earlier session was resumed, so the agent remembers prior turns */
   resumed: boolean
   supportsImages: boolean
+  /** Grat's preview tools were offered (the agent takes HTTP MCP servers) */
+  previewTools: boolean
   modeName: string | null
   modes: { id: string; name: string }[]
 }
@@ -102,6 +119,14 @@ export class AgentAuthError extends Error {
   }
 }
 
+/** The useful part of an agent's error; some put it in `data` behind a generic message. */
+function errorDetail(error: unknown) {
+  if (error instanceof acp.RequestError && typeof error.data === 'string' && error.data.trim()) {
+    return error.data.trim()
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
 /**
  * Phrases agents use for a missing or expired login. Whole words only: a bare "auth"
  * substring also matches unrelated errors (e.g. "author", "OAuth").
@@ -111,9 +136,18 @@ const AUTH_ERROR =
 
 function isAuthError(error: unknown) {
   const code = (error as { code?: unknown } | null)?.code
-  const message = error instanceof Error ? error.message : String(error)
+  const message = errorDetail(error)
   // -32000 is ACP's auth_required.
   return code === -32000 || AUTH_ERROR.test(message)
+}
+
+/** The agent's own reason (when it says more than "auth required") plus how to sign in. */
+function signInMessage(agent: AgentDefinition, error: unknown) {
+  const detail = errorDetail(error)
+    .replace(/^Authentication required:?\s*/i, '')
+    .trim()
+  const lead = detail ? detail.replace(/[.\s]*$/, '.') : `${agent.name} is not signed in.`
+  return agent.signIn ? `${lead} ${agent.signIn}` : lead
 }
 
 /** One ACP agent process with a single session rooted at the project. */
@@ -133,8 +167,10 @@ export class AgentSession {
   ) {}
 
   async start({ mcpServers, resumeSessionId, authenticate }: StartOptions): Promise<AgentInfo> {
-    const spec = await spawnSpec(this.agentId)
-    const shellEnv = await getShellEnv()
+    // Looked up at start, so edits to agents.json apply to the next session.
+    const [definition, shellEnv] = await Promise.all([resolveAgent(this.agentId), getShellEnv()])
+    if (this.disposed) throw new Error('Agent was stopped')
+    const spec = await spawnSpec(definition, shellEnv)
     if (this.disposed) throw new Error('Agent was stopped')
     // Own process group, so dispose() can stop the agent and everything it started.
     const child = spawn(spec.command, spec.args, {
@@ -149,11 +185,11 @@ export class AgentSession {
       this.stderr = (this.stderr + chunk).slice(-4000)
     })
     this.exited = new Promise<never>((_resolve, reject) => {
-      child.once('exit', (code, signal) => reject(new Error(this.exitMessage(code, signal))))
+      child.once('exit', (code, signal) => reject(this.exitError(code, signal)))
     })
     this.exited.catch(() => undefined)
     child.once('exit', (code, signal) => {
-      if (!this.disposed) this.handlers.onExit(this.exitMessage(code, signal))
+      if (!this.disposed) this.handlers.onExit(this.exitError(code, signal))
     })
     await new Promise<void>((resolve, reject) => {
       child.once('spawn', resolve)
@@ -196,6 +232,12 @@ export class AgentSession {
       }),
     )
 
+    // ACP clients may only pass HTTP MCP servers to agents that advertise support.
+    const httpMcp = init.agentCapabilities?.mcpCapabilities?.http === true
+    const servers = mcpServers.filter(
+      (server) => httpMcp || !('type' in server && server.type === 'http'),
+    )
+
     if (authenticate) {
       await this.untilExit(
         agent.request(acp.methods.agent.authenticate, { methodId: authenticate }),
@@ -211,7 +253,7 @@ export class AgentSession {
         agent.request(acp.methods.agent.session.load, {
           sessionId: resumeSessionId,
           cwd: this.cwd,
-          mcpServers,
+          mcpServers: servers,
           _meta: sessionMeta(this.agentId),
         }),
       ).catch(() => null)
@@ -223,20 +265,24 @@ export class AgentSession {
     session ??= await this.untilExit(
       agent.request(acp.methods.agent.session.new, {
         cwd: this.cwd,
-        mcpServers,
+        mcpServers: servers,
         _meta: sessionMeta(this.agentId),
       }),
     ).catch((error: unknown) => {
-      if (!isAuthError(error)) throw error
-      const methods = (init.authMethods ?? []).map(
-        (method): AuthMethod => ({
-          id: method.id,
-          name: method.name,
-          description: method.description ?? null,
-          terminalArgs: 'type' in method && method.type === 'terminal' ? (method.args ?? []) : null,
-        }),
-      )
-      throw new AgentAuthError(signInMessage(this.agentId), methods)
+      if (!isAuthError(error)) throw new Error(errorDetail(error))
+      // Only offer sign-in flows Grat knows open a browser; others are run in a terminal.
+      const methods = definition.inAppSignIn
+        ? (init.authMethods ?? []).map(
+            (method): AuthMethod => ({
+              id: method.id,
+              name: method.name,
+              description: method.description ?? null,
+              terminalArgs:
+                'type' in method && method.type === 'terminal' ? (method.args ?? []) : null,
+            }),
+          )
+        : []
+      throw new AgentAuthError(signInMessage(definition, error), methods)
     })
     this.sessionId = session.sessionId
 
@@ -250,6 +296,7 @@ export class AgentSession {
       sessionId: session.sessionId,
       resumed,
       supportsImages: init.agentCapabilities?.promptCapabilities?.image === true,
+      previewTools: servers.length > 0,
       modeName,
       modes: modeList,
     }
@@ -288,9 +335,13 @@ export class AgentSession {
     return Promise.race([promise, this.exited])
   }
 
-  private exitMessage(code: number | null, signal: NodeJS.Signals | null) {
-    const detail = this.stderr.trim().split('\n').slice(-3).join('\n')
-    return `Agent exited (${signal ?? code})${detail ? `: ${detail}` : ''}`
+  private exitError(code: number | null, signal: NodeJS.Signals | null) {
+    const output = this.stderr.trim().split('\n').slice(-3).join('\n')
+    const how = signal ? `Exited on ${signal}` : `Exited with code ${code}`
+    return new DetailedError(
+      `${agentName(this.agentId)} stopped unexpectedly.`,
+      output ? `${how}:\n${output}` : how,
+    )
   }
 }
 
@@ -304,10 +355,4 @@ function killGroup(pid: number, signal: NodeJS.Signals) {
       // already gone
     }
   }
-}
-
-function signInMessage(agentId: AgentId) {
-  return agentId === 'claude'
-    ? 'Claude Code is not signed in. Run `claude` in a terminal and use /login, then try again.'
-    : 'Codex is not signed in. Sign in with ChatGPT from the Grat start screen, or run `codex login`.'
 }
