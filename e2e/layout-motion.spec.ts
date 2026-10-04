@@ -353,10 +353,23 @@ async function record(
   return { frames, mark, samples, end }
 }
 
-/** The snapshot's rects, each once, in order. */
+/**
+ * The snapshot's rects, each once, in order. `previous` is the time of the frame recorded before
+ * each: the recorder's callback can run before or after the morph's in a frame, so a rect may
+ * be the one drawn a frame earlier.
+ */
 function boxes(frames: ChromeFrame[]) {
-  const all = frames.flatMap((frame) =>
-    frame.box ? [{ t: frame.t, frame: frame.frame, ...frame.box }] : [],
+  const all = frames.flatMap((frame, i) =>
+    frame.box
+      ? [
+          {
+            t: frame.t,
+            frame: frame.frame,
+            previous: frames[i - 1]?.frame ?? frame.frame,
+            ...frame.box,
+          },
+        ]
+      : [],
   )
   return all.filter((box, i) => {
     const last = all[i - 1]
@@ -372,10 +385,11 @@ function boxes(frames: ChromeFrame[]) {
 
 /**
  * The steps from one drawn rect to the next that move further than the spring could in the
- * frame time between them: none, for a continuous morph. Logs the largest step, with the frame
- * time it spanned and how long its callback came after the last.
+ * frame time that can have passed between them (from the frame before the first): none, for a
+ * continuous morph. Logs the largest step, with that frame time and how long its callback came
+ * after the last.
  */
-function jumps(path: (Box & { t: number; frame: number })[], label: string) {
+function jumps(path: (Box & { t: number; frame: number; previous: number })[], label: string) {
   const found: { t: number; frames: number; step: number }[] = []
   let largest = { step: 0, frames: 0, callbacks: 0 }
   for (let i = 1; i < path.length; i++) {
@@ -388,7 +402,7 @@ function jumps(path: (Box & { t: number; frame: number })[], label: string) {
       Math.abs(a.width - b.width),
       Math.abs(a.height - b.height),
     )
-    const frames = b.frame - a.frame
+    const frames = b.frame - a.previous
     if (step > largest.step) largest = { step, frames, callbacks: b.t - a.t }
     if (step >= Math.max(MAX_STEP, MAX_SPEED * frames)) {
       found.push({ t: Math.round(b.t), frames: Math.round(frames), step: Math.round(step) })
@@ -639,9 +653,10 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
   const scaled = zoom.frames.flatMap((frame) => frame.layers.map((layer) => layer.width))
   expect(scaled.some((width) => width > desktop.bounds.width + 20)).toBe(true)
   expect((await session.state()).preview.zoom).toBe(1.1)
-  await session.chrome.evaluate(() => window.gui.zoomPreview(0))
-  await waitFor(async () => (await session.state()).preview.zoom === 1, 'back to 100%')
-  await landed(session, 'at 100% again')
+  // Its morph over before the next change: the view doesn't move for a zoom, so only the
+  // morph's end says it's done.
+  await record(session, () => session.chrome.evaluate(() => window.gui.zoomPreview(0)), 'at 100%')
+  expect((await session.state()).preview.zoom).toBe(1)
 
   // Focus mode: the preview grows up into the toolbar's room as the bars fade and slide away.
   const focus = await withEvidence(session, 'focus-enter', () =>
