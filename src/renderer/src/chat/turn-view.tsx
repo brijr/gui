@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Circle,
   CircleDot,
+  CircleSlash,
   Crosshair,
   Eye,
   FilePen,
@@ -49,7 +50,12 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
       <UserMessage turn={turn} />
       <div className={cn('flex flex-col gap-2.5', turn.reverted && 'opacity-45')}>
         {toBlocks(turn.items).map((block) => (
-          <BlockView key={block.id} block={block} turnId={turn.id} />
+          <BlockView
+            key={block.id}
+            block={block}
+            turnId={turn.id}
+            live={turn.status === 'running'}
+          />
         ))}
         {turn.status === 'running' && <Working since={turn.startedAt} />}
         {turn.status === 'error' && (
@@ -97,14 +103,15 @@ function ElementChip({ element }: { element: ElementContext }) {
   )
 }
 
-function BlockView({ block, turnId }: { block: Block; turnId: string }) {
+/** `live` is false once the turn has ended, including turns cut off by a quit. */
+function BlockView({ block, turnId, live }: { block: Block; turnId: string; live: boolean }) {
   switch (block.kind) {
     case 'text':
       return <Markdown text={block.text} />
     case 'thought':
       return <Thought text={block.text} />
     case 'tools':
-      return <ToolGroup tools={block.tools} />
+      return <ToolGroup tools={block.tools} live={live} />
     case 'plan':
       return (
         <ul className="flex flex-col gap-1 rounded-lg border border-line px-2.5 py-2">
@@ -125,7 +132,7 @@ function BlockView({ block, turnId }: { block: Block; turnId: string }) {
         </ul>
       )
     case 'permission':
-      return <Permission item={block} turnId={turnId} />
+      return <Permission item={block} turnId={turnId} live={live} />
     case 'notice':
       return (
         <p
@@ -178,7 +185,7 @@ const TOOL_ICONS: Record<string, typeof Wrench> = {
   preview: Eye,
 }
 
-function ToolGroup({ tools }: { tools: ToolItem[] }) {
+function ToolGroup({ tools, live }: { tools: ToolItem[]; live: boolean }) {
   return (
     <ul className="flex flex-col rounded-lg border border-line py-1">
       {tools.map((tool) => {
@@ -193,8 +200,10 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
               <Check className="size-3 shrink-0 text-success" aria-label="Done" />
             ) : tool.status === 'failed' ? (
               <X className="size-3 shrink-0 text-danger" aria-label="Failed" />
-            ) : (
+            ) : live ? (
               <Spinner className="size-2.5 shrink-0 text-subtle" />
+            ) : (
+              <CircleSlash className="size-3 shrink-0 text-subtle" aria-label="Stopped" />
             )}
           </li>
         )
@@ -206,11 +215,15 @@ function ToolGroup({ tools }: { tools: ToolItem[] }) {
 function Permission({
   item,
   turnId,
+  live,
 }: {
   item: Extract<TurnItem, { kind: 'permission' }>
   turnId: string
+  live: boolean
 }) {
   const chosen = item.options.find((option) => option.optionId === item.resolved)
+  // An unanswered request in an ended turn has no agent waiting on it anymore.
+  const outcome = chosen ? chosen.name : item.resolved === null ? 'Expired' : 'Cancelled'
   return (
     <div className="flex flex-col gap-2 rounded-lg border border-line-strong bg-surface px-2.5 py-2">
       <p className="text-[12px]">
@@ -218,7 +231,7 @@ function Permission({
         <span className="font-medium">{item.title}</span>
         <span className="text-muted">?</span>
       </p>
-      {item.resolved === null ? (
+      {item.resolved === null && live ? (
         <div className="flex flex-wrap gap-1.5">
           {item.options.map((option) => (
             <Button
@@ -231,7 +244,7 @@ function Permission({
           ))}
         </div>
       ) : (
-        <p className="text-[12px] text-subtle">{chosen ? chosen.name : 'Cancelled'}</p>
+        <p className="text-[12px] text-subtle">{outcome}</p>
       )}
     </div>
   )
@@ -276,7 +289,10 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
     }
   }
 
-  if (changes.length === 0 && !turn.reverted) return null
+  // Interrupted (e.g. by a quit) before its changes were recorded; it can still be undone.
+  const unrecorded = changes.length === 0 && turn.changesUnknown === true && !turn.reverted
+
+  if (changes.length === 0 && !turn.reverted && !unrecorded) return null
 
   return (
     <div className="flex flex-col gap-1.5">
@@ -297,6 +313,7 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
             <span className="font-mono text-danger tabular-nums">−{deletions}</span>
           </button>
         )}
+        {unrecorded && <span className="px-1 py-0.5 text-subtle">Changes not recorded</span>}
         <span className="ml-auto flex items-center gap-1">
           {turn.reverted ? (
             <>

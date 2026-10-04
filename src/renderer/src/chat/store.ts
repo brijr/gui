@@ -5,9 +5,15 @@ import { grat } from '../lib/api'
 interface ChatStore {
   meta: ChatMeta | null
   turns: Turn[]
+  /** Unsent composer text; kept here so it survives the composer remounting on dock/float/minimize */
+  draft: string
 }
 
-export const useChat = create<ChatStore>(() => ({ meta: null, turns: [] }))
+export const useChat = create<ChatStore>(() => ({ meta: null, turns: [], draft: '' }))
+
+export function setDraft(draft: string) {
+  useChat.setState({ draft })
+}
 
 function applySnapshot(snapshot: ChatSnapshot) {
   useChat.setState({ meta: snapshot.meta, turns: snapshot.turns })

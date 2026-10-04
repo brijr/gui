@@ -37,16 +37,21 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     ]),
   )
   private running = new Map<AgentId, Promise<void>>()
+  /** Probe processes still alive; detached, so they'd outlive the app if not stopped. */
+  private sessions = new Set<AgentSession>()
+  private disposed = false
 
   list(): AgentHealth[] {
     return AGENTS.map((agent) => this.health.get(agent.id) as AgentHealth)
   }
 
   checkAll() {
+    if (this.disposed) return
     for (const agent of AGENTS) void this.check(agent.id)
   }
 
   check(id: AgentId) {
+    if (this.disposed) return Promise.resolve()
     const pending = this.running.get(id)
     if (pending) return pending
     const run = this.probe(id, undefined).finally(() => this.running.delete(id))
@@ -57,7 +62,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   /** Runs the agent's own sign-in flow (usually opens the browser), then re-checks. */
   async signIn(id: AgentId) {
     const method = this.health.get(id)?.signIn?.methodId
-    if (!method) return
+    if (!method || this.disposed) return
     await this.running.get(id)
     const run = this.probe(id, method).finally(() => this.running.delete(id))
     this.running.set(id, run)
@@ -71,7 +76,9 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     })
     const dir = join(app.getPath('userData'), 'agent-check')
     await mkdir(dir, { recursive: true, mode: 0o700 })
+    if (this.disposed) return
     const session = new AgentSession(id, dir, noopHandlers)
+    this.sessions.add(session)
     try {
       await withTimeout(
         session.start({ mcpServers: [], authenticate }),
@@ -94,11 +101,20 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
         this.set(id, { status: 'error', message, signIn: this.health.get(id)?.signIn ?? null })
       }
     } finally {
+      this.sessions.delete(session)
       session.dispose()
     }
   }
 
+  /** Stops every check and sign-in in progress (a Codex sign-in would otherwise outlive Grat). */
+  dispose() {
+    this.disposed = true
+    for (const session of this.sessions) session.dispose()
+    this.sessions.clear()
+  }
+
   private set(id: AgentId, patch: Partial<AgentHealth>) {
+    if (this.disposed) return
     const current = this.health.get(id)
     if (!current) return
     this.health.set(id, { ...current, ...patch })

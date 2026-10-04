@@ -26,7 +26,12 @@ export function getPrefs(): Prefs {
   return cached
 }
 
+/** Called from IPC handlers, so a failed write is logged rather than thrown into the main process. */
 export function setPrefs(patch: Partial<Prefs>) {
   cached = { ...getPrefs(), ...patch }
-  writeFileSync(file(), JSON.stringify(cached, null, 2))
+  try {
+    writeFileSync(file(), JSON.stringify(cached, null, 2))
+  } catch (error) {
+    console.error('[grat] failed to save preferences', error)
+  }
 }

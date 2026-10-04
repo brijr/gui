@@ -45,7 +45,7 @@ function buildServer(tools: PreviewTools) {
     {
       title: 'Screenshot the preview',
       description:
-        "Screenshot the user's running app in Grat's preview. Use after making visual changes to check the result. Pass `selector` to capture one element, `width` (CSS px) to check a responsive breakpoint such as 390 or 768 (the viewport is restored afterwards), or `fullPage` for the whole scrollable page.",
+        "Screenshot the user's running app in Grat's preview. Use after making visual changes to check the result. Images are scaled to fit 1600×1960 px, so `fullPage` is a low-resolution overview of the whole scrollable page; for detail (type, spacing, small elements) pass `selector` to capture one element instead. Pass `width` (CSS px) to check a responsive breakpoint such as 390 or 768 (the viewport is restored afterwards).",
       inputSchema: {
         selector: z.string().max(500).optional().describe('CSS selector of an element to capture'),
         width: z.number().int().min(240).max(3840).optional().describe('Viewport width in CSS px'),
@@ -96,7 +96,7 @@ function buildServer(tools: PreviewTools) {
     {
       title: 'Read preview errors',
       description:
-        "Recent console errors and warnings from the preview since its last navigation, plus dev-server build errors. Check this after edits if something looks wrong or the page didn't update.",
+        "Console errors from the preview since its last navigation or successful hot update, recent console warnings, and dev-server build errors. Check this after edits if something looks wrong or the page didn't update.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },

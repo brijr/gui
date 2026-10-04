@@ -1,13 +1,15 @@
 import { ArrowUp, Crosshair, Square, TriangleAlert, X } from 'lucide-react'
-import { type FormEvent, type KeyboardEvent, useEffect, useRef, useState } from 'react'
+import { type FormEvent, type KeyboardEvent, useEffect, useRef } from 'react'
 import type { ChatMeta } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton, Spinner } from '../lib/ui'
+import { setDraft, useChat } from './store'
 import { elementLabel } from './turn-view'
 
 export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }) {
-  const [text, setText] = useState('')
+  // The draft lives in the store: docking, floating and minimizing remount this component.
+  const text = useChat((s) => s.draft)
   const input = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => grat.onChatFocus(() => input.current?.focus()), [])
@@ -16,7 +18,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     event?.preventDefault()
     if (!text.trim() || running) return
     // Keep the draft unless main actually started the turn.
-    if (await grat.send(text)) setText('')
+    if (await grat.send(text)) setDraft('')
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -57,7 +59,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           ref={input}
           value={text}
           rows={1}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
           aria-label={`Message ${meta.agentName}`}
           placeholder={meta.selection ? 'Describe the change…' : `Ask ${meta.agentName}…`}

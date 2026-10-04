@@ -180,6 +180,8 @@ export interface Turn {
   startedAt: number
   endedAt: number | null
   changes: FileChange[] | null
+  /** The turn was interrupted (e.g. the app quit) before its changes were recorded, but it can still be undone */
+  changesUnknown?: boolean
   reverted: boolean
 }
 

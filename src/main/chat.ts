@@ -6,6 +6,7 @@ import type {
   RequestPermissionRequest,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
+import { BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import {
   AGENTS,
   type AgentId,
@@ -20,7 +21,7 @@ import {
 } from '../shared/types'
 import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
 import type { Checkpoints } from './checkpoints'
-import { type SavedChat, saveHistory } from './history'
+import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { buildPrompt } from './prompt'
 
@@ -59,6 +60,12 @@ interface RedoPoint {
   turnIds: string[]
 }
 
+/** The checkpoint Grat last recorded the files at; `complete` is false when a turn's end went unrecorded. */
+interface Baseline {
+  sha: string
+  complete: boolean
+}
+
 /**
  * Files that can change how code runs (build/tool config, dependencies, CI, hooks,
  * dotfiles) always need the user's approval, even when edits are otherwise automatic.
@@ -69,6 +76,10 @@ const SENSITIVE_PATH =
 const START_TIMEOUT_MS = 60_000
 const PERSIST_DELAY_MS = 400
 const RESET_SETTLE_MS = 5000
+/** Paths listed in the overwrite warning before it summarizes the rest. */
+const OVERWRITE_LIST_MAX = 8
+
+const FIX_PROMPT = 'The preview has errors. Find the cause and fix them.'
 
 /** Readable labels for Grat's own preview tools, which agents report by raw MCP name. */
 const PREVIEW_TOOL_LABELS: Record<string, string> = {
@@ -79,14 +90,22 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
   preview_reload: 'Reload preview',
   dev_server_logs: 'Read dev server logs',
 }
+const PREVIEW_TOOLS = Object.keys(PREVIEW_TOOL_LABELS).join('|')
 /**
- * Exact MCP identities for Grat's tools: Claude reports `mcp__grat__<tool>`, Codex
- * `mcp.grat.<tool>`. Anchored at both ends: shell command titles are model-written
- * text and must never be mistaken for a preview tool.
+ * Exact MCP identities for Grat's tools, anchored at both ends: shell command titles
+ * are model-written text and must never be mistaken for a preview tool. Claude reports
+ * `mcp__grat__<tool>` (never as `execute`); Codex reports every MCP call as an
+ * `execute` titled `mcp.grat.<tool>`. Labels only: nothing is approved by title.
  */
-const PREVIEW_TOOL_TITLE = new RegExp(
-  `^(?:mcp__${MCP_SERVER_NAME}__|mcp\\.${MCP_SERVER_NAME}\\.)(${Object.keys(PREVIEW_TOOL_LABELS).join('|')})$`,
-)
+const PREVIEW_TOOL_TITLE: Record<AgentId, RegExp> = {
+  claude: new RegExp(`^mcp__${MCP_SERVER_NAME}__(${PREVIEW_TOOLS})$`),
+  codex: new RegExp(`^mcp\\.${MCP_SERVER_NAME}\\.(${PREVIEW_TOOLS})$`),
+}
+
+function previewTool(agentId: AgentId, title: string, kind: string | undefined) {
+  if (agentId === 'claude' && kind === 'execute') return undefined
+  return title.match(PREVIEW_TOOL_TITLE[agentId])?.[1]
+}
 
 const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -106,6 +125,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private records: TurnRecord[] = []
   private agent: AgentSession | null = null
   private agentInfo: AgentInfo | null = null
+  /** Whether the running agent session was given Grat's preview tools. */
+  private agentHasTools = false
   /** The agent that already received the preamble. */
   private primedAgent: AgentSession | null = null
   /** Whether this transcript has had an agent session (to notice when context is lost). */
@@ -118,13 +139,23 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private lock: object | null = null
   /** Bumped by reset; work started in an older epoch must not touch current state. */
   private epoch = 0
+  /** After dispose, nothing snapshots, saves, or emits. */
+  private disposed = false
   private permissions = new Map<string, PermissionResolver>()
   private emitTimers = new Map<string, NodeJS.Timeout>()
   private redoPoint: RedoPoint | null = null
   /** Current agent session, persisted so the next launch can resume it. */
   private sessionId: string | null = null
+  /**
+   * Which preamble `sessionId` has received, persisted with it: the one with preview
+   * tools, the one without, or none. A session primed without tools is re-primed once
+   * they're available, so it doesn't keep believing it can't see the preview.
+   */
+  private primed: 'tools' | 'plain' | null = null
+  /** Saved session to resume; kept until an agent actually starts. */
   private resumeSessionId: string | null = null
   private persistTimer: NodeJS.Timeout | null = null
+  private readonly history: HistoryWriter
 
   constructor(
     private readonly root: string,
@@ -158,8 +189,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.redoPoint = saved.redo
       this.resumeSessionId = saved.sessionId
       this.sessionId = saved.sessionId
+      this.primed = saved.primed ? (saved.primedWithTools ? 'tools' : 'plain') : null
       this.hadSession = this.records.length > 0
     }
+    this.history = new HistoryWriter(options.historyFile, () => this.savedChat())
   }
 
   snapshot(): ChatSnapshot {
@@ -168,9 +201,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   async setAgent(agentId: AgentId) {
     if (agentId === this.meta.agentId) return
-    await this.reset()
+    // Switch first, so a quick second switch compares against this one and the last call wins.
     this.patchMeta({ agentId, agentName: agentName(agentId) })
-    this.schedulePersist()
+    await this.reset()
   }
 
   /** Drops the agent process and transcript; the next message starts a fresh session. */
@@ -192,11 +225,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.redoPoint = null
     this.hadSession = false
     this.sessionId = null
+    this.primed = null
     this.resumeSessionId = null
     this.schedulePersist()
     if (this.lock === token) this.lock = null
     this.patchMeta({ status: 'idle', error: null, modeName: null, redoTurnIds: [] })
-    this.emit('reset', this.snapshot())
+    if (!this.disposed) this.emit('reset', this.snapshot())
   }
 
   setSelection(selection: ElementContext | null) {
@@ -219,44 +253,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.patchMeta({ problems })
   }
 
-  /** Asks the agent to fix what's currently broken; the errors ride along in the prompt. */
+  /**
+   * Asks the agent to fix what's currently broken; the errors ride along in the prompt.
+   * A pending element selection is left for the user's next message.
+   */
   fixProblems() {
     if (this.meta.problems.length === 0) return false
-    return this.send('The preview has errors. Find the cause and fix them.')
+    return this.startTurn(FIX_PROMPT, true)
   }
 
   /** Starts a turn. Returns false (and does nothing) when another operation is in progress. */
   send(text: string): boolean {
-    const prompt = text.trim()
-    if (!prompt || this.lock) return false
-
-    const selection = this.meta.selection
-    const record: TurnRecord = {
-      turn: {
-        id: randomUUID(),
-        index: this.records.length,
-        prompt,
-        context: selection ? { ...selection, screenshot: null } : null,
-        items: [],
-        status: 'running',
-        error: null,
-        startedAt: Date.now(),
-        endedAt: null,
-        changes: null,
-        reverted: false,
-      },
-      before: null,
-      after: null,
-      cancelRequested: false,
-      settled: Promise.resolve(),
-    }
-    this.records.push(record)
-    this.active = record
-    this.lock = record
-    this.patchMeta({ selection: null })
-    this.flushTurn(record)
-    record.settled = this.runTurn(record, selection, this.epoch)
-    return true
+    return this.startTurn(text, false)
   }
 
   async cancel() {
@@ -294,26 +302,39 @@ export class ChatController extends EventEmitter<ChatEvents> {
   async restoreTurn(turnId: string) {
     if (this.lock) throw new Error('Wait for the agent to finish first.')
     const record = this.records.find((r) => r.turn.id === turnId)
-    if (!record?.before) throw new Error('This turn has no checkpoint to restore.')
+    const before = record?.before
+    if (!record || !before) throw new Error('This turn has no checkpoint to restore.')
+    if (record.turn.reverted) throw new Error('This turn is already undone.')
     const token = {}
+    const epoch = this.epoch
     this.lock = token
     try {
       const undone = this.records.filter(
         (r) => r.turn.index >= record.turn.index && !r.turn.reverted,
       )
-      const current = await this.checkpoints.snapshot(
-        `before restoring turn ${record.turn.index + 1}`,
+      const baseline = lastRecorded(undone)
+      // Everything the paths below may diff against; checked before anything changes.
+      const later = this.records.filter((r) => r.turn.index >= record.turn.index)
+      await this.requireCheckpoints(
+        [before, baseline?.sha ?? null, ...later.map((r) => r.before)],
+        "so it can't be undone",
       )
-      const paths = await this.changedPaths(undone, record.before, current)
-      // Record the way back first, so a restore that fails halfway can still be redone.
-      this.redoPoint = { sha: current, paths, turnIds: undone.map((r) => r.turn.id) }
+      const message = `before restoring turn ${record.turn.index + 1}`
+      const current = await this.checkpoints.snapshot(message)
+      const { paths, inferred } = await this.changedPaths(undone, current)
+      if (!(await this.confirmOverwrite(baseline, current, paths, inferred, 'Undo'))) return
+      if (epoch !== this.epoch) return
+      // Record the way back first, so a restore that fails halfway can still be redone. Taken
+      // again because files may have been saved while the confirmation was open.
+      const latest = await this.checkpoints.snapshot(message)
+      this.redoPoint = { sha: latest, paths, turnIds: undone.map((r) => r.turn.id) }
       for (const r of undone) {
         r.turn.reverted = true
         this.flushTurn(r)
       }
       this.patchMeta({ redoTurnIds: this.redoPoint.turnIds })
       this.schedulePersist()
-      await this.checkpoints.restore(record.before, paths)
+      await this.checkpoints.restore(before, paths)
     } finally {
       if (this.lock === token) this.lock = null
     }
@@ -324,8 +345,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (!point) return
     if (this.lock) throw new Error('Wait for the agent to finish first.')
     const token = {}
+    const epoch = this.epoch
     this.lock = token
     try {
+      // The undo left these paths as they were before its first turn.
+      const restored = this.records.find((r) => point.turnIds.includes(r.turn.id))?.before ?? null
+      await this.requireCheckpoints([point.sha, restored], "so they can't be redone")
+      if (restored) {
+        const current = await this.checkpoints.snapshot('before redo')
+        const baseline = { sha: restored, complete: true }
+        if (!(await this.confirmOverwrite(baseline, current, point.paths, [], 'Redo'))) return
+        if (epoch !== this.epoch) return
+      }
       await this.checkpoints.restore(point.sha, point.paths)
       for (const r of this.records) {
         if (!point.turnIds.includes(r.turn.id)) continue
@@ -341,17 +372,65 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   dispose() {
+    if (this.disposed) return
     this.epoch++
-    this.persistNow()
-    for (const timer of this.emitTimers.values()) clearTimeout(timer)
-    this.emitTimers.clear()
+    this.disposed = true
+    // Settle open prompts before the final save, so it records them as cancelled
+    // rather than leaving buttons that nothing answers after a relaunch.
+    for (const record of this.records) this.resolvePendingPermissions(record)
     for (const resolve of this.permissions.values()) resolve(null)
     this.permissions.clear()
+    for (const timer of this.emitTimers.values()) clearTimeout(timer)
+    this.emitTimers.clear()
+    if (this.persistTimer) clearTimeout(this.persistTimer)
+    this.persistTimer = null
+    this.history.saveSync()
     this.stopAgent()
     this.removeAllListeners()
   }
 
-  private async runTurn(record: TurnRecord, selection: ElementContext | null, epoch: number) {
+  /** `fix` turns carry the current problems and leave the pending selection alone. */
+  private startTurn(text: string, fix: boolean): boolean {
+    const prompt = text.trim()
+    if (!prompt || this.lock || this.disposed) return false
+
+    const selection = fix ? null : this.meta.selection
+    const record: TurnRecord = {
+      turn: {
+        id: randomUUID(),
+        index: this.records.length,
+        prompt,
+        context: selection ? { ...selection, screenshot: null } : null,
+        items: [],
+        status: 'running',
+        error: null,
+        startedAt: Date.now(),
+        endedAt: null,
+        changes: null,
+        reverted: false,
+      },
+      before: null,
+      after: null,
+      cancelRequested: false,
+      settled: Promise.resolve(),
+    }
+    this.records.push(record)
+    this.active = record
+    this.lock = record
+    if (!fix) this.patchMeta({ selection: null })
+    this.flushTurn(record)
+    // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
+    const problems = fix ? this.meta.problems : []
+    record.settled = this.runTurn(record, selection, problems, this.epoch)
+    return true
+  }
+
+  private async runTurn(
+    record: TurnRecord,
+    selection: ElementContext | null,
+    problems: Problem[],
+    epoch: number,
+  ) {
     const live = () => this.epoch === epoch
     const stopped = () => !live() || record.cancelRequested
     let status: TurnStatus = 'done'
@@ -369,16 +448,24 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // New work makes the previous undo unrecoverable by redo.
       this.redoPoint = null
       this.patchMeta({ status: 'working', redoTurnIds: [] })
+      const preamble = this.primedAgent !== agent
       const blocks = buildPrompt({
         text: record.turn.prompt,
         selection,
-        problems: this.meta.problems,
-        preamble: this.primedAgent !== agent,
+        // Only Fix carries errors: they're usually unrelated to an ordinary request.
+        problems,
+        preamble,
+        tools: this.agentHasTools,
         images: info.supportsImages,
       })
-      this.primedAgent = agent
       const response = await agent.prompt(blocks)
       status = response.stopReason === 'cancelled' ? 'cancelled' : 'done'
+      // Only a prompt the agent got through counts as delivering the instructions.
+      if (preamble && status === 'done' && live() && this.agent === agent) {
+        this.primedAgent = agent
+        this.primed = this.agentHasTools ? 'tools' : 'plain'
+        this.schedulePersist()
+      }
       if (response.stopReason === 'refusal' || response.stopReason === 'max_tokens') {
         this.pushItem(record, {
           kind: 'notice',
@@ -398,9 +485,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
     } finally {
       this.resolvePendingPermissions(record)
-      if (record.before) {
+      // After dispose the final save already holds this turn as interrupted.
+      if (record.before && !this.disposed) {
         record.after = await this.trySnapshot(record, `after turn ${record.turn.index + 1}`)
-        if (record.after) {
+        if (record.after && !this.disposed) {
           record.turn.changes = await this.checkpoints
             .diff(record.before, record.after)
             .catch(() => null)
@@ -431,28 +519,35 @@ export class ChatController extends EventEmitter<ChatEvents> {
     })
     this.agent = agent
     try {
-      const resumeSessionId = this.resumeSessionId
-      this.resumeSessionId = null
+      const mcpServers = this.options.mcpServers()
       const info = await withTimeout(
-        agent.start({ mcpServers: this.options.mcpServers(), resumeSessionId }),
+        agent.start({ mcpServers, resumeSessionId: this.resumeSessionId }),
         START_TIMEOUT_MS,
         `${name} didn't start within a minute. Check that it's installed and signed in.`,
       )
       if (this.agent !== agent) throw new Error(`${name} was stopped while starting.`)
       this.agentInfo = info
+      this.agentHasTools = mcpServers.length > 0
+      // The saved session was resumed or replaced; a failed start keeps it for next time.
+      this.resumeSessionId = null
       this.sessionId = info.sessionId
+      if (info.resumed) {
+        // It remembers earlier turns, and has the instructions if they got through.
+        const variant = this.agentHasTools ? 'tools' : 'plain'
+        if (this.primed === variant) this.primedAgent = agent
+      } else {
+        this.primed = null
+        if (this.hadSession) {
+          this.pushItem(record, {
+            kind: 'notice',
+            id: randomUUID(),
+            tone: 'info',
+            text: `Started a new ${name} session. It doesn't remember earlier turns.`,
+          })
+        }
+      }
       this.schedulePersist()
       this.patchMeta({ status: 'ready', modeName: info.modeName })
-      // A resumed session already has the instructions and remembers earlier turns.
-      if (info.resumed) this.primedAgent = agent
-      else if (this.hadSession) {
-        this.pushItem(record, {
-          kind: 'notice',
-          id: randomUUID(),
-          tone: 'info',
-          text: `Started a new ${name} session. It doesn't remember earlier turns.`,
-        })
-      }
       this.hadSession = true
       return { agent, info }
     } catch (error) {
@@ -470,12 +565,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.agent?.dispose()
     this.agent = null
     this.agentInfo = null
+    this.agentHasTools = false
     this.primedAgent = null
   }
 
   private onAgentExit(agent: AgentSession, error: string | null) {
     if (this.agent !== agent) return
     this.stopAgent()
+    // The next message restarts the agent; it should pick the conversation back up.
+    this.resumeSessionId = this.sessionId
     this.patchMeta({ status: 'error', error })
   }
 
@@ -497,8 +595,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         break
       }
       case 'tool_call': {
-        const preview =
-          update.kind !== 'execute' ? update.title.match(PREVIEW_TOOL_TITLE)?.[1] : undefined
+        const preview = previewTool(this.meta.agentId, update.title, update.kind)
         items.push({
           kind: 'tool',
           id: update.toolCallId,
@@ -544,7 +641,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   private onPermission(request: RequestPermissionRequest, resolve: PermissionResolver) {
     const record = this.active
-    if (!record || record.cancelRequested) {
+    if (!record || record.cancelRequested || this.disposed) {
       resolve(null)
       return
     }
@@ -555,14 +652,20 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolve(autoApprove.optionId)
       return
     }
+    const { toolCallId, title } = request.toolCall
+    // codex-acp asks about MCP calls with no title; the tool call it's asking about has one.
+    // Only the label comes from it: the user still decides.
+    const tool = record.turn.items.find((i) => i.kind === 'tool' && i.id === toolCallId)
     const id = randomUUID()
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
     this.pushItem(record, {
       kind: 'permission',
       id,
-      title: request.toolCall.title
-        ? this.relativize(request.toolCall.title)
-        : 'The agent wants to run a tool',
+      title: title?.trim()
+        ? this.relativize(title)
+        : tool?.kind === 'tool'
+          ? tool.title
+          : 'The agent wants to run a tool',
       options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resolved: null,
     })
@@ -587,12 +690,79 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
   }
 
-  /** Paths the given turns changed; falls back to everything since `before` if a diff is missing. */
-  private async changedPaths(turns: TurnRecord[], before: string, current: string) {
-    if (turns.every((r) => r.turn.changes !== null)) {
-      return [...new Set(turns.flatMap((r) => r.turn.changes?.map((c) => c.path) ?? []))]
+  /**
+   * Paths the given turns changed. A turn whose changes weren't recorded (e.g. it was
+   * interrupted by a quit) counts everything that changed from its start to the next
+   * checkpoint: `inferred`, since that can include the user's own edits. A turn with no
+   * starting checkpoint never ran, or was already marked as impossible to undo.
+   */
+  private async changedPaths(turns: TurnRecord[], current: string) {
+    const paths = new Set<string>()
+    const inferred = new Set<string>()
+    for (const r of turns) {
+      if (r.turn.changes) {
+        for (const change of r.turn.changes) paths.add(change.path)
+        continue
+      }
+      if (!r.before) continue
+      const next = this.records.find((n) => n.turn.index > r.turn.index && n.before)?.before
+      for (const path of await this.pathsBetween(r.before, next ?? current)) {
+        paths.add(path)
+        inferred.add(path)
+      }
     }
-    return (await this.checkpoints.diff(before, current)).map((change) => change.path)
+    return { paths: [...paths], inferred: [...inferred] }
+  }
+
+  private async pathsBetween(from: string, to: string) {
+    return (await this.checkpoints.diff(from, to)).map((change) => change.path)
+  }
+
+  private async requireCheckpoints(shas: (string | null)[], consequence: string) {
+    const needed = shas.filter((sha): sha is string => sha !== null)
+    if (await this.checkpoints.hasCommits(needed)) return
+    throw new Error(
+      `Grat's saved checkpoints are missing (was its checkpoints folder deleted?), ${consequence}.`,
+    )
+  }
+
+  /**
+   * Undo and redo rewrite whole files, so they'd silently discard edits made outside
+   * Grat (e.g. in the user's editor) since Grat last recorded those files. Asks first.
+   */
+  private async confirmOverwrite(
+    baseline: Baseline | null,
+    current: string,
+    paths: string[],
+    inferred: string[],
+    action: 'Undo' | 'Redo',
+  ) {
+    if (paths.length === 0) return true
+    const edited = baseline ? await this.checkpoints.changedAmong(baseline.sha, current, paths) : []
+    // Paths only attributed to a turn by diffing may hold the user's edits too.
+    const changed = [...new Set([...edited, ...inferred])]
+    if (changed.length === 0) return true
+    const certain = baseline?.complete === true && inferred.length === 0
+    const listed = changed.slice(0, OVERWRITE_LIST_MAX).map((path) => `  ${path}`)
+    const more = changed.length - listed.length
+    if (more > 0) listed.push(`  and ${more} more`)
+    const files = listed.join('\n')
+    const verb = action === 'Undo' ? 'Undoing' : 'Redoing'
+    const options: MessageBoxOptions = {
+      type: 'warning',
+      message: certain ? 'Overwrite changes made outside Grat?' : 'Overwrite these files?',
+      detail: certain
+        ? `These files changed after Grat last recorded them, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and those changes will be lost.`
+        : `A turn was interrupted before Grat recorded what it changed, so Grat can't tell whether these files also have changes made outside Grat, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and any such changes will be lost.`,
+      buttons: [`${action} Anyway`, 'Cancel'],
+      defaultId: 1,
+      cancelId: 1,
+    }
+    const parent = BrowserWindow.getFocusedWindow()
+    const { response } = parent
+      ? await dialog.showMessageBox(parent, options)
+      : await dialog.showMessageBox(options)
+    return response === 0 && !this.disposed
   }
 
   private updateMode(modeId: string) {
@@ -631,7 +801,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private scheduleTurn(record: TurnRecord) {
-    if (this.emitTimers.has(record.turn.id)) return
+    if (this.disposed || this.emitTimers.has(record.turn.id)) return
     this.emitTimers.set(
       record.turn.id,
       setTimeout(() => this.flushTurn(record), 32),
@@ -643,36 +813,47 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (timer) clearTimeout(timer)
     this.emitTimers.delete(record.turn.id)
     // Turns from a session that was reset since are no longer part of the transcript.
-    if (!this.records.includes(record)) return
+    if (this.disposed || !this.records.includes(record)) return
     this.emit('turn', record.turn)
     this.schedulePersist()
   }
 
   private schedulePersist() {
-    this.persistTimer ??= setTimeout(() => this.persistNow(), PERSIST_DELAY_MS)
+    if (this.disposed) return
+    this.persistTimer ??= setTimeout(() => {
+      this.persistTimer = null
+      this.history.save()
+    }, PERSIST_DELAY_MS)
   }
 
-  private persistNow() {
-    if (this.persistTimer) clearTimeout(this.persistTimer)
-    this.persistTimer = null
+  private savedChat(): SavedChat {
     const checkpoints: SavedChat['checkpoints'] = {}
     for (const { turn, before, after } of this.records) checkpoints[turn.id] = { before, after }
-    try {
-      saveHistory(this.options.historyFile, {
-        version: 1,
-        agentId: this.meta.agentId,
-        sessionId: this.sessionId,
-        turns: this.records.map((r) => r.turn),
-        checkpoints,
-        redo: this.redoPoint,
-      })
-    } catch (error) {
-      console.error('[grat] failed to save chat history', error)
+    return {
+      version: 1,
+      agentId: this.meta.agentId,
+      sessionId: this.sessionId,
+      primed: this.primed !== null,
+      primedWithTools: this.primed === 'tools',
+      turns: this.records.map((r) => r.turn),
+      checkpoints,
+      redo: this.redoPoint,
     }
   }
 
   private patchMeta(patch: Partial<ChatMeta>) {
     this.meta = { ...this.meta, ...patch }
-    this.emit('meta', this.meta)
+    if (!this.disposed) this.emit('meta', this.meta)
   }
+}
+
+/** The newest checkpoint of these turns, i.e. how Grat last left the files they touched. */
+function lastRecorded(turns: TurnRecord[]): Baseline | null {
+  let complete = true
+  for (const r of [...turns].reverse()) {
+    if (r.after) return { sha: r.after, complete }
+    if (r.before) return { sha: r.before, complete: false }
+    complete = false
+  }
+  return null
 }
