@@ -14,6 +14,7 @@ import { ariaShortcut, withShortcut } from '../../../shared/shortcuts'
 import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { usePresence } from '../lib/motion'
 import { GroupLabel, MenuRow, Popover } from '../lib/surface'
 import { Button, SegmentedControl } from '../lib/ui'
 import { useChat } from './store'
@@ -31,8 +32,13 @@ const WIDTH = 336
 const MAX_HEIGHT = 440
 /** Effort levels side by side up to this many; more go one per row. */
 const SEGMENTS_MAX = 6
-/** At most this many frames for the panel to settle before ⇧⌘M opens the picker. */
-const SETTLE_FRAMES = 10
+/**
+ * At most this many frames for the panel to settle before ⇧⌘M opens the picker: the view to
+ * stop resizing, and the panel to finish growing out of the pill or the bubble.
+ */
+const SETTLE_FRAMES = 60
+/** How long the picker takes to close (styles.css --motion-exit). */
+const EXIT_MS = 100
 
 /** Where the picker goes, in the chat view's CSS pixels. */
 interface Placement {
@@ -43,6 +49,8 @@ interface Placement {
   bottom: number | null
   /** From the view's top edge when it opens below the button, else null */
   top: number | null
+  /** Where it grows from: the middle of the button's edge it opens from, in its own box */
+  origin: string
 }
 
 /**
@@ -57,6 +65,7 @@ function place(button: HTMLElement): Placement {
   const left = Math.max(panel.left + EDGE, Math.min(at.right - width, panel.right - EDGE - width))
   const above = at.top - GAP - panel.top - EDGE
   const below = panel.bottom - EDGE - at.bottom - GAP
+  const x = Math.round(Math.min(Math.max(at.left + at.width / 2 - left, 0), width))
   return above >= below
     ? {
         left,
@@ -64,20 +73,30 @@ function place(button: HTMLElement): Placement {
         maxHeight: Math.min(MAX_HEIGHT, above),
         bottom: window.innerHeight - at.top + GAP,
         top: null,
+        origin: `${x}px 100%`,
       }
-    : { left, width, maxHeight: Math.min(MAX_HEIGHT, below), bottom: null, top: at.bottom + GAP }
+    : {
+        left,
+        width,
+        maxHeight: Math.min(MAX_HEIGHT, below),
+        bottom: null,
+        top: at.bottom + GAP,
+        origin: `${x}px 0`,
+      }
 }
 
 /**
  * Calls `fn` once the view has kept its size for a frame, or after `frames`. ⇧⌘M can bring
  * the panel back as it asks (from minimized, say), and the picker closes on a resize.
  */
-function whenSettled(fn: () => void, frames = SETTLE_FRAMES) {
+function whenSettled(button: HTMLElement | null, fn: () => void, frames = SETTLE_FRAMES) {
   let size = `${window.innerWidth}×${window.innerHeight}`
   let left = frames
+  // The panel scales while it morphs (morph.ts); measured then, the picker would be misplaced.
+  const morphing = () => !!button?.closest<HTMLElement>('[data-chat-form]')?.style.transform
   const check = () => {
     const now = `${window.innerWidth}×${window.innerHeight}`
-    if (now === size || --left <= 0) return fn()
+    if ((now === size && !morphing()) || --left <= 0) return fn()
     size = now
     requestAnimationFrame(check)
   }
@@ -151,7 +170,10 @@ function sections(choices: Choice[], grouped: boolean) {
 
 /** What the next turn runs on; opens the model picker to change it. */
 export function ModelButton({ models }: { models: ModelSettings }) {
+  const [open, setOpen] = useState(false)
+  // Kept while it closes, which it does where it was.
   const [placement, setPlacement] = useState<Placement | null>(null)
+  const shown = usePresence(open, EXIT_MS)
   const button = useRef<HTMLButtonElement>(null)
   const pickerId = useId()
   const fullName = choiceName(models.model) ?? models.model.value
@@ -163,13 +185,15 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   useEffect(() => {
     if (!pickModel) return
     useChat.setState({ pickModel: false })
-    whenSettled(() => {
-      if (button.current) setPlacement(place(button.current))
+    whenSettled(button.current, () => {
+      if (!button.current) return
+      setPlacement(place(button.current))
+      setOpen(true)
     })
   }, [pickModel])
 
   const close = (refocus: boolean) => {
-    setPlacement(null)
+    setOpen(false)
     if (refocus) button.current?.focus()
   }
 
@@ -180,12 +204,16 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         variant="ghost"
         trailingIcon={ChevronDown}
         aria-haspopup="dialog"
-        aria-expanded={placement !== null}
-        aria-controls={placement ? pickerId : undefined}
+        aria-expanded={open}
+        aria-controls={open ? pickerId : undefined}
         aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
         title={withShortcut(effort ? `${fullName} · ${effort}` : fullName, 'chooseModel')}
         aria-keyshortcuts={ariaShortcut('chooseModel')}
-        onClick={(event) => setPlacement(placement ? null : place(event.currentTarget))}
+        onClick={(event) => {
+          if (open) return close(false)
+          setPlacement(place(event.currentTarget))
+          setOpen(true)
+        }}
         // Looks hovered while its picker is open.
         className="min-w-0 aria-expanded:bg-hover aria-expanded:text-fg"
       >
@@ -195,9 +223,12 @@ export function ModelButton({ models }: { models: ModelSettings }) {
           {effort && <span className="shrink-0 whitespace-pre"> · {effort}</span>}
         </span>
       </Button>
-      {placement && (
+      {shown && placement && (
         <ModelPicker
+          // A fresh picker for each opening; the one closing goes as it was.
+          key={`${placement.left},${placement.top},${placement.bottom}`}
           id={pickerId}
+          open={open}
           models={models}
           placement={placement}
           button={button}
@@ -210,6 +241,8 @@ export function ModelButton({ models }: { models: ModelSettings }) {
 
 interface ModelPickerProps {
   id: string
+  /** False while it closes */
+  open: boolean
   models: ModelSettings
   placement: Placement
   button: RefObject<HTMLButtonElement | null>
@@ -222,7 +255,7 @@ interface ModelPickerProps {
  * effort levels when it has them. A model applies on pick and closes the picker; an
  * effort level applies and leaves it open.
  */
-function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProps) {
+function ModelPicker({ id, open, models, placement, button, onClose }: ModelPickerProps) {
   const { model, effort } = models
   const root = useRef<HTMLDivElement>(null)
   const searchField = useRef<HTMLInputElement>(null)
@@ -248,9 +281,10 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
   const optionId = (index: number) => `${id}-option-${index}`
   const activeId = rows[activeIndex] ? optionId(activeIndex) : undefined
 
+  // On opening, and on opening again while it closed.
   useEffect(() => {
-    ;(searchField.current ?? list.current)?.focus()
-  }, [])
+    if (open) (searchField.current ?? list.current)?.focus()
+  }, [open])
 
   useEffect(() => {
     if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' })
@@ -259,6 +293,7 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
   // A click elsewhere in the chat, or anywhere outside it (the view loses focus), closes
   // it; so does a resize, which moves the button.
   useEffect(() => {
+    if (!open) return
     const outside = (event: PointerEvent) => {
       const target = event.target
       if (!(target instanceof Node)) return
@@ -274,7 +309,7 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
       window.removeEventListener('blur', dismiss)
       window.removeEventListener('resize', dismiss)
     }
-  }, [button, onClose])
+  }, [open, button, onClose])
 
   const pick = (choice: Choice) => {
     gui.setAgentSetting(model.id, choice.value)
@@ -351,11 +386,11 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
     )
   }
 
-  const above = placement.bottom !== null
   return createPortal(
     <Popover
       ref={root}
       id={id}
+      open={open}
       role="dialog"
       aria-label="Choose a model"
       onKeyDown={onKeyDown}
@@ -367,8 +402,9 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
         maxHeight: placement.maxHeight,
         top: placement.top ?? undefined,
         bottom: placement.bottom ?? undefined,
+        transformOrigin: placement.origin,
       }}
-      className={cn('fixed z-50', above ? 'starting:translate-y-1' : 'starting:-translate-y-1')}
+      className="fixed z-50"
     >
       {searchable && (
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">

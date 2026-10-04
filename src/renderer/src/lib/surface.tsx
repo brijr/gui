@@ -1,6 +1,7 @@
 import { Check, X } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from './cn'
+import { PRESS } from './ui'
 
 /*
  * Surfaces and layouts: containers, lists and the centered message. Panels and sheets are
@@ -30,13 +31,30 @@ export function Card({ tone = 'raised', as: Tag = 'div', className, ...props }: 
   )
 }
 
-/** The floating surface for menus and pickers; pops in. Position it with `style`. */
-export function Popover({ className, ...props }: ComponentProps<'div'>) {
+interface PopoverProps extends ComponentProps<'div'> {
+  /**
+   * False while it closes: it goes back the way it came, quickly, and takes no input. Keep it
+   * mounted for --motion-exit (usePresence) so the close can play.
+   */
+  open?: boolean
+}
+
+/**
+ * The floating surface for menus and pickers. It opens out of what opened it: give it a
+ * `transformOrigin` at the trigger's edge in `style` (with its position), and it grows from
+ * 97% there and fades in on the default spring's curve; it closes back into it. With reduced
+ * motion it only fades.
+ */
+export function Popover({ open = true, className, ...props }: PopoverProps) {
   return (
     <div
+      data-state={open ? 'open' : 'closed'}
+      inert={!open}
       className={cn(
         'flex flex-col overflow-hidden rounded-lg border border-line bg-raised text-fg shadow-popover',
-        'transition-[opacity,translate] duration-(--motion-pop) ease-out starting:opacity-0',
+        'transition-[opacity,scale] duration-(--motion-spring) ease-spring starting:opacity-0 motion-safe:starting:scale-97',
+        'data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:duration-(--motion-exit) data-[state=closed]:ease-in motion-safe:data-[state=closed]:scale-97',
+        'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
         className,
       )}
       {...props}
@@ -56,7 +74,8 @@ export function MenuRow({ highlighted, selected, className, children, ...props }
   return (
     <div
       className={cn(
-        'flex h-7 items-center gap-2 rounded-md px-2 text-small',
+        'flex h-7 items-center gap-2 rounded-md px-2 text-small transition-opacity',
+        PRESS,
         highlighted && 'bg-hover',
         className,
       )}
@@ -165,7 +184,8 @@ export function ListRow({
     <button
       type="button"
       className={cn(
-        'flex w-full min-w-0 items-center gap-3 text-left transition-colors hover:bg-hover',
+        'flex w-full min-w-0 items-center gap-3 text-left transition-[background-color,opacity] hover:bg-hover',
+        PRESS,
         flush ? 'px-3 py-2 focus-visible:-outline-offset-2' : 'rounded-md px-2 py-1.5',
         className,
       )}

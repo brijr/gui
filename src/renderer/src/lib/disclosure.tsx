@@ -36,7 +36,10 @@ export function Disclosure({
       {...props}
     >
       <ChevronRight
-        className={cn('size-3 shrink-0 transition-transform', open && 'rotate-90')}
+        className={cn(
+          'size-3 shrink-0 transition-transform motion-reduce:transition-none',
+          open && 'rotate-90',
+        )}
         aria-hidden="true"
       />
       {children}

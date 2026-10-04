@@ -174,6 +174,18 @@ async function expectActive(owner: Locator, option: Locator) {
  * that would cross the panel's left edge.
  */
 async function expectPlaced(session: GuiSession, dialog: Locator, button: Locator) {
+  // Once it has opened: it grows into place from 97% of its size.
+  let last = ''
+  await waitFor(
+    async () => {
+      const box = JSON.stringify(await dialog.boundingBox())
+      const settled = box === last
+      last = box
+      return settled
+    },
+    'the picker at full size',
+    { interval: 100 },
+  )
   const panel = await session.chat.locator('[data-chat-panel]').boundingBox()
   const box = await dialog.boundingBox()
   const anchor = await button.boundingBox()

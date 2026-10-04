@@ -12,16 +12,23 @@ import { cn } from './cn'
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
  * tints, pressed or selected is accent-soft with accent text, disabled fades to 40%, focus
- * is the global accent ring. Icons inside controls are 14px; chevrons and other trailing
- * glyphs 12px. A control with a keyboard shortcut takes its id (`shortcut`, from
- * src/shared/shortcuts.ts): its tooltip names the keys and `aria-keyshortcuts` gives them.
+ * is the global accent ring. Held down, a control dims at once (PRESS) and eases back when
+ * let go. Icons inside controls are 14px; chevrons and other trailing glyphs 12px. A control
+ * with a keyboard shortcut takes its id (`shortcut`, from src/shared/shortcuts.ts): its
+ * tooltip names the keys and `aria-keyshortcuts` gives them.
  */
+
+/**
+ * Press feedback: dims the moment it's pressed, with no transition in, and eases back over
+ * the press duration when released (the transition that applies is the one in effect after
+ * the change). Pair with a transition that includes opacity.
+ */
+export const PRESS = 'active:opacity-70 active:transition-none'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ControlSize = 'sm' | 'md' | 'lg'
 
-const CONTROL =
-  'no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-40'
+const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] disabled:pointer-events-none disabled:opacity-40 ${PRESS}`
 
 const BUTTON_SIZE: Record<ControlSize, string> = {
   sm: 'h-6 gap-1 px-2 text-small',
@@ -349,7 +356,7 @@ export function Switch({
       >
         <span
           className={cn(
-            'size-3 rounded-full bg-knob shadow-raised transition-transform',
+            'size-3 rounded-full bg-knob shadow-raised transition-transform motion-reduce:transition-none',
             checked && 'translate-x-3',
           )}
         />

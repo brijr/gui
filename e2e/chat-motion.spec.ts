@@ -12,8 +12,9 @@ import { expect, test } from './helpers/test'
 // script, in Muse Code's place) makes the turns; no agent login or usage is needed.
 
 /**
- * Speaks ACP on stdio. A prompt with WORK keeps working until Stop; BRIEF works for a moment
- * and ends; ASK asks to run a command; anything else takes a step and answers.
+ * Speaks ACP on stdio, with a model setting. A prompt with WORK keeps working until Stop;
+ * BRIEF works for a moment and ends; ASK asks to run a command; anything else takes a step and
+ * answers.
  */
 const AGENT_SCRIPT = String.raw`
 const write = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
@@ -66,6 +67,9 @@ const prompt = async ({ sessionId, prompt }) => {
   return { stopReason: 'end_turn' }
 }
 
+const models = (currentValue) => [{ id: 'model', name: 'Model', type: 'select', category: 'model',
+  currentValue, options: [{ value: 'swift', name: 'Swift' }, { value: 'sage', name: 'Sage' }] }]
+
 const handle = (message) => {
   const { id, method, params } = message
   if (method === undefined) {
@@ -84,7 +88,12 @@ const handle = (message) => {
   if (method === 'initialize') {
     return write({ id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
   }
-  if (method === 'session/new') return write({ id, result: { sessionId: 'session-1' } })
+  if (method === 'session/new') {
+    return write({ id, result: { sessionId: 'session-1', configOptions: models('swift') } })
+  }
+  if (method === 'session/set_config_option') {
+    return write({ id, result: { configOptions: models(params.value) } })
+  }
   if (method === 'session/prompt') {
     prompt(params).then((result) => write({ id, result }))
     return
@@ -293,4 +302,84 @@ test('with reduced motion nothing moves: rows fade in place', async ({ launch })
     return row ? getComputedStyle(row).animationName : null
   })
   expect(animation).toBe('row-fade')
+})
+
+interface ScaleStore {
+  guiScales?: { t: number; scale: number; opacity: number; state: string }[]
+}
+
+/** Runs in the chat page: records the picker's scale and opacity every frame for 1.5 s. */
+function recordPicker() {
+  const store = globalThis as unknown as ScaleStore
+  const frames: NonNullable<ScaleStore['guiScales']> = []
+  store.guiScales = frames
+  const start = performance.now()
+  const record = () => {
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
+    if (dialog) {
+      const style = getComputedStyle(dialog)
+      const [first = '1'] = style.scale === 'none' ? [] : style.scale.split(' ')
+      const scale = first.endsWith('%') ? Number.parseFloat(first) / 100 : Number(first)
+      frames.push({
+        t: Math.round(performance.now() - start),
+        scale,
+        opacity: Number(style.opacity),
+        state: dialog.dataset.state ?? '',
+      })
+    }
+    if (performance.now() - start < 1500) requestAnimationFrame(record)
+  }
+  requestAnimationFrame(record)
+}
+
+test('the model picker opens out of its button and closes back into it; a press shows at once', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await useStandIn(session)
+  const { chat } = session
+  await waitFor(async () => (await session.chatSnapshot()).meta.models, "the agent's models")
+  const button = chat.getByRole('button', { name: 'Model: Swift' })
+
+  // Held down, a button dims at once; let go, it eases back.
+  const box = await button.boundingBox()
+  if (!box) throw new Error('The model button has no layout box')
+  const opacity = () => button.evaluate((el) => Number(getComputedStyle(el).opacity))
+  await chat.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await chat.mouse.down()
+  expect(await opacity()).toBeCloseTo(0.7, 2)
+  await chat.mouse.move(box.x - 40, box.y - 40)
+  await chat.mouse.up()
+  await expect.poll(opacity).toBe(1)
+
+  // Opens upward out of the button's middle, growing from 97% as it fades in.
+  await chat.evaluate(recordPicker)
+  await button.click()
+  const picker = chat.getByRole('dialog', { name: 'Choose a model' })
+  await expect(picker).toBeVisible()
+  // Measured once it's at full size: the origin is in its own, unscaled box.
+  await sleep(600)
+  const placed = await picker.evaluate((el) => {
+    const trigger = document.querySelector('[aria-haspopup="dialog"]')?.getBoundingClientRect()
+    const box = el.getBoundingClientRect()
+    const middle = trigger ? trigger.left + trigger.width / 2 - box.left : -1
+    return { origin: el.style.transformOrigin, middle }
+  })
+  expect(placed.origin).toMatch(/^\d+px 100%$/)
+  expect(Math.abs(Number.parseFloat(placed.origin) - placed.middle)).toBeLessThan(1.5)
+
+  // Esc: it closes back the way it came, still there for a moment, then gone.
+  await chat.keyboard.press('Escape')
+  await expect(picker).toHaveAttribute('data-state', 'closed')
+  await expect(picker).toHaveCount(0)
+  await expect(button).toBeFocused()
+  await sleep(1000)
+  const frames = await chat.evaluate(() => (globalThis as unknown as ScaleStore).guiScales ?? [])
+  const opening = frames.filter((f) => f.state === 'open')
+  expect(opening[0]?.scale).toBeLessThan(1)
+  expect(opening.some((f) => f.opacity > 0 && f.opacity < 1)).toBe(true)
+  expect(opening.at(-1)?.scale).toBe(1)
+  const closing = frames.filter((f) => f.state === 'closed')
+  expect(closing.some((f) => f.opacity < 1 && f.scale < 1)).toBe(true)
 })

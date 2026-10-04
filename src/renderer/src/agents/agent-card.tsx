@@ -208,7 +208,7 @@ function InstallProgress({ name, progress }: { name: string; progress: AgentHeal
           <div className="size-full animate-pulse bg-accent" />
         ) : (
           <div
-            className="size-full origin-left bg-accent transition-transform"
+            className="size-full origin-left bg-accent transition-transform motion-reduce:transition-none"
             style={{ transform: `scaleX(${fraction})` }}
           />
         )}

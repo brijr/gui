@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { REDUCED_MOTION_QUERY, type Spring } from '../../../shared/motion'
 
 /*
@@ -124,4 +124,24 @@ export function animateFade(
     if (done) rest?.()
     return done
   })
+}
+
+/**
+ * Keeps something mounted for `exitMs` after `open` turns false, so its close can play (a
+ * popover going back the way it came). Opening again meanwhile keeps it.
+ */
+export function usePresence(open: boolean, exitMs: number) {
+  const [closing, setClosing] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  // Closed just now: stays mounted while it closes.
+  if (wasOpen !== open) {
+    setWasOpen(open)
+    setClosing(!open)
+  }
+  useEffect(() => {
+    if (!closing) return
+    const timer = setTimeout(() => setClosing(false), exitMs)
+    return () => clearTimeout(timer)
+  }, [closing, exitMs])
+  return open || closing
 }

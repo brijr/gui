@@ -78,7 +78,13 @@
      duration. Only opacity and transform animate. Anything the user drags or throws moves on
      a spring in script (src/shared/motion.ts); --ease-spring is that default spring (damping
      1, response 0.35 s) as a CSS curve, over --motion-spring, for what CSS runs itself.
-     Exits are quicker than entrances and ease in. */
+     Exits are quicker than entrances and ease in. A press shows at once and eases back
+     (PRESS in lib/ui.tsx).
+
+     Reduced motion is handled where each thing moves, not by a blanket rule: movement and
+     scaling go (motion-reduce:transition-none, motion-safe: scales, springs that land at
+     once), and a short cross-fade (--motion-fade) stands in where something appears or goes.
+     Color changes and spinners stay: a spinner is progress, not decoration. */
   --ease-*: initial;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
@@ -314,17 +320,6 @@ html.transparent body {
   /* Lucide icons at the system's lighter stroke. */
   .lucide {
     stroke-width: 1.75;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component styles */
-    animation-duration: 0.01ms !important;
-    /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component styles */
-    transition-duration: 0.01ms !important;
   }
 }
 
