@@ -188,6 +188,10 @@ const tabNamed = (session: GuiSession, name: string) =>
 
 /** Drags the tab named `from` onto the one named `onto`, with the mouse. */
 async function dragTab(session: GuiSession, from: string, onto: string) {
+  // Once both have stopped moving: a tab dropped a moment ago, and the ones it passed, are
+  // still springing into their slots, and the pointer presses what's drawn under it.
+  await tabNamed(session, onto).hover({ trial: true })
+  await tabNamed(session, from).hover({ trial: true })
   const start = await tabNamed(session, from).boundingBox()
   const end = await tabNamed(session, onto).boundingBox()
   if (!start || !end) throw new Error('The tabs have no layout box')

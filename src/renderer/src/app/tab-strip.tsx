@@ -1,14 +1,20 @@
 import { Plus, X } from 'lucide-react'
-import { type KeyboardEvent, type PointerEvent, useRef, useState } from 'react'
+import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
 import { TAB_ROW_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
+import { Spring } from '../../../shared/motion'
 import type { TabInfo, TabStatus, WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
 import { StatusDot } from '../lib/status'
 import { IconButton, Spinner } from '../lib/ui'
 
 /** How far a pressed tab moves before it's dragged rather than clicked. */
 const DRAG_THRESHOLD = 4
+/** The pointer's velocity as a dragged tab is dropped is measured over this much of its path (ms). */
+const VELOCITY_WINDOW = 100
+/** A new tab grows in from this scale, out of its left edge. */
+const NEW_TAB_SCALE = 0.9
 
 /** How a tab's status reads after its name. */
 const STATUS_LABEL: Record<TabStatus, string> = {
@@ -29,6 +35,10 @@ interface Press {
   step: number
   count: number
   dragging: boolean
+  /** Where it was still sliding when grabbed (px from its slot): the drag starts from there */
+  offset: number
+  /** The pointer's recent path, for the velocity it's dropped with */
+  path: { x: number; t: number }[]
 }
 
 /**
@@ -47,9 +57,25 @@ const tabName = (tab: TabInfo) => tab.title ?? 'New tab'
 
 /** The drag with the pointer at `clientX`, kept between the first and last slots. */
 function dragAt(press: Press, clientX: number): Drag {
-  const { from, step, count } = press
-  const dx = Math.min(Math.max(clientX - press.startX, -from * step), (count - 1 - from) * step)
+  const { from, step, count, offset } = press
+  const moved = offset + clientX - press.startX
+  const dx = Math.min(Math.max(moved, -from * step), (count - 1 - from) * step)
   return { from, index: Math.round(from + dx / step), dx, step }
+}
+
+/** The pointer's velocity (px/s) along the strip as it let go at `t`; 0 if it had stopped. */
+function releaseVelocity(path: { x: number; t: number }[], t: number) {
+  const recent = path.filter((sample) => t - sample.t <= VELOCITY_WINDOW)
+  const first = recent[0]
+  const last = recent.at(-1)
+  if (!first || !last || t - last.t > VELOCITY_WINDOW / 2 || last.t - first.t < 8) return 0
+  return ((last.x - first.x) / (last.t - first.t)) * 1000
+}
+
+/** A tab sliding to its slot: its offset from the slot, on a spring. */
+interface Slide {
+  spring: Spring
+  stop: () => void
 }
 
 /** How far the tab in slot `slot` is shifted while `drag` is under way. */
@@ -85,6 +111,84 @@ export function TabStrip({ state }: { state: WindowState }) {
   const [drag, setDrag] = useState<Drag | null>(null)
   // The order a drop asked for, shown until main's state says otherwise.
   const [dropped, setDropped] = useState<{ ids: string[]; over: string } | null>(null)
+  /** Each tab's slot (its layout position) as last laid out, to tell where it moved from. */
+  const slots = useRef(new Map<string, number>())
+  const slides = useRef(new Map<string, Slide>())
+  /** Where every tab was drawn as a drag let go, and how fast the dropped one was moving. */
+  const released = useRef<{ lefts: Map<string, number>; id: string; velocity: number } | null>(null)
+
+  // After every layout: a tab whose slot moved (a tab closed, opened or was dropped) slides
+  // from where it was drawn to its new slot on a spring, carrying on if it was already
+  // sliding; a new tab grows in. Translate and scale only, so a drag's transform still applies.
+  useLayoutEffect(() => {
+    const els = [...(list.current?.querySelectorAll<HTMLElement>('[data-tab]') ?? [])]
+    const initial = slots.current.size === 0
+    const drop = released.current
+    released.current = null
+    const present = new Set<string>()
+    for (const el of els) {
+      const id = el.dataset.tab ?? ''
+      present.add(id)
+      const slot = el.offsetLeft
+      const previous = slots.current.get(id)
+      const drawn =
+        drop?.lefts.get(id) ??
+        (previous === undefined
+          ? undefined
+          : previous + (slides.current.get(id)?.spring.value ?? 0))
+      slots.current.set(id, slot)
+      if (drag) continue
+      if (drawn === undefined) {
+        if (!initial) growIn(el)
+        continue
+      }
+      const dropped = drop?.id === id
+      if (Math.abs(drawn - slot) >= 0.5 || slides.current.has(id)) {
+        slide(el, id, drawn - slot, dropped ? drop.velocity : 0, dropped)
+      }
+    }
+    for (const id of [...slots.current.keys()]) {
+      if (present.has(id)) continue
+      slots.current.delete(id)
+      slides.current.get(id)?.stop()
+      slides.current.delete(id)
+    }
+  })
+
+  /**
+   * Slides a tab from `offset` px off its slot back to it, at `velocity` px/s to start; the
+   * one just dropped (`front`) stays above the ones it passes, as it was while dragged.
+   */
+  const slide = (el: HTMLElement, id: string, offset: number, velocity: number, front: boolean) => {
+    const running = slides.current.get(id)
+    if (prefersReducedMotion()) {
+      running?.stop()
+      slides.current.delete(id)
+      el.style.translate = ''
+      return
+    }
+    const draw = (value: number) => {
+      el.style.translate = `${value}px 0`
+    }
+    if (running) {
+      // Re-based on the new slot; it keeps its speed.
+      running.spring.value = offset
+      draw(offset)
+      return
+    }
+    const spring = new Spring(offset, { target: 0, velocity })
+    draw(offset)
+    if (front) el.style.zIndex = '10'
+    const stop = animateSpring(spring, {
+      update: draw,
+      rest: () => {
+        el.style.translate = ''
+        el.style.zIndex = ''
+        slides.current.delete(id)
+      },
+    })
+    slides.current.set(id, { spring, stop })
+  }
 
   const { tabs, activeTab } = state
   if (tabs.length < 2) return null
@@ -102,10 +206,8 @@ export function TabStrip({ state }: { state: WindowState }) {
     if (event.button !== 0) return
     // Like a browser, a tab is chosen as it's pressed.
     select(id)
-    const slots = [...(list.current?.querySelectorAll('[data-tab]') ?? [])].map((slot) =>
-      slot.getBoundingClientRect(),
-    )
-    const [first, second] = slots
+    // Their slots, not where they're drawn: some may still be sliding.
+    const [first, second] = list.current?.querySelectorAll<HTMLElement>('[data-tab]') ?? []
     if (!first) return
     event.currentTarget.setPointerCapture(event.pointerId)
     press.current = {
@@ -113,16 +215,30 @@ export function TabStrip({ state }: { state: WindowState }) {
       pointerId: event.pointerId,
       from: ordered.findIndex((tab) => tab.id === id),
       startX: event.clientX,
-      step: Math.max(1, second ? second.left - first.left : first.width),
+      step: Math.max(1, second ? second.offsetLeft - first.offsetLeft : first.offsetWidth),
       count: ordered.length,
       dragging: false,
+      offset: 0,
+      path: [{ x: event.clientX, t: event.timeStamp }],
     }
   }
 
   const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
     const current = press.current
     if (!current || current.pointerId !== event.pointerId) return
+    current.path = [...current.path, { x: event.clientX, t: event.timeStamp }].filter(
+      (sample) => event.timeStamp - sample.t <= VELOCITY_WINDOW * 2,
+    )
     if (!current.dragging && Math.abs(event.clientX - current.startX) < DRAG_THRESHOLD) return
+    if (!current.dragging) {
+      // Caught mid-slide: the drag carries on from where the tab is drawn.
+      const sliding = slides.current.get(current.id)
+      current.offset = sliding?.spring.value ?? 0
+      sliding?.stop()
+      slides.current.delete(current.id)
+      const el = list.current?.querySelector<HTMLElement>(`[data-tab="${current.id}"]`)
+      if (el) el.style.translate = ''
+    }
     current.dragging = true
     setDrag(dragAt(current, event.clientX))
   }
@@ -134,6 +250,13 @@ export function TabStrip({ state }: { state: WindowState }) {
     press.current = null
     setDrag(null)
     if (!current.dragging || !drop) return
+    // Where each tab is drawn now: the dropped one springs from there into its slot.
+    const lefts = new Map<string, number>()
+    for (const el of list.current?.querySelectorAll<HTMLElement>('[data-tab]') ?? []) {
+      lefts.set(el.dataset.tab ?? '', drawnLeft(el))
+    }
+    const velocity = releaseVelocity(current.path, event.timeStamp)
+    released.current = { lefts, id: current.id, velocity }
     const { index } = dragAt(current, event.clientX)
     if (index === current.from) return
     const order = ordered.map((tab) => tab.id)
@@ -200,7 +323,7 @@ export function TabStrip({ state }: { state: WindowState }) {
                   ? 'border-line bg-raised text-fg shadow-raised'
                   : 'border-transparent text-muted hover:bg-hover hover:text-fg',
                 // The others slide aside; the dragged one follows the pointer as is.
-                drag && !dragged && 'transition-transform',
+                drag && !dragged && 'transition-transform motion-reduce:transition-none',
                 dragged && 'z-10 shadow-popover',
               )}
             >
@@ -262,6 +385,31 @@ export function TabStrip({ state }: { state: WindowState }) {
       <IconButton label="New tab" shortcut="newTab" icon={Plus} onClick={() => gui.newTab()} />
     </nav>
   )
+}
+
+/** Where a tab is drawn, in its slot's (`offsetLeft`'s) terms: its slot plus any transform. */
+function drawnLeft(el: HTMLElement) {
+  const parent = el.offsetParent
+  const origin = parent ? parent.getBoundingClientRect().left + parent.clientLeft : 0
+  return el.getBoundingClientRect().left - origin
+}
+
+/** A tab that just opened grows in from its left edge; with reduced motion it fades in. */
+function growIn(el: HTMLElement) {
+  el.style.transformOrigin = 'left center'
+  const draw = (presence: number) => {
+    el.style.opacity = String(presence)
+    el.style.scale = prefersReducedMotion()
+      ? ''
+      : String(NEW_TAB_SCALE + (1 - NEW_TAB_SCALE) * presence)
+  }
+  const done = () => {
+    el.style.opacity = ''
+    el.style.scale = ''
+  }
+  draw(0)
+  if (prefersReducedMotion()) animateFade(0, 1, 150, { update: draw, rest: done })
+  else animateSpring(new Spring(0, { target: 1 }), { precision: 0.002, update: draw, rest: done })
 }
 
 /**
