@@ -1,4 +1,4 @@
-import { ArrowUp, Crosshair, ImagePlus, Square, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, ChevronDown, Crosshair, ImagePlus, Square, TriangleAlert, X } from 'lucide-react'
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -8,11 +8,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ChatMeta } from '../../../shared/types'
+import type { AgentSetting, ChatMeta, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton, Spinner, TechnicalDetails } from '../lib/ui'
+import { AutoToggle } from './auto-toggle'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
+import { QueuedMessages } from './queue'
 import { addAttachments, removeAttachments, setDraft, setNotice, useChat } from './store'
 import { elementLabel } from './turn-view'
 
@@ -65,9 +67,13 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     }
   }
 
+  /** A send awaiting main; main queues while busy, so a repeat Enter would queue it twice. */
+  const sending = useRef(false)
+
+  // While the agent works, this queues the message (meta.queue) instead of starting a turn.
   const submit = async (event?: FormEvent) => {
     event?.preventDefault()
-    if (!canSend || running) return
+    if (!canSend || sending.current) return
     const sent = attachments
     const images = sent.map(({ name, mimeType, data, thumbnail }) => ({
       name,
@@ -75,12 +81,17 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       data,
       thumbnail,
     }))
-    // Keep the draft unless main actually started the turn.
-    if (await gui.send(text, images)) {
-      setDraft('')
-      // Only what went out: an image attached while sending stays for the next message.
-      removeAttachments(sent.map((image) => image.id))
-      setNotice(null)
+    sending.current = true
+    try {
+      // Keep the draft unless main took it (started the turn or queued it).
+      if (await gui.send(text, images)) {
+        setDraft('')
+        // Only what went out: an image attached while sending stays for the next message.
+        removeAttachments(sent.map((image) => image.id))
+        setNotice(null)
+      }
+    } finally {
+      sending.current = false
     }
   }
 
@@ -134,6 +145,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     >
       <AgentStatus meta={meta} />
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
+      <QueuedMessages meta={meta} />
       {meta.selectionError && (
         <p className="mb-2 select-text px-1 text-[12px] text-danger">{meta.selectionError}</p>
       )}
@@ -205,9 +217,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           onPaste={onPaste}
           aria-label={`Message ${meta.agentName}`}
           placeholder={
-            meta.selection || attachments.length > 0
-              ? 'Describe the change…'
-              : `Ask ${meta.agentName}…`
+            running
+              ? 'Queue a message…'
+              : meta.selection || attachments.length > 0
+                ? 'Describe the change…'
+                : `Ask ${meta.agentName}…`
           }
           className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[13px] text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
@@ -235,22 +249,15 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               void attach(files)
             }}
           />
+          <AutoToggle meta={meta} />
           <span className="ml-auto" />
-          {running ? (
-            <button
-              type="button"
-              aria-label="Stop (⌘.)"
-              title="Stop (⌘.)"
-              onClick={() => gui.cancel()}
-              className="flex size-7 items-center justify-center rounded-md bg-fg text-raised hover:opacity-85"
-            >
-              <Square className="size-3 fill-current" aria-hidden="true" />
-            </button>
-          ) : (
+          {meta.models && <ModelButton models={meta.models} />}
+          {/* While the agent works, a draft can still go out: it joins the queue. */}
+          {(!running || canSend) && (
             <button
               type="submit"
-              aria-label="Send"
-              title="Send (↵)"
+              aria-label={running ? 'Queue message' : 'Send'}
+              title={running ? 'Queue (↵)' : 'Send (↵)'}
               disabled={!canSend}
               className={cn(
                 'flex size-7 items-center justify-center rounded-md transition-colors',
@@ -260,9 +267,54 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               <ArrowUp className="size-4" aria-hidden="true" />
             </button>
           )}
+          {/* Last, so it stays put while a draft's queue button comes and goes. */}
+          {running && (
+            <button
+              type="button"
+              aria-label="Stop (⌘.)"
+              title="Stop (⌘.)"
+              onClick={() => gui.cancel()}
+              className="flex size-7 items-center justify-center rounded-md bg-fg text-raised hover:opacity-85"
+            >
+              <Square className="size-3 fill-current" aria-hidden="true" />
+            </button>
+          )}
         </div>
       </div>
     </form>
+  )
+}
+
+/** The selected choice's name; null when the agent reports a value it doesn't list. */
+function choiceName(setting: AgentSetting) {
+  return setting.options.find((option) => option.value === setting.value)?.name ?? null
+}
+
+/** "OpenCode Zen/Big Pickle" reads as "Big Pickle"; the menu keeps the full name. */
+function shortName(name: string) {
+  return name.split('/').at(-1)?.trim() || name
+}
+
+/** What the next turn runs on; opens the native menu to change it. */
+function ModelButton({ models }: { models: ModelSettings }) {
+  const fullName = choiceName(models.model) ?? models.model.value
+  const model = shortName(fullName)
+  const effort = models.effort && (choiceName(models.effort) ?? models.effort.value)
+  return (
+    <button
+      type="button"
+      aria-haspopup="menu"
+      aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
+      title={effort ? `${fullName} · ${effort}` : fullName}
+      onClick={(event) => {
+        const rect = event.currentTarget.getBoundingClientRect()
+        gui.showModelMenu(rect.left, rect.bottom)
+      }}
+      className="no-drag flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[12px] text-muted transition-colors hover:bg-hover hover:text-fg"
+    >
+      <span className="truncate">{effort ? `${model} · ${effort}` : model}</span>
+      <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
+    </button>
   )
 }
 

@@ -47,6 +47,7 @@ export const Send = {
   devServerRestart: 'devserver:restart',
   showDevServerMenu: 'menu:devserver',
   showAgentMenu: 'menu:agent',
+  showModelMenu: 'menu:model',
   showProjectMenu: 'menu:project',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
@@ -70,6 +71,9 @@ export const Send = {
   resizeChat: 'chat:resize',
   endResizeChat: 'chat:resize-end',
   endDragChat: 'chat:drag-end',
+  removeQueued: 'chat:queue-remove',
+  sendQueuedNow: 'chat:queue-send',
+  setAutoApprove: 'chat:auto-approve',
   chooseApp: 'setup:choose-app',
   installDependencies: 'setup:install',
   createEnvFile: 'setup:create-env',
@@ -109,6 +113,11 @@ export interface GuiApi {
   restartDevServer(): void
   showDevServerMenu(): void
   showAgentMenu(): void
+  /**
+   * From the chat composer: the model menu (models, plus an Effort submenu when the agent
+   * has levels), anchored at this point in the chat view's CSS pixels.
+   */
+  showModelMenu(x: number, y: number): void
   showProjectMenu(): void
   setAgent(agentId: AgentId): void
   checkAgents(): void
@@ -144,8 +153,17 @@ export interface GuiApi {
   onChatTurn(cb: (turn: Turn) => void): Unsubscribe
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
-  /** Resolves false when the chat is busy and the message wasn't accepted */
+  /**
+   * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
+   * false only when it wasn't accepted (e.g. empty, or no project).
+   */
   send(text: string, images?: ImageAttachment[]): Promise<boolean>
+  /** Drops a queued message */
+  removeQueued(id: string): void
+  /** Runs the next queued message now (when idle), resuming a paused queue */
+  sendQueuedNow(): void
+  /** Auto mode on or off (see `ChatMeta.autoApprove`) */
+  setAutoApprove(on: boolean): void
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
   restoreTurn(turnId: string): Promise<void>

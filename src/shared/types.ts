@@ -64,6 +64,8 @@ export interface AgentHealth {
   progress: { received: number; total: number | null } | null
   /** The CLI Gui runs for this agent, once found */
   binary: { source: AgentBinarySource; version: string } | null
+  /** Its models and effort levels, as its last check reported them (before the user's choice) */
+  models: ModelSettings | null
 }
 
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm'
@@ -189,9 +191,62 @@ export interface Problem {
 
 export type AgentStatus = 'idle' | 'starting' | 'ready' | 'working' | 'error'
 
+/** One of an agent's selectable session settings (ACP `configOptions`, type `select`) */
+export interface AgentSetting {
+  /** The agent's own id for it, e.g. `model` or `reasoning_effort` */
+  id: string
+  /** The selected value */
+  value: string
+  /** Choices in the agent's order; `group` is set when the agent groups them (e.g. by provider) */
+  options: { value: string; name: string; group: string | null }[]
+}
+
+/** The agent's model, and its effort (reasoning) level when it has one */
+export interface ModelSettings {
+  model: AgentSetting
+  effort: AgentSetting | null
+}
+
+/** A message sent while the agent was busy, waiting for its turn */
+export interface QueuedMessage {
+  id: string
+  prompt: string
+  /** The element that was picked when it was queued */
+  context: ElementContext | null
+  attachments: { name: string; thumbnail: string }[]
+}
+
+/**
+ * What paused the queue: Stop, an error, the agent declining or hitting its output limit,
+ * or the user not trusting the project
+ */
+export type QueuePauseReason = 'stopped' | 'error' | 'refused' | 'limit' | 'untrusted'
+
 export interface ChatMeta {
   agentId: AgentId
   agentName: string
+  /**
+   * Messages waiting to run, oldest first. The next one starts when a turn finishes well;
+   * otherwise the queue pauses until `sendQueuedNow`.
+   */
+  queue: QueuedMessage[]
+  /** The queue has messages but won't start the next on its own (see `queuePauseReason`) */
+  queuePaused: boolean
+  /** Why the queue is paused; null when it isn't */
+  queuePauseReason: QueuePauseReason | null
+  /**
+   * Auto mode: Gui answers the agent's permission requests itself, so the agent edits
+   * files and runs commands without asking. Commands aren't confined to the project. It
+   * still asks when a request names a file outside the project, changes a sensitive file
+   * (config, dependencies, scripts, dotfiles), or the agent flags it. On unless the user
+   * turned it off for the project, which is remembered.
+   */
+  autoApprove: boolean
+  /**
+   * The model the next turn uses: the running session's, or before it starts, the agent's
+   * list (from its last check) with the user's choice applied. Null when the agent has none.
+   */
+  models: ModelSettings | null
   status: AgentStatus
   error: string | null
   /** Technical detail behind `error` (exit code, stderr), shown on request */

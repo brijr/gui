@@ -21,6 +21,7 @@ import {
 import { Events } from '../shared/ipc'
 import {
   type AgentId,
+  type AgentSetting,
   agentName,
   type ChatSnapshot,
   type DevServerState,
@@ -39,7 +40,8 @@ import {
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { agentMenuItems } from './agents'
-import { ChatController } from './chat'
+import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
+import { availableModels, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { historyFile, loadHistory } from './history'
@@ -146,7 +148,7 @@ export class ProjectWindow {
   private opening: string | null = null
   /** Bumped per element pick; a slow inspection must not overwrite a newer pick. */
   private pickGeneration = 0
-  /** Pending re-highlight of the element a finished turn edited. */
+  /** Pending "after" capture and re-highlight of the element a finished turn edited. */
   private rehighlightTimer: NodeJS.Timeout | null = null
   /** The current highlight is that post-turn re-highlight, not a pending selection. */
   private rehighlightShown = false
@@ -261,6 +263,7 @@ export class ProjectWindow {
       meta: {
         agentId: this.state.agentId,
         agentName: agentName(this.state.agentId),
+        models: availableModels(this.state.agentId),
         status: 'idle',
         error: null,
         errorDetail: null,
@@ -271,6 +274,10 @@ export class ProjectWindow {
         docked: getPrefs().chatDocked,
         redoTurnIds: [],
         problems: [],
+        queue: [],
+        queuePaused: false,
+        queuePauseReason: null,
+        autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
       },
       turns: [],
     }
@@ -355,12 +362,16 @@ export class ProjectWindow {
         if (turn.status === 'done' && turn.context && turn.changes?.length) {
           const selector = turn.context.selector
           if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+          const generation = this.rehighlightGeneration
           this.rehighlightTimer = setTimeout(() => {
             this.rehighlightTimer = null
-            // After hot reload: show how it looks now, then point at it again.
-            void this.captureAfter(chat, turn.id, selector).then(() =>
-              this.highlightSelector(selector),
-            )
+            // After hot reload: show how it looks now, then point at it again. A queued turn or
+            // a pick that started meanwhile still gets this turn's "after", just no highlight,
+            // unless that turn has already started on tools: the preview may show its changes.
+            if (chat.activeTurnUsedTools()) return
+            void this.captureAfter(chat, turn.id, selector).then(() => {
+              if (generation === this.rehighlightGeneration) void this.highlightSelector(selector)
+            })
           }, REHIGHLIGHT_DELAY_MS)
         }
       })
@@ -449,6 +460,8 @@ export class ProjectWindow {
 
   closeProject() {
     this.cancelRehighlight()
+    if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+    this.rehighlightTimer = null
     this.devServer?.dispose()
     this.devServer = null
     this.apps = []
@@ -860,8 +873,27 @@ export class ProjectWindow {
     return settleSetup({ ...setup, ...patch })
   }
 
+  removeQueued(id: string) {
+    this.chat?.removeQueued(id)
+  }
+
+  sendQueuedNow() {
+    this.chat?.sendQueuedNow()
+  }
+
   cancelChat() {
     void this.chat?.cancel()
+  }
+
+  /** Auto mode for this window's project (see ChatMeta.autoApprove); off without one. */
+  get autoApprove() {
+    const root = this.state.project?.root
+    return root !== undefined && isAutoApprove(root)
+  }
+
+  setAutoApprove(on: boolean) {
+    const root = this.state.project?.root
+    if (root) saveAutoApprove(root, on)
   }
 
   respondPermission(turnId: string, itemId: string, optionId: string | null) {
@@ -944,11 +976,9 @@ export class ProjectWindow {
     }
   }
 
-  /** Drops the post-turn re-highlight, shown or still pending. */
+  /** Drops the post-turn re-highlight, shown or still pending (its "after" capture still runs). */
   private cancelRehighlight() {
     this.rehighlightGeneration++
-    if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
-    this.rehighlightTimer = null
     if (!this.rehighlightShown) return
     this.rehighlightShown = false
     void this.inspector.clearHighlight()
@@ -968,6 +998,50 @@ export class ProjectWindow {
   dragChat(dx: number, dy: number) {
     this.anchor = { fromRight: this.anchor.fromRight - dx, top: this.anchor.top + dy }
     this.layout()
+  }
+
+  /** The composer's model menu, at (x, y) in the chat view: models, then an Effort submenu. */
+  showModelMenu(x: number, y: number) {
+    const chat = this.chat
+    const models = chat?.meta.models
+    if (!chat || !models) return
+    const choices = (setting: AgentSetting, options = setting.options) =>
+      options.map(
+        (option): MenuItemConstructorOptions => ({
+          label: option.name,
+          type: 'radio',
+          checked: option.value === setting.value,
+          click: () => {
+            // Another project may have opened while the menu was up.
+            if (chat === this.chat) chat.setAgentSetting(setting.id, option.value)
+          },
+        }),
+      )
+    const { model, effort } = models
+    const groups = [...new Set(model.options.map((option) => option.group))]
+    const inGroup = (group: string | null) => model.options.filter((o) => o.group === group)
+    let template: MenuItemConstructorOptions[]
+    if (groups.every((group) => group === null)) template = choices(model)
+    else if (groups.length > 2) {
+      // Many providers: one submenu each keeps the menu short.
+      template = groups.map((group) => ({
+        label: group ?? 'Other',
+        submenu: choices(model, inGroup(group)),
+      }))
+    } else {
+      template = groups.flatMap((group, index): MenuItemConstructorOptions[] => [
+        ...(index > 0 ? [{ type: 'separator' } as const] : []),
+        { label: group ?? 'Other', enabled: false },
+        ...choices(model, inGroup(group)),
+      ])
+    }
+    if (effort) template.push({ type: 'separator' }, { label: 'Effort', submenu: choices(effort) })
+    const view = this.chatView.getBounds()
+    Menu.buildFromTemplate(template).popup({
+      window: this.win,
+      x: Math.round(view.x + x),
+      y: Math.round(view.y + y),
+    })
   }
 
   /**

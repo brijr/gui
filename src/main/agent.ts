@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
-import { type AgentId, agentName } from '../shared/types'
+import { type AgentId, type AgentSetting, agentName, type ModelSettings } from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
 import { type AgentDefinition, findExecutable, resolveAgent } from './agents'
 import { DetailedError } from './errors'
@@ -88,6 +88,8 @@ export interface AgentInfo {
   previewTools: boolean
   modeName: string | null
   modes: { id: string; name: string }[]
+  /** The session's model and effort choices, when the agent offers them */
+  models: ModelSettings | null
 }
 
 export interface StartOptions {
@@ -149,6 +151,47 @@ function signInMessage(agent: AgentDefinition, error: unknown) {
   const lead = detail ? detail.replace(/[.\s]*$/, '.') : `${agent.name} is not signed in.`
   return agent.signIn ? `${lead} ${agent.signIn}` : lead
 }
+
+/**
+ * The model and effort settings among an agent's session config options. Found by
+ * category, since every agent names them differently (`effort`, `reasoning_effort`, …).
+ * Null when the agent offers no model choice.
+ */
+export function parseModelSettings(
+  configOptions: acp.SessionConfigOption[] | null | undefined,
+): ModelSettings | null {
+  const model = selectSetting(configOptions, 'model')
+  return model ? { model, effort: selectSetting(configOptions, 'thought_level') } : null
+}
+
+function selectSetting(
+  configOptions: acp.SessionConfigOption[] | null | undefined,
+  category: string,
+): AgentSetting | null {
+  // Custom agents can send anything; a malformed list mustn't break the session.
+  if (!Array.isArray(configOptions)) return null
+  for (const option of configOptions) {
+    if (!isRecord(option) || option.category !== category || option.type !== 'select') continue
+    if (typeof option.currentValue !== 'string' || !Array.isArray(option.options)) continue
+    const entries: unknown[] = option.options
+    // Grouped lists (e.g. by provider) are flattened; each choice keeps its group's name.
+    const options = entries.flatMap((entry): AgentSetting['options'] => {
+      if (isChoice(entry)) return [{ value: entry.value, name: entry.name, group: null }]
+      if (!isRecord(entry) || !Array.isArray(entry.options)) return []
+      const group = typeof entry.name === 'string' ? entry.name : null
+      const choices: unknown[] = entry.options
+      return choices.filter(isChoice).map(({ value, name }) => ({ value, name, group }))
+    })
+    return { id: option.id, value: option.currentValue, options }
+  }
+  return null
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+
+const isChoice = (value: unknown): value is { value: string; name: string } =>
+  isRecord(value) && typeof value.value === 'string' && typeof value.name === 'string'
 
 /** One ACP agent process with a single session rooted at the project. */
 export class AgentSession {
@@ -246,7 +289,11 @@ export class AgentSession {
 
     // sessionId stays null while loading, so the agent's replay of the old
     // transcript isn't mistaken for a new turn's updates.
-    let session: { sessionId: string; modes?: acp.SessionModeState | null } | null = null
+    let session: {
+      sessionId: string
+      modes?: acp.SessionModeState | null
+      configOptions?: acp.SessionConfigOption[] | null
+    } | null = null
     let resumed = false
     if (resumeSessionId && init.agentCapabilities?.loadSession) {
       const loaded = await this.untilExit(
@@ -258,7 +305,11 @@ export class AgentSession {
         }),
       ).catch(() => null)
       if (loaded) {
-        session = { sessionId: resumeSessionId, modes: loaded.modes }
+        session = {
+          sessionId: resumeSessionId,
+          modes: loaded.modes,
+          configOptions: loaded.configOptions,
+        }
         resumed = true
       }
     }
@@ -299,6 +350,7 @@ export class AgentSession {
       previewTools: servers.length > 0,
       modeName,
       modes: modeList,
+      models: parseModelSettings(session.configOptions),
     }
   }
 
@@ -308,6 +360,20 @@ export class AgentSession {
     return this.untilExit(
       connection.agent.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks }),
     )
+  }
+
+  /** Changes one of the session's settings; returns its model settings as they now stand. */
+  async setConfigOption(configId: string, value: string): Promise<ModelSettings | null> {
+    const { connection, sessionId } = this
+    if (!connection || !sessionId) throw new Error('Agent is not running')
+    const response = await this.untilExit(
+      connection.agent.request(acp.methods.agent.session.setConfigOption, {
+        sessionId,
+        configId,
+        value,
+      }),
+    )
+    return parseModelSettings(response.configOptions)
   }
 
   async cancel() {

@@ -77,6 +77,7 @@ const unchecked = (
   install: null,
   progress: null,
   binary: null,
+  models: null,
 })
 
 /**
@@ -112,6 +113,8 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
 
   constructor() {
     super()
+    // Every window and every chat listens.
+    this.setMaxListeners(0)
     prefsEvents.on('change', () => this.syncEnabled())
   }
 
@@ -412,6 +415,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
             install: binary.found ? 'update' : 'install',
             signIn: null,
             binary: null,
+            models: null,
           })
           return
         }
@@ -421,7 +425,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
         })
       } catch (error) {
         const { message, detail } = describeError(error)
-        this.set(id, { status: 'error', message, detail })
+        this.set(id, { status: 'error', message, detail, models: null })
         return
       }
     }
@@ -432,13 +436,20 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     const session = new AgentSession(id, dir, noopHandlers)
     this.sessions.add(session)
     try {
-      await withTimeout(
+      const info = await withTimeout(
         session.start({ mcpServers: [], authenticate }),
         authenticate ? SIGN_IN_TIMEOUT_MS : CHECK_TIMEOUT_MS,
         authenticate ? 'Sign-in timed out.' : "The agent didn't respond. Try again.",
       )
       this.methods.delete(id)
-      this.set(id, { status: 'ready', message: null, detail: null, signIn: null })
+      // So the chat can offer the agent's models before its own session starts.
+      this.set(id, {
+        status: 'ready',
+        message: null,
+        detail: null,
+        signIn: null,
+        models: info.models,
+      })
     } catch (error) {
       if (error instanceof AgentAuthError) {
         const method =
@@ -451,7 +462,13 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
           : this.terminalSignIns.has(id)
             ? { methodId: TERMINAL_SIGN_IN, label: 'Sign in' }
             : null
-        this.set(id, { status: 'signed-out', message: error.message, detail: null, signIn })
+        this.set(id, {
+          status: 'signed-out',
+          message: error.message,
+          detail: null,
+          signIn,
+          models: null,
+        })
       } else {
         const { message, detail } = describeError(error)
         this.set(id, {
@@ -459,6 +476,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
           message,
           detail,
           signIn: this.health.get(id)?.signIn ?? null,
+          models: null,
         })
       }
     } finally {

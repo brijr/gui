@@ -239,6 +239,10 @@ test.describe('agent sees images', () => {
     await session.chrome.evaluate((id) => window.gui.setAgent(id), agentId)
     const switched = async () => (await session.chatSnapshot()).meta.agentId === agentId
     await waitFor(switched, `the ${agentId} agent to be selected`)
+    // Whatever the agent asks is declined below, so Auto mode mustn't approve it first.
+    await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+    const asking = async () => !(await session.chatSnapshot()).meta.autoApprove
+    await waitFor(asking, 'Auto mode to be off')
 
     const red = await session.chat.evaluate(solidImage, {
       name: 'swatch.png',

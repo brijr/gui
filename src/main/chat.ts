@@ -20,23 +20,30 @@ import type {
 import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import {
   type AgentId,
+  type AgentSetting,
   agentName,
   type ChatMeta,
   type ChatSnapshot,
   type ElementContext,
   type ImageAttachment,
+  type ModelSettings,
   type Problem,
+  type QueuedMessage,
+  type QueuePauseReason,
   type ToolStatus,
   type Turn,
   type TurnItem,
   type TurnStatus,
 } from '../shared/types'
-import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
+import { type AgentInfo, AgentSession, type PermissionResolver, parseModelSettings } from './agent'
 import { AgentMissingError } from './agent-binaries'
+import { agentHealth } from './agent-status'
+import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
 import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
+import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
 import { buildPrompt } from './prompt'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
@@ -70,6 +77,11 @@ interface TurnRecord {
   settled: Promise<void>
 }
 
+interface QueuedPayload {
+  images: ImageAttachment[]
+  selection: ElementContext | null
+}
+
 interface RedoPoint {
   sha: string
   paths: string[]
@@ -82,7 +94,7 @@ interface Baseline {
   complete: boolean
 }
 
-/** Where an edit may be approved without asking; see `projectEditPath`. */
+/** Where a request's paths may be approved without asking; see `projectEditPath`. */
 export interface EditScope {
   /** The project root as the agent was given it */
   root: string
@@ -93,14 +105,9 @@ export interface EditScope {
   protectedDirs: string[]
 }
 
-/**
- * Files that can change how code runs (build/tool config, dependencies, CI, hooks,
- * dotfiles) always need the user's approval, even when edits are otherwise automatic.
- */
-const SENSITIVE_PATH =
-  /(^|\/)\.|(^|\/)(package\.json|package-lock\.json|pnpm-lock\.yaml|yarn\.lock|bun\.lockb?|[^/]*\.lock|[^/]*\.config\.[cm]?[jt]s|tsconfig[^/]*\.json|Dockerfile|Makefile|[^/]*\.(sh|bash|zsh))$|(^|\/)(node_modules|scripts|bin)\//i
-
 const START_TIMEOUT_MS = 60_000
+/** A model or effort change the agent doesn't answer counts as refused. */
+const SETTING_TIMEOUT_MS = 10_000
 const PERSIST_DELAY_MS = 400
 const RESET_SETTLE_MS = 5000
 /** Paths listed in the overwrite warning before it summarizes the rest. */
@@ -111,6 +118,10 @@ const FIX_PROMPT = 'The preview has errors. Find the cause and fix them.'
 /** What an image sent without text asks for; also what the transcript and history show. */
 const imagePrompt = (count: number) =>
   `Use the attached ${count === 1 ? 'image' : 'images'} as a reference.`
+
+/** What a message asks the agent; empty when there's nothing to send. */
+const messagePrompt = (text: string, images: ImageAttachment[]) =>
+  text.trim() || (images.length ? imagePrompt(images.length) : '')
 
 /** Readable labels for Gui's own preview tools, which agents report by raw MCP name. */
 const PREVIEW_TOOL_LABELS: Record<string, string> = {
@@ -187,8 +198,19 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Saved session to resume; kept until an agent actually starts. */
   private resumeSessionId: string | null = null
   private persistTimer: NodeJS.Timeout | null = null
-  /** Resolved on the first edit the agent asks about, then kept. */
+  /** Resolved on the first request the agent asks about, then kept. */
   private editScope: Promise<EditScope> | null = null
+  /** The running session's model and effort, as the agent last reported them. */
+  private sessionModels: ModelSettings | null = null
+  /** Choices the running session refused, by config id, so every turn doesn't retry them. */
+  private refused = new Map<string, string>()
+  /** The running session's setting changes, one at a time, so the last one sent sticks. */
+  private settingChanges: Promise<void> = Promise.resolve()
+  /**
+   * What each queued message (`meta.queue`, by id) takes to the agent: the full images and
+   * the picked element with its crop. The meta only carries thumbnails, to keep IPC small.
+   */
+  private queued = new Map<string, QueuedPayload>()
   private readonly history: HistoryWriter
 
   constructor(
@@ -202,6 +224,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.meta = {
       agentId,
       agentName: agentName(agentId),
+      models: availableModels(agentId),
       status: 'idle',
       error: null,
       errorDetail: null,
@@ -212,6 +235,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       docked: options.docked,
       redoTurnIds: saved?.redo?.turnIds ?? [],
       problems: [],
+      queue: [],
+      queuePaused: false,
+      queuePauseReason: null,
+      autoApprove: isAutoApprove(root),
     }
     if (saved) {
       this.records = saved.turns.map((turn) => ({
@@ -228,6 +255,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.hadSession = this.records.length > 0
     }
     this.history = new HistoryWriter(options.historyFile, () => this.savedChat())
+    // A health check may list the agent's models, and another window may change the choice.
+    agentHealth.on('change', this.refreshModels)
+    prefsEvents.on('change', this.refreshModels)
+    prefsEvents.on('change', this.refreshAutoApprove)
   }
 
   snapshot(): ChatSnapshot {
@@ -237,7 +268,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   async setAgent(agentId: AgentId) {
     if (agentId === this.meta.agentId) return
     // Switch first, so a quick second switch compares against this one and the last call wins.
-    this.patchMeta({ agentId, agentName: agentName(agentId) })
+    this.patchMeta({ agentId, agentName: agentName(agentId), models: availableModels(agentId) })
     await this.reset()
   }
 
@@ -246,6 +277,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const token = {}
     this.lock = token
     this.epoch++
+    // Messages queued for the old chat go with it; ones sent while this runs are for the new one.
+    this.clearQueue()
     const running = this.active
     if (running) {
       // Let the agent stop on its own before killing it, so it isn't cut off mid-write.
@@ -272,6 +305,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       redoTurnIds: [],
     })
     if (!this.disposed) this.emit('reset', this.snapshot())
+    this.drainQueue()
   }
 
   setSelection(selection: ElementContext | null) {
@@ -295,6 +329,22 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
+   * The user's model or effort choice, saved for this agent so later sessions start with
+   * it. A running session switches now when it's between turns, else before the next prompt.
+   */
+  setAgentSetting(configId: string, value: string) {
+    const { models } = this.meta
+    const setting = [models?.model, models?.effort].find((s) => s?.id === configId)
+    if (!setting?.options.some((option) => option.value === value)) return
+    // Picking it again is a reason to try again.
+    this.refused.delete(configId)
+    saveAgentSetting(this.meta.agentId, configId, value)
+    this.refreshModels()
+    const agent = this.agent
+    if (agent && this.agentInfo && !this.active) void this.applySettings(agent, null)
+  }
+
+  /**
    * Asks the agent to fix what's currently broken; the errors ride along in the prompt.
    * A pending element selection is left for the user's next message.
    */
@@ -309,11 +359,29 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * Starts a turn. Returns false (and does nothing) when another operation is in progress.
+   * Starts a turn, or queues the message (`meta.queue`) while another operation is in
+   * progress. Returns false only when nothing was accepted (an empty message, or disposed).
    * Images alone are a complete message: they're sent with a default prompt.
    */
   send(text: string, images: ImageAttachment[] = []): boolean {
+    if (this.lock && !this.disposed) return this.enqueue(text, images)
     return this.startTurn(text, false, images)
+  }
+
+  removeQueued(id: string) {
+    const queue = this.meta.queue.filter((item) => item.id !== id)
+    if (queue.length === this.meta.queue.length) return
+    this.queued.delete(id)
+    // An empty queue has nothing to hold back.
+    if (queue.length > 0) this.patchMeta({ queue })
+    else this.patchMeta({ queue, queuePaused: false, queuePauseReason: null })
+  }
+
+  /** Resumes a paused queue; when nothing is running, its next message starts now. */
+  sendQueuedNow() {
+    if (this.disposed) return
+    if (this.meta.queuePaused) this.patchMeta({ queuePaused: false, queuePauseReason: null })
+    this.drainQueue()
   }
 
   async cancel() {
@@ -386,7 +454,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
       await this.checkpoints.restore(before, paths)
     } finally {
       if (this.lock === token) this.lock = null
+      // Messages sent while it ran waited for the files to settle.
+      this.drainQueue()
     }
+  }
+
+  /** Whether the running turn has started a tool, so the preview may already show its changes. */
+  activeTurnUsedTools() {
+    return this.active?.turn.items.some((item) => item.kind === 'tool') ?? false
   }
 
   /** The newest turn that can be undone, if any; for Edit → Undo. */
@@ -432,6 +507,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.schedulePersist()
     } finally {
       if (this.lock === token) this.lock = null
+      this.drainQueue()
     }
   }
 
@@ -439,6 +515,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.disposed) return
     this.epoch++
     this.disposed = true
+    agentHealth.off('change', this.refreshModels)
+    prefsEvents.off('change', this.refreshModels)
+    prefsEvents.off('change', this.refreshAutoApprove)
     // Settle open prompts before the final save, so it records them as cancelled
     // rather than leaving buttons that nothing answers after a relaunch.
     for (const record of this.records) this.resolvePendingPermissions(record)
@@ -450,25 +529,37 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.persistTimer = null
     this.history.saveSync()
     this.stopAgent()
+    // In memory only: queued messages never outlive their window.
+    this.clearQueue()
     this.removeAllListeners()
   }
 
-  /** `fix` turns carry the current problems and leave the pending selection alone. */
-  private startTurn(text: string, fix: boolean, images: ImageAttachment[] = []): boolean {
-    const prompt = text.trim() || (images.length ? imagePrompt(images.length) : '')
+  /**
+   * `fix` turns carry the current problems and leave the pending selection alone. A
+   * `queued` message brings the element it was sent with, and leaves the current one too.
+   */
+  private startTurn(
+    text: string,
+    fix: boolean,
+    images: ImageAttachment[] = [],
+    queued: QueuedPayload | null = null,
+  ): boolean {
+    const prompt = messagePrompt(text, images)
     if (!prompt || this.lock || this.disposed) return false
 
-    const selection = fix ? null : this.meta.selection
+    const selection = queued ? queued.selection : fix ? null : this.meta.selection
     const record: TurnRecord = {
       turn: {
         id: randomUUID(),
         index: this.records.length,
         prompt,
         context: selection ? { ...selection, screenshot: null } : null,
-        // The after image is added by the window once the change has hot-reloaded.
-        preview: selection?.screenshot
-          ? { before: thumbnail(selection.screenshot), after: null }
-          : null,
+        // The after image is added by the window once the change has hot-reloaded. A queued
+        // pick's crop predates the turns that ran before it, so it can't stand for "before".
+        preview:
+          selection?.screenshot && !queued
+            ? { before: thumbnail(selection.screenshot), after: null }
+            : null,
         items: [],
         status: 'running',
         error: null,
@@ -489,12 +580,44 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.records.push(record)
     this.active = record
     this.lock = record
-    if (!fix) this.patchMeta({ selection: null })
+    if (!fix && !queued) this.patchMeta({ selection: null })
     this.flushTurn(record)
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
     const problems = fix ? this.meta.problems : []
     record.settled = this.runTurn(record, selection, problems, images, this.epoch)
     return true
+  }
+
+  /** Holds a message until the current operation is over; it takes the picked element along. */
+  private enqueue(text: string, images: ImageAttachment[]): boolean {
+    const prompt = messagePrompt(text, images)
+    if (!prompt) return false
+    const selection = this.meta.selection
+    const item: QueuedMessage = {
+      id: randomUUID(),
+      prompt,
+      context: selection ? { ...selection, screenshot: null } : null,
+      attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })),
+    }
+    this.queued.set(item.id, { images, selection })
+    this.patchMeta({ queue: [...this.meta.queue, item], selection: null })
+    return true
+  }
+
+  /** Starts the next queued message, unless something holds the lock or the queue is paused. */
+  private drainQueue() {
+    if (this.lock || this.disposed || this.meta.queuePaused) return
+    const [next, ...rest] = this.meta.queue
+    if (!next) return
+    const payload = this.queued.get(next.id) ?? { images: [], selection: next.context }
+    this.queued.delete(next.id)
+    this.patchMeta({ queue: rest })
+    this.startTurn(next.prompt, false, payload.images, payload)
+  }
+
+  private clearQueue() {
+    this.queued.clear()
+    this.patchMeta({ queue: [], queuePaused: false, queuePauseReason: null })
   }
 
   private async runTurn(
@@ -507,9 +630,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const live = () => this.epoch === epoch
     const stopped = () => !live() || record.cancelRequested
     let status: TurnStatus = 'done'
+    /** Why the queue waits after this turn rather than going on; null to go on. */
+    let pause: QueuePauseReason | null = null
     try {
       if (!(await this.confirmTrust())) {
         status = 'cancelled'
+        pause = 'untrusted'
         if (live()) this.notTrusted(record)
         return
       }
@@ -518,6 +644,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
         return
       }
       const { agent, info } = await this.ensureAgent(record)
+      if (stopped()) {
+        status = 'cancelled'
+        return
+      }
+      // Covers choices made during the last turn and ones saved before this session started.
+      await this.applySettings(agent, record)
       if (stopped()) {
         status = 'cancelled'
         return
@@ -560,6 +692,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         this.schedulePersist()
       }
       if (response.stopReason === 'refusal' || response.stopReason === 'max_tokens') {
+        pause = response.stopReason === 'refusal' ? 'refused' : 'limit'
         this.pushItem(record, {
           kind: 'notice',
           id: randomUUID(),
@@ -598,6 +731,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (live()) {
         if (this.meta.status === 'working') this.patchMeta({ status: 'ready' })
         this.emit('turnEnd', record.turn)
+        // Settled (lock released, after snapshot taken), so the next message can start. Stop,
+        // an error, a declined trust prompt, or a turn the agent refused or cut short holds
+        // the rest back until the user resumes it: they were written expecting this one to work.
+        pause ??= status === 'error' ? 'error' : status === 'cancelled' ? 'stopped' : null
+        if (pause === null) this.drainQueue()
+        else if (this.meta.queue.length > 0) {
+          this.patchMeta({ queuePaused: true, queuePauseReason: pause })
+        }
       }
     }
   }
@@ -661,6 +802,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       )
       if (this.agent !== agent) throw new Error(`${name} was stopped while starting.`)
       this.agentInfo = info
+      this.sessionModels = info.models
       // Agents that can't take HTTP MCP servers (like Pi) start without them.
       this.agentHasTools = info.previewTools
       // The saved session was resumed or replaced; a failed start keeps it for next time.
@@ -682,7 +824,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         }
       }
       this.schedulePersist()
-      this.patchMeta({ status: 'ready', modeName: info.modeName })
+      this.patchMeta({ status: 'ready', modeName: info.modeName, models: this.nextModels() })
       this.hadSession = true
       return { agent, info }
     } catch (error) {
@@ -706,6 +848,72 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.agentInfo = null
     this.agentHasTools = false
     this.primedAgent = null
+    this.sessionModels = null
+    this.refused.clear()
+    // A change still waiting on the old agent mustn't hold up the next one's.
+    this.settingChanges = Promise.resolve()
+    this.refreshModels()
+  }
+
+  /**
+   * Brings the running session in line with the user's saved choices: the model first,
+   * since the effort levels on offer can depend on it. Never throws. During a turn, a
+   * refusal is a notice and the turn goes on with the agent's own setting; between turns
+   * it stays quiet and the next turn tries again.
+   */
+  private applySettings(agent: AgentSession, record: TurnRecord | null) {
+    const run = this.settingChanges.then(async () => {
+      for (const key of ['model', 'effort'] as const) {
+        const setting = this.agent === agent ? this.sessionModels?.[key] : null
+        if (!setting) continue
+        const value = chosenValue(setting, savedAgentSettings(agent.agentId), this.refused)
+        if (value === null || value === setting.value) continue
+        try {
+          const models = await withTimeout(
+            agent.setConfigOption(setting.id, value),
+            SETTING_TIMEOUT_MS,
+            `${this.meta.agentName} didn't answer.`,
+          )
+          if (this.agent !== agent) return
+          this.sessionModels = models
+        } catch (error) {
+          if (this.agent !== agent || !record) continue
+          this.refused.set(setting.id, value)
+          const name = (choice: string) =>
+            setting.options.find((option) => option.value === choice)?.name ?? choice
+          this.pushItem(record, {
+            kind: 'notice',
+            id: randomUUID(),
+            tone: 'info',
+            text: `Couldn't switch the ${key} to ${name(value)}, so this turn uses ${name(setting.value)}.`,
+            detail: describeError(error).message,
+          })
+        }
+        this.refreshModels()
+      }
+    })
+    // Never rejects, so neither the turn nor the changes queued after it trip on a bug here.
+    const settled = run.catch((error: unknown) => console.error('[gui] model change failed', error))
+    this.settingChanges = settled
+    return settled
+  }
+
+  /** What `meta.models` says for `agentId` now; see ChatMeta.models. */
+  private nextModels(agentId = this.meta.agentId) {
+    const live = this.agentInfo !== null && this.agent?.agentId === agentId
+    if (!live) return availableModels(agentId)
+    return this.sessionModels && withChoices(this.sessionModels, agentId, this.refused)
+  }
+
+  private refreshModels = () => {
+    const models = this.nextModels()
+    if (JSON.stringify(models) !== JSON.stringify(this.meta.models)) this.patchMeta({ models })
+  }
+
+  /** Follows this project's Auto setting. Cards already open stay open: Auto answers new requests. */
+  private refreshAutoApprove = () => {
+    const autoApprove = isAutoApprove(this.root)
+    if (autoApprove !== this.meta.autoApprove) this.patchMeta({ autoApprove })
   }
 
   private onAgentExit(agent: AgentSession, error: DetailedError) {
@@ -717,6 +925,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private onUpdate(update: SessionUpdate) {
+    if (update.sessionUpdate === 'config_option_update') {
+      // The agent changed its own settings (e.g. new effort levels for another model).
+      this.sessionModels = parseModelSettings(update.configOptions)
+      this.refreshModels()
+      return
+    }
     const record = this.active
     if (!record) {
       if (update.sessionUpdate === 'current_mode_update') this.updateMode(update.currentModeId)
@@ -784,34 +998,34 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolve(null)
       return
     }
-    void this.isRoutineEdit(request)
-      .catch(() => false)
-      .then((routine) => this.askPermission(record, request, resolve, routine))
+    void this.autoAnswer(record, request)
+      .catch(() => null)
+      .then((auto) => this.askPermission(record, request, resolve, auto))
   }
 
+  /** `auto`: the option Gui answers with when it doesn't ask (see `autoApproval`), or null. */
   private askPermission(
     record: TurnRecord,
     request: RequestPermissionRequest,
     resolve: PermissionResolver,
-    routine: boolean,
+    auto: string | null,
   ) {
-    // The turn may have ended or been stopped while the edit's paths were checked.
+    // The turn may have ended or been stopped while the request's paths were checked.
     if (this.active !== record || record.cancelRequested || this.disposed) {
       resolve(null)
       return
     }
-    const autoApprove = routine
-      ? request.options.find((option) => option.kind === 'allow_once')
-      : undefined
-    if (autoApprove) {
-      resolve(autoApprove.optionId)
+    // Edits to ordinary source files inside the project are what Gui is for, so those are
+    // approved in Ask mode too; Auto mode approves everything the same rules allow.
+    if (auto !== null && (request.toolCall.kind === 'edit' || this.meta.autoApprove)) {
+      resolve(auto)
       return
     }
     const { toolCallId, title } = request.toolCall
     // codex-acp asks about MCP calls with no title; the tool call it's asking about has one.
     // Only the label comes from it: the user still decides.
     const tool = record.turn.items.find((i) => i.kind === 'tool' && i.id === toolCallId)
-    const paths = (request.toolCall.locations ?? []).map(({ path }) => this.projectPath(path))
+    const paths = requestPaths(request).map((path) => this.projectPath(path))
     const id = randomUUID()
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
     this.pushItem(record, {
@@ -831,13 +1045,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.emit('attention')
   }
 
-  /** Edits to ordinary source files inside the project are what Gui is for; approve those. */
-  private async isRoutineEdit(request: RequestPermissionRequest) {
-    const { kind, locations } = request.toolCall
-    if (kind !== 'edit' || !locations?.length) return false
-    const scope = await this.scope()
-    const paths = await Promise.all(locations.map(({ path }) => projectEditPath(path, scope)))
-    return paths.every((rel) => rel !== null && !SENSITIVE_PATH.test(rel))
+  /** What Auto mode answers `request` with, whether or not it's on (see `autoApproval`). */
+  private autoAnswer(record: TurnRecord, request: RequestPermissionRequest) {
+    const { toolCallId, kind } = request.toolCall
+    const tool = record.turn.items.find((i) => i.kind === 'tool' && i.id === toolCallId)
+    const toolKind = kind ?? (tool?.kind === 'tool' ? tool.toolKind : null)
+    return autoApproval(request, {
+      agentId: this.meta.agentId,
+      kind: toolKind,
+      place: async (path, write) => projectEditPath(path, await this.scope(), !write),
+    })
   }
 
   private scope() {
@@ -1028,6 +1245,37 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 }
 
+/** The agent's models before a session starts: its last check's list, with the user's choices. */
+export function availableModels(agentId: AgentId): ModelSettings | null {
+  const models = agentHealth.list().find((agent) => agent.id === agentId)?.models ?? null
+  return models && withChoices(models, agentId, null)
+}
+
+/** `models` with the user's saved choices for `agentId` applied, where they still apply. */
+function withChoices(
+  models: ModelSettings,
+  agentId: AgentId,
+  refused: Map<string, string> | null,
+): ModelSettings {
+  const saved = savedAgentSettings(agentId)
+  const apply = (setting: AgentSetting) => ({
+    ...setting,
+    value: chosenValue(setting, saved, refused) ?? setting.value,
+  })
+  return { model: apply(models.model), effort: models.effort && apply(models.effort) }
+}
+
+/** The user's saved choice for `setting`, when it's still on offer and wasn't refused. */
+function chosenValue(
+  setting: AgentSetting,
+  saved: Record<string, string>,
+  refused: Map<string, string> | null,
+) {
+  const value = Object.hasOwn(saved, setting.id) ? saved[setting.id] : undefined
+  if (value === undefined || refused?.get(setting.id) === value) return null
+  return setting.options.some((option) => option.value === value) ? value : null
+}
+
 /** A relative path that climbs out of the folder it's relative to (or isn't relative at all). */
 const isOutside = (rel: string) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
 
@@ -1061,19 +1309,24 @@ async function realLocation(path: string) {
  * without asking; otherwise null. That's never outside the project, never through a
  * symlink inside it (a link can point anywhere, Gui's own data included), only to a plain
  * file or one that doesn't exist yet, and never in the home folder's dotfiles, ~/Library
- * or `protectedDirs`, for projects that contain those.
+ * or `protectedDirs`, for projects that contain those. With `folders` (for reads and
+ * searches), it may also be a folder, the project root ('') included.
  */
-export async function projectEditPath(path: string, scope: EditScope): Promise<string | null> {
+export async function projectEditPath(
+  path: string,
+  scope: EditScope,
+  folders = false,
+): Promise<string | null> {
   // `..` after a symlink climbs out of where the link points, not where it sits.
   if (path.includes('\0') || path.split(/[\\/]/).includes('..')) return null
   const target = resolvePath(scope.root, path)
   const rel = [scope.root, scope.realRoot]
     .map((root) => relative(root, target))
-    .find((candidate) => candidate !== '' && !isOutside(candidate))
+    .find((candidate) => (candidate !== '' || folders) && !isOutside(candidate))
   if (rel === undefined) return null
 
   // Walks down from the real root; what doesn't exist yet can't be a link.
-  const parts = rel.split(sep)
+  const parts = rel === '' ? [] : rel.split(sep)
   let current = scope.realRoot
   for (const [index, part] of parts.entries()) {
     current = join(current, part)
@@ -1085,14 +1338,16 @@ export async function projectEditPath(path: string, scope: EditScope): Promise<s
       return null
     }
     if (stats.isSymbolicLink()) return null
-    if (index < parts.length - 1 ? !stats.isDirectory() : !stats.isFile()) return null
+    const last = index === parts.length - 1
+    const allowed = stats.isDirectory() ? !last || folders : last && stats.isFile()
+    if (!allowed) return null
     // A file with other hard links is also a file somewhere else.
     if (stats.isFile() && stats.nlink > 1) return null
   }
 
   // Where it really lands, as macOS resolves it (realpath also settles letter case).
   const real = await realLocation(join(scope.realRoot, rel)).catch(() => null)
-  if (real === null || !within(scope.realRoot, real)) return null
+  if (real === null || within(scope.realRoot, real) === null) return null
   if (scope.protectedDirs.some((dir) => within(dir, real) !== null)) return null
   // ~/Library and home dotfiles only matter when the project is the home folder (or one
   // above it): projects in iCloud Drive or Dropbox live under ~/Library themselves.

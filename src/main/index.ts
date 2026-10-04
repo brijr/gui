@@ -28,7 +28,7 @@ import {
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { isLoopback } from './loopback'
-import { getPrefs, setPrefs } from './prefs'
+import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
 import {
@@ -147,6 +147,7 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
     await (empty ?? createWindow()).openProject(real)
   } finally {
     opening.delete(real)
+    syncAutoModeItem()
   }
 }
 
@@ -331,6 +332,7 @@ function registerIpc() {
   on(Send.devServerRestart, (win) => win.restartDevServer())
   on(Send.showDevServerMenu, (win) => win.showDevServerMenu())
   on(Send.showAgentMenu, (win) => win.showAgentMenu(() => openSettings('agents')))
+  on(Send.showModelMenu, (win, x, y) => isNumber(x) && isNumber(y) && win.showModelMenu(x, y))
   on(Send.showProjectMenu, (win) =>
     win.showProjectMenu(
       () => void pickProject(win),
@@ -405,6 +407,9 @@ function registerIpc() {
     if (isNumber(cols) && isNumber(rows)) win.resizeLogs(Math.floor(cols), Math.floor(rows))
   })
   on(Send.cancel, (win) => win.cancelChat())
+  on(Send.removeQueued, (win, id) => isString(id) && win.removeQueued(id))
+  on(Send.sendQueuedNow, (win) => win.sendQueuedNow())
+  on(Send.setAutoApprove, (win, on) => typeof on === 'boolean' && win.setAutoApprove(on))
   on(Send.respondPermission, (win, turnId, itemId, optionId) => {
     if (isString(turnId) && isString(itemId) && (optionId === null || isString(optionId))) {
       win.respondPermission(turnId, itemId, optionId)
@@ -478,6 +483,15 @@ async function isEditingText(wc: WebContents) {
 }
 
 /**
+ * The window a menu command acts on: the focused one, or with no Gui window focused (e.g.
+ * the menu clicked from a script), a lone project window, the only one it can mean.
+ */
+function menuWindow() {
+  const lone = BrowserWindow.getFocusedWindow() === null && allWindows().length === 1
+  return focusedWindow() ?? (lone ? allWindows()[0] : undefined)
+}
+
+/**
  * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Gui or the previewed app);
  * otherwise, including from an empty chat box, they undo or redo the agent's last change.
  */
@@ -485,12 +499,25 @@ async function editHistory(direction: 'undo' | 'redo') {
   const wc = webContents.getFocusedWebContents()
   const textEdit = () => (direction === 'undo' ? wc?.undo() : wc?.redo())
   if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
-  // With no Gui window focused (e.g. the menu clicked from a script), a lone project
-  // window is the only one it can mean.
-  const lone = BrowserWindow.getFocusedWindow() === null && allWindows().length === 1
-  const win = focusedWindow() ?? (lone ? allWindows()[0] : undefined)
+  const win = menuWindow()
   if (!win) return textEdit()
   await (direction === 'undo' ? win.undoLastChange() : win.redoLastChange())
+}
+
+const AUTO_MODE_ITEM = 'auto-mode'
+
+/** Agent → Auto Mode is checked when the project it would change is in Auto mode. */
+function syncAutoModeItem() {
+  const item = Menu.getApplicationMenu()?.getMenuItemById(AUTO_MODE_ITEM)
+  if (item) item.checked = menuWindow()?.autoApprove ?? false
+}
+
+/** Only from the user's own menu choice or keystroke: agents never get to turn this on. */
+function toggleAutoMode() {
+  const win = menuWindow()
+  win?.setAutoApprove(!win.autoApprove)
+  // The click already flipped the checkmark; it follows the project's setting instead.
+  syncAutoModeItem()
 }
 
 function buildMenu() {
@@ -610,11 +637,20 @@ function buildMenu() {
           click: withWindow((w) => w.newChat()),
         },
         { label: 'Stop', accelerator: 'CmdOrCtrl+.', click: withWindow((w) => w.cancelChat()) },
+        { type: 'separator' },
+        {
+          id: AUTO_MODE_ITEM,
+          label: 'Auto Mode',
+          type: 'checkbox',
+          accelerator: 'Shift+CmdOrCtrl+A',
+          click: toggleAutoMode,
+        },
       ],
     },
     { role: 'windowMenu' },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+  syncAutoModeItem()
 }
 
 function focusExistingWindow() {
@@ -658,6 +694,10 @@ if (!app.requestSingleInstanceLock()) {
     agentHealth.on('change', buildMenu)
     // Pick up agents installed (or added to agents.json) while Gui was in the background.
     app.on('browser-window-focus', () => void agentHealth.onAppFocus())
+    // Agent → Auto Mode shows the project the menu acts on.
+    app.on('browser-window-focus', syncAutoModeItem)
+    app.on('browser-window-blur', syncAutoModeItem)
+    prefsEvents.on('change', syncAutoModeItem)
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { app } from 'electron'
 import { type AgentId, DEFAULT_AGENT_ID, isAgentId } from '../shared/types'
 
@@ -20,6 +20,10 @@ export interface Prefs {
   apps: Record<string, string>
   /** Agents switched off in Settings; everything installed is on by default */
   disabledAgents: AgentId[]
+  /** The model and effort the user chose per agent: agent → the agent's config id → value */
+  agentSettings: Record<AgentId, Record<string, string>>
+  /** Project roots the user switched Auto mode off for; every other project is in Auto (see ChatMeta.autoApprove) */
+  askRoots: string[]
 }
 
 const DEFAULTS: Prefs = {
@@ -29,6 +33,8 @@ const DEFAULTS: Prefs = {
   chatDockWidth: 400,
   apps: {},
   disabledAgents: [],
+  agentSettings: {},
+  askRoots: [],
 }
 /** Anything outside this isn't a size a window could have set. */
 const MAX_LENGTH = 10_000
@@ -36,6 +42,8 @@ const file = () => join(app.getPath('userData'), 'prefs.json')
 let cached: Prefs | null = null
 
 export const prefsEvents = new EventEmitter<{ change: [prefs: Prefs] }>()
+// Every open chat listens.
+prefsEvents.setMaxListeners(0)
 
 function stringRecord(value: unknown): Record<string, string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
@@ -44,6 +52,22 @@ function stringRecord(value: unknown): Record<string, string> {
       (entry): entry is [string, string] => typeof entry[1] === 'string',
     ),
   )
+}
+
+function agentSettings(value: unknown): Prefs['agentSettings'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([id]) => isAgentId(id))
+      .map(([id, settings]) => [id, stringRecord(settings)]),
+  )
+}
+
+/** Absolute paths, each once. */
+function roots(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  const paths = value.filter((path): path is string => typeof path === 'string' && isAbsolute(path))
+  return [...new Set(paths)]
 }
 
 function length(value: unknown, fallback: number) {
@@ -73,9 +97,11 @@ export function getPrefs(): Prefs {
       disabledAgents: Array.isArray(parsed.disabledAgents)
         ? parsed.disabledAgents.filter(isAgentId)
         : [],
+      agentSettings: agentSettings(parsed.agentSettings),
+      askRoots: roots(parsed.askRoots),
     }
   } catch {
-    cached = { ...DEFAULTS, chatSize: { ...DEFAULTS.chatSize }, apps: {} }
+    cached = { ...DEFAULTS, chatSize: { ...DEFAULTS.chatSize }, apps: {}, agentSettings: {} }
   }
   return cached
 }
@@ -93,4 +119,15 @@ export function setPrefs(patch: Partial<Prefs>) {
 
 export function isAgentEnabled(id: AgentId) {
   return !getPrefs().disabledAgents.includes(id)
+}
+
+/** The user's choices for an agent's settings, by the agent's config id. */
+export function savedAgentSettings(id: AgentId): Record<string, string> {
+  const all = getPrefs().agentSettings
+  return Object.hasOwn(all, id) ? all[id] : {}
+}
+
+export function saveAgentSetting(id: AgentId, configId: string, value: string) {
+  const all = getPrefs().agentSettings
+  setPrefs({ agentSettings: { ...all, [id]: { ...savedAgentSettings(id), [configId]: value } } })
 }
