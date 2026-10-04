@@ -2,12 +2,15 @@ import { Check } from 'lucide-react'
 import type { AgentHealth } from '../../../shared/types'
 import { Spinner } from '../lib/ui'
 
-/** Same wording and look as the start screen's agent card. */
+/**
+ * Same wording as the start screen's agent card. Beside the agent's name, in the regular weight
+ * whatever the state; the color says which.
+ */
 export function AgentStatusLabel({ health }: { health: AgentHealth }) {
   switch (health.status) {
     case 'ready':
       return (
-        <span className="flex items-center gap-1 text-small font-medium text-success">
+        <span className="flex items-center gap-1 text-small font-normal text-success">
           <Check className="size-3" aria-hidden="true" />
           Ready
         </span>
@@ -26,9 +29,9 @@ export function AgentStatusLabel({ health }: { health: AgentHealth }) {
         </span>
       )
     case 'signed-out':
-      return <span className="text-small font-medium text-warning">Not signed in</span>
+      return <span className="text-small font-normal text-warning">Not signed in</span>
     case 'error':
-      return <span className="text-small font-medium text-danger">Unavailable</span>
+      return <span className="text-small font-normal text-danger">Unavailable</span>
     case 'not-installed':
       return <span className="text-small font-normal text-subtle">Not installed</span>
     default:
