@@ -28,6 +28,13 @@ const WINDOW = { width: 1200, height: 800 }
 const MORPHING = { GUI_E2E_CAPTURE_BUDGET_MS: '2000' }
 /** Room for a jump across one dropped frame at the spring's fastest, and no more. */
 const MAX_STEP = 150
+/**
+ * Over a longer gap between drawn frames (CI's runner, without a GPU, drops several), the
+ * snapshot may cover more ground, but no faster than this, in px per ms. The spring is solved
+ * for the time elapsed, and peaks under 6 px/ms for the largest change here (desktop to mobile,
+ * 884 px narrower); anything faster is a jump.
+ */
+const MAX_SPEED = 8
 
 /** Runs in main, in a task of its own: the preview view of the first window. */
 async function liveView({ BrowserWindow, WebContentsView }: ElectronModule) {
@@ -357,22 +364,31 @@ function boxes(frames: ChromeFrame[]) {
   })
 }
 
-/** The largest change between one drawn rect and the next. */
-function largestStep(path: Box[]) {
-  let largest = 0
+/**
+ * The steps from one drawn rect to the next that move further than the spring could in the time
+ * between them: none, for a continuous morph. Logs the largest step, and the gap it spanned.
+ */
+function jumps(path: (Box & { t: number })[], label: string) {
+  const found: { t: number; gap: number; step: number }[] = []
+  let largest = { step: 0, gap: 0 }
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1]
     const b = path[i]
     if (!a || !b) continue
-    largest = Math.max(
-      largest,
+    const step = Math.max(
       Math.abs(a.x - b.x),
       Math.abs(a.y - b.y),
       Math.abs(a.width - b.width),
       Math.abs(a.height - b.height),
     )
+    const gap = b.t - a.t
+    if (step > largest.step) largest = { step, gap }
+    if (step >= Math.max(MAX_STEP, MAX_SPEED * gap)) found.push({ t: Math.round(b.t), gap, step })
   }
-  return largest
+  console.log(
+    `[e2e] ${label}: largest step ${Math.round(largest.step)} px over ${Math.round(largest.gap)} ms`,
+  )
+  return found
 }
 
 /** The live view's distinct bounds, in order, and whether each was out of sight. */
@@ -458,7 +474,7 @@ test('a viewport switch morphs a snapshot from the old frame to the new one', as
   expect(path.length).toBeGreaterThan(6)
   expect(near(path[0] ?? null, desktop.bounds)).toBe(true)
   expect(near(path.at(-1) ?? null, mobile)).toBe(true)
-  expect(largestStep(path)).toBeLessThan(MAX_STEP)
+  expect(jumps(path, 'desktop to mobile')).toEqual([])
   // Critically damped: it narrows all the way without widening again.
   for (let i = 1; i < path.length; i++) {
     expect(path[i]?.width ?? 0).toBeLessThanOrEqual((path[i - 1]?.width ?? 0) + 0.5)
@@ -528,7 +544,7 @@ test('a change mid-morph carries on from where the snapshot is, without capturin
   expect(before.length).toBeGreaterThan(2)
   expect(after.length).toBeGreaterThan(4)
   // Continuous through the change: no jump back to where it started, or anywhere else.
-  expect(largestStep(path)).toBeLessThan(MAX_STEP)
+  expect(jumps(path, 'mobile, then tablet mid-morph')).toEqual([])
   expect(after.some((box) => near(box, desktop.bounds, 20))).toBe(false)
   expect(near(path.at(-1) ?? null, tablet)).toBe(true)
   // The one snapshot from before the first change.
