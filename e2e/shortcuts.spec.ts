@@ -1092,6 +1092,14 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
   await session.chrome.keyboard.press('Escape')
   await waitFor(async () => !(await session.state()).focusMode, 'focus mode off from Esc')
 
+  // ⌘J needs the drawer, hidden in focus mode whether or not it's open: it ends focus mode.
+  await clickMenu(session, 'Focus Mode')
+  await waitFor(async () => (await session.state()).focusMode, 'focus mode before ⌘J')
+  await clickMenu(session, 'Toggle Terminal')
+  await waitFor(async () => !(await session.state()).focusMode, '⌘J to end focus mode')
+  expect((await session.state()).drawer).toMatchObject({ open: true, tab: 'server' })
+  await expect(logsTab).toBeVisible()
+
   // Picking works in focus mode; the pick brings the chat (and the rest) back to describe it.
   await clickMenu(session, 'Focus Mode')
   await waitFor(async () => (await session.state()).focusMode, 'focus mode for a pick')
