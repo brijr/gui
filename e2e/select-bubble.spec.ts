@@ -1,13 +1,14 @@
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
-import { type AgentId, CUSTOM_AGENT_PREFIX, type Rect } from '../src/shared/types'
+import { type AgentId, CUSTOM_AGENT_PREFIX, type PanelCorner, type Rect } from '../src/shared/types'
 import { electronExecutable, sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // While the user picks an element, the floating chat panel shrinks to a bubble at its
-// top-right corner so it doesn't cover the page, and comes back as it was afterwards.
+// anchored corner (bottom-left unless it was moved) so it doesn't cover the page, and comes
+// back as it was afterwards.
 
 /** What Playwright passes to `app.evaluate` callbacks. */
 type ElectronModule = typeof import('electron/main')
@@ -49,12 +50,20 @@ function chatWhere(session: GuiSession, label: string, check: (chat: Rect) => bo
 
 const isBubble = (chat: Rect) => chat.width === BUBBLE_VIEW && chat.height === BUBBLE_VIEW
 
-/** The bubble's view: at the top-right corner of where the panel's view is. */
-const bubbleAt = (panel: Rect): Rect => ({
-  x: panel.x + panel.width - BUBBLE_VIEW,
-  y: panel.y,
+const BOTTOM_LEFT: PanelCorner = { x: 'left', y: 'bottom' }
+
+/** The bubble's view: in the anchored corner of where the panel's view is. */
+const bubbleAt = (panel: Rect, corner = BOTTOM_LEFT): Rect => ({
+  x: corner.x === 'left' ? panel.x : panel.x + panel.width - BUBBLE_VIEW,
+  y: corner.y === 'top' ? panel.y : panel.y + panel.height - BUBBLE_VIEW,
   width: BUBBLE_VIEW,
   height: BUBBLE_VIEW,
+})
+
+/** The corner a panel is anchored by after a drag: the canvas's (the preview's) nearest. */
+const nearestCorner = (panel: Rect, canvas: Rect): PanelCorner => ({
+  x: panel.x + panel.width / 2 < canvas.x + canvas.width / 2 ? 'left' : 'right',
+  y: panel.y + panel.height / 2 < canvas.y + canvas.height / 2 ? 'top' : 'bottom',
 })
 
 /** The visible panel: its view without the shadow margin. */
@@ -99,7 +108,7 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   await expect(preview.locator(SELECTOR)).toBeVisible({ timeout: 30_000 })
   const panel = await chatWhere(session, 'the floating panel', (chat) => !isBubble(chat))
 
-  // Picking: the view shrinks to the bubble at the panel's top-right corner.
+  // Picking: the view shrinks to the bubble at the panel's bottom-left corner.
   await startSelecting(session)
   await chatWhere(session, 'the bubble', isBubble)
   expect((await session.app.evaluate(views))?.chat).toEqual(bubbleAt(panel.chat))
@@ -127,17 +136,23 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   if (!box) throw new Error(`"${SELECTOR}" has no layout box`)
   const element = { ...box, x: panel.preview.x + box.x, y: panel.preview.y + box.y }
   const dx = element.x + element.width / 2 - (panel.chat.x + panel.chat.width / 2)
-  await session.chat.evaluate((dx) => {
-    window.gui.dragChat(dx, 0)
-    window.gui.endDragChat()
-  }, dx)
+  const dy = element.y + element.height / 2 - (panel.chat.y + panel.chat.height / 2)
+  await session.chat.evaluate(
+    ({ dx, dy }) => {
+      window.gui.dragChat(dx, dy)
+      window.gui.endDragChat()
+    },
+    { dx, dy },
+  )
   const covering = await chatWhere(session, 'the panel over the element', (chat) =>
     overlaps(inner(chat), element),
   )
   await startSelecting(session)
   await chatWhere(session, 'the bubble over the panel', isBubble)
   const bubble = await session.app.evaluate(views)
-  expect(bubble?.chat).toEqual(bubbleAt(covering.chat))
+  expect(bubble?.chat).toEqual(
+    bubbleAt(covering.chat, nearestCorner(covering.chat, covering.preview)),
+  )
   expect(overlaps(inner(bubble?.chat ?? covering.chat), element)).toBe(false)
   await pressEscape(session)
 

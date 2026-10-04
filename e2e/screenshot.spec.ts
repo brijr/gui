@@ -13,6 +13,8 @@ type ElectronModule = typeof import('electron/main')
 const SHADOW = 18
 /** The toolbar the floating panel stays below (TOOLBAR_HEIGHT in window.ts). */
 const TOOLBAR_HEIGHT = 44
+/** How far from the canvas's corner the floating panel starts (PANEL_MARGIN in window.ts). */
+const PANEL_MARGIN = 12
 const PNG_SIGNATURE = '89504e470d0a1a0a'
 
 interface Size {
@@ -244,16 +246,19 @@ function chatLayout({ BrowserWindow, WebContentsView }: ElectronModule) {
   return { chat: chat.getBounds(), preview: preview.getBounds(), content: { width, height } }
 }
 
-/** Waits for the chat view's bounds to satisfy `check`. */
-function layoutWhere(
-  session: GuiSession,
-  label: string,
-  check: (chat: Bounds) => boolean,
-): Promise<NonNullable<Awaited<ReturnType<typeof chatLayout>>>> {
+type Layout = NonNullable<Awaited<ReturnType<typeof chatLayout>>>
+
+/** Waits for the layout to satisfy `check`. */
+function layoutWhen(session: GuiSession, label: string, check: (layout: Layout) => boolean) {
   return waitFor(async () => {
     const layout = await session.app.evaluate(chatLayout)
-    return layout && check(layout.chat) ? layout : null
+    return layout && check(layout) ? layout : null
   }, label)
+}
+
+/** Waits for the chat view's bounds to satisfy `check`. */
+function layoutWhere(session: GuiSession, label: string, check: (chat: Bounds) => boolean) {
+  return layoutWhen(session, label, (layout) => check(layout.chat))
 }
 
 function savedPrefs(session: GuiSession) {
@@ -304,7 +309,7 @@ async function resizeFrom(
     width: before.width - left + right,
     height: before.height - top + bottom,
   })
-  return after.chat
+  return after
 }
 
 /** The visible panel (the view minus its shadow margin) lies in the window, below the toolbar. */
@@ -318,6 +323,98 @@ function expectInside(chat: Bounds, content: Size) {
 const right = (chat: Bounds) => chat.x + chat.width
 const bottom = (chat: Bounds) => chat.y + chat.height
 
+/**
+ * How far the visible panel (or the pill, or the bubble) is from each edge of the canvas,
+ * which the preview fills.
+ */
+function gaps({ chat, preview }: Layout) {
+  return {
+    left: chat.x + SHADOW - preview.x,
+    top: chat.y + SHADOW - preview.y,
+    right: right(preview) - (right(chat) - SHADOW),
+    bottom: bottom(preview) - (bottom(chat) - SHADOW),
+  }
+}
+
+/** Runs in main: resizes the window. */
+function setContentSize({ BrowserWindow }: ElectronModule, size: Size) {
+  BrowserWindow.getAllWindows()[0]?.setContentSize(size.width, size.height)
+}
+
+/** The window at `size`, laid out again once the canvas (which the preview fills) followed. */
+const resizedTo = (size: Size) => (layout: Layout) =>
+  layout.content.width === size.width &&
+  layout.content.height === size.height &&
+  layout.preview.width === size.width
+
+test("a new window's chat panel starts at the bottom-left and stays in its corner", async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+
+  // In the canvas's bottom-left corner, with the panel's usual margin.
+  const start = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
+  const bottomLeft = { left: PANEL_MARGIN, bottom: PANEL_MARGIN }
+  expect(gaps(start)).toMatchObject(bottomLeft)
+  await session.shot('panel-bottom-left')
+  // Smaller, so it fits above the logs in a short window; its bottom-left corner stays.
+  expect(gaps(await resizeFrom(session, start.chat, 'top-right', -40, 240))).toMatchObject(
+    bottomLeft,
+  )
+
+  // As the window and the canvas resize, it keeps to that corner.
+  const smaller = {
+    width: Math.max(960, start.content.width - 160),
+    height: Math.max(640, start.content.height - 120),
+  }
+  await session.app.evaluate(setContentSize, smaller)
+  const shrunk = await layoutWhen(session, 'the smaller window', resizedTo(smaller))
+  expect(gaps(shrunk)).toMatchObject(bottomLeft)
+  await session.chrome.evaluate(() => window.gui.setLogsOpen(true))
+  const logs = await layoutWhen(
+    session,
+    'the canvas above the logs',
+    ({ preview }) => preview.height < shrunk.preview.height,
+  )
+  expect(gaps(logs)).toMatchObject(bottomLeft)
+  await session.shot('panel-above-logs')
+  await session.chrome.evaluate(() => window.gui.setLogsOpen(false))
+  const closed = await layoutWhen(
+    session,
+    'the canvas without the logs',
+    ({ preview }) => preview.height === shrunk.preview.height,
+  )
+
+  // Dragged near the top-right, it keeps to that corner from then on, and so does the pill.
+  const before = gaps(closed)
+  const topRight = { right: 40, top: 30 }
+  await session.chat.evaluate(
+    ({ dx, dy }) => {
+      window.gui.dragChat(dx, dy)
+      window.gui.endDragChat()
+    },
+    { dx: before.right - topRight.right, dy: topRight.top - before.top },
+  )
+  const dragged = await layoutWhen(session, 'the panel near the top-right', (layout) => {
+    const { right, top } = gaps(layout)
+    return right === topRight.right && top === topRight.top
+  })
+  const larger = { width: start.content.width, height: start.content.height }
+  await session.app.evaluate(setContentSize, larger)
+  const grown = await layoutWhen(session, 'the larger window', resizedTo(larger))
+  expect(gaps(grown)).toMatchObject(topRight)
+  expect(grown.chat.width).toBe(dragged.chat.width)
+  await session.chat.evaluate(() => window.gui.setMinimized(true))
+  const pill = await layoutWhere(session, 'the pill', (chat) => chat.height < dragged.chat.height)
+  expect(gaps(pill)).toMatchObject(topRight)
+
+  // The bubble, while picking, is in that corner too.
+  await session.chrome.evaluate(() => window.gui.toggleSelect())
+  const bubble = await layoutWhere(session, 'the bubble', (chat) => chat.width < pill.chat.width)
+  expect(gaps(bubble)).toMatchObject(topRight)
+})
+
 test('the chat panel resizes from its edges and corners and remembers the size', async ({
   launch,
 }) => {
@@ -327,7 +424,7 @@ test('the chat panel resizes from its edges and corners and remembers the size',
   const first = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
   expect(first.chat.width - SHADOW * 2).toBe(400)
   // Smaller first, so growing has room even when the window is short (CI's display).
-  const small = await resizeFrom(session, first.chat, 'bottom-left', 60, -240)
+  const small = (await resizeFrom(session, first.chat, 'bottom-left', 60, -240)).chat
 
   // In the middle of the window, so every edge has room to move either way.
   const { content } = first
@@ -366,7 +463,7 @@ test('the chat panel resizes from its edges and corners and remembers the size',
     ['bottom-left', 24, -24],
   ]
   for (const [edge, dx, dy] of drags) {
-    panel = await resizeFrom(session, panel, edge, dx, dy)
+    panel = (await resizeFrom(session, panel, edge, dx, dy)).chat
   }
   const size = { width: panel.width - SHADOW * 2, height: panel.height - SHADOW * 2 }
   await waitFor(() => {

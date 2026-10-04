@@ -25,6 +25,7 @@ import {
   type ChatSnapshot,
   type DevServerState,
   type ImageAttachment,
+  type PanelCorner,
   type PanelEdge,
   type PreviewState,
   type ProjectInfo,
@@ -74,7 +75,7 @@ const PANEL_MIN = { width: 320, height: 360 }
 /** Space the floating panel's size leaves around it in the window. */
 const PANEL_MARGIN = 12
 const MINI = { width: 248, height: 52 }
-/** The floating panel while the user picks an element: a round button at its top-right. */
+/** The floating panel while the user picks an element: a round button at its anchored corner. */
 const BUBBLE = { width: 44, height: 44 }
 const DOCK_MIN_WIDTH = 320
 /** The docked panel leaves the preview at least the rest of the canvas. */
@@ -95,6 +96,14 @@ const windows = new Set<ProjectWindow>()
 
 type ScreenshotAction = 'copy' | 'copy-full-page' | 'save' | 'attach'
 type ScreenshotResult = 'copied' | 'saved' | 'attached'
+
+/** A corner of the canvas, and how far the floating panel's own corner there is from it. */
+interface Anchor extends PanelCorner {
+  /** From the canvas's left or right edge */
+  dx: number
+  /** From the canvas's top or bottom edge */
+  dy: number
+}
 
 export function findWindow(sender: WebContents) {
   for (const win of windows) if (win.owns(sender)) return win
@@ -135,15 +144,18 @@ export class ProjectWindow {
   /** Selection shown in the chat last time meta changed, to clear the highlight only when it goes away. */
   private shownSelectionId: string | null = null
   private canvas: Rect = { x: 0, y: 0, width: 0, height: 0 }
-  /** Panel position, anchored to the window's right edge so it tracks resizes. */
-  private anchor = { fromRight: 12, top: TOOLBAR_HEIGHT + 4 }
+  /**
+   * Where the floating panel sits: by its corner nearest the canvas's same corner, re-chosen
+   * when a drag or resize ends, so it stays there as the window and the logs resize.
+   */
+  private anchor: Anchor = { x: 'left', y: 'bottom', dx: PANEL_MARGIN, dy: PANEL_MARGIN }
   /** The floating panel's size as the user left it; drawn smaller when the window is. */
   private panelSize: ChatSize = getPrefs().chatSize
   private dockWidth = getPrefs().chatDockWidth
   /** Which size the resize in progress changes, to remember it when it ends. */
   private resizing: 'floating' | 'docked' | null = null
-  /** The chat view was last told to draw the bubble (Events.chatBubble). */
-  private bubbleShown = false
+  /** Where the chat view was last told to draw the bubble (Events.chatBubble); null for none. */
+  private bubbleShown: PanelCorner | null = null
   /** A permission card came up while the user picked over the bubble; shown when picking ends. */
   private attentionWaiting = false
   /** The screenshot menu is open or its capture is running. */
@@ -1012,7 +1024,11 @@ export class ProjectWindow {
   }
 
   dragChat(dx: number, dy: number) {
-    this.anchor = { fromRight: this.anchor.fromRight - dx, top: this.anchor.top + dy }
+    // From where the panel is on screen, so dragging back from past an edge moves it at once.
+    const [contentWidth, contentHeight] = this.win.getContentSize()
+    const rect = this.floatingRect(contentWidth, contentHeight)
+    const area = this.anchorArea(contentWidth, contentHeight)
+    this.anchor = anchorFor({ ...rect, x: rect.x + dx, y: rect.y + dy }, area, this.anchor)
     this.layout()
   }
 
@@ -1033,11 +1049,11 @@ export class ProjectWindow {
       const [contentWidth, contentHeight] = this.win.getContentSize()
       const max = maxFloatingSize(contentWidth, contentHeight)
       // From the panel on screen, which may be smaller than the remembered size.
-      const view = this.floatingBounds(contentWidth, contentHeight, false)
-      let left = view.x + SHADOW
-      let top = view.y + SHADOW
-      let right = view.x + view.width - SHADOW
-      let bottom = view.y + view.height - SHADOW
+      const panel = this.floatingRect(contentWidth, contentHeight)
+      let left = panel.x
+      let top = panel.y
+      let right = panel.x + panel.width
+      let bottom = panel.y + panel.height
       // In whole pixels, each dragged edge stopping at the panel's smallest and largest size,
       // at the window's edges and below the toolbar.
       const [moveX, moveY] = [Math.round(dx), Math.round(dy)]
@@ -1056,7 +1072,8 @@ export class ProjectWindow {
         bottom = clamp(bottom + moveY, top + PANEL_MIN.height, lowest)
       }
       this.panelSize = { width: right - left, height: bottom - top }
-      this.anchor = { fromRight: contentWidth - right - SHADOW, top: top - SHADOW }
+      const area = this.anchorArea(contentWidth, contentHeight)
+      this.anchor = anchorFor({ x: left, y: top, ...this.panelSize }, area, this.anchor)
       this.resizing = 'floating'
     }
     this.layout()
@@ -1064,8 +1081,12 @@ export class ProjectWindow {
 
   /** Remembers the new size for this and later windows. */
   endResizeChat() {
-    if (this.resizing === 'docked') setPrefs({ chatDockWidth: this.dockWidth })
-    else if (this.resizing === 'floating') setPrefs({ chatSize: this.panelSize })
+    if (this.resizing === 'docked') {
+      setPrefs({ chatDockWidth: this.dockWidth })
+    } else if (this.resizing === 'floating') {
+      setPrefs({ chatSize: this.panelSize })
+      this.settleAnchor()
+    }
     this.resizing = null
   }
 
@@ -1164,6 +1185,7 @@ export class ProjectWindow {
   }
 
   endDragChat() {
+    this.settleAnchor()
     this.layout()
   }
 
@@ -1204,7 +1226,7 @@ export class ProjectWindow {
   }
 
   /**
-   * While the user picks an element, the floating panel is drawn as a bubble at its top-right
+   * While the user picks an element, the floating panel is drawn as a bubble at its anchored
    * corner, out of the way. Its size, place and minimized state stay as they were.
    */
   private get bubbled() {
@@ -1261,34 +1283,58 @@ export class ProjectWindow {
   }
 
   /**
-   * The floating panel's view at its anchor, kept inside the window along with the anchor.
-   * The bubble sits at the panel's top-right corner and leaves its anchor as it was.
+   * The floating panel's view: the panel, or the pill while minimized, at its anchor. The bubble
+   * sits in the anchored corner of either.
    */
   private floatingBounds(contentWidth: number, contentHeight: number, bubble: boolean): Rect {
+    const panel = this.floatingRect(contentWidth, contentHeight)
+    const { x, y, width, height } = bubble ? inCorner(panel, BUBBLE, this.anchor) : panel
+    return { x: x - SHADOW, y: y - SHADOW, width: width + SHADOW * 2, height: height + SHADOW * 2 }
+  }
+
+  /**
+   * The floating panel, or the pill while minimized, at its anchor and kept inside the window
+   * below the toolbar.
+   */
+  private floatingRect(contentWidth: number, contentHeight: number): Rect {
     const minimized = this.chat?.meta.minimized ?? false
-    const panel = bubble
-      ? BUBBLE
-      : minimized
-        ? MINI
-        : this.floatingSize(contentWidth, contentHeight)
-    const viewWidth = panel.width + SHADOW * 2
-    const viewHeight = panel.height + SHADOW * 2
-    const fromRight = clamp(this.anchor.fromRight, -SHADOW, contentWidth - viewWidth + SHADOW)
-    const top = clamp(this.anchor.top, TOOLBAR_HEIGHT - SHADOW, contentHeight - viewHeight + SHADOW)
-    if (!bubble) this.anchor = { fromRight, top }
+    const { width, height } = minimized ? MINI : this.floatingSize(contentWidth, contentHeight)
+    const area = this.anchorArea(contentWidth, contentHeight)
+    const { x, y, dx, dy } = this.anchor
+    const left = x === 'left' ? area.x + dx : area.x + area.width - dx - width
+    const top = y === 'top' ? area.y + dy : area.y + area.height - dy - height
     return {
-      x: Math.round(contentWidth - viewWidth - fromRight),
-      y: Math.round(top),
-      width: viewWidth,
-      height: viewHeight,
+      x: Math.round(clamp(left, 0, contentWidth - width)),
+      y: Math.round(clamp(top, TOOLBAR_HEIGHT, contentHeight - height)),
+      width,
+      height,
     }
   }
 
-  /** Tells the chat view whether to draw the bubble, when that changes. */
+  /** What the anchor is a corner of: the canvas, or the window below the toolbar until then. */
+  private anchorArea(contentWidth: number, contentHeight: number): Rect {
+    if (this.canvas.width > 0 && this.canvas.height > 0) return this.canvas
+    return { x: 0, y: TOOLBAR_HEIGHT, width: contentWidth, height: contentHeight - TOOLBAR_HEIGHT }
+  }
+
+  /** After a drag or resize: anchors the panel by its corner nearest the canvas's same corner. */
+  private settleAnchor() {
+    const [contentWidth, contentHeight] = this.win.getContentSize()
+    const rect = this.floatingRect(contentWidth, contentHeight)
+    const area = this.anchorArea(contentWidth, contentHeight)
+    this.anchor = anchorFor(rect, area, {
+      x: rect.x + rect.width / 2 < area.x + area.width / 2 ? 'left' : 'right',
+      y: rect.y + rect.height / 2 < area.y + area.height / 2 ? 'top' : 'bottom',
+    })
+  }
+
+  /** Tells the chat view where to draw the bubble, or that it's gone, when that changes. */
   private showBubble(bubble: boolean) {
-    if (bubble === this.bubbleShown) return
-    this.bubbleShown = bubble
-    this.sendChat(Events.chatBubble, bubble)
+    const corner = bubble ? { x: this.anchor.x, y: this.anchor.y } : null
+    const shown = this.bubbleShown
+    if (corner?.x === shown?.x && corner?.y === shown?.y) return
+    this.bubbleShown = corner
+    this.sendChat(Events.chatBubble, corner)
   }
 
   /** The docked panel's width: the remembered one, within what the canvas leaves room for. */
@@ -1329,14 +1375,12 @@ export class ProjectWindow {
       element.y < panel.y + panel.height &&
       element.y + element.height > panel.y
     if (!overlaps) return
-    const [contentWidth] = this.win.getContentSize()
+    const [contentWidth, contentHeight] = this.win.getContentSize()
+    const area = this.anchorArea(contentWidth, contentHeight)
     const elementCenter = element.x + element.width / 2
-    const margin = 12 - SHADOW
-    // Put the panel against whichever edge is farther from the element.
-    this.anchor.fromRight =
-      elementCenter > contentWidth / 2
-        ? contentWidth - view.width - (this.canvas.x + margin)
-        : margin
+    // Put the panel against whichever side of the canvas is farther from the element.
+    const x = elementCenter > area.x + area.width / 2 ? 'left' : 'right'
+    this.anchor = { ...this.anchor, x, dx: PANEL_MARGIN }
     this.layout()
   }
 
@@ -1501,6 +1545,26 @@ function originOf(url: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max))
+}
+
+/** The anchor at `corner` of `area` (the canvas) that puts the floating panel at `rect`. */
+function anchorFor(rect: Rect, area: Rect, corner: PanelCorner): Anchor {
+  return {
+    x: corner.x,
+    y: corner.y,
+    dx: corner.x === 'left' ? rect.x - area.x : area.x + area.width - rect.x - rect.width,
+    dy: corner.y === 'top' ? rect.y - area.y : area.y + area.height - rect.y - rect.height,
+  }
+}
+
+/** A box of `size` in `rect`'s `corner`. */
+function inCorner(rect: Rect, size: ChatSize, corner: PanelCorner): Rect {
+  return {
+    x: corner.x === 'left' ? rect.x : rect.x + rect.width - size.width,
+    y: corner.y === 'top' ? rect.y : rect.y + rect.height - size.height,
+    width: size.width,
+    height: size.height,
+  }
 }
 
 /** The largest the floating panel can be in a window this size. */

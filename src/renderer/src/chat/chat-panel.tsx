@@ -10,7 +10,13 @@ import {
   SquarePen,
 } from 'lucide-react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useId, useRef } from 'react'
-import { type ChatMeta, PANEL_EDGES, type PanelEdge, type Turn } from '../../../shared/types'
+import {
+  type ChatMeta,
+  PANEL_EDGES,
+  type PanelCorner,
+  type PanelEdge,
+  type Turn,
+} from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, IconButton, Spinner } from '../lib/ui'
@@ -49,7 +55,7 @@ export function ChatPanel() {
     )
   }
 
-  if (bubble) return <ChatBubble turns={turns} running={running} />
+  if (bubble) return <ChatBubble corner={bubble} turns={turns} running={running} />
 
   return (
     <div className="h-dvh p-[18px]">
@@ -276,9 +282,17 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
 
 /**
  * The floating panel while the user picks an element: main shrinks the view to this bubble
- * at the panel's top-right corner. Clicking it stops picking, which brings the panel back.
+ * at the panel's anchored corner. Clicking it stops picking, which brings the panel back.
  */
-function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
+function ChatBubble({
+  corner,
+  turns,
+  running,
+}: {
+  corner: PanelCorner
+  turns: Turn[]
+  running: boolean
+}) {
   const statusId = useId()
   // A permission card in the running turn; it shows once the panel is back.
   const waiting = turns.some(
@@ -292,8 +306,15 @@ function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
       ? 'The agent is working. '
       : ''
   return (
-    // At the view's top-right, so it stays put while the view resizes around it.
-    <div className="flex h-dvh justify-end p-[18px]">
+    // In the view's corner where the panel is anchored, so it stays put while the view
+    // resizes around it.
+    <div
+      className={cn(
+        'flex h-dvh p-[18px]',
+        corner.x === 'right' && 'justify-end',
+        corner.y === 'bottom' && 'items-end',
+      )}
+    >
       <button
         type="button"
         aria-label="Show chat"

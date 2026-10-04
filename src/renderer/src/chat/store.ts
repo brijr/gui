@@ -1,5 +1,11 @@
 import { create } from 'zustand'
-import type { ChatMeta, ChatSnapshot, ImageAttachment, Turn } from '../../../shared/types'
+import type {
+  ChatMeta,
+  ChatSnapshot,
+  ImageAttachment,
+  PanelCorner,
+  Turn,
+} from '../../../shared/types'
 import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
 
@@ -12,8 +18,8 @@ interface ChatStore {
   attachments: DraftImage[]
   /** Why an image wasn't attached; the composer shows it briefly */
   notice: string | null
-  /** The floating panel is a bubble while the user picks an element (main sizes the view) */
-  bubble: boolean
+  /** Where the floating panel is a bubble while the user picks, if it is (main sizes the view) */
+  bubble: PanelCorner | null
 }
 
 export const useChat = create<ChatStore>(() => ({
@@ -22,7 +28,7 @@ export const useChat = create<ChatStore>(() => ({
   draft: '',
   attachments: [],
   notice: null,
-  bubble: false,
+  bubble: null,
 }))
 
 export function setDraft(draft: string) {

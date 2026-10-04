@@ -4,6 +4,7 @@ import type {
   ChatSnapshot,
   CustomAgentEntry,
   ImageAttachment,
+  PanelCorner,
   PanelEdge,
   Rect,
   SettingsSection,
@@ -154,10 +155,10 @@ export interface GuiApi {
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
   /**
-   * Whether the floating panel is drawn as a bubble: while the user picks an element, the
-   * view shrinks to it so it doesn't cover the page.
+   * Where the floating panel is drawn as a bubble, its anchored corner, or null when it isn't:
+   * while the user picks an element, the view shrinks to it so it doesn't cover the page.
    */
-  onChatBubble(cb: (bubble: boolean) => void): Unsubscribe
+  onChatBubble(cb: (bubble: PanelCorner | null) => void): Unsubscribe
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project).

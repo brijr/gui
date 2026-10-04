@@ -174,6 +174,12 @@ export function isPanelEdge(value: unknown): value is PanelEdge {
   return PANEL_EDGES.some((edge) => edge === value)
 }
 
+/** The floating chat panel's anchored corner, which stays put; its bubble and pill sit there too */
+export interface PanelCorner {
+  x: 'left' | 'right'
+  y: 'top' | 'bottom'
+}
+
 export interface SourceLocation {
   /** POSIX path relative to the project root */
   file: string
