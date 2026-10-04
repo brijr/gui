@@ -14,7 +14,7 @@ import {
 import { getShellEnv } from './shell-env'
 
 export type AgentLaunch =
-  /** An ACP adapter package bundled with Grat, run on Electron's Node */
+  /** An ACP adapter package bundled with Gui, run on Electron's Node */
   | {
       kind: 'adapter'
       package: string
@@ -29,11 +29,11 @@ export interface AgentDefinition extends AgentInfo {
   launch: AgentLaunch
   /** How to sign in, shown when the agent reports the user isn't signed in */
   signIn: string | null
-  /** Grat can run this agent's ACP sign-in flow itself (it opens the browser) */
+  /** Gui can run this agent's ACP sign-in flow itself (it opens the browser) */
   inAppSignIn: boolean
   /** Official install page, for agents the user installs themselves */
   installUrl?: string
-  /** Sign-in Grat can start in Terminal: the command, and what to do once it runs */
+  /** Sign-in Gui can start in Terminal: the command, and what to do once it runs */
   terminalSignIn?: { command: string; hint: string }
 }
 
@@ -68,7 +68,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
   codex: {
     // Its CLI path (CODEX_PATH) comes from agent-binaries.ts, like Claude Code's.
     launch: adapter('@agentclientprotocol/codex-acp'),
-    signIn: 'Sign in with ChatGPT from the Grat start screen, or run `codex login`.',
+    signIn: 'Sign in with ChatGPT from the Gui start screen, or run `codex login`.',
     inAppSignIn: true,
   },
   grok: {
@@ -322,7 +322,7 @@ export async function findExecutable(command: string, path: string | undefined) 
     return isAbsolute(expanded) && (await isExecutableFile(expanded)) ? expanded : null
   }
   for (const dir of (path ?? '').split(delimiter)) {
-    // A relative PATH entry would resolve against Grat's cwd, not the project's.
+    // A relative PATH entry would resolve against Gui's cwd, not the project's.
     if (!isAbsolute(dir)) continue
     const candidate = join(dir, expanded)
     if (await isExecutableFile(candidate)) return candidate

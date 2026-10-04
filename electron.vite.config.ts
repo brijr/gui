@@ -7,7 +7,7 @@ import { agentBinaries } from './scripts/agent-binaries'
 
 /** Strict CSP for packaged builds; dev needs inline scripts for React Refresh. */
 const csp: Plugin = {
-  name: 'grat-csp',
+  name: 'gui-csp',
   apply: 'build',
   transformIndexHtml: () => [
     {
@@ -25,15 +25,15 @@ const csp: Plugin = {
 export default defineConfig({
   main: {
     build: { externalizeDeps: true },
-    // Agent CLIs aren't bundled; this pins the versions (and hashes) Grat downloads.
-    define: { __GRAT_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))) },
+    // Agent CLIs aren't bundled; this pins the versions (and hashes) Gui downloads.
+    define: { __GUI_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))) },
   },
   preload: {
     // Sandboxed preloads must be CommonJS.
     build: { externalizeDeps: true, rollupOptions: { output: { format: 'cjs' } } },
   },
   renderer: {
-    // Keep Grat's own UI server off 5173/3000 so it never collides with the projects it previews.
+    // Keep Gui's own UI server off 5173/3000 so it never collides with the projects it previews.
     server: { port: 5737, strictPort: true },
     plugins: [react({ babel: { plugins: ['babel-plugin-react-compiler'] } }), tailwindcss(), csp],
     build: {

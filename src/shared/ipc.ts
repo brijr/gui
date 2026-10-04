@@ -96,7 +96,7 @@ export const Events = {
 
 export type Unsubscribe = () => void
 
-export interface GratApi {
+export interface GuiApi {
   getState(): Promise<WindowState>
   onState(cb: (state: WindowState) => void): Unsubscribe
   getLogs(): Promise<string>

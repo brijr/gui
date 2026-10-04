@@ -9,7 +9,7 @@ import {
   useState,
 } from 'react'
 import type { ChatMeta } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton, Spinner, TechnicalDetails } from '../lib/ui'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
@@ -33,7 +33,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   /** Why a file wasn't attached; quiet and short-lived. In the store, as main can set it too. */
   const notice = useChat((s) => s.notice)
 
-  useEffect(() => grat.onChatFocus(() => input.current?.focus()), [])
+  useEffect(() => gui.onChatFocus(() => input.current?.focus()), [])
   useEffect(() => {
     if (!notice) return
     const timer = setTimeout(() => setNotice(null), NOTICE_MS)
@@ -76,7 +76,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       thumbnail,
     }))
     // Keep the draft unless main actually started the turn.
-    if (await grat.send(text, images)) {
+    if (await gui.send(text, images)) {
       setDraft('')
       // Only what went out: an image attached while sending stays for the next message.
       removeAttachments(sent.map((image) => image.id))
@@ -89,7 +89,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       event.preventDefault()
       void submit()
     } else if (event.key === 'Escape' && meta.selection) {
-      grat.clearSelection()
+      gui.clearSelection()
     }
   }
 
@@ -149,7 +149,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
             <Crosshair className="size-4 shrink-0 text-muted" aria-hidden="true" />
           )}
           <SelectionLabel meta={meta} />
-          <IconButton label="Remove selection" onClick={() => grat.clearSelection()}>
+          <IconButton label="Remove selection" onClick={() => gui.clearSelection()}>
             <X className="size-3.5" />
           </IconButton>
         </div>
@@ -212,7 +212,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[13px] text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
         <div className="flex items-center gap-1 px-1.5 pb-1.5">
-          <IconButton label="Select element (⇧⌘C)" onClick={() => grat.toggleSelect()}>
+          <IconButton label="Select element (⇧⌘C)" onClick={() => gui.toggleSelect()}>
             <Crosshair className="size-3.5" />
           </IconButton>
           <IconButton
@@ -241,7 +241,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               type="button"
               aria-label="Stop (⌘.)"
               title="Stop (⌘.)"
-              onClick={() => grat.cancel()}
+              onClick={() => gui.cancel()}
               className="flex size-7 items-center justify-center rounded-md bg-fg text-raised hover:opacity-85"
             >
               <Square className="size-3 fill-current" aria-hidden="true" />
@@ -285,7 +285,7 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
       <button
         type="button"
         disabled={running}
-        onClick={() => void grat.fixProblems()}
+        onClick={() => void gui.fixProblems()}
         className="h-7 shrink-0 rounded-md border border-line-strong bg-raised px-2.5 text-[12px] font-medium hover:bg-hover disabled:opacity-40"
       >
         Fix

@@ -3,7 +3,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import type { ImageAttachment } from '../src/shared/types'
 import { waitFor } from './helpers/env'
-import type { GratSession } from './helpers/session'
+import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 /** What Playwright passes to `app.evaluate` callbacks. */
@@ -21,10 +21,10 @@ interface Size {
 /** State the main-process stubs below keep on `globalThis`. */
 interface StubStore {
   /** Label of the screenshot menu item to choose next; any other label dismisses the menu */
-  gratMenuChoice?: string | null
-  gratMenuStubbed?: boolean
-  gratClipboard?: (Size & { types: string[]; signature: string })[]
-  gratSaveDefault?: string | null
+  guiMenuChoice?: string | null
+  guiMenuStubbed?: boolean
+  guiClipboard?: (Size & { types: string[]; signature: string })[]
+  guiSaveDefault?: string | null
 }
 
 /**
@@ -34,16 +34,16 @@ interface StubStore {
  */
 function answerScreenshotMenu({ Menu }: ElectronModule, label: string) {
   const store = globalThis as unknown as StubStore
-  store.gratMenuChoice = label
-  if (store.gratMenuStubbed) return
-  store.gratMenuStubbed = true
+  store.guiMenuChoice = label
+  if (store.guiMenuStubbed) return
+  store.guiMenuStubbed = true
   const build = Menu.buildFromTemplate.bind(Menu)
   Menu.buildFromTemplate = (template) => {
     const menu = build(template)
-    const choice = store.gratMenuChoice
+    const choice = store.guiMenuChoice
     if (!choice || !menu.items.some((item) => item.label === 'Copy Screenshot')) return menu
     menu.popup = (options) => {
-      store.gratMenuChoice = null
+      store.guiMenuChoice = null
       menu.items.find((item) => item.label === choice && item.enabled)?.click()
       options?.callback?.()
     }
@@ -57,11 +57,11 @@ function answerScreenshotMenu({ Menu }: ElectronModule, label: string) {
  */
 function recordClipboard({ clipboard }: ElectronModule) {
   const store = globalThis as unknown as StubStore
-  store.gratClipboard = []
+  store.guiClipboard = []
   clipboard.write = async (items) => {
     for (const item of items) {
       const png = Buffer.from(await (await item.getType('image/png')).arrayBuffer())
-      store.gratClipboard?.push({
+      store.guiClipboard?.push({
         types: item.types,
         signature: png.subarray(0, 8).toString('hex'),
         width: png.readUInt32BE(16),
@@ -76,22 +76,22 @@ function answerSaveDialog({ dialog }: ElectronModule, filePath: string) {
   const store = globalThis as unknown as StubStore
   dialog.showSaveDialog = ((...args: unknown[]) => {
     const options = args.at(-1) as { defaultPath?: string } | undefined
-    store.gratSaveDefault = options?.defaultPath ?? null
+    store.guiSaveDefault = options?.defaultPath ?? null
     return Promise.resolve({ canceled: false, filePath })
   }) as typeof dialog.showSaveDialog
 }
 
-function stubs(session: GratSession) {
+function stubs(session: GuiSession) {
   return session.app.evaluate(() => {
-    const { gratClipboard = [], gratSaveDefault = null } = globalThis as unknown as StubStore
-    return { clipboard: gratClipboard, saveDefault: gratSaveDefault }
+    const { guiClipboard = [], guiSaveDefault = null } = globalThis as unknown as StubStore
+    return { clipboard: guiClipboard, saveDefault: guiSaveDefault }
   })
 }
 
 /** The toolbar's button, with the menu answered by `label`. */
-async function takeScreenshot(session: GratSession, label: string) {
+async function takeScreenshot(session: GuiSession, label: string) {
   await session.app.evaluate(answerScreenshotMenu, label)
-  return session.chrome.evaluate(() => window.grat.takeScreenshot())
+  return session.chrome.evaluate(() => window.gui.takeScreenshot())
 }
 
 /** Runs in the preview: the visible area and the whole page, in device pixels. */
@@ -131,7 +131,7 @@ function pngSize(file: Buffer): Size {
 }
 
 // The native menu can't be clicked from a test, so each case answers it from main (see
-// answerScreenshotMenu) and goes through the real path: window.grat.takeScreenshot() →
+// answerScreenshotMenu) and goes through the real path: window.gui.takeScreenshot() →
 // ProjectWindow.screenshotMenu() → capture → clipboard, file or composer.
 test('screenshots copy, save and attach the preview at full resolution', async ({ launch }) => {
   const session = await launch({ fixture: 'vite' })
@@ -179,16 +179,16 @@ test('screenshots copy, save and attach the preview at full resolution', async (
 
   // Attached to the composer as the composer would attach an image.
   await session.chat.evaluate(() => {
-    const store = window as unknown as { gratAttached?: ImageAttachment[] }
-    store.gratAttached = []
-    window.grat.onChatAttach((image) => store.gratAttached?.push(image))
+    const store = window as unknown as { guiAttached?: ImageAttachment[] }
+    store.guiAttached = []
+    window.gui.onChatAttach((image) => store.guiAttached?.push(image))
   })
   expect(await takeScreenshot(session, 'Attach to Chat')).toBe('attached')
   const attached = await waitFor(
     () =>
       session.chat.evaluate(() => {
-        const store = window as unknown as { gratAttached?: ImageAttachment[] }
-        return store.gratAttached?.[0] ?? null
+        const store = window as unknown as { guiAttached?: ImageAttachment[] }
+        return store.guiAttached?.[0] ?? null
       }),
     'the attached screenshot',
   )
@@ -216,7 +216,7 @@ test('screenshots copy, save and attach the preview at full resolution', async (
   await session.chat.getByRole('button', { name: 'Send' }).click()
   const started = async () => (await session.chatSnapshot()).turns.length > 0
   await waitFor(started, 'the turn to start', { timeout: 10_000, interval: 25 })
-  await session.chat.evaluate(() => window.grat.cancel())
+  await session.chat.evaluate(() => window.gui.cancel())
   const { turn } = await session.waitForTurn(0, 30_000)
   expect(turn.attachments).toEqual([{ name: attached.name, thumbnail: attached.thumbnail }])
 })
@@ -244,7 +244,7 @@ function chatLayout({ BrowserWindow, WebContentsView }: ElectronModule) {
 
 /** Waits for the chat view's bounds to satisfy `check`. */
 function layoutWhere(
-  session: GratSession,
+  session: GuiSession,
   label: string,
   check: (chat: Bounds) => boolean,
 ): Promise<NonNullable<Awaited<ReturnType<typeof chatLayout>>>> {
@@ -254,7 +254,7 @@ function layoutWhere(
   }, label)
 }
 
-function savedPrefs(session: GratSession) {
+function savedPrefs(session: GuiSession) {
   const file = join(session.fixture.userData, 'prefs.json')
   return JSON.parse(readFileSync(file, 'utf8')) as {
     chatSize?: Size
@@ -262,11 +262,11 @@ function savedPrefs(session: GratSession) {
   }
 }
 
-function resize(session: GratSession, dx: number, dy: number) {
+function resize(session: GuiSession, dx: number, dy: number) {
   return session.chat.evaluate(
     ({ dx, dy }) => {
-      window.grat.resizeChat(dx, dy)
-      window.grat.endResizeChat()
+      window.gui.resizeChat(dx, dy)
+      window.gui.endResizeChat()
     },
     { dx, dy },
   )
@@ -316,7 +316,7 @@ test('the chat panel resizes from its edges and remembers the size', async ({ la
   expect(huge.chat.y).toBe(before.chat.y)
 
   // Docked: the left edge sets the column's width and the preview gets the rest.
-  await session.chat.evaluate(() => window.grat.toggleDock())
+  await session.chat.evaluate(() => window.gui.toggleDock())
   const docked = await layoutWhere(session, 'the docked panel', (chat) => chat.width === 400)
   await resize(session, -100, 0)
   const wider = await layoutWhere(session, 'the wider docked panel', (chat) => chat.width === 500)

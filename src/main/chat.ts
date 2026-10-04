@@ -58,7 +58,7 @@ export interface ChatOptions {
   docked: boolean
   saved: SavedChat | null
   historyFile: string
-  /** Grat's preview tools, offered to every agent session */
+  /** Gui's preview tools, offered to every agent session */
   mcpServers: () => McpServer[]
 }
 
@@ -76,7 +76,7 @@ interface RedoPoint {
   turnIds: string[]
 }
 
-/** The checkpoint Grat last recorded the files at; `complete` is false when a turn's end went unrecorded. */
+/** The checkpoint Gui last recorded the files at; `complete` is false when a turn's end went unrecorded. */
 interface Baseline {
   sha: string
   complete: boolean
@@ -89,7 +89,7 @@ export interface EditScope {
   realRoot: string
   /** Real home folder: its dotfiles and dot-folders, and ~/Library, always ask. */
   home: string
-  /** Other real folders whose files always ask, like Grat's own data */
+  /** Other real folders whose files always ask, like Gui's own data */
   protectedDirs: string[]
 }
 
@@ -112,7 +112,7 @@ const FIX_PROMPT = 'The preview has errors. Find the cause and fix them.'
 const imagePrompt = (count: number) =>
   `Use the attached ${count === 1 ? 'image' : 'images'} as a reference.`
 
-/** Readable labels for Grat's own preview tools, which agents report by raw MCP name. */
+/** Readable labels for Gui's own preview tools, which agents report by raw MCP name. */
 const PREVIEW_TOOL_LABELS: Record<string, string> = {
   preview_screenshot: 'Screenshot the preview',
   preview_inspect: 'Inspect element',
@@ -123,10 +123,10 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
 }
 const PREVIEW_TOOLS = Object.keys(PREVIEW_TOOL_LABELS).join('|')
 /**
- * Exact MCP identities for Grat's tools, anchored at both ends: shell command titles
+ * Exact MCP identities for Gui's tools, anchored at both ends: shell command titles
  * are model-written text and must never be mistaken for a preview tool. Claude reports
- * `mcp__grat__<tool>` (never as `execute`); Codex reports every MCP call as an
- * `execute` titled `mcp.grat.<tool>`. Labels only: nothing is approved by title.
+ * `mcp__gui__<tool>` (never as `execute`); Codex reports every MCP call as an
+ * `execute` titled `mcp.gui.<tool>`. Labels only: nothing is approved by title.
  */
 const CLAUDE_TOOL = new RegExp(`^mcp__${MCP_SERVER_NAME}__(${PREVIEW_TOOLS})$`)
 const CODEX_TOOL = new RegExp(`^mcp\\.${MCP_SERVER_NAME}\\.(${PREVIEW_TOOLS})$`)
@@ -157,7 +157,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private records: TurnRecord[] = []
   private agent: AgentSession | null = null
   private agentInfo: AgentInfo | null = null
-  /** Whether the running agent session was given Grat's preview tools. */
+  /** Whether the running agent session was given Gui's preview tools. */
   private agentHasTools = false
   /** The agent that already received the preamble. */
   private primedAgent: AgentSession | null = null
@@ -617,7 +617,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.root,
       {
         message: `Let ${agent} work in ${promptName(basename(this.root))}?`,
-        detail: `${agent} loads this project's own agent settings (for example .claude/settings.json or opencode.json), which can run commands on your Mac. Only continue for projects you trust. Grat won't ask again for this project.`,
+        detail: `${agent} loads this project's own agent settings (for example .claude/settings.json or opencode.json), which can run commands on your Mac. Only continue for projects you trust. Gui won't ask again for this project.`,
         buttons: ['Continue', 'Cancel'],
         // It follows Return in the composer; pressing it again mustn't be what agrees.
         defaultId: 1,
@@ -689,7 +689,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (this.agent === agent) {
         this.stopAgent()
         const { message, detail } = describeError(error)
-        // Settings → Agents is where Grat installs a missing agent.
+        // Settings → Agents is where Gui installs a missing agent.
         const hint =
           error instanceof AgentMissingError ? ' Set it up in Settings → Agents (⌘,).' : ''
         this.patchMeta({ status: 'error', error: `${message}${hint}`, errorDetail: detail })
@@ -831,7 +831,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.emit('attention')
   }
 
-  /** Edits to ordinary source files inside the project are what Grat is for; approve those. */
+  /** Edits to ordinary source files inside the project are what Gui is for; approve those. */
   private async isRoutineEdit(request: RequestPermissionRequest) {
     const { kind, locations } = request.toolCall
     if (kind !== 'edit' || !locations?.length) return false
@@ -902,13 +902,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const needed = shas.filter((sha): sha is string => sha !== null)
     if (await this.checkpoints.hasCommits(needed)) return
     throw new Error(
-      `Grat's saved checkpoints are missing (was its checkpoints folder deleted?), ${consequence}.`,
+      `Gui's saved checkpoints are missing (was its checkpoints folder deleted?), ${consequence}.`,
     )
   }
 
   /**
    * Undo and redo rewrite whole files, so they'd silently discard edits made outside
-   * Grat (e.g. in the user's editor) since Grat last recorded those files. Asks first.
+   * Gui (e.g. in the user's editor) since Gui last recorded those files. Asks first.
    */
   private async confirmOverwrite(
     baseline: Baseline | null,
@@ -930,10 +930,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const verb = action === 'Undo' ? 'Undoing' : 'Redoing'
     const options: MessageBoxOptions = {
       type: 'warning',
-      message: certain ? 'Overwrite changes made outside Grat?' : 'Overwrite these files?',
+      message: certain ? 'Overwrite changes made outside Gui?' : 'Overwrite these files?',
       detail: certain
-        ? `These files changed after Grat last recorded them, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and those changes will be lost.`
-        : `A turn was interrupted before Grat recorded what it changed, so Grat can't tell whether these files also have changes made outside Grat, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and any such changes will be lost.`,
+        ? `These files changed after Gui last recorded them, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and those changes will be lost.`
+        : `A turn was interrupted before Gui recorded what it changed, so Gui can't tell whether these files also have changes made outside Gui, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and any such changes will be lost.`,
       buttons: [`${action} Anyway`, 'Cancel'],
       defaultId: 1,
       cancelId: 1,
@@ -1059,7 +1059,7 @@ async function realLocation(path: string) {
 /**
  * Where an edit to `path` lands, relative to the project root, when it may be approved
  * without asking; otherwise null. That's never outside the project, never through a
- * symlink inside it (a link can point anywhere, Grat's own data included), only to a plain
+ * symlink inside it (a link can point anywhere, Gui's own data included), only to a plain
  * file or one that doesn't exist yet, and never in the home folder's dotfiles, ~/Library
  * or `protectedDirs`, for projects that contain those.
  */
@@ -1103,7 +1103,7 @@ export async function projectEditPath(path: string, scope: EditScope): Promise<s
   return rel
 }
 
-/** The newest checkpoint of these turns, i.e. how Grat last left the files they touched. */
+/** The newest checkpoint of these turns, i.e. how Gui last left the files they touched. */
 function lastRecorded(turns: TurnRecord[]): Baseline | null {
   let complete = true
   for (const r of [...turns].reverse()) {

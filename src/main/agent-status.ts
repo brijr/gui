@@ -24,7 +24,7 @@ import { runInTerminal } from './terminal'
 const CHECK_TIMEOUT_MS = 45_000
 /** Browser sign-in waits on the user. */
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000
-/** Browser-based sign-in methods Grat can drive; API keys belong in the user's environment. */
+/** Browser-based sign-in methods Gui can drive; API keys belong in the user's environment. */
 const SIGN_IN_METHODS = [
   'claude-ai-login',
   'chat-gpt',
@@ -34,9 +34,9 @@ const SIGN_IN_METHODS = [
   'claude-ai',
   'login',
 ]
-/** Marks a sign-in Grat starts in Terminal rather than through the agent. */
-const TERMINAL_SIGN_IN = 'grat:terminal'
-/** Agents whose CLI Grat pins and can install; checked on every launch. */
+/** Marks a sign-in Gui starts in Terminal rather than through the agent. */
+const TERMINAL_SIGN_IN = 'gui:terminal'
+/** Agents whose CLI Gui pins and can install; checked on every launch. */
 const PINNED: readonly AgentId[] = ['claude', 'codex']
 /** Download progress is pushed to every window; a 100 MB download has thousands of chunks. */
 const PROGRESS_INTERVAL_MS = 150
@@ -80,7 +80,7 @@ const unchecked = (
 })
 
 /**
- * Every agent Grat knows (built in and from agents.json), whether it's installed, and
+ * Every agent Gui knows (built in and from agents.json), whether it's installed, and
  * whether it can start a session, checked by actually starting one in an empty folder.
  * No prompt is sent, so checking costs no usage. Also sets agents up: downloads Claude
  * Code or Codex when missing, and runs sign-in.
@@ -107,7 +107,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   private disposed = false
   /** Agents whose sign-in can run in Terminal, from the catalog */
   private terminalSignIns = new Map<AgentId, NonNullable<AgentDefinition['terminalSignIn']>>()
-  /** Signing in in Terminal right now; checked again when the user comes back to Grat */
+  /** Signing in in Terminal right now; checked again when the user comes back to Gui */
   private awaitingTerminal = new Set<AgentId>()
 
   constructor() {
@@ -173,7 +173,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   }
 
   /**
-   * Claude Code and Codex: downloads the CLI into Grat's data folder, then checks it
+   * Claude Code and Codex: downloads the CLI into Gui's data folder, then checks it
    * (usually: sign in next). Other agents: opens their official install page.
    */
   install(id: AgentId) {
@@ -242,7 +242,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   }
 
   /**
-   * The user came back to Grat: pick up agents installed meanwhile, and re-check ones
+   * The user came back to Gui: pick up agents installed meanwhile, and re-check ones
    * they were signing in to in Terminal (and the default agent, if it's new here).
    */
   async onAppFocus() {
@@ -258,7 +258,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
 
   /**
    * Claude Code or Codex shown as missing that the user has since installed (or updated)
-   * themselves. Only looks for the CLI, without a visible "Checking", so focusing Grat
+   * themselves. Only looks for the CLI, without a visible "Checking", so focusing Gui
    * doesn't flicker every missing agent.
    */
   private async newlyInstalled() {
@@ -274,7 +274,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     return found
   }
 
-  /** Stops every check, download and sign-in in progress (a sign-in would outlive Grat). */
+  /** Stops every check, download and sign-in in progress (a sign-in would outlive Gui). */
   dispose() {
     this.disposed = true
     for (const session of this.sessions) session.dispose()
@@ -310,7 +310,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     this.awaitingTerminal.add(id)
     this.set(id, {
       status: 'signing-in',
-      message: 'Finish signing in in Terminal, then come back to Grat.',
+      message: 'Finish signing in in Terminal, then come back to Gui.',
       detail: null,
     })
   }

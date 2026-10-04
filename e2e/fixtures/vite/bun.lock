@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "grat-e2e-vite",
+      "name": "gui-e2e-vite",
       "dependencies": {
         "react": "^19.2.8",
         "react-dom": "^19.2.8",

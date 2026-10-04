@@ -6,13 +6,13 @@ const quote = (text: string) => `'${text.replace(/'/g, `'\\''`)}'`
 
 /**
  * Opens a Terminal window that runs `command` in the user's login shell, under a short
- * explanation. Only ever called with commands from Grat's own agent catalog.
+ * explanation. Only ever called with commands from Gui's own agent catalog.
  */
 export async function runInTerminal(command: string, intro: string) {
   const dir = join(app.getPath('userData'), 'terminal')
   await mkdir(dir, { recursive: true, mode: 0o700 })
   const file = join(dir, 'sign-in.command')
-  const done = 'echo; echo "All done. You can close this window and go back to Grat."'
+  const done = 'echo; echo "All done. You can close this window and go back to Gui."'
   const script = [
     '#!/bin/sh',
     'clear',

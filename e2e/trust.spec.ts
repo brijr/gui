@@ -11,7 +11,7 @@ test('an untrusted project does not run its dev script', async ({ launch }) => {
   await session.declineConsentDialogs()
   const { root, userData } = session.fixture
 
-  await session.chrome.evaluate((path) => window.grat.openRecent(path), root)
+  await session.chrome.evaluate((path) => window.gui.openRecent(path), root)
   const asked = async () => {
     const prompts = await session.consentPrompts()
     return prompts.length > 0 ? prompts : null

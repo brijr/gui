@@ -63,7 +63,7 @@ const MAX_BUFFER = 32 * 1024 * 1024
 
 /**
  * Branches a team shares or deploys from. Shipping from one starts a new branch, so
- * Grat never commits straight onto them unless the user explicitly picks the branch
+ * Gui never commits straight onto them unless the user explicitly picks the branch
  * they're already on.
  */
 const SHARED_BRANCHES = new Set([
@@ -152,7 +152,7 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
       ? filesTitle(files)
       : ((await gitOrNull(repo, ['log', '-1', '--format=%s'])) ?? 'Update')
   const branch =
-    newBranch || repo.branch === null ? uniqueBranch(`grat/${slugify(title)}`, repo) : repo.branch
+    newBranch || repo.branch === null ? uniqueBranch(`gui/${slugify(title)}`, repo) : repo.branch
 
   return {
     blocked,
@@ -468,7 +468,7 @@ function classifyHost(hostname: string, web: string): { host: Host; web: string 
 }
 
 /**
- * Names Grat hands git as a remote or branch argument: nothing it could read as an
+ * Names Gui hands git as a remote or branch argument: nothing it could read as an
  * option (`-x`, `--upload-pack=…`) or a revision expression (`@{-1}`, `a..b`, `x^`).
  */
 function isSafeName(name: string): boolean {
@@ -911,7 +911,7 @@ async function unstage(repo: Repo, paths: string[]): Promise<void> {
   const args = repo.hasHead
     ? ['restore', '--staged', '--', ...paths]
     : ['rm', '--cached', '--quiet', '-f', '--', ...paths]
-  // Best effort: `commit --only` keeps them out of Grat's commit either way.
+  // Best effort: `commit --only` keeps them out of Gui's commit either way.
   await git(repo, args).catch(() => undefined)
 }
 
@@ -932,7 +932,7 @@ async function switchBranch(repo: Repo, branch: string): Promise<'created' | 'ex
   const exists = repo.refs.has(`refs/heads/${branch}`)
   if (exists && (branch === repo.defaultBranch || SHARED_BRANCHES.has(branch))) {
     throw new Error(
-      `Pick a new branch name. Grat only commits to \`${branch}\` when you’re already on it.`,
+      `Pick a new branch name. Gui only commits to \`${branch}\` when you’re already on it.`,
     )
   }
   try {
@@ -1085,7 +1085,7 @@ async function createWithGh(
 }
 
 /**
- * The host's "new pull request" page, prefilled; null for hosts Grat can't link. Pages
+ * The host's "new pull request" page, prefilled; null for hosts Gui can't link. Pages
  * on a self-hosted GitHub or GitLab are linked but, unlike github.com and gitlab.com,
  * not opened without a click.
  */
@@ -1158,7 +1158,7 @@ async function commitError(repo: Repo, error: unknown): Promise<string> {
   const output = error.output
   if (error.missing) return GIT_MISSING
   if (error.timedOut) {
-    return 'Saving the commit took too long, so Grat stopped it. A check that runs before each commit may be stuck.'
+    return 'Saving the commit took too long, so Gui stopped it. A check that runs before each commit may be stuck.'
   }
   if (
     /Author identity unknown|Committer identity unknown|tell me who you are|unable to auto-detect email|empty ident name/i.test(
@@ -1205,8 +1205,8 @@ async function pushError(repo: Repo, remote: Remote, branch: string, error: unkn
     )
   ) {
     return remote.host === 'github'
-      ? 'Couldn’t push: Grat couldn’t sign in to GitHub. Sign in with GitHub Desktop or `gh auth login`, then try again.'
-      : `Couldn’t push: Grat couldn’t sign in to ${where}. Check that you can push from your Git app, then try again.`
+      ? 'Couldn’t push: Gui couldn’t sign in to GitHub. Sign in with GitHub Desktop or `gh auth login`, then try again.'
+      : `Couldn’t push: Gui couldn’t sign in to ${where}. Check that you can push from your Git app, then try again.`
   }
   if (/\[rejected\]|non-fast-forward|fetch first|Updates were rejected/i.test(output)) {
     return `Couldn’t push: \`${branch}\` on ${where} has changes that aren’t on this computer. Use a different branch name and try again.`

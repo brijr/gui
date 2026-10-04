@@ -86,7 +86,7 @@ export function setPrefs(patch: Partial<Prefs>) {
   try {
     writeFileSync(file(), JSON.stringify(cached, null, 2))
   } catch (error) {
-    console.error('[grat] failed to save preferences', error)
+    console.error('[gui] failed to save preferences', error)
   }
   prefsEvents.emit('change', cached)
 }

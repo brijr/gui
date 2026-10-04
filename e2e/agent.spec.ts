@@ -1,14 +1,14 @@
 import { AGENTS, type AgentId } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
-import type { GratSession } from './helpers/session'
+import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // Real agent turns spend usage on the developer's own login, so they only run on request.
-const requested = process.env.GRAT_E2E_AGENT || undefined
+const requested = process.env.GUI_E2E_AGENT || undefined
 if (requested !== undefined && !AGENTS.some((agent) => agent.id === requested)) {
   const ids = AGENTS.map((agent) => agent.id).join(', ')
-  throw new Error(`GRAT_E2E_AGENT must be one of ${ids}; got "${requested}"`)
+  throw new Error(`GUI_E2E_AGENT must be one of ${ids}; got "${requested}"`)
 }
 
 const BUTTON = 'button.counter'
@@ -24,7 +24,7 @@ interface Approval {
 
 /** Runs in the chat page: answers one permission prompt. */
 function approve({ turnId, itemId, optionId }: Approval) {
-  window.grat.respondPermission(turnId, itemId, optionId)
+  window.gui.respondPermission(turnId, itemId, optionId)
 }
 
 /**
@@ -32,7 +32,7 @@ function approve({ turnId, itemId, optionId }: Approval) {
  * (the outcome must not depend on the developer's own agent permission settings) and
  * recorded in `approved`. If the agent fails to start, fails with its own message.
  */
-async function finishTurn(session: GratSession, index: number, approved: string[]) {
+async function finishTurn(session: GuiSession, index: number, approved: string[]) {
   const deadline = Date.now() + TURN_TIMEOUT
   for (;;) {
     const { meta, turns } = await session.chatSnapshot()
@@ -57,7 +57,7 @@ async function finishTurn(session: GratSession, index: number, approved: string[
 // The product in one run: ask for a change on a picked element, see it land through hot
 // reload, then undo must put the project back exactly as it was and redo must reapply it.
 test.describe('agent turn', () => {
-  test.skip(!requested, 'Set GRAT_E2E_AGENT to an agent id to run agent turns (spends real usage)')
+  test.skip(!requested, 'Set GUI_E2E_AGENT to an agent id to run agent turns (spends real usage)')
 
   test('edit, undo and redo round-trip the picked element', async ({ launch }) => {
     test.setTimeout(10 * 60_000)
@@ -66,7 +66,7 @@ test.describe('agent turn', () => {
     const { root } = session.fixture
     await session.waitForPreview()
 
-    await session.chrome.evaluate((id) => window.grat.setAgent(id), agentId)
+    await session.chrome.evaluate((id) => window.gui.setAgent(id), agentId)
     const switched = async () => (await session.chatSnapshot()).meta.agentId === agentId
     await waitFor(switched, `the ${agentId} agent to be selected`)
 
@@ -76,7 +76,7 @@ test.describe('agent turn', () => {
     const isOriginal = async () => (await session.styleOf(BUTTON, 'backgroundColor')) === initial
 
     await session.pickElement(BUTTON)
-    const sent = await session.chat.evaluate((text) => window.grat.send(text), PROMPT)
+    const sent = await session.chat.evaluate((text) => window.gui.send(text), PROMPT)
     expect(sent).toBe(true)
 
     const approved: string[] = []
@@ -99,7 +99,7 @@ test.describe('agent turn', () => {
     await session.shot('edited')
 
     // Undo: the files go back to how they were before the turn, and the preview follows.
-    await session.chat.evaluate((id) => window.grat.restoreTurn(id), turn.id)
+    await session.chat.evaluate((id) => window.gui.restoreTurn(id), turn.id)
     expect(gitStatus(root)).toBe('')
     const undone = await session.chatSnapshot()
     expect(undone.turns[0]?.reverted).toBe(true)
@@ -107,7 +107,7 @@ test.describe('agent turn', () => {
     await waitFor(isOriginal, 'the original background after undo', { timeout: 45_000 })
 
     // Redo reverses the undo.
-    await session.chat.evaluate(() => window.grat.redo())
+    await session.chat.evaluate(() => window.gui.redo())
     expect(gitStatus(root)).not.toBe('')
     const redone = await session.chatSnapshot()
     expect(redone.turns[0]?.reverted).toBe(false)

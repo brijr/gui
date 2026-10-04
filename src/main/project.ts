@@ -384,7 +384,7 @@ async function findApps(root: string, pkg: PackageJson | null): Promise<Workspac
 export interface DetectedProject {
   project: ProjectInfo
   /**
-   * The monorepo's apps Grat can preview; empty outside a monorepo or when the root's
+   * The monorepo's apps Gui can preview; empty outside a monorepo or when the root's
    * own dev script runs the app. Several with no `project.appDir` means "ask the user".
    */
   apps: WorkspaceApp[]
@@ -392,7 +392,7 @@ export interface DetectedProject {
 
 /**
  * Finds what to run. In a monorepo whose root dev script starts every package at once
- * (turbo, `pnpm -r`), Grat runs one app instead: the remembered `preferredApp`, the only
+ * (turbo, `pnpm -r`), Gui runs one app instead: the remembered `preferredApp`, the only
  * one there is, or (with several) the one the user picks.
  */
 export async function detectProject(

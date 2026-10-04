@@ -2,19 +2,19 @@ import { test as base, expect } from '@playwright/test'
 import { waitFor } from './env'
 import { createFixtureCopy, type FixtureCopy, removeFixtureCopy } from './fixtures'
 import { devServerPids, killAll, pidsInDirectory } from './processes'
-import { type GratSession, type LaunchOptions, launchGrat } from './session'
+import { type GuiSession, type LaunchOptions, launchGui } from './session'
 
 export { expect }
 
-type Launch = (options: LaunchOptions) => Promise<GratSession>
+type Launch = (options: LaunchOptions) => Promise<GuiSession>
 
 interface Fixtures {
   /**
-   * Copies a fixture into a temp dir (own git repo, own Electron profile), launches Grat on
+   * Copies a fixture into a temp dir (own git repo, own Electron profile), launches Gui on
    * it, and after the test quits the app and checks that no dev server outlived it.
    */
   launch: Launch
-  /** Keep the temp directories after the test (GRAT_E2E_KEEP=1) to inspect a failure. */
+  /** Keep the temp directories after the test (GUI_E2E_KEEP=1) to inspect a failure. */
   keepTemp: boolean
 }
 
@@ -37,16 +37,16 @@ async function checkShutdown(copy: FixtureCopy): Promise<string[]> {
 }
 
 export const test = base.extend<Fixtures>({
-  keepTemp: [process.env.GRAT_E2E_KEEP === '1', { option: true }],
+  keepTemp: [process.env.GUI_E2E_KEEP === '1', { option: true }],
 
   launch: async ({ keepTemp }, use, testInfo) => {
     const copies: FixtureCopy[] = []
-    const sessions: GratSession[] = []
+    const sessions: GuiSession[] = []
 
     await use(async (options) => {
       const copy = createFixtureCopy(options.fixture)
       copies.push(copy)
-      const session = await launchGrat(copy, options, testInfo)
+      const session = await launchGui(copy, options, testInfo)
       sessions.push(session)
       return session
     })

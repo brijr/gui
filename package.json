@@ -1,6 +1,6 @@
 {
-  "name": "grat",
-  "productName": "Grat",
+  "name": "gui",
+  "productName": "Gui",
   "version": "0.1.0",
   "description": "Design real interfaces with your own AI agents",
   "private": true,

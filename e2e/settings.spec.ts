@@ -2,32 +2,32 @@ import { realpathSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import type { SettingsState } from '../src/shared/types'
 import { waitFor } from './helpers/env'
-import type { GratSession } from './helpers/session'
+import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 /** The Settings window's page, once its preload is up. */
-async function settingsPage(session: GratSession): Promise<Page> {
+async function settingsPage(session: GuiSession): Promise<Page> {
   const find = () =>
     session.app
       .context()
       .pages()
       .find((page) => page.url().endsWith('/settings.html'))
   const page = await waitFor(find, 'the Settings window', { timeout: 30_000 })
-  await page.waitForFunction(() => 'grat' in window)
+  await page.waitForFunction(() => 'gui' in window)
   return page
 }
 
 /** Polls the Settings state until `check` passes. */
 function settingsWhere(page: Page, label: string, check: (settings: SettingsState) => boolean) {
   return waitFor(async () => {
-    const settings = await page.evaluate(() => window.grat.getSettings())
+    const settings = await page.evaluate(() => window.gui.getSettings())
     return check(settings) ? settings : null
   }, label)
 }
 
-/** Screenshots only on request (GRAT_E2E_SHOTS=1), like the session helper's. */
+/** Screenshots only on request (GUI_E2E_SHOTS=1), like the session helper's. */
 async function shot(page: Page, name: string) {
-  if (process.env.GRAT_E2E_SHOTS !== '1') return
+  if (process.env.GUI_E2E_SHOTS !== '1') return
   await page.screenshot({ path: test.info().outputPath(`${name}.png`) })
 }
 
@@ -39,7 +39,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   const root = realpathSync(session.fixture.root)
 
   // Opened at a section from the project window; the page shows that section.
-  await session.chrome.evaluate(() => window.grat.openSettings('storage'))
+  await session.chrome.evaluate(() => window.gui.openSettings('storage'))
   const page = await settingsPage(session)
   await expect(page.getByRole('heading', { level: 1, name: 'Storage' })).toBeVisible()
   const measured = await settingsWhere(page, 'storage to be measured', (s) =>
@@ -100,7 +100,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
 
   // Revoking trust means the dev script asks again next time.
   await page.getByRole('button', { name: 'Projects' }).click()
-  expect((await page.evaluate(() => window.grat.getSettings())).trustedProjects).toContain(root)
+  expect((await page.evaluate(() => window.gui.getSettings())).trustedProjects).toContain(root)
   await shot(page, 'projects')
   await page.getByRole('button', { name: `Revoke trust for ${root}` }).click()
   await settingsWhere(page, 'trust to be revoked', (s) => !s.trustedProjects.includes(root))

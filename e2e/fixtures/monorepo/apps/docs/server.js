@@ -1,4 +1,4 @@
-import { page } from '@grat-e2e/ui'
+import { page } from '@gui-e2e/ui'
 
 const server = Bun.serve({
   port: 0,

@@ -65,7 +65,7 @@ export async function askToTrust(
   if (response !== 0) return false
   // If it can't be saved, this run still goes ahead and the next one asks again.
   await trust(root).catch((error: unknown) => {
-    console.error('[grat] failed to trust the project', error)
+    console.error('[gui] failed to trust the project', error)
   })
   return true
 }

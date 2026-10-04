@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatMeta, ChatSnapshot, ImageAttachment, Turn } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
 
 interface ChatStore {
@@ -66,13 +66,13 @@ function upsertTurn(turn: Turn) {
 
 export function connectChat() {
   const offs = [
-    grat.onChatMeta((meta) => useChat.setState({ meta })),
-    grat.onChatTurn(upsertTurn),
-    grat.onChatReset(applySnapshot),
+    gui.onChatMeta((meta) => useChat.setState({ meta })),
+    gui.onChatTurn(upsertTurn),
+    gui.onChatReset(applySnapshot),
     // Here rather than in the composer, which isn't mounted while the panel is minimized.
-    grat.onChatAttach(attachFromMain),
+    gui.onChatAttach(attachFromMain),
   ]
-  void grat.getChat().then((snapshot) => {
+  void gui.getChat().then((snapshot) => {
     if (!useChat.getState().meta) applySnapshot(snapshot)
   })
   return () => {

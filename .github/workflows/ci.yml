@@ -46,7 +46,7 @@ jobs:
       - run: bun run lint
 
       # Builds the app, then runs the Playwright suite against it. Agent turns need a real
-      # agent login and stay skipped (GRAT_E2E_AGENT is not set).
+      # agent login and stay skipped (GUI_E2E_AGENT is not set).
       - run: bun run test:e2e
 
       - name: Upload E2E results

@@ -17,7 +17,7 @@ import {
 } from 'react'
 import { create } from 'zustand'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { Button, IconButton, Spinner } from '../lib/ui'
@@ -69,7 +69,7 @@ async function loadShipInfo() {
   const current = generation
   let loaded: Loaded
   try {
-    const info = await grat.getShipInfo()
+    const info = await gui.getShipInfo()
     if (!info) loaded = { kind: 'blocked', message: 'Open a project first.' }
     else if (info.blocked) loaded = { kind: 'blocked', message: info.blocked }
     else loaded = { kind: 'ready', info }
@@ -97,7 +97,7 @@ async function submitShip(info: ShipInfo) {
   }
   useShipSheet.setState({ busy: true, error: null })
   try {
-    const result = await grat.ship(request)
+    const result = await gui.ship(request)
     // The pull request isn't open until they finish it in the browser, so go there now.
     if (opensByItself(result) && result.url) openExternal(result.url)
     useShipSheet.setState({ busy: false, done: { result, info } })
@@ -113,7 +113,7 @@ function openExternal(url: string) {
   if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener')
 }
 
-/** Hosts whose pull request pages Grat builds itself. */
+/** Hosts whose pull request pages Gui builds itself. */
 const KNOWN_HOSTS = new Map([
   ['github.com', 'GitHub'],
   ['gitlab.com', 'GitLab'],
@@ -135,7 +135,7 @@ export function linkTarget(url: string | null): { host: string; known: string | 
 }
 
 /**
- * Only the new-pull-request page Grat built for github.com or gitlab.com opens without a
+ * Only the new-pull-request page Gui built for github.com or gitlab.com opens without a
  * click. Any other link (a self-hosted server's, or one a server printed while pushing)
  * waits behind a button that names its host. Exported for tests.
  */

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Grat Next fixture',
+  title: 'Gui Next fixture',
 }
 
 export default function RootLayout({ children }: { children: ReactNode }) {

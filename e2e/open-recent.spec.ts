@@ -4,7 +4,7 @@ import { expect, test } from './helpers/test'
 
 /** Runs in the chrome page: two open requests back to back, like a double click. */
 function openTwice(root: string) {
-  return Promise.all([window.grat.openRecent(root), window.grat.openRecent(root)])
+  return Promise.all([window.gui.openRecent(root), window.gui.openRecent(root)])
 }
 
 // A double click on a recent project must not open a second window or start a second
@@ -32,7 +32,7 @@ test('double openRecent yields one window and one dev server', async ({ launch }
   expect(devServerPids(root)).toHaveLength(1)
 
   // The logs drawer streams the dev server's own output (not just the echoed command).
-  await session.chrome.evaluate(() => window.grat.setLogsOpen(true))
+  await session.chrome.evaluate(() => window.gui.setLogsOpen(true))
   const readTerminal = () =>
     session.chrome.evaluate(() => document.querySelector('.xterm-rows')?.textContent ?? '')
   const hasServerOutput = async () => /VITE|Local:|localhost/i.test(await readTerminal())

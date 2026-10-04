@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "grat-e2e-next",
+      "name": "gui-e2e-next",
       "dependencies": {
         "next": "16.3.8",
         "react": "19.2.8",

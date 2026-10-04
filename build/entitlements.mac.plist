@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
-  Main executable (Grat.app/Contents/MacOS/Grat), signed with the hardened runtime. The agent
+  Main executable (Gui.app/Contents/MacOS/Gui), signed with the hardened runtime. The agent
   adapters run as this same executable via ELECTRON_RUN_AS_NODE, so this applies to them too.
 
   Deliberately absent:

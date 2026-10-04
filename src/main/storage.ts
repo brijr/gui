@@ -6,7 +6,7 @@ import { shadowRepoName } from './checkpoints'
 import { historyFile } from './history'
 
 /** Session partition the previewed apps run in; its cookies and storage persist. */
-export const PREVIEW_PARTITION = 'persist:grat-preview'
+export const PREVIEW_PARTITION = 'persist:gui-preview'
 
 const dirs: Record<StorageKind, () => string> = {
   chats: () => join(app.getPath('userData'), 'chats'),

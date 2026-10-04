@@ -1,1 +1,1 @@
-module.exports = 'Grat fresh fixture'
+module.exports = 'Gui fresh fixture'

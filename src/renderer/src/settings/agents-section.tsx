@@ -7,7 +7,7 @@ import {
   type SettingsState,
 } from '../../../shared/types'
 import { AgentCard } from '../agents/agent-card'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, Spinner } from '../lib/ui'
 import { AgentRow } from './agent-row'
@@ -36,7 +36,7 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       <section aria-labelledby={foundId} className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
           <GroupHeading id={foundId}>Installed agents</GroupHeading>
-          <Button variant="ghost" onClick={() => grat.checkAgents()}>
+          <Button variant="ghost" onClick={() => gui.checkAgents()}>
             Check again
           </Button>
         </div>
@@ -50,14 +50,14 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
                 actions={
                   // A failed Claude Code or Codex download can be retried from here.
                   agent.install && agent.status === 'error' ? (
-                    <Button onClick={() => void grat.installAgent(agent.id)}>Try again</Button>
+                    <Button onClick={() => void gui.installAgent(agent.id)}>Try again</Button>
                   ) : undefined
                 }
               />
             ))}
           </List>
         ) : (
-          <p className="text-muted">None of Grat's agents are installed yet.</p>
+          <p className="text-muted">None of Gui's agents are installed yet.</p>
         )}
       </section>
 
@@ -79,8 +79,8 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 
 function NotInstalledRow({ agent }: { agent: AgentHealth }) {
   const command = agent.command ?? agent.id
-  // Claude Code and Codex: Grat downloads them; other agents: their install page.
-  const label = agent.install === 'update' ? "Install Grat's copy" : 'Install'
+  // Claude Code and Codex: Gui downloads them; other agents: their install page.
+  const label = agent.install === 'update' ? "Install Gui's copy" : 'Install'
   return (
     <li className="flex items-center gap-3 px-3 py-2">
       <div className="min-w-0 flex-1">
@@ -97,7 +97,7 @@ function NotInstalledRow({ agent }: { agent: AgentHealth }) {
         </p>
       </div>
       {(agent.install || agent.installUrl) && (
-        <Button onClick={() => void grat.installAgent(agent.id)}>{label}</Button>
+        <Button onClick={() => void gui.installAgent(agent.id)}>{label}</Button>
       )}
     </li>
   )
@@ -157,7 +157,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <AdvancedToggle id={headingId} open onToggle={() => setOpen(false)} />
-        <Button variant="ghost" onClick={() => grat.openCustomAgentsFile()}>
+        <Button variant="ghost" onClick={() => gui.openCustomAgentsFile()}>
           Edit agents.json
         </Button>
       </div>
@@ -178,7 +178,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
       )}
 
       <p className="text-pretty text-[11.5px] text-subtle">
-        Any ACP agent can be added here. Grat finds agents on your login shell's PATH.
+        Any ACP agent can be added here. Gui finds agents on your login shell's PATH.
       </p>
     </section>
   )
@@ -195,7 +195,7 @@ function AgentsFileError({ message }: { message: string }) {
           Custom agents can't be changed here until it's fixed.
         </p>
       </div>
-      <Button onClick={() => grat.openCustomAgentsFile()}>Open agents.json</Button>
+      <Button onClick={() => gui.openCustomAgentsFile()}>Open agents.json</Button>
     </div>
   )
 }
@@ -214,7 +214,7 @@ function CustomAgentRow({ entry, health, locked, onEdit }: CustomAgentRowProps) 
 
   const askRemove = () => setConfirming(true)
   const cancelRemove = () => setConfirming(false)
-  const confirmRemove = () => void remove.run(() => grat.deleteCustomAgent(entry.name))
+  const confirmRemove = () => void remove.run(() => gui.deleteCustomAgent(entry.name))
 
   const detail = (
     <>

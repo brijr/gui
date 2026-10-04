@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import {
@@ -47,15 +47,60 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
-app.setName('Grat')
+app.setName('Gui')
+
+/** What a data folder holds once it's been used; a fresh one only has Chromium's files. */
+const OWN_DATA = ['prefs.json', 'trusted-projects.json', 'recent-projects.json', 'chats', 'agents']
+
+/** Chromium's SingletonLock points at `<host>-<pid>` while that app is running. */
+function inUse(dir: string) {
+  try {
+    const pid = Number(readlinkSync(join(dir, 'SingletonLock')).split('-').at(-1))
+    if (!Number.isInteger(pid) || pid <= 0) return false
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
+/**
+ * Gui used to be called Grat. On its first launch, carry Grat's data over (trusted
+ * projects, chats and their undo history, downloaded agents, settings), unless Grat is
+ * still running or Gui already has data of its own.
+ */
+function adoptGratData(from: string, to: string) {
+  if (!existsSync(from) || inUse(from)) return
+  if (OWN_DATA.some((name) => existsSync(join(to, name)))) return
+  try {
+    mkdirSync(to, { recursive: true, mode: 0o700 })
+    for (const entry of readdirSync(from)) {
+      // Stale locks stay behind, and anything Gui already made wins.
+      if (entry.startsWith('Singleton') || existsSync(join(to, entry))) continue
+      renameSync(join(from, entry), join(to, entry))
+    }
+    const preview = join(to, 'Partitions', 'grat-preview')
+    const renamed = join(to, 'Partitions', 'gui-preview')
+    if (existsSync(preview) && !existsSync(renamed)) renameSync(preview, renamed)
+    rmSync(from, { recursive: true, force: true })
+  } catch (error) {
+    console.error('[gui] could not carry over Grat data', error)
+  }
+}
 
 // Dev builds keep their own data: sharing the installed app's would let both work on one
 // project's history and shadow repo at once. Tests pick a folder with --user-data-dir.
 // Must run before anything reads userData, including the single-instance lock below.
-if (!app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
-  const devData = join(app.getPath('appData'), 'Grat Dev')
-  mkdirSync(devData, { recursive: true, mode: 0o700 })
-  app.setPath('userData', devData)
+if (!app.commandLine.hasSwitch('user-data-dir')) {
+  const appData = app.getPath('appData')
+  if (app.isPackaged) {
+    adoptGratData(join(appData, 'Grat'), app.getPath('userData'))
+  } else {
+    const devData = join(appData, 'Gui Dev')
+    adoptGratData(join(appData, 'Grat Dev'), devData)
+    mkdirSync(devData, { recursive: true, mode: 0o700 })
+    app.setPath('userData', devData)
+  }
 }
 
 const VIEWPORTS: readonly Viewport[] = ['desktop', 'tablet', 'mobile']
@@ -417,14 +462,14 @@ async function isEditingText(wc: WebContents) {
 }
 
 /**
- * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Grat or the previewed app);
+ * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Gui or the previewed app);
  * otherwise, including from an empty chat box, they undo or redo the agent's last change.
  */
 async function editHistory(direction: 'undo' | 'redo') {
   const wc = webContents.getFocusedWebContents()
   const textEdit = () => (direction === 'undo' ? wc?.undo() : wc?.redo())
   if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
-  // With no Grat window focused (e.g. the menu clicked from a script), a lone project
+  // With no Gui window focused (e.g. the menu clicked from a script), a lone project
   // window is the only one it can mean.
   const lone = BrowserWindow.getFocusedWindow() === null && allWindows().length === 1
   const win = focusedWindow() ?? (lone ? allWindows()[0] : undefined)
@@ -563,7 +608,7 @@ function focusExistingWindow() {
     return
   }
   if (win.win.isMinimized()) win.win.restore()
-  // The user just launched Grat again, so coming to the front is what they asked for.
+  // The user just launched Gui again, so coming to the front is what they asked for.
   if (process.platform === 'darwin') app.focus({ steal: true })
   win.win.focus()
 }
@@ -574,7 +619,7 @@ function shutdown() {
   agentHealth.dispose()
 }
 
-// One Grat per data folder: two would delete each other's live shadow-repo lock and
+// One Gui per data folder: two would delete each other's live shadow-repo lock and
 // overwrite each other's history. The lock is keyed on userData, so a dev build or a
 // test with its own --user-data-dir still runs alongside.
 if (!app.requestSingleInstanceLock()) {
@@ -595,7 +640,7 @@ if (!app.requestSingleInstanceLock()) {
     buildMenu()
     // The Agent menu lists what's installed and signed in.
     agentHealth.on('change', buildMenu)
-    // Pick up agents installed (or added to agents.json) while Grat was in the background.
+    // Pick up agents installed (or added to agents.json) while Gui was in the background.
     app.on('browser-window-focus', () => void agentHealth.onAppFocus())
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
@@ -603,7 +648,7 @@ if (!app.requestSingleInstanceLock()) {
     const win = createWindow()
     // Know up front whether the likely agents are ready or need sign-in; costs no usage.
     void agentHealth.checkOnLaunch(getPrefs().agentId)
-    const initial = process.env.GRAT_OPEN
+    const initial = process.env.GUI_OPEN
     if (initial) openSafely(win, resolve(initial))
   })
 

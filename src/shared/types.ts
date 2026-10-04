@@ -31,8 +31,8 @@ export function agentName(id: AgentId) {
   return AGENTS.find((agent) => agent.id === id)?.name ?? id
 }
 
-/** Where an agent's CLI comes from: the user's own install, Grat's download, or dev's node_modules */
-export type AgentBinarySource = 'yours' | 'grat' | 'bundled'
+/** Where an agent's CLI comes from: the user's own install, Gui's download, or dev's node_modules */
+export type AgentBinarySource = 'yours' | 'gui' | 'bundled'
 
 export interface AgentHealth {
   id: AgentId
@@ -49,19 +49,19 @@ export interface AgentHealth {
   message: string | null
   /** Technical detail behind `message` (exit code, stderr), shown on request */
   detail: string | null
-  /** The CLI this agent needs on PATH; null when Grat bundles everything it needs */
+  /** The CLI this agent needs on PATH; null when Gui bundles everything it needs */
   command: string | null
   /** The agent's official install page, for agents the user installs themselves */
   installUrl: string | null
   /** Switched on in Settings; disabled agents are hidden from menus and not checked */
   enabled: boolean
-  /** A sign-in flow Grat can start for this agent, when it offers one */
+  /** A sign-in flow Gui can start for this agent, when it offers one */
   signIn: { methodId: string; label: string } | null
-  /** Grat can download the agent's CLI: `update` when the user's own is incompatible */
+  /** Gui can download the agent's CLI: `update` when the user's own is incompatible */
   install: 'install' | 'update' | null
   /** Download progress while installing: bytes so far and total (null when unknown) */
   progress: { received: number; total: number | null } | null
-  /** The CLI Grat runs for this agent, once found */
+  /** The CLI Gui runs for this agent, once found */
   binary: { source: AgentBinarySource; version: string } | null
 }
 
@@ -78,7 +78,7 @@ export interface ProjectInfo {
   appDir: string | null
 }
 
-/** An app inside a monorepo that Grat can preview */
+/** An app inside a monorepo that Gui can preview */
 export interface WorkspaceApp {
   /** POSIX path relative to the project root */
   dir: string
@@ -335,7 +335,7 @@ export interface ShipResult {
   commit: string
   /**
    * `created`: the PR exists (`url`). `compare`: pushed, and `url` opens the host's
-   * new-PR page to finish in the browser. `pushed`: pushed to a host Grat can't link.
+   * new-PR page to finish in the browser. `pushed`: pushed to a host Gui can't link.
    * `committed`: no remote, committed locally only.
    */
   outcome: 'created' | 'compare' | 'pushed' | 'committed'

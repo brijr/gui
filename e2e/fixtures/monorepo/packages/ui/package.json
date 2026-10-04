@@ -1,5 +1,5 @@
 {
-  "name": "@grat-e2e/ui",
+  "name": "@gui-e2e/ui",
   "private": true,
   "type": "module",
   "main": "index.js",

@@ -6,13 +6,13 @@ import {
   type AgentId,
   agentName,
 } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { Button, Spinner, TechnicalDetails } from '../lib/ui'
 
 interface AgentCardProps {
   agentId: AgentId
-  /** The agent's status; null when Grat doesn't know it (e.g. removed from agents.json) */
+  /** The agent's status; null when Gui doesn't know it (e.g. removed from agents.json) */
   health: AgentHealth | null
   /** The control for picking another agent (a menu on the start screen, a select in Settings) */
   change: ReactNode
@@ -57,8 +57,8 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
 
   if (!health) {
     return (
-      <Step tone="danger" text={`Grat can't find ${name}. Pick another agent or add it back.`}>
-        <Button onClick={() => grat.openSettings('agents')}>Agent settings</Button>
+      <Step tone="danger" text={`Gui can't find ${name}. Pick another agent or add it back.`}>
+        <Button onClick={() => gui.openSettings('agents')}>Agent settings</Button>
       </Step>
     )
   }
@@ -66,14 +66,14 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
   if (!health.enabled) {
     return (
       <Step text={`${name} is turned off.`}>
-        <Button onClick={() => grat.setAgentEnabled(health.id, true)}>Turn on</Button>
+        <Button onClick={() => gui.setAgentEnabled(health.id, true)}>Turn on</Button>
       </Step>
     )
   }
 
-  // Claude Code and Codex: Grat downloads the CLI. Other agents: opens their install page.
-  const install = () => void perform(() => grat.installAgent(health.id))
-  const checkAgain = <Button onClick={() => grat.checkAgents()}>Check again</Button>
+  // Claude Code and Codex: Gui downloads the CLI. Other agents: opens their install page.
+  const install = () => void perform(() => gui.installAgent(health.id))
+  const checkAgain = <Button onClick={() => gui.checkAgents()}>Check again</Button>
 
   switch (health.status) {
     case 'ready':
@@ -89,14 +89,14 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
         return (
           <Step text={health.message ?? `${name} isn't installed yet.`} error={error}>
             <Button variant="primary" onClick={install}>
-              {health.install === 'update' ? "Install Grat's copy" : 'Install'}
+              {health.install === 'update' ? "Install Gui's copy" : 'Install'}
             </Button>
           </Step>
         )
       }
       return (
         <Step
-          text={`${name} isn't installed yet. Install it, then come back. Grat picks it up on its own.`}
+          text={`${name} isn't installed yet. Install it, then come back. Gui picks it up on its own.`}
           note={health.command ? `Needs the ${health.command} command on your PATH.` : undefined}
           error={error}
         >
@@ -118,7 +118,7 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
           error={error}
         >
           {health.signIn ? (
-            <Button variant="primary" onClick={() => void perform(() => grat.signIn(health.id))}>
+            <Button variant="primary" onClick={() => void perform(() => gui.signIn(health.id))}>
               {health.signIn.label}
             </Button>
           ) : (
@@ -134,14 +134,14 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
           error={error}
         >
           {/* `install` stays set after a failed download, so the same button retries it */}
-          <Button onClick={health.install ? install : () => grat.checkAgents()}>Try again</Button>
+          <Button onClick={health.install ? install : () => gui.checkAgents()}>Try again</Button>
           {health.detail && <TechnicalDetails text={health.detail} className="w-full" />}
         </Step>
       )
     default:
       return (
         <Step text={`${name} hasn't been checked yet.`}>
-          <Button onClick={() => grat.checkAgents()}>Check</Button>
+          <Button onClick={() => gui.checkAgents()}>Check</Button>
         </Step>
       )
   }
@@ -149,11 +149,11 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
 
 const BINARY_SOURCES: Record<AgentBinarySource, string> = {
   yours: 'Your install',
-  grat: 'Installed by Grat',
+  gui: 'Installed by Gui',
   bundled: 'Bundled (dev)',
 }
 
-/** Ready, and which CLI Grat runs for it when it knows (Claude Code and Codex). */
+/** Ready, and which CLI Gui runs for it when it knows (Claude Code and Codex). */
 function Ready({ binary }: { binary: AgentHealth['binary'] }) {
   return (
     <div className="flex items-center gap-2">
@@ -176,7 +176,7 @@ const megabytes = (bytes: number) => Math.round(bytes / 1e6)
 function progressText(received: number, total: number | null) {
   if (received === 0) return 'Starting download…'
   if (total === null) return `Downloading ${megabytes(received)} MB`
-  // The download is done; Grat is unpacking and checking it.
+  // The download is done; Gui is unpacking and checking it.
   if (received >= total) return 'Finishing up…'
   return `Downloading ${megabytes(received)} of ${megabytes(total)} MB`
 }

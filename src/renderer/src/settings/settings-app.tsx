@@ -1,7 +1,7 @@
 import { Bot, FolderOpen, HardDrive, MessageSquare } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { SettingsSection, SettingsState } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { AgentsSection } from './agents-section'
 import { ChatSection } from './chat-section'
@@ -25,7 +25,7 @@ const SECTIONS: readonly SectionInfo[] = [
 export function SettingsApp() {
   const settings = useSettings()
   const [section, setSection] = useState<SettingsSection>('agents')
-  useEffect(() => grat.onSettingsSection(setSection), [])
+  useEffect(() => gui.onSettingsSection(setSection), [])
   const title = SECTIONS.find((item) => item.id === section)?.label
 
   return (

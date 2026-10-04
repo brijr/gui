@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { CustomAgentEntry } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { Button, Spinner } from '../lib/ui'
@@ -91,7 +91,7 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
     setStatus({ kind: 'saving' })
     try {
       const entry: CustomAgentEntry = { name, command, args: lines(draft.args), env: env.env }
-      await grat.saveCustomAgent(original?.name ?? null, entry)
+      await gui.saveCustomAgent(original?.name ?? null, entry)
       onDone()
     } catch (err) {
       setStatus({ kind: 'error', message: readableError(err) })

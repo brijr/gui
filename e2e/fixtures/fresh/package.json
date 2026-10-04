@@ -1,5 +1,5 @@
 {
-  "name": "grat-e2e-fresh",
+  "name": "gui-e2e-fresh",
   "private": true,
   "type": "module",
   "packageManager": "bun@1.2.0",

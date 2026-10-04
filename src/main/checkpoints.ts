@@ -224,9 +224,9 @@ export class Checkpoints {
     argv.push(
       '--literal-pathspecs',
       '-c',
-      'user.name=grat',
+      'user.name=gui',
       '-c',
-      'user.email=grat@localhost',
+      'user.email=gui@localhost',
       '-c',
       'core.autocrlf=false',
       '-c',

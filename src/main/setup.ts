@@ -111,7 +111,7 @@ export async function createEnvFile(root: string, env: { example: string; target
 
 /**
  * The env file to open, refusing anything but a regular file in the project: a symlink
- * planted there could point Grat at any file or app on the Mac.
+ * planted there could point Gui at any file or app on the Mac.
  */
 export async function envFile(root: string, target: string) {
   const path = await envPath(root, target)

@@ -17,7 +17,7 @@ export interface SavedChat {
   agentId: AgentId
   /** Agent session to resume, if the agent supports it */
   sessionId: string | null
-  /** Whether that session has received Grat's instructions (absent in older files) */
+  /** Whether that session has received Gui's instructions (absent in older files) */
   primed?: boolean
   /** Whether those instructions included the preview tools */
   primedWithTools?: boolean
@@ -58,7 +58,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
   } catch (error) {
     // Keep what's there for recovery instead of letting the next save overwrite it.
     const aside = `${file.replace(/\.json$/, '')}.corrupt-${Date.now()}.json`
-    console.error(`[grat] unreadable chat history, moved to ${aside}`, error)
+    console.error(`[gui] unreadable chat history, moved to ${aside}`, error)
     await rename(file, aside).catch(() => undefined)
     return null
   }
@@ -176,7 +176,7 @@ export class HistoryWriter {
       writeFileSync(tmp, serialize(this.read()), { mode: 0o600, flag: 'wx' })
       renameSync(tmp, this.file)
     } catch (error) {
-      console.error('[grat] failed to save chat history', error)
+      console.error('[gui] failed to save chat history', error)
       try {
         rmSync(tmp, { force: true })
       } catch {
@@ -198,7 +198,7 @@ export class HistoryWriter {
         if (this.closed) await rm(tmp, { force: true })
         else renameSync(tmp, this.file)
       } catch (error) {
-        console.error('[grat] failed to save chat history', error)
+        console.error('[gui] failed to save chat history', error)
         await rm(tmp, { force: true }).catch(() => undefined)
       }
     }

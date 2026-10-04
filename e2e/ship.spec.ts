@@ -6,17 +6,17 @@ import { waitFor } from './helpers/env'
 import { git } from './helpers/fixtures'
 import { expect, test } from './helpers/test'
 
-const MARKER = '// Shipped from Grat e2e'
+const MARKER = '// Shipped from Gui e2e'
 const SECRET = 'VITE_API_TOKEN=do-not-commit'
 
 /** Runs in the chat page. */
 function getShipInfo() {
-  return window.grat.getShipInfo()
+  return window.gui.getShipInfo()
 }
 
 /** Runs in the chat page. */
 function shipChanges(request: ShipRequest) {
-  return window.grat.ship(request)
+  return window.gui.ship(request)
 }
 
 /** Files at `ref` in a repository (bare or not). */
@@ -25,7 +25,7 @@ function treeOf(repo: string, ref: string): string[] {
 }
 
 // "Create pull request" runs git in the user's real repository. A local bare repo stands in
-// for GitHub so nothing touches the network; it isn't a host Grat can link, so the outcome
+// for GitHub so nothing touches the network; it isn't a host Gui can link, so the outcome
 // is a push without a pull request page. No agent turn runs, so no usage is spent.
 test('create pull request commits to a new branch, pushes it, and leaves secrets out', async ({
   launch,
@@ -39,7 +39,7 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
   git(root, 'branch', '-M', 'main')
   git(root, 'commit', '--quiet', '-am', 'track .local files')
   // The app commits with the repository's own identity and hooks; pin both for the test.
-  git(root, 'config', 'user.name', 'Grat E2E')
+  git(root, 'config', 'user.name', 'Gui E2E')
   git(root, 'config', 'user.email', 'e2e@example.com')
   git(root, 'config', 'commit.gpgsign', 'false')
   git(root, 'config', 'core.hooksPath', '/dev/null')
@@ -66,7 +66,7 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
   expect(info.files.map((file) => file.path)).not.toContain('.env.local')
   expect(info.skipped).toContain('.env.local')
   expect(info.remote?.host).toBe('other')
-  expect(info.suggestion.branch).toMatch(/^grat\/[a-z0-9-]+$/)
+  expect(info.suggestion.branch).toMatch(/^gui\/[a-z0-9-]+$/)
   expect(info.suggestion.title).not.toBe('')
 
   await checkSheet(session.chat, info)
@@ -124,7 +124,7 @@ async function checkSheet(chat: Page, info: ShipInfo) {
   // dispatchEvent: the chat view can be hidden or offscreen, and only the DOM matters here.
   await open.dispatchEvent('click')
   await expect.soft(chat.getByRole('textbox', { name: 'Title' })).toHaveValue(info.suggestion.title)
-  // A remote Grat can't link: no pull request page, so the action is a plain push.
+  // A remote Gui can't link: no pull request page, so the action is a plain push.
   await expect.soft(chat.getByRole('button', { name: 'Commit and push' })).toHaveCount(1)
   const back = chat.getByRole('button', { name: 'Back to chat' })
   if ((await back.count()) > 0) await back.first().dispatchEvent('click')

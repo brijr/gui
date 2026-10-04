@@ -151,7 +151,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     })
   }
 
-  /** A message from Grat itself, shown in the log and as the status line. */
+  /** A message from Gui itself, shown in the log and as the status line. */
   print(message: string) {
     this.write(`${ESC}[33m${message}${ESC}[0m\r\n`)
     // Output coalesced before it must not replace it.

@@ -3,8 +3,8 @@ import { expect, test } from './helpers/test'
 
 /** Runs in the chat page: two sends queued back to back, so the first is still starting. */
 function sendTwice() {
-  const first = window.grat.send('Make the counter button red.')
-  const second = window.grat.send('A second message while the first is running.')
+  const first = window.gui.send('Make the counter button red.')
+  const second = window.gui.send('A second message while the first is running.')
   return Promise.all([first, second])
 }
 
@@ -22,7 +22,7 @@ test('busy chat rejects sends and a cancelled start leaves no trace', async ({ l
   expect.soft(accepted).toEqual([true, false])
 
   // Stopping during startup is a cancel, not an agent error, and nothing was written.
-  await session.chat.evaluate(() => window.grat.cancel())
+  await session.chat.evaluate(() => window.gui.cancel())
   const first = await session.waitForTurn(0, 30_000)
   expect(first.turn.status).toBe('cancelled')
   expect(first.turn.error).toBeNull()
@@ -31,9 +31,9 @@ test('busy chat rejects sends and a cancelled start leaves no trace', async ({ l
   expect(gitStatus(root)).toBe('')
 
   // The busy lock is released by the cancel; otherwise the chat would be stuck for good.
-  const again = await session.chat.evaluate(() => window.grat.send('Try once more.'))
+  const again = await session.chat.evaluate(() => window.gui.send('Try once more.'))
   expect(again).toBe(true)
-  await session.chat.evaluate(() => window.grat.cancel())
+  await session.chat.evaluate(() => window.gui.cancel())
   const second = await session.waitForTurn(1, 30_000)
   expect(second.turn.status).toBe('cancelled')
   expect(gitStatus(root)).toBe('')

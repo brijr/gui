@@ -2,7 +2,7 @@ import { ChevronDown, ChevronRight, FolderOpen, KeyRound, TriangleAlert, X } fro
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { ProjectSetup, WindowState, WorkspaceApp } from '../../../shared/types'
 import { AgentCard } from '../agents/agent-card'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { Button, IconButton, Spinner, TechnicalDetails } from '../lib/ui'
 
 /**
@@ -20,7 +20,7 @@ export function Canvas({ state }: { state: WindowState }) {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
         const rect = el.getBoundingClientRect()
-        grat.setCanvasRect({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
+        gui.setCanvasRect({ x: rect.x, y: rect.y, width: rect.width, height: rect.height })
       })
     }
     const observer = new ResizeObserver(report)
@@ -78,7 +78,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         note={devServer.lastLine}
         action={
           <>
-            <Button variant="primary" onClick={() => grat.installDependencies()}>
+            <Button variant="primary" onClick={() => gui.installDependencies()}>
               Try again
             </Button>
             <LogsToggle open={logsOpen} noun="output" />
@@ -97,7 +97,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         detail={preview.error}
         action={
           <>
-            <Button onClick={() => grat.reload()}>Try again</Button>
+            <Button onClick={() => gui.reload()}>Try again</Button>
             <LogsToggle open={logsOpen} noun="logs" />
           </>
         }
@@ -111,7 +111,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <Message
         icon={<Spinner className="size-4 text-muted" />}
         title="Your app is taking a while to start"
-        detail="Grat is waiting for it to show an address. Check the logs, or enter your app's address if it's already running."
+        detail="Gui is waiting for it to show an address. Check the logs, or enter your app's address if it's already running."
         note={devServer.lastLine}
         action={
           <>
@@ -147,7 +147,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
         action={
           <>
-            <Button variant="primary" onClick={() => grat.restartDevServer()}>
+            <Button variant="primary" onClick={() => gui.restartDevServer()}>
               Start again
             </Button>
             <LogsToggle open={logsOpen} noun="logs" />
@@ -161,7 +161,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (!project.devCommand && !preview.url) {
     return (
       <Message
-        title="Grat doesn't know how to start this app"
+        title="Gui doesn't know how to start this app"
         detail="Add a “dev” script to package.json, or enter your app's address in the bar above."
         action={
           <Button variant="ghost" onClick={focusAddressBar}>
@@ -178,9 +178,9 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <Message
         title="This project needs a quick setup"
-        detail="Grat will install its packages and start it, which runs the project's own scripts."
+        detail="Gui will install its packages and start it, which runs the project's own scripts."
         action={
-          <Button variant="primary" onClick={() => grat.installDependencies()}>
+          <Button variant="primary" onClick={() => gui.installDependencies()}>
             Install and start
           </Button>
         }
@@ -195,7 +195,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="Your app isn't running"
         note={project.devCommand ?? ''}
         action={
-          <Button variant="primary" onClick={() => grat.startDevServer()}>
+          <Button variant="primary" onClick={() => gui.startDevServer()}>
             Start app
           </Button>
         }
@@ -245,7 +245,7 @@ function Message({ icon, title, detail, note, action, footer }: MessageProps) {
 /** Opens the logs panel: "output" while setting up, "logs" once the app runs. */
 function LogsToggle({ open, noun }: { open: boolean; noun: 'output' | 'logs' }) {
   return (
-    <Button variant="ghost" aria-expanded={open} onClick={() => grat.setLogsOpen(!open)}>
+    <Button variant="ghost" aria-expanded={open} onClick={() => gui.setLogsOpen(!open)}>
       {open ? 'Hide' : 'Show'} {noun}
     </Button>
   )
@@ -259,7 +259,7 @@ function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
   return (
     <Card>
       <div className="flex flex-col gap-1">
-        <p className="font-medium text-[13px]">Which app should Grat preview?</p>
+        <p className="font-medium text-[13px]">Which app should Gui preview?</p>
         <p className="text-pretty text-muted">
           This project has {apps.length} apps. You can switch later from the project menu.
         </p>
@@ -269,7 +269,7 @@ function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
           <li key={app.dir}>
             <button
               type="button"
-              onClick={() => grat.chooseApp(app.dir)}
+              onClick={() => gui.chooseApp(app.dir)}
               className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-hover focus-visible:-outline-offset-2"
             >
               <span className="min-w-0 flex-1">
@@ -309,11 +309,11 @@ function EnvText({ env }: { env: EnvSetup }) {
 
 function EnvButton({ env }: { env: EnvSetup }) {
   return env.created ? (
-    <Button className="shrink-0" title={env.target} onClick={() => grat.openEnvFile()}>
+    <Button className="shrink-0" title={env.target} onClick={() => gui.openEnvFile()}>
       Open
     </Button>
   ) : (
-    <Button className="shrink-0" title={env.target} onClick={() => grat.createEnvFile()}>
+    <Button className="shrink-0" title={env.target} onClick={() => gui.createEnvFile()}>
       Create
     </Button>
   )
@@ -355,7 +355,7 @@ export function EnvBanner({ state }: { state: WindowState }) {
 }
 
 const STEPS = [
-  ['Open a project', 'Grat starts your app and shows it here.'],
+  ['Open a project', 'Gui starts your app and shows it here.'],
   ['Point at something', 'Press ⇧⌘C and click any element in your app.'],
   ['Describe the change', 'Your agent edits the code, and you see the result right away.'],
 ] as const
@@ -369,7 +369,7 @@ function EmptyState({ state }: { state: WindowState }) {
           {firstRun ? 'Design your app with your own agents' : 'Open a project'}
         </h1>
         <p className="text-pretty text-muted">
-          Grat runs your app, shows it here, and lets your agent edit the real code while you point
+          Gui runs your app, shows it here, and lets your agent edit the real code while you point
           at things.
         </p>
       </div>
@@ -390,7 +390,7 @@ function EmptyState({ state }: { state: WindowState }) {
         </ol>
       )}
 
-      <Button variant="primary" className="h-8 self-start" onClick={() => void grat.openProject()}>
+      <Button variant="primary" className="h-8 self-start" onClick={() => void gui.openProject()}>
         <FolderOpen className="size-3.5" aria-hidden="true" />
         Open project…
       </Button>
@@ -400,7 +400,7 @@ function EmptyState({ state }: { state: WindowState }) {
           agentId={state.agentId}
           health={state.agents.find((agent) => agent.id === state.agentId) ?? null}
           change={
-            <Button variant="ghost" onClick={() => grat.showAgentMenu()}>
+            <Button variant="ghost" onClick={() => gui.showAgentMenu()}>
               Change
               <ChevronDown className="size-3 text-subtle" aria-hidden="true" />
             </Button>
@@ -408,7 +408,7 @@ function EmptyState({ state }: { state: WindowState }) {
         />
         <button
           type="button"
-          onClick={() => grat.openSettings('agents')}
+          onClick={() => gui.openSettings('agents')}
           className="self-start text-[11.5px] text-subtle hover:text-fg"
         >
           All agents and settings
@@ -423,7 +423,7 @@ function EmptyState({ state }: { state: WindowState }) {
               <li key={project.root}>
                 <button
                   type="button"
-                  onClick={() => void grat.openRecent(project.root)}
+                  onClick={() => void gui.openRecent(project.root)}
                   className="flex w-full flex-col items-start rounded-md px-2 py-1.5 text-left hover:bg-hover"
                 >
                   <span className="font-medium">{project.name}</span>

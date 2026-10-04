@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { SettingsState } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { Button } from '../lib/ui'
 import { GroupHeading, List } from './controls'
 import { useAction } from './use-action'
@@ -23,7 +23,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
       <section aria-labelledby={trustedId} className="flex flex-col gap-2">
         <GroupHeading id={trustedId}>Trusted projects</GroupHeading>
         <p className="text-pretty text-[12px] text-muted">
-          Grat runs a trusted project's dev script without asking. Revoking makes it ask again next
+          Gui runs a trusted project's dev script without asking. Revoking makes it ask again next
           time.
         </p>
         {trustedProjects.length > 0 ? (
@@ -44,7 +44,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
             <p className="tabular-nums text-muted">{recentLabel(count)}</p>
             <Button
               disabled={count === 0 || clear.pending}
-              onClick={() => void clear.run(() => grat.clearRecent())}
+              onClick={() => void clear.run(() => gui.clearRecent())}
             >
               Clear recent projects
             </Button>
@@ -73,7 +73,7 @@ function TrustedRow({ root }: { root: string }) {
         <Button
           aria-label={`Revoke trust for ${root}`}
           disabled={revoke.pending}
-          onClick={() => void revoke.run(() => grat.untrustProject(root))}
+          onClick={() => void revoke.run(() => gui.untrustProject(root))}
         >
           Revoke
         </Button>

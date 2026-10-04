@@ -21,7 +21,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ElementContext, PermissionChoice, Turn, TurnItem } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { Button, Spinner, TechnicalDetails } from '../lib/ui'
@@ -431,7 +431,7 @@ function Permission({
               key={option.optionId}
               variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
               title={option.name}
-              onClick={() => grat.respondPermission(turnId, item.id, option.optionId)}
+              onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
             >
               {optionLabel(option)}
             </Button>
@@ -551,7 +551,7 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               <>
                 <span className="text-subtle">Undone</span>
                 {showRedo && (
-                  <Button variant="ghost" disabled={busy} onClick={() => run(() => grat.redo())}>
+                  <Button variant="ghost" disabled={busy} onClick={() => run(() => gui.redo())}>
                     <Redo2 className="size-3" aria-hidden="true" />
                     Redo
                   </Button>
@@ -562,7 +562,7 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
                 variant="ghost"
                 disabled={busy}
                 title="Restore files to how they were before this turn (also undoes later turns)"
-                onClick={() => run(() => grat.restoreTurn(turn.id))}
+                onClick={() => run(() => gui.restoreTurn(turn.id))}
               >
                 <Undo2 className="size-3" aria-hidden="true" />
                 Undo

@@ -42,7 +42,7 @@ function lockEntry(lock: string, dir: string) {
 }
 
 /**
- * Pins the exact agent CLIs Grat's adapters were built against, so Grat can download
+ * Pins the exact agent CLIs Gui's adapters were built against, so Gui can download
  * them (and verify them against bun.lock) instead of shipping 500 MB of binaries.
  */
 export function agentBinaries(root: string): AgentBinaries {

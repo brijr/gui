@@ -16,10 +16,10 @@ import type { WindowState } from '../src/shared/types'
 import { REPO_ROOT, waitFor } from './helpers/env'
 import { FIXTURES, type FixtureCopy, git } from './helpers/fixtures'
 import { devServerPids, killAll, pidsInDirectory } from './helpers/processes'
-import { type GratSession, launchGrat } from './helpers/session'
+import { type GuiSession, launchGui } from './helpers/session'
 
 // Opening a project someone just cloned: no node_modules, no env file, and in a monorepo a
-// root dev script that would start every package. Grat sets it up and previews one app.
+// root dev script that would start every package. Gui sets it up and previews one app.
 //
 // The fixtures (e2e/fixtures/fresh, e2e/fixtures/monorepo) have no registry dependencies:
 // `bun install` only links a local `file:` package or the monorepo's own workspaces, so it
@@ -31,16 +31,16 @@ type SetupFixture = 'fresh' | 'monorepo'
 interface Fixtures {
   /**
    * Copies a setup fixture as a fresh clone (own git repo, no node_modules), lets `prepare`
-   * add files to it, launches Grat on it (trusted), and cleans up after the test.
+   * add files to it, launches Gui on it (trusted), and cleans up after the test.
    */
-  open: (name: SetupFixture, prepare?: (root: string) => void) => Promise<GratSession>
-  /** Keep the temp directories after the test (GRAT_E2E_KEEP=1) to inspect a failure. */
+  open: (name: SetupFixture, prepare?: (root: string) => void) => Promise<GuiSession>
+  /** Keep the temp directories after the test (GUI_E2E_KEEP=1) to inspect a failure. */
   keepTemp: boolean
 }
 
 function copyFixture(name: SetupFixture, prepare?: (root: string) => void): FixtureCopy {
   // realpath: the app trusts and compares real paths, and macOS tmp is a symlink.
-  const base = mkdtempSync(join(realpathSync(tmpdir()), 'grat-e2e-setup-'))
+  const base = mkdtempSync(join(realpathSync(tmpdir()), 'gui-e2e-setup-'))
   const root = join(base, `fixture-${name}`)
   const userData = join(base, 'user-data')
   mkdirSync(userData)
@@ -53,22 +53,22 @@ function copyFixture(name: SetupFixture, prepare?: (root: string) => void): Fixt
   git(root, 'init', '--quiet')
   git(root, 'add', '-A')
   git(root, 'commit', '--quiet', '-m', 'fixture')
-  // launchGrat takes a page fixture's copy, but only reads `spec` to seed recent projects,
+  // launchGui takes a page fixture's copy, but only reads `spec` to seed recent projects,
   // which these tests don't do.
   return { spec: FIXTURES[0], base, root, userData }
 }
 
 const test = base.extend<Fixtures>({
-  keepTemp: [process.env.GRAT_E2E_KEEP === '1', { option: true }],
+  keepTemp: [process.env.GUI_E2E_KEEP === '1', { option: true }],
 
   open: async ({ keepTemp }, use, testInfo) => {
     const copies: FixtureCopy[] = []
-    const sessions: GratSession[] = []
+    const sessions: GuiSession[] = []
 
     await use(async (name, prepare) => {
       const copy = copyFixture(name, prepare)
       copies.push(copy)
-      const session = await launchGrat(copy, { fixture: copy.spec.name }, testInfo)
+      const session = await launchGui(copy, { fixture: copy.spec.name }, testInfo)
       sessions.push(session)
       return session
     })
@@ -93,7 +93,7 @@ const test = base.extend<Fixtures>({
 })
 
 /** Waits through install, dev server start and preview load; fails fast if a step fails. */
-async function waitForPreview(session: GratSession): Promise<WindowState> {
+async function waitForPreview(session: GuiSession): Promise<WindowState> {
   const settled = async () => {
     const state = await session.state()
     const { status } = state.devServer
@@ -116,10 +116,10 @@ async function waitForPreview(session: GratSession): Promise<WindowState> {
  * editor; returns what it opened. Patches child_process and syncs it into the app's ESM
  * imports; every other command still runs.
  */
-async function recordOpenedFiles(session: GratSession) {
+async function recordOpenedFiles(session: GuiSession) {
   await session.app.evaluate(() => {
     const opened: string[] = []
-    Object.assign(globalThis, { gratOpenedFiles: opened })
+    Object.assign(globalThis, { guiOpenedFiles: opened })
     const childProcess = process.getBuiltinModule('node:child_process')
     const execFile = childProcess.execFile
     const record = (file: string, ...rest: unknown[]) => {
@@ -134,8 +134,8 @@ async function recordOpenedFiles(session: GratSession) {
   })
   return () =>
     session.app.evaluate(() => {
-      const store = globalThis as unknown as { gratOpenedFiles?: string[] }
-      return store.gratOpenedFiles ?? []
+      const store = globalThis as unknown as { guiOpenedFiles?: string[] }
+      return store.guiOpenedFiles ?? []
     })
 }
 
@@ -151,13 +151,13 @@ test('a fresh clone installs its dependencies, then starts and shows the app', a
   expect(existsSync(join(root, 'node_modules', 'greeting'))).toBe(true)
 
   // One terminal: the install's output, then the dev server's.
-  const logs = await session.chrome.evaluate(() => window.grat.getLogs())
+  const logs = await session.chrome.evaluate(() => window.gui.getLogs())
   const install = logs.indexOf('$ bun install')
   expect(install).toBeGreaterThanOrEqual(0)
   expect(install).toBeLessThan(logs.indexOf('$ bun run dev'))
 
   const preview = await session.previewPage()
-  await expect(preview.locator('h1')).toHaveText('Grat fresh fixture')
+  await expect(preview.locator('h1')).toHaveText('Gui fresh fixture')
   await session.shot('fresh-preview')
 })
 
@@ -200,7 +200,7 @@ test('a monorepo asks which app to preview, then runs the one picked', async ({ 
   })
 
   const preview = await session.previewPage()
-  await expect(preview.locator('h1')).toHaveText('Grat monorepo: web')
+  await expect(preview.locator('h1')).toHaveText('Gui monorepo: web')
   // The dev server runs inside the app's folder, and the pick is remembered.
   expect(devServerPids(join(root, 'apps', 'web')).length).toBeGreaterThan(0)
   const prefs: unknown = JSON.parse(readFileSync(join(userData, 'prefs.json'), 'utf8'))

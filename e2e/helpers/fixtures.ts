@@ -36,7 +36,7 @@ export const FIXTURES: FixtureSpec[] = [
   {
     name: 'vite',
     bin: 'vite',
-    heading: 'Grat Vite fixture',
+    heading: 'Gui Vite fixture',
     selector: 'button.counter',
     text: 'count is',
     file: 'src/App.tsx',
@@ -46,7 +46,7 @@ export const FIXTURES: FixtureSpec[] = [
   {
     name: 'next',
     bin: 'next',
-    heading: 'Grat Next fixture',
+    heading: 'Gui Next fixture',
     selector: '[data-testid="hero-btn"]',
     text: 'Clicked',
     file: 'components/hero.tsx',
@@ -76,7 +76,7 @@ function readStamp(file: string): string | null {
 export function ensureFixtureDependencies(spec: FixtureSpec): void {
   const dir = sourceDir(spec.name)
   const modules = join(dir, 'node_modules')
-  const stampFile = join(modules, '.grat-e2e-stamp')
+  const stampFile = join(modules, '.gui-e2e-stamp')
   const installed = existsSync(join(modules, '.bin', spec.bin))
   if (installed && readStamp(stampFile) === dependencyStamp(dir)) return
   console.log(`[e2e] installing dependencies for the ${spec.name} fixture`)
@@ -92,7 +92,7 @@ export function ensureFixtureDependencies(spec: FixtureSpec): void {
 
 const GIT_CONFIG = [
   '-c',
-  'user.name=Grat E2E',
+  'user.name=Gui E2E',
   '-c',
   'user.email=e2e@example.com',
   '-c',
@@ -167,7 +167,7 @@ export function createFixtureCopy(name: FixtureName): FixtureCopy {
   }
 
   // realpath: the app trusts and compares real paths, and macOS tmp is a symlink.
-  const base = mkdtempSync(join(realpathSync(tmpdir()), 'grat-e2e-'))
+  const base = mkdtempSync(join(realpathSync(tmpdir()), 'gui-e2e-'))
   const root = join(base, `fixture-${name}`)
   const userData = join(base, 'user-data')
   mkdirSync(root)

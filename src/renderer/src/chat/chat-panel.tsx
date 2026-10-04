@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from 'react'
 import type { ChatMeta, Turn } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { Composer } from './composer'
@@ -122,8 +122,8 @@ function onDragStart(event: ReactPointerEvent<HTMLElement>) {
   if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
   trackDrag(
     event,
-    (dx, dy) => grat.dragChat(dx, dy),
-    () => grat.endDragChat(),
+    (dx, dy) => gui.dragChat(dx, dy),
+    () => gui.endDragChat(),
   )
 }
 
@@ -151,8 +151,8 @@ function ResizeHandle({ edge, docked = false }: { edge: Edge; docked?: boolean }
     event.preventDefault()
     trackDrag(
       event,
-      (dx, dy) => grat.resizeChat(edge === 'bottom' ? 0 : dx, edge === 'left' ? 0 : dy),
-      () => grat.endResizeChat(),
+      (dx, dy) => gui.resizeChat(edge === 'bottom' ? 0 : dx, edge === 'left' ? 0 : dy),
+      () => gui.endResizeChat(),
     )
   }
   return (
@@ -213,12 +213,12 @@ function Header({ meta }: { meta: ChatMeta }) {
         >
           <GitPullRequest className="size-3.5" />
         </IconButton>
-        <IconButton label="New chat (⇧⌘K)" onClick={() => grat.newSession()}>
+        <IconButton label="New chat (⇧⌘K)" onClick={() => gui.newSession()}>
           <SquarePen className="size-3.5" />
         </IconButton>
         <IconButton
           label={meta.docked ? 'Float panel (⇧⌘D)' : 'Dock to the side (⇧⌘D)'}
-          onClick={() => grat.toggleDock()}
+          onClick={() => gui.toggleDock()}
         >
           {meta.docked ? (
             <PanelRightClose className="size-3.5" />
@@ -227,7 +227,7 @@ function Header({ meta }: { meta: ChatMeta }) {
           )}
         </IconButton>
         {!meta.docked && (
-          <IconButton label="Minimize" onClick={() => grat.setMinimized(true)}>
+          <IconButton label="Minimize" onClick={() => gui.setMinimized(true)}>
             <Minus className="size-4" />
           </IconButton>
         )}
@@ -249,7 +249,7 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
       <span className="min-w-0 flex-1 truncate font-medium">
         {running ? 'Working…' : meta.agentName}
       </span>
-      <IconButton label="Expand chat" onClick={() => grat.setMinimized(false)}>
+      <IconButton label="Expand chat" onClick={() => gui.setMinimized(false)}>
         <Maximize2 className="size-3.5" />
       </IconButton>
     </div>
@@ -293,7 +293,7 @@ function EmptyTranscript() {
         Pick an element in your app, then describe the change. Your agent edits the code and the
         preview updates live.
       </p>
-      <Button onClick={() => grat.toggleSelect()}>
+      <Button onClick={() => gui.toggleSelect()}>
         <MousePointer2 className="size-3.5" aria-hidden="true" />
         Select element
       </Button>

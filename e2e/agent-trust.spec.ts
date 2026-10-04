@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { type AgentId, CUSTOM_AGENT_PREFIX } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
-import type { ConsentPrompt, GratSession } from './helpers/session'
+import type { ConsentPrompt, GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // Agents load the project's own agent settings (Claude Code's .claude/settings.json hooks,
@@ -15,35 +15,35 @@ const MARKER: AgentId = `${CUSTOM_AGENT_PREFIX}Marker`
 const NOT_STARTED = "Not started: this project isn't trusted."
 
 /**
- * Adds the marker agent to agents.json and waits for Grat to list it. Returns the folders
- * it has been started in so far; Grat's own health checks start it in its data folder.
+ * Adds the marker agent to agents.json and waits for Gui to list it. Returns the folders
+ * it has been started in so far; Gui's own health checks start it in its data folder.
  */
-async function addMarkerAgent(session: GratSession): Promise<() => string[]> {
+async function addMarkerAgent(session: GuiSession): Promise<() => string[]> {
   const { base, userData } = session.fixture
   const runs = join(base, 'agent-runs.txt')
   const script = join(base, 'marker-agent.sh')
   writeFileSync(script, `#!/bin/sh\npwd -P >> '${runs}'\nexit 1\n`, { mode: 0o755 })
   const agents = { Marker: { command: script, args: [], env: {} } }
   writeFileSync(join(userData, 'agents.json'), JSON.stringify(agents))
-  await session.chrome.evaluate(() => window.grat.checkAgents())
+  await session.chrome.evaluate(() => window.gui.checkAgents())
   const listed = async () => (await session.state()).agents.some((agent) => agent.id === MARKER)
   await waitFor(listed, 'the marker agent to be listed')
   return () => (existsSync(runs) ? readFileSync(runs, 'utf8').split('\n').filter(Boolean) : [])
 }
 
 /** Switches the open project's chat to the marker agent. */
-async function useMarker(session: GratSession) {
-  await session.chrome.evaluate((id) => window.grat.setAgent(id), MARKER)
+async function useMarker(session: GuiSession) {
+  await session.chrome.evaluate((id) => window.gui.setAgent(id), MARKER)
   const selected = async () => (await session.chatSnapshot()).meta.agentId === MARKER
   await waitFor(selected, 'the marker agent to be selected')
 }
 
 /** Like `declineConsentDialogs`, but agrees; keeps recording into the same list. */
-async function acceptConsentDialogs(session: GratSession) {
+async function acceptConsentDialogs(session: GuiSession) {
   await session.app.evaluate(({ dialog }) => {
-    const store = globalThis as unknown as { gratConsentPrompts?: ConsentPrompt[] }
-    const prompts = store.gratConsentPrompts ?? []
-    store.gratConsentPrompts = prompts
+    const store = globalThis as unknown as { guiConsentPrompts?: ConsentPrompt[] }
+    const prompts = store.guiConsentPrompts ?? []
+    store.guiConsentPrompts = prompts
     const accept = (...args: unknown[]) => {
       const options = args.at(-1) as Partial<ConsentPrompt> | undefined
       prompts.push({ message: options?.message ?? '', detail: options?.detail ?? '' })
@@ -53,8 +53,8 @@ async function acceptConsentDialogs(session: GratSession) {
   })
 }
 
-const send = (session: GratSession) =>
-  session.chat.evaluate(() => window.grat.send('Make the counter button red.'))
+const send = (session: GuiSession) =>
+  session.chat.evaluate(() => window.gui.send('Make the counter button red.'))
 
 test('an untrusted project asks before an agent starts, and declining starts none', async ({
   launch,
@@ -65,7 +65,7 @@ test('an untrusted project asks before an agent starts, and declining starts non
   const runs = await addMarkerAgent(session)
 
   // Opening asks about the dev script first (declined); by then the chat is set up.
-  await session.chrome.evaluate((path) => window.grat.openRecent(path), root)
+  await session.chrome.evaluate((path) => window.gui.openRecent(path), root)
   const asked = async () => (await session.consentPrompts()).length > 0
   await waitFor(asked, 'the dev script consent prompt', { timeout: 30_000 })
   await useMarker(session)

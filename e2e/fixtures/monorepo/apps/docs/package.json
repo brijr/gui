@@ -6,6 +6,6 @@
     "dev": "bun server.js"
   },
   "dependencies": {
-    "@grat-e2e/ui": "workspace:*"
+    "@gui-e2e/ui": "workspace:*"
   }
 }

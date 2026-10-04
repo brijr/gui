@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import type { AgentId, ImageAttachment, Turn } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
-import type { GratSession } from './helpers/session'
+import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // Real agent turns spend usage on the developer's own login, so they only run on request.
-const requested = process.env.GRAT_E2E_AGENT || undefined
+const requested = process.env.GUI_E2E_AGENT || undefined
 const TURN_TIMEOUT = 5 * 60_000
 
 interface SolidImage {
@@ -48,7 +48,7 @@ async function solidImage({ name, width, height, color }: SolidImage): Promise<I
 
 /** Runs in the chat page: sends whatever it's given, skipping the composer's own checks. */
 function sendRaw({ text, images }: { text: string; images: unknown }) {
-  return window.grat.send(text, images as ImageAttachment[])
+  return window.gui.send(text, images as ImageAttachment[])
 }
 
 /** Runs in the chat page: the pixel size of an image URL. */
@@ -63,10 +63,10 @@ async function imageSize(url: string) {
  * Stops a turn while its agent is still starting, so no prompt reaches an agent and no
  * usage is spent (as in chat.spec.ts).
  */
-async function cancelWhileStarting(session: GratSession, index: number) {
+async function cancelWhileStarting(session: GuiSession, index: number) {
   const started = async () => (await session.chatSnapshot()).turns.length > index
   await waitFor(started, `turn ${index + 1} to start`, { timeout: 10_000, interval: 25 })
-  await session.chat.evaluate(() => window.grat.cancel())
+  await session.chat.evaluate(() => window.gui.cancel())
   return session.waitForTurn(index, 30_000)
 }
 
@@ -198,14 +198,14 @@ function respond({
   itemId: string
   optionId: string | null
 }) {
-  window.grat.respondPermission(turnId, itemId, optionId)
+  window.gui.respondPermission(turnId, itemId, optionId)
 }
 
 /**
  * Waits for a turn to end. The question needs no tools, so anything the agent asks to do
  * is declined; the project must stay untouched.
  */
-async function finishTurn(session: GratSession, index: number) {
+async function finishTurn(session: GuiSession, index: number) {
   const deadline = Date.now() + TURN_TIMEOUT
   for (;;) {
     const { meta, turns } = await session.chatSnapshot()
@@ -227,7 +227,7 @@ async function finishTurn(session: GratSession, index: number) {
 }
 
 test.describe('agent sees images', () => {
-  test.skip(!requested, 'Set GRAT_E2E_AGENT=claude|codex to run agent turns (spends real usage)')
+  test.skip(!requested, 'Set GUI_E2E_AGENT=claude|codex to run agent turns (spends real usage)')
 
   test('the agent can describe an attached image', async ({ launch }) => {
     test.setTimeout(10 * 60_000)
@@ -236,7 +236,7 @@ test.describe('agent sees images', () => {
     await session.waitForPreview()
     const { root } = session.fixture
 
-    await session.chrome.evaluate((id) => window.grat.setAgent(id), agentId)
+    await session.chrome.evaluate((id) => window.gui.setAgent(id), agentId)
     const switched = async () => (await session.chatSnapshot()).meta.agentId === agentId
     await waitFor(switched, `the ${agentId} agent to be selected`)
 

@@ -8,9 +8,9 @@ import { z } from 'zod'
 import type { PreviewTools } from './preview-tools'
 import { fenceUntrusted } from './prompt'
 
-export const MCP_SERVER_NAME = 'grat'
+export const MCP_SERVER_NAME = 'gui'
 
-/** Tool names Grat exposes; all are read-only views of the preview except navigation. */
+/** Tool names Gui exposes; all are read-only views of the preview except navigation. */
 export const PREVIEW_TOOL_NAMES = [
   'preview_screenshot',
   'preview_inspect',
@@ -33,19 +33,19 @@ function untrusted(label: string, value: string) {
 
 function failure(error: unknown) {
   const message = errorMessage(error)
-  console.warn(`[grat] preview tool failed: ${message}`)
+  console.warn(`[gui] preview tool failed: ${message}`)
   return { content: [{ type: 'text' as const, text: message }], isError: true }
 }
 
 function buildServer(tools: PreviewTools) {
-  const server = new McpServer({ name: 'grat-preview', version: '0.1.0' })
+  const server = new McpServer({ name: 'gui-preview', version: '0.1.0' })
 
   server.registerTool(
     'preview_screenshot',
     {
       title: 'Screenshot the preview',
       description:
-        "Screenshot the user's running app in Grat's preview. Use after making visual changes to check the result. Images are scaled to fit 1600×1960 px, so `fullPage` is a low-resolution overview of the whole scrollable page; for detail (type, spacing, small elements) pass `selector` to capture one element instead. Pass `width` (CSS px) to check a responsive breakpoint such as 390 or 768 (the viewport is restored afterwards).",
+        "Screenshot the user's running app in Gui's preview. Use after making visual changes to check the result. Images are scaled to fit 1600×1960 px, so `fullPage` is a low-resolution overview of the whole scrollable page; for detail (type, spacing, small elements) pass `selector` to capture one element instead. Pass `width` (CSS px) to check a responsive breakpoint such as 390 or 768 (the viewport is restored afterwards).",
       inputSchema: {
         selector: z.string().max(500).optional().describe('CSS selector of an element to capture'),
         width: z.number().int().min(240).max(3840).optional().describe('Viewport width in CSS px'),
@@ -151,7 +151,7 @@ function buildServer(tools: PreviewTools) {
     {
       title: 'Read dev server output',
       description:
-        "The tail of the project's dev server output (already running in Grat; never start another one).",
+        "The tail of the project's dev server output (already running in Gui; never start another one).",
       inputSchema: {
         lines: z.number().int().min(1).max(500).optional().describe('How many lines (default 80)'),
       },
@@ -174,7 +174,7 @@ export interface RunningMcpServer {
 
 /**
  * Serves the preview tools over MCP Streamable HTTP on loopback, stateless, behind a
- * per-window bearer token so only the agent sessions Grat starts can call them.
+ * per-window bearer token so only the agent sessions Gui starts can call them.
  */
 export async function startMcpServer(tools: PreviewTools): Promise<RunningMcpServer> {
   const token = randomBytes(24).toString('hex')
@@ -210,7 +210,7 @@ export async function startMcpServer(tools: PreviewTools): Promise<RunningMcpSer
       .connect(transport)
       .then(() => transport.handleRequest(req, res))
       .catch((error: unknown) => {
-        console.error('[grat] MCP request failed', error)
+        console.error('[gui] MCP request failed', error)
         if (!res.headersSent) res.writeHead(500).end()
       })
   })

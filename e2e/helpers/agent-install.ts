@@ -33,7 +33,7 @@ const CLI_VERSION = '99.0.0'
 const CLI_OUTPUT = `codex-cli ${CLI_VERSION}`
 const FAKE_CLI = `#!/bin/sh\necho "${CLI_OUTPUT}"\n`
 /** Where the manifest says a development copy lives; nothing is ever there. */
-const NOWHERE = '@grat-e2e/not-installed'
+const NOWHERE = '@gui-e2e/not-installed'
 const AGENT: AgentId = 'codex'
 
 /** The two Macs the real manifest covers; the app picks its own key from platform and arch. */
@@ -153,14 +153,14 @@ function launchEnv(manifest: string, registry: string): Record<string, string> {
   return {
     ...env,
     // Always explicit, so a value in the caller's shell can't open a project.
-    GRAT_OPEN: '',
-    GRAT_AGENT_MANIFEST: manifest,
-    GRAT_AGENT_REGISTRY: registry,
+    GUI_OPEN: '',
+    GUI_AGENT_MANIFEST: manifest,
+    GUI_AGENT_REGISTRY: registry,
   }
 }
 
 interface HistoryStore {
-  gratAgentHistory?: AgentHealth[]
+  guiAgentHistory?: AgentHealth[]
 }
 
 export interface InstallOptions {
@@ -170,7 +170,7 @@ export interface InstallOptions {
   checksum?: 'matches' | 'differs'
 }
 
-/** Grat running with no project, a fake codex pinned in its manifest, and a local registry. */
+/** Gui running with no project, a fake codex pinned in its manifest, and a local registry. */
 export interface InstallHarness {
   /** Request paths the local registry received. */
   requests: string[]
@@ -214,7 +214,7 @@ export const test = base.extend<Fixtures>({
     const diagnostics: Array<() => Promise<void>> = []
 
     await use(async (options) => {
-      const scratch = mkdtempSync(join(realpathSync(tmpdir()), 'grat-e2e-install-'))
+      const scratch = mkdtempSync(join(realpathSync(tmpdir()), 'gui-e2e-install-'))
       cleanups.push(() => {
         if (keepTemp) console.log(`[e2e] kept ${scratch}`)
         else rmSync(scratch, { recursive: true, force: true, maxRetries: 3 })
@@ -251,7 +251,7 @@ export const test = base.extend<Fixtures>({
       })
 
       const chrome = await findChromePage(app)
-      await chrome.waitForFunction(() => 'grat' in window)
+      await chrome.waitForFunction(() => 'gui' in window)
 
       const key = await app.evaluate(() => `${process.platform}-${process.arch}`)
       const platform = PLATFORMS.find((entry) => entry.key === key)
@@ -260,7 +260,7 @@ export const test = base.extend<Fixtures>({
       const codexDir = join(userData, 'agents', 'codex')
 
       const codex = async () => {
-        const state = await chrome.evaluate(() => window.grat.getState())
+        const state = await chrome.evaluate(() => window.gui.getState())
         const health = state.agents.find((agent) => agent.id === AGENT)
         if (!health) throw new Error('The window state has no codex entry')
         return health
@@ -299,12 +299,12 @@ export const test = base.extend<Fixtures>({
           await chrome.evaluate((id) => {
             const store = globalThis as unknown as HistoryStore
             const history: AgentHealth[] = []
-            store.gratAgentHistory = history
-            window.grat.onState((state) => {
+            store.guiAgentHistory = history
+            window.gui.onState((state) => {
               const health = state.agents.find((agent) => agent.id === id)
               if (health) history.push(health)
             })
-            void window.grat.installAgent(id)
+            void window.gui.installAgent(id)
           }, AGENT)
         },
         history: () => readHistory(chrome),
@@ -339,6 +339,6 @@ function findChromePage(app: ElectronApplication): Promise<Page> {
 function readHistory(chrome: Page): Promise<AgentHealth[]> {
   return chrome.evaluate(() => {
     const store = globalThis as unknown as HistoryStore
-    return store.gratAgentHistory ?? []
+    return store.guiAgentHistory ?? []
   })
 }

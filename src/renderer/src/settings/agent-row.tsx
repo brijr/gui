@@ -1,6 +1,6 @@
 import { type ReactNode, useId, useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { Button, TechnicalDetails } from '../lib/ui'
@@ -31,14 +31,14 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
   const signIn = async (agentId: AgentId) => {
     setSignInError(null)
     try {
-      await grat.signIn(agentId)
+      await gui.signIn(agentId)
     } catch (err) {
       setSignInError(readableError(err))
     }
   }
 
   const toggle = (next: boolean) => {
-    if (health) grat.setAgentEnabled(health.id, next)
+    if (health) gui.setAgentEnabled(health.id, next)
   }
 
   return (

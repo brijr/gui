@@ -1,7 +1,7 @@
-import type { GratApi } from '../shared/ipc'
+import type { GuiApi } from '../shared/ipc'
 
 declare global {
   interface Window {
-    grat: GratApi
+    gui: GuiApi
   }
 }

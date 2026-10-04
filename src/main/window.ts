@@ -188,7 +188,7 @@ export class ProjectWindow {
       minWidth: 960,
       minHeight: 640,
       show: false,
-      title: 'Grat',
+      title: 'Gui',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 15 },
       backgroundColor: nativeTheme.shouldUseDarkColors ? '#141414' : '#f5f5f4',
@@ -234,7 +234,7 @@ export class ProjectWindow {
       [this.win.webContents, 'index'],
       [this.chatView.webContents, 'chat'],
     ] as const) {
-      loadRenderer(wc, page).catch((error) => console.error(`[grat] failed to load ${page}`, error))
+      loadRenderer(wc, page).catch((error) => console.error(`[gui] failed to load ${page}`, error))
     }
     void loadRecent().then((recent) => this.patch({ recent }))
   }
@@ -319,7 +319,7 @@ export class ProjectWindow {
       })
       this.previewTools = tools
       const mcp = await startMcpServer(tools).catch((error: unknown) => {
-        console.error('[grat] preview tools unavailable', error)
+        console.error('[gui] preview tools unavailable', error)
         return null
       })
       if (!current()) {
@@ -411,7 +411,7 @@ export class ProjectWindow {
     if (!install) {
       return this.askToTrust(project.root, {
         message: `Start ${promptName(project.name)}?`,
-        detail: `To show your app, Grat runs its start command, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Grat won't ask again for this project.`,
+        detail: `To show your app, Gui runs its start command, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Gui won't ask again for this project.`,
         buttons: ['Start App', 'Not Now'],
       })
     }
@@ -423,7 +423,7 @@ export class ProjectWindow {
     const installing = installs.length ? `Installing runs:\n\n${installs.join('\n\n')}\n\n` : ''
     return this.askToTrust(project.root, {
       message: `Start ${promptName(project.name)}?`,
-      detail: `Grat will install dependencies (${installCommand(project.packageManager)}) and start the dev server (${devCommand}) to preview the project. ${installing}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
+      detail: `Gui will install dependencies (${installCommand(project.packageManager)}) and start the dev server (${devCommand}) to preview the project. ${installing}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
       buttons: ['Install and Start', 'Not Now'],
     })
   }
@@ -437,7 +437,7 @@ export class ProjectWindow {
     return this.askToTrust(root, {
       message: 'Create a pull request?',
       detail:
-        "Grat runs Git in this project, which also runs the project's own Git hooks. Only continue for projects you trust.",
+        "Gui runs Git in this project, which also runs the project's own Git hooks. Only continue for projects you trust.",
       buttons: ['Continue', 'Cancel'],
     })
   }
@@ -647,7 +647,7 @@ export class ProjectWindow {
       this.patchPreview({ selecting: on })
       if (on) this.preview.webContents.focus()
     } catch (error) {
-      console.error('[grat] inspect mode failed', error)
+      console.error('[gui] inspect mode failed', error)
       this.patchPreview({ selecting: false })
     }
   }
@@ -762,7 +762,7 @@ export class ProjectWindow {
       try {
         await createEnvFile(root, env)
       } catch (error) {
-        console.error('[grat] failed to create the env file', error)
+        console.error('[gui] failed to create the env file', error)
         return
       }
       if (this.state.project?.root !== root) return
@@ -779,7 +779,7 @@ export class ProjectWindow {
       // Always as text in the default text editor: `shell.openPath` would hand the file to
       // whatever app its type maps to.
       (path) => execFile('/usr/bin/open', ['-t', path], () => undefined),
-      (error: unknown) => console.error('[grat] not opening the env file', error),
+      (error: unknown) => console.error('[gui] not opening the env file', error),
     )
   }
 
@@ -1046,7 +1046,7 @@ export class ProjectWindow {
           return this.attachScreenshot(png, name) ? 'attached' : null
       }
     } catch (error) {
-      console.error('[grat] screenshot failed', error)
+      console.error('[gui] screenshot failed', error)
       shell.beep()
       return null
     } finally {
@@ -1348,7 +1348,7 @@ export class ProjectWindow {
 
 /** App UI never navigates; links open in the user's browser instead. */
 
-/** What the ship sheet shows when the user didn't let Grat run Git. */
+/** What the ship sheet shows when the user didn't let Gui run Git. */
 function cancelledShipInfo(): ShipInfo {
   return {
     blocked: 'Cancelled.',

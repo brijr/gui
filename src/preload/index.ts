@@ -1,5 +1,5 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron'
-import { Events, type GratApi, Invoke, Send } from '../shared/ipc'
+import { Events, type GuiApi, Invoke, Send } from '../shared/ipc'
 
 function subscribe<T>(channel: string, cb: (payload: T) => void) {
   const listener = (_event: IpcRendererEvent, payload: T) => cb(payload)
@@ -20,7 +20,7 @@ async function invokeOrThrow(channel: string, ...args: unknown[]) {
   if (result?.error) throw new Error(result.error)
 }
 
-const api: GratApi = {
+const api: GuiApi = {
   getState: () => ipcRenderer.invoke(Invoke.getState),
   onState: (cb) => subscribe(Events.state, cb),
   getLogs: () => ipcRenderer.invoke(Invoke.getLogs),
@@ -94,4 +94,4 @@ const api: GratApi = {
   clearStorage: (kind) => ipcRenderer.invoke(Invoke.clearStorage, kind),
 }
 
-contextBridge.exposeInMainWorld('grat', api)
+contextBridge.exposeInMainWorld('gui', api)

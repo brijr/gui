@@ -1,5 +1,5 @@
 {
-  "name": "grat-e2e-monorepo",
+  "name": "gui-e2e-monorepo",
   "private": true,
   "packageManager": "bun@1.2.0",
   "workspaces": [

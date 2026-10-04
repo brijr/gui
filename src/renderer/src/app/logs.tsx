@@ -4,7 +4,7 @@ import '@xterm/xterm/css/xterm.css'
 import { ChevronDown, ChevronUp, SquareTerminal } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import type { WindowState } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 
 function cssVar(name: string) {
@@ -28,7 +28,7 @@ export function Logs({ state }: { state: WindowState }) {
     <section aria-label="Dev server logs" className="shrink-0 border-t border-line bg-surface">
       <button
         type="button"
-        onClick={() => grat.setLogsOpen(!open)}
+        onClick={() => gui.setLogsOpen(!open)}
         aria-expanded={open}
         className="flex h-7 w-full items-center gap-2 px-3 text-left text-muted hover:text-fg"
       >
@@ -77,10 +77,10 @@ function LogsTerminal() {
     // Main sends live chunks and the snapshot reply on one ordered channel, so anything
     // that arrives before the snapshot is already in it.
     let ready = false
-    const off = grat.onLogs((chunk) => {
+    const off = gui.onLogs((chunk) => {
       if (ready) term.write(chunk)
     })
-    void grat.getLogs().then((logs) => {
+    void gui.getLogs().then((logs) => {
       if (logs) term.write(logs)
       ready = true
     })
@@ -88,7 +88,7 @@ function LogsTerminal() {
     const resize = () => {
       if (el.clientHeight < 20) return
       fit.fit()
-      grat.resizeLogs(term.cols, term.rows)
+      gui.resizeLogs(term.cols, term.rows)
     }
     const observer = new ResizeObserver(resize)
     observer.observe(el)

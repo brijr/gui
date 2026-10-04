@@ -24,7 +24,7 @@ function packageDir(name: string) {
 }
 
 /**
- * Claude asks before calling MCP tools; Grat's preview tools only look at the preview,
+ * Claude asks before calling MCP tools; Gui's preview tools only look at the preview,
  * so allow them up front by exact name. (Codex reviews these calls itself.)
  */
 function sessionMeta(id: AgentId) {
@@ -34,8 +34,8 @@ function sessionMeta(id: AgentId) {
 }
 
 /**
- * Claude Code and Codex aren't shipped with Grat: each adapter reads where its CLI is
- * (the user's own install, or the copy Grat downloaded) from the environment.
+ * Claude Code and Codex aren't shipped with Gui: each adapter reads where its CLI is
+ * (the user's own install, or the copy Gui downloaded) from the environment.
  */
 const CLI_PATH_ENV = { claude: 'CLAUDE_CODE_EXECUTABLE', codex: 'CODEX_PATH' } as const
 
@@ -84,7 +84,7 @@ export interface AgentInfo {
   /** True when an earlier session was resumed, so the agent remembers prior turns */
   resumed: boolean
   supportsImages: boolean
-  /** Grat's preview tools were offered (the agent takes HTTP MCP servers) */
+  /** Gui's preview tools were offered (the agent takes HTTP MCP servers) */
   previewTools: boolean
   modeName: string | null
   modes: { id: string; name: string }[]
@@ -203,7 +203,7 @@ export class AgentSession {
     )
 
     const app = acp
-      .client({ name: 'grat' })
+      .client({ name: 'gui' })
       .onNotification(acp.methods.client.session.update, (ctx) => {
         if (ctx.params.sessionId === this.sessionId) this.handlers.onUpdate(ctx.params.update)
       })
@@ -225,10 +225,10 @@ export class AgentSession {
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
           terminal: false,
-          // Grat runs terminal sign-in itself (agent-status.ts); Claude only offers it then.
+          // Gui runs terminal sign-in itself (agent-status.ts); Claude only offers it then.
           auth: { terminal: true },
         },
-        clientInfo: { name: 'grat', version: '0.1.0' },
+        clientInfo: { name: 'gui', version: '0.1.0' },
       }),
     )
 
@@ -270,7 +270,7 @@ export class AgentSession {
       }),
     ).catch((error: unknown) => {
       if (!isAuthError(error)) throw new Error(errorDetail(error))
-      // Only offer sign-in flows Grat knows open a browser; others are run in a terminal.
+      // Only offer sign-in flows Gui knows open a browser; others are run in a terminal.
       const methods = definition.inAppSignIn
         ? (init.authMethods ?? []).map(
             (method): AuthMethod => ({
@@ -286,7 +286,7 @@ export class AgentSession {
     })
     this.sessionId = session.sessionId
 
-    // Keep the mode the user's own agent config chose; Grat's permission policy
+    // Keep the mode the user's own agent config chose; Gui's permission policy
     // (ChatController.onPermission) decides what to auto-approve when the agent asks.
     const modes = session.modes
     const modeList = modes?.availableModes.map(({ id, name }) => ({ id, name })) ?? []

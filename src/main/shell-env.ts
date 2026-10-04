@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { isAbsolute } from 'node:path'
 
-const MARKER = '__GRAT_ENV__'
+const MARKER = '__GUI_ENV__'
 const FALLBACK_PATHS = [
   '/opt/homebrew/bin',
   '/usr/local/bin',

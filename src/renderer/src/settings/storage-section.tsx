@@ -1,6 +1,6 @@
 import { useId } from 'react'
 import type { SettingsState, StorageKind } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { Button, Spinner } from '../lib/ui'
 import { List } from './controls'
 import { useAction } from './use-action'
@@ -82,7 +82,7 @@ function StorageRow({ row, bytes }: { row: StorageInfo; bytes: number | null }) 
           id={buttonId}
           aria-labelledby={`${buttonId} ${titleId}`}
           disabled={clear.pending}
-          onClick={() => void clear.run(() => grat.clearStorage(row.kind))}
+          onClick={() => void clear.run(() => gui.clearStorage(row.kind))}
         >
           {clear.pending && <Spinner className="size-2.5" />}
           Clear…

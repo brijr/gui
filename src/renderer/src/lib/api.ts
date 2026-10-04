@@ -1,3 +1,3 @@
-import type { GratApi } from '../../../shared/ipc'
+import type { GuiApi } from '../../../shared/ipc'
 
-export const grat: GratApi = window.grat
+export const gui: GuiApi = window.gui

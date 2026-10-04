@@ -15,7 +15,7 @@ export interface LaunchOptions {
   /** Pre-trust the project so the native consent dialog cannot block (default true). */
   trusted?: boolean
   /**
-   * 'project' opens the fixture at launch (GRAT_OPEN). 'recent' seeds recent-projects.json
+   * 'project' opens the fixture at launch (GUI_OPEN). 'recent' seeds recent-projects.json
    * and starts with an empty window, for tests that open the project themselves.
    */
   open?: 'project' | 'recent'
@@ -29,7 +29,7 @@ export interface ConsentPrompt {
 }
 
 interface PromptStore {
-  gratConsentPrompts?: ConsentPrompt[]
+  guiConsentPrompts?: ConsentPrompt[]
 }
 
 interface Layer {
@@ -81,8 +81,8 @@ async function drawLayers({ width, height, out }: Layers): Promise<string> {
   return canvas.toDataURL('image/png')
 }
 
-/** A launched Grat window plus the helpers every test needs to drive and inspect it. */
-export class GratSession {
+/** A launched Gui window plus the helpers every test needs to drive and inspect it. */
+export class GuiSession {
   constructor(
     readonly app: ElectronApplication,
     /** The app chrome (toolbar, canvas, logs drawer): `index.html`. */
@@ -95,11 +95,11 @@ export class GratSession {
   ) {}
 
   state() {
-    return this.chrome.evaluate(() => window.grat.getState())
+    return this.chrome.evaluate(() => window.gui.getState())
   }
 
   chatSnapshot() {
-    return this.chat.evaluate(() => window.grat.getChat())
+    return this.chat.evaluate(() => window.gui.getChat())
   }
 
   windowCount(): Promise<number> {
@@ -151,7 +151,7 @@ export class GratSession {
   async pickElement(selector: string): Promise<ElementContext> {
     const preview = await this.previewPage()
     await preview.waitForSelector(selector, { timeout: 60_000 })
-    await this.chrome.evaluate(() => window.grat.toggleSelect())
+    await this.chrome.evaluate(() => window.gui.toggleSelect())
     await waitFor(async () => (await this.state()).preview.selecting, 'selection mode')
 
     // `selecting` flips before the inspector has finished arming, so an early click can
@@ -192,7 +192,7 @@ export class GratSession {
   async declineConsentDialogs(): Promise<void> {
     await this.app.evaluate(({ dialog }) => {
       const prompts: ConsentPrompt[] = []
-      const store: PromptStore = { gratConsentPrompts: prompts }
+      const store: PromptStore = { guiConsentPrompts: prompts }
       Object.assign(globalThis, store)
       const decline = (...args: unknown[]) => {
         const options = args.at(-1) as Partial<ConsentPrompt> | undefined
@@ -206,16 +206,16 @@ export class GratSession {
   consentPrompts(): Promise<ConsentPrompt[]> {
     return this.app.evaluate(() => {
       const store = globalThis as unknown as PromptStore
-      return store.gratConsentPrompts ?? []
+      return store.guiConsentPrompts ?? []
     })
   }
 
   /**
    * Composite screenshot of the whole window, attached to the test and written under
-   * test-results/. Only on request (GRAT_E2E_SHOTS=1) or when `force`d, as on failure.
+   * test-results/. Only on request (GUI_E2E_SHOTS=1) or when `force`d, as on failure.
    */
   async shot(name: string, force = false): Promise<void> {
-    if (!force && process.env.GRAT_E2E_SHOTS !== '1') return
+    if (!force && process.env.GUI_E2E_SHOTS !== '1') return
     const layers = await this.app.evaluate(captureLayers)
     if (!layers) return
     const dataUrl = await this.chrome.evaluate(drawLayers, layers)
@@ -228,7 +228,7 @@ export class GratSession {
   /** Everything worth reading after a failure: screenshot, dev-server log, app output. */
   async captureDiagnostics(): Promise<void> {
     await this.shot('failure', true).catch(() => undefined)
-    const logs = await this.chrome.evaluate(() => window.grat.getLogs()).catch(() => '')
+    const logs = await this.chrome.evaluate(() => window.gui.getLogs()).catch(() => '')
     const state = await this.state().catch(() => null)
     await this.attach('dev-server.log', logs)
     await this.attach('app-output.log', this.output.join(''))
@@ -274,13 +274,13 @@ async function findPage(app: ElectronApplication, suffix: string): Promise<Page>
 
 /**
  * Launches the built app (`out/`, from `electron-vite build`) with an isolated profile.
- * GRAT_OPEN is always set explicitly so a value in the caller's shell can't leak in.
+ * GUI_OPEN is always set explicitly so a value in the caller's shell can't leak in.
  */
-export async function launchGrat(
+export async function launchGui(
   copy: FixtureCopy,
   options: LaunchOptions,
   testInfo: TestInfo,
-): Promise<GratSession> {
+): Promise<GuiSession> {
   if (options.trusted !== false) {
     writeFileSync(join(copy.userData, TRUSTED_FILE), JSON.stringify([copy.root]))
   }
@@ -292,7 +292,7 @@ export async function launchGrat(
   const app = await electron.launch({
     executablePath: electronExecutable(),
     args: [REPO_ROOT, `--user-data-dir=${copy.userData}`],
-    env: launchEnv({ GRAT_OPEN: options.open === 'recent' ? '' : copy.root }),
+    env: launchEnv({ GUI_OPEN: options.open === 'recent' ? '' : copy.root }),
     colorScheme: options.colorScheme ?? 'light',
     timeout: 60_000,
   })
@@ -306,10 +306,10 @@ export async function launchGrat(
   try {
     const chrome = await findPage(app, '/index.html')
     const chat = await findPage(app, '/chat.html')
-    // The preload exposes window.grat before page scripts run, but be explicit.
-    await chrome.waitForFunction(() => 'grat' in window)
-    await chat.waitForFunction(() => 'grat' in window)
-    return new GratSession(app, chrome, chat, copy, testInfo, output)
+    // The preload exposes window.gui before page scripts run, but be explicit.
+    await chrome.waitForFunction(() => 'gui' in window)
+    await chat.waitForFunction(() => 'gui' in window)
+    return new GuiSession(app, chrome, chat, copy, testInfo, output)
   } catch (error) {
     await closeApp(app)
     throw error

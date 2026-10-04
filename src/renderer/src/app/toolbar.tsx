@@ -13,7 +13,7 @@ import {
 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { agentName, type Viewport, type WindowState } from '../../../shared/types'
-import { grat } from '../lib/api'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton } from '../lib/ui'
 
@@ -33,10 +33,10 @@ export function Toolbar({ state }: { state: WindowState }) {
     <header className="drag flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2 pl-[84px]">
       <button
         type="button"
-        onClick={() => grat.showProjectMenu()}
+        onClick={() => gui.showProjectMenu()}
         className="no-drag flex h-7 max-w-64 items-center gap-1 rounded-md px-2 font-semibold hover:bg-hover"
       >
-        <span className="truncate">{project?.name ?? 'Grat'}</span>
+        <span className="truncate">{project?.name ?? 'Gui'}</span>
         {/* The monorepo app being previewed */}
         {project?.appDir && (
           <span className="truncate font-normal text-subtle">
@@ -49,13 +49,13 @@ export function Toolbar({ state }: { state: WindowState }) {
       {project && <DevServerPill state={state} />}
 
       <div className="mx-1 flex items-center">
-        <IconButton label="Back" disabled={!preview.canGoBack} onClick={() => grat.back()}>
+        <IconButton label="Back" disabled={!preview.canGoBack} onClick={() => gui.back()}>
           <ArrowLeft className="size-4" />
         </IconButton>
-        <IconButton label="Forward" disabled={!preview.canGoForward} onClick={() => grat.forward()}>
+        <IconButton label="Forward" disabled={!preview.canGoForward} onClick={() => gui.forward()}>
           <ArrowRight className="size-4" />
         </IconButton>
-        <IconButton label="Reload preview" disabled={!preview.url} onClick={() => grat.reload()}>
+        <IconButton label="Reload preview" disabled={!preview.url} onClick={() => gui.reload()}>
           <RotateCw className={cn('size-3.5', preview.loading && 'animate-spin')} />
         </IconButton>
       </div>
@@ -73,7 +73,7 @@ export function Toolbar({ state }: { state: WindowState }) {
             aria-pressed={preview.viewport === id}
             aria-label={label}
             title={label}
-            onClick={() => grat.setViewport(id)}
+            onClick={() => gui.setViewport(id)}
             className={cn(
               'flex size-6 items-center justify-center rounded text-subtle hover:text-fg',
               preview.viewport === id && 'bg-hover text-fg',
@@ -91,7 +91,7 @@ export function Toolbar({ state }: { state: WindowState }) {
         type="button"
         aria-pressed={preview.selecting}
         disabled={!preview.visible || !preview.selectable}
-        onClick={() => grat.toggleSelect()}
+        onClick={() => gui.toggleSelect()}
         title="Select element (⇧⌘C)"
         className={cn(
           'no-drag flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium transition-colors',
@@ -107,7 +107,7 @@ export function Toolbar({ state }: { state: WindowState }) {
 
       <button
         type="button"
-        onClick={() => grat.showAgentMenu()}
+        onClick={() => gui.showAgentMenu()}
         className="no-drag flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-fg"
       >
         {agentName(state.agentId)}
@@ -118,7 +118,7 @@ export function Toolbar({ state }: { state: WindowState }) {
         label="Toggle chat (⌘J)"
         active={state.chatVisible && !!project}
         disabled={!project}
-        onClick={() => grat.toggleChat()}
+        onClick={() => gui.toggleChat()}
       >
         <MessageSquare className="size-4" />
       </IconButton>
@@ -138,7 +138,7 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
   }, [done])
 
   const take = async () => {
-    const result = await grat.takeScreenshot()
+    const result = await gui.takeScreenshot()
     if (result) setDone({ label: SCREENSHOT_DONE[result] })
   }
 
@@ -183,7 +183,7 @@ function DevServerPill({ state }: { state: WindowState }) {
   return (
     <button
       type="button"
-      onClick={() => grat.showDevServerMenu()}
+      onClick={() => gui.showDevServerMenu()}
       title={title}
       className="no-drag flex h-6 items-center gap-1.5 rounded-full border border-line bg-raised px-2 font-mono text-[11px] text-muted hover:border-line-strong hover:text-fg"
     >
@@ -209,7 +209,7 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    if (value.trim()) grat.navigate(value)
+    if (value.trim()) gui.navigate(value)
     setDraft(null)
     event.currentTarget.querySelector('input')?.blur()
   }

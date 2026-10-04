@@ -2,7 +2,7 @@ import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-/** Root of the Grat repo; its built output (`out/`) is the app under test. */
+/** Root of the Gui repo; its built output (`out/`) is the app under test. */
 export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 
 const require = createRequire(import.meta.url)

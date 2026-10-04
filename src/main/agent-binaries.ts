@@ -11,7 +11,7 @@ import type { AgentBinaries, AgentBinary } from '../../scripts/agent-binaries'
 import { type AgentBinarySource, type AgentId, agentName } from '../shared/types'
 import { getShellEnv } from './shell-env'
 
-declare const __GRAT_AGENT_BINARIES__: AgentBinaries
+declare const __GUI_AGENT_BINARIES__: AgentBinaries
 
 const REGISTRY = 'https://registry.npmjs.org'
 const VERSION_TIMEOUT_MS = 10_000
@@ -21,14 +21,14 @@ const COMMON_BIN_DIRS = ['.local/bin', '.claude/local', '.npm-global/bin', '.bun
 const SYSTEM_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
 const COMMANDS = { claude: 'claude', codex: 'codex' } as const
 
-/** The agents whose CLI Grat pins (and can download); other agents bring their own. */
+/** The agents whose CLI Gui pins (and can download); other agents bring their own. */
 export type PinnedAgentId = keyof typeof COMMANDS
 
 export function pinnedAgent(id: AgentId): PinnedAgentId | null {
   return id === 'claude' || id === 'codex' ? id : null
 }
 
-/** An agent CLI Grat can run, and where it came from. */
+/** An agent CLI Gui can run, and where it came from. */
 export interface ResolvedBinary {
   path: string
   version: string
@@ -37,11 +37,11 @@ export interface ResolvedBinary {
 
 export type BinaryStatus =
   | { kind: 'ready'; binary: ResolvedBinary }
-  /** `found` is the user's own CLI when it's too old (or too new) for Grat's adapter. */
+  /** `found` is the user's own CLI when it's too old (or too new) for Gui's adapter. */
   | {
       kind: 'missing'
       found: { path: string; version: string } | null
-      /** Whether `found` is older or newer than the versions Grat's adapter supports */
+      /** Whether `found` is older or newer than the versions Gui's adapter supports */
       mismatch: 'older' | 'newer' | null
     }
 
@@ -49,11 +49,11 @@ export class AgentMissingError extends Error {}
 
 /**
  * The pinned CLI for this Mac. Unpackaged builds (dev, e2e) may swap the manifest via
- * GRAT_AGENT_MANIFEST to install from a local registry; packaged builds never do.
+ * GUI_AGENT_MANIFEST to install from a local registry; packaged builds never do.
  */
 async function pinned(id: PinnedAgentId): Promise<AgentBinary> {
-  let binaries = __GRAT_AGENT_BINARIES__
-  const override = !app.isPackaged ? process.env.GRAT_AGENT_MANIFEST : undefined
+  let binaries = __GUI_AGENT_BINARIES__
+  const override = !app.isPackaged ? process.env.GUI_AGENT_MANIFEST : undefined
   if (override) binaries = JSON.parse(await readFile(override, 'utf8')) as AgentBinaries
   const spec = binaries[id][`${process.platform}-${process.arch}`]
   if (!spec) throw new Error(`${agentName(id)} isn't available for this Mac.`)
@@ -61,7 +61,7 @@ async function pinned(id: PinnedAgentId): Promise<AgentBinary> {
 }
 
 function registry() {
-  return (!app.isPackaged && process.env.GRAT_AGENT_REGISTRY) || REGISTRY
+  return (!app.isPackaged && process.env.GUI_AGENT_REGISTRY) || REGISTRY
 }
 
 const agentsDir = () => join(app.getPath('userData'), 'agents')
@@ -134,10 +134,10 @@ async function findInstalled(id: PinnedAgentId) {
 
 async function resolve(id: PinnedAgentId): Promise<BinaryStatus> {
   const spec = await pinned(id)
-  // An exact copy Grat installed always matches its adapter.
+  // An exact copy Gui installed always matches its adapter.
   const own = join(installDir(id, spec), 'package', spec.bin)
   if (await isExecutable(own)) {
-    return { kind: 'ready', binary: { path: own, version: spec.cliVersion, source: 'grat' } }
+    return { kind: 'ready', binary: { path: own, version: spec.cliVersion, source: 'gui' } }
   }
   const found = await findInstalled(id)
   if (found && compatible(found.version, spec)) {
@@ -182,9 +182,9 @@ export function missingMessage(
   status: Extract<BinaryStatus, { kind: 'missing' }>,
 ) {
   const name = agentName(id)
-  if (!status.found) return `${name} isn't installed yet. Grat can set it up for you.`
+  if (!status.found) return `${name} isn't installed yet. Gui can set it up for you.`
   const age = status.mismatch === 'newer' ? 'newer' : 'older'
-  return `Your ${name} (${status.found.version}) is ${age} than Grat supports. Grat can install its own copy; yours stays as it is.`
+  return `Your ${name} (${status.found.version}) is ${age} than Gui supports. Gui can install its own copy; yours stays as it is.`
 }
 
 export interface InstallProgress {
@@ -194,8 +194,8 @@ export interface InstallProgress {
 }
 
 /**
- * Downloads the exact CLI Grat's adapter was built against from npm, checks it against
- * the hash pinned from bun.lock, and unpacks it into Grat's data folder. Nothing outside
+ * Downloads the exact CLI Gui's adapter was built against from npm, checks it against
+ * the hash pinned from bun.lock, and unpacks it into Gui's data folder. Nothing outside
  * that folder changes; a user's own install is left alone.
  */
 export async function installAgentBinary(
@@ -257,7 +257,7 @@ export async function installAgentBinary(
     }
     if (`sha512-${hash.digest('base64')}` !== spec.integrity) {
       throw new Error(
-        `The ${agentName(id)} download didn't match its expected checksum, so Grat didn't install it.`,
+        `The ${agentName(id)} download didn't match its expected checksum, so Gui didn't install it.`,
       )
     }
 
@@ -273,7 +273,7 @@ export async function installAgentBinary(
     const target = installDir(id, spec)
     await rm(target, { recursive: true, force: true })
     await rename(staging, target)
-    // Older versions Grat installed are no longer used.
+    // Older versions Gui installed are no longer used.
     for (const entry of await readdir(root)) {
       if (entry !== spec.version && !entry.startsWith('.')) {
         await rm(join(root, entry), { recursive: true, force: true })

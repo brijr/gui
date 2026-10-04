@@ -3,7 +3,7 @@ import { app, shell, type WebContents } from 'electron'
 
 export type RendererPage = 'index' | 'chat' | 'settings'
 
-/** Preload for Grat's own UI; the preview never gets it. */
+/** Preload for Gui's own UI; the preview never gets it. */
 export const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')
 
 function rendererUrl(page: RendererPage) {
