@@ -225,6 +225,11 @@ export interface ElementContext {
   source: SourceLocation | null
   /** PNG data URL of the element crop; stripped from turns to keep IPC payloads small */
   screenshot: string | null
+  /**
+   * Where `screenshot` was cropped and where the element was, in page coordinates (CSS
+   * pixels), so a later image of the element can be framed the same way. Null without one.
+   */
+  crop?: { area: Rect; element: Rect } | null
 }
 
 export interface Problem {
@@ -363,6 +368,17 @@ export interface FileChange {
 
 export type TurnStatus = 'running' | 'done' | 'cancelled' | 'error'
 
+/**
+ * How a turn's before and after images line up when the element changed size: the after
+ * image shows this whole area (CSS pixels) and the before image covers `before` inside
+ * it. Without one, both images frame the element the same way and show at the same size.
+ */
+export interface PreviewFrame {
+  width: number
+  height: number
+  before: Rect
+}
+
 export interface Turn {
   id: string
   index: number
@@ -377,7 +393,7 @@ export interface Turn {
    * Small JPEG data URLs of the picked element before the turn and after hot reload.
    * Kept in memory only (not in saved history); either may be missing.
    */
-  preview?: { before: string | null; after: string | null } | null
+  preview?: { before: string | null; after: string | null; frame?: PreviewFrame | null } | null
   startedAt: number
   endedAt: number | null
   changes: FileChange[] | null

@@ -9,6 +9,11 @@ import { normalizeSourcePath, projectRelativePath, resolveStack } from './source
 
 const COMMAND_TIMEOUT_MS = 15_000
 /**
+ * Room around a picked element in its crop. The turn's after image frames the element
+ * with the same margin, so the two line up.
+ */
+export const CROP_MARGIN = 8
+/**
  * The element highlight in Gui's accent for the current appearance: the content tinted, the
  * padding lighter, the margin a neutral fill, an accent outline.
  */
@@ -319,7 +324,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     await this.ready()
     // Page JavaScript that may wait for hydration; it holds no node ids, so it runs unlocked.
     const pendingReact = this.reactInfo(backendNodeId)
-    const { described, outer, rect, viewport, styles, lineage, screenshot } = await this.exclusive(
+    const { described, outer, rect, viewport, styles, lineage, shot } = await this.exclusive(
       async () => {
         const [described, outer, rect, viewport, { styles, lineage }] = await Promise.all([
           this.cmd<{ node: { localName: string; attributes?: string[] } }>('DOM.describeNode', {
@@ -333,8 +338,8 @@ export class Inspector extends EventEmitter<InspectorEvents> {
             lineage,
           })),
         ])
-        const screenshot = options.screenshot === false ? null : await this.capture(rect, viewport)
-        return { described, outer, rect, viewport, styles, lineage, screenshot }
+        const shot = options.screenshot === false ? null : await this.capture(rect, viewport)
+        return { described, outer, rect, viewport, styles, lineage, shot }
       },
     )
     const react = await pendingReact
@@ -364,7 +369,8 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       styles,
       componentStack,
       source,
-      screenshot,
+      screenshot: shot?.dataUrl ?? null,
+      crop: shot?.crop ?? null,
     }
   }
 
@@ -533,20 +539,28 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     }
   }
 
+  /** The element and `CROP_MARGIN` around it, within the viewport; where, in page coordinates. */
   private async capture(rect: Rect, viewport: { width: number; height: number }) {
-    const pad = 8
+    const pad = CROP_MARGIN
     const x = Math.max(0, Math.floor(rect.x - pad))
     const y = Math.max(0, Math.floor(rect.y - pad))
     const width = Math.min(viewport.width, Math.ceil(rect.x + rect.width + pad)) - x
     const height = Math.min(viewport.height, Math.ceil(rect.y + rect.height + pad)) - y
     if (width < 2 || height < 2) return null
+    const { cssVisualViewport: scroll } = await this.cmd<{
+      cssVisualViewport: { pageX: number; pageY: number }
+    }>('Page.getLayoutMetrics')
     // Hide our overlay so it isn't baked into the crop.
     await this.clearHighlight()
     const image = await this.wc.capturePage({ x, y, width, height })
     if (image.isEmpty()) return null
     const size = image.getSize()
     const scaled = size.width > 1200 ? image.resize({ width: 1200, quality: 'good' }) : image
-    return scaled.toDataURL()
+    const onPage = (box: Rect) => ({ ...box, x: box.x + scroll.pageX, y: box.y + scroll.pageY })
+    return {
+      dataUrl: scaled.toDataURL(),
+      crop: { area: onPage({ x, y, width, height }), element: onPage(rect) },
+    }
   }
 
   private async ready() {

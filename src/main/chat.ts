@@ -27,6 +27,7 @@ import {
   type ElementContext,
   type ImageAttachment,
   type ModelSettings,
+  type PreviewFrame,
   type Problem,
   type QueuedMessage,
   type QueuePauseReason,
@@ -487,10 +488,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /** Adds the after-hot-reload image of the picked element to a finished turn. */
-  setPreviewAfter(turnId: string, after: string | null) {
+  setPreviewAfter(turnId: string, after: string | null, frame: PreviewFrame | null = null) {
     const record = this.records.find((r) => r.turn.id === turnId)
     if (!record || !after) return
-    record.turn.preview = { before: record.turn.preview?.before ?? null, after }
+    record.turn.preview = { before: record.turn.preview?.before ?? null, after, frame }
     this.flushTurn(record)
   }
 

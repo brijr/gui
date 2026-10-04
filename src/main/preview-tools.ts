@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron'
-import type { ElementContext } from '../shared/types'
-import type { Inspector, InspectorSession } from './inspector'
+import type { ElementContext, Rect } from '../shared/types'
+import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import type { Problems } from './problems'
 
@@ -54,6 +54,16 @@ export interface ScreenshotOptions {
   fullPage?: boolean
   /** For the user rather than the agent: a PNG at the display's own resolution, uncapped. */
   fullResolution?: boolean
+  /**
+   * With `selector`: frame the element the way an earlier crop of it was framed (see
+   * `matchingArea`) rather than with the agent's margin.
+   */
+  matching?: { area: Rect; element: Rect }
+}
+
+/** A screenshot of part of the page, and which part (page coordinates, CSS pixels). */
+export interface FramedScreenshot extends Screenshot {
+  area: Rect
 }
 
 export interface PreviewToolsDeps {
@@ -104,7 +114,7 @@ export class PreviewTools {
    * sees it briefly) so the agent can check responsive layouts. Runs alone so parallel
    * calls don't fight over the emulated width, and without our highlight overlay.
    */
-  async screenshot(options: ScreenshotOptions): Promise<Screenshot> {
+  async screenshot(options: ScreenshotOptions): Promise<FramedScreenshot> {
     this.assertLoaded()
     return this.deps.inspector.exclusive((session) =>
       session.withoutHighlight(() => this.capture(session, options)),
@@ -175,7 +185,7 @@ export class PreviewTools {
   private async capture(
     session: InspectorSession,
     options: ScreenshotOptions,
-  ): Promise<Screenshot> {
+  ): Promise<FramedScreenshot> {
     const initial = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
     const width = options.width ? Math.round(Math.min(Math.max(options.width, 240), 3840)) : null
     let scrolled = false
@@ -202,13 +212,13 @@ export class PreviewTools {
         })
         const xs = [model.border[0], model.border[2], model.border[4], model.border[6]]
         const ys = [model.border[1], model.border[3], model.border[5], model.border[7]]
-        const pad = 16
-        clip = {
-          x: Math.max(0, Math.min(...xs) - pad + fresh.cssVisualViewport.pageX),
-          y: Math.max(0, Math.min(...ys) - pad + fresh.cssVisualViewport.pageY),
-          width: Math.max(...xs) - Math.min(...xs) + pad * 2,
-          height: Math.max(...ys) - Math.min(...ys) + pad * 2,
+        const element = {
+          x: Math.min(...xs) + fresh.cssVisualViewport.pageX,
+          y: Math.min(...ys) + fresh.cssVisualViewport.pageY,
+          width: Math.max(...xs) - Math.min(...xs),
+          height: Math.max(...ys) - Math.min(...ys),
         }
+        clip = options.matching ? matchingArea(options.matching, element) : around(element, 16)
       } else if (options.fullPage) {
         const maxHeight = options.fullResolution
           ? Math.floor(MAX_CAPTURE_PIXELS / dpr)
@@ -242,6 +252,7 @@ export class PreviewTools {
         width: Math.round(clip.width * scale * dpr),
         height: Math.round(clip.height * scale * dpr),
         viewportWidth,
+        area: clip,
       }
     } finally {
       // Nested scrollers first, in the layout their offsets were recorded in.
@@ -342,4 +353,49 @@ function contains(outer: Clip, inner: Clip) {
     inner.x + inner.width <= outer.x + outer.width + 1 &&
     inner.y + inner.height <= outer.y + outer.height + 1
   )
+}
+
+/** The element with `pad` around it; the page has nothing above or left of its origin. */
+function around(element: Clip, pad: number): Clip {
+  return {
+    x: Math.max(0, element.x - pad),
+    y: Math.max(0, element.y - pad),
+    width: element.width + pad * 2,
+    height: element.height + pad * 2,
+  }
+}
+
+function union(a: Clip, b: Clip): Clip {
+  const x = Math.min(a.x, b.x)
+  const y = Math.min(a.y, b.y)
+  const right = Math.max(a.x + a.width, b.x + b.width)
+  const bottom = Math.max(a.y + a.height, b.y + b.height)
+  return { x, y, width: right - x, height: bottom - y }
+}
+
+const area = (clip: Clip) => clip.width * clip.height
+
+/**
+ * Where to capture `element` so the image lines up with an earlier crop of it (`before`,
+ * the inspector's pick crop). The same size: the same area, moved with the element, so a
+ * layout shift around it doesn't show as a change. Resized: the area both the old crop and
+ * the new box (with the crop's margin) cover, where it changed in place. Moved far as well
+ * as resized, that area would mostly be page, so the element is framed on its own.
+ */
+export function matchingArea(before: { area: Rect; element: Rect }, element: Clip): Clip {
+  const sameSize =
+    Math.abs(element.width - before.element.width) <= 1 &&
+    Math.abs(element.height - before.element.height) <= 1
+  if (sameSize) {
+    const dx = element.x - before.element.x
+    const dy = element.y - before.element.y
+    return {
+      ...before.area,
+      x: Math.max(0, before.area.x + dx),
+      y: Math.max(0, before.area.y + dy),
+    }
+  }
+  const framed = around(element, CROP_MARGIN)
+  const both = union(before.area, framed)
+  return area(both) > 4 * Math.max(area(before.area), area(framed)) ? framed : both
 }

@@ -24,9 +24,11 @@ import {
   agentName,
   type ChatSnapshot,
   type DevServerState,
+  type ElementContext,
   type ImageAttachment,
   type PanelCorner,
   type PanelEdge,
+  type PreviewFrame,
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
@@ -414,7 +416,7 @@ export class ProjectTab {
       })
       chat.on('turnEnd', (turn) => {
         if (turn.status === 'done' && turn.context && turn.changes?.length) {
-          const selector = turn.context.selector
+          const { selector, crop } = turn.context
           if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
           const generation = this.rehighlightGeneration
           this.rehighlightTimer = setTimeout(() => {
@@ -423,7 +425,7 @@ export class ProjectTab {
             // a pick that started meanwhile still gets this turn's "after", just no highlight,
             // unless that turn has already started on tools: the preview may show its changes.
             if (chat.activeTurnUsedTools()) return
-            void this.captureAfter(chat, turn.id, selector).then(() => {
+            void this.captureAfter(chat, turn.id, selector, crop ?? null).then(() => {
               if (generation === this.rehighlightGeneration) void this.highlightSelector(selector)
             })
           }, REHIGHLIGHT_DELAY_MS)
@@ -1013,12 +1015,23 @@ export class ProjectTab {
     return sent
   }
 
-  /** Shows the changed element in the turn, next to how it looked when it was picked. */
-  private async captureAfter(chat: ChatController, turnId: string, selector: string) {
+  /**
+   * Shows the changed element in the turn, next to how it looked when it was picked: framed
+   * like the pick's crop, so the two line up (see `matchingArea`).
+   */
+  private async captureAfter(
+    chat: ChatController,
+    turnId: string,
+    selector: string,
+    crop: ElementContext['crop'] | null,
+  ) {
     const tools = this.previewTools
     if (!tools || chat !== this.chat || !this.state.preview.visible) return
-    const shot = await tools.screenshot({ selector }).catch(() => null)
-    if (chat === this.chat) chat.setPreviewAfter(turnId, thumbnail(shot))
+    const matching = crop ?? undefined
+    const shot = await tools.screenshot({ selector, matching }).catch(() => null)
+    if (chat !== this.chat) return
+    const frame = shot && crop ? previewFrame(crop.area, shot.area) : null
+    chat.setPreviewAfter(turnId, thumbnail(shot), frame)
   }
 
   /** Undoes the newest turn that changed files and hasn't been undone. */
@@ -1597,6 +1610,27 @@ function originOf(url: string) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), Math.max(min, max))
+}
+
+/**
+ * Where the before image sits in a larger after image, when the element changed size
+ * (page coordinates in, the after image's own coordinates out). Null when both show the
+ * same area, or the after image doesn't cover the before one.
+ */
+function previewFrame(before: Rect, after: Rect): PreviewFrame | null {
+  const same =
+    Math.abs(before.width - after.width) <= 1 && Math.abs(before.height - after.height) <= 1
+  const covers =
+    before.x >= after.x - 1 &&
+    before.y >= after.y - 1 &&
+    before.x + before.width <= after.x + after.width + 1 &&
+    before.y + before.height <= after.y + after.height + 1
+  if (same || !covers) return null
+  return {
+    width: after.width,
+    height: after.height,
+    before: { ...before, x: before.x - after.x, y: before.y - after.y },
+  }
 }
 
 /** The anchor at `corner` of `area` (the canvas) that puts the floating panel at `rect`. */
