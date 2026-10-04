@@ -4,6 +4,7 @@ import {
   Camera,
   Check,
   ChevronDown,
+  Folder,
   MessageSquare,
   Monitor,
   MousePointer2,
@@ -13,11 +14,12 @@ import {
 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
-import { agentName, type Viewport, type WindowState } from '../../../shared/types'
+import type { Viewport, WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { Input } from '../lib/field'
-import { type Status, StatusDot } from '../lib/status'
+import { StatusDot } from '../lib/status'
 import { Button, IconButton, SegmentedControl, Toggle } from '../lib/ui'
+import { serverStatus } from './server-status'
 
 const VIEWPORTS = [
   { value: 'desktop', label: 'Desktop', icon: Monitor },
@@ -28,92 +30,111 @@ const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached'
 /** How long the screenshot button shows what it did. */
 const DONE_MS = 1500
 
+/**
+ * The window's toolbar: the project menu, then, once a project is open, the preview's
+ * navigation, its address (with the dev server's status), viewport, screenshot, Select and
+ * the chat. Groups sit a gap apart; controls are 28px.
+ */
 export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
   // With two or more tabs the traffic lights sit in the tab row above (tab-strip.tsx).
-  const inset = state.tabs.length > 1 ? undefined : TRAFFIC_LIGHTS_INSET
+  const tabbed = state.tabs.length > 1
+  // Picking and screenshots only work on the local app.
+  const capturable = preview.visible && preview.selectable
 
   return (
     <header
-      className="drag flex shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2 pl-2"
-      style={{ height: TOOLBAR_HEIGHT, paddingLeft: inset }}
+      className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface pr-2 pl-2"
+      style={{ height: TOOLBAR_HEIGHT, paddingLeft: tabbed ? undefined : TRAFFIC_LIGHTS_INSET }}
     >
-      <button
-        type="button"
-        onClick={() => gui.showProjectMenu()}
-        className="no-drag flex h-7 max-w-64 items-center gap-1 rounded-md px-2 font-semibold transition-colors hover:bg-hover"
-      >
-        <span className="truncate">{project?.name ?? 'Gui'}</span>
-        {/* The monorepo app being previewed */}
-        {project?.appDir && (
-          <span className="truncate font-normal text-subtle">
-            / {project.appDir.slice(project.appDir.lastIndexOf('/') + 1)}
-          </span>
-        )}
-        <ChevronDown className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-      </button>
+      <ProjectMenuButton state={state} named={!tabbed} />
 
-      {project && <DevServerPill state={state} />}
+      {project && (
+        <>
+          <div className="flex items-center gap-0.5">
+            <IconButton
+              label="Back"
+              icon={ArrowLeft}
+              disabled={!preview.canGoBack}
+              onClick={() => gui.back()}
+            />
+            <IconButton
+              label="Forward"
+              icon={ArrowRight}
+              disabled={!preview.canGoForward}
+              onClick={() => gui.forward()}
+            />
+            <IconButton
+              label="Reload preview"
+              icon={RotateCw}
+              spinning={preview.loading}
+              disabled={!preview.url}
+              onClick={() => gui.reload()}
+            />
+          </div>
 
-      <div className="mx-1 flex items-center">
-        <IconButton
-          label="Back"
-          icon={ArrowLeft}
-          disabled={!preview.canGoBack}
-          onClick={() => gui.back()}
-        />
-        <IconButton
-          label="Forward"
-          icon={ArrowRight}
-          disabled={!preview.canGoForward}
-          onClick={() => gui.forward()}
-        />
-        <IconButton
-          label="Reload preview"
-          icon={RotateCw}
-          spinning={preview.loading}
-          disabled={!preview.url}
-          onClick={() => gui.reload()}
-        />
-      </div>
+          <AddressBar state={state} />
 
-      <AddressBar url={preview.url} disabled={!project} />
+          <SegmentedControl
+            label="Viewport"
+            segments={VIEWPORTS}
+            value={preview.viewport}
+            onChange={(viewport) => gui.setViewport(viewport)}
+            iconOnly
+          />
 
-      <SegmentedControl
-        label="Viewport"
-        segments={VIEWPORTS}
-        value={preview.viewport}
-        onChange={(viewport) => gui.setViewport(viewport)}
-        iconOnly
-        className="ml-1"
-      />
+          <div className="flex items-center gap-1">
+            <ScreenshotButton disabled={!capturable} />
+            <Toggle
+              pressed={preview.selecting}
+              emphasis="strong"
+              icon={MousePointer2}
+              disabled={!capturable}
+              onClick={() => gui.toggleSelect()}
+              title="Select element (⇧⌘C)"
+            >
+              Select
+            </Toggle>
+          </div>
 
-      {/* The menu only captures the local app, like element picking. */}
-      <ScreenshotButton disabled={!preview.visible || !preview.selectable} />
-
-      <Toggle
-        pressed={preview.selecting}
-        emphasis="strong"
-        icon={MousePointer2}
-        disabled={!preview.visible || !preview.selectable}
-        onClick={() => gui.toggleSelect()}
-        title="Select element (⇧⌘C)"
-      >
-        Select
-      </Toggle>
-
-      <Button variant="ghost" trailingIcon={ChevronDown} onClick={() => gui.showAgentMenu()}>
-        {agentName(state.agentId)}
-      </Button>
-
-      <IconButton
-        label="Toggle chat (⌘J)"
-        icon={MessageSquare}
-        pressed={state.chatVisible && !!project}
-        disabled={!project}
-        onClick={() => gui.toggleChat()}
-      />
+          <IconButton
+            label="Toggle chat (⌘J)"
+            icon={MessageSquare}
+            pressed={state.chatVisible}
+            onClick={() => gui.toggleChat()}
+          />
+        </>
+      )}
     </header>
+  )
+}
+
+/**
+ * Opens the project menu (open, recent projects, switch app, reveal). It names the project,
+ * unless the tab row does already; then it's the folder alone.
+ */
+function ProjectMenuButton({ state, named }: { state: WindowState; named: boolean }) {
+  const { project } = state
+  // The monorepo app being previewed
+  const app = project?.appDir?.slice(project.appDir.lastIndexOf('/') + 1)
+  return (
+    <Button
+      variant="ghost"
+      icon={Folder}
+      trailingIcon={ChevronDown}
+      aria-haspopup="menu"
+      aria-label={named ? undefined : 'Project menu'}
+      title={named ? undefined : 'Project menu'}
+      className="max-w-64"
+      onClick={() => gui.showProjectMenu()}
+    >
+      {named && (
+        <>
+          <span className="min-w-0 truncate text-fg">{project?.name ?? 'Gui'}</span>
+          {app && <span className="min-w-0 truncate font-normal text-subtle">/ {app}</span>}
+        </>
+      )}
+    </Button>
   )
 }
 
@@ -149,52 +170,27 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
   )
 }
 
-function DevServerPill({ state }: { state: WindowState }) {
-  const { url, exitCode } = state.devServer
-  // Installing runs before the dev server, in the same terminal.
-  const installing = state.setup?.dependencies === 'installing'
-  const status = installing ? 'starting' : state.devServer.status
-  const crashed = status === 'exited' && exitCode !== 0
-  const label = installing
-    ? 'Installing…'
-    : status === 'running' && url
-      ? new URL(url).host
-      : status === 'starting'
-        ? 'Starting…'
-        : crashed
-          ? 'Stopped with an error'
-          : 'Stopped'
-  const title = [
-    state.devServer.command ?? 'Your app',
-    status === 'exited' && exitCode !== null ? `exited with code ${exitCode}` : null,
-  ]
-    .filter(Boolean)
-    .join(' — ')
-  const dot: Status =
-    status === 'running'
-      ? 'ready'
-      : status === 'starting'
-        ? 'busy'
-        : status === 'exited'
-          ? 'error'
-          : 'idle'
-  return (
-    <button
-      type="button"
-      onClick={() => gui.showDevServerMenu()}
-      title={title}
-      className="no-drag flex h-6 items-center gap-1.5 rounded-full border border-line bg-raised px-2 font-mono text-caption text-muted transition-colors hover:border-line-strong hover:text-fg"
-    >
-      <StatusDot status={dot} />
-      {label}
-    </button>
-  )
-}
-
-function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }) {
+/**
+ * The preview's address, led by the dev server's status: a dot that opens the dev-server menu
+ * (restart, stop, logs, open in browser). Until there's a page to show the field says what
+ * the server is doing rather than a made-up address.
+ */
+function AddressBar({ state }: { state: WindowState }) {
+  const { preview, devServer, project, setup } = state
   // While focused, the field shows the user's draft; otherwise it follows navigation.
   const [draft, setDraft] = useState<string | null>(null)
+  // The address of what's on screen, or being loaded, or failed to load.
+  const url = preview.visible || preview.loading || preview.error ? preview.url : null
   const value = draft ?? url ?? ''
+  const { status, label } = serverStatus(state)
+  // Like the canvas: without a dev script (or an app picked), the address is the way in.
+  const noCommand = !project?.devCommand && !setup?.apps
+  const placeholder = devServer.status === 'idle' && noCommand ? "Enter your app's address" : label
+  const exit =
+    devServer.status === 'exited' && devServer.exitCode !== null
+      ? `exited with code ${devServer.exitCode}`
+      : null
+  const tooltip = [label, devServer.command, exit].filter(Boolean).join(' — ')
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -208,10 +204,11 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
       <Input
         id="preview-address"
         aria-label="App address"
-        mono
+        // Addresses in monospace; the status in its place in the UI's font.
+        mono={value !== '' || draft !== null}
         value={value}
-        disabled={disabled}
         spellCheck={false}
+        placeholder={placeholder}
         onChange={(event) => setDraft(event.target.value)}
         onFocus={(event) => {
           setDraft(url ?? '')
@@ -221,7 +218,18 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
         onKeyDown={(event) => {
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
-        placeholder={disabled ? '' : 'http://localhost:3000'}
+        leading={
+          <button
+            type="button"
+            aria-label={`Dev server: ${label}`}
+            aria-haspopup="menu"
+            title={tooltip}
+            onClick={() => gui.showDevServerMenu()}
+            className="flex h-full shrink-0 items-center rounded-l-md pr-2 pl-2.5 transition-colors hover:bg-hover focus-visible:-outline-offset-2"
+          >
+            <StatusDot status={status} />
+          </button>
+        }
       />
     </form>
   )

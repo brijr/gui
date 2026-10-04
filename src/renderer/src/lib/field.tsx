@@ -5,8 +5,10 @@ import { cn } from './cn'
  * The one field style, for inputs, textareas and selects: raised, a strong hairline, and on
  * focus an accent border with a soft accent ring instead of the outline buttons get.
  */
-const FIELD =
-  'rounded-md border border-line-strong bg-raised px-2.5 text-fg outline-none transition-colors placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40'
+const FRAME = 'rounded-md border border-line-strong bg-raised text-fg transition-colors'
+const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40`
+/** The same frame around an input and a control at its start; it takes the focus look from the input. */
+const GROUP = `${FRAME} flex items-center has-[input:focus]:border-accent has-[input:focus]:ring-3 has-[input:focus]:ring-accent-soft`
 
 /** Body text, or for code-like values (commands, branches, addresses) monospace at small */
 const text = (mono: boolean) => (mono ? 'font-mono text-small' : 'text-body')
@@ -16,13 +18,31 @@ interface FieldStyleProps {
   mono?: boolean
 }
 
+interface InputProps extends ComponentProps<'input'>, FieldStyleProps {
+  /**
+   * A small control inside the field, before the text: the address bar's dev-server status.
+   * It sits flush with the field's left edge; give it its own padding.
+   */
+  leading?: ReactNode
+}
+
 /** A single-line text field, 28px tall. */
-export function Input({
-  mono = false,
-  className,
-  ...props
-}: ComponentProps<'input'> & FieldStyleProps) {
-  return <input className={cn(FIELD, 'h-7 w-full', text(mono), className)} {...props} />
+export function Input({ mono = false, leading, className, ...props }: InputProps) {
+  if (!leading) {
+    return <input className={cn(FIELD, 'h-7 w-full', text(mono), className)} {...props} />
+  }
+  return (
+    <div className={cn(GROUP, 'h-7 w-full', className)}>
+      {leading}
+      <input
+        className={cn(
+          'h-full min-w-0 flex-1 bg-transparent pr-2.5 outline-none placeholder:text-subtle',
+          text(mono),
+        )}
+        {...props}
+      />
+    </div>
+  )
 }
 
 /** A multi-line text field. Grows with its text up to a max height when given one. */
