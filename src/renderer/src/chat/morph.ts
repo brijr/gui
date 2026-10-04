@@ -1,4 +1,3 @@
-import { BUBBLE, MINI } from '../../../shared/layout'
 import { SPRINGS, Spring } from '../../../shared/motion'
 import { CHAT_FORMS, type ChatForm, type PanelCorner } from '../../../shared/types'
 import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
@@ -13,6 +12,13 @@ import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
 
 /** How small the pill and the bubble are as they appear or go: grown out of the corner. */
 const SMALL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { pill: 0.8, bubble: 0.5 }
+/**
+ * How small the panel gets going into (or coming out of) each: about the smaller form's share
+ * of a panel's width, so it shrinks into it rather than just fading. Fixed rather than measured,
+ * since the panel's layer is the smaller form's size while the view is, and it's out of sight
+ * well before it gets this small.
+ */
+const PANEL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { pill: 0.6, bubble: 0.15 }
 /** Presence is close enough to 0 or 1 to stop at this. */
 const PRECISION = 0.002
 /** Reduced motion's cross-fade (styles.css --motion-fade). */
@@ -150,22 +156,13 @@ export class Morph {
     el.style.opacity =
       resting && presence === 1 ? '' : String(opacityOf(form, presence, this.reduced))
     el.style.transformOrigin = this.origins[form] ?? ''
-    if (resting || this.reduced) {
+    // Shown and at rest, nothing is scaled. Gone, it stays shrunk into its corner until it
+    // unmounts, so it's never full size for a frame, even unseen.
+    if ((resting && presence === 1) || this.reduced) {
       el.style.transform = ''
       return
     }
-    const from = form === 'panel' ? this.panelScale(el) : SMALL_SCALE[form]
+    const from = form === 'panel' ? PANEL_SCALE[this.panelAway] : SMALL_SCALE[form]
     el.style.transform = `scale(${from + (1 - from) * presence})`
-  }
-
-  /**
-   * How small the panel gets: down to the width of the form it becomes (or came from), so it
-   * shrinks into it rather than just fading.
-   */
-  private panelScale(el: HTMLElement) {
-    const width = el.offsetWidth
-    if (width === 0) return 0.5
-    const target = this.panelAway === 'pill' ? MINI.width : BUBBLE.width
-    return Math.min(0.9, Math.max(0.1, target / width))
   }
 }
