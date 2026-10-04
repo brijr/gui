@@ -21,8 +21,11 @@ export function ShortcutsSheet() {
   const titleId = useId()
   const shortcuts = allShortcuts()
 
+  // The sheet itself has the keyboard, so the arrow keys scroll it, rather than its close
+  // button showing a focus ring from the start.
   useEffect(() => {
     dialog.current?.showModal()
+    dialog.current?.focus()
   }, [])
 
   const close = () => gui.setShortcutsOpen(false)
@@ -42,15 +45,17 @@ export function ShortcutsSheet() {
         close()
       }}
       onClick={onClick}
-      className="no-drag m-auto w-full max-w-lg flex-col overflow-hidden rounded-xl border border-line bg-raised p-0 text-fg shadow-popover backdrop:bg-scrim open:flex"
+      tabIndex={-1}
+      // Scrolls as a whole, under its title, within the room the window has.
+      className="no-drag m-auto w-full max-w-lg overflow-y-auto overscroll-contain rounded-xl border border-line bg-raised p-0 text-fg shadow-popover outline-none backdrop:bg-scrim"
     >
-      <div className="flex h-11 shrink-0 items-center gap-2 border-b border-line pr-2 pl-4">
+      <div className="sticky top-0 z-10 flex h-11 items-center gap-2 border-b border-line bg-raised pr-2 pl-4">
         <h2 id={titleId} className="min-w-0 flex-1 truncate font-semibold">
           Keyboard shortcuts
         </h2>
         <IconButton label="Close" title="Close (Esc)" icon={X} onClick={close} />
       </div>
-      <div className="flex min-h-0 flex-col gap-5 overflow-y-auto overscroll-contain px-4 pt-3 pb-5">
+      <div className="flex flex-col gap-5 px-4 pt-3 pb-5">
         {SHORTCUT_GROUPS.map((group) => (
           <ShortcutGroup
             key={group.id}
