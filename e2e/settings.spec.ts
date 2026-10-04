@@ -1,8 +1,8 @@
-import { realpathSync } from 'node:fs'
+import { realpathSync, writeFileSync } from 'node:fs'
 import type { Page } from '@playwright/test'
 import type { SettingsState } from '../src/shared/types'
 import { waitFor } from './helpers/env'
-import type { GuiSession } from './helpers/session'
+import { type GuiSession, standInsFile } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 /** The Settings window's page, once its preload is up. */
@@ -67,8 +67,8 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}.png`) })
 }
 
-// No agent usage: checks only start (and never prompt) a session, and the custom agent
-// added here is /bin/echo, which is never run.
+// No agent usage: checks only start (and never prompt) a session, Pi's is /usr/bin/true,
+// and the custom agent added here is /bin/echo, which is never run.
 test('settings switches agents, edits custom agents, and manages projects', async ({ launch }) => {
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
@@ -76,6 +76,9 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   // Agent checks change agent health at every step; the app menu is rebuilt only for the
   // changes it shows, so no rebuild leaves it as it was.
   await session.app.evaluate(recordMenus)
+  // A stand-in that exits at once, so Pi is found (Settings looks again when it opens) and
+  // its check fails fast.
+  writeFileSync(standInsFile(session.fixture), JSON.stringify({ pi: { command: '/usr/bin/true' } }))
 
   // Opened at a section from the project window; the page shows that section.
   await session.chrome.evaluate(() => window.gui.openSettings('storage'))
@@ -93,6 +96,8 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await shot(page, 'agents')
   const codex = page.getByRole('switch', { name: 'Codex Enabled' })
   await expect(codex).toHaveAttribute('aria-checked', 'true')
+  // Unpackaged, as in tests, Codex is always found (in node_modules), so it's listed.
+  expect(await session.app.evaluate(appMenuAgents)).toContain('Codex')
   await codex.click()
   await settingsWhere(page, 'Codex to be off', (s) =>
     s.agents.some((agent) => agent.id === 'codex' && !agent.enabled),
@@ -105,6 +110,23 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   expect(await session.app.evaluate(appMenuAgents)).not.toContain('Codex')
   await codex.click()
   await expect(codex).toHaveAttribute('aria-checked', 'true')
+
+  // Switched back on unchecked, Pi is checked at once. Its first step, Checking, doesn't
+  // show in the menu, so the switch and that step rebuild it once; its failure shows.
+  await settingsWhere(page, 'the stand-in Pi to be found', (s) =>
+    s.agents.some((agent) => agent.id === 'pi' && agent.status === 'unknown'),
+  )
+  const pi = page.getByRole('switch', { name: 'Pi Enabled' })
+  await pi.click()
+  await settingsWhere(page, 'Pi to be off', (s) =>
+    s.agents.some((agent) => agent.id === 'pi' && !agent.enabled),
+  )
+  expect(await session.app.evaluate(appMenuAgents)).not.toContain('Pi')
+  await pi.click()
+  await settingsWhere(page, "Pi's check to fail", (s) =>
+    s.agents.some((agent) => agent.id === 'pi' && agent.status === 'error'),
+  )
+  expect(await session.app.evaluate(appMenuAgents)).toContain('Pi')
 
   // A custom agent added in the form is saved, found on disk, and removable.
   await page.getByRole('button', { name: 'Custom agents' }).click()

@@ -737,10 +737,10 @@ let builtAgents = ''
 let agentsQueued = false
 
 /**
- * Agent health changes at every step of every check, about ten times at launch, but the
- * menu shows only which agents there are and whether they're installed and signed in. A
- * burst of changes rebuilds it at most once, before the event loop moves on, and only when
- * that changed.
+ * Agent health changes at every step of every check, about ten times at launch, but most
+ * steps (Checking, then Ready) change neither which agents the menu lists nor what it says
+ * of them; only a change it shows rebuilds it. Changes that come together rebuild it once,
+ * before the event loop moves on.
  */
 function onAgentHealth() {
   if (agentsQueued) return
