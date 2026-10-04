@@ -232,8 +232,14 @@ interface Bounds {
   height: number
 }
 
-/** Runs in main: the chat and preview views' bounds and the window's content size. */
-function chatLayout({ BrowserWindow, WebContentsView }: ElectronModule) {
+/**
+ * Runs in main: the chat and preview views' bounds and the window's content size, read in a
+ * task of their own. The inspector runs an evaluate as soon as it arrives, even in the middle
+ * of main's own code, such as between a layout's preview and chat `setBounds`, where the
+ * preview has moved and the chat not yet.
+ */
+async function chatLayout({ BrowserWindow, WebContentsView }: ElectronModule) {
+  await new Promise<void>((resolve) => setImmediate(() => resolve()))
   const win = BrowserWindow.getAllWindows()[0]
   if (!win) return null
   const views = win.contentView.children.filter(
