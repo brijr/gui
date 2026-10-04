@@ -1095,7 +1095,8 @@ export class ProjectTab {
     } else {
       if (this.chat?.meta.minimized || this.bubbled) return
       const [contentWidth, contentHeight] = this.host.win.getContentSize()
-      const max = maxFloatingSize(contentWidth, contentHeight, this.host.chromeHeight)
+      const area = this.anchorArea(contentWidth, contentHeight)
+      const max = maxFloatingSize(contentWidth, area)
       // From the panel on screen, which may be smaller than the remembered size.
       const panel = this.floatingRect(contentWidth, contentHeight)
       let left = panel.x
@@ -1103,7 +1104,7 @@ export class ProjectTab {
       let right = panel.x + panel.width
       let bottom = panel.y + panel.height
       // In whole pixels, each dragged edge stopping at the panel's smallest and largest size,
-      // at the window's edges and below the toolbar.
+      // at the window's edges, below the toolbar and above the logs.
       const [moveX, moveY] = [Math.round(dx), Math.round(dy)]
       if (edge.includes('left')) {
         const leftmost = Math.max(0, right - max.width)
@@ -1116,11 +1117,10 @@ export class ProjectTab {
         const highest = Math.max(this.host.chromeHeight, bottom - max.height)
         top = clamp(top + moveY, highest, bottom - PANEL_MIN.height)
       } else if (edge.startsWith('bottom')) {
-        const lowest = Math.min(contentHeight, top + max.height)
+        const lowest = Math.min(area.y + area.height, top + max.height)
         bottom = clamp(bottom + moveY, top + PANEL_MIN.height, lowest)
       }
       this.panelSize = { width: right - left, height: bottom - top }
-      const area = this.anchorArea(contentWidth, contentHeight)
       this.anchor = anchorFor({ x: left, y: top, ...this.panelSize }, area, this.anchor)
       this.resizing = 'floating'
     }
@@ -1345,7 +1345,7 @@ export class ProjectTab {
 
   /**
    * The floating panel, or the pill while minimized, at its anchor and kept inside the window
-   * below the toolbar.
+   * below the toolbar, and above the logs drawer when it's open.
    */
   private floatingRect(contentWidth: number, contentHeight: number): Rect {
     const minimized = this.chat?.meta.minimized ?? false
@@ -1356,7 +1356,7 @@ export class ProjectTab {
     const top = y === 'top' ? area.y + dy : area.y + area.height - dy - height
     return {
       x: Math.round(clamp(left, 0, contentWidth - width)),
-      y: Math.round(clamp(top, this.host.chromeHeight, contentHeight - height)),
+      y: Math.round(clamp(top, this.host.chromeHeight, area.y + area.height - height)),
       width,
       height,
     }
@@ -1396,9 +1396,9 @@ export class ProjectTab {
     )
   }
 
-  /** The floating panel's size: the remembered one, within the window. */
+  /** The floating panel's size: the remembered one, within the window and the canvas's height. */
   private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
-    const max = maxFloatingSize(contentWidth, contentHeight, this.host.chromeHeight)
+    const max = maxFloatingSize(contentWidth, this.anchorArea(contentWidth, contentHeight))
     return {
       width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
       height: Math.round(clamp(this.panelSize.height, PANEL_MIN.height, max.height)),
@@ -1619,11 +1619,11 @@ function inCorner(rect: Rect, size: ChatSize, corner: PanelCorner): Rect {
   }
 }
 
-/** The largest the floating panel can be in a window this size, below chrome `top` high. */
-function maxFloatingSize(contentWidth: number, contentHeight: number, top: number): ChatSize {
+/** The largest the floating panel can be: the window's width, the canvas's (`area`) height. */
+function maxFloatingSize(contentWidth: number, area: Rect): ChatSize {
   return {
     width: contentWidth - PANEL_MARGIN * 2,
-    height: contentHeight - top - PANEL_MARGIN * 2,
+    height: area.height - PANEL_MARGIN * 2,
   }
 }
 
