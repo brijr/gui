@@ -38,6 +38,7 @@ import {
 import { type AgentInfo, AgentSession, type PermissionResolver, parseModelSettings } from './agent'
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
+import type { PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
@@ -206,6 +207,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private refused = new Map<string, string>()
   /** The running session's setting changes, one at a time, so the last one sent sticks. */
   private settingChanges: Promise<void> = Promise.resolve()
+  /**
+   * The Ask or Auto the running session's own permission controls were last set to; null
+   * until they are. Only a new session or a change of Ask or Auto sets them again, so a
+   * mode the user or agent picks in between stays.
+   */
+  private sessionPolicy: PermissionPolicy | null = null
   /**
    * What each queued message (`meta.queue`, by id) takes to the agent: the full images and
    * the picked element with its crop. The meta only carries thumbnails, to keep IPC small.
@@ -786,7 +793,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private async ensureAgent(record: TurnRecord): Promise<{ agent: AgentSession; info: AgentInfo }> {
-    if (this.agent && this.agentInfo) return { agent: this.agent, info: this.agentInfo }
+    if (this.agent && this.agentInfo) {
+      if (!this.agent.restartsFor(this.policy())) return { agent: this.agent, info: this.agentInfo }
+      // The agent only takes Ask or Auto as a session starts: pick the conversation back
+      // up under the new one.
+      this.resumeSessionId = this.sessionId
+    }
     this.stopAgent()
     const name = this.meta.agentName
     this.patchMeta({ status: 'starting', error: null, errorDetail: null })
@@ -799,7 +811,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     try {
       const mcpServers = this.options.mcpServers()
       const info = await withTimeout(
-        agent.start({ mcpServers, resumeSessionId: this.resumeSessionId }),
+        agent.start({
+          mcpServers,
+          resumeSessionId: this.resumeSessionId,
+          permissions: this.policy(),
+        }),
         START_TIMEOUT_MS,
         `${name} didn't start within a minute. Check that it's installed and signed in.`,
       )
@@ -852,6 +868,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.agentHasTools = false
     this.primedAgent = null
     this.sessionModels = null
+    this.sessionPolicy = null
     this.refused.clear()
     // A change still waiting on the old agent mustn't hold up the next one's.
     this.settingChanges = Promise.resolve()
@@ -859,13 +876,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * Brings the running session in line with the user's saved choices: the model first,
-   * since the effort levels on offer can depend on it. Never throws. During a turn, a
-   * refusal is a notice and the turn goes on with the agent's own setting; between turns
-   * it stays quiet and the next turn tries again.
+   * Brings the running session in line with the project's Ask or Auto, then the user's
+   * saved choices: the model first, since the effort levels on offer can depend on it.
+   * Never throws. During a turn, a refusal is a notice and the turn goes on with the
+   * agent's own setting; between turns it stays quiet and the next turn tries again.
    */
   private applySettings(agent: AgentSession, record: TurnRecord | null) {
     const run = this.settingChanges.then(async () => {
+      await this.applyPolicy(agent, record)
       for (const key of ['model', 'effort'] as const) {
         const setting = this.agent === agent ? this.sessionModels?.[key] : null
         if (!setting) continue
@@ -901,6 +919,45 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return settled
   }
 
+  /** The project's Ask or Auto, as the agent's own permission controls take it. */
+  private policy(): PermissionPolicy {
+    return this.meta.autoApprove ? 'auto' : 'ask'
+  }
+
+  /**
+   * Sets the agent's own permission controls to the project's Ask or Auto (see
+   * AgentSession.applyPermissions) unless the session already has them. A refusal during
+   * a turn isn't retried until Ask or Auto changes again.
+   */
+  private async applyPolicy(agent: AgentSession, record: TurnRecord | null) {
+    const policy = this.policy()
+    if (this.agent !== agent || this.sessionPolicy === policy) return
+    let failures: string[]
+    try {
+      failures = await withTimeout(
+        agent.applyPermissions(policy),
+        SETTING_TIMEOUT_MS,
+        `${this.meta.agentName} didn't answer.`,
+      )
+    } catch (error) {
+      failures = [describeError(error).message]
+    }
+    if (this.agent !== agent) return
+    this.sessionModels = agent.models
+    this.refreshModels()
+    this.refreshModeName()
+    if (failures.length === 0 || record) this.sessionPolicy = policy
+    if (failures.length === 0 || !record) return
+    const mode = this.meta.modeName
+    this.pushItem(record, {
+      kind: 'notice',
+      id: randomUUID(),
+      tone: 'info',
+      text: `Couldn't switch ${this.meta.agentName} to ${policy === 'ask' ? 'Ask' : 'Auto'}, so this turn uses its own setting${mode ? ` (${mode})` : ''}.`,
+      detail: failures.join('\n'),
+    })
+  }
+
   /** What `meta.models` says for `agentId` now; see ChatMeta.models. */
   private nextModels(agentId = this.meta.agentId) {
     const live = this.agentInfo !== null && this.agent?.agentId === agentId
@@ -913,10 +970,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (JSON.stringify(models) !== JSON.stringify(this.meta.models)) this.patchMeta({ models })
   }
 
-  /** Follows this project's Auto setting. Cards already open stay open: Auto answers new requests. */
+  /**
+   * Follows this project's Auto setting. Cards already open stay open: Auto answers new
+   * requests. The agent's own controls follow now between turns, else before the next prompt.
+   */
   private refreshAutoApprove = () => {
     const autoApprove = isAutoApprove(this.root)
-    if (autoApprove !== this.meta.autoApprove) this.patchMeta({ autoApprove })
+    if (autoApprove === this.meta.autoApprove) return
+    this.patchMeta({ autoApprove })
+    const agent = this.agent
+    if (agent && this.agentInfo && !this.active) void this.applySettings(agent, null)
   }
 
   private onAgentExit(agent: AgentSession, error: DetailedError) {
@@ -932,11 +995,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // The agent changed its own settings (e.g. new effort levels for another model).
       this.sessionModels = parseModelSettings(update.configOptions)
       this.refreshModels()
+      this.refreshModeName()
       return
     }
     const record = this.active
     if (!record) {
-      if (update.sessionUpdate === 'current_mode_update') this.updateMode(update.currentModeId)
+      if (update.sessionUpdate === 'current_mode_update') this.refreshModeName()
       return
     }
     const items = record.turn.items
@@ -987,7 +1051,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         break
       }
       case 'current_mode_update':
-        this.updateMode(update.currentModeId)
+        this.refreshModeName()
         return
       default:
         return
@@ -1165,9 +1229,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return response === 0 && !this.disposed
   }
 
-  private updateMode(modeId: string) {
-    const name = this.agentInfo?.modes.find((mode) => mode.id === modeId)?.name ?? modeId
-    this.patchMeta({ modeName: name })
+  /** Shows the session's mode as the agent last reported it, however it changed. */
+  private refreshModeName() {
+    const modeName = this.agent?.modeName ?? null
+    if (modeName !== this.meta.modeName) this.patchMeta({ modeName })
   }
 
   private async trySnapshot(record: TurnRecord, message: string) {

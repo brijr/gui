@@ -6,7 +6,13 @@ import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
 import { type AgentId, type AgentSetting, agentName, type ModelSettings } from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
-import { type AgentDefinition, findExecutable, resolveAgent } from './agents'
+import {
+  type AgentDefinition,
+  findExecutable,
+  type PermissionControls,
+  type PermissionPolicy,
+  resolveAgent,
+} from './agents'
 import { DetailedError } from './errors'
 import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
@@ -24,13 +30,16 @@ function packageDir(name: string) {
 }
 
 /**
- * Claude asks before calling MCP tools; Gui's preview tools only look at the preview,
- * so allow them up front by exact name. (Codex reviews these calls itself.)
+ * `_meta` for session/new and session/load. Claude asks before calling MCP tools; Gui's
+ * preview tools only look at the preview, so allow them up front by exact name. (Codex
+ * reviews these calls itself.) Agents that take Ask or Auto only as a session starts
+ * (Grok) get it here.
  */
-function sessionMeta(id: AgentId) {
-  if (id !== 'claude') return undefined
+function sessionMeta(agent: AgentDefinition, policy: PermissionPolicy | undefined) {
+  const permissions = policy ? agent.permissions?.sessionMeta?.[policy] : undefined
+  if (agent.id !== 'claude') return permissions
   const allowedTools = PREVIEW_TOOL_NAMES.map((tool) => `mcp__${MCP_SERVER_NAME}__${tool}`)
-  return { claudeCode: { options: { allowedTools } } }
+  return { ...permissions, claudeCode: { options: { allowedTools } } }
 }
 
 /**
@@ -87,7 +96,6 @@ export interface AgentInfo {
   /** Gui's preview tools were offered (the agent takes HTTP MCP servers) */
   previewTools: boolean
   modeName: string | null
-  modes: { id: string; name: string }[]
   /** The session's model and effort choices, when the agent offers them */
   models: ModelSettings | null
 }
@@ -98,6 +106,54 @@ export interface StartOptions {
   resumeSessionId?: string | null
   /** ACP auth method to run before creating the session (e.g. a browser sign-in) */
   authenticate?: string
+  /**
+   * The project's Ask or Auto, for agents that only take it as a session starts
+   * (PermissionControls.sessionMeta). Health checks, which never prompt, leave it out.
+   */
+  permissions?: PermissionPolicy
+}
+
+/** One change Ask or Auto makes to a session: a config option, or its ACP session mode. */
+type PermissionChange =
+  | { kind: 'option'; configId: string; value: string }
+  | { kind: 'mode'; modeId: string }
+
+/**
+ * What Ask or Auto changes in a session (see PermissionControls): for each control, the
+ * first value it prefers that the session offers, unless that's already set. A control
+ * offering none of them keeps the agent's own setting. The mode goes through the
+ * session's `mode` config option when it has one, else through session/set_mode.
+ */
+function permissionChanges(
+  controls: PermissionControls | undefined,
+  policy: PermissionPolicy,
+  configOptions: acp.SessionConfigOption[],
+  modes: acp.SessionModeState | null,
+): PermissionChange[] {
+  const pick = (wanted: string[], offered: string[], current: string) => {
+    const value = wanted.find((choice) => offered.includes(choice))
+    return value !== undefined && value !== current ? value : null
+  }
+  const changes: PermissionChange[] = []
+  if (controls?.mode) {
+    const wanted = controls.mode[policy]
+    const option = selectSetting(configOptions, 'mode')
+    if (option) {
+      const value = pick(wanted, settingValues(option), option.value)
+      if (value !== null) changes.push({ kind: 'option', configId: option.id, value })
+    } else if (modes && Array.isArray(modes.availableModes)) {
+      const offered = modes.availableModes.map((mode) => mode.id)
+      const modeId = pick(wanted, offered, modes.currentModeId)
+      if (modeId !== null) changes.push({ kind: 'mode', modeId })
+    }
+  }
+  for (const [configId, choices] of Object.entries(controls?.options ?? {})) {
+    const option = findSetting(configOptions, (candidate) => candidate.id === configId)
+    if (!option) continue
+    const value = pick(choices[policy], settingValues(option), option.value)
+    if (value !== null) changes.push({ kind: 'option', configId, value })
+  }
+  return changes
 }
 
 export interface AuthMethod {
@@ -168,10 +224,18 @@ function selectSetting(
   configOptions: acp.SessionConfigOption[] | null | undefined,
   category: string,
 ): AgentSetting | null {
+  return findSetting(configOptions, (option) => option.category === category)
+}
+
+/** The first select config option `match` accepts, with its choices flattened. */
+function findSetting(
+  configOptions: acp.SessionConfigOption[] | null | undefined,
+  match: (option: Record<string, unknown>) => boolean,
+): AgentSetting | null {
   // Custom agents can send anything; a malformed list mustn't break the session.
   if (!Array.isArray(configOptions)) return null
   for (const option of configOptions) {
-    if (!isRecord(option) || option.category !== category || option.type !== 'select') continue
+    if (!isRecord(option) || !match(option) || option.type !== 'select') continue
     if (typeof option.currentValue !== 'string' || !Array.isArray(option.options)) continue
     const entries: unknown[] = option.options
     // Grouped lists (e.g. by provider) are flattened; each choice keeps its group's name.
@@ -186,6 +250,8 @@ function selectSetting(
   }
   return null
 }
+
+const settingValues = (setting: AgentSetting) => setting.options.map(({ value }) => value)
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -202,6 +268,13 @@ export class AgentSession {
   private disposed = false
   /** Rejects with the agent's own error output if the process dies. */
   private exited: Promise<never> = new Promise(() => {})
+  /** How Ask and Auto set this agent's own permission controls, from its definition */
+  private controls: PermissionControls | undefined
+  /** The Ask or Auto the session started with (see StartOptions.permissions) */
+  private startedWith: PermissionPolicy | undefined
+  /** The session's settings and modes, as the agent last reported them */
+  private configOptions: acp.SessionConfigOption[] = []
+  private modes: acp.SessionModeState | null = null
 
   constructor(
     readonly agentId: AgentId,
@@ -209,10 +282,18 @@ export class AgentSession {
     private readonly handlers: AgentHandlers,
   ) {}
 
-  async start({ mcpServers, resumeSessionId, authenticate }: StartOptions): Promise<AgentInfo> {
+  async start({
+    mcpServers,
+    resumeSessionId,
+    authenticate,
+    permissions,
+  }: StartOptions): Promise<AgentInfo> {
     // Looked up at start, so edits to agents.json apply to the next session.
     const [definition, shellEnv] = await Promise.all([resolveAgent(this.agentId), getShellEnv()])
     if (this.disposed) throw new Error('Agent was stopped')
+    this.controls = definition.permissions
+    this.startedWith = permissions
+    const meta = sessionMeta(definition, permissions)
     const spec = await spawnSpec(definition, shellEnv)
     if (this.disposed) throw new Error('Agent was stopped')
     // Own process group, so dispose() can stop the agent and everything it started.
@@ -248,7 +329,11 @@ export class AgentSession {
     const app = acp
       .client({ name: 'gui' })
       .onNotification(acp.methods.client.session.update, (ctx) => {
-        if (ctx.params.sessionId === this.sessionId) this.handlers.onUpdate(ctx.params.update)
+        if (ctx.params.sessionId !== this.sessionId) return
+        const { update } = ctx.params
+        if (update.sessionUpdate === 'config_option_update') this.remember(update.configOptions)
+        if (update.sessionUpdate === 'current_mode_update') this.rememberMode(update.currentModeId)
+        this.handlers.onUpdate(update)
       })
       .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
         return new Promise<acp.RequestPermissionResponse>((resolve) => {
@@ -301,7 +386,7 @@ export class AgentSession {
           sessionId: resumeSessionId,
           cwd: this.cwd,
           mcpServers: servers,
-          _meta: sessionMeta(this.agentId),
+          _meta: meta,
         }),
       ).catch(() => null)
       if (loaded) {
@@ -317,7 +402,7 @@ export class AgentSession {
       agent.request(acp.methods.agent.session.new, {
         cwd: this.cwd,
         mcpServers: servers,
-        _meta: sessionMeta(this.agentId),
+        _meta: meta,
       }),
     ).catch((error: unknown) => {
       if (!isAuthError(error)) throw new Error(errorDetail(error))
@@ -335,23 +420,84 @@ export class AgentSession {
         : []
       throw new AgentAuthError(signInMessage(definition, error), methods)
     })
+    // The session starts in the mode the user's own agent config picks. Gui then sets the
+    // agent's own controls to the project's Ask or Auto (`applyPermissions`; Grok's went in
+    // `_meta` above) for agents it knows them for (AgentDefinition.permissions); others
+    // keep their mode. Gui's rules (ChatController.onPermission) answer what still asks.
+    this.modes = session.modes ?? null
+    this.remember(session.configOptions)
     this.sessionId = session.sessionId
-
-    // Keep the mode the user's own agent config chose; Gui's permission policy
-    // (ChatController.onPermission) decides what to auto-approve when the agent asks.
-    const modes = session.modes
-    const modeList = modes?.availableModes.map(({ id, name }) => ({ id, name })) ?? []
-    const modeName = modeList.find((mode) => mode.id === modes?.currentModeId)?.name ?? null
 
     return {
       sessionId: session.sessionId,
       resumed,
       supportsImages: init.agentCapabilities?.promptCapabilities?.image === true,
       previewTools: servers.length > 0,
-      modeName,
-      modes: modeList,
-      models: parseModelSettings(session.configOptions),
+      modeName: this.modeName,
+      models: this.models,
     }
+  }
+
+  /** The session's mode, by name: its `mode` config option's, else its ACP session mode's. */
+  get modeName(): string | null {
+    const option = selectSetting(this.configOptions, 'mode')
+    if (option) {
+      const current = option.options.find(({ value }) => value === option.value)
+      return current?.name ?? option.value
+    }
+    const modes = this.modes
+    if (!modes) return null
+    const listed = Array.isArray(modes.availableModes) ? modes.availableModes : []
+    return listed.find((mode) => mode.id === modes.currentModeId)?.name ?? modes.currentModeId
+  }
+
+  /** The session's model and effort settings, as the agent last reported them. */
+  get models(): ModelSettings | null {
+    return parseModelSettings(this.configOptions)
+  }
+
+  /**
+   * Ask or Auto changed for an agent that only takes it as a session starts (Grok), so
+   * the session has to be started again (resumed) to follow it.
+   */
+  restartsFor(policy: PermissionPolicy) {
+    return this.controls?.sessionMeta !== undefined && this.startedWith !== policy
+  }
+
+  /**
+   * Sets the agent's own permission controls for Ask or Auto (see `permissionChanges`).
+   * Every change is tried; returns why each one the agent refused failed.
+   */
+  async applyPermissions(policy: PermissionPolicy): Promise<string[]> {
+    const { connection, sessionId } = this
+    if (!connection || !sessionId) throw new Error('Agent is not running')
+    const failures: string[] = []
+    const changes = permissionChanges(this.controls, policy, this.configOptions, this.modes)
+    for (const change of changes) {
+      try {
+        if (change.kind === 'mode') {
+          await this.untilExit(
+            connection.agent.request(acp.methods.agent.session.setMode, {
+              sessionId,
+              modeId: change.modeId,
+            }),
+          )
+          this.rememberMode(change.modeId)
+        } else {
+          const response = await this.untilExit(
+            connection.agent.request(acp.methods.agent.session.setConfigOption, {
+              sessionId,
+              configId: change.configId,
+              value: change.value,
+            }),
+          )
+          this.remember(response.configOptions)
+        }
+      } catch (error) {
+        failures.push(errorDetail(error))
+      }
+    }
+    return failures
   }
 
   async prompt(blocks: acp.ContentBlock[]): Promise<acp.PromptResponse> {
@@ -373,7 +519,8 @@ export class AgentSession {
         value,
       }),
     )
-    return parseModelSettings(response.configOptions)
+    this.remember(response.configOptions)
+    return this.models
   }
 
   async cancel() {
@@ -399,6 +546,26 @@ export class AgentSession {
 
   private untilExit<T>(promise: Promise<T>) {
     return Promise.race([promise, this.exited])
+  }
+
+  /**
+   * Keeps the settings the agent reported. Agents that offer the mode both ways should
+   * keep the two in step, but may report a change through only one of them.
+   */
+  private remember(configOptions: acp.SessionConfigOption[] | null | undefined) {
+    this.configOptions = Array.isArray(configOptions) ? configOptions : []
+    const mode = selectSetting(this.configOptions, 'mode')
+    if (mode && this.modes) this.modes = { ...this.modes, currentModeId: mode.value }
+  }
+
+  private rememberMode(modeId: string) {
+    const listed = this.modes?.availableModes
+    this.modes = { availableModes: Array.isArray(listed) ? listed : [], currentModeId: modeId }
+    this.configOptions = this.configOptions.map((option) =>
+      option.category === 'mode' && option.type === 'select'
+        ? { ...option, currentValue: modeId }
+        : option,
+    )
   }
 
   private exitError(code: number | null, signal: NodeJS.Signals | null) {

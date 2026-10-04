@@ -239,7 +239,8 @@ export interface ChatMeta {
    * files and runs commands without asking. Commands aren't confined to the project. It
    * still asks when a request names a file outside the project, changes a sensitive file
    * (config, dependencies, scripts, dotfiles), or the agent flags it. On unless the user
-   * turned it off for the project, which is remembered.
+   * turned it off for the project, which is remembered. Ask and Auto also set the agent's
+   * own permission mode, for agents Gui knows it for (AgentDefinition.permissions).
    */
   autoApprove: boolean
   /**
@@ -251,6 +252,7 @@ export interface ChatMeta {
   error: string | null
   /** Technical detail behind `error` (exit code, stderr), shown on request */
   errorDetail: string | null
+  /** The running session's own mode as the agent reports it (shown in the chat header) */
   modeName: string | null
   selection: ElementContext | null
   /** Why the last element pick failed, shown until the next pick */

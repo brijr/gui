@@ -25,8 +25,28 @@ export type AgentLaunch =
   /** An agent CLI the user installed, found on their login-shell PATH */
   | { kind: 'command'; command: string; args: string[]; env: Record<string, string> }
 
+/** A project's Ask or Auto (see ChatMeta.autoApprove), as a session applies it. */
+export type PermissionPolicy = 'ask' | 'auto'
+
+/**
+ * How Ask and Auto set the agent's own permission controls, so the agent asks (or
+ * doesn't) before Gui's own rules see a request. Lists are in order of preference: the
+ * first value the session offers is used, and a control offering none of them keeps the
+ * agent's own setting.
+ */
+export interface PermissionControls {
+  /** The session's mode: its config option in the `mode` category, else its ACP modes */
+  mode?: Record<PermissionPolicy, string[]>
+  /** Other select config options, by id */
+  options?: Record<string, Record<PermissionPolicy, string[]>>
+  /** Sent as `_meta` on session/new and session/load; takes effect when a session starts */
+  sessionMeta?: Record<PermissionPolicy, Record<string, unknown>>
+}
+
 export interface AgentDefinition extends AgentInfo {
   launch: AgentLaunch
+  /** How Ask and Auto set this agent's own permission controls; none for custom agents */
+  permissions?: PermissionControls
   /** How to sign in, shown when the agent reports the user isn't signed in */
   signIn: string | null
   /** Gui can run this agent's ACP sign-in flow itself (it opens the browser) */
@@ -64,17 +84,31 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     launch: adapter('@agentclientprotocol/claude-agent-acp'),
     signIn: 'Run `claude` in a terminal and use /login, then try again.',
     inAppSignIn: true,
+    // Manual asks before every change. Auto lets Claude decide; models without it get
+    // Accept edits, which the adapter also falls back to by itself.
+    permissions: { mode: { ask: ['default'], auto: ['auto', 'acceptEdits'] } },
   },
   codex: {
     // Its CLI path (CODEX_PATH) comes from agent-binaries.ts, like Claude Code's.
     launch: adapter('@agentclientprotocol/codex-acp'),
     signIn: 'Sign in with ChatGPT from the Gui start screen, or run `codex login`.',
     inAppSignIn: true,
+    // Read-only asks before editing files or using the network; Auto review asks only
+    // about actions it flags as unsafe.
+    permissions: { mode: { ask: ['read-only'], auto: ['agent'] } },
   },
   grok: {
     launch: cli('grok', 'agent', 'stdio'),
     signIn: 'Sign in from Settings → Agents, or run `grok login` in a terminal.',
     inAppSignIn: false,
+    // No ACP modes: Grok takes its permission mode as session `_meta` (`yoloMode` is
+    // always-approve, `autoMode` its safety classifier), so after a switch the next prompt
+    // resumes the session under the new one. Its docs only promise `_meta` on session/new,
+    // and don't say whether `yoloMode: false` overrides `permission_mode =
+    // "always-approve"` in the user's ~/.grok/config.toml.
+    permissions: {
+      sessionMeta: { ask: { yoloMode: false, autoMode: false }, auto: { autoMode: true } },
+    },
     installUrl: 'https://x.ai/build',
     terminalSignIn: { command: 'grok login', hint: 'Finish signing in in your browser.' },
   },
@@ -117,6 +151,16 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     inAppSignIn: false,
     installUrl: 'https://dev.meta.ai/docs/muse-code/',
     terminalSignIn: { command: 'muse login', hint: 'Follow the steps to sign in.' },
+    // On request passes approvals on to Gui; Auto-approve picks Muse's approve-once
+    // choice at every stage, with the sandbox still on. For Ask, Muse 1.2.1+ also offers
+    // the native policy that asks about every call the user's own rules don't allow
+    // (onRequest lets known-safe ones run); older hosts offer only onRequest.
+    permissions: {
+      mode: { ask: ['default'], auto: ['bypassApprovals'] },
+      options: {
+        nativeApprovalPolicy: { ask: ['promptUnmatched', 'onRequest'], auto: ['onRequest'] },
+      },
+    },
   },
 }
 
@@ -276,9 +320,30 @@ export async function deleteCustomAgent(name: string) {
   await writeCustomFile(file, next)
 }
 
+/**
+ * The built-in agents. Unpackaged builds (dev, e2e) may launch any of them as another
+ * command through GUI_AGENT_STAND_INS, a JSON file of `{ "<id>": { "command", "args",
+ * "env" } }` read fresh each time, so a stand-in gets that agent's own settings (like
+ * `permissions`); packaged builds never do.
+ */
+async function builtInAgents(): Promise<readonly AgentDefinition[]> {
+  const file = !app.isPackaged ? process.env.GUI_AGENT_STAND_INS : undefined
+  const text = file ? await readFile(file, 'utf8').catch(() => null) : null
+  if (text === null) return BUILT_IN
+  const standIns: unknown = JSON.parse(text)
+  if (!isRecord(standIns)) return BUILT_IN
+  return BUILT_IN.map((agent) => {
+    const entry = standIns[agent.id]
+    if (!isRecord(entry) || typeof entry.command !== 'string') return agent
+    const args = isStringArray(entry.args) ? entry.args : []
+    const env = isStringRecord(entry.env) ? entry.env : {}
+    return { ...agent, launch: { kind: 'command', command: entry.command, args, env } }
+  })
+}
+
 /** The agent's full definition; throws a message fit for the user when it can't be found. */
 export async function resolveAgent(id: AgentId): Promise<AgentDefinition> {
-  const builtIn = BUILT_IN.find((agent) => agent.id === id)
+  const builtIn = (await builtInAgents()).find((agent) => agent.id === id)
   if (builtIn) return builtIn
   if (!id.startsWith(CUSTOM_AGENT_PREFIX)) throw new Error(`Unknown agent: ${id}`)
   const { agents, error } = await loadCustomAgents()
@@ -294,22 +359,24 @@ export async function resolveAgent(id: AgentId): Promise<AgentDefinition> {
 
 /** Every known agent, and whether its CLI can be found right now. */
 export async function listAgents(): Promise<AgentListing> {
-  const [custom, env] = await Promise.all([loadCustomAgents(), getShellEnv()])
+  const [builtIn, custom, env] = await Promise.all([
+    builtInAgents(),
+    loadCustomAgents(),
+    getShellEnv(),
+  ])
   const agents = await Promise.all(
-    [...BUILT_IN, ...custom.agents].map(
-      async ({ id, name, launch, installUrl, terminalSignIn }) => {
-        const command = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
-        const installed = command === null || (await findExecutable(command, env.PATH)) !== null
-        return {
-          id,
-          name,
-          command,
-          installed,
-          installUrl: installUrl ?? null,
-          terminalSignIn: terminalSignIn ?? null,
-        }
-      },
-    ),
+    [...builtIn, ...custom.agents].map(async ({ id, name, launch, installUrl, terminalSignIn }) => {
+      const command = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
+      const installed = command === null || (await findExecutable(command, env.PATH)) !== null
+      return {
+        id,
+        name,
+        command,
+        installed,
+        installUrl: installUrl ?? null,
+        terminalSignIn: terminalSignIn ?? null,
+      }
+    }),
   )
   return { agents, customError: custom.error }
 }

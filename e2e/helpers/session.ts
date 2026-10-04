@@ -8,6 +8,13 @@ import type { FixtureCopy, FixtureName } from './fixtures'
 
 const TRUSTED_FILE = 'trusted-projects.json'
 const RECENT_FILE = 'recent-projects.json'
+
+/**
+ * GUI_AGENT_STAND_INS for a run: built-in agents to launch as other commands, so a stand-in
+ * gets that agent's own settings. Read fresh each time; nothing is replaced until a test
+ * writes it.
+ */
+export const standInsFile = (copy: FixtureCopy) => join(copy.base, 'agent-stand-ins.json')
 const PREVIEW_URL = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/
 
 export interface LaunchOptions {
@@ -274,7 +281,8 @@ async function findPage(app: ElectronApplication, suffix: string): Promise<Page>
 
 /**
  * Launches the built app (`out/`, from `electron-vite build`) with an isolated profile.
- * GUI_OPEN is always set explicitly so a value in the caller's shell can't leak in.
+ * GUI_OPEN and GUI_AGENT_STAND_INS are always set explicitly so a value in the caller's
+ * shell can't leak in.
  */
 export async function launchGui(
   copy: FixtureCopy,
@@ -292,7 +300,10 @@ export async function launchGui(
   const app = await electron.launch({
     executablePath: electronExecutable(),
     args: [REPO_ROOT, `--user-data-dir=${copy.userData}`],
-    env: launchEnv({ GUI_OPEN: options.open === 'recent' ? '' : copy.root }),
+    env: launchEnv({
+      GUI_OPEN: options.open === 'recent' ? '' : copy.root,
+      GUI_AGENT_STAND_INS: standInsFile(copy),
+    }),
     colorScheme: options.colorScheme ?? 'light',
     timeout: 60_000,
   })
