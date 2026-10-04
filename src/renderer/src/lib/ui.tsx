@@ -1,88 +1,328 @@
-import { ChevronRight } from 'lucide-react'
-import { type ButtonHTMLAttributes, type ReactNode, useState } from 'react'
+import type { LucideIcon } from 'lucide-react'
+import { type ComponentProps, type ReactNode, useId } from 'react'
 import { cn } from './cn'
 
-interface IconButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  label: string
-  active?: boolean
-  children: ReactNode
+/*
+ * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
+ * default, lg 32px only for the canvas's primary call to action. One look per state: hover
+ * tints, pressed or selected is accent-soft with accent text, disabled fades to 40%, focus
+ * is the global accent ring. Icons inside controls are 14px; chevrons and other trailing
+ * glyphs 12px.
+ */
+
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type ControlSize = 'sm' | 'md' | 'lg'
+
+const CONTROL =
+  'no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-colors disabled:pointer-events-none disabled:opacity-40'
+
+const BUTTON_SIZE: Record<ControlSize, string> = {
+  sm: 'h-6 gap-1 px-2 text-small',
+  md: 'h-7 gap-1.5 px-2.5 text-small',
+  lg: 'h-8 gap-1.5 px-3 text-body',
 }
 
-export function IconButton({ label, active, className, children, ...props }: IconButtonProps) {
+const VARIANT: Record<ButtonVariant, string> = {
+  primary: 'bg-accent text-accent-fg hover:bg-accent-hover',
+  secondary: 'border border-line-strong bg-raised text-fg hover:tint',
+  ghost: 'text-muted hover:bg-hover hover:text-fg',
+  danger: 'bg-danger-soft text-danger hover:tint',
+}
+
+interface ButtonProps extends ComponentProps<'button'> {
+  /**
+   * primary: the one thing to do next (at most one per view). secondary: the default, for
+   * other actions and retries. ghost: quiet actions next to a primary or in headers.
+   * danger: confirming something destructive.
+   */
+  variant?: ButtonVariant
+  size?: ControlSize
+  /** Leading icon, 14px */
+  icon?: LucideIcon
+  /** Trailing glyph, 12px: a menu's chevron, an external link */
+  trailingIcon?: LucideIcon
+  /** Working: a spinner replaces the icon and the button is disabled */
+  loading?: boolean
+}
+
+/** A labelled action. Use IconButton when the action is an icon alone, Toggle for on/off. */
+export function Button({
+  variant = 'secondary',
+  size = 'md',
+  icon: Icon,
+  trailingIcon: Trailing,
+  loading = false,
+  disabled,
+  className,
+  children,
+  ...props
+}: ButtonProps) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={cn(CONTROL, BUTTON_SIZE[size], VARIANT[variant], className)}
+      {...props}
+    >
+      {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
+      {children}
+      {Trailing && <Trailing className="size-3 shrink-0" aria-hidden="true" />}
+    </button>
+  )
+}
+
+interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
+  /** What it does, in words: the accessible name and the tooltip (required) */
+  label: string
+  icon: LucideIcon
+  size?: 'sm' | 'md'
+  /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
+  variant?: 'ghost' | 'primary' | 'secondary'
+  /** Makes it a toggle: aria-pressed, and accent-soft with accent text while pressed */
+  pressed?: boolean
+  /** Turns the icon while something loads (Reload) */
+  spinning?: boolean
+  /** Fills the icon's shape (Stop's square) */
+  filled?: boolean
+}
+
+/** An action shown as an icon alone. Toolbars, panel headers, remove buttons in rows. */
+export function IconButton({
+  label,
+  icon: Icon,
+  size = 'md',
+  variant = 'ghost',
+  pressed,
+  spinning = false,
+  filled = false,
+  className,
+  ...props
+}: IconButtonProps) {
   return (
     <button
       type="button"
       aria-label={label}
       title={label}
-      aria-pressed={active}
+      aria-pressed={pressed}
       className={cn(
-        'no-drag inline-flex size-7 shrink-0 items-center justify-center rounded-md text-muted transition-colors',
-        'hover:bg-hover hover:text-fg disabled:pointer-events-none disabled:opacity-35',
-        active && 'bg-accent-soft text-accent hover:bg-accent-soft hover:text-accent',
+        CONTROL,
+        'shrink-0',
+        size === 'sm' ? 'size-6' : 'size-7',
+        pressed ? 'bg-accent-soft text-accent-text' : VARIANT[variant],
         className,
       )}
       {...props}
     >
+      <Icon
+        className={cn('size-3.5', spinning && 'animate-spin', filled && 'fill-current')}
+        aria-hidden="true"
+      />
+    </button>
+  )
+}
+
+interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
+  pressed: boolean
+  icon?: LucideIcon
+  children: ReactNode
+  /**
+   * soft (default): accent-soft while on, for a setting (Auto). strong: solid accent, for a
+   * mode the whole window is in (Select).
+   */
+  emphasis?: 'soft' | 'strong'
+}
+
+/** A labelled on/off control (aria-pressed). Its weight never changes with its state. */
+export function Toggle({
+  pressed,
+  icon: Icon,
+  emphasis = 'soft',
+  className,
+  children,
+  ...props
+}: ToggleProps) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      className={cn(
+        CONTROL,
+        BUTTON_SIZE.md,
+        'shrink-0',
+        !pressed && VARIANT.ghost,
+        pressed && emphasis === 'soft' && 'bg-accent-soft text-accent-text',
+        pressed && emphasis === 'strong' && VARIANT.primary,
+        className,
+      )}
+      {...props}
+    >
+      {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
       {children}
     </button>
   )
 }
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'ghost'
+interface Segment<T extends string> {
+  value: T
+  label: string
+  icon?: LucideIcon
+  /** Tooltip, when it should say more than the label */
+  title?: string
 }
 
-export function Button({ variant = 'secondary', className, ...props }: ButtonProps) {
+interface SegmentedControlProps<T extends string> {
+  segments: readonly Segment<T>[]
+  value: T
+  onChange: (value: T) => void
+  /** Names the group (or use labelledBy) */
+  label?: string
+  labelledBy?: string
+  /** Icons only; each label becomes the segment's name and tooltip */
+  iconOnly?: boolean
+  /** Segments share the width and truncate (effort levels) */
+  stretch?: boolean
+  className?: string
+}
+
+/**
+ * One choice out of a few, side by side: the viewport, effort levels. A group of pressed
+ * buttons on a filled track, 28px tall.
+ */
+export function SegmentedControl<T extends string>({
+  segments,
+  value,
+  onChange,
+  label,
+  labelledBy,
+  iconOnly = false,
+  stretch = false,
+  className,
+}: SegmentedControlProps<T>) {
+  return (
+    <fieldset
+      aria-label={label}
+      aria-labelledby={labelledBy}
+      className={cn(
+        'no-drag flex min-w-0 items-center gap-0.5 rounded-md bg-fill p-0.5',
+        className,
+      )}
+    >
+      {segments.map((segment) => {
+        const on = segment.value === value
+        const Icon = segment.icon
+        return (
+          <button
+            key={segment.value}
+            type="button"
+            aria-pressed={on}
+            aria-label={iconOnly ? segment.label : undefined}
+            title={segment.title ?? (iconOnly ? segment.label : undefined)}
+            onClick={() => onChange(segment.value)}
+            className={cn(
+              'flex h-6 items-center justify-center rounded-sm text-small font-medium transition-colors',
+              iconOnly ? 'w-6' : 'px-2',
+              stretch && 'min-w-0 flex-auto',
+              on ? 'bg-accent-soft text-accent-text' : 'text-muted hover:bg-hover hover:text-fg',
+            )}
+          >
+            {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
+            {!iconOnly && <span className="truncate">{segment.label}</span>}
+          </button>
+        )
+      })}
+    </fieldset>
+  )
+}
+
+/**
+ * Something is in progress. sm (12px) inline next to text and inside buttons; md (16px)
+ * for a centered loading state. Takes the current text color.
+ */
+export function Spinner({ size = 'sm', className }: { size?: 'sm' | 'md'; className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      aria-hidden="true"
+      className={cn('shrink-0 animate-spin', size === 'sm' ? 'size-3' : 'size-4', className)}
+    >
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
+      <path
+        d="M14.25 8A6.25 6.25 0 0 0 8 1.75"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+    </svg>
+  )
+}
+
+/** Code inside running text: a command, a file name, a branch. A step smaller than its text. */
+export function Code({ children, className }: { children: ReactNode; className?: string }) {
+  return <code className={cn('inline-code', className)}>{children}</code>
+}
+
+interface SwitchProps {
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+  /** Visible text beside the switch; part of its name */
+  label: ReactNode
+  /** Id of an element that names what this controls; read before the label */
+  labelledBy?: string
+  disabled?: boolean
+  /** Text size and color for the label (the switch sets none of its own), and layout */
+  className?: string
+}
+
+/** An on/off setting that applies at once (role="switch"): its label, then the track. */
+export function Switch({
+  checked,
+  onCheckedChange,
+  label,
+  labelledBy,
+  disabled,
+  className,
+}: SwitchProps) {
+  const labelId = useId()
   return (
     <button
       type="button"
+      role="switch"
+      aria-checked={checked}
+      aria-labelledby={labelledBy ? `${labelledBy} ${labelId}` : labelId}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
       className={cn(
-        'no-drag inline-flex h-7 items-center gap-1.5 rounded-md px-2.5 text-[12px] font-medium transition-colors',
+        'no-drag flex h-7 shrink-0 items-center gap-2 rounded-md transition-colors',
         'disabled:pointer-events-none disabled:opacity-40',
-        variant === 'primary' && 'bg-accent text-accent-fg hover:opacity-90',
-        variant === 'secondary' && 'border border-line-strong bg-raised text-fg hover:bg-hover',
-        variant === 'ghost' && 'text-muted hover:bg-hover hover:text-fg',
         className,
       )}
-      {...props}
-    />
-  )
-}
-
-export function Spinner({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'inline-block size-3 animate-spin rounded-full border-[1.5px] border-current border-r-transparent',
-        className,
-      )}
-    />
-  )
-}
-
-/** Technical detail (exit codes, output, commands) one click away. */
-export function TechnicalDetails({ text, className }: { text: string; className?: string }) {
-  const [open, setOpen] = useState(false)
-  return (
-    <div className={cn('flex flex-col gap-1', className)}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 self-start rounded text-[11px] text-subtle hover:text-muted"
+    >
+      <span id={labelId}>{label}</span>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors',
+          checked ? 'bg-accent' : 'bg-fill ring-1 ring-line-strong ring-inset',
+        )}
       >
-        <ChevronRight
-          className={cn('size-3 transition-transform', open && 'rotate-90')}
-          aria-hidden="true"
+        <span
+          className={cn(
+            'size-3 rounded-full bg-knob shadow-raised transition-transform',
+            checked && 'translate-x-3',
+          )}
         />
-        Details
-      </button>
-      {open && (
-        <pre className="max-h-48 select-text overflow-y-auto whitespace-pre-wrap break-words pl-4 font-mono text-[11px] text-muted">
-          {text}
-        </pre>
-      )}
-    </div>
+      </span>
+    </button>
+  )
+}
+
+/** A key or shortcut named in running text, e.g. ⇧⌘C. */
+export function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="inline-flex h-4 min-w-4 items-center justify-center rounded-sm bg-fill px-1 font-sans text-caption font-medium text-muted">
+      {children}
+    </kbd>
   )
 }

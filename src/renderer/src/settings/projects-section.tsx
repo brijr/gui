@@ -1,8 +1,9 @@
 import { useId } from 'react'
 import type { SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { PathText } from '../lib/path-text'
+import { GroupLabel, List, ListItem } from '../lib/surface'
 import { Button } from '../lib/ui'
-import { GroupHeading, List } from './controls'
 import { useAction } from './use-action'
 
 function recentLabel(count: number) {
@@ -12,7 +13,7 @@ function recentLabel(count: number) {
 }
 
 export function ProjectsSection({ settings }: { settings: SettingsState }) {
-  const { trustedProjects, recentProjects } = settings
+  const { trustedProjects, recentProjects, home } = settings
   const trustedId = useId()
   const recentId = useId()
   const clear = useAction()
@@ -21,15 +22,17 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
   return (
     <>
       <section aria-labelledby={trustedId} className="flex flex-col gap-2">
-        <GroupHeading id={trustedId}>Trusted projects</GroupHeading>
-        <p className="text-pretty text-[12px] text-muted">
+        <GroupLabel as="h2" id={trustedId}>
+          Trusted projects
+        </GroupLabel>
+        <p className="text-pretty text-small text-muted">
           Gui runs a trusted project's dev script without asking. Revoking makes it ask again next
           time.
         </p>
         {trustedProjects.length > 0 ? (
           <List>
             {trustedProjects.map((root) => (
-              <TrustedRow key={root} root={root} />
+              <TrustedRow key={root} root={root} home={home} />
             ))}
           </List>
         ) : (
@@ -38,20 +41,24 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
       </section>
 
       <section aria-labelledby={recentId} className="flex flex-col gap-2">
-        <GroupHeading id={recentId}>Recent projects</GroupHeading>
+        <GroupLabel as="h2" id={recentId}>
+          Recent projects
+        </GroupLabel>
         <List>
-          <li className="flex items-center justify-between gap-3 px-3 py-2.5">
-            <p className="tabular-nums text-muted">{recentLabel(count)}</p>
-            <Button
-              disabled={count === 0 || clear.pending}
-              onClick={() => void clear.run(() => gui.clearRecent())}
-            >
-              Clear recent projects
-            </Button>
-          </li>
+          <ListItem
+            title={<span className="tabular-nums">{recentLabel(count)}</span>}
+            trailing={
+              <Button
+                disabled={count === 0 || clear.pending}
+                onClick={() => void clear.run(() => gui.clearRecent())}
+              >
+                Clear recent projects
+              </Button>
+            }
+          />
         </List>
         {clear.error && (
-          <p role="alert" className="select-text text-pretty text-[12px] text-danger">
+          <p role="alert" className="select-text text-pretty text-small text-danger">
             {clear.error}
           </p>
         )}
@@ -60,16 +67,14 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
   )
 }
 
-function TrustedRow({ root }: { root: string }) {
+function TrustedRow({ root, home }: { root: string; home: string }) {
   const revoke = useAction()
   return (
-    <li className="px-3 py-2">
-      <div className="flex items-center gap-3">
-        {/* The folder name leads, since long paths would otherwise truncate it away. */}
-        <div className="min-w-0 flex-1" title={root}>
-          <p className="truncate font-medium">{root.split('/').filter(Boolean).at(-1) ?? root}</p>
-          <p className="select-text truncate font-mono text-[11px] text-subtle">{root}</p>
-        </div>
+    <ListItem
+      // The folder name leads, since the path below it truncates in the middle.
+      title={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
+      detail={<PathText path={root} home={home} className="select-text text-caption text-subtle" />}
+      trailing={
         <Button
           aria-label={`Revoke trust for ${root}`}
           disabled={revoke.pending}
@@ -77,12 +82,13 @@ function TrustedRow({ root }: { root: string }) {
         >
           Revoke
         </Button>
-      </div>
+      }
+    >
       {revoke.error && (
-        <p role="alert" className="mt-1 select-text text-pretty text-[12px] text-danger">
+        <p role="alert" className="select-text text-pretty text-small text-danger">
           {revoke.error}
         </p>
       )}
-    </li>
+    </ListItem>
   )
 }

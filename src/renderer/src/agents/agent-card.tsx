@@ -7,8 +7,10 @@ import {
   agentName,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
-import { Button, Spinner, TechnicalDetails } from '../lib/ui'
+import { Card, GroupLabel } from '../lib/surface'
+import { Button, Spinner } from '../lib/ui'
 
 interface AgentCardProps {
   agentId: AgentId
@@ -25,20 +27,17 @@ interface AgentCardProps {
 export function AgentCard({ agentId, health, change }: AgentCardProps) {
   const name = health?.name ?? agentName(agentId)
   return (
-    <section
-      aria-label="Your agent"
-      className="flex flex-col gap-2 rounded-lg border border-line bg-raised px-3 py-2.5"
-    >
+    <Card as="section" aria-label="Your agent" className="flex flex-col gap-2.5 p-3">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] text-subtle">Your agent</p>
-          <p className="truncate font-medium text-[13px]">{name}</p>
+          <GroupLabel>Your agent</GroupLabel>
+          <p className="truncate font-medium">{name}</p>
         </div>
         {change}
       </div>
       {/* Keyed so a failed action's message doesn't follow the user to another agent */}
       <AgentNextStep key={agentId} name={name} health={health} />
-    </section>
+    </Card>
   )
 }
 
@@ -73,7 +72,11 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
 
   // Claude Code and Codex: Gui downloads the CLI. Other agents: opens their install page.
   const install = () => void perform(() => gui.installAgent(health.id))
-  const checkAgain = <Button onClick={() => gui.checkAgents()}>Check again</Button>
+  const checkAgain = (
+    <Button variant="ghost" onClick={() => gui.checkAgents()}>
+      Check again
+    </Button>
+  )
 
   switch (health.status) {
     case 'ready':
@@ -134,7 +137,9 @@ function AgentNextStep({ name, health }: { name: string; health: AgentHealth | n
           error={error}
         >
           {/* `install` stays set after a failed download, so the same button retries it */}
-          <Button onClick={health.install ? install : () => gui.checkAgents()}>Try again</Button>
+          <Button variant="primary" onClick={health.install ? install : () => gui.checkAgents()}>
+            Try again
+          </Button>
           {health.detail && <TechnicalDetails text={health.detail} className="w-full" />}
         </Step>
       )
@@ -157,12 +162,12 @@ const BINARY_SOURCES: Record<AgentBinarySource, string> = {
 function Ready({ binary }: { binary: AgentHealth['binary'] }) {
   return (
     <div className="flex items-center gap-2">
-      <p className="flex shrink-0 items-center gap-1.5 text-[12px] text-success">
-        <Check className="size-3.5" aria-hidden="true" />
+      <p className="flex shrink-0 items-center gap-1 text-small font-medium text-success">
+        <Check className="size-3" aria-hidden="true" />
         Ready
       </p>
       {binary && (
-        <p className="min-w-0 select-text truncate text-[11.5px] text-subtle tabular-nums">
+        <p className="min-w-0 select-text truncate text-caption text-subtle tabular-nums">
           {BINARY_SOURCES[binary.source]}
           {binary.version && ` · ${binary.version}`}
         </p>
@@ -197,19 +202,19 @@ function InstallProgress({ name, progress }: { name: string; progress: AgentHeal
         aria-valuemax={100}
         aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
         aria-valuetext={text}
-        className="h-1 overflow-hidden rounded-full bg-hover"
+        className="h-1 overflow-hidden rounded-full bg-fill"
       >
         {fraction === null ? (
-          <div className="size-full animate-pulse bg-accent/40" />
+          <div className="size-full animate-pulse bg-accent" />
         ) : (
           <div
-            className="size-full origin-left bg-accent transition-transform duration-150"
+            className="size-full origin-left bg-accent transition-transform"
             style={{ transform: `scaleX(${fraction})` }}
           />
         )}
       </div>
       {/* Read through the progress bar's value text */}
-      <p aria-hidden="true" className="text-[11.5px] text-subtle tabular-nums">
+      <p aria-hidden="true" className="text-caption text-subtle tabular-nums">
         {text}
       </p>
     </div>
@@ -218,8 +223,8 @@ function InstallProgress({ name, progress }: { name: string; progress: AgentHeal
 
 function Waiting({ text }: { text: string }) {
   return (
-    <p className="flex items-center gap-2 text-[12px] text-muted">
-      <Spinner className="size-2.5" />
+    <p className="flex items-center gap-2 text-small text-muted">
+      <Spinner />
       {text}
     </p>
   )
@@ -239,24 +244,24 @@ function Step({ text, note, tone, error, children }: StepProps) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-0.5">
-        <p className="flex gap-1.5 text-pretty text-[12px]">
+        <p className="flex gap-1.5 text-pretty text-small">
           {tone && (
             <TriangleAlert
               className={
                 tone === 'danger'
-                  ? 'mt-0.5 size-3.5 shrink-0 text-danger'
-                  : 'mt-0.5 size-3.5 shrink-0 text-warning'
+                  ? 'mt-px size-3.5 shrink-0 text-danger'
+                  : 'mt-px size-3.5 shrink-0 text-warning'
               }
               aria-hidden="true"
             />
           )}
           <span>{text}</span>
         </p>
-        {note && <p className="select-text text-pretty text-[11.5px] text-subtle">{note}</p>}
+        {note && <p className="select-text text-pretty text-caption text-subtle">{note}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">{children}</div>
       {error && (
-        <p role="alert" className="select-text text-pretty text-[12px] text-danger">
+        <p role="alert" className="select-text text-pretty text-small text-danger">
           {error}
         </p>
       )}

@@ -11,6 +11,7 @@ function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
+/** The terminal's colors, from the design tokens. */
 function terminalTheme() {
   return {
     background: cssVar('--canvas'),
@@ -30,16 +31,16 @@ export function Logs({ state }: { state: WindowState }) {
         type="button"
         onClick={() => gui.setLogsOpen(!open)}
         aria-expanded={open}
-        className="flex h-7 w-full items-center gap-2 px-3 text-left text-muted hover:text-fg"
+        className="flex h-7 w-full items-center gap-2 px-3 text-left text-muted transition-colors hover:bg-hover hover:text-fg"
       >
         <SquareTerminal className="size-3.5 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px]">
+        <span className="min-w-0 flex-1 truncate font-mono text-caption">
           {state.devServer.lastLine || state.devServer.command || 'No output yet'}
         </span>
         {open ? (
-          <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+          <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
         ) : (
-          <ChevronUp className="size-3.5 shrink-0" aria-hidden="true" />
+          <ChevronUp className="size-3 shrink-0" aria-hidden="true" />
         )}
       </button>
       <div
@@ -61,8 +62,8 @@ function LogsTerminal() {
     const el = host.current
     if (!el) return
     const term = new Terminal({
-      fontFamily: '"SF Mono", ui-monospace, Menlo, monospace',
-      fontSize: 11,
+      fontFamily: cssVar('--font-mono'),
+      fontSize: Number.parseFloat(cssVar('--text-caption')),
       lineHeight: 1.25,
       disableStdin: true,
       cursorStyle: 'bar',

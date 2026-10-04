@@ -1,4 +1,4 @@
-import { ChevronRight, Plus, TriangleAlert } from 'lucide-react'
+import { Plus, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import {
   type AgentHealth,
@@ -8,10 +8,11 @@ import {
 } from '../../../shared/types'
 import { AgentCard } from '../agents/agent-card'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
-import { Button, Spinner } from '../lib/ui'
+import { Disclosure } from '../lib/disclosure'
+import { PathText } from '../lib/path-text'
+import { Card, GroupLabel, List, ListItem } from '../lib/surface'
+import { Button, Code } from '../lib/ui'
 import { AgentRow } from './agent-row'
-import { GroupHeading, List } from './controls'
 import { CustomAgentForm } from './custom-agent-form'
 import { DefaultAgentSelect } from './default-agent-select'
 import { useAction } from './use-action'
@@ -35,8 +36,10 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 
       <section aria-labelledby={foundId} className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <GroupHeading id={foundId}>Installed agents</GroupHeading>
-          <Button variant="ghost" onClick={() => gui.checkAgents()}>
+          <GroupLabel as="h2" id={foundId}>
+            Installed agents
+          </GroupLabel>
+          <Button variant="ghost" size="sm" onClick={() => gui.checkAgents()}>
             Check again
           </Button>
         </div>
@@ -63,7 +66,9 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 
       {missing.length > 0 && (
         <section aria-labelledby={missingId} className="flex flex-col gap-2">
-          <GroupHeading id={missingId}>Not installed</GroupHeading>
+          <GroupLabel as="h2" id={missingId}>
+            Not installed
+          </GroupLabel>
           <List>
             {missing.map((agent) => (
               <NotInstalledRow key={agent.id} agent={agent} />
@@ -82,24 +87,23 @@ function NotInstalledRow({ agent }: { agent: AgentHealth }) {
   // Claude Code and Codex: Gui downloads them; other agents: their install page.
   const label = agent.install === 'update' ? "Install Gui's copy" : 'Install'
   return (
-    <li className="flex items-center gap-3 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <p className="font-medium">{agent.name}</p>
-        <p className="truncate text-[11.5px] text-subtle" title={agent.message ?? undefined}>
-          {agent.install ? (
-            agent.message
-          ) : (
-            <>
-              Needs the <code className="font-mono text-[11px]">{command}</code> command on your
-              PATH
-            </>
-          )}
-        </p>
-      </div>
-      {(agent.install || agent.installUrl) && (
-        <Button onClick={() => void gui.installAgent(agent.id)}>{label}</Button>
-      )}
-    </li>
+    <ListItem
+      title={agent.name}
+      detail={
+        agent.install ? (
+          agent.message
+        ) : (
+          <>
+            Needs the <Code>{command}</Code> command on your PATH
+          </>
+        )
+      }
+      trailing={
+        (agent.install || agent.installUrl) && (
+          <Button onClick={() => void gui.installAgent(agent.id)}>{label}</Button>
+        )
+      }
+    />
   )
 }
 
@@ -136,6 +140,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
         key={entry.name}
         entry={entry}
         health={healthFor(entry)}
+        home={settings.home}
         locked={locked}
         onEdit={() => setEditing({ kind: 'edit', name: entry.name })}
       />
@@ -145,10 +150,18 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
   // For people bringing their own ACP agent; open when there's something in it.
   const [open, setOpen] = useState(customAgents.length > 0 || locked)
 
+  const heading = (
+    <GroupLabel as="h2" id={headingId}>
+      <Disclosure tone="label" open={open} onOpenChange={setOpen}>
+        Custom agents
+      </Disclosure>
+    </GroupLabel>
+  )
+
   if (!open) {
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
-        <AdvancedToggle id={headingId} open={false} onToggle={() => setOpen(true)} />
+        {heading}
       </section>
     )
   }
@@ -156,8 +169,8 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <AdvancedToggle id={headingId} open onToggle={() => setOpen(false)} />
-        <Button variant="ghost" onClick={() => gui.openCustomAgentsFile()}>
+        {heading}
+        <Button variant="ghost" size="sm" onClick={() => gui.openCustomAgentsFile()}>
           Edit agents.json
         </Button>
       </div>
@@ -167,17 +180,16 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
       {empty && <p className="text-muted">No custom agents yet.</p>}
 
       {adding ? (
-        <div className="rounded-lg border border-line p-3">
+        <Card className="p-3">
           <CustomAgentForm original={null} onDone={stopEditing} />
-        </div>
+        </Card>
       ) : (
-        <Button className="self-start" disabled={addDisabled} onClick={startAdding}>
-          <Plus className="size-3.5" aria-hidden="true" />
+        <Button icon={Plus} className="self-start" disabled={addDisabled} onClick={startAdding}>
           Add agent
         </Button>
       )}
 
-      <p className="text-pretty text-[11.5px] text-subtle">
+      <p className="text-pretty text-caption text-subtle">
         Any ACP agent can be added here. Gui finds agents on your login shell's PATH.
       </p>
     </section>
@@ -186,28 +198,29 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
 
 function AgentsFileError({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-2.5 rounded-lg border border-line px-3 py-2.5">
+    <Card className="flex items-start gap-2.5 px-3 py-2.5">
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-danger" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="font-medium">agents.json can't be read</p>
-        <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">{message}</p>
-        <p className="mt-0.5 text-pretty text-[12px] text-muted">
+        <p className="select-text text-pretty text-small text-muted">{message}</p>
+        <p className="text-pretty text-small text-muted">
           Custom agents can't be changed here until it's fixed.
         </p>
       </div>
       <Button onClick={() => gui.openCustomAgentsFile()}>Open agents.json</Button>
-    </div>
+    </Card>
   )
 }
 
 interface CustomAgentRowProps {
   entry: CustomAgentEntry
   health: AgentHealth | null
+  home: string
   locked: boolean
   onEdit: () => void
 }
 
-function CustomAgentRow({ entry, health, locked, onEdit }: CustomAgentRowProps) {
+function CustomAgentRow({ entry, health, home, locked, onEdit }: CustomAgentRowProps) {
   const [confirming, setConfirming] = useState(false)
   const remove = useAction()
   const commandLine = [entry.command, ...entry.args].join(' ')
@@ -218,12 +231,8 @@ function CustomAgentRow({ entry, health, locked, onEdit }: CustomAgentRowProps) 
 
   const detail = (
     <>
-      <p className="select-text truncate font-mono text-[11px] text-subtle" title={commandLine}>
-        {commandLine}
-      </p>
-      {confirming && (
-        <p className="mt-0.5 text-[12px] text-muted">Remove {entry.name} from agents.json?</p>
-      )}
+      <PathText path={commandLine} home={home} className="select-text text-caption text-subtle" />
+      {confirming && <p className="text-small text-muted">Remove {entry.name} from agents.json?</p>}
     </>
   )
 
@@ -232,8 +241,7 @@ function CustomAgentRow({ entry, health, locked, onEdit }: CustomAgentRowProps) 
       <Button variant="ghost" disabled={remove.pending} onClick={cancelRemove}>
         Cancel
       </Button>
-      <Button disabled={locked || remove.pending} onClick={confirmRemove}>
-        {remove.pending && <Spinner className="size-2.5" />}
+      <Button variant="danger" disabled={locked} loading={remove.pending} onClick={confirmRemove}>
         Remove
       </Button>
     </>
@@ -256,32 +264,5 @@ function CustomAgentRow({ entry, health, locked, onEdit }: CustomAgentRowProps) 
       actions={actions}
       error={remove.error}
     />
-  )
-}
-
-function AdvancedToggle({
-  id,
-  open,
-  onToggle,
-}: {
-  id: string
-  open: boolean
-  onToggle: () => void
-}) {
-  return (
-    <GroupHeading id={id}>
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="flex items-center gap-1 rounded uppercase tracking-wide hover:text-fg"
-      >
-        <ChevronRight
-          className={cn('size-3 transition-transform', open && 'rotate-90')}
-          aria-hidden="true"
-        />
-        Custom agents
-      </button>
-    </GroupHeading>
   )
 }

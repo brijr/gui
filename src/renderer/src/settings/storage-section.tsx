@@ -1,8 +1,8 @@
 import { useId } from 'react'
 import type { SettingsState, StorageKind } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { Button, Spinner } from '../lib/ui'
-import { List } from './controls'
+import { GroupLabel, List, ListItem } from '../lib/surface'
+import { Button } from '../lib/ui'
 import { useAction } from './use-action'
 
 interface StorageInfo {
@@ -46,19 +46,23 @@ function formatBytes(bytes: number | null) {
 
 export function StorageSection({ settings }: { settings: SettingsState }) {
   const { storage, openProjects } = settings
+  const headingId = useId()
   return (
-    <>
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <GroupLabel as="h2" id={headingId}>
+        Stored on this Mac
+      </GroupLabel>
       <List>
         {ROWS.map((row) => (
           <StorageRow key={row.kind} row={row} bytes={storage[row.kind]} />
         ))}
       </List>
       {openProjects.length > 0 && (
-        <p className="text-pretty text-[11.5px] text-subtle">
+        <p className="text-pretty text-caption text-subtle">
           Projects open in a window keep their chat history and checkpoints.
         </p>
       )}
-    </>
+    </section>
   )
 }
 
@@ -69,30 +73,29 @@ function StorageRow({ row, bytes }: { row: StorageInfo; bytes: number | null }) 
   const size = formatBytes(bytes)
 
   return (
-    <li className="px-3 py-2.5">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <p id={titleId} className="font-medium">
-            {row.title}
-          </p>
-          <p className="text-pretty text-[12px] text-muted">{row.detail}</p>
-        </div>
-        <span className="shrink-0 text-[12px] tabular-nums text-muted">{size}</span>
-        <Button
-          id={buttonId}
-          aria-labelledby={`${buttonId} ${titleId}`}
-          disabled={clear.pending}
-          onClick={() => void clear.run(() => gui.clearStorage(row.kind))}
-        >
-          {clear.pending && <Spinner className="size-2.5" />}
-          Clear…
-        </Button>
-      </div>
+    <ListItem
+      title={row.title}
+      titleId={titleId}
+      detail={row.detail}
+      trailing={
+        <>
+          <span className="text-small tabular-nums text-muted">{size}</span>
+          <Button
+            id={buttonId}
+            aria-labelledby={`${buttonId} ${titleId}`}
+            loading={clear.pending}
+            onClick={() => void clear.run(() => gui.clearStorage(row.kind))}
+          >
+            Clear…
+          </Button>
+        </>
+      }
+    >
       {clear.error && (
-        <p role="alert" className="mt-1 select-text text-pretty text-[12px] text-danger">
+        <p role="alert" className="select-text text-pretty text-small text-danger">
           {clear.error}
         </p>
       )}
-    </li>
+    </ListItem>
   )
 }

@@ -2,7 +2,7 @@ import {
   GitPullRequest,
   GripHorizontal,
   Maximize2,
-  MessageCircle,
+  MessageSquare,
   Minus,
   MousePointer2,
   PanelRight,
@@ -10,6 +10,7 @@ import {
   SquarePen,
 } from 'lucide-react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useId, useRef } from 'react'
+import { BUBBLE, PANEL_SHADOW_MARGIN } from '../../../shared/layout'
 import {
   type ChatMeta,
   PANEL_EDGES,
@@ -19,13 +20,13 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Badge, type Status, StatusDot } from '../lib/status'
+import { Message } from '../lib/surface'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { Composer } from './composer'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
 import { connectChat, useChat } from './store'
 import { TurnView } from './turn-view'
-
-const PANEL_SHADOW = 'shadow-[0_4px_14px_rgb(0_0_0/0.16),0_0_0_0.5px_rgb(0_0_0/0.06)]'
 
 export function ChatPanel() {
   useEffect(() => connectChat(), [])
@@ -40,7 +41,10 @@ export function ChatPanel() {
 
   if (meta.docked) {
     return (
-      <div data-chat-panel className="relative flex h-dvh flex-col border-l border-line bg-raised">
+      <div
+        data-chat-panel
+        className="relative flex h-dvh flex-col border-l border-line-strong bg-raised"
+      >
         <ResizeHandle edge="left" docked />
         <Header meta={meta} />
         {shipping ? (
@@ -58,17 +62,14 @@ export function ChatPanel() {
   if (bubble) return <ChatBubble corner={bubble} turns={turns} running={running} />
 
   return (
-    <div className="h-dvh p-[18px]">
+    <div className="h-dvh" style={{ padding: PANEL_SHADOW_MARGIN }}>
       {meta.minimized ? (
         <MiniPanel meta={meta} running={running} />
       ) : (
         <div className="relative h-full">
           <div
             data-chat-panel
-            className={cn(
-              'flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised',
-              PANEL_SHADOW,
-            )}
+            className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
           >
             <Header meta={meta} />
             {shipping ? (
@@ -146,11 +147,10 @@ function onDragStart(event: ReactPointerEvent<HTMLElement>) {
  */
 const EDGE_CLASS: Record<PanelEdge, string> = {
   top: 'inset-x-2 -top-1 h-1.5 cursor-ns-resize after:inset-x-1 after:top-1 after:h-px',
-  right:
-    'inset-y-2 -right-[3px] w-1.5 cursor-ew-resize after:inset-y-1 after:right-[3px] after:w-px',
+  right: 'inset-y-2 -right-0.75 w-1.5 cursor-ew-resize after:inset-y-1 after:right-0.75 after:w-px',
   bottom:
-    'inset-x-2 -bottom-[3px] h-1.5 cursor-ns-resize after:inset-x-1 after:bottom-[3px] after:h-px',
-  left: 'inset-y-2 -left-[3px] w-1.5 cursor-ew-resize after:inset-y-1 after:left-[3px] after:w-px',
+    'inset-x-2 -bottom-0.75 h-1.5 cursor-ns-resize after:inset-x-1 after:bottom-0.75 after:h-px',
+  left: 'inset-y-2 -left-0.75 w-1.5 cursor-ew-resize after:inset-y-1 after:left-0.75 after:w-px',
   'top-left':
     '-top-1.5 -left-1.5 cursor-nwse-resize after:top-1.5 after:left-1.5 after:rounded-tl-xl after:border-t after:border-l',
   'top-right':
@@ -191,19 +191,12 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
   )
 }
 
-function StatusDot({ meta, running }: { meta: ChatMeta; running: boolean }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'size-1.5 shrink-0 rounded-full',
-        meta.status === 'error' && 'bg-danger',
-        (meta.status === 'starting' || running) && 'animate-pulse bg-warning',
-        meta.status === 'ready' && !running && 'bg-success',
-        meta.status === 'idle' && 'bg-subtle',
-      )}
-    />
-  )
+/** The agent's state as a dot: busy while it starts or works. */
+function agentStatus(meta: ChatMeta, running: boolean): Status {
+  if (meta.status === 'error') return 'error'
+  if (meta.status === 'starting' || meta.status === 'working' || running) return 'busy'
+  if (meta.status === 'ready') return 'ready'
+  return 'idle'
 }
 
 function Header({ meta }: { meta: ChatMeta }) {
@@ -221,39 +214,29 @@ function Header({ meta }: { meta: ChatMeta }) {
       {!meta.docked && (
         <GripHorizontal className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
       )}
-      <StatusDot meta={meta} running={running} />
+      <StatusDot status={agentStatus(meta, running)} />
       <span className="truncate font-medium">{meta.agentName}</span>
       {meta.modeName && (
-        <span className="truncate rounded bg-hover px-1.5 py-px text-[10.5px] text-muted">
-          {meta.modeName}
-        </span>
+        <Badge>
+          <span className="truncate">{meta.modeName}</span>
+        </Badge>
       )}
       <div className="ml-auto flex items-center">
         <IconButton
           label="Create pull request"
-          active={shipping}
+          icon={GitPullRequest}
+          pressed={shipping}
           disabled={shipBusy}
           onClick={toggleShipSheet}
-        >
-          <GitPullRequest className="size-3.5" />
-        </IconButton>
-        <IconButton label="New chat (⇧⌘K)" onClick={() => gui.newSession()}>
-          <SquarePen className="size-3.5" />
-        </IconButton>
+        />
+        <IconButton label="New chat (⇧⌘K)" icon={SquarePen} onClick={() => gui.newSession()} />
         <IconButton
           label={meta.docked ? 'Float panel (⇧⌘D)' : 'Dock to the side (⇧⌘D)'}
+          icon={meta.docked ? PanelRightClose : PanelRight}
           onClick={() => gui.toggleDock()}
-        >
-          {meta.docked ? (
-            <PanelRightClose className="size-3.5" />
-          ) : (
-            <PanelRight className="size-3.5" />
-          )}
-        </IconButton>
+        />
         {!meta.docked && (
-          <IconButton label="Minimize" onClick={() => gui.setMinimized(true)}>
-            <Minus className="size-4" />
-          </IconButton>
+          <IconButton label="Minimize" icon={Minus} onClick={() => gui.setMinimized(true)} />
         )}
       </div>
     </div>
@@ -264,18 +247,17 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
   return (
     <div
       onPointerDown={onDragStart}
-      className={cn(
-        'flex h-full cursor-grab items-center gap-2 rounded-full border border-line-strong bg-raised pr-1.5 pl-4 active:cursor-grabbing',
-        PANEL_SHADOW,
-      )}
+      className="flex h-full cursor-grab items-center gap-2 rounded-full border border-line-strong bg-raised pr-1.5 pl-4 shadow-panel active:cursor-grabbing"
     >
-      {running ? <Spinner className="text-muted" /> : <StatusDot meta={meta} running={running} />}
+      {running ? (
+        <Spinner className="text-muted" />
+      ) : (
+        <StatusDot status={agentStatus(meta, running)} />
+      )}
       <span className="min-w-0 flex-1 truncate font-medium">
         {running ? 'Working…' : meta.agentName}
       </span>
-      <IconButton label="Expand chat" onClick={() => gui.setMinimized(false)}>
-        <Maximize2 className="size-3.5" />
-      </IconButton>
+      <IconButton label="Expand chat" icon={Maximize2} onClick={() => gui.setMinimized(false)} />
     </div>
   )
 }
@@ -310,10 +292,11 @@ function ChatBubble({
     // resizes around it.
     <div
       className={cn(
-        'flex h-dvh p-[18px]',
+        'flex h-dvh',
         corner.x === 'right' && 'justify-end',
         corner.y === 'bottom' && 'items-end',
       )}
+      style={{ padding: PANEL_SHADOW_MARGIN }}
     >
       <button
         type="button"
@@ -321,16 +304,11 @@ function ChatBubble({
         aria-describedby={statusId}
         title="Show chat (stops selecting)"
         onClick={() => gui.stopSelecting()}
-        className={cn(
-          'relative flex size-11 shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-muted transition-colors hover:text-fg motion-safe:animate-bubble-in',
-          PANEL_SHADOW,
-        )}
+        style={{ width: BUBBLE.width, height: BUBBLE.height }}
+        className="relative flex shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-colors hover:text-fg motion-safe:animate-bubble-in"
       >
-        {running ? (
-          <Spinner className="size-4" />
-        ) : (
-          <MessageCircle className="size-[18px]" aria-hidden="true" />
-        )}
+        {/* 16px: a control's 14px icon looks lost in the 44px bubble */}
+        {running ? <Spinner size="md" /> : <MessageSquare className="size-4" aria-hidden="true" />}
         {waiting && (
           <span
             aria-hidden="true"
@@ -376,16 +354,19 @@ function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
 
 function EmptyTranscript() {
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-      <p className="font-medium">Point at something to change</p>
-      <p className="text-pretty text-muted">
+    <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+      <Message
+        icon={<MousePointer2 className="size-4" aria-hidden="true" />}
+        title="Point at something to change"
+        actions={
+          <Button icon={MousePointer2} onClick={() => gui.toggleSelect()}>
+            Select element
+          </Button>
+        }
+      >
         Pick an element in your app, then describe the change. Your agent edits the code and the
         preview updates live.
-      </p>
-      <Button onClick={() => gui.toggleSelect()}>
-        <MousePointer2 className="size-3.5" aria-hidden="true" />
-        Select element
-      </Button>
+      </Message>
     </div>
   )
 }

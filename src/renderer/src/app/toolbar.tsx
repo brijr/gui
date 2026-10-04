@@ -12,16 +12,18 @@ import {
   Tablet,
 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
+import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
 import { agentName, type Viewport, type WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
-import { IconButton } from '../lib/ui'
+import { Input } from '../lib/field'
+import { type Status, StatusDot } from '../lib/status'
+import { Button, IconButton, SegmentedControl, Toggle } from '../lib/ui'
 
-const VIEWPORTS: { id: Viewport; label: string; icon: typeof Monitor }[] = [
-  { id: 'desktop', label: 'Desktop', icon: Monitor },
-  { id: 'tablet', label: 'Tablet', icon: Tablet },
-  { id: 'mobile', label: 'Mobile', icon: Smartphone },
-]
+const VIEWPORTS = [
+  { value: 'desktop', label: 'Desktop', icon: Monitor },
+  { value: 'tablet', label: 'Tablet', icon: Tablet },
+  { value: 'mobile', label: 'Mobile', icon: Smartphone },
+] as const satisfies readonly { value: Viewport; label: string; icon: typeof Monitor }[]
 const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached' } as const
 /** How long the screenshot button shows what it did. */
 const DONE_MS = 1500
@@ -30,11 +32,14 @@ export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
 
   return (
-    <header className="drag flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2 pl-[84px]">
+    <header
+      className="drag flex shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2"
+      style={{ height: TOOLBAR_HEIGHT, paddingLeft: TRAFFIC_LIGHTS_INSET }}
+    >
       <button
         type="button"
         onClick={() => gui.showProjectMenu()}
-        className="no-drag flex h-7 max-w-64 items-center gap-1 rounded-md px-2 font-semibold hover:bg-hover"
+        className="no-drag flex h-7 max-w-64 items-center gap-1 rounded-md px-2 font-semibold transition-colors hover:bg-hover"
       >
         <span className="truncate">{project?.name ?? 'Gui'}</span>
         {/* The monorepo app being previewed */}
@@ -43,85 +48,69 @@ export function Toolbar({ state }: { state: WindowState }) {
             / {project.appDir.slice(project.appDir.lastIndexOf('/') + 1)}
           </span>
         )}
-        <ChevronDown className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+        <ChevronDown className="size-3 shrink-0 text-subtle" aria-hidden="true" />
       </button>
 
       {project && <DevServerPill state={state} />}
 
       <div className="mx-1 flex items-center">
-        <IconButton label="Back" disabled={!preview.canGoBack} onClick={() => gui.back()}>
-          <ArrowLeft className="size-4" />
-        </IconButton>
-        <IconButton label="Forward" disabled={!preview.canGoForward} onClick={() => gui.forward()}>
-          <ArrowRight className="size-4" />
-        </IconButton>
-        <IconButton label="Reload preview" disabled={!preview.url} onClick={() => gui.reload()}>
-          <RotateCw className={cn('size-3.5', preview.loading && 'animate-spin')} />
-        </IconButton>
+        <IconButton
+          label="Back"
+          icon={ArrowLeft}
+          disabled={!preview.canGoBack}
+          onClick={() => gui.back()}
+        />
+        <IconButton
+          label="Forward"
+          icon={ArrowRight}
+          disabled={!preview.canGoForward}
+          onClick={() => gui.forward()}
+        />
+        <IconButton
+          label="Reload preview"
+          icon={RotateCw}
+          spinning={preview.loading}
+          disabled={!preview.url}
+          onClick={() => gui.reload()}
+        />
       </div>
 
       <AddressBar url={preview.url} disabled={!project} />
 
-      <fieldset
-        aria-label="Viewport"
-        className="no-drag ml-1 flex items-center rounded-md border border-line p-0.5"
-      >
-        {VIEWPORTS.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={preview.viewport === id}
-            aria-label={label}
-            title={label}
-            onClick={() => gui.setViewport(id)}
-            className={cn(
-              'flex size-6 items-center justify-center rounded text-subtle hover:text-fg',
-              preview.viewport === id && 'bg-hover text-fg',
-            )}
-          >
-            <Icon className="size-3.5" aria-hidden="true" />
-          </button>
-        ))}
-      </fieldset>
+      <SegmentedControl
+        label="Viewport"
+        segments={VIEWPORTS}
+        value={preview.viewport}
+        onChange={(viewport) => gui.setViewport(viewport)}
+        iconOnly
+        className="ml-1"
+      />
 
       {/* The menu only captures the local app, like element picking. */}
       <ScreenshotButton disabled={!preview.visible || !preview.selectable} />
 
-      <button
-        type="button"
-        aria-pressed={preview.selecting}
+      <Toggle
+        pressed={preview.selecting}
+        emphasis="strong"
+        icon={MousePointer2}
         disabled={!preview.visible || !preview.selectable}
         onClick={() => gui.toggleSelect()}
         title="Select element (⇧⌘C)"
-        className={cn(
-          'no-drag flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] font-medium transition-colors',
-          'disabled:pointer-events-none disabled:opacity-40',
-          preview.selecting
-            ? 'bg-accent text-accent-fg'
-            : 'text-muted hover:bg-hover hover:text-fg',
-        )}
       >
-        <MousePointer2 className="size-3.5" aria-hidden="true" />
         Select
-      </button>
+      </Toggle>
 
-      <button
-        type="button"
-        onClick={() => gui.showAgentMenu()}
-        className="no-drag flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-fg"
-      >
+      <Button variant="ghost" trailingIcon={ChevronDown} onClick={() => gui.showAgentMenu()}>
         {agentName(state.agentId)}
-        <ChevronDown className="size-3.5 text-subtle" aria-hidden="true" />
-      </button>
+      </Button>
 
       <IconButton
         label="Toggle chat (⌘J)"
-        active={state.chatVisible && !!project}
+        icon={MessageSquare}
+        pressed={state.chatVisible && !!project}
         disabled={!project}
         onClick={() => gui.toggleChat()}
-      >
-        <MessageSquare className="size-4" />
-      </IconButton>
+      />
     </header>
   )
 }
@@ -147,11 +136,10 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
       <IconButton
         label="Screenshot"
         title={done?.label ?? 'Screenshot'}
+        icon={done ? Check : Camera}
         disabled={disabled}
         onClick={() => void take()}
-      >
-        {done ? <Check className="size-3.5" /> : <Camera className="size-3.5" />}
-      </IconButton>
+      />
       <span aria-live="polite" className="sr-only">
         {done?.label}
       </span>
@@ -180,23 +168,22 @@ function DevServerPill({ state }: { state: WindowState }) {
   ]
     .filter(Boolean)
     .join(' — ')
+  const dot: Status =
+    status === 'running'
+      ? 'ready'
+      : status === 'starting'
+        ? 'busy'
+        : status === 'exited'
+          ? 'error'
+          : 'idle'
   return (
     <button
       type="button"
       onClick={() => gui.showDevServerMenu()}
       title={title}
-      className="no-drag flex h-6 items-center gap-1.5 rounded-full border border-line bg-raised px-2 font-mono text-[11px] text-muted hover:border-line-strong hover:text-fg"
+      className="no-drag flex h-6 items-center gap-1.5 rounded-full border border-line bg-raised px-2 font-mono text-caption text-muted transition-colors hover:border-line-strong hover:text-fg"
     >
-      <span
-        aria-hidden="true"
-        className={cn(
-          'size-1.5 rounded-full',
-          status === 'running' && 'bg-success',
-          status === 'starting' && 'animate-pulse bg-warning',
-          status === 'exited' && 'bg-danger',
-          status === 'idle' && 'bg-subtle',
-        )}
-      />
+      <StatusDot status={dot} />
       {label}
     </button>
   )
@@ -216,9 +203,10 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
 
   return (
     <form onSubmit={submit} className="no-drag min-w-0 flex-1">
-      <input
+      <Input
         id="preview-address"
         aria-label="App address"
+        mono
         value={value}
         disabled={disabled}
         spellCheck={false}
@@ -232,7 +220,6 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
         placeholder={disabled ? '' : 'http://localhost:3000'}
-        className="h-7 w-full rounded-md border border-transparent bg-hover px-2.5 font-mono text-[11.5px] text-fg outline-none placeholder:text-subtle focus:border-accent focus:bg-raised disabled:opacity-40"
       />
     </form>
   )

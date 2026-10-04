@@ -1,5 +1,6 @@
 import { type AgentHealth, type AgentId, agentName } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { Select } from '../lib/field'
 
 function isSelectable(agent: AgentHealth) {
   return agent.enabled && agent.status !== 'not-installed'
@@ -27,18 +28,18 @@ export function DefaultAgentSelect({
     choices.push({ id: defaultAgentId, label: `${agentName(defaultAgentId)} (unavailable)` })
   }
   return (
-    <select
+    <Select
       aria-label="Default agent"
       title="New windows start with this agent"
       value={defaultAgentId}
       onChange={(event) => gui.setDefaultAgent(event.target.value)}
-      className="no-drag h-7 max-w-48 shrink-0 rounded-md border border-line-strong bg-raised px-2 text-[12px] text-fg outline-none focus:border-accent"
+      className="no-drag max-w-48 shrink-0"
     >
       {choices.map((choice) => (
         <option key={choice.id} value={choice.id}>
           {choice.label}
         </option>
       ))}
-    </select>
+    </Select>
   )
 }

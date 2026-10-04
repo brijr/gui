@@ -1,4 +1,4 @@
-import { ArrowUp, Crosshair, ImagePlus, Square, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, ImagePlus, MousePointer2, Square, TriangleAlert, X } from 'lucide-react'
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -11,7 +11,9 @@ import {
 import type { ChatMeta } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { IconButton, Spinner, TechnicalDetails } from '../lib/ui'
+import { TechnicalDetails } from '../lib/disclosure'
+import { Card, Thumbnail } from '../lib/surface'
+import { Button, IconButton, Spinner } from '../lib/ui'
 import { AutoToggle } from './auto-toggle'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
 import { ModelButton } from './model-picker'
@@ -142,67 +144,62 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="shrink-0 border-t border-line p-2"
+      className="flex shrink-0 flex-col gap-2 border-t border-line p-2"
     >
       <AgentStatus meta={meta} />
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
       <QueuedMessages meta={meta} />
       {meta.selectionError && (
-        <p className="mb-2 select-text px-1 text-[12px] text-danger">{meta.selectionError}</p>
+        <p className="select-text px-1 text-small text-danger">{meta.selectionError}</p>
       )}
       {meta.selection && (
-        <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface p-1.5">
+        <Card tone="inset" className="flex items-center gap-2 p-1.5">
           {meta.selection.screenshot ? (
-            <img
-              src={meta.selection.screenshot}
-              alt=""
-              className="size-9 shrink-0 rounded border border-line bg-canvas object-contain"
-            />
+            <Thumbnail src={meta.selection.screenshot} size="sm" fit="contain" />
           ) : (
-            <Crosshair className="size-4 shrink-0 text-muted" aria-hidden="true" />
+            <Thumbnail size="sm">
+              <MousePointer2 className="size-3.5" aria-hidden="true" />
+            </Thumbnail>
           )}
           <SelectionLabel meta={meta} />
-          <IconButton label="Remove selection" onClick={() => gui.clearSelection()}>
-            <X className="size-3.5" />
-          </IconButton>
-        </div>
+          <IconButton
+            size="sm"
+            label="Remove selection"
+            icon={X}
+            onClick={() => gui.clearSelection()}
+          />
+        </Card>
       )}
       {notice && (
-        <p role="status" className="mb-2 px-1 text-[12px] text-muted">
+        <p role="status" className="px-1 text-small text-muted">
           {notice}
         </p>
       )}
       <div
         className={cn(
-          'rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent',
+          'rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
           dropping && 'border-accent bg-accent-soft',
         )}
       >
         {(attachments.length > 0 || pending > 0) && (
-          <ul aria-label="Attached images" className="flex flex-wrap gap-1.5 px-2 pt-2">
+          <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-2 pt-2">
             {attachments.map((image) => (
-              <li key={image.id} className="relative">
-                <img
+              <li key={image.id}>
+                <Thumbnail
                   src={image.thumbnail}
                   alt={image.name}
                   title={image.name}
-                  className="size-12 rounded-md border border-line bg-canvas object-cover"
+                  onRemove={() => removeAttachments([image.id])}
+                  removeLabel={`Remove ${image.name}`}
                 />
-                <button
-                  type="button"
-                  aria-label={`Remove ${image.name}`}
-                  title="Remove"
-                  onClick={() => removeAttachments([image.id])}
-                  className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full border border-line-strong bg-raised text-muted hover:text-fg"
-                >
-                  <X className="size-2.5" aria-hidden="true" />
-                </button>
               </li>
             ))}
             {pending > 0 && (
-              <li className="flex size-12 items-center justify-center rounded-md border border-line bg-surface text-subtle">
-                <Spinner className="size-3" />
-                <span className="sr-only">Preparing image</span>
+              <li>
+                <Thumbnail>
+                  <Spinner />
+                  <span className="sr-only">Preparing image</span>
+                </Thumbnail>
               </li>
             )}
           </ul>
@@ -224,19 +221,20 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
                 ? 'Describe the change…'
                 : `Ask ${meta.agentName}…`
           }
-          className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[13px] text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
+          className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
         <div className="flex items-center gap-1 px-1.5 pb-1.5">
-          <IconButton label="Select element (⇧⌘C)" onClick={() => gui.toggleSelect()}>
-            <Crosshair className="size-3.5" />
-          </IconButton>
+          <IconButton
+            label="Select element (⇧⌘C)"
+            icon={MousePointer2}
+            onClick={() => gui.toggleSelect()}
+          />
           <IconButton
             label="Attach images"
+            icon={ImagePlus}
             disabled={attachments.length + pending >= MAX_IMAGES}
             onClick={() => picker.current?.click()}
-          >
-            <ImagePlus className="size-3.5" />
-          </IconButton>
+          />
           <input
             ref={picker}
             type="file"
@@ -255,30 +253,24 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           {meta.models && <ModelButton models={meta.models} />}
           {/* While the agent works, a draft can still go out: it joins the queue. */}
           {(!running || canSend) && (
-            <button
+            <IconButton
               type="submit"
-              aria-label={running ? 'Queue message' : 'Send'}
+              variant="primary"
+              label={running ? 'Queue message' : 'Send'}
               title={running ? 'Queue (↵)' : 'Send (↵)'}
+              icon={ArrowUp}
               disabled={!canSend}
-              className={cn(
-                'flex size-7 items-center justify-center rounded-md transition-colors',
-                canSend ? 'bg-accent text-accent-fg hover:opacity-90' : 'bg-hover text-subtle',
-              )}
-            >
-              <ArrowUp className="size-4" aria-hidden="true" />
-            </button>
+            />
           )}
           {/* Last, so it stays put while a draft's queue button comes and goes. */}
           {running && (
-            <button
-              type="button"
-              aria-label="Stop (⌘.)"
-              title="Stop (⌘.)"
+            <IconButton
+              variant="secondary"
+              label="Stop (⌘.)"
+              icon={Square}
+              filled
               onClick={() => gui.cancel()}
-              className="flex size-7 items-center justify-center rounded-md bg-fg text-raised hover:opacity-85"
-            >
-              <Square className="size-3 fill-current" aria-hidden="true" />
-            </button>
+            />
           )}
         </div>
       </div>
@@ -290,27 +282,27 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const count = meta.problems.length
   const latest = meta.problems.at(-1)
   return (
-    <div className="mb-2 flex items-center gap-2 rounded-lg border border-line bg-surface py-1.5 pr-1.5 pl-2.5">
+    <Card tone="inset" className="flex items-center gap-2 py-1.5 pr-1.5 pl-2.5">
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-[12px] font-medium">
+        <p className="text-small font-medium">
           {count === 1 ? '1 error' : `${count} errors`} in the preview
         </p>
         {latest && (
-          <p className="truncate font-mono text-[10.5px] text-subtle" title={latest.message}>
+          <p className="truncate font-mono text-caption text-subtle" title={latest.message}>
             {latest.message.split('\n')[0]}
           </p>
         )}
       </div>
-      <button
-        type="button"
+      <Button
+        size="sm"
+        className="shrink-0"
         disabled={running}
         onClick={() => void gui.fixProblems()}
-        className="h-7 shrink-0 rounded-md border border-line-strong bg-raised px-2.5 text-[12px] font-medium hover:bg-hover disabled:opacity-40"
       >
         Fix
-      </button>
-    </div>
+      </Button>
+    </Card>
   )
 }
 
@@ -320,12 +312,12 @@ function SelectionLabel({ meta }: { meta: ChatMeta }) {
   const { name, where } = elementLabel(selection)
   return (
     <div className="min-w-0 flex-1">
-      <p className="truncate text-[12px]">
+      <p className="truncate text-small">
         <span className="font-medium">{name}</span>
         {selection.text && <span className="text-muted"> {selection.text.slice(0, 60)}</span>}
       </p>
       <p
-        className="truncate font-mono text-[10.5px] text-subtle"
+        className="truncate font-mono text-caption text-subtle"
         title={selection.source?.file ?? selection.selector}
       >
         {where ?? selection.selector}
@@ -337,16 +329,16 @@ function SelectionLabel({ meta }: { meta: ChatMeta }) {
 function AgentStatus({ meta }: { meta: ChatMeta }) {
   if (meta.status === 'starting') {
     return (
-      <p className="mb-2 flex items-center gap-2 px-1 text-[12px] text-muted">
-        <Spinner className="size-2.5" />
+      <p className="flex items-center gap-2 px-1 text-small text-muted">
+        <Spinner />
         Starting {meta.agentName}…
       </p>
     )
   }
   if (meta.status === 'error' && meta.error) {
     return (
-      <div className="mb-2 flex flex-col gap-1 px-1">
-        <p className="select-text text-[12px] text-danger">
+      <div className="flex flex-col gap-1 px-1">
+        <p className="select-text text-small text-danger">
           {meta.error} <span className="text-muted">Send a message to retry.</span>
         </p>
         {meta.errorDetail && <TechnicalDetails text={meta.errorDetail} />}

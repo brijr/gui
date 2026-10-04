@@ -1,11 +1,11 @@
 import { type ReactNode, useId, useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
+import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
-import { Button, TechnicalDetails } from '../lib/ui'
+import { ListItem } from '../lib/surface'
+import { Button, Switch } from '../lib/ui'
 import { AgentStatusLabel } from './agent-status'
-import { Switch } from './controls'
 
 interface AgentRowProps {
   name: string
@@ -42,45 +42,46 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
   }
 
   return (
-    <li className="flex items-start gap-3 px-3 py-2.5">
-      <div className="min-w-0 flex-1">
-        <p className={cn('flex items-center gap-2', !enabled && 'text-muted')}>
-          <span id={nameId} className="font-medium">
-            {name}
-          </span>
+    <ListItem
+      align="start"
+      quiet={!enabled}
+      title={
+        <>
+          <span id={nameId}>{name}</span>
           {live && <AgentStatusLabel health={live} />}
+        </>
+      }
+      trailing={
+        <>
+          {live?.signIn && live.status !== 'ready' && (
+            <Button disabled={busy} onClick={() => void signIn(live.id)}>
+              {live.status === 'signing-in' ? 'Waiting…' : live.signIn.label}
+            </Button>
+          )}
+          {actions}
+          <Switch
+            checked={enabled}
+            onCheckedChange={toggle}
+            label="Enabled"
+            labelledBy={nameId}
+            disabled={!health}
+            className="text-small text-muted hover:text-fg"
+          />
+        </>
+      }
+    >
+      {detail}
+      {live && live.status !== 'ready' && (live.message || signInError) && (
+        <p className="select-text text-pretty text-small text-muted">
+          {signInError ?? live.message}
         </p>
-        {detail}
-        {live && live.status !== 'ready' && (live.message || signInError) && (
-          <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">
-            {signInError ?? live.message}
-          </p>
-        )}
-        {live?.status === 'error' && live.detail && (
-          <TechnicalDetails text={live.detail} className="mt-1" />
-        )}
-        {error && (
-          <p role="alert" className="mt-0.5 select-text text-pretty text-[12px] text-danger">
-            {error}
-          </p>
-        )}
-      </div>
-      <div className="-my-1 flex shrink-0 items-center gap-2">
-        {live?.signIn && live.status !== 'ready' && (
-          <Button disabled={busy} onClick={() => void signIn(live.id)}>
-            {live.status === 'signing-in' ? 'Waiting…' : live.signIn.label}
-          </Button>
-        )}
-        {actions}
-        <Switch
-          checked={enabled}
-          onCheckedChange={toggle}
-          label="Enabled"
-          labelledBy={nameId}
-          disabled={!health}
-          className="text-[11.5px] text-muted hover:text-fg"
-        />
-      </div>
-    </li>
+      )}
+      {live?.status === 'error' && live.detail && <TechnicalDetails text={live.detail} />}
+      {error && (
+        <p role="alert" className="select-text text-pretty text-small text-danger">
+          {error}
+        </p>
+      )}
+    </ListItem>
   )
 }

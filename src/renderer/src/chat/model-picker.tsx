@@ -1,4 +1,4 @@
-import { Check, ChevronDown, Search } from 'lucide-react'
+import { ChevronDown, Search } from 'lucide-react'
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -13,6 +13,8 @@ import { createPortal } from 'react-dom'
 import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { GroupLabel, MenuRow, Popover } from '../lib/surface'
+import { Button, SegmentedControl } from '../lib/ui'
 
 type Choice = AgentSetting['options'][number]
 
@@ -118,23 +120,21 @@ export function ModelButton({ models }: { models: ModelSettings }) {
 
   return (
     <>
-      <button
+      <Button
         ref={button}
-        type="button"
+        variant="ghost"
+        trailingIcon={ChevronDown}
         aria-haspopup="dialog"
         aria-expanded={placement !== null}
         aria-controls={placement ? pickerId : undefined}
         aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
         title={effort ? `${fullName} · ${effort}` : fullName}
         onClick={(event) => setPlacement(placement ? null : place(event.currentTarget))}
-        className={cn(
-          'no-drag flex h-7 min-w-0 items-center gap-1 rounded-md px-1.5 text-[12px] transition-colors hover:bg-hover hover:text-fg',
-          placement ? 'bg-hover text-fg' : 'text-muted',
-        )}
+        // Looks hovered while its picker is open.
+        className="min-w-0 aria-expanded:bg-hover aria-expanded:text-fg"
       >
         <span className="truncate">{effort ? `${model} · ${effort}` : model}</span>
-        <ChevronDown className="size-3 shrink-0" aria-hidden="true" />
-      </button>
+      </Button>
       {placement && (
         <ModelPicker
           id={pickerId}
@@ -273,32 +273,27 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
     return (
       // Focus stays on the search field (or list), which handles the keys and points at
       // the highlighted option through aria-activedescendant.
-      // biome-ignore lint/a11y/useFocusableInteractive: see above
-      // biome-ignore lint/a11y/useKeyWithClickEvents: see above
-      <div
+      <MenuRow
         key={choice.value}
         id={optionId(index)}
         role="option"
         aria-selected={selected}
         title={choice.name}
+        highlighted={index === activeIndex}
+        selected={selected}
         onPointerMove={() => {
           if (index !== activeIndex) setActive(choice.value)
         }}
         onClick={() => pick(choice)}
-        className={cn(
-          'flex h-7 items-center gap-2 rounded-md px-2 text-[12px]',
-          index === activeIndex && 'bg-hover',
-        )}
       >
-        <span className="min-w-0 flex-1 truncate">{rowName(choice)}</span>
-        {selected && <Check className="size-3.5 shrink-0 text-accent" aria-hidden="true" />}
-      </div>
+        {rowName(choice)}
+      </MenuRow>
     )
   }
 
   const above = placement.bottom !== null
   return createPortal(
-    <div
+    <Popover
       ref={root}
       id={id}
       role="dialog"
@@ -313,12 +308,7 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
         top: placement.top ?? undefined,
         bottom: placement.bottom ?? undefined,
       }}
-      className={cn(
-        'fixed z-50 flex flex-col overflow-hidden rounded-lg border border-line-strong bg-raised text-fg',
-        'shadow-[0_8px_24px_rgb(0_0_0/0.14),0_1px_3px_rgb(0_0_0/0.08)] dark:shadow-[0_8px_24px_rgb(0_0_0/0.5),0_1px_3px_rgb(0_0_0/0.3)]',
-        'transition-[opacity,translate] duration-150 ease-out starting:opacity-0',
-        above ? 'starting:translate-y-1' : 'starting:-translate-y-1',
-      )}
+      className={cn('fixed z-50', above ? 'starting:translate-y-1' : 'starting:-translate-y-1')}
     >
       {searchable && (
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
@@ -338,7 +328,7 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
             value={query}
             onChange={(event) => onSearch(event.target.value)}
             onKeyDown={onListKeyDown}
-            className="h-9 min-w-0 flex-1 bg-transparent text-[12.5px] text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
+            className="h-9 min-w-0 flex-1 bg-transparent text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
           />
         </div>
       )}
@@ -367,54 +357,43 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
               aria-labelledby={`${id}-group-${number}`}
               className="not-first:mt-1"
             >
-              <div
+              <GroupLabel
+                as="div"
                 id={`${id}-group-${number}`}
-                role="presentation"
-                className="truncate px-2 pt-1.5 pb-1 text-[11px] font-medium text-subtle"
+                className="truncate px-2 pt-1.5 pb-1"
               >
                 {section.label}
-              </div>
+              </GroupLabel>
               {section.rows.map(renderRow)}
             </div>
           ),
         )}
       </div>
       {rows.length === 0 && (
-        <p role="status" className="px-3 py-5 text-center text-[12px] text-muted">
+        <p role="status" className="px-3 py-5 text-center text-small text-muted">
           No models match
         </p>
       )}
       {effort && (
         <div className="flex shrink-0 items-center gap-2.5 border-t border-line py-2 pr-2 pl-2.5">
-          <span id={effortId} className="shrink-0 text-[12px] text-muted">
+          <span id={effortId} className="shrink-0 text-small font-medium text-muted">
             Effort
           </span>
-          <fieldset
-            aria-labelledby={effortId}
-            className="flex min-w-0 flex-1 rounded-md border border-line p-0.5"
-          >
-            {effort.options.map((choice) => {
-              const on = choice.value === effort.value
-              return (
-                <button
-                  key={choice.value}
-                  type="button"
-                  aria-pressed={on}
-                  title={choice.name}
-                  onClick={() => gui.setAgentSetting(effort.id, choice.value)}
-                  className={cn(
-                    'h-6 min-w-0 flex-auto truncate rounded px-1.5 text-[11.5px] transition-colors',
-                    on ? 'bg-hover font-medium text-fg' : 'text-subtle hover:text-fg',
-                  )}
-                >
-                  {choice.name}
-                </button>
-              )
-            })}
-          </fieldset>
+          <SegmentedControl
+            labelledBy={effortId}
+            segments={effort.options.map((choice) => ({
+              value: choice.value,
+              label: choice.name,
+              title: choice.name,
+            }))}
+            value={effort.value}
+            onChange={(value) => gui.setAgentSetting(effort.id, value)}
+            stretch
+            className="flex-1"
+          />
         </div>
       )}
-    </div>,
+    </Popover>,
     document.body,
   )
 }

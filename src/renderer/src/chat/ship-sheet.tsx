@@ -1,11 +1,4 @@
-import {
-  ArrowLeft,
-  Check,
-  ChevronRight,
-  ExternalLink,
-  GitBranch,
-  TriangleAlert,
-} from 'lucide-react'
+import { ArrowLeft, Check, ExternalLink, GitBranch, Info, TriangleAlert } from 'lucide-react'
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -19,8 +12,12 @@ import { create } from 'zustand'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Disclosure } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
-import { Button, IconButton, Spinner } from '../lib/ui'
+import { Field, Input, Textarea } from '../lib/field'
+import { PathText } from '../lib/path-text'
+import { Message } from '../lib/surface'
+import { Button, Code, IconButton, Spinner } from '../lib/ui'
 
 type Loaded =
   | { kind: 'loading' }
@@ -188,23 +185,28 @@ export function ShipSheet() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
-        <IconButton label="Back to chat" disabled={busy} onClick={closeShipSheet}>
-          <ArrowLeft className="size-3.5" />
-        </IconButton>
-        <h2 className="truncate font-medium">{heading}</h2>
+        <IconButton
+          label="Back to chat"
+          icon={ArrowLeft}
+          disabled={busy}
+          onClick={closeShipSheet}
+        />
+        <h2 className="truncate font-semibold">{heading}</h2>
       </div>
       {done ? (
         <Done result={done.result} info={done.info} />
       ) : loaded.kind === 'loading' ? (
         <div className="flex min-h-0 flex-1 items-center justify-center text-muted">
-          <Spinner />
+          <Spinner size="md" />
         </div>
       ) : loaded.kind === 'blocked' ? (
-        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-          <p className="text-pretty text-muted">
+        <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+          <Message
+            icon={<Info className="size-4" aria-hidden="true" />}
+            actions={<Button onClick={closeShipSheet}>Back to chat</Button>}
+          >
             <WithCode text={loaded.message} />
-          </p>
-          <Button onClick={closeShipSheet}>Back to chat</Button>
+          </Message>
         </div>
       ) : (
         draft && <ShipForm info={loaded.info} draft={draft} busy={busy} />
@@ -212,9 +214,6 @@ export function ShipSheet() {
     </div>
   )
 }
-
-const FIELD =
-  'w-full rounded-lg border border-line-strong bg-raised px-2.5 text-[13px] text-fg outline-none placeholder:text-subtle focus:border-accent focus-visible:outline-none disabled:opacity-60'
 
 function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; busy: boolean }) {
   const error = useShipSheet((s) => s.error)
@@ -244,25 +243,18 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
   return (
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`${id}-title`} className="px-0.5 text-[11.5px] text-muted">
-            Title
-          </label>
-          <input
+        <Field label="Title" htmlFor={`${id}-title`}>
+          <Input
             ref={titleInput}
             id={`${id}-title`}
             value={draft.title}
             maxLength={500}
             disabled={busy}
             onChange={(event) => setShipDraft({ title: event.target.value })}
-            className={cn(FIELD, 'h-8')}
           />
-        </div>
-        <div className="flex flex-col gap-1">
-          <label htmlFor={`${id}-body`} className="px-0.5 text-[11.5px] text-muted">
-            Description
-          </label>
-          <textarea
+        </Field>
+        <Field label="Description" htmlFor={`${id}-body`}>
+          <Textarea
             id={`${id}-body`}
             value={draft.body}
             rows={4}
@@ -271,38 +263,25 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
             placeholder="What changed, and why"
             onChange={(event) => setShipDraft({ body: event.target.value })}
             onKeyDown={onBodyKeyDown}
-            className={cn(FIELD, 'resize-none py-1.5 leading-snug')}
           />
-        </div>
+        </Field>
 
         <div className="flex flex-col gap-2">
-          <button
-            type="button"
-            aria-expanded={showBranch}
+          <Disclosure
+            open={showBranch}
+            onOpenChange={setExpanded}
             title="Change the branch or see the files"
-            onClick={() => setExpanded(!showBranch)}
-            className="flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 text-left text-[12px] text-muted hover:bg-hover hover:text-fg"
+            className="self-start"
           >
             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-            <span className="min-w-0 truncate">
-              <BranchSummary info={info} branch={branch} />
-            </span>
-            <ChevronRight
-              className={cn(
-                'ml-auto size-3 shrink-0 transition-transform',
-                showBranch && 'rotate-90',
-              )}
-              aria-hidden="true"
-            />
-          </button>
+            <BranchSummary info={info} branch={branch} />
+          </Disclosure>
           {showBranch && (
-            <div className="flex flex-col gap-2 pl-5">
-              <div className="flex flex-col gap-1">
-                <label htmlFor={`${id}-branch`} className="px-0.5 text-[11.5px] text-muted">
-                  Branch
-                </label>
-                <input
+            <div className="flex flex-col gap-2 pl-4">
+              <Field label="Branch" htmlFor={`${id}-branch`}>
+                <Input
                   id={`${id}-branch`}
+                  mono
                   value={draft.branch}
                   maxLength={200}
                   disabled={busy}
@@ -310,9 +289,8 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
                   autoCapitalize="off"
                   autoCorrect="off"
                   onChange={(event) => setShipDraft({ branch: event.target.value })}
-                  className={cn(FIELD, 'h-7 font-mono text-[12px]')}
                 />
-              </div>
+              </Field>
               {info.files.length > 0 && <FileList files={info.files} />}
             </div>
           )}
@@ -320,14 +298,14 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
 
         {info.skipped.length > 0 && (
           <p
-            className="px-1 text-[11.5px] text-subtle"
+            className="text-caption text-subtle"
             title="Files that may hold secrets stay on this computer"
           >
             Not included: <PathList paths={info.skipped} />
           </p>
         )}
         {!info.remote && (
-          <p className="px-1 text-[11.5px] text-subtle">
+          <p className="text-caption text-subtle">
             This project has no remote, so the commit stays on this computer.
           </p>
         )}
@@ -337,16 +315,15 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
         {error && (
           <p
             role="alert"
-            className="flex max-h-40 select-text gap-1.5 overflow-y-auto px-1 text-[12px] text-danger"
+            className="flex max-h-40 select-text gap-1.5 overflow-y-auto px-1 text-small text-danger"
           >
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 whitespace-pre-wrap break-words">
               <WithCode text={error} />
             </span>
           </p>
         )}
-        <Button type="submit" variant="primary" disabled={!ready} className="h-8 justify-center">
-          {busy && <Spinner />}
+        <Button type="submit" variant="primary" disabled={!ready} loading={busy} className="w-full">
           {busy ? action.running : action.label}
         </Button>
       </div>
@@ -354,20 +331,23 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
   )
 }
 
+/** "Commits to <branch> · 2 files", with the branch kept readable however long it is. */
 function BranchSummary({ info, branch }: { info: ShipInfo; branch: string }) {
-  const name = <code className="font-mono text-[11.5px] text-fg">{branch || '…'}</code>
   const count = info.files.length
-  // Committed earlier, but the push didn't go through.
-  if (count === 0) return <>Saved on {name}, ready to push</>
   const files = `${count} ${count === 1 ? 'file' : 'files'}`
-  return branch === info.branch ? (
-    <>
-      Commits to {name} · {files}
-    </>
-  ) : (
-    <>
-      On branch {name} · {files}
-    </>
+  // Committed earlier, but the push didn't go through.
+  const [before, after] =
+    count === 0
+      ? ['Saved on', '· ready to push']
+      : branch === info.branch
+        ? ['Commits to', `· ${files}`]
+        : ['On branch', `· ${files}`]
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <span className="shrink-0">{before}</span>
+      <PathText path={branch || '…'} className="text-fg" />
+      <span className="shrink-0">{after}</span>
+    </span>
   )
 }
 
@@ -376,24 +356,25 @@ const STATUS_COLOR: Record<ShipFile['status'], string> = {
   added: 'text-success',
   modified: 'text-warning',
   deleted: 'text-danger',
-  renamed: 'text-accent',
+  renamed: 'text-accent-text',
 }
 
 function FileList({ files }: { files: ShipFile[] }) {
   const more = files.length - FILE_LIMIT
   return (
-    <ul className="flex flex-col gap-0.5 font-mono text-[11px]">
+    <ul className="flex flex-col gap-0.5 text-caption">
       {files.slice(0, FILE_LIMIT).map((file) => (
         <li key={file.path} className="flex min-w-0 items-center gap-2">
-          <span className={cn('w-3 shrink-0', STATUS_COLOR[file.status])} title={file.status}>
+          <span
+            className={cn('w-3 shrink-0 font-mono', STATUS_COLOR[file.status])}
+            title={file.status}
+          >
             {file.status[0]?.toUpperCase()}
           </span>
-          <span className="min-w-0 flex-1 truncate" title={file.path}>
-            {file.path}
-          </span>
+          <PathText path={file.path} className="flex-1" />
         </li>
       ))}
-      {more > 0 && <li className="pl-5 font-sans text-subtle">and {more} more</li>}
+      {more > 0 && <li className="pl-5 text-subtle">and {more} more</li>}
     </ul>
   )
 }
@@ -404,7 +385,7 @@ function PathList({ paths }: { paths: string[] }) {
   for (const [index, path] of shown.entries()) {
     if (index > 0) nodes.push(<span key={`${path}-sep`}>, </span>)
     nodes.push(
-      <code key={path} className="font-mono text-[11px] text-muted">
+      <code key={path} className="font-mono text-muted">
         {path}
       </code>,
     )
@@ -419,13 +400,7 @@ function WithCode({ text }: { text: string }) {
   let offset = 0
   for (const [index, part] of text.split('`').entries()) {
     nodes.push(
-      index % 2 === 1 ? (
-        <code key={offset} className="font-mono text-[11.5px]">
-          {part}
-        </code>
-      ) : (
-        <span key={offset}>{part}</span>
-      ),
+      index % 2 === 1 ? <Code key={offset}>{part}</Code> : <span key={offset}>{part}</span>,
     )
     offset += part.length + 1
   }
@@ -435,7 +410,7 @@ function WithCode({ text }: { text: string }) {
 function Done({ result, info }: { result: ShipResult; info: ShipInfo }) {
   const host = hostName(info)
   const target = linkTarget(result.url)
-  const branch = <code className="font-mono text-[12px] text-fg">{result.branch}</code>
+  const branch = <Code>{result.branch}</Code>
   const review = info.remote?.host === 'gitlab' ? 'merge request' : 'pull request'
 
   let heading: string
@@ -480,30 +455,30 @@ function Done({ result, info }: { result: ShipResult; info: ShipInfo }) {
   const label = target && !target.known ? `Open ${target.host}` : link
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-8 text-center">
-      <span className="flex size-8 items-center justify-center rounded-full bg-accent-soft text-accent">
-        <Check className="size-4" aria-hidden="true" />
-      </span>
-      <div className="flex flex-col gap-1">
-        <p className="font-medium">{heading}</p>
-        <p className="text-pretty text-muted">{detail}</p>
-        <p className="font-mono text-[11px] text-subtle">Commit {result.commit}</p>
-      </div>
-      <div className="flex flex-col items-center gap-1.5">
-        {label && result.url && (
-          <Button
-            variant="primary"
-            title={result.url}
-            onClick={() => openExternal(result.url ?? '')}
-          >
-            {label}
-            <ExternalLink className="size-3" aria-hidden="true" />
-          </Button>
-        )}
-        <Button variant="ghost" onClick={closeShipSheet}>
-          Back to chat
-        </Button>
-      </div>
+    <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+      <Message
+        icon={<Check className="size-4" aria-hidden="true" />}
+        tone="accent"
+        title={heading}
+        actions={
+          <>
+            {label && result.url && (
+              <Button
+                variant="primary"
+                trailingIcon={ExternalLink}
+                title={result.url}
+                onClick={() => openExternal(result.url ?? '')}
+              >
+                {label}
+              </Button>
+            )}
+            <Button onClick={closeShipSheet}>Back to chat</Button>
+          </>
+        }
+      >
+        <p>{detail}</p>
+        <p className="font-mono text-caption text-subtle">Commit {result.commit}</p>
+      </Message>
     </div>
   )
 }

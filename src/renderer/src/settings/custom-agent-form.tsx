@@ -1,9 +1,9 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { type FormEvent, useEffect, useId, useRef, useState } from 'react'
 import type { CustomAgentEntry } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
-import { Button, Spinner } from '../lib/ui'
+import { Field, Input, Textarea } from '../lib/field'
+import { Button } from '../lib/ui'
 
 interface Draft {
   name: string
@@ -17,14 +17,8 @@ interface Draft {
 type Status = { kind: 'idle' } | { kind: 'saving' } | { kind: 'error'; message: string }
 type ParsedEnv = { ok: true; env: Record<string, string> } | { ok: false; message: string }
 
-const FIELD = cn(
-  'w-full rounded-md border border-line-strong bg-raised px-2.5 text-fg',
-  'outline-none placeholder:text-subtle focus:border-accent',
-)
-const TEXTAREA = cn(
-  FIELD,
-  'field-sizing-content max-h-40 min-h-16 resize-none py-1.5 font-mono text-[11.5px]',
-)
+/** Arguments and environment: a line each, growing with the text */
+const LINES = 'field-sizing-content max-h-40 min-h-16'
 
 function toDraft(entry: CustomAgentEntry | null): Draft {
   if (!entry) return { name: '', command: '', args: '', env: '' }
@@ -101,7 +95,7 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
   return (
     <form onSubmit={(event) => void submit(event)} noValidate className="flex flex-col gap-3">
       <Field label="Name" htmlFor={`${id}-name`}>
-        <input
+        <Input
           ref={nameRef}
           id={`${id}-name`}
           value={draft.name}
@@ -109,52 +103,52 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
           spellCheck={false}
           autoComplete="off"
           onChange={(event) => edit({ name: event.target.value })}
-          className={cn(FIELD, 'h-7 text-[12px]')}
         />
       </Field>
       <Field label="Command" htmlFor={`${id}-command`}>
-        <input
+        <Input
           id={`${id}-command`}
+          mono
           value={draft.command}
           required
           spellCheck={false}
           autoComplete="off"
           placeholder="amp-acp or /path/to/agent"
           onChange={(event) => edit({ command: event.target.value })}
-          className={cn(FIELD, 'h-7 font-mono text-[11.5px]')}
         />
       </Field>
       <Field label="Arguments" htmlFor={`${id}-args`} hint="One argument per line.">
-        <textarea
+        <Textarea
           id={`${id}-args`}
+          mono
           value={draft.args}
           rows={3}
           spellCheck={false}
           aria-describedby={`${id}-args-hint`}
           onChange={(event) => edit({ args: event.target.value })}
-          className={TEXTAREA}
+          className={LINES}
         />
       </Field>
       <Field label="Environment" htmlFor={`${id}-env`} hint="KEY=value, one per line.">
-        <textarea
+        <Textarea
           id={`${id}-env`}
+          mono
           value={draft.env}
           rows={3}
           spellCheck={false}
           aria-describedby={`${id}-env-hint`}
           onChange={(event) => edit({ env: event.target.value })}
-          className={TEXTAREA}
+          className={LINES}
         />
       </Field>
 
       {status.kind === 'error' && (
-        <p role="alert" className="select-text text-pretty text-[12px] text-danger">
+        <p role="alert" className="select-text text-pretty text-small text-danger">
           {status.message}
         </p>
       )}
       <div className="flex items-center gap-2">
-        <Button type="submit" variant="primary" disabled={saving}>
-          {saving && <Spinner className="size-2.5" />}
+        <Button type="submit" variant="primary" loading={saving}>
           {original ? 'Save' : 'Add agent'}
         </Button>
         <Button variant="ghost" disabled={saving} onClick={onDone}>
@@ -162,28 +156,5 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
         </Button>
       </div>
     </form>
-  )
-}
-
-interface FieldProps {
-  label: string
-  htmlFor: string
-  hint?: string
-  children: ReactNode
-}
-
-function Field({ label, htmlFor, hint, children }: FieldProps) {
-  return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={htmlFor} className="font-medium text-[12px]">
-        {label}
-      </label>
-      {children}
-      {hint && (
-        <p id={`${htmlFor}-hint`} className="text-[11.5px] text-subtle">
-          {hint}
-        </p>
-      )}
-    </div>
   )
 }

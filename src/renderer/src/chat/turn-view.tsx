@@ -1,16 +1,15 @@
 import {
   Brain,
   Check,
-  ChevronRight,
   Circle,
   CircleDot,
   CircleSlash,
-  Crosshair,
   Eye,
   FilePen,
   FileText,
   Globe,
   Info,
+  MousePointer2,
   Redo2,
   Search,
   SquareTerminal,
@@ -23,8 +22,12 @@ import { useEffect, useState } from 'react'
 import type { ElementContext, PermissionChoice, Turn, TurnItem } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Disclosure, TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
-import { Button, Spinner, TechnicalDetails } from '../lib/ui'
+import { PathText } from '../lib/path-text'
+import { Badge } from '../lib/status'
+import { Card, GroupLabel, Thumbnail } from '../lib/surface'
+import { Button, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
 
 type ToolItem = Extract<TurnItem, { kind: 'tool' }>
@@ -77,7 +80,7 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
             {turn.errorDetail && <TechnicalDetails text={turn.errorDetail} className="pl-5" />}
           </div>
         )}
-        {turn.status === 'cancelled' && <p className="text-[12px] text-subtle">Stopped</p>}
+        {turn.status === 'cancelled' && <p className="text-small text-subtle">Stopped</p>}
       </div>
       {turn.status !== 'running' && <TurnFooter turn={turn} showRedo={showRedo} />}
     </article>
@@ -89,22 +92,17 @@ function UserMessage({ turn }: { turn: Turn }) {
     <div className="flex flex-col items-end gap-1">
       {turn.context && <ElementChip element={turn.context} />}
       {turn.attachments && turn.attachments.length > 0 && (
-        <ul aria-label="Attached images" className="flex max-w-[88%] flex-wrap justify-end gap-1">
+        <ul aria-label="Attached images" className="flex max-w-7/8 flex-wrap justify-end gap-1">
           {turn.attachments.map((image, i) => (
             // Thumbnails have no id and names repeat (every paste is "image.png").
             // biome-ignore lint/suspicious/noArrayIndexKey: the list never reorders
             <li key={i}>
-              <img
-                src={image.thumbnail}
-                alt={image.name}
-                title={image.name}
-                className="size-14 rounded-md border border-line bg-canvas object-cover"
-              />
+              <Thumbnail src={image.thumbnail} alt={image.name} title={image.name} />
             </li>
           ))}
         </ul>
       )}
-      <p className="max-w-[88%] whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-2.5 py-1.5 text-fg">
+      <p className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-2.5 py-1.5 text-fg">
         {turn.prompt}
       </p>
     </div>
@@ -128,20 +126,16 @@ export function elementLabel(element: ElementContext) {
 function ElementChip({ element }: { element: ElementContext }) {
   const { name, where } = elementLabel(element)
   return (
-    <span
+    <Badge
+      icon={MousePointer2}
       title={element.source?.file ?? element.selector}
-      className="inline-flex max-w-[88%] items-center gap-1.5 rounded-md border border-line px-1.5 py-0.5 text-[11px] text-muted"
+      className="max-w-7/8"
     >
-      <Crosshair className="size-3 shrink-0" aria-hidden="true" />
       <span className="min-w-0 truncate text-fg">{name}</span>
-      {where && (
-        <span className="min-w-0 truncate font-mono text-[10.5px] text-subtle">{where}</span>
-      )}
-    </span>
+      {where && <span className="min-w-0 truncate font-mono font-normal">{where}</span>}
+    </Badge>
   )
 }
-
-/** A quiet disclosure for technical text (exit codes, stderr) behind a plain-language message. */
 
 /** `live` is false once the turn has ended, including turns cut off by a quit. */
 function BlockView({
@@ -162,40 +156,47 @@ function BlockView({
       return <StepGroup steps={block.steps} live={live} last={last} />
     case 'plan':
       return (
-        <ul className="flex flex-col gap-1 rounded-lg border border-line px-2.5 py-2">
-          {withKeys(block.entries).map(({ key, entry }) => (
-            <li key={key} className="flex items-start gap-2 text-[12px]">
-              {entry.status === 'completed' ? (
-                <Check className="mt-0.5 size-3 shrink-0 text-success" aria-hidden="true" />
-              ) : entry.status === 'in_progress' ? (
-                <CircleDot className="mt-0.5 size-3 shrink-0 text-accent" aria-hidden="true" />
-              ) : (
-                <Circle className="mt-0.5 size-3 shrink-0 text-subtle" aria-hidden="true" />
-              )}
-              <span className={cn(entry.status === 'completed' && 'text-muted line-through')}>
-                {entry.content}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <Card tone="inset" className="px-2.5 py-2">
+          <ul className="flex flex-col gap-1">
+            {withKeys(block.entries).map(({ key, entry }) => (
+              <li key={key} className="flex items-start gap-2 text-small">
+                {entry.status === 'completed' ? (
+                  <Check className="mt-0.5 size-3 shrink-0 text-success" aria-hidden="true" />
+                ) : entry.status === 'in_progress' ? (
+                  <CircleDot
+                    className="mt-0.5 size-3 shrink-0 text-accent-text"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <Circle className="mt-0.5 size-3 shrink-0 text-subtle" aria-hidden="true" />
+                )}
+                <span className={cn(entry.status === 'completed' && 'text-muted line-through')}>
+                  {entry.content}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )
     case 'permission':
       return <Permission item={block} turnId={turnId} live={live} />
-    case 'notice':
+    case 'notice': {
+      const Icon = block.tone === 'error' ? TriangleAlert : Info
       return (
         <div className="flex flex-col gap-1">
           <p
             className={cn(
-              'flex gap-1.5 text-[12px]',
+              'flex gap-1.5 text-small',
               block.tone === 'error' ? 'text-danger' : 'text-muted',
             )}
           >
-            <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+            <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
             {block.text}
           </p>
           {block.detail && <TechnicalDetails text={block.detail} className="pl-5" />}
         </div>
       )
+    }
   }
 }
 
@@ -210,17 +211,14 @@ function withKeys<T extends { content: string }>(entries: T[]) {
 }
 
 function Thought({ text }: { text: string }) {
+  const [open, setOpen] = useState(false)
   return (
-    <details className="group text-[12px] text-subtle">
-      <summary className="flex cursor-default list-none items-center gap-1 hover:text-muted">
-        <ChevronRight
-          className="size-3 transition-transform group-open:rotate-90"
-          aria-hidden="true"
-        />
+    <div className="flex flex-col items-start gap-1">
+      <Disclosure open={open} onOpenChange={setOpen}>
         Thinking
-      </summary>
-      <p className="mt-1 whitespace-pre-wrap pl-4">{text}</p>
-    </details>
+      </Disclosure>
+      {open && <p className="whitespace-pre-wrap pl-4 text-small text-muted">{text}</p>}
+    </div>
   )
 }
 
@@ -247,7 +245,7 @@ function ToolStatusIcon({ tool, live }: { tool: ToolItem; live: boolean }) {
   if (tool.status === 'failed') {
     return <X className="size-3 shrink-0 text-danger" aria-label="Failed" />
   }
-  if (live) return <Spinner className="size-2.5 shrink-0 text-subtle" />
+  if (live) return <Spinner className="text-subtle" />
   return <CircleSlash className="size-3 shrink-0 text-subtle" aria-label="Stopped" />
 }
 
@@ -279,26 +277,19 @@ function StepGroup({ steps, live, last }: { steps: Step[]; live: boolean; last: 
     const Icon = TOOL_ICONS[latest.toolKind] ?? Wrench
     return (
       <div className="flex flex-col gap-1.5">
-        <div className="flex min-w-0 items-center gap-2 text-[12px]">
+        <div className="flex min-w-0 items-center gap-2 text-small">
           <Icon className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
           <span className="min-w-0 truncate text-muted" title={latest.locations.join('\n')}>
             {latest.title}
           </span>
           <ToolStatusIcon tool={latest} live={live} />
           {tools.length > 1 && (
-            <button
-              type="button"
-              aria-expanded={open}
-              onClick={() => setOpen(!open)}
-              className="ml-auto flex shrink-0 items-center gap-1 rounded px-1 py-0.5 text-[11px] text-subtle hover:bg-hover hover:text-muted"
-            >
-              <ChevronRight
-                className={cn('size-3 transition-transform', open && 'rotate-90')}
-                aria-hidden="true"
-              />
-              {plural(tools.length, 'step')}
-              {failedNote}
-            </button>
+            <span className="ml-auto shrink-0">
+              <Disclosure open={open} onOpenChange={setOpen}>
+                {plural(tools.length, 'step')}
+                {failedNote}
+              </Disclosure>
+            </span>
           )}
         </div>
         {list}
@@ -307,20 +298,11 @@ function StepGroup({ steps, live, last }: { steps: Step[]; live: boolean; last: 
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen(!open)}
-        className="flex items-center gap-1 self-start rounded text-[12px] text-subtle hover:text-muted"
-      >
-        <ChevronRight
-          className={cn('size-3 transition-transform', open && 'rotate-90')}
-          aria-hidden="true"
-        />
+    <div className="flex flex-col items-start gap-1.5">
+      <Disclosure open={open} onOpenChange={setOpen}>
         Used {plural(tools.length, 'step')}
         {failedNote}
-      </button>
+      </Disclosure>
       {list}
     </div>
   )
@@ -328,27 +310,29 @@ function StepGroup({ steps, live, last }: { steps: Step[]; live: boolean; last: 
 
 function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
   return (
-    <ul className="flex flex-col rounded-lg border border-line py-1">
-      {steps.map((tool) => {
-        if (tool.kind === 'thought') {
+    <Card tone="inset" className="w-full py-1">
+      <ul className="flex flex-col">
+        {steps.map((tool) => {
+          if (tool.kind === 'thought') {
+            return (
+              <li key={tool.id} className="px-2.5 py-0.5">
+                <Thought text={tool.text} />
+              </li>
+            )
+          }
+          const Icon = TOOL_ICONS[tool.toolKind] ?? Wrench
           return (
-            <li key={tool.id} className="px-2.5 py-1">
-              <Thought text={tool.text} />
+            <li key={tool.id} className="flex min-w-0 items-center gap-2 px-2.5 py-1 text-small">
+              <Icon className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+              <span className="min-w-0 flex-1 truncate" title={tool.locations.join('\n')}>
+                {tool.title}
+              </span>
+              <ToolStatusIcon tool={tool} live={live} />
             </li>
           )
-        }
-        const Icon = TOOL_ICONS[tool.toolKind] ?? Wrench
-        return (
-          <li key={tool.id} className="flex min-w-0 items-center gap-2 px-2.5 py-1 text-[12px]">
-            <Icon className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate" title={tool.locations.join('\n')}>
-              {tool.title}
-            </span>
-            <ToolStatusIcon tool={tool} live={live} />
-          </li>
-        )
-      })}
-    </ul>
+        })}
+      </ul>
+    </Card>
   )
 }
 
@@ -357,6 +341,14 @@ const OPTION_LABELS: Record<string, string> = {
   allow_always: 'Always allow',
   reject_once: "Don't allow",
   reject_always: 'Never allow',
+}
+
+/** What was decided, once it was: an outcome rather than the button's wording. */
+const OUTCOME_LABELS: Record<string, string> = {
+  allow_once: 'Allowed',
+  allow_always: 'Always allowed',
+  reject_once: 'Not allowed',
+  reject_always: 'Never allowed',
 }
 
 function optionLabel(option: PermissionChoice) {
@@ -389,6 +381,31 @@ function permissionSummary(toolKind: string, locations: string[]) {
   }
 }
 
+/** The answer to a permission request, or why there wasn't one. */
+function PermissionOutcome({ item }: { item: PermissionItem }) {
+  const chosen = item.options.find((option) => option.optionId === item.resolved)
+  if (!chosen) {
+    // An unanswered request in an ended turn has no agent waiting on it anymore.
+    return (
+      <p className="flex items-center gap-1 text-small text-muted">
+        <CircleSlash className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+        {item.resolved === null ? 'Expired' : 'Cancelled'}
+      </p>
+    )
+  }
+  const allowed = chosen.kind.startsWith('allow')
+  return (
+    <p className="flex items-center gap-1 text-small text-muted">
+      {allowed ? (
+        <Check className="size-3 shrink-0 text-success" aria-hidden="true" />
+      ) : (
+        <X className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+      )}
+      {OUTCOME_LABELS[chosen.kind] ?? chosen.name}
+    </p>
+  )
+}
+
 function Permission({
   item,
   turnId,
@@ -402,27 +419,24 @@ function Permission({
   const toolKind = item.toolKind ?? 'other'
   const locations = item.locations ?? []
   const sensitive = item.sensitive ?? false
-  const chosen = item.options.find((option) => option.optionId === item.resolved)
-  // An unanswered request in an ended turn has no agent waiting on it anymore.
-  const outcome = chosen ? optionLabel(chosen) : item.resolved === null ? 'Expired' : 'Cancelled'
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-line-strong bg-surface px-2.5 py-2">
+    <Card tone="inset" className="flex flex-col gap-2 px-2.5 py-2">
       <div className="flex flex-col gap-1">
-        <p className="text-[12px]">
+        <p className="text-small">
           <span className="text-muted">The agent wants to: </span>
           <span className="font-medium" title={locations.join('\n') || undefined}>
             {permissionSummary(toolKind, locations)}
           </span>
         </p>
         {sensitive && (
-          <p className="flex gap-1.5 text-[12px] text-warning">
-            <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+          <p className="flex gap-1.5 text-small text-warning">
+            <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
             {locations.length > 1
               ? 'These files control how the project builds or runs.'
               : 'This file controls how the project builds or runs.'}
           </p>
         )}
-        <p className="select-text break-words font-mono text-[11px] text-subtle">{item.title}</p>
+        <p className="select-text break-words font-mono text-caption text-subtle">{item.title}</p>
       </div>
       {item.resolved === null && live ? (
         <div className="flex flex-wrap gap-1.5">
@@ -438,9 +452,9 @@ function Permission({
           ))}
         </div>
       ) : (
-        <p className="text-[12px] text-subtle">{outcome}</p>
+        <PermissionOutcome item={item} />
       )}
-    </div>
+    </Card>
   )
 }
 
@@ -452,8 +466,8 @@ function Working({ since }: { since: number }) {
   }, [])
   const seconds = Math.max(0, Math.round((now - since) / 1000))
   return (
-    <p className="flex items-center gap-2 text-[12px] text-subtle">
-      <Spinner className="size-2.5" />
+    <p className="flex items-center gap-2 text-small text-subtle">
+      <Spinner />
       Working <span className="tabular-nums">{seconds}s</span>
     </p>
   )
@@ -479,13 +493,13 @@ function Shot({ label, src }: { label: string; src: string }) {
   const [large, setLarge] = useState(false)
   return (
     <figure className={cn('flex min-w-0 flex-col gap-1', large && 'col-span-2')}>
-      <figcaption className="text-[11px] text-subtle">{label}</figcaption>
+      <GroupLabel as="figcaption">{label}</GroupLabel>
       <button
         type="button"
         aria-expanded={large}
         title={large ? 'Show smaller' : 'Show larger'}
         onClick={() => setLarge(!large)}
-        className="block overflow-hidden rounded-md border border-line bg-canvas hover:border-line-strong"
+        className="block overflow-hidden rounded-lg border border-line bg-canvas transition-colors hover:border-line-strong"
       >
         <img
           src={src}
@@ -528,31 +542,27 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
     <div className="flex flex-col gap-1.5">
       <BeforeAfter turn={turn} />
       {hasRow && (
-        <div className="flex items-center gap-1 text-[11.5px] text-muted">
+        <div className="flex items-center gap-1 text-small text-muted">
           {changes.length > 0 && (
-            <button
-              type="button"
-              aria-expanded={open}
-              onClick={() => setOpen(!open)}
-              className="flex items-center gap-1 rounded px-1 py-0.5 hover:bg-hover hover:text-fg"
-            >
-              <ChevronRight
-                className={cn('size-3 transition-transform', open && 'rotate-90')}
-                aria-hidden="true"
-              />
+            <Disclosure open={open} onOpenChange={setOpen}>
               {changes.length} {changes.length === 1 ? 'file' : 'files'} changed
               <span className="font-mono text-success tabular-nums">+{additions}</span>
               <span className="font-mono text-danger tabular-nums">−{deletions}</span>
-            </button>
+            </Disclosure>
           )}
-          {unrecorded && <span className="px-1 py-0.5 text-subtle">Changes not recorded</span>}
+          {unrecorded && <span className="text-subtle">Changes not recorded</span>}
           <span className="ml-auto flex items-center gap-1">
             {turn.reverted ? (
               <>
                 <span className="text-subtle">Undone</span>
                 {showRedo && (
-                  <Button variant="ghost" disabled={busy} onClick={() => run(() => gui.redo())}>
-                    <Redo2 className="size-3" aria-hidden="true" />
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={Redo2}
+                    disabled={busy}
+                    onClick={() => run(() => gui.redo())}
+                  >
                     Redo
                   </Button>
                 )}
@@ -560,11 +570,12 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
             ) : (
               <Button
                 variant="ghost"
+                size="sm"
+                icon={Undo2}
                 disabled={busy}
                 title="Restore files to how they were before this turn (also undoes later turns)"
                 onClick={() => run(() => gui.restoreTurn(turn.id))}
               >
-                <Undo2 className="size-3" aria-hidden="true" />
                 Undo
               </Button>
             )}
@@ -572,7 +583,7 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
         </div>
       )}
       {open && (
-        <ul className="flex flex-col gap-0.5 pl-5 font-mono text-[11px]">
+        <ul className="flex flex-col gap-0.5 pl-4 font-mono text-caption">
           {changes.map((change) => (
             <li key={change.path} className="flex items-center gap-2">
               <span
@@ -585,16 +596,14 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               >
                 {change.status[0].toUpperCase()}
               </span>
-              <span className="min-w-0 flex-1 truncate" title={change.path}>
-                {change.path}
-              </span>
+              <PathText path={change.path} className="flex-1" />
               <span className="text-success tabular-nums">+{change.additions}</span>
               <span className="text-danger tabular-nums">−{change.deletions}</span>
             </li>
           ))}
         </ul>
       )}
-      {error && <p className="text-[12px] text-danger">{error}</p>}
+      {error && <p className="text-small text-danger">{error}</p>}
     </div>
   )
 }

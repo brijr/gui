@@ -1,6 +1,8 @@
 import { Clock, ImageIcon, X } from 'lucide-react'
 import type { ChatMeta, QueuePauseReason } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { Card } from '../lib/surface'
+import { Button, IconButton } from '../lib/ui'
 
 /** Why the queue is holding back. */
 const PAUSED: Record<QueuePauseReason, string> = {
@@ -26,7 +28,7 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
   if (meta.queue.length === 0) return null
   const paused = meta.queuePaused
   return (
-    <div className="mb-2 rounded-lg border border-line bg-surface">
+    <Card tone="inset">
       <div
         className={
           paused ? 'flex items-center gap-2 border-b border-line py-1 pr-1 pl-2.5' : undefined
@@ -35,29 +37,25 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
         {/* Mounted with the queue rather than the pause, so the pause is announced. */}
         <p
           role="status"
-          className={paused ? 'min-w-0 flex-1 truncate text-[12px] text-muted' : 'sr-only'}
+          className={paused ? 'min-w-0 flex-1 truncate text-small text-muted' : 'sr-only'}
         >
           {paused ? PAUSED[meta.queuePauseReason ?? 'stopped'] : ''}
         </p>
         {paused && (
-          <button
-            type="button"
-            onClick={() => gui.sendQueuedNow()}
-            className="h-6 shrink-0 rounded-md border border-line-strong bg-raised px-2 text-[12px] font-medium hover:bg-hover"
-          >
+          <Button size="sm" className="shrink-0" onClick={() => gui.sendQueuedNow()}>
             Send next
-          </button>
+          </Button>
         )}
       </div>
       <ul aria-label="Queued messages" className="max-h-28 overflow-y-auto py-1">
         {meta.queue.map((item) => (
-          <li key={item.id} className="flex h-6 items-center gap-2 pr-1 pl-2.5">
+          <li key={item.id} className="flex h-7 items-center gap-2 pr-0.5 pl-2.5">
             <Clock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-            <p className="min-w-0 flex-1 truncate text-[12px]" title={item.prompt}>
+            <p className="min-w-0 flex-1 truncate text-small" title={item.prompt}>
               {item.prompt}
             </p>
             {item.attachments.length > 0 && (
-              <span className="flex shrink-0 items-center gap-0.5 text-[11px] text-subtle tabular-nums">
+              <span className="flex shrink-0 items-center gap-0.5 text-caption text-subtle tabular-nums">
                 <ImageIcon className="size-3" aria-hidden="true" />
                 {item.attachments.length}
                 <span className="sr-only">
@@ -65,18 +63,16 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
                 </span>
               </span>
             )}
-            <button
-              type="button"
-              aria-label={`Remove queued message: ${excerpt(item.prompt)}`}
+            <IconButton
+              size="sm"
+              label={`Remove queued message: ${excerpt(item.prompt)}`}
               title="Remove"
+              icon={X}
               onClick={() => gui.removeQueued(item.id)}
-              className="flex size-5 shrink-0 items-center justify-center rounded text-subtle hover:bg-hover hover:text-fg"
-            >
-              <X className="size-3" aria-hidden="true" />
-            </button>
+            />
           </li>
         ))}
       </ul>
-    </div>
+    </Card>
   )
 }
