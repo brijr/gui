@@ -287,14 +287,21 @@ test('the chat panel resizes from its edges and remembers the size', async ({ la
   // Floating: the left edge widens it, the bottom edge lengthens it; the top-right stays put.
   const before = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
   expect(before.chat.width - SHADOW * 2).toBe(400)
+  // Shrink first, so growing has room even when the window is short (CI's display).
+  await resize(session, 60, -160)
+  const small = await layoutWhere(
+    session,
+    'the smaller panel',
+    (chat) => chat.width === before.chat.width - 60,
+  )
+  expect(small.chat.height).toBe(before.chat.height - 160)
   await resize(session, -100, 80)
   const after = await layoutWhere(
     session,
     'the resized panel',
-    (chat) => chat.width !== before.chat.width,
+    (chat) => chat.width === small.chat.width + 100,
   )
-  expect(after.chat.width).toBe(before.chat.width + 100)
-  expect(after.chat.height).toBe(before.chat.height + 80)
+  expect(after.chat.height).toBe(small.chat.height + 80)
   expect(after.chat.x + after.chat.width).toBe(before.chat.x + before.chat.width)
   expect(after.chat.y).toBe(before.chat.y)
   expectInside(after.chat, after.content)
