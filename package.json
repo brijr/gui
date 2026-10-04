@@ -3,6 +3,7 @@
   "productName": "Gui",
   "version": "0.1.0",
   "description": "Design real interfaces with your own AI agents",
+  "author": "Bridger Tower <bridgertower@gmail.com>",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
