@@ -156,6 +156,24 @@ export interface Rect {
   height: number
 }
 
+/** The floating chat panel's edges and corners, which resize it; docked, only `left` does */
+export const PANEL_EDGES = [
+  'top',
+  'right',
+  'bottom',
+  'left',
+  'top-left',
+  'top-right',
+  'bottom-left',
+  'bottom-right',
+] as const
+
+export type PanelEdge = (typeof PANEL_EDGES)[number]
+
+export function isPanelEdge(value: unknown): value is PanelEdge {
+  return PANEL_EDGES.some((edge) => edge === value)
+}
+
 export interface SourceLocation {
   /** POSIX path relative to the project root */
   file: string

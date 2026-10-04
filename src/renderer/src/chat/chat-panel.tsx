@@ -10,7 +10,7 @@ import {
   SquarePen,
 } from 'lucide-react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useId, useRef } from 'react'
-import type { ChatMeta, Turn } from '../../../shared/types'
+import { type ChatMeta, PANEL_EDGES, type PanelEdge, type Turn } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, IconButton, Spinner } from '../lib/ui'
@@ -74,10 +74,10 @@ export function ChatPanel() {
               </>
             )}
           </div>
-          {/* The panel is anchored by its top-right corner; the other edges resize it. */}
-          <ResizeHandle edge="left" />
-          <ResizeHandle edge="bottom" />
-          <ResizeHandle edge="corner" />
+          {/* Every edge and corner resizes the panel; the opposite ones stay put. */}
+          {PANEL_EDGES.map((edge) => (
+            <ResizeHandle key={edge} edge={edge} />
+          ))}
         </div>
       )}
     </div>
@@ -132,31 +132,43 @@ function onDragStart(event: ReactPointerEvent<HTMLElement>) {
   )
 }
 
-type Edge = 'left' | 'bottom' | 'corner'
-
 /**
- * Hit areas straddling the floating panel's edges (its view has a transparent margin
- * for the shadow), with a hairline over the border on hover.
+ * Hit areas straddling the floating panel's edges and corners (its view has a transparent
+ * margin for the shadow), with a hairline over the border on hover. The edges stop short of
+ * the corners, whose hairline traces the border's rounded part. The top edge reaches less
+ * into the panel, whose header drags it.
  */
-const EDGE_CLASS: Record<Edge, string> = {
-  left: 'inset-y-3 -left-[3px] w-1.5 cursor-ew-resize after:inset-y-0 after:left-[3px] after:w-px',
+const EDGE_CLASS: Record<PanelEdge, string> = {
+  top: 'inset-x-2 -top-1 h-1.5 cursor-ns-resize after:inset-x-1 after:top-1 after:h-px',
+  right:
+    'inset-y-2 -right-[3px] w-1.5 cursor-ew-resize after:inset-y-1 after:right-[3px] after:w-px',
   bottom:
-    'inset-x-3 -bottom-[3px] h-1.5 cursor-ns-resize after:inset-x-0 after:bottom-[3px] after:h-px',
-  corner: '-bottom-1 -left-1 size-4 cursor-nesw-resize',
+    'inset-x-2 -bottom-[3px] h-1.5 cursor-ns-resize after:inset-x-1 after:bottom-[3px] after:h-px',
+  left: 'inset-y-2 -left-[3px] w-1.5 cursor-ew-resize after:inset-y-1 after:left-[3px] after:w-px',
+  'top-left':
+    '-top-1.5 -left-1.5 cursor-nwse-resize after:top-1.5 after:left-1.5 after:rounded-tl-xl after:border-t after:border-l',
+  'top-right':
+    '-top-1.5 -right-1.5 cursor-nesw-resize after:top-1.5 after:right-1.5 after:rounded-tr-xl after:border-t after:border-r',
+  'bottom-left':
+    '-bottom-1.5 -left-1.5 cursor-nesw-resize after:bottom-1.5 after:left-1.5 after:rounded-bl-xl after:border-b after:border-l',
+  'bottom-right':
+    '-right-1.5 -bottom-1.5 cursor-nwse-resize after:right-1.5 after:bottom-1.5 after:rounded-br-xl after:border-r after:border-b',
 }
+/** A corner's hit area, and its hairline the size of the border's rounded part. */
+const CORNER_CLASS = 'size-3.5 after:size-3 after:border-accent'
 /** The docked panel's left edge is its view's, so the hit area stays inside. */
 const DOCKED_CLASS =
   'inset-y-0 left-0 w-1.5 cursor-ew-resize after:inset-y-0 after:left-0 after:w-px'
 
 /** An invisible handle that resizes the panel; main keeps the panel inside the window. */
-function ResizeHandle({ edge, docked = false }: { edge: Edge; docked?: boolean }) {
+function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: boolean }) {
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
     // No text selection or focus change while dragging.
     event.preventDefault()
     trackDrag(
       event,
-      (dx, dy) => gui.resizeChat(edge === 'bottom' ? 0 : dx, edge === 'left' ? 0 : dy),
+      (dx, dy) => gui.resizeChat(edge, dx, dy),
       () => gui.endResizeChat(),
     )
   }
@@ -165,8 +177,9 @@ function ResizeHandle({ edge, docked = false }: { edge: Edge; docked?: boolean }
       aria-hidden="true"
       onPointerDown={onPointerDown}
       className={cn(
-        'absolute z-10 after:absolute after:bg-accent after:opacity-0 after:transition-opacity hover:after:opacity-70',
+        'absolute z-10 after:absolute after:opacity-0 after:transition-opacity hover:after:opacity-70',
         docked ? DOCKED_CLASS : EDGE_CLASS[edge],
+        edge.includes('-') ? CORNER_CLASS : 'after:bg-accent',
       )}
     />
   )

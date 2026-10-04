@@ -19,6 +19,7 @@ import {
   type CustomAgentEntry,
   type ImageAttachment,
   isAgentId,
+  isPanelEdge,
   type Rect,
   type SettingsSection,
   type ShipRequest,
@@ -428,7 +429,9 @@ function registerIpc() {
   on(Send.toggleDock, (win) => win.toggleDock())
   on(Send.dragChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.dragChat(dx, dy))
   on(Send.endDragChat, (win) => win.endDragChat())
-  on(Send.resizeChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.resizeChat(dx, dy))
+  on(Send.resizeChat, (win, edge, dx, dy) => {
+    if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) win.resizeChat(edge, dx, dy)
+  })
   on(Send.endResizeChat, (win) => win.endResizeChat())
   on(Send.chooseApp, (win, dir) => isString(dir) && win.chooseApp(dir))
   on(Send.installDependencies, (win) => win.installDependencies())

@@ -4,6 +4,7 @@ import type {
   ChatSnapshot,
   CustomAgentEntry,
   ImageAttachment,
+  PanelEdge,
   Rect,
   SettingsSection,
   SettingsState,
@@ -191,8 +192,11 @@ export interface GuiApi {
    * preview; resolves with what was done, or null when dismissed or nothing is loaded.
    */
   takeScreenshot(): Promise<'copied' | 'saved' | 'attached' | null>
-  /** Resizes the chat panel by a pointer delta: dx moves its left edge, dy its bottom edge */
-  resizeChat(dx: number, dy: number): void
+  /**
+   * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged
+   * edges move and the opposite ones stay put. Docked, only its left edge resizes it.
+   */
+  resizeChat(edge: PanelEdge, dx: number, dy: number): void
   endResizeChat(): void
   /** An image main wants added to the composer (e.g. a screenshot of the preview) */
   onChatAttach(cb: (image: ImageAttachment) => void): Unsubscribe

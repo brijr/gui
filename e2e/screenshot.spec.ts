@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
-import type { ImageAttachment } from '../src/shared/types'
+import type { ImageAttachment, PanelEdge } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
@@ -11,6 +11,8 @@ type ElectronModule = typeof import('electron/main')
 
 /** Transparent margin around the floating chat panel (SHADOW in window.ts). */
 const SHADOW = 18
+/** The toolbar the floating panel stays below (TOOLBAR_HEIGHT in window.ts). */
+const TOOLBAR_HEIGHT = 44
 const PNG_SIGNATURE = '89504e470d0a1a0a'
 
 interface Size {
@@ -262,78 +264,157 @@ function savedPrefs(session: GuiSession) {
   }
 }
 
-function resize(session: GuiSession, dx: number, dy: number) {
+function resize(session: GuiSession, edge: PanelEdge, dx: number, dy: number) {
   return session.chat.evaluate(
-    ({ dx, dy }) => {
-      window.gui.resizeChat(dx, dy)
+    ({ edge, dx, dy }) => {
+      window.gui.resizeChat(edge, dx, dy)
       window.gui.endResizeChat()
     },
-    { dx, dy },
+    { edge, dx, dy },
   )
 }
 
-/** The visible panel (the view minus its shadow margin) lies inside the window. */
+const sameBounds = (a: Bounds, b: Bounds) =>
+  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+
+/**
+ * Resizes the floating panel from `edge` and waits for it to follow: the dragged edges move
+ * by the pointer's delta and the others stay where they were.
+ */
+async function resizeFrom(
+  session: GuiSession,
+  before: Bounds,
+  edge: PanelEdge,
+  dx: number,
+  dy: number,
+) {
+  const left = edge.includes('left') ? dx : 0
+  const right = edge.includes('right') ? dx : 0
+  const top = edge.startsWith('top') ? dy : 0
+  const bottom = edge.startsWith('bottom') ? dy : 0
+  await resize(session, edge, dx, dy)
+  const after = await layoutWhere(
+    session,
+    `the panel resized from its ${edge}`,
+    (chat) => !sameBounds(chat, before),
+  )
+  expect(after.chat, `resized from its ${edge} by ${dx}, ${dy}`).toEqual({
+    x: before.x + left,
+    y: before.y + top,
+    width: before.width - left + right,
+    height: before.height - top + bottom,
+  })
+  return after.chat
+}
+
+/** The visible panel (the view minus its shadow margin) lies in the window, below the toolbar. */
 function expectInside(chat: Bounds, content: Size) {
   expect(chat.x + SHADOW).toBeGreaterThanOrEqual(0)
-  expect(chat.y + SHADOW).toBeGreaterThanOrEqual(0)
+  expect(chat.y + SHADOW).toBeGreaterThanOrEqual(TOOLBAR_HEIGHT)
   expect(chat.x + chat.width - SHADOW).toBeLessThanOrEqual(content.width)
   expect(chat.y + chat.height - SHADOW).toBeLessThanOrEqual(content.height)
 }
 
-test('the chat panel resizes from its edges and remembers the size', async ({ launch }) => {
+const right = (chat: Bounds) => chat.x + chat.width
+const bottom = (chat: Bounds) => chat.y + chat.height
+
+test('the chat panel resizes from its edges and corners and remembers the size', async ({
+  launch,
+}) => {
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
 
-  // Floating: the left edge widens it, the bottom edge lengthens it; the top-right stays put.
-  const before = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
-  expect(before.chat.width - SHADOW * 2).toBe(400)
-  // Shrink first, so growing has room even when the window is short (CI's display).
-  await resize(session, 60, -160)
-  const small = await layoutWhere(
-    session,
-    'the smaller panel',
-    (chat) => chat.width === before.chat.width - 60,
+  const first = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
+  expect(first.chat.width - SHADOW * 2).toBe(400)
+  // Smaller first, so growing has room even when the window is short (CI's display).
+  const small = await resizeFrom(session, first.chat, 'bottom-left', 60, -240)
+
+  // In the middle of the window, so every edge has room to move either way.
+  const { content } = first
+  const middle = {
+    x: Math.round((content.width - small.width) / 2),
+    y: Math.round((TOOLBAR_HEIGHT + content.height - small.height) / 2),
+  }
+  await session.chat.evaluate(
+    ({ dx, dy }) => {
+      window.gui.dragChat(dx, dy)
+      window.gui.endDragChat()
+    },
+    { dx: middle.x - small.x, dy: middle.y - small.y },
   )
-  expect(small.chat.height).toBe(before.chat.height - 160)
-  await resize(session, -100, 80)
-  const after = await layoutWhere(
-    session,
-    'the resized panel',
-    (chat) => chat.width === small.chat.width + 100,
-  )
-  expect(after.chat.height).toBe(small.chat.height + 80)
-  expect(after.chat.x + after.chat.width).toBe(before.chat.x + before.chat.width)
-  expect(after.chat.y).toBe(before.chat.y)
-  expectInside(after.chat, after.content)
-  const panel = { width: after.chat.width - SHADOW * 2, height: after.chat.height - SHADOW * 2 }
+  let panel = (
+    await layoutWhere(
+      session,
+      'the panel in the middle',
+      (chat) => chat.x === middle.x && chat.y === middle.y,
+    )
+  ).chat
+
+  // From every corner and edge, outward and inward: the dragged edges follow the pointer,
+  // the opposite ones stay put.
+  const drags: [PanelEdge, number, number][] = [
+    ['bottom-left', -100, 40],
+    ['top-left', -16, -16],
+    ['top-right', 16, -16],
+    ['bottom-right', 16, 16],
+    ['bottom-left', -16, 16],
+    ['top', 0, -10],
+    ['right', 10, 0],
+    ['bottom', 0, 10],
+    ['left', -10, 0],
+    ['top-right', -24, 24],
+    ['bottom-left', 24, -24],
+  ]
+  for (const [edge, dx, dy] of drags) {
+    panel = await resizeFrom(session, panel, edge, dx, dy)
+  }
+  const size = { width: panel.width - SHADOW * 2, height: panel.height - SHADOW * 2 }
   await waitFor(() => {
     const { chatSize } = savedPrefs(session)
-    return chatSize?.width === panel.width && chatSize.height === panel.height
+    return chatSize?.width === size.width && chatSize.height === size.height
   }, 'the floating size in prefs.json')
 
-  // However far the pointer goes, the panel stops at the window's edges.
-  await resize(session, -5000, 5000)
-  const huge = await layoutWhere(
+  // However far the pointer goes, the panel stops at the window's edges and below the
+  // toolbar, and the opposite corner stays put.
+  await resize(session, 'top-left', -5000, -5000)
+  const topLeft = await layoutWhere(
     session,
-    'the panel at its largest',
-    (chat) => chat.width > after.chat.width,
+    'the panel at its largest toward the top-left',
+    (chat) => chat.width > panel.width && chat.height > panel.height,
   )
-  expectInside(huge.chat, huge.content)
-  expect(huge.chat.x + huge.chat.width).toBe(before.chat.x + before.chat.width)
-  expect(huge.chat.y).toBe(before.chat.y)
+  expectInside(topLeft.chat, topLeft.content)
+  expect(right(topLeft.chat)).toBe(right(panel))
+  expect(bottom(topLeft.chat)).toBe(bottom(panel))
+  await resize(session, 'bottom-right', 5000, 5000)
+  const bottomRight = await layoutWhere(
+    session,
+    'the panel at its largest toward the bottom-right',
+    (chat) => chat.width > topLeft.chat.width && chat.height > topLeft.chat.height,
+  )
+  expectInside(bottomRight.chat, bottomRight.content)
+  expect(bottomRight.chat.x).toBe(topLeft.chat.x)
+  expect(bottomRight.chat.y).toBe(topLeft.chat.y)
 
   // Docked: the left edge sets the column's width and the preview gets the rest.
   await session.chat.evaluate(() => window.gui.toggleDock())
   const docked = await layoutWhere(session, 'the docked panel', (chat) => chat.width === 400)
-  await resize(session, -100, 0)
+  await resize(session, 'left', -100, 0)
   const wider = await layoutWhere(session, 'the wider docked panel', (chat) => chat.width === 500)
   expect(wider.chat.x + wider.chat.width).toBe(docked.chat.x + docked.chat.width)
   expect(wider.preview.x + wider.preview.width).toBeLessThanOrEqual(wider.chat.x)
   await waitFor(() => savedPrefs(session).chatDockWidth === 500, 'the docked width in prefs.json')
 
+  // Only the left edge: the others leave the column alone (these arrive in order).
+  await resize(session, 'top-left', -100, -100)
+  await resize(session, 'right', -30, 0)
+  await resize(session, 'left', -50, 0)
+  await layoutWhere(session, 'the docked panel resized only from its left edge', (chat) => {
+    return chat.width === 550
+  })
+
   // At most 60% of the canvas.
-  await resize(session, -5000, 0)
-  const widest = await layoutWhere(session, 'the widest docked panel', (chat) => chat.width > 500)
+  await resize(session, 'left', -5000, 0)
+  const widest = await layoutWhere(session, 'the widest docked panel', (chat) => chat.width > 550)
   expect(widest.chat.width).toBeLessThanOrEqual(Math.ceil(widest.content.width * 0.6))
   expect(widest.preview.width).toBeGreaterThan(0)
 })

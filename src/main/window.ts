@@ -25,6 +25,7 @@ import {
   type ChatSnapshot,
   type DevServerState,
   type ImageAttachment,
+  type PanelEdge,
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
@@ -1016,30 +1017,46 @@ export class ProjectWindow {
   }
 
   /**
-   * Chat panel resizing: `dx` moves the left edge (floating or docked), `dy` the floating
-   * panel's bottom edge. The floating panel keeps its right and top edges where they are.
+   * Chat panel resizing by a pointer delta from one of its edges or corners: the dragged edges
+   * follow the pointer and the opposite ones stay where they are. Docked, only the left edge
+   * resizes it.
    */
-  resizeChat(dx: number, dy: number) {
+  resizeChat(edge: PanelEdge, dx: number, dy: number) {
     if (!this.state.chatVisible || !this.hasProject) return
-    if (this.chat?.meta.docked ?? getPrefs().chatDocked) {
+    if (this.docked) {
+      if (edge !== 'left') return
       const width = this.dockedWidth() - dx
       this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, this.canvas.width * DOCK_MAX_SHARE))
       this.resizing = 'docked'
     } else {
-      if (this.chat?.meta.minimized) return
+      if (this.chat?.meta.minimized || this.bubbled) return
       const [contentWidth, contentHeight] = this.win.getContentSize()
-      // From the size on screen, which may be less than the remembered one.
-      const { width, height } = this.floatingSize(contentWidth, contentHeight)
       const max = maxFloatingSize(contentWidth, contentHeight)
-      // The panel grows toward the window's left and bottom edges and stops there.
-      const right = contentWidth - this.anchor.fromRight - SHADOW
-      const top = this.anchor.top + SHADOW
-      this.panelSize = {
-        width: Math.round(clamp(width - dx, PANEL_MIN.width, Math.min(max.width, right))),
-        height: Math.round(
-          clamp(height + dy, PANEL_MIN.height, Math.min(max.height, contentHeight - top)),
-        ),
+      // From the panel on screen, which may be smaller than the remembered size.
+      const view = this.floatingBounds(contentWidth, contentHeight, false)
+      let left = view.x + SHADOW
+      let top = view.y + SHADOW
+      let right = view.x + view.width - SHADOW
+      let bottom = view.y + view.height - SHADOW
+      // In whole pixels, each dragged edge stopping at the panel's smallest and largest size,
+      // at the window's edges and below the toolbar.
+      const [moveX, moveY] = [Math.round(dx), Math.round(dy)]
+      if (edge.includes('left')) {
+        const leftmost = Math.max(0, right - max.width)
+        left = clamp(left + moveX, leftmost, right - PANEL_MIN.width)
+      } else if (edge.includes('right')) {
+        const rightmost = Math.min(contentWidth, left + max.width)
+        right = clamp(right + moveX, left + PANEL_MIN.width, rightmost)
       }
+      if (edge.startsWith('top')) {
+        const highest = Math.max(TOOLBAR_HEIGHT, bottom - max.height)
+        top = clamp(top + moveY, highest, bottom - PANEL_MIN.height)
+      } else if (edge.startsWith('bottom')) {
+        const lowest = Math.min(contentHeight, top + max.height)
+        bottom = clamp(bottom + moveY, top + PANEL_MIN.height, lowest)
+      }
+      this.panelSize = { width: right - left, height: bottom - top }
+      this.anchor = { fromRight: contentWidth - right - SHADOW, top: top - SHADOW }
       this.resizing = 'floating'
     }
     this.layout()

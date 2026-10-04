@@ -320,7 +320,7 @@ test('the model picker searches the models, sets the model and effort, and new s
   // At the panel's smallest it still fits inside the panel and scrolls its list.
   const panel = chat.locator('[data-chat-panel]')
   await chat.evaluate(() => {
-    window.gui.resizeChat(10_000, -10_000)
+    window.gui.resizeChat('bottom-left', 10_000, -10_000)
     window.gui.endResizeChat()
   })
   await waitFor(async () => {
