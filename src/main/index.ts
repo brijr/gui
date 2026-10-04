@@ -697,9 +697,10 @@ function buildMenu() {
           click: withWindow((w) => void w.toggleSelect()),
         },
         {
+          // Shows the chat and its message box; from the message box, hides it (Cursor's ⌘L).
           label: 'Toggle Chat',
-          accelerator: 'CmdOrCtrl+J',
-          click: withWindow((w) => w.toggleChat()),
+          accelerator: 'CmdOrCtrl+L',
+          click: withWindow((w) => void w.toggleChatFocus()),
         },
         {
           label: 'Dock Chat',

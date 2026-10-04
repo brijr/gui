@@ -10,7 +10,7 @@ import { expect, test } from './helpers/test'
 
 // The window's chrome around the preview: the toolbar (the project menu, then for a project
 // its navigation, the address led by the dev server's status, viewport, screenshot, Select
-// and chat), the canvas's states, and the logs drawer.
+// and chat), the canvas's states, the logs drawer, and the chat's ⌘L.
 
 /** What Playwright passes to `app.evaluate` callbacks. */
 type ElectronModule = typeof import('electron/main')
@@ -117,7 +117,7 @@ test('the start tab shows only the project menu; a project fills the toolbar, wi
   await expect(address(session)).toHaveValue(state.preview.url ?? '')
   const bar = toolbar(session)
   await expect(bar.getByRole('button', { name: 'gui-e2e-vite' })).toBeVisible()
-  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Toggle chat (⌘J)']) {
+  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Toggle chat (⌘L)']) {
     await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
   }
   await expect(bar.getByRole('group', { name: 'Viewport' })).toBeVisible()
@@ -233,4 +233,70 @@ test('a preview that fails to load says why, and Try again loads it once it can'
   } finally {
     server.close()
   }
+})
+
+test('⌘L shows the chat with the cursor in its message box, and from there hides it', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+
+  // The View menu's toggles: the chat on ⌘L, the logs on ⇧⌘L.
+  const toggles = await session.app.evaluate(({ Menu }) =>
+    Menu.getApplicationMenu()
+      ?.items.find((item) => item.label === 'View')
+      ?.submenu?.items.filter((item) => item.label.startsWith('Toggle'))
+      .map((item) => [item.label, item.accelerator]),
+  )
+  expect(toggles).toEqual([
+    ['Toggle Chat', 'CmdOrCtrl+L'],
+    ['Toggle Logs', 'CmdOrCtrl+Shift+L'],
+  ])
+
+  // Where the keyboard is depends on Gui being the active app, as it is when the user presses
+  // ⌘L; a script's Gui may be behind another app.
+  await session.app.evaluate(({ app, BrowserWindow }) => {
+    app.focus({ steal: true })
+    BrowserWindow.getAllWindows()[0]?.focus()
+  })
+  await waitFor(
+    () =>
+      session.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isFocused()),
+    'the window to be focused',
+  )
+
+  const visible = async () => (await session.state()).chatVisible
+  /** The chat panel has the keyboard, and in it the message box. */
+  const inMessageBox = async () => {
+    const focused = await session.app.evaluate(({ webContents }) =>
+      webContents
+        .getAllWebContents()
+        .some((wc) => wc.getURL().endsWith('/chat.html') && wc.isFocused()),
+    )
+    const composer = await session.chat.evaluate(
+      () => document.activeElement?.hasAttribute('data-composer') === true,
+    )
+    return focused && composer
+  }
+
+  // Hidden (with the toolbar's button): ⌘L shows it, with the cursor in the message box.
+  await toolbar(session).getByRole('button', { name: 'Toggle chat (⌘L)' }).click()
+  await waitFor(async () => !(await visible()), 'the chat to hide')
+  await clickMenu(session, 'Toggle Chat')
+  await waitFor(visible, 'the chat to show')
+  await waitFor(inMessageBox, 'the cursor in the message box')
+
+  // Shown, with the keyboard elsewhere: ⌘L brings it back to the message box.
+  await session.app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0]?.webContents.focus(),
+  )
+  await address(session).focus()
+  expect(await inMessageBox()).toBe(false)
+  await clickMenu(session, 'Toggle Chat')
+  await waitFor(inMessageBox, 'the cursor back in the message box')
+  expect(await visible()).toBe(true)
+
+  // From the message box, ⌘L hides the chat.
+  await clickMenu(session, 'Toggle Chat')
+  await waitFor(async () => !(await visible()), 'the chat to hide from the message box')
 })

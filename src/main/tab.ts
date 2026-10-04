@@ -91,6 +91,8 @@ const ATTACH_THUMBNAIL_EDGE = 160
 const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
+/** The chat's message box has the keyboard (run in the chat view's isolated world). */
+const COMPOSER_FOCUSED = `document.activeElement?.hasAttribute('data-composer') === true`
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
@@ -1096,6 +1098,33 @@ export class ProjectTab {
     this.layout()
     // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
     if (this.state.chatVisible && !this.bubbled) this.focusChat()
+  }
+
+  /**
+   * ⌘L: shows the chat and puts the cursor in its message box; from the message box, hides
+   * it again. While the user picks an element, showing it brings back the bubble instead.
+   */
+  async toggleChatFocus() {
+    if (!this.hasProject) return
+    if (!this.state.chatVisible) return this.toggleChat()
+    if (!(await this.composerFocused())) return this.focusChat()
+    if (this.disposed || !this.state.chatVisible) return
+    this.patch({ chatVisible: false })
+    this.layout()
+    // Typing goes to the chrome, not to the panel that just left.
+    if (this.host.win.isFocused()) this.host.win.webContents.focus()
+  }
+
+  private async composerFocused() {
+    const wc = this.chatView.webContents
+    if (!this.host.isActive(this) || wc.isDestroyed() || !wc.isFocused()) return false
+    try {
+      return (
+        (await wc.executeJavaScriptInIsolatedWorld(1001, [{ code: COMPOSER_FOCUSED }])) === true
+      )
+    } catch {
+      return false
+    }
   }
 
   setMinimized(minimized: boolean) {

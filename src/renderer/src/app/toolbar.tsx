@@ -112,7 +112,7 @@ export function Toolbar({ state }: { state: WindowState }) {
           </div>
 
           <IconButton
-            label="Toggle chat (⌘J)"
+            label="Toggle chat (⌘L)"
             icon={MessageSquare}
             pressed={state.chatVisible}
             onClick={() => gui.toggleChat()}

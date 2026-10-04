@@ -116,7 +116,7 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   await expect(showChat(session.chat)).toHaveAccessibleDescription('Stops selecting.')
   await shot(session, 'bubble-idle')
 
-  // ⌘J hides the bubble and brings it back without ending the pick.
+  // The toolbar's chat button hides the bubble and brings it back without ending the pick.
   await session.chrome.evaluate(() => window.gui.toggleChat())
   await waitFor(async () => !(await session.app.evaluate(views))?.chatVisible, 'a hidden chat')
   await session.chrome.evaluate(() => window.gui.toggleChat())

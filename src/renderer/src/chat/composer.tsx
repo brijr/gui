@@ -207,6 +207,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           ref={input}
           // Empty, ⌘Z here undoes the agent's last change instead of typing.
           data-undo-passthrough=""
+          // ⌘L hides the chat from here (main checks for it).
+          data-composer=""
           value={text}
           rows={1}
           onChange={(event) => setDraft(event.target.value)}
