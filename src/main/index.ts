@@ -716,10 +716,45 @@ function closeTab() {
   else if (!win.win.isMinimized()) win.closeTab(win.activeTab.id)
 }
 
+/** The Agent menu's agents: none checked, since the menu acts on whichever tab is active. */
+function agentItems() {
+  return agentMenuItems(
+    agentHealth.list(),
+    agentHealth.customError,
+    null,
+    (id) => focusedWindow()?.activeTab.setAgent(id),
+    () => openSettings('agents'),
+  )
+}
+
+/** All the items show and which agent each picks: JSON drops only their click handlers. */
+const shownAgents = (items: MenuItemConstructorOptions[]) => JSON.stringify(items)
+
+/** `shownAgents` of the agents the current menu was built with */
+let builtAgents = ''
+let agentsQueued = false
+
+/**
+ * Agent health changes at every step of every check, about ten times at launch, but the
+ * menu shows only which agents there are and whether they're installed and signed in. A
+ * burst of changes rebuilds it at most once, before the event loop moves on, and only when
+ * that changed.
+ */
+function onAgentHealth() {
+  if (agentsQueued) return
+  agentsQueued = true
+  queueMicrotask(() => {
+    agentsQueued = false
+    if (shownAgents(agentItems()) !== builtAgents) buildMenu()
+  })
+}
+
 function buildMenu() {
   // Built as `syncMenuItems` would leave them: agent checks rebuild the menu at any moment,
   // and a new menu's defaults (enabled, unchecked) mustn't show, even for an instant.
   const synced = syncedItemStates()
+  const agents = agentItems()
+  builtAgents = shownAgents(agents)
   /** For the active tab of the window menus act on (`menuTab`): the project it shows. */
   const withWindow =
     (fn: (tab: ProjectTab) => void): MenuItemConstructorOptions['click'] =>
@@ -843,13 +878,7 @@ function buildMenu() {
     {
       label: 'Agent',
       submenu: [
-        ...agentMenuItems(
-          agentHealth.list(),
-          agentHealth.customError,
-          null,
-          (id) => focusedWindow()?.activeTab.setAgent(id),
-          () => openSettings('agents'),
-        ),
+        ...agents,
         { type: 'separator' },
         ...item('chooseModel', { click: withWindow((w) => w.chooseModel()) }),
         ...item('newChat', { click: withWindow((w) => w.newChat()) }),
@@ -945,7 +974,7 @@ if (!app.requestSingleInstanceLock()) {
     watchSettings()
     buildMenu()
     // The Agent menu lists what's installed and signed in.
-    agentHealth.on('change', buildMenu)
+    agentHealth.on('change', onAgentHealth)
     // Pick up agents installed (or added to agents.json) while Gui was in the background.
     app.on('browser-window-focus', () => void agentHealth.onAppFocus())
     // Auto Mode and Move Tab follow the window and project the menu acts on.

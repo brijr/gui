@@ -434,6 +434,8 @@ export function agentMenuItems(
   openSettings: () => void,
 ): MenuItemConstructorOptions[] {
   const choice = (agent: AgentHealth): MenuItemConstructorOptions => ({
+    // A custom agent can take a built-in one's name; the id says which agent a choice picks.
+    id: `agent:${agent.id}`,
     label: agent.name,
     sublabel:
       agent.status === 'not-installed'

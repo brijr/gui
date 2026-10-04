@@ -25,6 +25,42 @@ function settingsWhere(page: Page, label: string, check: (settings: SettingsStat
   }, label)
 }
 
+type ElectronModule = typeof import('electron/main')
+
+/** Runs in main: the agents the app's Agent menu offers, by name. */
+function appMenuAgents({ Menu }: ElectronModule) {
+  const agent = Menu.getApplicationMenu()?.items.find((item) => item.label === 'Agent')
+  // Items without one have no id at all, whatever the types say.
+  return (agent?.submenu?.items ?? [])
+    .filter((item) => item.id?.startsWith('agent:'))
+    .map((item) => item.label)
+}
+
+/**
+ * Runs in main: records each menu the app sets, as it shows (labels, states, submenus),
+ * starting with the one it has now.
+ */
+function recordMenus({ Menu }: ElectronModule) {
+  const shown = (menu: Electron.Menu | null): unknown =>
+    menu?.items.map((item) => ({
+      id: item.id,
+      type: item.type,
+      label: item.label,
+      sublabel: item.sublabel,
+      enabled: item.enabled,
+      checked: item.checked,
+      visible: item.visible,
+      submenu: shown(item.submenu ?? null),
+    })) ?? null
+  const store = globalThis as unknown as { guiMenus?: string[] }
+  store.guiMenus = [JSON.stringify(shown(Menu.getApplicationMenu()))]
+  const set = Menu.setApplicationMenu.bind(Menu)
+  Menu.setApplicationMenu = (menu) => {
+    store.guiMenus?.push(JSON.stringify(shown(menu)))
+    set(menu)
+  }
+}
+
 /** Screenshots only on request (GUI_E2E_SHOTS=1), like the session helper's. */
 async function shot(page: Page, name: string) {
   if (process.env.GUI_E2E_SHOTS !== '1') return
@@ -37,6 +73,9 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
   const root = realpathSync(session.fixture.root)
+  // Agent checks change agent health at every step; the app menu is rebuilt only for the
+  // changes it shows, so no rebuild leaves it as it was.
+  await session.app.evaluate(recordMenus)
 
   // Opened at a section from the project window; the page shows that section.
   await session.chrome.evaluate(() => window.gui.openSettings('storage'))
@@ -62,6 +101,8 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   const codexOff = async () =>
     (await windowAgents()).find((a) => a.id === 'codex')?.enabled === false
   await waitFor(codexOff, 'the project window to see Codex off')
+  // The app menu changed with it, before anything else could see the change.
+  expect(await session.app.evaluate(appMenuAgents)).not.toContain('Codex')
   await codex.click()
   await expect(codex).toHaveAttribute('aria-checked', 'true')
 
@@ -80,12 +121,18 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   expect(added.customAgents).toEqual([
     { name: 'Echo', command: '/bin/echo', args: ['--acp'], env: {} },
   ])
+  expect(await session.app.evaluate(appMenuAgents)).toContain('Echo')
   await shot(page, 'agents-with-custom')
   // Removing asks first; the second Remove confirms.
   await page.getByRole('button', { name: 'Remove' }).click()
   await expect(page.getByText('Remove Echo from agents.json?')).toBeVisible()
   await page.getByRole('button', { name: 'Remove' }).click()
-  await settingsWhere(page, 'the custom agent to be removed', (s) => s.customAgents.length === 0)
+  await settingsWhere(
+    page,
+    'the custom agent to be removed',
+    (s) => s.customAgents.length === 0 && !s.agents.some((agent) => agent.id === 'custom:Echo'),
+  )
+  expect(await session.app.evaluate(appMenuAgents)).not.toContain('Echo')
 
   // Chat defaults are what new windows and chats start with.
   await page.getByLabel('Default agent').selectOption('codex')
@@ -104,4 +151,12 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await shot(page, 'projects')
   await page.getByRole('button', { name: `Revoke trust for ${root}` }).click()
   await settingsWhere(page, 'trust to be revoked', (s) => !s.trustedProjects.includes(root))
+
+  const menus = await session.app.evaluate(
+    () => (globalThis as unknown as { guiMenus?: string[] }).guiMenus ?? [],
+  )
+  // Echo's adding and removal rebuilt it at least.
+  expect(menus.length).toBeGreaterThan(2)
+  const unchanged = menus.flatMap((menu, i) => (i > 0 && menu === menus[i - 1] ? [i] : []))
+  expect(unchanged, 'rebuilds that change nothing').toEqual([])
 })
