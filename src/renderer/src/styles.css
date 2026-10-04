@@ -75,9 +75,36 @@
   --radius-xl: 12px;
 
   /* Motion (durations in :root): every transition eases out and defaults to the press
-     duration. Only opacity and transform animate. */
+     duration. Only opacity and transform animate. Anything the user drags or throws moves on
+     a spring in script (src/shared/motion.ts); --ease-spring is that default spring (damping
+     1, response 0.35 s) as a CSS curve, over --motion-spring, for what CSS runs itself.
+     Exits are quicker than entrances and ease in. */
   --ease-*: initial;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-spring: linear(
+    0,
+    0.055,
+    0.173,
+    0.309,
+    0.441,
+    0.558,
+    0.656,
+    0.736,
+    0.8,
+    0.849,
+    0.887,
+    0.916,
+    0.938,
+    0.955,
+    0.967,
+    0.976,
+    0.982,
+    0.987,
+    0.991,
+    0.993,
+    1
+  );
   --default-transition-duration: var(--motion-press);
   --default-transition-timing-function: var(--ease-out);
 
@@ -105,6 +132,12 @@
   --motion-pop: 160ms;
   /* Panels and sheets moving in */
   --motion-panel: 220ms;
+  /* The default spring as a CSS curve (--ease-spring), checked against it by e2e/motion.spec.ts */
+  --motion-spring: 417ms;
+  /* Popovers closing, back along the way they came */
+  --motion-exit: 100ms;
+  /* Reduced motion: the cross-fade that stands in for movement */
+  --motion-fade: 150ms;
 
   /* Behind the preview, and the start screen */
   --canvas: #ececec;
