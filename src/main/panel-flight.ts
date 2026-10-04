@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks'
-import { type BrowserWindow, screen, systemPreferences } from 'electron'
+import { app, type BrowserWindow, screen, systemPreferences } from 'electron'
 import { Spring, type SpringConfig } from '../shared/motion'
 
 /*
@@ -13,8 +13,15 @@ export interface Point {
   y: number
 }
 
-/** The system's Reduce motion setting, read when an animation starts. */
+/**
+ * The system's Reduce motion setting, read when an animation starts. Unpackaged builds take
+ * GUI_E2E_REDUCED_MOTION=1 or 0 over it, so the end-to-end tests don't depend on the machine
+ * they run on (CI's runner has Reduce motion on).
+ */
 export function prefersReducedMotion() {
+  const forced = app.isPackaged ? undefined : process.env.GUI_E2E_REDUCED_MOTION
+  if (forced === '1') return true
+  if (forced === '0') return false
   try {
     return systemPreferences.getAnimationSettings().prefersReducedMotion
   } catch {
@@ -22,11 +29,14 @@ export function prefersReducedMotion() {
   }
 }
 
-/** The refresh rate of the display the window is on; 60 when it doesn't say. */
+/**
+ * The refresh rate of the display the window is on; 60 when it doesn't say, says 0, or says
+ * something no display runs at (a virtual display's report).
+ */
 function refreshRate(win: BrowserWindow) {
   try {
     const hz = screen.getDisplayMatching(win.getBounds()).displayFrequency
-    return hz >= 30 && hz <= 240 ? hz : 60
+    return Number.isFinite(hz) && hz >= 30 && hz <= 240 ? hz : 60
   } catch {
     return 60
   }
