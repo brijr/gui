@@ -178,13 +178,22 @@ test('⌘J opens a terminal at the project root; it takes keys, copy and paste, 
     { key: 'a', handled: false },
   ])
 
-  // Edit → Copy copies what's selected in the terminal; Edit → Paste types into it.
-  const copied = await session.app.evaluate(({ BrowserWindow, clipboard }) => {
-    clipboard.clear()
-    BrowserWindow.getAllWindows()[0]?.webContents.copy()
-    return new Promise<string>((resolve) => setTimeout(() => resolve(clipboard.readText()), 300))
-  })
-  expect(copied).toContain('after-2')
+  // Edit → Copy copies what's selected in the terminal; Edit → Paste types into it. The drawer
+  // can draw the output a moment after main has it, so select and copy until it's there.
+  const copy = () =>
+    session.app.evaluate(({ BrowserWindow, clipboard }) => {
+      clipboard.clear()
+      BrowserWindow.getAllWindows()[0]?.webContents.copy()
+      return new Promise<string>((resolve) => setTimeout(() => resolve(clipboard.readText()), 300))
+    })
+  await waitFor(
+    async () => {
+      await session.chrome.keyboard.press('Meta+a')
+      return (await copy()).includes('after-2')
+    },
+    "the terminal's selection to include the output",
+    { timeout: 10_000 },
+  )
   await session.app.evaluate(({ BrowserWindow, clipboard }) => {
     clipboard.writeText(' echo pasted-$((6*7))')
     BrowserWindow.getAllWindows()[0]?.webContents.paste()
