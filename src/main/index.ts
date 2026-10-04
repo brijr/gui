@@ -20,11 +20,13 @@ import {
   type ImageAttachment,
   isAgentId,
   isPanelEdge,
+  isViewport,
   type Rect,
   type SettingsSection,
   type ShipRequest,
   type StorageKind,
-  type Viewport,
+  VIEWPORTS,
+  viewportKey,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
@@ -116,8 +118,6 @@ if (!app.commandLine.hasSwitch('user-data-dir')) {
     app.setPath('userData', devData)
   }
 }
-
-const VIEWPORTS: readonly Viewport[] = ['desktop', 'tablet', 'mobile']
 
 async function isDirectory(path: string) {
   try {
@@ -456,9 +456,7 @@ function registerIpc() {
   on(Send.back, (tab) => tab.back())
   on(Send.forward, (tab) => tab.forward())
   on(Send.reload, (tab) => tab.reload())
-  on(Send.setViewport, (tab, viewport) => {
-    if (VIEWPORTS.includes(viewport as Viewport)) tab.setViewport(viewport as Viewport)
-  })
+  on(Send.setViewport, (tab, viewport) => isViewport(viewport) && tab.setViewport(viewport))
   on(Send.toggleSelect, (tab) => void tab.toggleSelect())
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
@@ -723,10 +721,10 @@ function buildMenu() {
         { label: 'Forward', accelerator: 'CmdOrCtrl+]', click: withWindow((w) => w.forward()) },
         { type: 'separator' },
         ...VIEWPORTS.map(
-          (viewport, i): MenuItemConstructorOptions => ({
-            label: `${viewport[0].toUpperCase()}${viewport.slice(1)} Viewport`,
-            accelerator: `CmdOrCtrl+${i + 1}`,
-            click: withWindow((w) => w.setViewport(viewport)),
+          ({ id, name }): MenuItemConstructorOptions => ({
+            label: `${name} Viewport`,
+            accelerator: `CmdOrCtrl+${viewportKey(id)}`,
+            click: withWindow((w) => w.setViewport(id)),
           }),
         ),
         { type: 'separator' },

@@ -5,6 +5,8 @@ import {
   Check,
   ChevronDown,
   Folder,
+  Laptop,
+  type LucideIcon,
   MessageSquare,
   Monitor,
   MousePointer2,
@@ -14,18 +16,30 @@ import {
 } from 'lucide-react'
 import { type FormEvent, useEffect, useState } from 'react'
 import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
-import type { Viewport, WindowState } from '../../../shared/types'
+import { VIEWPORTS, type Viewport, viewportKey, type WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { Input } from '../lib/field'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, SegmentedControl, Toggle } from '../lib/ui'
 import { serverStatus } from './server-status'
 
-const VIEWPORTS = [
-  { value: 'desktop', label: 'Desktop', icon: Monitor },
-  { value: 'tablet', label: 'Tablet', icon: Tablet },
-  { value: 'mobile', label: 'Mobile', icon: Smartphone },
-] as const satisfies readonly { value: Viewport; label: string; icon: typeof Monitor }[]
+const VIEWPORT_ICONS: Record<Viewport, LucideIcon> = {
+  desktop: Monitor,
+  laptop: Laptop,
+  tablet: Tablet,
+  mobile: Smartphone,
+}
+/** Named with their shortcut, like the View menu's items; the tooltip adds the size. */
+const VIEWPORT_SEGMENTS = VIEWPORTS.map(({ id, name, size }) => {
+  const key = `⌘${viewportKey(id)}`
+  const detail = size ? `${size.width} × ${size.height}` : 'fills the window'
+  return {
+    value: id,
+    label: `${name} (${key})`,
+    title: `${name} · ${detail} (${key})`,
+    icon: VIEWPORT_ICONS[id],
+  }
+})
 const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached' } as const
 /** How long the screenshot button shows what it did. */
 const DONE_MS = 1500
@@ -77,7 +91,7 @@ export function Toolbar({ state }: { state: WindowState }) {
 
           <SegmentedControl
             label="Viewport"
-            segments={VIEWPORTS}
+            segments={VIEWPORT_SEGMENTS}
             value={preview.viewport}
             onChange={(viewport) => gui.setViewport(viewport)}
             iconOnly

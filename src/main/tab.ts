@@ -39,6 +39,7 @@ import {
   type ShipResult,
   type TabStatus,
   type Viewport,
+  type ViewportFrame,
   type WindowState,
   type WorkspaceApp,
 } from '../shared/types'
@@ -72,6 +73,7 @@ import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
+import { placePreview, ViewportEmulation } from './viewport'
 
 const PANEL_MIN = { width: 320, height: 360 }
 /** Below this the panel can't show its header, a line of transcript and the composer. */
@@ -87,7 +89,6 @@ const ATTACH_THUMBNAIL_EDGE = 160
 const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
-const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobile: 390 }
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
@@ -144,6 +145,8 @@ export class ProjectTab {
   private readonly preview: WebContentsView
   private readonly chatView: WebContentsView
   private readonly inspector: Inspector
+  /** The page at its viewport's size: a device frame's, or none for Desktop. */
+  private readonly emulation: ViewportEmulation
   private state: TabState
   private devServer: DevServer | null = null
   private chat: ChatController | null = null
@@ -205,6 +208,7 @@ export class ProjectTab {
         canGoForward: false,
         error: null,
         viewport: 'desktop',
+        frame: null,
         selecting: false,
         selectable: false,
         visible: false,
@@ -236,7 +240,8 @@ export class ProjectTab {
     this.chatView.setBackgroundColor('#00000000')
     this.chatView.setVisible(false)
 
-    this.inspector = new Inspector(this.preview.webContents)
+    this.inspector = new Inspector(this.preview.webContents, () => this.emulation.scale)
+    this.emulation = new ViewportEmulation(this.inspector)
     this.inspector.on('pick', (nodeId) => void this.onPick(nodeId))
     this.inspector.on('cancel', () => this.patchPreview({ selecting: false }))
     this.problems.on('change', (problems) => this.chat?.setProblems(problems))
@@ -375,6 +380,8 @@ export class ProjectTab {
         currentUrl: () => this.state.preview.url,
         navigate: (url) => this.loadPreview(url),
         logs: () => this.getLogs(),
+        viewScale: () => this.emulation.scale,
+        restoreViewport: () => this.emulation.restore(),
       })
       this.previewTools = tools
       const mcp = await startMcpServer(tools).catch((error: unknown) => {
@@ -1315,17 +1322,14 @@ export class ProjectTab {
       ? { ...this.host.canvas, width: Math.max(0, this.host.canvas.width - dockWidth) }
       : this.host.canvas
     const preview = this.state.preview
-    const maxWidth = VIEWPORT_WIDTH[preview.viewport]
-    const width = maxWidth > 0 ? Math.min(maxWidth, area.width - 24) : Math.max(0, area.width)
-    const x = area.x + Math.round((area.width - width) / 2)
-    const inset = maxWidth > 0 ? 12 : 0
-    this.preview.setBounds({
-      x: Math.round(x),
-      y: Math.round(area.y + inset),
-      width: Math.max(0, Math.round(width)),
-      height: Math.max(0, Math.round(area.height - inset * 2)),
-    })
+    // Even while nothing shows, so a page that loads lays out at its viewport's size at once.
+    const { bounds, emulation } = placePreview(preview.viewport, area)
+    this.preview.setBounds(bounds)
     this.preview.setVisible(preview.visible && area.width > 0)
+    this.emulation.set(emulation)
+    this.showFrame(
+      emulation && { rect: inCanvas(bounds, this.host.canvas), scale: emulation.scale },
+    )
 
     // The chat view draws the bubble before shrinking to it, and the panel after growing back.
     const bubble = this.bubbled
@@ -1396,6 +1400,21 @@ export class ProjectTab {
     })
   }
 
+  /** Tells the chrome where the device frame is, to draw its edge and label, when that changes. */
+  private showFrame(frame: ViewportFrame | null) {
+    const shown = this.state.preview.frame
+    const same =
+      frame === shown ||
+      (frame !== null &&
+        shown !== null &&
+        frame.scale === shown.scale &&
+        frame.rect.x === shown.rect.x &&
+        frame.rect.y === shown.rect.y &&
+        frame.rect.width === shown.rect.width &&
+        frame.rect.height === shown.rect.height)
+    if (!same) this.patchPreview({ frame })
+  }
+
   /** Tells the chat view where to draw the bubble, or that it's gone, when that changes. */
   private showBubble(bubble: boolean) {
     const corner = bubble ? { x: this.anchor.x, y: this.anchor.y } : null
@@ -1428,12 +1447,14 @@ export class ProjectTab {
   private dodge(rect: Rect) {
     // Picking again already: the view is the bubble, not the panel to move.
     if (!this.chat || this.chat.meta.docked || !this.state.chatVisible || this.bubbled) return
+    // Page coordinates, which a device frame draws at its scale, in the window.
     const previewBounds = this.preview.getBounds()
+    const scale = this.emulation.scale
     const element = {
-      x: previewBounds.x + rect.x,
-      y: previewBounds.y + rect.y,
-      width: rect.width,
-      height: rect.height,
+      x: previewBounds.x + rect.x * scale,
+      y: previewBounds.y + rect.y * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
     }
     const view = this.chatView.getBounds()
     const panel = {
@@ -1591,6 +1612,7 @@ export class ProjectTab {
     this.devServer?.dispose()
     this.chat?.dispose()
     this.mcp?.close()
+    this.emulation.dispose()
     this.inspector.dispose()
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()
@@ -1623,6 +1645,11 @@ function originOf(url: string) {
   } catch {
     return null
   }
+}
+
+/** `rect` (window coordinates) in the canvas's own. */
+function inCanvas(rect: Rect, canvas: Rect): Rect {
+  return { ...rect, x: rect.x - canvas.x, y: rect.y - canvas.y }
 }
 
 function clamp(value: number, min: number, max: number) {

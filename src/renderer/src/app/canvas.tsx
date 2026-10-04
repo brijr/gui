@@ -11,7 +11,15 @@ import {
   X,
 } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import type { ProjectSetup, WindowState, WorkspaceApp } from '../../../shared/types'
+import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
+import {
+  type ProjectSetup,
+  type Viewport,
+  type ViewportFrame,
+  viewportSpec,
+  type WindowState,
+  type WorkspaceApp,
+} from '../../../shared/types'
 import { AgentCard } from '../agents/agent-card'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
@@ -21,9 +29,10 @@ import { Button, Code, IconButton, Kbd, Spinner } from '../lib/ui'
 
 /**
  * The preview is a native view layered over this element; we report our bounds so
- * main can position it. What we render here only shows while the preview is hidden.
+ * main can position it. What we render here only shows around it, or while it's hidden.
  */
 export function Canvas({ state }: { state: WindowState }) {
+  const { preview } = state
   const ref = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -50,6 +59,9 @@ export function Canvas({ state }: { state: WindowState }) {
 
   return (
     <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
+      {preview.frame && preview.visible && (
+        <DeviceFrame viewport={preview.viewport} frame={preview.frame} />
+      )}
       {/* Centered while it fits; scrolls from the top in a short window. */}
       <div className="absolute inset-0 flex flex-col overflow-y-auto p-8">
         <div className="m-auto flex w-full justify-center">
@@ -57,6 +69,41 @@ export function Canvas({ state }: { state: WindowState }) {
         </div>
       </div>
     </main>
+  )
+}
+
+/**
+ * A fixed viewport's edge and shadow around the preview, which is the device's screen, and
+ * its name above: "Laptop · 1440 × 900", with the scale when it's drawn smaller.
+ */
+function DeviceFrame({ viewport, frame }: { viewport: Viewport; frame: ViewportFrame }) {
+  const { name, size } = viewportSpec(viewport)
+  const { rect } = frame
+  // Floored, so a frame drawn even slightly smaller never reads 100%.
+  const percent = Math.floor(frame.scale * 100)
+  return (
+    <>
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute border border-line-strong shadow-popover"
+        style={{
+          left: rect.x - 1,
+          top: rect.y - 1,
+          width: rect.width + 2,
+          height: rect.height + 2,
+        }}
+      />
+      <p
+        className="absolute flex items-center text-caption whitespace-nowrap text-subtle tabular-nums"
+        style={{ left: rect.x, top: rect.y - FRAME_LABEL_HEIGHT, height: FRAME_LABEL_HEIGHT }}
+      >
+        <span>
+          <span className="font-medium text-muted">{name}</span>
+          {size && ` · ${size.width} × ${size.height}`}
+          {percent < 100 && ` · ${percent}%`}
+        </span>
+      </p>
+    </>
   )
 }
 

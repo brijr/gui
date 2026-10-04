@@ -26,3 +26,9 @@ export const BUBBLE = { width: 44, height: 44 } as const
 
 /** The minimized chat pill. */
 export const MINI = { width: 248, height: 52 } as const
+
+/** Room a device frame (a fixed viewport) leaves around it on the canvas. */
+export const FRAME_MARGIN = 24
+
+/** The line above a device frame that names it: "Laptop · 1440 × 900 · 80%". */
+export const FRAME_LABEL_HEIGHT = 24

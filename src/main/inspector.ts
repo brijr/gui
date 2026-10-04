@@ -227,6 +227,8 @@ interface LineageNode {
 interface InspectorEvents {
   pick: [backendNodeId: number]
   cancel: []
+  /** The debugger session closed; what it set up, such as emulation, went with it. */
+  detach: []
 }
 
 /**
@@ -254,9 +256,17 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     withoutHighlight: (fn) => this.withoutHighlight(fn),
   }
 
-  constructor(private readonly wc: WebContents) {
+  /**
+   * `viewScale` is how large the page is drawn in its view, 1 or less (device frames, see
+   * viewport.ts): page coordinates times it are the view's.
+   */
+  constructor(
+    private readonly wc: WebContents,
+    private readonly viewScale: () => number,
+  ) {
     super()
     this.dbg = wc.debugger
+    this.dbg.on('detach', () => this.emit('detach'))
     this.dbg.on('message', (_event, method, params) => {
       if (method === 'Overlay.inspectNodeRequested') {
         void this.setInspecting(false)
@@ -294,8 +304,9 @@ export class Inspector extends EventEmitter<InspectorEvents> {
 
   /**
    * Runs `fn` alone among everything that uses node ids or reads layout: `DOM.getDocument`
-   * invalidates every node id handed out before it, and an agent screenshot emulates a
-   * viewport width that a concurrent pick or inspection would otherwise read.
+   * invalidates every node id handed out before it, and an agent screenshot and a device
+   * frame (viewport.ts) change the emulated viewport, which a concurrent pick or inspection
+   * would otherwise read.
    */
   exclusive<T>(fn: (session: InspectorSession) => Promise<T>): Promise<T> {
     const run = this.lockTail.then(() => fn(this.session))
@@ -552,7 +563,15 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     }>('Page.getLayoutMetrics')
     // Hide our overlay so it isn't baked into the crop.
     await this.clearHighlight()
-    const image = await this.wc.capturePage({ x, y, width, height })
+    // The view shows the page at its frame's scale. At least a pixel: an empty rect would
+    // capture the whole view.
+    const scale = this.viewScale()
+    const image = await this.wc.capturePage({
+      x: Math.round(x * scale),
+      y: Math.round(y * scale),
+      width: Math.max(1, Math.round(width * scale)),
+      height: Math.max(1, Math.round(height * scale)),
+    })
     if (image.isEmpty()) return null
     const size = image.getSize()
     const scaled = size.width > 1200 ? image.resize({ width: 1200, quality: 'good' }) : image

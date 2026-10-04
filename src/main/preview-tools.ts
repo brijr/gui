@@ -21,7 +21,7 @@ const NAVIGATION_TIMEOUT_MS = 30_000
 const RELOAD_TIMEOUT_MS = 10_000
 /** Media queries, layout, and lazy content settling after a viewport change. */
 const SETTLE_MS = 400
-/** Clearing emulation resizes the page asynchronously; how long to wait for the real width. */
+/** Restoring the viewport resizes the page asynchronously; how long to wait for its width. */
 const RESIZE_WAIT_MS = 500
 const ESC = '\u001b'
 const ANSI = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^\u0007]*(?:\u0007|${ESC}\\\\)`, 'g')
@@ -80,6 +80,10 @@ export interface PreviewToolsDeps {
   currentUrl: () => string | null
   navigate: (url: string) => Promise<void>
   logs: () => string
+  /** How large the page is drawn in the user's device frame; 1 without one (viewport.ts) */
+  viewScale: () => number
+  /** Inside the inspector's lock: puts the user's viewport (device frame or none) back */
+  restoreViewport: () => Promise<void>
 }
 
 interface LayoutMetrics {
@@ -110,9 +114,10 @@ export class PreviewTools {
   constructor(private readonly deps: PreviewToolsDeps) {}
 
   /**
-   * Captures the preview. `width` temporarily emulates that viewport width (the user
-   * sees it briefly) so the agent can check responsive layouts. Runs alone so parallel
-   * calls don't fight over the emulated width, and without our highlight overlay.
+   * Captures the preview as the user sees it, at the page's CSS size even when a device
+   * frame draws it smaller. `width` temporarily emulates that viewport width (the user sees
+   * it briefly) so the agent can check responsive layouts. Runs alone so parallel calls
+   * don't fight over the emulated width, and without our highlight overlay.
    */
   async screenshot(options: ScreenshotOptions): Promise<FramedScreenshot> {
     this.assertLoaded()
@@ -242,7 +247,8 @@ export class PreviewTools {
         clip: { ...clip, scale },
         // Off-screen parts come back blank without it, but it resizes the view for the
         // capture, which can reflow `vh` layouts; only when the clip leaves the viewport.
-        // (An emulated width wider than the view isn't cropped: emulation resizes the surface.)
+        // (An emulated viewport larger than the view, or drawn smaller in a device frame,
+        // isn't cropped: Chromium sizes the surface to the clip for the capture.)
         captureBeyondViewport: !contains(visible, clip),
         fromSurface: true,
       })
@@ -257,19 +263,20 @@ export class PreviewTools {
     } finally {
       // Nested scrollers first, in the layout their offsets were recorded in.
       await restoreScrollers?.().catch(() => undefined)
-      if (width) {
-        await this.cmd('Emulation.clearDeviceMetricsOverride').catch(() => undefined)
-      }
+      if (width) await this.deps.restoreViewport().catch(() => undefined)
       if (width || scrolled) await this.restoreWindowScroll(initial).catch(() => undefined)
     }
   }
 
+  /** In the user's view as it is, drawn at their device frame's scale (see viewport.ts). */
   private async emulateWidth(width: number, height: number) {
     await this.cmd('Emulation.setDeviceMetricsOverride', {
       width,
       height,
       deviceScaleFactor: 0,
       mobile: width < 768,
+      scale: this.deps.viewScale(),
+      dontSetVisibleSize: true,
     })
     await sleep(SETTLE_MS)
   }

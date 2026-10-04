@@ -122,7 +122,49 @@ export interface DevServerState {
   slow: boolean
 }
 
-export type Viewport = 'desktop' | 'tablet' | 'mobile'
+/**
+ * The preview's viewports, in toolbar and View menu order (⌘1…⌘4). Desktop fills the canvas;
+ * the others are device frames: the page lays out at exactly `size` (CSS pixels), drawn
+ * smaller when the canvas can't fit it.
+ */
+export const VIEWPORTS = [
+  { id: 'desktop', name: 'Desktop', size: null, mobile: false },
+  { id: 'laptop', name: 'Laptop', size: { width: 1440, height: 900 }, mobile: false },
+  { id: 'tablet', name: 'Tablet', size: { width: 820, height: 1180 }, mobile: true },
+  { id: 'mobile', name: 'Mobile', size: { width: 390, height: 844 }, mobile: true },
+] as const satisfies readonly ViewportSpec[]
+
+export interface ViewportSpec {
+  id: string
+  name: string
+  /** The page's size in CSS pixels; null to fill the canvas */
+  size: { width: number; height: number } | null
+  /** Emulated as a touch device: `<meta name=viewport>` applies and scrollbars overlay */
+  mobile: boolean
+}
+
+export type Viewport = (typeof VIEWPORTS)[number]['id']
+
+export function isViewport(value: unknown): value is Viewport {
+  return VIEWPORTS.some((viewport) => viewport.id === value)
+}
+
+export function viewportSpec(id: Viewport): ViewportSpec {
+  return VIEWPORTS.find((viewport) => viewport.id === id) ?? VIEWPORTS[0]
+}
+
+/** Its key with ⌘ (the View menu's shortcut): 1 for the first viewport, and so on. */
+export function viewportKey(id: Viewport) {
+  return String(VIEWPORTS.findIndex((viewport) => viewport.id === id) + 1)
+}
+
+/** A fixed viewport's frame on the canvas, for the chrome to draw around the preview */
+export interface ViewportFrame {
+  /** Where the preview is, in the canvas's own coordinates */
+  rect: Rect
+  /** How large the page is drawn: 1 at its CSS size, less when scaled down to fit */
+  scale: number
+}
 
 export interface PreviewState {
   url: string | null
@@ -131,6 +173,8 @@ export interface PreviewState {
   canGoForward: boolean
   error: string | null
   viewport: Viewport
+  /** The device frame the preview is shown in; null for Desktop, which fills the canvas */
+  frame: ViewportFrame | null
   selecting: boolean
   /** Element picking is only allowed on the local app, not off-site pages */
   selectable: boolean
