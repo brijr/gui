@@ -29,12 +29,12 @@ const MORPHING = { GUI_E2E_CAPTURE_BUDGET_MS: '2000' }
 /** Room for a jump across one dropped frame at the spring's fastest, and no more. */
 const MAX_STEP = 150
 /**
- * Over a longer gap between drawn frames (CI's runner, without a GPU, drops several), the
- * snapshot may cover more ground, but no faster than this, in px per ms. The spring is solved
- * for the time elapsed, and peaks under 6 px/ms for the largest change here (desktop to mobile,
- * 884 px narrower); anything faster is a jump.
+ * Over a longer gap between frames (CI's runner, without a GPU, is often late), the snapshot
+ * may cover more ground, but no faster than this, in px per ms of frame time: the springs step
+ * by the frames' own times, and peak under 9 px/ms here (a change mid-morph, carrying its speed
+ * into the next). A jump is several times faster.
  */
-const MAX_SPEED = 8
+const MAX_SPEED = 12
 
 /** Runs in main, in a task of its own: the preview view of the first window. */
 async function liveView({ BrowserWindow, WebContentsView }: ElectronModule) {
@@ -121,7 +121,10 @@ interface Box {
 }
 
 interface ChromeFrame {
+  /** When the frame's callback ran */
   t: number
+  /** The frame's own time, which the springs step by (both from when recording started) */
+  frame: number
   /** The snapshot's clip box, as drawn */
   box: Box | null
   /** Its pictures, bottom to top: opacity and drawn width */
@@ -164,7 +167,7 @@ function startRecording() {
     const { x, y, width, height } = el.getBoundingClientRect()
     return { x, y, width, height }
   }
-  const record = () => {
+  const record = (now: number) => {
     const box = document.querySelector('[data-morph-snapshot]')
     const edge = document.querySelector<HTMLElement>('[data-morph-frame]')
     const bars =
@@ -177,6 +180,7 @@ function startRecording() {
     const drawerBox = rect(drawer)
     frames.push({
       t: performance.now() - start,
+      frame: now - start,
       box: rect(box),
       layers,
       edge: edge
@@ -351,7 +355,9 @@ async function record(
 
 /** The snapshot's rects, each once, in order. */
 function boxes(frames: ChromeFrame[]) {
-  const all = frames.flatMap((frame) => (frame.box ? [{ t: frame.t, ...frame.box }] : []))
+  const all = frames.flatMap((frame) =>
+    frame.box ? [{ t: frame.t, frame: frame.frame, ...frame.box }] : [],
+  )
   return all.filter((box, i) => {
     const last = all[i - 1]
     return (
@@ -365,12 +371,13 @@ function boxes(frames: ChromeFrame[]) {
 }
 
 /**
- * The steps from one drawn rect to the next that move further than the spring could in the time
- * between them: none, for a continuous morph. Logs the largest step, and the gap it spanned.
+ * The steps from one drawn rect to the next that move further than the spring could in the
+ * frame time between them: none, for a continuous morph. Logs the largest step, with the frame
+ * time it spanned and how long its callback came after the last.
  */
-function jumps(path: (Box & { t: number })[], label: string) {
-  const found: { t: number; gap: number; step: number }[] = []
-  let largest = { step: 0, gap: 0 }
+function jumps(path: (Box & { t: number; frame: number })[], label: string) {
+  const found: { t: number; frames: number; step: number }[] = []
+  let largest = { step: 0, frames: 0, callbacks: 0 }
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1]
     const b = path[i]
@@ -381,12 +388,16 @@ function jumps(path: (Box & { t: number })[], label: string) {
       Math.abs(a.width - b.width),
       Math.abs(a.height - b.height),
     )
-    const gap = b.t - a.t
-    if (step > largest.step) largest = { step, gap }
-    if (step >= Math.max(MAX_STEP, MAX_SPEED * gap)) found.push({ t: Math.round(b.t), gap, step })
+    const frames = b.frame - a.frame
+    if (step > largest.step) largest = { step, frames, callbacks: b.t - a.t }
+    if (step >= Math.max(MAX_STEP, MAX_SPEED * frames)) {
+      found.push({ t: Math.round(b.t), frames: Math.round(frames), step: Math.round(step) })
+    }
   }
+  const ms = (value: number) => `${Math.round(value)} ms`
   console.log(
-    `[e2e] ${label}: largest step ${Math.round(largest.step)} px over ${Math.round(largest.gap)} ms`,
+    `[e2e] ${label}: largest step ${Math.round(largest.step)} px, over ${ms(largest.frames)} ` +
+      `of frame time (${ms(largest.callbacks)} between callbacks)`,
   )
   return found
 }
