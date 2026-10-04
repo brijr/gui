@@ -371,6 +371,10 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await session.chrome.evaluate((id) => window.gui.selectTab(id), second.activeTab)
     await tabStatus(session, first.activeTab, 'working')
     await expect(tabNamed(session, 'gui-e2e-vite, working')).toBeVisible()
+    // Its agent gets the prompt while the tab is in the background. Waiting for it also keeps
+    // the two tabs' prompts in order: each tab starts its own agent, at its own pace.
+    const firstSent = () => recorded().some((prompt) => prompt.includes('TABS-WORK first'))
+    await waitFor(firstSent, "the first tab's prompt to reach its agent")
 
     // The second tab's agent asks; once another tab is shown, its tab waits on the user.
     expect(await secondChat.evaluate(() => window.gui.send('TABS-ASK second'))).toBe(true)
