@@ -369,10 +369,11 @@ test("a new window's chat panel starts at the bottom-left and stays in its corne
     bottomLeft,
   )
 
-  // As the window and the canvas resize, it keeps to that corner.
+  // As the window and the canvas resize, it keeps to that corner. The window's shortest
+  // height, so with the logs open the canvas is shorter than the panel's minimum (as on CI).
   const smaller = {
     width: Math.max(960, start.content.width - 160),
-    height: Math.max(640, start.content.height - 120),
+    height: 640,
   }
   await session.app.evaluate(setContentSize, smaller)
   const shrunk = await layoutWhen(session, 'the smaller window', resizedTo(smaller))

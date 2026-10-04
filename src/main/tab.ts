@@ -74,6 +74,8 @@ import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
 
 const PANEL_MIN = { width: 320, height: 360 }
+/** Below this the panel can't show its header, a line of transcript and the composer. */
+const PANEL_SHORTEST = 200
 /** Space the floating panel's size leaves around it in the window. */
 const PANEL_MARGIN = 12
 const DOCK_MIN_WIDTH = 320
@@ -1413,9 +1415,12 @@ export class ProjectTab {
   /** The floating panel's size: the remembered one, within the window and the canvas's height. */
   private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
     const max = maxFloatingSize(contentWidth, this.anchorArea(contentWidth, contentHeight))
+    // A canvas shorter than the panel's minimum (a short window with the logs open) wins over
+    // it, so the panel never hangs over the logs; the remembered size returns with the room.
+    const height = Math.min(clamp(this.panelSize.height, PANEL_MIN.height, max.height), max.height)
     return {
       width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
-      height: Math.round(clamp(this.panelSize.height, PANEL_MIN.height, max.height)),
+      height: Math.round(Math.max(height, PANEL_SHORTEST)),
     }
   }
 
