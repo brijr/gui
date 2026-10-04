@@ -80,6 +80,7 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
             next={blocks[index + 1]}
             turnId={turn.id}
             live={running}
+            turnEnd={turn.endedAt}
           />
         ))}
         {running && <Working since={turn.startedAt} />}
@@ -155,12 +156,14 @@ function BlockView({
   next,
   turnId,
   live,
+  turnEnd,
 }: {
   block: Block
   /** The block after it, if any */
   next: Block | undefined
   turnId: string
   live: boolean
+  turnEnd: number | null
 }) {
   switch (block.kind) {
     case 'text':
@@ -168,7 +171,9 @@ function BlockView({
     case 'steps': {
       // The card below asks about the step the agent is on, so it speaks for that step.
       const asking = live && next?.kind === 'permission' && next.resolved === null
-      return <StepGroup steps={block.steps} live={live} last={!next} asking={asking} />
+      return (
+        <StepGroup steps={block.steps} live={live} last={!next} asking={asking} turnEnd={turnEnd} />
+      )
     }
     case 'plan':
       return (
@@ -323,10 +328,13 @@ function isInFlight(tool: ToolItem) {
   return tool.status === 'pending' || tool.status === 'in_progress'
 }
 
-/** How long a run of steps took, from the first starting to the last finishing: "12s". */
-function stepsDuration(tools: ToolItem[]) {
+/**
+ * How long a run of steps took, from the first starting to the last finishing: "12s".
+ * Steps that never finished (the turn was stopped) end when the turn did.
+ */
+function stepsDuration(tools: ToolItem[], turnEnd: number | null) {
   const starts = tools.map((tool) => tool.startedAt)
-  const ends = tools.map((tool) => tool.endedAt)
+  const ends = tools.map((tool) => tool.endedAt ?? turnEnd)
   if (starts.some((at) => at === undefined) || ends.some((at) => at == null)) return null
   const ms = Math.max(...(ends as number[])) - Math.min(...(starts as number[]))
   const seconds = Math.round(ms / 1000)
@@ -355,11 +363,14 @@ function StepGroup({
   live,
   last,
   asking,
+  turnEnd,
 }: {
   steps: Step[]
   live: boolean
   last: boolean
   asking: boolean
+  /** When the turn ended; null while it runs */
+  turnEnd: number | null
 }) {
   const [open, setOpen] = useState(false)
   const tools = steps.filter((step): step is ToolItem => step.kind === 'tool')
@@ -400,7 +411,7 @@ function StepGroup({
           <ToolStatusIcon tool={latest} live={live} />
           {tools.length > 1 && (
             <span className="ml-auto shrink-0">
-              <Disclosure open={open} onOpenChange={setOpen}>
+              <Disclosure open={open} onOpenChange={setOpen} className="whitespace-nowrap">
                 {plural(tools.length, 'step')}
                 {failedNote}
               </Disclosure>
@@ -412,7 +423,7 @@ function StepGroup({
     )
   }
 
-  const duration = active ? null : stepsDuration(tools)
+  const duration = active ? null : stepsDuration(tools, turnEnd)
   return (
     <div className="flex flex-col items-start gap-1.5">
       <Disclosure open={open} onOpenChange={setOpen}>
@@ -569,35 +580,25 @@ function Permission({
 
   const question = permissionQuestion(toolKind, locations)
   const many = locations.length > 1
+  const why = many
+    ? 'These files control how the project builds or runs.'
+    : 'This file controls how the project builds or runs.'
   return (
     <Card tone="inset" as="section" aria-label={question} className="flex flex-col gap-3 p-3">
       <div className="flex min-w-0 items-start gap-2">
         <p className="min-w-0 flex-1 break-words font-semibold">{question}</p>
         {item.sensitive && (
-          <Badge
-            tone="warning"
-            icon={TriangleAlert}
-            title={
-              many
-                ? 'These files control how the project builds or runs.'
-                : 'This file controls how the project builds or runs.'
-            }
-            className="shrink-0"
-          >
+          <Badge tone="warning" icon={TriangleAlert} title={why} className="shrink-0">
             {many ? 'Sensitive files' : 'Sensitive file'}
           </Badge>
         )}
       </div>
-      <pre className="max-h-32 select-text overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
-        {subject}
-      </pre>
-      {item.sensitive && (
-        <p className="sr-only">
-          {many
-            ? 'These files control how the project builds or runs.'
-            : 'This file controls how the project builds or runs.'}
-        </p>
+      {subject !== fileNames(locations) && (
+        <pre className="max-h-32 select-text overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
+          {subject}
+        </pre>
       )}
+      {item.sensitive && <p className="sr-only">{why}</p>}
       <div className="flex flex-wrap justify-end gap-2">
         {[...item.options].sort(byOptionOrder).map((option) => (
           <Button
@@ -663,6 +664,8 @@ function Comparison({ turn }: { turn: Turn }) {
                 aria-expanded={large}
                 title={large ? 'Show smaller' : 'Show larger'}
                 onClick={() => setLarge(!large)}
+                // The page's own color (from the image), so a frame reads as a window onto it.
+                style={preview.fill ? { backgroundColor: preview.fill } : undefined}
                 className={cn(
                   'flex w-full items-center justify-center overflow-hidden rounded-md border border-line bg-canvas transition-colors hover:border-line-strong',
                   large ? 'h-48' : 'h-24',
@@ -762,8 +765,9 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   }
 
   // Interrupted (e.g. by a quit) before its changes were recorded; it can still be undone.
-  const unrecorded = changes.length === 0 && turn.changesUnknown === true && !turn.reverted
-  if (changes.length === 0 && !turn.reverted && !unrecorded) return null
+  const unrecorded = changes.length === 0 && turn.changesUnknown === true
+  // A turn that changed nothing has no result, even when undoing an earlier one marked it.
+  if (changes.length === 0 && !unrecorded) return null
 
   return (
     <Card tone="inset" as="section" aria-label="Result" className="flex flex-col gap-3 p-3">

@@ -398,7 +398,13 @@ export interface Turn {
    * Small JPEG data URLs of the picked element before the turn and after hot reload.
    * Kept in memory only (not in saved history); either may be missing.
    */
-  preview?: { before: string | null; after: string | null; frame?: PreviewFrame | null } | null
+  preview?: {
+    before: string | null
+    after: string | null
+    frame?: PreviewFrame | null
+    /** The page's color around the element, behind the images where they leave their frames */
+    fill?: string | null
+  } | null
   startedAt: number
   endedAt: number | null
   changes: FileChange[] | null

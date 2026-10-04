@@ -47,7 +47,7 @@ import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
 import { buildPrompt } from './prompt'
-import { thumbnail } from './thumbnail'
+import { cornerColor, thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
 
 type SessionUpdate = SessionNotification['update']
@@ -499,7 +499,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   setPreviewAfter(turnId: string, after: string | null, frame: PreviewFrame | null = null) {
     const record = this.records.find((r) => r.turn.id === turnId)
     if (!record || !after) return
-    record.turn.preview = { before: record.turn.preview?.before ?? null, after, frame }
+    const before = record.turn.preview?.before ?? null
+    record.turn.preview = { before, after, frame, fill: cornerColor(after) }
     this.flushTurn(record)
   }
 
