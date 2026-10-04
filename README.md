@@ -21,6 +21,7 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
   { "Amp": { "command": "amp-acp", "args": [], "env": {} } }
   ```
 - git (Xcode Command Line Tools) — used for per-turn checkpoints
+- Xcode 26+ to package the app (its `actool` compiles the light and dark app icon, `build/icon.icon`)
 
 ## Run
 
@@ -73,6 +74,7 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - `bun run dev` — app with hot reload
 - `bun run build` — production bundle in `out/`
 - `bun run dist` — packaged macOS app in `release/` (see below)
+- `bun run install-app` — builds Gui and installs it as `/Applications/Gui.app` (quits and reopens a running Gui). To update, `git pull && bun run install-app`
 - `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GUI_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, `grok`, `kiro`, `opencode`, or `pi`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
 

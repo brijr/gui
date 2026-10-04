@@ -53,7 +53,12 @@ npmRebuild: false
 
 mac:
   category: public.app-category.developer-tools
-  icon: build/icon.icns
+  # Icon Composer document with light and dark appearances. electron-builder compiles it with
+  # Xcode 26+'s actool into Assets.car (macOS 26) plus an .icns fallback for older macOS.
+  # Preview an appearance with Xcode's ictool, e.g.: "$(xcode-select -p)/../Applications/Icon
+  # Composer.app/Contents/Executables/ictool" build/icon.icon --export-image --output-file
+  # dark.png --platform macOS --rendition Dark --width 1024 --height 1024 --scale 1
+  icon: build/icon.icon
   target:
     - target: dmg
       arch: arm64
