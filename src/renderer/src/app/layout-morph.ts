@@ -1,4 +1,4 @@
-import { type RefObject, useLayoutEffect, useSyncExternalStore } from 'react'
+import { type RefObject, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
 import { Spring } from '../../../shared/motion'
 import {
@@ -10,14 +10,15 @@ import {
   type Viewport,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { animateFade, onFrames } from '../lib/motion'
+import { animateFade, animateSpring, onFrames, prefersReducedMotion } from '../lib/motion'
 
 /*
  * The chrome's side of the preview's layout morphs (main/preview-morph.ts): a snapshot of the
  * preview, drawn where the live view was while main takes the view out of sight, springs to
  * where the view is going and cross-fades into a capture of it there; then main puts the live
  * view back over it. The device frame's edge and label move with it. Drawn over the canvas and
- * under the toolbar and the drawer. Transform and opacity only, except the frame's
+ * under the toolbar and the drawer, which slide with the same spring from the same frame
+ * (`useLayoutSlide`), so their edges move as one. Transform and opacity only, except the frame's
  * edge, which is resized rather than scaled so its hairline and shadow stay true.
  *
  * The pictures are never stretched. When another viewport lays the page out anew, the old
@@ -45,6 +46,11 @@ const AFTER_WAIT_MS = 250
 const REDUCED_FADE_MS = 150
 /** Landed and not ended by main after this long: the snapshot goes anyway. */
 const STALE_MS = 2000
+/**
+ * Docking: main slides the chat over the page on a spring of its own, which can trail this one
+ * by a frame, so the page reaches this far under it while it moves; no canvas shows between.
+ */
+const DOCK_UNDERLAP = 32
 
 type Key = 'x' | 'y' | 'w' | 'h' | 's' | 'ax' | 'ay' | 'frame'
 const KEYS: readonly Key[] = ['x', 'y', 'w', 'h', 's', 'ax', 'ay', 'frame']
@@ -68,7 +74,8 @@ const MOVES: readonly [Key, number][] = [
   ['s', 0.002],
 ]
 
-// The canvas leaves its own device frame out while the morph draws it.
+// What moves with the morph: the canvas leaves its own device frame out while the morph draws
+// it, and the drawer and the toolbar wait for it to start moving.
 
 interface Status {
   id: number
@@ -79,16 +86,36 @@ interface Status {
 
 let status: Status | null = null
 const listeners = new Set<() => void>()
+const waiting = new Set<() => void>()
 
 function setStatus(next: Status | null) {
   status = next
   for (const listener of [...listeners]) listener()
+  if (next && !next.moving) return
+  const starts = [...waiting]
+  waiting.clear()
+  for (const start of starts) start()
 }
 
 function subscribe(listener: () => void) {
   listeners.add(listener)
   return () => {
     listeners.delete(listener)
+  }
+}
+
+/**
+ * Runs `start` once the preview's morph starts moving (or ends without moving), or now when
+ * none is coming. Returns a function that drops it.
+ */
+export function whenMorphMoves(start: () => void): () => void {
+  if (!status || status.moving) {
+    start()
+    return () => undefined
+  }
+  waiting.add(start)
+  return () => {
+    waiting.delete(start)
   }
 }
 
@@ -193,6 +220,8 @@ class Morph {
   private to: MorphPlacement | null = null
   private afterFailed = false
   private restingSince: number | null = null
+  /** How far the page reaches past its edge, under the docked chat sliding in */
+  private underlap = 0
   private stop: (() => void) | null = null
   private staleTimer = 0
   private disposed = false
@@ -260,6 +289,8 @@ class Morph {
     this.restingSince = null
     clearTimeout(this.staleTimer)
     if (this.reduced) return this.fadeOut()
+    const docking = kind === 'dock' && to.frame === null && to.rect.width < this.springs.w.value
+    this.underlap = docking ? DOCK_UNDERLAP : 0
     const anchor = anchorFor(kind, to)
     const targets: Record<Key, number> = {
       x: to.rect.x,
@@ -389,6 +420,7 @@ class Morph {
       : this.afterFailed || performance.now() - this.restingSince > AFTER_WAIT_MS
     if (!crossed) return false
     for (const key of KEYS) this.springs[key].finish()
+    this.underlap = 0
     this.draw()
     gui.morphLanded(this.id, this.seq)
     this.staleTimer = window.setTimeout(() => this.finish(), STALE_MS)
@@ -424,8 +456,9 @@ class Morph {
     const y = value('y')
     const w = Math.max(1, value('w'))
     const h = Math.max(1, value('h'))
-    this.box.style.transform = `translate(${x}px, ${y}px) scale(${w / BASE}, ${h / BASE})`
-    this.inner.style.transform = `scale(${BASE / w}, ${BASE / h})`
+    const clip = w + this.underlap
+    this.box.style.transform = `translate(${x}px, ${y}px) scale(${clip / BASE}, ${h / BASE})`
+    this.inner.style.transform = `scale(${BASE / clip}, ${BASE / h})`
     for (const layer of this.layers) {
       // At the frame's scale, from the scale it was captured at.
       const k = value('s') / layer.scale
@@ -517,4 +550,101 @@ export function useLayoutMorphs(ref: RefObject<HTMLElement | null>, tab: string 
       layer.dispose()
     }
   }, [ref, tab])
+}
+
+interface Slide {
+  /** 1 in its place, 0 out of the way */
+  spring: Spring
+  stop: (() => void) | null
+  wait: (() => void) | null
+}
+
+interface SlideOptions {
+  /** The edge of the window it goes out by: the drawer the bottom, the toolbar the top */
+  edge: 'top' | 'bottom'
+  /** Its height that stays in the window: focus mode's title bar, under the toolbar */
+  keep?: number
+  /** Fades as it goes, as well as moving */
+  fade?: boolean
+}
+
+/**
+ * Slides an element of the chrome in and out with the preview's morph: `shown`, it comes in
+ * by its edge of the window into its place; hidden, it goes back out. On the default spring,
+ * starting when the morph does (or at once, without one), so its edge and the preview's move as
+ * one. With Reduce motion on, it fades instead. True while it's on its way out: it's drawn out
+ * of the layout then, since the canvas already has its room.
+ */
+export function useLayoutSlide(
+  shown: boolean,
+  ref: RefObject<HTMLElement | null>,
+  { edge, keep = 0, fade = false }: SlideOptions,
+) {
+  const [leaving, setLeaving] = useState(false)
+  const [wasShown, setWasShown] = useState(shown)
+  const slide = useRef<Slide | null>(null)
+  const initial = useRef(shown)
+  if (wasShown !== shown) {
+    setWasShown(shown)
+    setLeaving(!shown)
+  }
+
+  useLayoutEffect(() => {
+    slide.current ??= { spring: new Spring(initial.current ? 1 : 0), stop: null, wait: null }
+    const current = slide.current
+    const target = shown ? 1 : 0
+    const el = ref.current
+    // Already there (the first render, or shown and hidden again before it moved): in place,
+    // with nothing left of a pose it was held at.
+    if (!el || (current.spring.value === target && current.spring.target === target)) {
+      current.spring.retarget(target)
+      current.spring.finish()
+      if (el) {
+        el.style.transform = ''
+        el.style.opacity = ''
+      }
+      if (!shown) setLeaving(false)
+      return
+    }
+    const reduced = prefersReducedMotion()
+    const travel = (edge === 'bottom' ? 1 : -1) * Math.max(0, el.offsetHeight - keep)
+    const draw = (value: number) => {
+      const away = value < 1
+      el.style.transform = away && !reduced ? `translateY(${(1 - value) * travel}px)` : ''
+      el.style.opacity = away && (fade || reduced) ? String(clamp01(value)) : ''
+    }
+    const rest = () => {
+      current.stop = null
+      if (shown) return draw(1)
+      el.style.transform = ''
+      el.style.opacity = ''
+      setLeaving(false)
+    }
+    // Where it is now, held there until the preview starts moving.
+    draw(current.spring.value)
+    current.wait = whenMorphMoves(() => {
+      current.wait = null
+      const { spring } = current
+      const from = spring.value
+      spring.retarget(target)
+      current.stop = reduced
+        ? animateFade(from, target, REDUCED_FADE_MS, {
+            update: (value) => {
+              spring.value = value
+              spring.velocity = 0
+              draw(value)
+            },
+            rest,
+          })
+        : animateSpring(spring, { precision: 0.001, update: draw, rest })
+    })
+    return () => {
+      current.wait?.()
+      current.wait = null
+      current.stop?.()
+      current.stop = null
+    }
+  }, [shown, ref, edge, keep, fade])
+
+  return leaving
 }

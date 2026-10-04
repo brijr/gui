@@ -13,6 +13,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton } from '../lib/ui'
+import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus } from './server-status'
 import { drawOutput, mountXterm } from './xterm'
 
@@ -41,6 +42,11 @@ export function Drawer({ state }: { state: WindowState }) {
   useEffect(() => gui.onDrawerFocus(setFocusRequest), [])
   // Focus mode hides it, with the rest of the chrome.
   const open = state.drawer.open && !state.focusMode && state.project !== null
+  const section = useRef<HTMLElement>(null)
+  // It slides up from the window's bottom edge as the preview's edge rises over it, and back
+  // down; while it goes it's still drawn open, over the canvas that already has its room.
+  const leaving = useLayoutSlide(open, section, { edge: 'bottom' })
+  const drawn = open || leaving
 
   const { project, drawer } = state
   if (!project) return null
@@ -108,14 +114,19 @@ export function Drawer({ state }: { state: WindowState }) {
 
   return (
     <>
-      {!open && !state.focusMode && failed && state.preview.visible && <CrashBar />}
+      {!drawn && !state.focusMode && failed && state.preview.visible && <CrashBar />}
       {/* Kept mounted while closed, so the terminals keep their scrollback and place. */}
       <section
+        ref={section}
         aria-label="Terminal"
         inert={!open}
-        className={cn('relative z-20 shrink-0 bg-surface', open && 'border-t border-line')}
+        className={cn(
+          'z-20 shrink-0 bg-surface',
+          leaving ? 'absolute inset-x-0 bottom-0' : 'relative',
+          drawn && 'border-t border-line',
+        )}
       >
-        {open && (
+        {drawn && (
           <div className="flex h-9 items-center gap-1 pr-1.5 pl-1.5">
             {/*
              * Tabs only, as in the tab strip. A terminal's × is for the pointer and hidden from
@@ -232,7 +243,7 @@ export function Drawer({ state }: { state: WindowState }) {
             />
           </div>
         )}
-        <div className={cn('relative overflow-hidden bg-canvas', open ? 'h-56' : 'h-0')}>
+        <div className={cn('relative overflow-hidden bg-canvas', drawn ? 'h-56' : 'h-0')}>
           {/* First, so it's the drawer's first terminal on the page. Keyed by project, so each
               project gets a fresh one with its own log history. */}
           <Panel tab="server" shown={shown === 'server'}>
@@ -274,20 +285,20 @@ function Panel({ tab, shown, children }: { tab: DrawerTab; shown: boolean; child
 /** The dev server crashed while its last page is still on screen. */
 function CrashBar() {
   return (
-    <div
-      role="alert"
-      className="relative z-20 flex h-9 shrink-0 items-center gap-2 border-t border-line bg-danger-soft pr-1.5 pl-3"
-    >
-      <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
-      <p className="min-w-0 flex-1 truncate text-small">
-        Your app stopped with an error, so the preview won't update.
-      </p>
-      <Button variant="ghost" size="sm" onClick={() => gui.showLogs()}>
-        Show logs
-      </Button>
-      <Button size="sm" onClick={() => gui.restartDevServer()}>
-        Restart
-      </Button>
+    // Its tint over the window's surface, as the rest of the chrome's bars.
+    <div role="alert" className="relative z-20 shrink-0 border-t border-line bg-surface">
+      <div className="flex h-9 items-center gap-2 bg-danger-soft pr-1.5 pl-3">
+        <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
+        <p className="min-w-0 flex-1 truncate text-small">
+          Your app stopped with an error, so the preview won't update.
+        </p>
+        <Button variant="ghost" size="sm" onClick={() => gui.showLogs()}>
+          Show logs
+        </Button>
+        <Button size="sm" onClick={() => gui.restartDevServer()}>
+          Restart
+        </Button>
+      </div>
     </div>
   )
 }

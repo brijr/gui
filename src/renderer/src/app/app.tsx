@@ -7,7 +7,7 @@ import { Button } from '../lib/ui'
 import { useWindowState } from '../lib/use-window-state'
 import { Canvas, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
-import { useLayoutMorphs } from './layout-morph'
+import { useLayoutMorphs, useLayoutSlide } from './layout-morph'
 import { ShortcutsSheet } from './shortcuts-sheet'
 import { TabStrip } from './tab-strip'
 import { focusAddressBar, Toolbar } from './toolbar'
@@ -16,7 +16,15 @@ export function App() {
   const state = useWindowState()
   const focusMode = state?.focusMode ?? false
   const sheet = state?.shortcutsOpen ?? false
+  const bars = useRef<HTMLDivElement>(null)
   const morphs = useRef<HTMLDivElement>(null)
+  // Focus mode slides the tab strip and the toolbar up out of the window as the preview grows
+  // into their room, fading; out of it they come back the same way.
+  const leaving = useLayoutSlide(!focusMode, bars, {
+    edge: 'top',
+    keep: FOCUS_BAR_HEIGHT,
+    fade: true,
+  })
   useLayoutMorphs(morphs, state?.activeTab ?? null)
   // Here rather than in the toolbar, which may only be on its way.
   useEffect(
@@ -38,7 +46,9 @@ export function App() {
   }, [focusMode, sheet])
 
   return (
-    <div className="relative flex h-dvh flex-col">
+    // Clipped, never scrolled: the drawer and the bars slide in from past the window's edges,
+    // and focusing something in them on the way must not scroll the whole window to it.
+    <div className="relative flex h-dvh flex-col overflow-clip bg-canvas">
       {/* The preview's layout morphs: over the canvas, under the bars and the drawer. */}
       <div ref={morphs} aria-hidden="true" className="pointer-events-none fixed inset-0 z-10" />
       {!state ? (
@@ -47,7 +57,14 @@ export function App() {
         <>
           {focusMode && <FocusBar state={state} />}
           {/* Focus mode hides the bars rather than unmounting them, so they come back as they were. */}
-          <div className={cn('relative z-20 shrink-0', focusMode && 'hidden')}>
+          <div
+            ref={bars}
+            className={cn(
+              'z-20 shrink-0',
+              focusMode && leaving ? 'absolute inset-x-0 top-0' : 'relative',
+              focusMode && !leaving && 'hidden',
+            )}
+          >
             <TabStrip state={state} />
             {/* Keyed by tab, so each tab's project gets its own toolbar, canvas and drawer. */}
             <Fragment key={state.activeTab}>

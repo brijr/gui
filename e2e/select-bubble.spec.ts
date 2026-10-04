@@ -203,7 +203,15 @@ test('a minimized chat comes back minimized, the bubble ends picking, docked sta
 
   // Docked beside the preview, the panel covers nothing and stays as it is.
   await session.chat.evaluate(() => window.gui.toggleDock())
-  const docked = await chatWhere(session, 'the docked panel', (chat) => chat.width === 400)
+  // In its place against the canvas's right edge, once it has slid in.
+  const [contentWidth] = await session.app.evaluate(
+    ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getContentSize() ?? [0],
+  )
+  const docked = await chatWhere(
+    session,
+    'the docked panel',
+    (chat) => chat.width === 400 && chat.x + chat.width === contentWidth,
+  )
   await startSelecting(session)
   await sleep(500)
   expect((await session.app.evaluate(views))?.chat).toEqual(docked.chat)

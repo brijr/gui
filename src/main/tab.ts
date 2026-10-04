@@ -221,6 +221,12 @@ export class ProjectTab {
    * corner's point is on a spring per axis. Null at rest.
    */
   private flight: Flight | null = null
+  /**
+   * The docked panel sliding in from the canvas's right edge, covering the preview as its morph
+   * narrows it: off to the right (no flight yet) until the morph starts moving, then on a spring
+   * of main's, from the same moment as the chrome's.
+   */
+  private dockSlide: { flight: Flight | null } | null = null
   /** The floating panel's size as the user left it; drawn smaller when the window is. */
   private panelSize: ChatSize = getPrefs().chatSize
   private dockWidth = getPrefs().chatDockWidth
@@ -325,6 +331,8 @@ export class ProjectTab {
       exclusive: (fn) => this.inspector.exclusive(() => fn()),
       send: (event) => this.send(Events.morph, event),
       layout: () => this.layout(),
+      moving: (reduced) => this.slideDock(reduced),
+      ended: () => this.landDock(),
     })
     this.inspector.on('pick', (nodeId) => void this.onPick(nodeId))
     this.inspector.on('cancel', () => this.patchPreview({ selecting: false }))
@@ -380,8 +388,10 @@ export class ProjectTab {
    */
   deactivate() {
     if (this.state.preview.selecting) void this.setSelecting(false)
-    // So is a preview still morphing (its view is placed again when the tab is back).
+    // A morph of the preview ends too, in its new layout, with the docked chat in its place
+    // (the view is placed again when the tab is back).
     this.morph.finish(false)
+    this.landDock()
     // A panel still landing is where it was going when the tab comes back, in its new form.
     this.flight?.finish()
     this.settleForm(this.wantedForm())
@@ -1323,6 +1333,7 @@ export class ProjectTab {
     setPrefs({ chatDocked: docked })
     this.chat.setDocked(docked)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
+    if (docked) this.holdDock()
     this.layout()
   }
 
@@ -1394,6 +1405,7 @@ export class ProjectTab {
     // Docked, it takes its column from the preview, or gives it back.
     if (this.docked) this.morphLayout('dock')
     this.patch({ chatVisible: !this.state.chatVisible })
+    if (this.state.chatVisible && this.docked) this.holdDock()
     this.layout()
     // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
     if (this.state.chatVisible && !this.bubbled) this.focusChat()
@@ -1667,7 +1679,10 @@ export class ProjectTab {
       return
     }
     if (!this.state.chatVisible) {
-      if (this.docked) this.morphLayout('dock')
+      if (this.docked) {
+        this.morphLayout('dock')
+        this.holdDock()
+      }
       this.patch({ chatVisible: true })
     }
     if (this.chat?.meta.minimized) this.chat.setMinimized(false)
@@ -1793,8 +1808,10 @@ export class ProjectTab {
     this.chatView.setVisible(showChat && !covered)
     if (docked) {
       const dockWidth = this.dockedWidth()
+      // Still off to the right of its place while it slides in (`holdDock`).
+      const slide = this.dockSlide ? (this.dockSlide.flight?.point.x ?? dockWidth) : 0
       this.chatView.setBounds({
-        x: Math.round(this.host.canvas.x + this.host.canvas.width - dockWidth),
+        x: Math.round(this.host.canvas.x + this.host.canvas.width - dockWidth + slide),
         y: Math.round(this.host.canvas.y),
         width: dockWidth,
         height: Math.max(0, Math.round(this.host.canvas.height)),
@@ -1935,6 +1952,49 @@ export class ProjectTab {
     this.flight.stop()
     this.flight = null
     this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
+  }
+
+  /**
+   * The docked panel coming into sight with a morph of the preview (docking, or showing it
+   * docked) waits off to the right of its place, at the canvas's edge, until the morph moves.
+   * Without a morph it's simply there.
+   */
+  private holdDock() {
+    this.dockSlide?.flight?.stop()
+    this.dockSlide = this.morph.active ? { flight: null } : null
+  }
+
+  /** The preview's morph starts moving: the docked panel slides in with it (or, reduced, is there). */
+  private slideDock(reduced: boolean) {
+    const slide = this.dockSlide
+    if (!slide || slide.flight) return
+    if (reduced || !this.chatShown || !this.docked || !this.host.isActive(this)) {
+      this.dockSlide = null
+      this.layoutChat()
+      return
+    }
+    const flight: Flight = new Flight({
+      win: this.host.win,
+      from: { x: this.dockedWidth(), y: 0 },
+      velocity: { x: 0, y: 0 },
+      config: SPRINGS.default,
+      target: () => ({ x: 0, y: 0 }),
+      frame: () => this.layoutChat(),
+      rest: () => {
+        if (this.dockSlide?.flight === flight) this.dockSlide = null
+        this.layoutChat()
+      },
+    })
+    slide.flight = flight
+  }
+
+  /** The morph is over: the docked panel is in its place. */
+  private landDock() {
+    const slide = this.dockSlide
+    if (!slide) return
+    if (slide.flight) return slide.flight.finish()
+    this.dockSlide = null
+    this.layoutChat()
   }
 
   /** What the anchor is a corner of: the canvas, or the window below the toolbar until then. */
@@ -2195,6 +2255,7 @@ export class ProjectTab {
     agentHealth.off('change', this.onAgentHealth)
     this.flight?.stop()
     this.morph.dispose()
+    this.dockSlide?.flight?.stop()
     if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()

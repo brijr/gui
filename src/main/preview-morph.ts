@@ -76,6 +76,13 @@ export interface MorphHost {
   send(event: MorphEvent): void
   /** Lays the tab out again, which places the view through `place` */
   layout(): void
+  /**
+   * The preview has started moving (with Reduce motion, is simply in its new place): what moves
+   * with it in main (the docked chat sliding in) starts now.
+   */
+  moving(reduced: boolean): void
+  /** The morph is over, landed or cut short: whatever moves with it lands too. */
+  ended(): void
 }
 
 export class PreviewMorph {
@@ -95,6 +102,11 @@ export class PreviewMorph {
   private timer: NodeJS.Timeout | null = null
 
   constructor(private readonly host: MorphHost) {}
+
+  /** From the change until the live view is back. */
+  get active() {
+    return this.phase !== 'idle'
+  }
 
   /** Between the capture and the view going out of sight: the view stays where it is. */
   get frozen() {
@@ -156,11 +168,13 @@ export class PreviewMorph {
       this.unfreeze()
       this.host.layout()
       if (this.onScreen) this.send({ type: 'target', seq: 1, kind: this.kind, to: this.onScreen })
+      this.host.moving(true)
       return true
     }
     this.phase = 'moving'
     this.unfreeze()
     this.host.layout()
+    this.host.moving(false)
     // Back where it was (the change undone meanwhile): nothing to move.
     if (this.from && this.target && samePlacement(this.from, this.target)) this.finish()
     return true
@@ -172,6 +186,8 @@ export class PreviewMorph {
     this.clearTimer()
     this.phase = 'ending'
     this.host.layout()
+    // What moves with it in main (the docked chat) lands in the same tick.
+    this.host.ended()
     void this.nextFrame().then(() => {
       if (this.id === id && this.phase === 'ending') this.end()
     })
@@ -194,6 +210,7 @@ export class PreviewMorph {
     this.unfreeze()
     if (relayout) this.host.layout()
     this.host.send({ type: 'end', id })
+    this.host.ended()
   }
 
   dispose() {
