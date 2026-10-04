@@ -433,17 +433,18 @@ test("a new window's chat panel starts at the bottom-left and stays in its corne
     ({ preview }) => preview.height === shrunk.preview.height,
   )
 
-  // Dragged near the top-right, it keeps to that corner from then on, and so does the pill.
+  // Dropped near the top-right, it springs into that corner (at the usual margin) and keeps
+  // to it from then on, and so does the pill.
   const before = gaps(closed)
-  const topRight = { right: 40, top: 30 }
+  const topRight = { right: PANEL_MARGIN, top: PANEL_MARGIN }
   await session.chat.evaluate(
     ({ dx, dy }) => {
       window.gui.dragChat(dx, dy)
       window.gui.endDragChat()
     },
-    { dx: before.right - topRight.right, dy: topRight.top - before.top },
+    { dx: before.right - 40, dy: 30 - before.top },
   )
-  const dragged = await layoutWhen(session, 'the panel near the top-right', (layout) => {
+  const dragged = await layoutWhen(session, 'the panel in the top-right corner', (layout) => {
     const { right, top } = gaps(layout)
     return right === topRight.right && top === topRight.top
   })
@@ -473,19 +474,17 @@ test('the chat panel resizes from its edges and corners and remembers the size',
   // Smaller first, so growing has room even when the window is short (CI's display).
   const small = (await resizeFrom(session, first.chat, 'bottom-left', 60, -240)).chat
 
-  // In the middle of the window, so every edge has room to move either way.
+  // In the middle of the window, so every edge has room to move either way. Held there mid-drag:
+  // letting go would spring it into a corner.
   const { content } = first
   const middle = {
     x: Math.round((content.width - small.width) / 2),
     y: Math.round((TOOLBAR_HEIGHT + content.height - small.height) / 2),
   }
-  await session.chat.evaluate(
-    ({ dx, dy }) => {
-      window.gui.dragChat(dx, dy)
-      window.gui.endDragChat()
-    },
-    { dx: middle.x - small.x, dy: middle.y - small.y },
-  )
+  await session.chat.evaluate(({ dx, dy }) => window.gui.dragChat(dx, dy), {
+    dx: middle.x - small.x,
+    dy: middle.y - small.y,
+  })
   let panel = (
     await layoutWhere(
       session,

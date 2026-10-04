@@ -19,9 +19,11 @@ import {
 } from 'electron'
 import { Events } from '../shared/ipc'
 import { BUBBLE, MINI, PANEL_SHADOW_MARGIN } from '../shared/layout'
+import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import {
   type AgentId,
   agentName,
+  type ChatGrab,
   type ChatSnapshot,
   type DevServerState,
   type DrawerState,
@@ -58,6 +60,7 @@ import { historyFile, loadHistory } from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
+import { Flight, type Point, prefersReducedMotion } from './panel-flight'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
@@ -94,6 +97,18 @@ const DOCK_MAX_SHARE = 0.6
 const ATTACH_EDGE = 1568
 const ATTACH_THUMBNAIL_EDGE = 160
 const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
+/**
+ * Letting go of the floating panel faster than this (px/s) throws it: it lands on a slightly
+ * bouncy spring. Slower, it settles into the nearest corner without overshooting.
+ */
+const THROW_SPEED = 500
+/** Faster than any real flick; a glitch in the pointer's history beyond it is capped. */
+const MAX_THROW_SPEED = 8000
+/**
+ * A grab mid-flight puts the panel back where the pointer found it, unless that's further
+ * than this from where it's drawn: then the report doesn't match the view, so it stays put.
+ */
+const GRAB_SLOP = 240
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
 /** The chat's message box has the keyboard (run in the chat view's isolated world). */
@@ -177,10 +192,16 @@ export class ProjectTab {
   /** Selection shown in the chat last time meta changed, to clear the highlight only when it goes away. */
   private shownSelectionId: string | null = null
   /**
-   * Where the floating panel sits: by its corner nearest the canvas's same corner, re-chosen
-   * when a drag or resize ends, so it stays there as the window and the logs resize.
+   * Where the floating panel sits: by one of its corners, from the canvas's same corner, so it
+   * stays there as the window and the logs resize. Letting go of it picks a corner of the
+   * canvas, at the standard margin; a drag and a resize move it freely from its corner.
    */
   private anchor: Anchor = { x: 'left', y: 'bottom', dx: PANEL_MARGIN, dy: PANEL_MARGIN }
+  /**
+   * The floating panel springing to its anchor after a drop, a throw or a dodge: its anchored
+   * corner's point is on a spring per axis. Null at rest.
+   */
+  private flight: Flight | null = null
   /** The floating panel's size as the user left it; drawn smaller when the window is. */
   private panelSize: ChatSize = getPrefs().chatSize
   private dockWidth = getPrefs().chatDockWidth
@@ -315,6 +336,8 @@ export class ProjectTab {
    */
   deactivate() {
     if (this.state.preview.selecting) void this.setSelecting(false)
+    // A panel still landing is where it was going when the tab comes back.
+    this.flight?.finish()
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
     contentView.removeChildView(this.chatView)
@@ -1321,13 +1344,61 @@ export class ProjectTab {
     this.layout()
   }
 
+  /**
+   * The pointer pressed the panel's header (or the pill) to drag it. Still landing from a
+   * throw, it stops where it was when pressed, so the drag carries on with the pointer where it
+   * grabbed: main's timer may have moved it a step or two since.
+   */
+  grabChat(at: ChatGrab) {
+    if (!this.flight) return
+    const [contentWidth, contentHeight] = this.host.win.getContentSize()
+    const drawn = this.floatingRect(contentWidth, contentHeight)
+    // Where the view was under the pointer: the pointer, less where it was in the view's page.
+    const content = this.host.win.getContentBounds()
+    const zoom = this.chatView.webContents.getZoomFactor()
+    const x = Math.round(at.screenX - content.x - at.clientX * zoom) + PANEL_SHADOW_MARGIN
+    const y = Math.round(at.screenY - content.y - at.clientY * zoom) + PANEL_SHADOW_MARGIN
+    const near = Math.abs(x - drawn.x) <= GRAB_SLOP && Math.abs(y - drawn.y) <= GRAB_SLOP
+    this.holdFlight(near ? { ...drawn, x, y } : drawn)
+    this.layoutChat()
+  }
+
   dragChat(dx: number, dy: number) {
+    // A drag without a grab (from a script) takes over a landing panel just the same.
+    this.holdFlight()
     // From where the panel is on screen, so dragging back from past an edge moves it at once.
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
     const rect = this.floatingRect(contentWidth, contentHeight)
     const area = this.anchorArea(contentWidth, contentHeight)
     this.anchor = anchorFor({ ...rect, x: rect.x + dx, y: rect.y + dy }, area, this.anchor)
-    this.layout()
+    this.layoutChat()
+  }
+
+  /**
+   * Lets go of the panel: it springs into a corner of the canvas. Which one is chosen from
+   * where its momentum would carry it (`project`), so a flick lands where it was thrown, and
+   * the spring starts at the pointer's velocity. A throw lands on a slightly bouncy spring; a
+   * slow drop settles without overshooting.
+   */
+  endDragChat(release: Point = { x: 0, y: 0 }) {
+    this.holdFlight()
+    const [contentWidth, contentHeight] = this.host.win.getContentSize()
+    const rect = this.floatingRect(contentWidth, contentHeight)
+    const area = this.anchorArea(contentWidth, contentHeight)
+    const speed = Math.hypot(release.x, release.y)
+    const cap = speed > MAX_THROW_SPEED ? MAX_THROW_SPEED / speed : 1
+    const velocity = { x: release.x * cap, y: release.y * cap }
+    const landing = {
+      x: project(rect.x + rect.width / 2, velocity.x),
+      y: project(rect.y + rect.height / 2, velocity.y),
+    }
+    this.anchor = {
+      x: landing.x < area.x + area.width / 2 ? 'left' : 'right',
+      y: landing.y < area.y + area.height / 2 ? 'top' : 'bottom',
+      dx: PANEL_MARGIN,
+      dy: PANEL_MARGIN,
+    }
+    this.fly(rect, velocity, speed > THROW_SPEED ? SPRINGS.thrown : SPRINGS.default)
   }
 
   /**
@@ -1345,6 +1416,8 @@ export class ProjectTab {
       this.resizing = 'docked'
     } else {
       if (this.chat?.meta.minimized || this.bubbled) return
+      // Resizing follows the pointer 1:1: a panel still landing stops where it is.
+      this.holdFlight()
       const [contentWidth, contentHeight] = this.host.win.getContentSize()
       const area = this.anchorArea(contentWidth, contentHeight)
       const max = maxFloatingSize(contentWidth, area)
@@ -1488,11 +1561,6 @@ export class ProjectTab {
     return true
   }
 
-  endDragChat() {
-    this.settleAnchor()
-    this.layout()
-  }
-
   private focusChat() {
     this.leaveFocusMode()
     // The floating panel is wanted in full, so picking over it ends first.
@@ -1545,11 +1613,6 @@ export class ProjectTab {
   /** Places the tab's views over the canvas; only the active tab's are in the window. */
   layout() {
     if (this.disposed || !this.host.isActive(this)) return
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const showChat = this.chatShown
-    // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
-    const docked = showChat && this.docked
-    const dockWidth = this.dockedWidth()
     const area = this.previewArea()
     const preview = this.state.preview
     // Even while nothing shows, so a page that loads lays out at its viewport's size at once.
@@ -1562,12 +1625,26 @@ export class ProjectTab {
     // Desktop's zoom emulates too, without a frame.
     const frame = viewportSpec(viewport).size !== null && emulation
     this.showFrame(frame ? { rect: inCanvas(bounds, this.host.canvas), scale: frame.scale } : null)
+    this.layoutChat()
+  }
+
+  /** Places the chat view: docked, floating at its anchor, or where its flight has got to. */
+  private layoutChat() {
+    if (this.disposed || !this.host.isActive(this)) return
+    const [contentWidth, contentHeight] = this.host.win.getContentSize()
+    const showChat = this.chatShown
+    // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
+    const docked = showChat && this.docked
+    const covered = this.host.shortcutsOpen
+    // Hidden or docked, a panel still landing is simply there.
+    if (!showChat || docked) this.flight?.finish()
 
     // The chat view draws the bubble before shrinking to it, and the panel after growing back.
     const bubble = this.bubbled
     if (bubble) this.showBubble(true)
     this.chatView.setVisible(showChat && !covered)
     if (docked) {
+      const dockWidth = this.dockedWidth()
       this.chatView.setBounds({
         x: Math.round(this.host.canvas.x + this.host.canvas.width - dockWidth),
         y: Math.round(this.host.canvas.y),
@@ -1596,22 +1673,78 @@ export class ProjectTab {
   }
 
   /**
-   * The floating panel, or the pill while minimized, at its anchor and kept inside the window
-   * below the toolbar, and above the logs drawer when it's open.
+   * The floating panel, or the pill while minimized, as drawn: at its anchor, or mid-flight
+   * with its anchored corner where the flight has got to. Kept inside the window below the
+   * toolbar, and above the logs drawer when it's open.
    */
   private floatingRect(contentWidth: number, contentHeight: number): Rect {
     const minimized = this.chat?.meta.minimized ?? false
     const { width, height } = minimized ? MINI : this.floatingSize(contentWidth, contentHeight)
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
-    const left = x === 'left' ? area.x + dx : area.x + area.width - dx - width
-    const top = y === 'top' ? area.y + dy : area.y + area.height - dy - height
+    // The anchored corner's point: the flight's, or the anchor's.
+    const corner = this.flight?.point ?? {
+      x: x === 'left' ? area.x + dx : area.x + area.width - dx,
+      y: y === 'top' ? area.y + dy : area.y + area.height - dy,
+    }
+    const left = x === 'left' ? corner.x : corner.x - width
+    const top = y === 'top' ? corner.y : corner.y - height
     return {
       x: Math.round(clamp(left, 0, contentWidth - width)),
       y: Math.round(clamp(top, this.host.chromeHeight, area.y + area.height - height)),
       width,
       height,
     }
+  }
+
+  /** Where the floating panel's anchored corner is when at rest at its anchor. */
+  private restingCorner(): Point {
+    const flight = this.flight
+    this.flight = null
+    const [contentWidth, contentHeight] = this.host.win.getContentSize()
+    const rect = this.floatingRect(contentWidth, contentHeight)
+    this.flight = flight
+    return cornerPoint(rect, this.anchor)
+  }
+
+  /**
+   * Springs the floating panel from `from` (as drawn) to its anchor, starting at `velocity`
+   * (px/s). With Reduce motion on, or out of sight, it's there at once.
+   */
+  private fly(from: Rect, velocity: Point, config: SpringConfig) {
+    this.flight?.stop()
+    this.flight = null
+    if (prefersReducedMotion() || !this.host.isActive(this) || !this.chatShown) {
+      this.layoutChat()
+      return
+    }
+    const flight: Flight = new Flight({
+      win: this.host.win,
+      from: cornerPoint(from, this.anchor),
+      velocity,
+      config,
+      target: () => this.restingCorner(),
+      frame: () => this.layoutChat(),
+      rest: () => {
+        if (this.flight === flight) this.flight = null
+        this.layoutChat()
+      },
+    })
+    this.flight = flight
+    this.layoutChat()
+  }
+
+  /**
+   * Stops a landing panel where it is (or at `at`): anchored from there, as a drag leaves it,
+   * so the user can take it over mid-flight.
+   */
+  private holdFlight(at?: Rect) {
+    if (!this.flight) return
+    const [contentWidth, contentHeight] = this.host.win.getContentSize()
+    const rect = at ?? this.floatingRect(contentWidth, contentHeight)
+    this.flight.stop()
+    this.flight = null
+    this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
   }
 
   /** What the anchor is a corner of: the canvas, or the window below the toolbar until then. */
@@ -1621,7 +1754,10 @@ export class ProjectTab {
     return { x: 0, y: chromeHeight, width: contentWidth, height: contentHeight - chromeHeight }
   }
 
-  /** After a drag or resize: anchors the panel by its corner nearest the canvas's same corner. */
+  /**
+   * After a resize, which leaves the panel where the user put its edges: anchors it there by
+   * its corner nearest the canvas's same corner.
+   */
   private settleAnchor() {
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
     const rect = this.floatingRect(contentWidth, contentHeight)
@@ -1719,10 +1855,14 @@ export class ProjectTab {
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
     const area = this.anchorArea(contentWidth, contentHeight)
     const elementCenter = element.x + element.width / 2
-    // Put the panel against whichever side of the canvas is farther from the element.
+    // Put the panel against whichever side of the canvas is farther from the element: it
+    // springs there from where it is, still moving if it was landing.
     const x = elementCenter > area.x + area.width / 2 ? 'left' : 'right'
+    // (Landing, the anchor is already where it was going.)
+    const from = this.floatingRect(contentWidth, contentHeight)
+    const velocity = this.flight?.velocity ?? { x: 0, y: 0 }
     this.anchor = { ...this.anchor, x, dx: PANEL_MARGIN }
-    this.layout()
+    this.fly(from, velocity, SPRINGS.default)
   }
 
   // Native menus
@@ -1858,6 +1998,7 @@ export class ProjectTab {
     if (this.disposed) return
     this.disposed = true
     agentHealth.off('change', this.onAgentHealth)
+    this.flight?.stop()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()
     this.devServer?.dispose()
@@ -1936,6 +2077,14 @@ function anchorFor(rect: Rect, area: Rect, corner: PanelCorner): Anchor {
     y: corner.y,
     dx: corner.x === 'left' ? rect.x - area.x : area.x + area.width - rect.x - rect.width,
     dy: corner.y === 'top' ? rect.y - area.y : area.y + area.height - rect.y - rect.height,
+  }
+}
+
+/** The point at `rect`'s `corner`. */
+function cornerPoint(rect: Rect, corner: PanelCorner): Point {
+  return {
+    x: corner.x === 'left' ? rect.x : rect.x + rect.width,
+    y: corner.y === 'top' ? rect.y : rect.y + rect.height,
   }
 }
 

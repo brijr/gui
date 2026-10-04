@@ -134,20 +134,48 @@ export function ChatPanel() {
   )
 }
 
+/** The pointer's velocity at release is measured over this much of its recent path (ms). */
+const VELOCITY_WINDOW = 100
+/** A pointer held still this long before letting go releases at rest, whatever came before. */
+const RELEASE_PAUSE = 50
+
+interface Sample {
+  x: number
+  y: number
+  t: number
+}
+
+/**
+ * The pointer's velocity in px/s as it let go at `t`, from its path over the last
+ * VELOCITY_WINDOW; zero if it had stopped moving before.
+ */
+function releaseVelocity(samples: Sample[], t: number) {
+  const recent = samples.filter((sample) => t - sample.t <= VELOCITY_WINDOW)
+  const first = recent[0]
+  const last = recent.at(-1)
+  if (!first || !last || t - last.t > RELEASE_PAUSE) return { x: 0, y: 0 }
+  const seconds = (last.t - first.t) / 1000
+  // Too short a path to tell a direction from noise.
+  if (seconds < 0.008) return { x: 0, y: 0 }
+  return { x: (last.x - first.x) / seconds, y: (last.y - first.y) / seconds }
+}
+
 /**
  * Follows a pointer drag in screen coordinates, since the native view moves and resizes
- * under the pointer, and reports the deltas batched per frame.
+ * under the pointer, and reports the deltas batched per frame; at the end, the pointer's
+ * velocity as it let go (px/s), so a throw carries on.
  */
 function trackDrag(
   event: ReactPointerEvent<HTMLElement>,
   onMove: (dx: number, dy: number) => void,
-  onEnd: () => void,
+  onEnd: (velocity: { x: number; y: number }) => void,
 ) {
   const el = event.currentTarget
   el.setPointerCapture(event.pointerId)
   let last = { x: event.screenX, y: event.screenY }
   let pending = { dx: 0, dy: 0 }
   let frame = 0
+  let samples: Sample[] = [{ x: event.screenX, y: event.screenY, t: event.timeStamp }]
 
   const flush = () => {
     frame = 0
@@ -157,28 +185,36 @@ function trackDrag(
   const move = (e: PointerEvent) => {
     pending = { dx: pending.dx + e.screenX - last.x, dy: pending.dy + e.screenY - last.y }
     last = { x: e.screenX, y: e.screenY }
+    samples = [...samples, { x: e.screenX, y: e.screenY, t: e.timeStamp }].filter(
+      (sample) => e.timeStamp - sample.t <= VELOCITY_WINDOW * 2,
+    )
     frame ||= requestAnimationFrame(flush)
   }
-  const end = () => {
+  const end = (e: PointerEvent) => {
     cancelAnimationFrame(frame)
     flush()
     el.removeEventListener('pointermove', move)
     el.removeEventListener('pointerup', end)
     el.removeEventListener('pointercancel', end)
-    onEnd()
+    onEnd(e.type === 'pointerup' ? releaseVelocity(samples, e.timeStamp) : { x: 0, y: 0 })
   }
   el.addEventListener('pointermove', move)
   el.addEventListener('pointerup', end)
   el.addEventListener('pointercancel', end)
 }
 
-/** Dragging the header (or the minimized pill) moves the floating panel. */
+/**
+ * Dragging the header (or the minimized pill) moves the floating panel; letting go throws it
+ * into a corner. Pressing it while it lands catches it where it is.
+ */
 function onDragStart(event: ReactPointerEvent<HTMLElement>) {
   if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+  const { screenX, screenY, clientX, clientY } = event
+  gui.grabChat({ screenX, screenY, clientX, clientY })
   trackDrag(
     event,
     (dx, dy) => gui.dragChat(dx, dy),
-    () => gui.endDragChat(),
+    (velocity) => gui.endDragChat(velocity),
   )
 }
 

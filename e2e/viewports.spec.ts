@@ -442,39 +442,40 @@ test('picking in a scaled frame finds, highlights and frames the right element',
   await session.shot('picked-scaled')
 
   // An element far from the page's origin, under the floating chat as drawn: the chat moves
-  // off it. (Unscaled, the element would be past the window's right edge.)
-  await preview.evaluate(() => {
-    const far = document.createElement('button')
-    far.id = 'far'
-    far.textContent = 'Far'
-    far.style.cssText =
-      'position:absolute;left:900px;top:560px;width:200px;height:80px;background:#e2e8f0;border:0'
-    document.body.append(far)
-  })
-  const layout = await session.app.evaluate(views)
+  // off it. The chat is thrown into the canvas's bottom-right corner, and the element goes
+  // under its middle: at page coordinates that, unscaled, would be past the window's right edge.
+  const resting = await session.app.evaluate(views)
+  await session.chat.evaluate(() => window.gui.endDragChat({ x: 3000, y: 3000 }))
+  const layout = await waitFor(async () => {
+    const now = await session.app.evaluate(views)
+    if (!now?.chat || !resting?.chat || now.chat.x <= resting.chat.x) return null
+    await sleep(300)
+    const later = await session.app.evaluate(views)
+    return later?.chat && later.chat.x === now.chat.x && later.chat.y === now.chat.y ? later : null
+  }, 'the chat at rest in the bottom-right corner')
   if (!layout?.chat) throw new Error('The chat is hidden')
+  const panel = inner(layout.chat)
+  const far = {
+    x: Math.round((panel.x + panel.width / 2 - layout.preview.x) / scale),
+    y: Math.round((panel.y + panel.height / 2 - layout.preview.y) / scale),
+  }
+  expect(far.x).toBeGreaterThan(layout.content.width)
+  await preview.evaluate(({ x, y }) => {
+    const button = document.createElement('button')
+    button.id = 'far'
+    button.textContent = 'Far'
+    button.style.cssText = `position:absolute;left:${x - 100}px;top:${y - 40}px;width:200px;height:80px;background:#e2e8f0;border:0`
+    document.body.append(button)
+  }, far)
   const element = {
-    x: layout.preview.x + 900 * scale,
-    y: layout.preview.y + 560 * scale,
+    x: layout.preview.x + (far.x - 100) * scale,
+    y: layout.preview.y + (far.y - 40) * scale,
     width: 200 * scale,
     height: 80 * scale,
   }
-  const panel = inner(layout.chat)
-  const dx = element.x + element.width / 2 - (panel.x + panel.width / 2)
-  const dy = element.y + element.height / 2 - (panel.y + panel.height / 2)
-  await session.chat.evaluate(
-    ({ dx, dy }) => {
-      window.gui.dragChat(dx, dy)
-      window.gui.endDragChat()
-    },
-    { dx, dy },
-  )
-  await waitFor(async () => {
-    const chat = (await session.app.evaluate(views))?.chat
-    return chat && overlaps(inner(chat), element)
-  }, 'the chat over the far element')
-  const far = await pickAt(session, onScreen({ x: 1000, y: 600 }))
-  expect(far.attributes.id).toBe('far')
+  expect(overlaps(panel, element)).toBe(true)
+  const picked = await pickAt(session, onScreen(far))
+  expect(picked.attributes.id).toBe('far')
   await waitFor(async () => {
     const chat = (await session.app.evaluate(views))?.chat
     return chat && chat.width > 100 && !overlaps(inner(chat), element)

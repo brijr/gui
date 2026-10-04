@@ -15,6 +15,8 @@ type ElectronModule = typeof import('electron/main')
 
 /** Transparent margin around the floating panel's view (SHADOW in window.ts). */
 const SHADOW = 18
+/** Space the panel keeps from the canvas's edges in its corner (PANEL_MARGIN in tab.ts). */
+const PANEL_MARGIN = 12
 /** The bubble's view: the 44px bubble (BUBBLE in window.ts) and its shadow margin. */
 const BUBBLE_VIEW = 44 + SHADOW * 2
 /** The minimized pill's view height (MINI in window.ts). */
@@ -58,12 +60,6 @@ const bubbleAt = (panel: Rect, corner = BOTTOM_LEFT): Rect => ({
   y: corner.y === 'top' ? panel.y : panel.y + panel.height - BUBBLE_VIEW,
   width: BUBBLE_VIEW,
   height: BUBBLE_VIEW,
-})
-
-/** The corner a panel is anchored by after a drag: the canvas's (the preview's) nearest. */
-const nearestCorner = (panel: Rect, canvas: Rect): PanelCorner => ({
-  x: panel.x + panel.width / 2 < canvas.x + canvas.width / 2 ? 'left' : 'right',
-  y: panel.y + panel.height / 2 < canvas.y + canvas.height / 2 ? 'top' : 'bottom',
 })
 
 /** The visible panel: its view without the shadow margin. */
@@ -132,40 +128,44 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   await shot(session, 'bubble-restored')
 
   // Over the element to pick: the bubble leaves it uncovered, then the panel moves aside.
-  const box = await preview.locator(SELECTOR).boundingBox()
-  if (!box) throw new Error(`"${SELECTOR}" has no layout box`)
+  // The panel rests in a corner, so the element goes under it: in the page, at the middle of
+  // the panel as the window draws it.
+  const middle = {
+    x: panel.chat.x + panel.chat.width / 2 - panel.preview.x,
+    y: panel.chat.y + panel.chat.height / 2 - panel.preview.y,
+  }
+  await preview.evaluate(({ x, y }) => {
+    const covered = document.createElement('button')
+    covered.id = 'covered'
+    covered.textContent = 'Covered'
+    covered.style.cssText = `position:fixed;left:${x - 60}px;top:${y - 20}px;width:120px;height:40px`
+    document.body.append(covered)
+  }, middle)
+  const box = await preview.locator('#covered').boundingBox()
+  if (!box) throw new Error('"#covered" has no layout box')
   const element = { ...box, x: panel.preview.x + box.x, y: panel.preview.y + box.y }
-  const dx = element.x + element.width / 2 - (panel.chat.x + panel.chat.width / 2)
-  const dy = element.y + element.height / 2 - (panel.chat.y + panel.chat.height / 2)
-  await session.chat.evaluate(
-    ({ dx, dy }) => {
-      window.gui.dragChat(dx, dy)
-      window.gui.endDragChat()
-    },
-    { dx, dy },
-  )
-  const covering = await chatWhere(session, 'the panel over the element', (chat) =>
-    overlaps(inner(chat), element),
-  )
+  expect(overlaps(inner(panel.chat), element)).toBe(true)
   await startSelecting(session)
   await chatWhere(session, 'the bubble over the panel', isBubble)
   const bubble = await session.app.evaluate(views)
-  expect(bubble?.chat).toEqual(
-    bubbleAt(covering.chat, nearestCorner(covering.chat, covering.preview)),
-  )
-  expect(overlaps(inner(bubble?.chat ?? covering.chat), element)).toBe(false)
+  expect(bubble?.chat).toEqual(bubbleAt(panel.chat))
+  expect(overlaps(inner(bubble?.chat ?? panel.chat), element)).toBe(false)
   await pressEscape(session)
 
-  const selection = await session.pickElement(SELECTOR)
+  // Picked, the panel springs to the far side of the canvas, keeping its height and size.
+  const selection = await session.pickElement('#covered')
   expect(selection.tag).toBe('button')
   const dodged = await chatWhere(
     session,
-    'the panel out of the way',
-    (chat) => !isBubble(chat) && !overlaps(inner(chat), element),
+    'the panel against the right edge',
+    (chat) =>
+      !isBubble(chat) &&
+      chat.x + chat.width - SHADOW === panel.preview.x + panel.preview.width - PANEL_MARGIN,
   )
+  expect(overlaps(inner(dodged.chat), element)).toBe(false)
   expect(dodged.chat.width).toBe(panel.chat.width)
   expect(dodged.chat.height).toBe(panel.chat.height)
-  expect(dodged.chat.y).toBe(covering.chat.y)
+  expect(dodged.chat.y).toBe(panel.chat.y)
   await expect(showChat(session.chat)).toHaveCount(0)
   await shot(session, 'bubble-picked')
 })

@@ -1,5 +1,6 @@
 import type {
   AgentId,
+  ChatGrab,
   ChatMeta,
   ChatSnapshot,
   CustomAgentEntry,
@@ -83,6 +84,7 @@ export const Send = {
   clearSelection: 'chat:clear-selection',
   setMinimized: 'chat:minimize',
   toggleDock: 'chat:dock',
+  grabChat: 'chat:grab',
   dragChat: 'chat:drag',
   resizeChat: 'chat:resize',
   endResizeChat: 'chat:resize-end',
@@ -279,8 +281,17 @@ export interface GuiApi {
   toggleDock(): void
   /** Sends the current preview errors to the agent; false if busy or nothing to fix */
   fixProblems(): Promise<boolean>
+  /**
+   * The pointer pressed the floating panel's header or the pill, to drag it. A panel still
+   * landing from a throw stops where it was under the pointer, and the drag goes on from there.
+   */
+  grabChat(at: ChatGrab): void
   dragChat(dx: number, dy: number): void
-  endDragChat(): void
+  /**
+   * Lets go of the floating panel: it springs into a corner of the canvas, the one nearest to
+   * where a throw at `velocity` (px/s, the pointer's as it let go) would come to rest.
+   */
+  endDragChat(velocity?: { x: number; y: number }): void
 
   /**
    * Shows the screenshot menu (copy, copy full page, save, attach to chat) for the

@@ -25,6 +25,7 @@ import {
   type CustomAgentEntry,
   type ImageAttachment,
   isAgentId,
+  isChatGrab,
   isDrawerTab,
   isPanelEdge,
   isTerminalId,
@@ -536,8 +537,9 @@ function registerIpc() {
   on(Send.clearSelection, (tab) => tab.clearSelection())
   on(Send.setMinimized, (tab, minimized) => tab.setMinimized(minimized === true))
   on(Send.toggleDock, (tab) => tab.toggleDock())
+  on(Send.grabChat, (tab, at) => isChatGrab(at) && tab.grabChat(at))
   on(Send.dragChat, (tab, dx, dy) => isNumber(dx) && isNumber(dy) && tab.dragChat(dx, dy))
-  on(Send.endDragChat, (tab) => tab.endDragChat())
+  on(Send.endDragChat, (tab, velocity) => tab.endDragChat(isPoint(velocity) ? velocity : undefined))
   on(Send.resizeChat, (tab, edge, dx, dy) => {
     if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) tab.resizeChat(edge, dx, dy)
   })

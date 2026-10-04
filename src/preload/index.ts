@@ -92,6 +92,7 @@ const api: GuiApi = {
   setMinimized: send(Send.setMinimized),
   toggleDock: send(Send.toggleDock),
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
+  grabChat: send(Send.grabChat),
   dragChat: send(Send.dragChat),
   endDragChat: send(Send.endDragChat),
   removeQueued: send(Send.removeQueued),

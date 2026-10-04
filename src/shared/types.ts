@@ -294,6 +294,25 @@ export interface PanelCorner {
   y: 'top' | 'bottom'
 }
 
+/**
+ * Where the pointer pressed the floating chat to drag it: on screen, and in the chat view's
+ * page. Together they say where the view was at that moment, even while it moves.
+ */
+export interface ChatGrab {
+  screenX: number
+  screenY: number
+  clientX: number
+  clientY: number
+}
+
+export function isChatGrab(value: unknown): value is ChatGrab {
+  if (!value || typeof value !== 'object') return false
+  const grab = value as Record<string, unknown>
+  return ['screenX', 'screenY', 'clientX', 'clientY'].every(
+    (key) => typeof grab[key] === 'number' && Number.isFinite(grab[key]),
+  )
+}
+
 export interface SourceLocation {
   /** POSIX path relative to the project root */
   file: string
