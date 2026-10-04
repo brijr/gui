@@ -4,12 +4,15 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import { AGENTS, type AgentHealth, type AgentId } from '../shared/types'
 import { AgentAuthError, AgentSession } from './agent'
+import { listAgents } from './agents'
 
 const CHECK_TIMEOUT_MS = 45_000
 /** Browser sign-in waits on the user. */
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000
 /** Browser-based sign-in methods Grat can drive; API keys belong in the user's environment. */
 const SIGN_IN_METHODS = ['chat-gpt', 'chatgpt', 'browser', 'oauth', 'claude-ai', 'login']
+/** Agents Grat bundles; checked on every launch since they're always there. */
+const BUNDLED: readonly AgentId[] = ['claude', 'codex']
 
 const noopHandlers = {
   onUpdate: () => undefined,
@@ -25,25 +28,68 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
 
+const unchecked = (
+  agent: Pick<AgentHealth, 'id' | 'name' | 'command'>,
+  installed: boolean,
+): AgentHealth => ({
+  ...agent,
+  status: installed ? 'unknown' : 'not-installed',
+  message: null,
+  signIn: null,
+})
+
 /**
- * Whether each agent can start a session, checked by actually starting one in an
- * empty folder. No prompt is sent, so checking costs no usage.
+ * Every agent Grat knows (built in and from agents.json), whether it's installed, and
+ * whether it can start a session, checked by actually starting one in an empty folder.
+ * No prompt is sent, so checking costs no usage.
  */
 class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }> {
   private health = new Map<AgentId, AgentHealth>(
-    AGENTS.map((agent) => [
-      agent.id,
-      { id: agent.id, status: 'unknown', message: null, signIn: null },
-    ]),
+    AGENTS.map((agent) => [agent.id, unchecked({ ...agent, command: null }, true)]),
   )
   private running = new Map<AgentId, Promise<void>>()
+  private scanning: Promise<void> | null = null
+  /** Why agents.json couldn't be read, if it couldn't */
+  customError: string | null = null
 
   list(): AgentHealth[] {
-    return AGENTS.map((agent) => this.health.get(agent.id) as AgentHealth)
+    return [...this.health.values()]
   }
 
-  checkAll() {
-    for (const agent of AGENTS) void this.check(agent.id)
+  has(id: AgentId) {
+    return this.health.has(id)
+  }
+
+  /** Re-reads agents.json and which CLIs are on PATH, without starting any agent. */
+  rescan() {
+    this.scanning ??= this.scan().finally(() => {
+      this.scanning = null
+    })
+    return this.scanning
+  }
+
+  /**
+   * Checks every installed agent. Starting a session leaves an empty one in some agents'
+   * own history, so this runs when the user asks rather than on every launch.
+   */
+  async checkAll() {
+    await this.rescan()
+    await Promise.all(
+      this.list()
+        .filter((agent) => agent.status !== 'not-installed')
+        .map((agent) => this.check(agent.id)),
+    )
+  }
+
+  /** On launch: the bundled agents plus the one the user picked. */
+  async checkOnLaunch(preferred: AgentId) {
+    await this.rescan()
+    const ids = new Set([...BUNDLED, preferred])
+    await Promise.all(
+      [...ids]
+        .filter((id) => this.health.has(id) && this.health.get(id)?.status !== 'not-installed')
+        .map((id) => this.check(id)),
+    )
   }
 
   check(id: AgentId) {
@@ -64,7 +110,24 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     await run
   }
 
+  private async scan() {
+    const { agents, customError } = await listAgents()
+    const next = new Map<AgentId, AgentHealth>()
+    for (const { installed, ...agent } of agents) {
+      const current = this.health.get(agent.id)
+      const keep = current && installed && current.status !== 'not-installed'
+      next.set(agent.id, keep ? { ...current, ...agent } : unchecked(agent, installed))
+    }
+    const changed =
+      customError !== this.customError ||
+      JSON.stringify([...next.values()]) !== JSON.stringify(this.list())
+    this.health = next
+    this.customError = customError
+    if (changed) this.emit('change', this.list())
+  }
+
   private async probe(id: AgentId, authenticate: string | undefined) {
+    if (this.health.get(id)?.status === 'not-installed') return
     this.set(id, {
       status: authenticate ? 'signing-in' : 'checking',
       message: authenticate ? 'Finish signing in in your browser…' : null,

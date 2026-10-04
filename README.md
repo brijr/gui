@@ -6,7 +6,26 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
 
 - macOS (Apple Silicon tested)
 - [Bun](https://bun.sh) 1.4+
-- A signed-in agent CLI login: **Claude Code** (`claude`, then log in) and/or **Codex** (`codex login`). Grat bundles the ACP adapters for both and reuses your existing logins.
+- At least one signed-in coding agent. Grat bundles the ACP adapters for **Claude Code** (`claude`, then log in) and **Codex** (`codex login`), and runs these CLIs from your PATH when they're installed, reusing their logins:
+
+  | Agent | Runs | Sign in |
+  | --- | --- | --- |
+  | Auggie | `auggie --acp` | `auggie login` |
+  | Cursor | `cursor-agent acp` | `cursor-agent login` |
+  | Gemini CLI | `gemini --acp` | `gemini`, or `GEMINI_API_KEY` |
+  | GitHub Copilot | `copilot --acp` | `copilot`, then `/login` |
+  | goose | `goose acp` | `goose configure` |
+  | Grok Build | `grok agent stdio` | `grok login` |
+  | Kiro | `kiro-cli acp` | `kiro-cli login` |
+  | Mistral Vibe | `vibe-acp` | `vibe`, or `MISTRAL_API_KEY` |
+  | OpenCode | `opencode acp` | `opencode auth login` |
+  | Qwen Code | `qwen --acp` | `qwen` |
+
+  Any other [ACP](https://agentclientprotocol.com) agent can be added from **Agent → Custom Agents…**, which opens `agents.json` in Grat's app data folder. Entries use the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
+
+  ```json
+  { "Amp": { "command": "amp-acp", "args": [], "env": {} } }
+  ```
 - git (Xcode Command Line Tools) — used for per-turn checkpoints
 
 ## Run
@@ -44,8 +63,8 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - **Dev server** (`src/main/dev-server.ts`) — runs the dev script in a PTY through your login shell, detects the printed URL, and only marks it ready once a listener in *its own process group* owns the port. If another project's server shadows `localhost` on the other address family, the preview pins to `127.0.0.1` or `[::1]`.
 - **Selection** (`src/main/inspector.ts`) — Chrome DevTools Protocol `Overlay.setInspectMode`, the same picker DevTools uses, so nothing is injected into your DOM. HTML, attributes, computed styles, and the box come from protocol commands that page scripts can't spoof; only the React owner chain is read from the page, and it's validated. Element data is sent to the agent marked as untrusted.
 - **Source mapping** (`src/main/source-resolver.ts`) — React 19 records where each JSX element was created (`_debugStack`); Grat resolves that frame through the dev server's source maps to `file:line`. Exact for Vite and Next.js (Turbopack); approximate for Next.js (webpack). Server-rendered pages wait for hydration before reading fibers.
-- **Agents** (`src/main/agent.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com) via `@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp`, run on Electron's bundled Node. Each session keeps the permission mode your own agent config picks, and your CLAUDE.md, hooks, and Codex config apply as usual. When the agent asks, Grat auto-approves edits to ordinary source files in the project and asks you in the chat about everything else — config files, dotfiles, lockfiles, scripts, `package.json`, and commands.
-- **Preview tools for the agent** (`src/main/mcp-server.ts`, `preview-tools.ts`) — each window serves an MCP server on loopback (random port, bearer token) that Grat passes to every agent session. Agents can `preview_screenshot` (an element, the full page, or at a viewport width like 390), `preview_inspect` (computed styles, box, and source file for a selector), `preview_console`, `preview_navigate`, `preview_reload`, and `dev_server_logs` — so they check their own visual changes instead of guessing.
+- **Agents** (`src/main/agents.ts`, `agent.ts`, `agent-status.ts`, `chat.ts`) — spoken to over the [Agent Client Protocol](https://agentclientprotocol.com). Claude Code and Codex run through the bundled `@agentclientprotocol/claude-agent-acp` and `@agentclientprotocol/codex-acp` adapters on Electron's Node; every other agent is its own CLI, found on your login-shell PATH. On launch Grat checks the bundled agents and the one you picked by starting (but not prompting) a session; **Check again** on the start screen checks every installed agent. Each session keeps the permission mode your own agent config picks, and that agent's own config (CLAUDE.md, hooks, Codex/Gemini/OpenCode settings, …) applies as usual. When the agent asks, Grat auto-approves edits to ordinary source files in the project and asks you in the chat about everything else — config files, dotfiles, lockfiles, scripts, `package.json`, and commands.
+- **Preview tools for the agent** (`src/main/mcp-server.ts`, `preview-tools.ts`) — each window serves an MCP server on loopback (random port, bearer token) that Grat passes to every agent session that accepts HTTP MCP servers. Agents can `preview_screenshot` (an element, the full page, or at a viewport width like 390), `preview_inspect` (computed styles, box, and source file for a selector), `preview_console`, `preview_navigate`, `preview_reload`, and `dev_server_logs` — so they check their own visual changes instead of guessing.
 - **Errors** (`src/main/problems.ts`) — console errors since the last navigation and dev-server build errors since the last successful rebuild show above the composer with a **Fix** button, and ride along with every prompt as untrusted context.
 - **History** (`src/main/history.ts`) — each project's transcript, checkpoints, and agent session are saved, so after a restart the chat is still there, old turns can still be undone, and the agent resumes its session (ACP `session/load`) with its memory.
 - **Checkpoints** (`src/main/checkpoints.ts`) — before and after every turn the working tree is snapshotted into a shadow git repo under the app's data folder (your `.git` is never touched). **Undo** restores the files that turn (and any later ones) changed to how they were before it; files you edited yourself are left alone. **Redo** reverses the undo.
@@ -55,7 +74,7 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - `bun run dev` — app with hot reload
 - `bun run build` — production bundle in `out/`
 - `bun run dist` — packaged macOS app in `release/` (see below)
-- `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GRAT_E2E_AGENT=claude|codex`, since they use real usage)
+- `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GRAT_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, or `opencode`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
 
 ## Packaging

@@ -10,7 +10,7 @@ import {
   Tablet,
 } from 'lucide-react'
 import { type FormEvent, useState } from 'react'
-import { AGENTS, type Viewport, type WindowState } from '../../../shared/types'
+import { agentName, type Viewport, type WindowState } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton } from '../lib/ui'
@@ -23,7 +23,6 @@ const VIEWPORTS: { id: Viewport; label: string; icon: typeof Monitor }[] = [
 
 export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
-  const agent = AGENTS.find((a) => a.id === state.agentId)
 
   return (
     <header className="drag flex h-11 shrink-0 items-center gap-1.5 border-b border-line bg-surface pr-2 pl-[84px]">
@@ -97,7 +96,7 @@ export function Toolbar({ state }: { state: WindowState }) {
         onClick={() => grat.showAgentMenu()}
         className="no-drag flex h-7 items-center gap-1 rounded-md px-2 text-[12px] font-medium text-muted hover:bg-hover hover:text-fg"
       >
-        {agent?.name}
+        {agentName(state.agentId)}
         <ChevronDown className="size-3.5 text-subtle" aria-hidden="true" />
       </button>
 

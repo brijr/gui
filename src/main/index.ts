@@ -12,9 +12,11 @@ import {
   session,
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
-import { AGENTS, type AgentId, type Rect, type Viewport } from '../shared/types'
+import { isAgentId, type Rect, type Viewport } from '../shared/types'
 import { agentHealth } from './agent-status'
+import { agentMenuItems } from './agents'
 import { isLoopback } from './loopback'
+import { getPrefs } from './prefs'
 import { loadRecent } from './recent'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
@@ -122,8 +124,7 @@ function registerIpc() {
   ipcMain.handle(Invoke.redo, (event) => windowFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => windowFor(event)?.fixProblems() ?? false)
   ipcMain.handle(Invoke.signIn, async (_event, agentId: unknown) => {
-    const agent = AGENTS.find((a) => a.id === agentId)
-    if (agent) await agentHealth.signIn(agent.id)
+    if (isAgentId(agentId)) await agentHealth.signIn(agentId)
   })
 
   const on = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
@@ -144,11 +145,8 @@ function registerIpc() {
       (root) => openSafely(win, root),
     ),
   )
-  on(Send.setAgent, (win, agentId) => {
-    const agent = AGENTS.find((a) => a.id === agentId)
-    if (agent) win.setAgent(agent.id)
-  })
-  on(Send.checkAgents, () => agentHealth.checkAll())
+  on(Send.setAgent, (win, agentId) => isAgentId(agentId) && win.setAgent(agentId))
+  on(Send.checkAgents, () => void agentHealth.checkAll())
   on(Send.navigate, (win, url) => isString(url) && win.navigate(url))
   on(Send.back, (win) => win.back())
   on(Send.forward, (win) => win.forward())
@@ -287,11 +285,8 @@ function buildMenu() {
     {
       label: 'Agent',
       submenu: [
-        ...AGENTS.map(
-          (agent): MenuItemConstructorOptions => ({
-            label: agent.name,
-            click: withWindow((w) => w.setAgent(agent.id as AgentId)),
-          }),
+        ...agentMenuItems(agentHealth.list(), agentHealth.customError, null, (id) =>
+          focusedWindow()?.setAgent(id),
         ),
         { type: 'separator' },
         {
@@ -317,12 +312,16 @@ app.whenReady().then(() => {
   lockDownSessions()
   registerIpc()
   buildMenu()
+  // The Agent menu lists what's installed and signed in.
+  agentHealth.on('change', buildMenu)
+  // Pick up agents installed (or added to agents.json) while Grat was in the background.
+  app.on('browser-window-focus', () => void agentHealth.rescan())
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
   const win = createWindow()
-  // Know up front whether each agent is ready or needs sign-in; costs no usage.
-  agentHealth.checkAll()
+  // Know up front whether the likely agents are ready or need sign-in; costs no usage.
+  void agentHealth.checkOnLaunch(getPrefs().agentId)
   const initial = process.env.GRAT_OPEN
   if (initial) openSafely(win, resolve(initial))
 })

@@ -5,6 +5,7 @@ import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
 import type { AgentId } from '../shared/types'
+import { type AgentDefinition, findExecutable, resolveAgent } from './agents'
 import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
@@ -30,33 +31,30 @@ function sessionMeta(id: AgentId) {
   return { claudeCode: { options: { allowedTools } } }
 }
 
-const ADAPTERS: Record<AgentId, string> = {
-  claude: '@agentclientprotocol/claude-agent-acp',
-  codex: '@agentclientprotocol/codex-acp',
-}
-
 /**
- * Both adapters are Node programs; run them on Electron's bundled Node runtime.
+ * Bundled adapters are Node programs; run them on Electron's bundled Node runtime.
  * The bootstrap drops ELECTRON_RUN_AS_NODE once Node is up, so it doesn't leak into
  * commands the agent runs (it would break any Electron binary they start).
+ * Every other agent is a CLI the user installed, resolved on their login-shell PATH.
  */
-function spawnSpec(id: AgentId): SpawnSpec {
-  const entry = pathToFileURL(join(packageDir(ADAPTERS[id]), 'dist/index.js')).href
-  const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
-  const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' }
-  // codex-acp otherwise launches `process.execPath codex.js`, which in a packaged app
-  // is Grat itself, so point it at Codex's native binary.
-  if (id === 'codex') env.CODEX_PATH = codexBinary()
-  return { command: process.execPath, args: ['-e', bootstrap], env }
-}
-
-function codexBinary() {
-  const fromCodex = createRequire(require.resolve('@openai/codex/package.json'))
-  const pkg = dirname(
-    fromCodex.resolve(`@openai/codex-${process.platform}-${process.arch}/package.json`),
-  )
-  const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`
-  return join(pkg, 'vendor', triple, 'bin', 'codex').replace('app.asar', 'app.asar.unpacked')
+async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promise<SpawnSpec> {
+  const { launch } = agent
+  if (launch.kind === 'adapter') {
+    const entry = pathToFileURL(join(packageDir(launch.package), 'dist/index.js')).href
+    const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
+    return {
+      command: process.execPath,
+      args: ['-e', bootstrap],
+      env: { ELECTRON_RUN_AS_NODE: '1', ...launch.env?.() },
+    }
+  }
+  const command = await findExecutable(launch.command, env.PATH)
+  if (!command) {
+    throw new Error(
+      `${agent.name} isn't installed: \`${launch.command}\` isn't on your PATH. Install it, then try again.`,
+    )
+  }
+  return { command, args: launch.args, env: launch.env }
 }
 
 export type PermissionResolver = (optionId: string | null) => void
@@ -72,6 +70,8 @@ export interface AgentInfo {
   /** True when an earlier session was resumed, so the agent remembers prior turns */
   resumed: boolean
   supportsImages: boolean
+  /** Grat's preview tools were offered (the agent takes HTTP MCP servers) */
+  previewTools: boolean
   modeName: string | null
   modes: { id: string; name: string }[]
 }
@@ -100,11 +100,32 @@ export class AgentAuthError extends Error {
   }
 }
 
-function isAuthError(error: unknown) {
+/** The useful part of an agent's error; some put it in `data` behind a generic message. */
+function errorDetail(error: unknown) {
+  if (error instanceof acp.RequestError && typeof error.data === 'string' && error.data.trim()) {
+    return error.data.trim()
+  }
+  return error instanceof Error ? error.message : String(error)
+}
+
+function isAuthError(error: unknown, agent: AgentDefinition) {
   const code = (error as { code?: unknown } | null)?.code
-  const message = error instanceof Error ? error.message : String(error)
+  const message = errorDetail(error)
   // -32000 is ACP's auth_required.
-  return code === -32000 || /auth|log ?in|sign ?in|credential|api key/i.test(message)
+  return (
+    code === -32000 ||
+    /auth|log ?in|sign ?in|credential|api key/i.test(message) ||
+    agent.setupError?.test(message) === true
+  )
+}
+
+/** The agent's own reason (when it says more than "auth required") plus how to sign in. */
+function signInMessage(agent: AgentDefinition, error: unknown) {
+  const detail = errorDetail(error)
+    .replace(/^Authentication required:?\s*/i, '')
+    .trim()
+  const lead = detail ? detail.replace(/[.\s]*$/, '.') : `${agent.name} is not signed in.`
+  return agent.signIn ? `${lead} ${agent.signIn}` : lead
 }
 
 /** One ACP agent process with a single session rooted at the project. */
@@ -124,8 +145,10 @@ export class AgentSession {
   ) {}
 
   async start({ mcpServers, resumeSessionId, authenticate }: StartOptions): Promise<AgentInfo> {
-    const spec = spawnSpec(this.agentId)
-    const shellEnv = await getShellEnv()
+    // Looked up at start, so edits to agents.json apply to the next session.
+    const [definition, shellEnv] = await Promise.all([resolveAgent(this.agentId), getShellEnv()])
+    if (this.disposed) throw new Error('Agent was stopped')
+    const spec = await spawnSpec(definition, shellEnv)
     if (this.disposed) throw new Error('Agent was stopped')
     // Own process group, so dispose() can stop the agent and everything it started.
     const child = spawn(spec.command, spec.args, {
@@ -182,6 +205,12 @@ export class AgentSession {
       }),
     )
 
+    // ACP clients may only pass HTTP MCP servers to agents that advertise support.
+    const httpMcp = init.agentCapabilities?.mcpCapabilities?.http === true
+    const servers = mcpServers.filter(
+      (server) => httpMcp || !('type' in server && server.type === 'http'),
+    )
+
     if (authenticate) {
       await this.untilExit(
         agent.request(acp.methods.agent.authenticate, { methodId: authenticate }),
@@ -197,7 +226,7 @@ export class AgentSession {
         agent.request(acp.methods.agent.session.load, {
           sessionId: resumeSessionId,
           cwd: this.cwd,
-          mcpServers,
+          mcpServers: servers,
           _meta: sessionMeta(this.agentId),
         }),
       ).catch(() => null)
@@ -209,17 +238,20 @@ export class AgentSession {
     session ??= await this.untilExit(
       agent.request(acp.methods.agent.session.new, {
         cwd: this.cwd,
-        mcpServers,
+        mcpServers: servers,
         _meta: sessionMeta(this.agentId),
       }),
     ).catch((error: unknown) => {
-      if (!isAuthError(error)) throw error
-      const methods = (init.authMethods ?? []).map((method) => ({
-        id: method.id,
-        name: method.name,
-        description: method.description ?? null,
-      }))
-      throw new AgentAuthError(signInMessage(this.agentId), methods)
+      if (!isAuthError(error, definition)) throw new Error(errorDetail(error))
+      // Only offer sign-in flows Grat knows open a browser; others are run in a terminal.
+      const methods = definition.inAppSignIn
+        ? (init.authMethods ?? []).map((method) => ({
+            id: method.id,
+            name: method.name,
+            description: method.description ?? null,
+          }))
+        : []
+      throw new AgentAuthError(signInMessage(definition, error), methods)
     })
     this.sessionId = session.sessionId
 
@@ -233,6 +265,7 @@ export class AgentSession {
       sessionId: session.sessionId,
       resumed,
       supportsImages: init.agentCapabilities?.promptCapabilities?.image === true,
+      previewTools: servers.length > 0,
       modeName,
       modes: modeList,
     }
@@ -287,10 +320,4 @@ function killGroup(pid: number, signal: NodeJS.Signals) {
       // already gone
     }
   }
-}
-
-function signInMessage(agentId: AgentId) {
-  return agentId === 'claude'
-    ? 'Claude Code is not signed in. Run `claude` in a terminal and use /login, then try again.'
-    : 'Codex is not signed in. Sign in with ChatGPT from the Grat start screen, or run `codex login`.'
 }

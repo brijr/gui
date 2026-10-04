@@ -7,8 +7,8 @@ import type {
   SessionNotification,
 } from '@agentclientprotocol/sdk'
 import {
-  AGENTS,
   type AgentId,
+  agentName,
   type ChatMeta,
   type ChatSnapshot,
   type ElementContext,
@@ -88,7 +88,6 @@ const PREVIEW_TOOL_TITLE = new RegExp(
   `^(?:mcp__${MCP_SERVER_NAME}__|mcp\\.${MCP_SERVER_NAME}\\.)(${Object.keys(PREVIEW_TOOL_LABELS).join('|')})$`,
 )
 
-const agentName = (id: AgentId) => AGENTS.find((agent) => agent.id === id)?.name ?? id
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -375,6 +374,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         problems: this.meta.problems,
         preamble: this.primedAgent !== agent,
         images: info.supportsImages,
+        previewTools: info.previewTools,
       })
       this.primedAgent = agent
       const response = await agent.prompt(blocks)

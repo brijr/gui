@@ -1,4 +1,4 @@
-import type { AgentId } from '../src/shared/types'
+import { AGENTS, type AgentId } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
 import type { GratSession } from './helpers/session'
@@ -6,8 +6,9 @@ import { expect, test } from './helpers/test'
 
 // Real agent turns spend usage on the developer's own login, so they only run on request.
 const requested = process.env.GRAT_E2E_AGENT || undefined
-if (requested !== undefined && requested !== 'claude' && requested !== 'codex') {
-  throw new Error(`GRAT_E2E_AGENT must be "claude" or "codex", got "${requested}"`)
+if (requested !== undefined && !AGENTS.some((agent) => agent.id === requested)) {
+  const ids = AGENTS.map((agent) => agent.id).join(', ')
+  throw new Error(`GRAT_E2E_AGENT must be one of ${ids}; got "${requested}"`)
 }
 
 const BUTTON = 'button.counter'
@@ -56,11 +57,11 @@ async function finishTurn(session: GratSession, index: number, approved: string[
 // The product in one run: ask for a change on a picked element, see it land through hot
 // reload, then undo must put the project back exactly as it was and redo must reapply it.
 test.describe('agent turn', () => {
-  test.skip(!requested, 'Set GRAT_E2E_AGENT=claude|codex to run agent turns (spends real usage)')
+  test.skip(!requested, 'Set GRAT_E2E_AGENT to an agent id to run agent turns (spends real usage)')
 
   test('edit, undo and redo round-trip the picked element', async ({ launch }) => {
     test.setTimeout(10 * 60_000)
-    const agentId: AgentId = requested === 'codex' ? 'codex' : 'claude'
+    const agentId: AgentId = requested ?? 'claude'
     const session = await launch({ fixture: 'vite' })
     const { root } = session.fixture
     await session.waitForPreview()

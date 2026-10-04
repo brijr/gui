@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
-import type { AgentId, Turn } from '../shared/types'
+import { type AgentId, DEFAULT_AGENT_ID, isAgentId, type Turn } from '../shared/types'
 
 /** Everything needed to reopen a project's chat where it left off, including undo. */
 export interface SavedChat {
@@ -30,7 +30,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
     if (parsed.version !== 1 || !Array.isArray(parsed.turns)) return null
     return {
       version: 1,
-      agentId: parsed.agentId === 'codex' ? 'codex' : 'claude',
+      agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
       sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : null,
       // A turn still running when the app quit didn't finish.
       turns: parsed.turns.map((turn) =>

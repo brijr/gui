@@ -1,6 +1,6 @@
 import { Check, FolderOpen, TriangleAlert } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { AGENTS, type AgentHealth, type WindowState } from '../../../shared/types'
+import type { AgentHealth, WindowState } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, Spinner } from '../lib/ui'
@@ -201,6 +201,10 @@ function EmptyState({ state }: { state: WindowState }) {
 }
 
 function Agents({ state }: { state: WindowState }) {
+  const installed = state.agents.filter(
+    (agent) => agent.status !== 'not-installed' || agent.id === state.agentId,
+  )
+  const missing = state.agents.filter((agent) => !installed.includes(agent))
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between">
@@ -214,17 +218,22 @@ function Agents({ state }: { state: WindowState }) {
         </button>
       </div>
       <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
-        {state.agents.map((health) => (
+        {installed.map((health) => (
           <AgentRow key={health.id} health={health} selected={health.id === state.agentId} />
         ))}
       </ul>
+      {missing.length > 0 && (
+        <p className="text-pretty text-[11.5px] text-subtle">
+          Also works with {missing.map((agent) => agent.name).join(', ')} once installed.
+        </p>
+      )}
     </div>
   )
 }
 
 function AgentRow({ health, selected }: { health: AgentHealth; selected: boolean }) {
   const [error, setError] = useState<string | null>(null)
-  const name = AGENTS.find((agent) => agent.id === health.id)?.name ?? health.id
+  const name = health.name
   const busy = health.status === 'checking' || health.status === 'signing-in'
 
   const signIn = async () => {
@@ -286,6 +295,8 @@ function AgentStatusLabel({ health }: { health: AgentHealth }) {
       return <span className="text-[11.5px] text-warning">Not signed in</span>
     case 'error':
       return <span className="text-[11.5px] text-danger">Unavailable</span>
+    case 'not-installed':
+      return <span className="text-[11.5px] text-subtle">Not installed</span>
     default:
       return null
   }

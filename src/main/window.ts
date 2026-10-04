@@ -12,8 +12,8 @@ import {
 } from 'electron'
 import { Events } from '../shared/ipc'
 import {
-  AGENTS,
   type AgentId,
+  agentName,
   type ChatSnapshot,
   type DevServerState,
   type PreviewState,
@@ -23,6 +23,7 @@ import {
   type WindowState,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
+import { agentMenuItems } from './agents'
 import { ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
@@ -204,11 +205,10 @@ export class ProjectWindow {
 
   getChat(): ChatSnapshot {
     if (this.chat) return this.chat.snapshot()
-    const agent = AGENTS.find((a) => a.id === this.state.agentId) ?? AGENTS[0]
     return {
       meta: {
-        agentId: agent.id,
-        agentName: agent.name,
+        agentId: this.state.agentId,
+        agentName: agentName(this.state.agentId),
         status: 'idle',
         error: null,
         modeName: null,
@@ -585,6 +585,7 @@ export class ProjectWindow {
   }
 
   setAgent(agentId: AgentId) {
+    if (!agentHealth.has(agentId)) return
     setPrefs({ agentId })
     this.patch({ agentId })
     void this.chat?.setAgent(agentId)
@@ -785,22 +786,9 @@ export class ProjectWindow {
 
   showAgentMenu() {
     const template: MenuItemConstructorOptions[] = [
-      ...AGENTS.map((agent): MenuItemConstructorOptions => {
-        const health = this.state.agents.find((h) => h.id === agent.id)
-        const note =
-          health?.status === 'signed-out'
-            ? 'Not signed in'
-            : health?.status === 'error'
-              ? 'Unavailable'
-              : undefined
-        return {
-          label: agent.name,
-          sublabel: note,
-          type: 'radio',
-          checked: agent.id === this.state.agentId,
-          click: () => this.setAgent(agent.id),
-        }
-      }),
+      ...agentMenuItems(agentHealth.list(), agentHealth.customError, this.state.agentId, (id) =>
+        this.setAgent(id),
+      ),
       { type: 'separator' },
       { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
     ]

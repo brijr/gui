@@ -1,19 +1,49 @@
-export type AgentId = 'claude' | 'codex'
+/** A built-in agent's id, or `custom:<name>` for one the user added in agents.json */
+export type AgentId = string
 
 export interface AgentInfo {
   id: AgentId
   name: string
 }
 
+/** Built-in agents, in menu order. */
 export const AGENTS: readonly AgentInfo[] = [
   { id: 'claude', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
+  { id: 'auggie', name: 'Auggie' },
+  { id: 'cursor', name: 'Cursor' },
+  { id: 'gemini', name: 'Gemini CLI' },
+  { id: 'copilot', name: 'GitHub Copilot' },
+  { id: 'goose', name: 'goose' },
+  { id: 'grok', name: 'Grok Build' },
+  { id: 'kiro', name: 'Kiro' },
+  { id: 'vibe', name: 'Mistral Vibe' },
+  { id: 'opencode', name: 'OpenCode' },
+  { id: 'qwen', name: 'Qwen Code' },
 ]
+
+export const DEFAULT_AGENT_ID: AgentId = 'claude'
+export const CUSTOM_AGENT_PREFIX = 'custom:'
+
+/** Built-in ids, or a custom id (which may no longer exist in agents.json). */
+export function isAgentId(value: unknown): value is AgentId {
+  if (typeof value !== 'string') return false
+  if (value.startsWith(CUSTOM_AGENT_PREFIX)) return value.length > CUSTOM_AGENT_PREFIX.length
+  return AGENTS.some((agent) => agent.id === value)
+}
+
+export function agentName(id: AgentId) {
+  if (id.startsWith(CUSTOM_AGENT_PREFIX)) return id.slice(CUSTOM_AGENT_PREFIX.length)
+  return AGENTS.find((agent) => agent.id === id)?.name ?? id
+}
 
 export interface AgentHealth {
   id: AgentId
-  status: 'unknown' | 'checking' | 'signing-in' | 'ready' | 'signed-out' | 'error'
+  name: string
+  status: 'unknown' | 'not-installed' | 'checking' | 'signing-in' | 'ready' | 'signed-out' | 'error'
   message: string | null
+  /** The CLI Grat runs for this agent; null for the bundled adapters */
+  command: string | null
   /** A sign-in flow Grat can start for this agent, when it offers one */
   signIn: { methodId: string; label: string } | null
 }
