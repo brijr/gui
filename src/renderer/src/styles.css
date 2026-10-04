@@ -138,6 +138,28 @@
   --elevation-popover: 0 8px 24px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
   /* Stays within the floating chat view's transparent margin (PANEL_SHADOW_MARGIN, 18px). */
   --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.06);
+
+  /*
+   * The drawer's terminals (app/xterm.ts): the 16 ANSI colors programs print in, on --canvas.
+   * The normal ones keep 4.5:1; "white" is a gray here, as light terminal themes make it.
+   */
+  --terminal-black: #24292f;
+  --terminal-red: #cf222e;
+  --terminal-green: #116329;
+  --terminal-yellow: #7d4e00;
+  --terminal-blue: #0550ae;
+  --terminal-magenta: #6639ba;
+  --terminal-cyan: #116a73;
+  --terminal-white: #59636e;
+  --terminal-bright-black: #57606a;
+  --terminal-bright-red: #a40e26;
+  --terminal-bright-green: #1a7f37;
+  --terminal-bright-yellow: #633c01;
+  --terminal-bright-blue: #0969da;
+  --terminal-bright-magenta: #8250df;
+  --terminal-bright-cyan: #1b7c83;
+  --terminal-bright-white: #6e7781;
+  --terminal-selection: rgb(0 102 255 / 0.2);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -171,6 +193,24 @@
     --elevation-panel:
       0 4px 14px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(0 0 0 / 0.5),
       inset 0 1px 0 rgb(255 255 255 / 0.07);
+
+    --terminal-black: #768390;
+    --terminal-red: #ff7b72;
+    --terminal-green: #3fb950;
+    --terminal-yellow: #d29922;
+    --terminal-blue: #58a6ff;
+    --terminal-magenta: #bc8cff;
+    --terminal-cyan: #39c5cf;
+    --terminal-white: #b1bac4;
+    --terminal-bright-black: #8b949e;
+    --terminal-bright-red: #ffa198;
+    --terminal-bright-green: #56d364;
+    --terminal-bright-yellow: #e3b341;
+    --terminal-bright-blue: #79c0ff;
+    --terminal-bright-magenta: #d2a8ff;
+    --terminal-bright-cyan: #56d4dd;
+    --terminal-bright-white: #f0f6fc;
+    --terminal-selection: rgb(92 157 255 / 0.3);
   }
 }
 

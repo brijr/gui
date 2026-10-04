@@ -3,6 +3,7 @@ import type {
   ChatMeta,
   ChatSnapshot,
   CustomAgentEntry,
+  DrawerTab,
   ImageAttachment,
   PanelCorner,
   PanelEdge,
@@ -13,6 +14,7 @@ import type {
   ShipRequest,
   ShipResult,
   StorageKind,
+  TerminalId,
   Turn,
   Viewport,
   WindowState,
@@ -22,6 +24,7 @@ import type {
 export const Invoke = {
   getState: 'state:get',
   getLogs: 'logs:get',
+  getTerminal: 'terminal:get',
   getChat: 'chat:get',
   openProject: 'project:open',
   openRecent: 'project:open-recent',
@@ -61,8 +64,16 @@ export const Send = {
   stopSelecting: 'preview:select-stop',
   setCanvasRect: 'layout:canvas',
   toggleChat: 'chat:toggle',
-  setLogsOpen: 'logs:open',
+  setDrawerOpen: 'drawer:open',
+  showLogs: 'drawer:logs',
+  selectDrawerTab: 'drawer:select',
   resizeLogs: 'logs:resize',
+  newTerminal: 'terminal:new',
+  closeTerminal: 'terminal:close',
+  restartTerminal: 'terminal:restart',
+  writeTerminal: 'terminal:write',
+  resizeTerminal: 'terminal:resize',
+  clearTerminal: 'terminal:clear',
   cancel: 'chat:cancel',
   respondPermission: 'chat:permission',
   newSession: 'chat:new',
@@ -93,10 +104,15 @@ export const Send = {
   openCustomAgentsFile: 'settings:open-agents-file',
 } as const
 
+/** The most a single `writeTerminal` carries; the drawer sends longer pastes in pieces. */
+export const MAX_TERMINAL_INPUT = 64 * 1024
+
 /** Main → renderer */
 export const Events = {
   state: 'state',
   logs: 'logs',
+  terminalData: 'terminal:data',
+  drawerFocus: 'drawer:focus',
   chatMeta: 'chat:meta',
   chatTurn: 'chat:turn',
   chatReset: 'chat:reset',
@@ -108,6 +124,12 @@ export const Events = {
 } as const
 
 export type Unsubscribe = () => void
+
+/** Output from one of the active tab's terminals */
+export interface TerminalOutput {
+  id: TerminalId
+  data: string
+}
 
 export interface GuiApi {
   getState(): Promise<WindowState>
@@ -167,9 +189,35 @@ export interface GuiApi {
   /** Ends element picking (the chat bubble's click) */
   stopSelecting(): void
   setCanvasRect(rect: Rect): void
+  /** Shows or hides the chat panel, as the toolbar's button does */
   toggleChat(): void
-  setLogsOpen(open: boolean): void
+
+  /**
+   * The drawer under the canvas (`WindowState.drawer`), from the chrome only: the dev server's
+   * output and the project's terminals. Opening it shows the tab it showed last.
+   */
+  setDrawerOpen(open: boolean): void
+  /** Opens the drawer on the dev server's output: "Show logs" */
+  showLogs(): void
+  selectDrawerTab(tab: DrawerTab): void
+  /** Main asks the drawer to put the keyboard in a tab (⌘J, a new terminal) */
+  onDrawerFocus(cb: (tab: DrawerTab) => void): Unsubscribe
   resizeLogs(cols: number, rows: number): void
+
+  /** Starts the user's login shell in a new terminal at the project root, and shows it */
+  newTerminal(): void
+  /** Ends the terminal's shell and everything it started, and removes its tab */
+  closeTerminal(id: TerminalId): void
+  /** A new shell in place of one that exited */
+  restartTerminal(id: TerminalId): void
+  /** What the terminal has shown recently, to draw it again after switching tabs */
+  getTerminal(id: TerminalId): Promise<string>
+  onTerminalData(cb: (output: TerminalOutput) => void): Unsubscribe
+  /** Keystrokes and pastes, up to `MAX_TERMINAL_INPUT` characters at a time */
+  writeTerminal(id: TerminalId, data: string): void
+  resizeTerminal(id: TerminalId, cols: number, rows: number): void
+  /** Forgets the terminal's output so far (⌘K); the shell isn't told */
+  clearTerminal(id: TerminalId): void
 
   getChat(): Promise<ChatSnapshot>
   onChatMeta(cb: (meta: ChatMeta) => void): Unsubscribe

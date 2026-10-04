@@ -184,12 +184,14 @@ test('a failed install says so in the address bar and offers its output', async 
     "Couldn't install dependencies",
   )
   // The output waits behind the card's button rather than opening on its own.
-  expect(failed.logsOpen).toBe(false)
+  expect(failed.drawer.open).toBe(false)
   await expect(session.chrome.getByText("Couldn't install dependencies")).toHaveCount(1)
   await session.shot('install-failed')
   await session.chrome.getByRole('button', { name: 'Show output' }).click()
-  await waitFor(async () => (await session.state()).logsOpen, 'the output to open')
-  await expect(session.chrome.getByRole('heading', { name: 'Logs', exact: true })).toBeVisible()
+  await waitFor(async () => (await session.state()).drawer.open, 'the output to open')
+  await expect(
+    session.chrome.getByRole('tab', { name: 'Dev server', selected: true }),
+  ).toBeVisible()
 })
 
 test('a monorepo asks which app to preview, then runs the one picked', async ({ open }) => {

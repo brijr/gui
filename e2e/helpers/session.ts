@@ -28,6 +28,8 @@ export interface LaunchOptions {
   open?: 'project' | 'recent'
   /** Playwright emulates light on attached pages; this is how a test asks for dark. */
   colorScheme?: 'light' | 'dark'
+  /** More environment for the app, e.g. the `SHELL` its terminals start */
+  env?: Record<string, string>
 }
 
 export interface ConsentPrompt {
@@ -90,9 +92,11 @@ async function drawLayers({ width, height, out }: Layers): Promise<string> {
 
 /** A launched Gui window plus the helpers every test needs to drive and inspect it. */
 export class GuiSession {
+  private closing: Promise<void> | null = null
+
   constructor(
     readonly app: ElectronApplication,
-    /** The app chrome (toolbar, canvas, logs drawer): `index.html`. */
+    /** The app chrome (toolbar, canvas, drawer): `index.html`. */
     readonly chrome: Page,
     /** The floating chat panel: `chat.html`. */
     readonly chat: Page,
@@ -242,8 +246,10 @@ export class GuiSession {
     await this.attach('window-state.json', JSON.stringify(state, null, 2))
   }
 
+  /** Quits the app; again (as the fixture does after a test that quit it) does nothing. */
   close(): Promise<void> {
-    return closeApp(this.app)
+    this.closing ??= closeApp(this.app)
+    return this.closing
   }
 
   private attach(name: string, body: string) {
@@ -301,6 +307,7 @@ export async function launchGui(
     executablePath: electronExecutable(),
     args: [REPO_ROOT, `--user-data-dir=${copy.userData}`],
     env: launchEnv({
+      ...options.env,
       GUI_OPEN: options.open === 'recent' ? '' : copy.root,
       GUI_AGENT_STAND_INS: standInsFile(copy),
     }),

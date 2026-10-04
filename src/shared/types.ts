@@ -122,6 +122,43 @@ export interface DevServerState {
   slow: boolean
 }
 
+/** One of a project's terminals: the user's own shell, in the drawer under the canvas */
+export type TerminalId = `terminal-${number}`
+
+export function isTerminalId(value: unknown): value is TerminalId {
+  return typeof value === 'string' && /^terminal-\d{1,9}$/.test(value)
+}
+
+/** A tab of the drawer: the dev server's output, or a terminal */
+export type DrawerTab = 'server' | TerminalId
+
+export function isDrawerTab(value: unknown): value is DrawerTab {
+  return value === 'server' || isTerminalId(value)
+}
+
+export interface TerminalInfo {
+  id: TerminalId
+  /** "Terminal", "Terminal 2"… */
+  title: string
+  /** Its shell has exited; the drawer offers to start a new one in its place */
+  exited: boolean
+}
+
+/** What the drawer shows once terminal `id` closes: the next one, the one before, or the logs. */
+export function drawerNeighbor(terminals: readonly TerminalInfo[], id: TerminalId): DrawerTab {
+  const index = terminals.findIndex((terminal) => terminal.id === id)
+  return terminals[index + 1]?.id ?? terminals[index - 1]?.id ?? 'server'
+}
+
+/** The drawer under the canvas (⌘J): the dev server's output and the project's terminals */
+export interface DrawerState {
+  open: boolean
+  /** The tab it shows, or showed when last open; null until the first time it opens */
+  tab: DrawerTab | null
+  /** In tab order; a terminal only exists once the user has opened it */
+  terminals: TerminalInfo[]
+}
+
 /**
  * The preview's viewports, in toolbar and View menu order (⌘1…⌘4). Desktop fills the canvas;
  * the others are device frames: the page lays out at exactly `size` (CSS pixels), drawn
@@ -202,7 +239,7 @@ export interface WindowState {
   preview: PreviewState
   agentId: AgentId
   chatVisible: boolean
-  logsOpen: boolean
+  drawer: DrawerState
   recent: RecentProject[]
   /** The user's home folder, so paths can show it as ~ */
   home: string

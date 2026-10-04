@@ -311,10 +311,10 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
   await session.shot('laptop-small')
 
   // The logs drawer and a docked chat leave less room: smaller again, the same page.
-  await session.chrome.evaluate(() => window.gui.setLogsOpen(true))
+  await session.chrome.evaluate(() => window.gui.showLogs())
   const logs = await expectFrame(session, 'laptop')
   expect(logs.frame.scale).toBeLessThan(small.frame.scale)
-  await session.chrome.evaluate(() => window.gui.setLogsOpen(false))
+  await session.chrome.evaluate(() => window.gui.setDrawerOpen(false))
   await session.chat.evaluate(() => window.gui.toggleDock())
   const docked = await expectFrame(session, 'laptop', { docked: true })
   const chat = docked.chat

@@ -418,7 +418,7 @@ test("a new window's chat panel starts at the bottom-left and stays in its corne
   await session.app.evaluate(setContentSize, smaller)
   const shrunk = await layoutWhen(session, 'the smaller window', resizedTo(smaller))
   expect(gaps(shrunk)).toMatchObject(bottomLeft)
-  await session.chrome.evaluate(() => window.gui.setLogsOpen(true))
+  await session.chrome.evaluate(() => window.gui.showLogs())
   const logs = await layoutWhen(
     session,
     'the canvas above the logs',
@@ -426,7 +426,7 @@ test("a new window's chat panel starts at the bottom-left and stays in its corne
   )
   expect(gaps(logs)).toMatchObject(bottomLeft)
   await session.shot('panel-above-logs')
-  await session.chrome.evaluate(() => window.gui.setLogsOpen(false))
+  await session.chrome.evaluate(() => window.gui.setDrawerOpen(false))
   const closed = await layoutWhen(
     session,
     'the canvas without the logs',

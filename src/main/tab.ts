@@ -24,6 +24,9 @@ import {
   agentName,
   type ChatSnapshot,
   type DevServerState,
+  type DrawerState,
+  type DrawerTab,
+  drawerNeighbor,
   type ElementContext,
   type ImageAttachment,
   type PanelCorner,
@@ -38,6 +41,7 @@ import {
   type ShipRequest,
   type ShipResult,
   type TabStatus,
+  type TerminalId,
   type Viewport,
   type ViewportFrame,
   viewportSpec,
@@ -73,6 +77,7 @@ import {
 import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
+import { Terminals } from './terminals'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
 import { placePreview, ViewportEmulation } from './viewport'
@@ -138,10 +143,12 @@ const idleDevServer = (): DevServerState => ({
   slow: false,
 })
 
+const closedDrawer = (): DrawerState => ({ open: false, tab: null, terminals: [] })
+
 /**
- * One project in a window's tab: its preview and chat views, dev server, agent, inspector,
- * preview tools and problems, plus where its chat panel sits. Only the window's active tab
- * has its views in the window; the others keep running out of sight.
+ * One project in a window's tab: its preview and chat views, dev server, terminals, agent,
+ * inspector, preview tools and problems, plus where its chat panel sits. Only the window's
+ * active tab has its views in the window; the others keep running out of sight.
  */
 export class ProjectTab {
   readonly id = `tab-${++lastTabId}`
@@ -153,6 +160,8 @@ export class ProjectTab {
   private readonly emulation: ViewportEmulation
   private state: TabState
   private devServer: DevServer | null = null
+  /** The project's terminals in the drawer; none run until the user opens one. */
+  private terminals: Terminals | null = null
   private chat: ChatController | null = null
   private mcp: RunningMcpServer | null = null
   /** The current project's preview tools; also used to show how a change turned out. */
@@ -219,7 +228,7 @@ export class ProjectTab {
       },
       agentId: getPrefs().agentId,
       chatVisible: true,
-      logsOpen: false,
+      drawer: closedDrawer(),
       recent: [],
       home: app.getPath('home'),
       agents: agentHealth.list(),
@@ -458,11 +467,17 @@ export class ProjectTab {
       this.devServer = devServer
       this.apps = apps
 
+      // At the root, like the agent: a monorepo's app is a `cd` away.
+      const terminals = new Terminals(project.root)
+      terminals.on('data', (id, data) => this.send(Events.terminalData, { id, data }))
+      terminals.on('change', () => this.patchDrawer({ terminals: terminals.list() }))
+      this.terminals = terminals
+
       this.patch({
         project,
         setup,
         devServer: devServer.state,
-        logsOpen: false,
+        drawer: closedDrawer(),
       })
       this.layout()
 
@@ -532,6 +547,8 @@ export class ProjectTab {
     this.rehighlightTimer = null
     this.devServer?.dispose()
     this.devServer = null
+    this.terminals?.dispose()
+    this.terminals = null
     this.apps = []
     this.chat?.dispose()
     this.chat = null
@@ -552,6 +569,7 @@ export class ProjectTab {
       project: null,
       setup: null,
       devServer: idleDevServer(),
+      drawer: closedDrawer(),
       preview: { ...this.state.preview, url: null, error: null, visible: false, selecting: false },
     })
   }
@@ -576,8 +594,86 @@ export class ProjectTab {
     this.devServer?.resize(cols, rows)
   }
 
-  setLogsOpen(open: boolean) {
-    this.patch({ logsOpen: open })
+  // Drawer: the dev server's output and the terminals
+
+  /**
+   * ⌘J: opens the drawer on the tab it showed last (the first time, a terminal, started now if
+   * there's none yet) and puts the keyboard in it; open, closes it.
+   */
+  toggleDrawer() {
+    const terminals = this.terminals
+    if (!terminals) return
+    if (this.state.drawer.open) return this.setDrawerOpen(false)
+    this.showDrawer(this.state.drawer.tab ?? terminals.list()[0]?.id ?? terminals.create(), true)
+  }
+
+  /** Opened, it shows the tab it showed last; the dev server's output the first time. */
+  setDrawerOpen(open: boolean) {
+    if (open) this.showDrawer(this.state.drawer.tab ?? 'server')
+    else this.patchDrawer({ open: false })
+  }
+
+  /** "Show logs" (the status menu, the crash bar, the canvas's cards): the dev server's output. */
+  showLogs() {
+    this.showDrawer('server')
+  }
+
+  selectDrawerTab(tab: DrawerTab) {
+    this.showDrawer(tab)
+  }
+
+  newTerminal() {
+    const id = this.terminals?.create()
+    if (id) this.showDrawer(id, true)
+  }
+
+  /** Ends the terminal's shell; if it was showing, the drawer shows its neighbor instead. */
+  closeTerminal(id: TerminalId) {
+    const terminals = this.terminals
+    if (!terminals?.has(id)) return
+    if (this.state.drawer.tab === id) {
+      this.patchDrawer({ tab: drawerNeighbor(terminals.list(), id) })
+    }
+    terminals.close(id)
+  }
+
+  restartTerminal(id: TerminalId) {
+    this.terminals?.restart(id)
+  }
+
+  terminalOutput(id: TerminalId) {
+    return this.terminals?.output(id) ?? ''
+  }
+
+  writeTerminal(id: TerminalId, data: string) {
+    this.terminals?.write(id, data)
+  }
+
+  resizeTerminal(id: TerminalId, cols: number, rows: number) {
+    this.terminals?.resize(id, cols, rows)
+  }
+
+  clearTerminal(id: TerminalId) {
+    this.terminals?.clear(id)
+  }
+
+  /** Only a tab the drawer has: the dev server's output, or one of this project's terminals. */
+  private showDrawer(tab: DrawerTab, focus = false) {
+    if (!this.terminals || (tab !== 'server' && !this.terminals.has(tab))) return
+    this.patchDrawer({ open: true, tab })
+    if (focus) this.focusDrawer(tab)
+  }
+
+  /** Puts the keyboard in a drawer tab, which the window's chrome draws. */
+  private focusDrawer(tab: DrawerTab) {
+    if (!this.host.isActive(this)) return
+    // Focusing web contents also raises its window, which a background one mustn't.
+    if (this.host.win.isFocused()) this.host.win.webContents.focus()
+    this.send(Events.drawerFocus, tab)
+  }
+
+  private patchDrawer(patch: Partial<DrawerState>) {
+    this.patch({ drawer: { ...this.state.drawer, ...patch } })
   }
 
   private onDevServer(state: DevServerState) {
@@ -1522,6 +1618,7 @@ export class ProjectTab {
   showDevServerMenu() {
     const { status, url } = this.state.devServer
     const running = status === 'running' || status === 'starting'
+    const showingLogs = this.state.drawer.open && this.state.drawer.tab === 'server'
     const template: MenuItemConstructorOptions[] = [
       running
         ? { label: 'Restart dev server', click: () => this.restartDevServer() }
@@ -1533,11 +1630,8 @@ export class ProjectTab {
       { label: 'Stop dev server', enabled: running, click: () => this.stopDevServer() },
       { type: 'separator' },
       {
-        label: this.state.logsOpen ? 'Hide logs' : 'Show logs',
-        // The View menu's shortcut, shown here as a reminder.
-        accelerator: 'Shift+CmdOrCtrl+L',
-        registerAccelerator: false,
-        click: () => this.setLogsOpen(!this.state.logsOpen),
+        label: showingLogs ? 'Hide logs' : 'Show logs',
+        click: () => (showingLogs ? this.setDrawerOpen(false) : this.showLogs()),
       },
       {
         label: 'Open in browser',
@@ -1641,7 +1735,10 @@ export class ProjectTab {
 
   private onAgentHealth = (agents: TabState['agents']) => this.patch({ agents })
 
-  /** Stops the tab's dev server and agent and closes its pages; it's out of its window. */
+  /**
+   * Stops the tab's dev server, terminals and agent and closes its pages; it's out of its
+   * window.
+   */
   dispose() {
     if (this.disposed) return
     this.disposed = true
@@ -1649,6 +1746,7 @@ export class ProjectTab {
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()
     this.devServer?.dispose()
+    this.terminals?.dispose()
     this.chat?.dispose()
     this.mcp?.close()
     this.emulation.dispose()

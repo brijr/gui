@@ -31,8 +31,8 @@ test('double openRecent yields one window and one dev server', async ({ launch }
   expect((await session.state()).project?.root).toBe(root)
   expect(devServerPids(root)).toHaveLength(1)
 
-  // The logs drawer streams the dev server's own output (not just the echoed command).
-  await session.chrome.evaluate(() => window.gui.setLogsOpen(true))
+  // The drawer's logs stream the dev server's own output (not just the echoed command).
+  await session.chrome.evaluate(() => window.gui.showLogs())
   const readTerminal = () =>
     session.chrome.evaluate(() => document.querySelector('.xterm-rows')?.textContent ?? '')
   const hasServerOutput = async () => /VITE|Local:|localhost/i.test(await readTerminal())

@@ -10,7 +10,7 @@ import { expect, test } from './helpers/test'
 
 // The window's chrome around the preview: the toolbar (the project menu, then for a project
 // its navigation, the address led by the dev server's status, viewport, screenshot, Select
-// and chat), the canvas's states, the logs drawer, and the chat's ⌘L.
+// and chat), the canvas's states, the drawer's dev server output, and the chat's ⌘L.
 
 /** What Playwright passes to `app.evaluate` callbacks. */
 type ElectronModule = typeof import('electron/main')
@@ -85,10 +85,15 @@ const toolbar = (session: GuiSession) => session.chrome.getByRole('banner')
 const serverStatus = (session: GuiSession) =>
   toolbar(session).getByRole('button', { name: /^Dev server: / })
 const address = (session: GuiSession) => toolbar(session).getByLabel('App address')
-/** The logs drawer's title, there only while it's open. */
-const logsTitle = (session: GuiSession) =>
-  session.chrome.getByRole('heading', { name: 'Logs', exact: true })
-const logsOpen = async (session: GuiSession) => (await session.state()).logsOpen
+/** The drawer's Dev server tab, shown; there only while the drawer is open. */
+const logsTab = (session: GuiSession) =>
+  session.chrome.getByRole('tab', { name: 'Dev server', selected: true })
+/** The drawer is open on the dev server's output. */
+const logsOpen = async (session: GuiSession) => {
+  const { drawer } = await session.state()
+  return drawer.open && drawer.tab === 'server'
+}
+const drawerOpen = async (session: GuiSession) => (await session.state()).drawer.open
 
 test('the start tab shows only the project menu; a project fills the toolbar, without the agent menu', async ({
   launch,
@@ -127,7 +132,7 @@ test('the start tab shows only the project menu; a project fills the toolbar, wi
   await session.shot('running')
 })
 
-test('logs open as a drawer from the status menu and ⇧⌘L; a crash shows a bar instead', async ({
+test('logs open in the drawer from the status menu and ⌘J; a crash shows a bar instead', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
@@ -135,28 +140,31 @@ test('logs open as a drawer from the status menu and ⇧⌘L; a crash shows a ba
   const { root } = session.fixture
 
   // Closed, nothing of the logs shows under the canvas.
-  expect(await logsOpen(session)).toBe(false)
-  await expect(logsTitle(session)).toHaveCount(0)
+  expect(await drawerOpen(session)).toBe(false)
+  await expect(logsTab(session)).toHaveCount(0)
 
-  // The address bar's status opens the dev-server menu, whose "Show logs" opens the drawer.
+  // The address bar's status opens the dev-server menu, whose "Show logs" opens the drawer on
+  // the dev server's output.
   await session.app.evaluate(answerDevServerMenu, 'Show logs')
   await serverStatus(session).click()
   await waitFor(() => logsOpen(session), 'the logs to open from the status menu')
-  await expect(logsTitle(session)).toBeVisible()
+  await expect(logsTab(session)).toBeVisible()
   const offered = await session.app.evaluate(
     () => (globalThis as unknown as MenuStore).guiMenuItems,
   )
   expect(offered).toEqual(['Restart dev server', 'Stop dev server', 'Show logs', 'Open in browser'])
   await session.shot('logs')
-  await session.chrome.getByRole('button', { name: 'Hide logs (⇧⌘L)' }).click()
-  await waitFor(async () => !(await logsOpen(session)), 'the logs to close')
-  await expect(logsTitle(session)).toHaveCount(0)
+  await session.chrome.getByRole('button', { name: 'Hide terminal (⌘J)' }).click()
+  await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close')
+  await expect(logsTab(session)).toHaveCount(0)
 
-  // View → Toggle Logs (⇧⌘L) opens and closes it too.
-  await clickMenu(session, 'Toggle Logs')
+  // View → Toggle Terminal (⌘J) opens it again on the tab it showed, the logs, without
+  // starting a shell, and closes it.
+  await clickMenu(session, 'Toggle Terminal')
   await waitFor(() => logsOpen(session), 'the logs to open from the menu')
-  await clickMenu(session, 'Toggle Logs')
-  await waitFor(async () => !(await logsOpen(session)), 'the logs to close from the menu')
+  expect((await session.state()).drawer.terminals).toEqual([])
+  await clickMenu(session, 'Toggle Terminal')
+  await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close from the menu')
 
   // The dev server crashes: its last page stays, the status turns red, and instead of raw
   // output a bar under the canvas offers the logs and a restart.
@@ -167,7 +175,7 @@ test('logs open as a drawer from the status menu and ⇧⌘L; a crash shows a ba
   }, 'the dev server to exit')
   expect(crashed.devServer.exitCode).not.toBe(0)
   expect(crashed.preview.visible).toBe(true)
-  expect(crashed.logsOpen).toBe(false)
+  expect(crashed.drawer.open).toBe(false)
   await expect(serverStatus(session)).toHaveAccessibleName('Dev server: Stopped with an error')
   const crashBar = session.chrome.getByRole('alert')
   await expect(crashBar).toContainText('Your app stopped with an error')
@@ -176,7 +184,7 @@ test('logs open as a drawer from the status menu and ⇧⌘L; a crash shows a ba
   await crashBar.getByRole('button', { name: 'Show logs' }).click()
   await waitFor(() => logsOpen(session), 'the logs to open from the crash bar')
   await expect(crashBar).toHaveCount(0)
-  const drawer = session.chrome.getByRole('region', { name: 'Dev server logs' })
+  const drawer = session.chrome.getByRole('region', { name: 'Terminal' })
   await expect(drawer).toContainText('Stopped with an error')
   await session.shot('crash-logs')
 
@@ -241,7 +249,7 @@ test('⌘L shows the chat with the cursor in its message box, and from there hid
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
 
-  // The View menu's toggles: the chat on ⌘L, the logs on ⇧⌘L.
+  // The View menu: the terminal on ⌘J, the chat on ⌘L, and no logs of their own.
   const toggles = await session.app.evaluate(({ Menu }) =>
     Menu.getApplicationMenu()
       ?.items.find((item) => item.label === 'View')
@@ -250,7 +258,7 @@ test('⌘L shows the chat with the cursor in its message box, and from there hid
   )
   expect(toggles).toEqual([
     ['Toggle Chat', 'CmdOrCtrl+L'],
-    ['Toggle Logs', 'CmdOrCtrl+Shift+L'],
+    ['Toggle Terminal', 'CmdOrCtrl+J'],
   ])
 
   // Where the keyboard is depends on Gui being the active app, as it is when the user presses

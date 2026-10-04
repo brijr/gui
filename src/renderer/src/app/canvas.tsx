@@ -117,7 +117,9 @@ const CHEVRON = <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidde
  * installing, starting, and what went wrong. One card, one next step.
  */
 function CanvasMessage({ state }: { state: WindowState }) {
-  const { project, devServer, preview, setup, logsOpen } = state
+  const { project, devServer, preview, setup } = state
+  // The drawer shows the dev server's output.
+  const logsOpen = state.drawer.open && state.drawer.tab === 'server'
 
   if (!project) return <EmptyState state={state} />
 
@@ -321,10 +323,14 @@ function SetupCard({ icon, tone, title, detail, note, actions, children, env }: 
   )
 }
 
-/** Opens the logs drawer: "output" while setting up, "logs" once the app runs. */
+/** The drawer on the dev server's output: "output" while setting up, "logs" once the app runs. */
 function LogsToggle({ open, noun }: { open: boolean; noun: 'output' | 'logs' }) {
   return (
-    <Button variant="ghost" aria-expanded={open} onClick={() => gui.setLogsOpen(!open)}>
+    <Button
+      variant="ghost"
+      aria-expanded={open}
+      onClick={() => (open ? gui.setDrawerOpen(false) : gui.showLogs())}
+    >
       {open ? 'Hide' : 'Show'} {noun}
     </Button>
   )

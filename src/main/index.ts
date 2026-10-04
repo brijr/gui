@@ -14,12 +14,14 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { Invoke, Send } from '../shared/ipc'
+import { Invoke, MAX_TERMINAL_INPUT, Send } from '../shared/ipc'
 import {
   type CustomAgentEntry,
   type ImageAttachment,
   isAgentId,
+  isDrawerTab,
   isPanelEdge,
+  isTerminalId,
   isViewport,
   type Rect,
   type SettingsSection,
@@ -233,6 +235,9 @@ function tabFor(event: IpcMainEvent | IpcMainInvokeEvent) {
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
+/** Columns or rows of a terminal: a whole number a window could hold. */
+const isTerminalSize = (value: unknown): value is number =>
+  isNumber(value) && Number.isInteger(value) && value >= 2 && value <= 1000
 const isPoint = (value: unknown): value is { x: number; y: number } =>
   !!value &&
   typeof value === 'object' &&
@@ -327,6 +332,12 @@ function isShipRequest(value: unknown): value is ShipRequest {
 function registerIpc() {
   ipcMain.handle(Invoke.getState, (event) => windowFor(event)?.getState())
   ipcMain.handle(Invoke.getLogs, (event) => tabFor(event)?.getLogs() ?? '')
+  ipcMain.handle(Invoke.getTerminal, (event, id: unknown) => {
+    // Like the terminals' other channels: the window's own chrome, for its active tab.
+    const win = windowFor(event)
+    if (win?.win.webContents !== event.sender || !isTerminalId(id)) return ''
+    return win.activeTab.terminalOutput(id)
+  })
   ipcMain.handle(Invoke.getChat, (event) => tabFor(event)?.getChat())
   ipcMain.handle(Invoke.openProject, (event) => pickProject(windowFor(event)))
   ipcMain.handle(Invoke.openRecent, async (event, root: unknown) => {
@@ -400,6 +411,32 @@ function registerIpc() {
     if (isString(id) && isNumber(index)) win.moveTab(id, index)
   })
   onWindow(Send.showTabMenu, (win, id) => isString(id) && win.showTabMenu(id))
+  /**
+   * The drawer of the window's active tab, from the window's chrome only: the chat panel
+   * renders what agents write, and must not type into the user's shell. A terminal id that
+   * isn't one of the active tab's terminals does nothing.
+   */
+  const onDrawer = (channel: string, handler: (tab: ProjectTab, ...args: unknown[]) => void) =>
+    onWindow(channel, (win, ...args) => handler(win.activeTab, ...args))
+  onDrawer(Send.setDrawerOpen, (tab, open) => typeof open === 'boolean' && tab.setDrawerOpen(open))
+  onDrawer(Send.showLogs, (tab) => tab.showLogs())
+  onDrawer(Send.selectDrawerTab, (tab, drawerTab) => {
+    if (isDrawerTab(drawerTab)) tab.selectDrawerTab(drawerTab)
+  })
+  onDrawer(Send.newTerminal, (tab) => tab.newTerminal())
+  onDrawer(Send.closeTerminal, (tab, id) => isTerminalId(id) && tab.closeTerminal(id))
+  onDrawer(Send.restartTerminal, (tab, id) => isTerminalId(id) && tab.restartTerminal(id))
+  onDrawer(Send.writeTerminal, (tab, id, data) => {
+    if (isTerminalId(id) && isString(data) && data.length <= MAX_TERMINAL_INPUT) {
+      tab.writeTerminal(id, data)
+    }
+  })
+  onDrawer(Send.resizeTerminal, (tab, id, cols, rows) => {
+    if (isTerminalId(id) && isTerminalSize(cols) && isTerminalSize(rows)) {
+      tab.resizeTerminal(id, cols, rows)
+    }
+  })
+  onDrawer(Send.clearTerminal, (tab, id) => isTerminalId(id) && tab.clearTerminal(id))
 
   const handleSettings = (
     channel: string,
@@ -461,7 +498,6 @@ function registerIpc() {
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   on(Send.toggleChat, (tab) => tab.toggleChat())
-  on(Send.setLogsOpen, (tab, open) => tab.setLogsOpen(open === true))
   on(Send.resizeLogs, (tab, cols, rows) => {
     if (isNumber(cols) && isNumber(rows)) tab.resizeLogs(Math.floor(cols), Math.floor(rows))
   })
@@ -708,9 +744,10 @@ function buildMenu() {
           click: withWindow((w) => w.toggleDock()),
         },
         {
-          label: 'Toggle Logs',
-          accelerator: 'CmdOrCtrl+Shift+L',
-          click: withWindow((w) => w.setLogsOpen(!w.getState().logsOpen)),
+          // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
+          label: 'Toggle Terminal',
+          accelerator: 'CmdOrCtrl+J',
+          click: withWindow((w) => w.toggleDrawer()),
         },
         { type: 'separator' },
         {
