@@ -51,11 +51,34 @@ export interface MorphTiming {
   /** The JPEG the chrome draws */
   encode: number
 }
+/**
+ * Why a change was instant rather than a morph, for the end-to-end tests to report: the capture
+ * took longer than the budget (`capture` is how long it did take, once it's back), came back
+ * empty, or the chrome never said it had the snapshot on screen.
+ */
+export interface MorphFallback {
+  reason: 'slow' | 'empty' | 'unshown'
+  capture?: number
+}
 interface TimingStore {
   guiMorphTimings?: MorphTiming[]
+  guiMorphFallbacks?: MorphFallback[]
 }
 const timings: MorphTiming[] = []
-if (!app.isPackaged) (globalThis as TimingStore).guiMorphTimings = timings
+const fallbacks: MorphFallback[] = []
+if (!app.isPackaged) {
+  ;(globalThis as TimingStore).guiMorphTimings = timings
+  ;(globalThis as TimingStore).guiMorphFallbacks = fallbacks
+}
+
+/**
+ * The capture budget. Unpackaged builds take GUI_E2E_CAPTURE_BUDGET_MS over it, so the
+ * end-to-end tests can morph on a runner that captures slowly, or check the instant fallback.
+ */
+function captureBudget() {
+  const forced = app.isPackaged ? undefined : Number(process.env.GUI_E2E_CAPTURE_BUDGET_MS)
+  return forced !== undefined && Number.isFinite(forced) && forced >= 0 ? forced : CAPTURE_BUDGET_MS
+}
 
 /** Unique across tabs, so the chrome never takes one tab's morph for another's. */
 let lastId = 0
@@ -223,6 +246,7 @@ export class PreviewMorph {
       this.release = resolve
     })
     let capture = 0
+    let late = false
     // In the lock, so it's the layout on screen: an agent's screenshot can emulate another
     // width for a moment, and the change's own emulation waits behind it.
     const captured = new Promise<NativeImage | null>((resolve) => {
@@ -231,13 +255,21 @@ export class PreviewMorph {
         const started = performance.now()
         const image = await this.host.view.webContents.capturePage().catch(() => null)
         capture = performance.now() - started
+        if (late) note({ reason: 'slow', capture })
         resolve(image)
         await frozen
       })
     })
-    const image = await Promise.race([captured, sleep(CAPTURE_BUDGET_MS).then(() => null)])
+    const budget = sleep(captureBudget()).then(() => {
+      late = true
+      return null
+    })
+    const image = await Promise.race([captured, budget])
     if (!this.current(id)) return
-    if (!image || image.isEmpty()) return this.finish()
+    if (!image || image.isEmpty()) {
+      if (!late) note({ reason: 'empty' })
+      return this.finish()
+    }
     const wait = performance.now() - asked
     const encoding = performance.now()
     const jpeg = image.toJPEG(JPEG_QUALITY)
@@ -246,7 +278,10 @@ export class PreviewMorph {
     this.reduced = prefersReducedMotion()
     this.phase = 'showing'
     this.send({ type: 'snapshot', kind: this.kind, image: jpeg, from, reduced: this.reduced })
-    this.timer = setTimeout(() => this.finish(), SHOWN_TIMEOUT_MS)
+    this.timer = setTimeout(() => {
+      note({ reason: 'unshown' })
+      this.finish()
+    }, SHOWN_TIMEOUT_MS)
   }
 
   private retarget(to: MorphPlacement) {
@@ -350,6 +385,12 @@ function samePlacement(a: MorphPlacement, b: MorphPlacement) {
 function record(timing: MorphTiming) {
   timings.push(timing)
   if (timings.length > 200) timings.shift()
+}
+
+function note(fallback: MorphFallback) {
+  if (app.isPackaged) return
+  fallbacks.push(fallback)
+  if (fallbacks.length > 200) fallbacks.shift()
 }
 
 function sleep(ms: number) {

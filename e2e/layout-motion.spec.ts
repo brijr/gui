@@ -20,6 +20,12 @@ type ElectronModule = typeof import('electron/main')
 
 /** Short enough for CI's screen. */
 const WINDOW = { width: 1200, height: 800 }
+/**
+ * A change whose snapshot takes longer than 40 ms is instant (preview-morph.ts). CI's runner,
+ * without a GPU, captures slower than that, so these give it longer; the last test checks the
+ * instant change itself.
+ */
+const MORPHING = { GUI_E2E_CAPTURE_BUDGET_MS: '2000' }
 /** Room for a jump across one dropped frame at the spring's fastest, and no more. */
 const MAX_STEP = 150
 
@@ -55,6 +61,7 @@ interface MainStore {
   guiViewSamples?: ViewSample[]
   guiViewSampler?: NodeJS.Timeout
   guiMorphTimings?: { capture: number; wait: number; encode: number }[]
+  guiMorphFallbacks?: { reason: string; capture?: number }[]
 }
 
 /** Runs in main: records the preview view's bounds every 4 ms until `stopSampling`. */
@@ -73,11 +80,14 @@ function startSampling({ BrowserWindow, WebContentsView }: ElectronModule) {
   const samples: ViewSample[] = []
   const start = performance.now()
   store.guiViewSamples = samples
-  store.guiViewSampler = setInterval(() => {
+  const sample = () => {
     const t = Math.round(performance.now() - start)
     const chatBounds = chat?.getVisible() ? chat.getBounds() : null
     samples.push({ t, bounds: view.getBounds(), visible: view.getVisible(), chat: chatBounds })
-  }, 4)
+  }
+  // One now: an instant change can land before the first interval.
+  sample()
+  store.guiViewSampler = setInterval(sample, 4)
 }
 
 function stopSampling() {
@@ -89,6 +99,11 @@ function stopSampling() {
 /** Runs in main: how long each snapshot took (preview-morph.ts keeps them in unpackaged builds). */
 function captureTimings() {
   return (globalThis as unknown as MainStore).guiMorphTimings ?? []
+}
+
+/** Runs in main: why each instant change didn't morph. */
+function captureFallbacks() {
+  return (globalThis as unknown as MainStore).guiMorphFallbacks ?? []
 }
 
 interface Box {
@@ -393,6 +408,23 @@ async function collectTimings(session: GuiSession) {
   }
 }
 
+/** The sessions the running test launched, for its log if it fails. */
+const launched: GuiSession[] = []
+function tracked(session: GuiSession) {
+  launched.push(session)
+  return session
+}
+
+// A failure says why its morph fell back, if it did (CI captures slower than a Mac with a GPU).
+test.afterEach(async ({ keepTemp: _keepTemp }, testInfo) => {
+  const sessions = launched.splice(0)
+  if (testInfo.status === testInfo.expectedStatus) return
+  for (const session of sessions) {
+    const fallbacks = await session.app.evaluate(captureFallbacks).catch(() => [])
+    console.log(`[e2e] morphs that fell back: ${JSON.stringify(fallbacks)}`)
+  }
+})
+
 test.afterAll(() => {
   const stats = (values: number[]) => {
     const sorted = [...values].sort((a, b) => a - b)
@@ -410,7 +442,7 @@ test.afterAll(() => {
 test('a viewport switch morphs a snapshot from the old frame to the new one', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
   const { view: desktop } = await ready(session)
   const captures = (await session.app.evaluate(captureTimings)).length
 
@@ -464,7 +496,7 @@ test('a viewport switch morphs a snapshot from the old frame to the new one', as
 test('a change mid-morph carries on from where the snapshot is, without capturing again', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
   const { view: desktop } = await ready(session)
   const captures = (await session.app.evaluate(captureTimings)).length
 
@@ -505,7 +537,7 @@ test('a change mid-morph carries on from where the snapshot is, without capturin
 })
 
 test('the drawer slides with the preview it covers, and both land exactly', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
   const { view: desktop } = await ready(session)
 
   // Opening: the snapshot is clipped from the bottom as the drawer rises with its edge.
@@ -569,7 +601,7 @@ test('the drawer slides with the preview it covers, and both land exactly', asyn
 test('zoom steps, focus mode and docking morph, and land on their exact layout', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
   const { view: desktop } = await ready(session)
 
   // Zoom in on Desktop: the frame stays, the picture inside scales up from its middle.
@@ -634,7 +666,7 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
 test('a click on the moving snapshot puts the live view in its new place at once', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
   const { view: desktop } = await ready(session)
   await setViewport(session, 'mobile')
   const box = await waitFor(
@@ -662,7 +694,7 @@ test('a click on the moving snapshot puts the live view in its new place at once
 test('with Reduce motion on, the preview changes in place and the snapshot only fades', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
+  const session = tracked(await launch({ fixture: 'vite', env: MORPHING, reducedMotion: 'reduce' }))
   const { view: desktop } = await ready(session)
 
   const { frames, samples, end } = await withEvidence(session, 'reduced-mobile', () =>
@@ -687,4 +719,44 @@ test('with Reduce motion on, the preview changes in place and the snapshot only 
   const tops = new Set(drawer.frames.flatMap((frame) => (frame.drawer ? [frame.drawer.y] : [])))
   expect(tops.size).toBe(1)
   await collectTimings(session)
+})
+
+test('a snapshot slower than its budget makes the change instant, the view straight to its place', async ({
+  launch,
+}) => {
+  // No time at all to capture: every change falls back.
+  const session = tracked(
+    await launch({ fixture: 'vite', env: { GUI_E2E_CAPTURE_BUDGET_MS: '0' } }),
+  )
+  const { view: desktop } = await ready(session)
+  const captures = (await session.app.evaluate(captureTimings)).length
+  const fellBack = (await session.app.evaluate(captureFallbacks)).length
+
+  const { frames, samples, end } = await record(
+    session,
+    () => setViewport(session, 'mobile'),
+    'the mobile frame, at once',
+  )
+  const mobile = end.expected
+  expect(mobile.width).toBeLessThan(desktop.bounds.width / 2)
+
+  // Nothing drawn in the chrome, and the live view went from where it was to where it goes,
+  // never out of sight.
+  expect(boxes(frames)).toEqual([])
+  const events = await session.chrome.evaluate(
+    () => (globalThis as unknown as ChromeStore).guiMorphs ?? [],
+  )
+  expect(events.map((event) => event.type)).toEqual(['pending', 'end'])
+  const live = viewPath(samples, desktop.content.height)
+  expect(live.map((step) => step.bounds)).toEqual([desktop.bounds, mobile])
+  expect(live.every((step) => step.visible && !step.outOfSight)).toBe(true)
+  // Said why, once its late capture came back; and not kept as a snapshot.
+  await waitFor(
+    async () => (await session.app.evaluate(captureFallbacks)).length > fellBack || null,
+    'the fallback noted',
+  )
+  expect((await session.app.evaluate(captureFallbacks)).at(-1)?.reason).toBe('slow')
+  expect((await session.app.evaluate(captureTimings)).length).toBe(captures)
+  const preview = await session.previewPage()
+  expect(await preview.evaluate(() => innerWidth)).toBe(390)
 })
