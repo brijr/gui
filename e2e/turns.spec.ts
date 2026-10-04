@@ -145,6 +145,11 @@ async function useStandIn(session: GuiSession) {
     env: { ELECTRON_RUN_AS_NODE: '1' },
   }
   writeFileSync(standInsFile(session.fixture), JSON.stringify({ muse: standIn }))
+  // Checked again so the stand-in replaces what launch found (on CI, no `muse` installed).
+  await session.chrome.evaluate(() => window.gui.checkAgents())
+  const ready = async () =>
+    (await session.state()).agents.some((agent) => agent.id === 'muse' && agent.status === 'ready')
+  await waitFor(ready, 'the stand-in to be checked')
   await waitFor(async () => (await session.state()).project !== null, 'the project to open')
   await session.chrome.evaluate(() => window.gui.setAgent('muse'))
   const selected = async () => (await session.chatSnapshot()).meta.agentId === 'muse'
