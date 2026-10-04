@@ -64,6 +64,7 @@ export const Send = {
   toggleSelect: 'preview:select',
   stopSelecting: 'preview:select-stop',
   setCanvasRect: 'layout:canvas',
+  setFocusMode: 'layout:focus-mode',
   toggleChat: 'chat:toggle',
   setDrawerOpen: 'drawer:open',
   showLogs: 'drawer:logs',
@@ -202,6 +203,8 @@ export interface GuiApi {
   /** Ends element picking (the chat bubble's click) */
   stopSelecting(): void
   setCanvasRect(rect: Rect): void
+  /** Focus mode on or off (see `WindowState.focusMode`) */
+  setFocusMode(on: boolean): void
   /** Shows or hides the chat panel, as the toolbar's button does */
   toggleChat(): void
 

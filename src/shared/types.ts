@@ -254,6 +254,11 @@ export interface WindowState {
   tabs: TabInfo[]
   /** Id of the tab this state is for, the one the window shows */
   activeTab: string
+  /**
+   * Focus mode (View → Focus Mode): the preview alone under a slim title bar. The toolbar,
+   * tab strip, chat and drawer keep their state, and show again as they were when it ends.
+   */
+  focusMode: boolean
 }
 
 export interface Rect {

@@ -15,6 +15,12 @@ export const TAB_ROW_HEIGHT = 36
 /** The traffic lights while the tab row shows: centered in it. */
 export const TAB_ROW_TRAFFIC_LIGHTS = { x: 16, y: 11 } as const
 
+/** Focus mode's title bar, all there is above the preview: room to drag the window by. */
+export const FOCUS_BAR_HEIGHT = 28
+
+/** The traffic lights in focus mode's title bar: centered in it. */
+export const FOCUS_TRAFFIC_LIGHTS = { x: 16, y: 7 } as const
+
 /** Room the toolbar leaves on its left for the traffic lights. */
 export const TRAFFIC_LIGHTS_INSET = 84
 

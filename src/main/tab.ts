@@ -113,7 +113,7 @@ interface Anchor extends PanelCorner {
 }
 
 /** What the window shows for its active tab, without the window's own tab strip. */
-export type TabState = Omit<WindowState, 'tabs' | 'activeTab'>
+export type TabState = Omit<WindowState, 'tabs' | 'activeTab' | 'focusMode'>
 
 /** The window a tab is in (window.ts), as the tab sees it. */
 export interface TabHost {
@@ -122,6 +122,9 @@ export interface TabHost {
   readonly canvas: Rect
   /** The window's chrome above the canvas: the toolbar, and the tab row while it shows. */
   readonly chromeHeight: number
+  /** Focus mode: the preview alone, without the chat (WindowState.focusMode). */
+  readonly focusMode: boolean
+  setFocusMode(on: boolean): void
   /** The tab whose views are in the window; only it lays out and talks to the chrome. */
   isActive(tab: ProjectTab): boolean
   /** The tab's state changed (`stateChanged`), or only what its tab in the strip shows. */
@@ -608,7 +611,8 @@ export class ProjectTab {
   toggleDrawer() {
     const terminals = this.terminals
     if (!terminals) return
-    if (this.state.drawer.open) return this.setDrawerOpen(false)
+    // In focus mode it's hidden whatever its setting: ⌘J brings it back, with the rest.
+    if (this.state.drawer.open && !this.host.focusMode) return this.setDrawerOpen(false)
     this.showDrawer(this.state.drawer.tab ?? terminals.list()[0]?.id ?? terminals.create(), true)
   }
 
@@ -665,6 +669,7 @@ export class ProjectTab {
   /** Only a tab the drawer has: the dev server's output, or one of this project's terminals. */
   private showDrawer(tab: DrawerTab, focus = false) {
     if (!this.terminals || (tab !== 'server' && !this.terminals.has(tab))) return
+    this.host.setFocusMode(false)
     this.patchDrawer({ open: true, tab })
     if (focus) this.focusDrawer(tab)
   }
@@ -751,6 +756,11 @@ export class ProjectTab {
     this.preview.webContents.toggleDevTools()
   }
 
+  /** The keyboard to the page (focus mode, where Esc on it ends focus mode). */
+  focusPreview() {
+    this.preview.webContents.focus()
+  }
+
   private async loadPreview(url: string) {
     this.patchPreview({ url, error: null })
     try {
@@ -800,9 +810,14 @@ export class ProjectTab {
       })
     })
     wc.on('before-input-event', (event, input) => {
-      if (input.type === 'keyDown' && input.key === 'Escape' && this.state.preview.selecting) {
+      if (input.type !== 'keyDown' || input.key !== 'Escape') return
+      // Picking ends first; then focus mode. The page gets Esc once neither is on.
+      if (this.state.preview.selecting) {
         event.preventDefault()
         void this.setSelecting(false)
+      } else if (this.host.focusMode && this.host.isActive(this)) {
+        event.preventDefault()
+        this.host.setFocusMode(false)
       }
     })
     wc.setWindowOpenHandler(({ url }) => {
@@ -1185,6 +1200,7 @@ export class ProjectTab {
 
   toggleDock() {
     if (!this.chat) return
+    this.host.setFocusMode(false)
     const docked = !this.chat.meta.docked
     setPrefs({ chatDocked: docked })
     this.chat.setDocked(docked)
@@ -1255,6 +1271,8 @@ export class ProjectTab {
   }
 
   toggleChat() {
+    // In focus mode the chat is out of sight whatever its setting: bring everything back.
+    if (this.host.focusMode) return this.focusChat()
     this.patch({ chatVisible: !this.state.chatVisible })
     this.layout()
     // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
@@ -1466,6 +1484,7 @@ export class ProjectTab {
   }
 
   private focusChat() {
+    this.host.setFocusMode(false)
     // The floating panel is wanted in full, so picking over it ends first.
     if (this.state.preview.selecting && this.hasProject && !this.docked) {
       void this.setSelecting(false).then(() => {
@@ -1508,7 +1527,7 @@ export class ProjectTab {
    * corner, out of the way. Its size, place and minimized state stay as they were.
    */
   private get bubbled() {
-    return this.state.preview.selecting && this.state.chatVisible && this.hasProject && !this.docked
+    return this.state.preview.selecting && this.chatShown && !this.docked
   }
 
   // Layout
@@ -1626,9 +1645,12 @@ export class ProjectTab {
     this.sendChat(Events.chatBubble, corner)
   }
 
-  /** The chat shows: the user hasn't hidden it, and there's a project to chat about. */
+  /**
+   * The chat shows: the user hasn't hidden it, there's a project to chat about, and the window
+   * isn't in focus mode.
+   */
   private get chatShown() {
-    return this.state.chatVisible && this.hasProject
+    return this.state.chatVisible && this.hasProject && !this.host.focusMode
   }
 
   /** Where the preview goes: the canvas, less the column a docked panel takes on its right. */
@@ -1660,7 +1682,7 @@ export class ProjectTab {
   /** Moves the floating panel to the other side if it covers the element just picked. */
   private dodge(rect: Rect) {
     // Picking again already: the view is the bubble, not the panel to move.
-    if (!this.chat || this.chat.meta.docked || !this.state.chatVisible || this.bubbled) return
+    if (!this.chat || this.chat.meta.docked || !this.chatShown || this.bubbled) return
     // Page coordinates, which a device frame draws at its scale, in the window.
     const previewBounds = this.preview.getBounds()
     const scale = this.emulation.scale

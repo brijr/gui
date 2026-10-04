@@ -508,6 +508,7 @@ function registerIpc() {
   on(Send.toggleSelect, (tab) => void tab.toggleSelect())
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
+  onWindow(Send.setFocusMode, (win, on) => typeof on === 'boolean' && win.setFocusMode(on))
   on(Send.toggleChat, (tab) => tab.toggleChat())
   on(Send.resizeLogs, (tab, cols, rows) => {
     if (isNumber(cols) && isNumber(rows)) tab.resizeLogs(Math.floor(cols), Math.floor(rows))
@@ -628,10 +629,12 @@ const AUTO_MODE_ITEM = 'auto-mode'
 const MOVE_TAB_ITEM = 'move-tab'
 const ALLOW_ITEM = 'allow'
 const DONT_ALLOW_ITEM = 'dont-allow'
+const FOCUS_MODE_ITEM = 'focus-mode'
 
 /**
- * Menu items that follow the window menus act on: Agent → Auto Mode is checked when the
- * project it would change is in Auto mode; Allow and Don't Allow answer a permission card
+ * Menu items that follow the window menus act on: View → Focus Mode is checked while the
+ * window's in it; Agent → Auto Mode is checked when the project it would change is in Auto
+ * mode; Allow and Don't Allow answer a permission card
  * that's waiting (see `permissionAnswer`); Window → Move Tab to New Window needs a second tab.
  *
  * Their keys reach a page first: ⌘⌫ deletes typing in a text field, and the chat panel
@@ -644,6 +647,7 @@ function syncMenuItems() {
     const item = menu?.getMenuItemById(id)
     if (item && item[key] !== value) item[key] = value
   }
+  set(FOCUS_MODE_ITEM, 'checked', menuWindow()?.focusMode ?? false)
   set(AUTO_MODE_ITEM, 'checked', tab?.autoApprove ?? false)
   set(ALLOW_ITEM, 'enabled', !!tab?.permissionAnswer(true))
   set(DONT_ALLOW_ITEM, 'enabled', !!tab?.permissionAnswer(false))
@@ -784,6 +788,16 @@ function buildMenu() {
         ...item('actualSize', { click: withWindow((w) => w.zoom(0)) }),
         { type: 'separator' },
         ...item('screenshot', { click: withTabs((w) => w.screenshot()) }),
+        ...item('focusMode', {
+          id: FOCUS_MODE_ITEM,
+          type: 'checkbox',
+          click: () => {
+            const win = menuWindow()
+            win?.setFocusMode(!win.focusMode)
+            // The click flipped the checkmark; it follows the window instead.
+            syncMenuItems()
+          },
+        }),
         { type: 'separator' },
         ...item('previewDevTools', { click: withWindow((w) => w.toggleDevTools()) }),
         ...item('appDevTools', { role: 'toggleDevTools' }),

@@ -2,6 +2,8 @@ import { EventEmitter } from 'node:events'
 import { BrowserWindow, Menu, shell, type WebContents } from 'electron'
 import { Events } from '../shared/ipc'
 import {
+  FOCUS_BAR_HEIGHT,
+  FOCUS_TRAFFIC_LIGHTS,
   TAB_ROW_HEIGHT,
   TAB_ROW_TRAFFIC_LIGHTS,
   TOOLBAR_HEIGHT,
@@ -71,7 +73,10 @@ export class ProjectWindow implements TabHost {
   private active: ProjectTab
   /** The tab strip as last sent to the chrome, so a tab's status change resends it once. */
   private sentTabs = ''
-  private tabbed = false
+  /** Where the traffic lights are: the toolbar's, the tab row's or focus mode's spot. */
+  private lights: { x: number; y: number } = TRAFFIC_LIGHTS
+  /** Focus mode (WindowState.focusMode). */
+  private focus = false
   private disposed = false
 
   /** Opens with a start-screen tab, or with `tab`, moved here from another window. */
@@ -129,7 +134,12 @@ export class ProjectWindow implements TabHost {
   }
 
   get chromeHeight() {
+    if (this.focus) return FOCUS_BAR_HEIGHT
     return TOOLBAR_HEIGHT + (this.list.length > 1 ? TAB_ROW_HEIGHT : 0)
+  }
+
+  get focusMode() {
+    return this.focus
   }
 
   isActive(tab: ProjectTab) {
@@ -138,7 +148,12 @@ export class ProjectWindow implements TabHost {
 
   /** The active tab's state, with the tab strip. */
   getState(): WindowState {
-    return { ...this.active.getState(), tabs: this.tabInfos(), activeTab: this.active.id }
+    return {
+      ...this.active.getState(),
+      tabs: this.tabInfos(),
+      activeTab: this.active.id,
+      focusMode: this.focus,
+    }
   }
 
   setCanvasRect(rect: Rect) {
@@ -146,19 +161,41 @@ export class ProjectWindow implements TabHost {
     this.active.layout()
   }
 
+  /**
+   * ⌘\: only the preview, under a slim title bar, while there's a project to show. Nothing
+   * else changes, so turning it off brings back what was showing. Anything that needs the
+   * chat or the toolbar (⌘J, ⇧⌘L, a pick or a permission card) turns it off first.
+   */
+  setFocusMode(on: boolean) {
+    const focus = on && this.active.getState().project !== null
+    if (focus === this.focus) return
+    this.focus = focus
+    this.syncTrafficLights()
+    this.active.layout()
+    this.sendState()
+    // The keys go to the page, where Esc ends focus mode; the chat that had them is hidden.
+    if (focus && this.win.isFocused()) this.active.focusPreview()
+    windowEvents.emit('changed')
+  }
+
   // Shortcuts for the chrome's own controls (UiCommand)
 
   /** ⇧⌘L: the toolbar's address field, focused with its text selected. */
   focusAddress() {
     if (!this.active.getState().project) return shell.beep()
+    this.setFocusMode(false)
     this.win.webContents.focus()
     this.send(Events.command, 'focusAddress')
   }
 
-  /** ⇧⌘S: the screenshot menu, under the toolbar's button, which shows what it did. */
+  /**
+   * ⇧⌘S: the screenshot menu, under the toolbar's button, which shows what it did; in focus
+   * mode, at the pointer.
+   */
   screenshot() {
     if (!this.active.getState().project) return shell.beep()
-    this.send(Events.command, 'screenshot')
+    if (this.focus) void this.active.screenshotMenu()
+    else this.send(Events.command, 'screenshot')
   }
 
   // Tabs
@@ -181,6 +218,8 @@ export class ProjectWindow implements TabHost {
       // Typing goes to the chrome, not to a chat panel that just left the window. (Focusing
       // web contents also raises its window, which a background switch mustn't.)
       if (this.win.isFocused()) this.win.webContents.focus()
+      // Focus mode shows a project; a start screen needs the toolbar.
+      if (!tab.getState().project) this.setFocusMode(false)
       tab.activate()
       windowEvents.emit('activeTab')
     }
@@ -292,14 +331,23 @@ export class ProjectWindow implements TabHost {
   /** After the tabs changed: the traffic lights, the title and the chrome's state. */
   private syncChrome() {
     if (this.disposed) return
-    const tabbed = this.list.length > 1
-    if (tabbed !== this.tabbed) {
-      this.tabbed = tabbed
-      this.win.setWindowButtonPosition(tabbed ? TAB_ROW_TRAFFIC_LIGHTS : TRAFFIC_LIGHTS)
-    }
+    this.syncTrafficLights()
     this.syncTitle()
     this.sendState()
     windowEvents.emit('tabs')
+  }
+
+  /** In focus mode's title bar, the tab row while it shows, or the toolbar. */
+  private syncTrafficLights() {
+    const tabbed = this.list.length > 1
+    const lights = this.focus
+      ? FOCUS_TRAFFIC_LIGHTS
+      : tabbed
+        ? TAB_ROW_TRAFFIC_LIGHTS
+        : TRAFFIC_LIGHTS
+    if (lights === this.lights) return
+    this.lights = lights
+    this.win.setWindowButtonPosition(lights)
   }
 
   /** The window is named like the active tab (its project), and is the project's proxy icon. */
