@@ -11,6 +11,8 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   session,
+  type WebContents,
+  webContents,
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
 import {
@@ -259,6 +261,10 @@ function registerIpc() {
   onSettings(Send.setDefaultAgent, (agentId) => isAgentId(agentId) && setDefaultAgent(agentId))
   onSettings(Send.setChatDocked, (docked) => typeof docked === 'boolean' && setChatDocked(docked))
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
+  onSettings(
+    Send.installAgent,
+    (agentId) => isAgentId(agentId) && agentHealth.openInstallPage(agentId),
+  )
   on(Send.navigate, (win, url) => isString(url) && win.navigate(url))
   on(Send.back, (win) => win.back())
   on(Send.forward, (win) => win.forward())
@@ -322,6 +328,40 @@ function lockDownSessions() {
   session.defaultSession.setPermissionCheckHandler(() => false)
 }
 
+/** Runs in an isolated world, so a previewed page can't fake where focus is. */
+const EDITING_TEXT = `(() => {
+  const el = document.activeElement
+  if (!el) return false
+  // The chat box keeps focus after sending; empty, it has no typing to undo.
+  if (el.hasAttribute('data-undo-passthrough') && el.value === '') return false
+  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true
+  return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type)
+})()`
+
+async function isEditingText(wc: WebContents) {
+  try {
+    return (await wc.executeJavaScriptInIsolatedWorld(1001, [{ code: EDITING_TEXT }])) === true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Grat or the previewed app);
+ * otherwise, including from an empty chat box, they undo or redo the agent's last change.
+ */
+async function editHistory(direction: 'undo' | 'redo') {
+  const wc = webContents.getFocusedWebContents()
+  const textEdit = () => (direction === 'undo' ? wc?.undo() : wc?.redo())
+  if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
+  // With no Grat window focused (e.g. the menu clicked from a script), a lone project
+  // window is the only one it can mean.
+  const lone = BrowserWindow.getFocusedWindow() === null && allWindows().length === 1
+  const win = focusedWindow() ?? (lone ? allWindows()[0] : undefined)
+  if (!win) return textEdit()
+  await (direction === 'undo' ? win.undoLastChange() : win.redoLastChange())
+}
+
 function buildMenu() {
   const withWindow =
     (fn: (win: ProjectWindow) => void): MenuItemConstructorOptions['click'] =>
@@ -360,7 +400,20 @@ function buildMenu() {
         { role: 'close' },
       ],
     },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => void editHistory('undo') },
+        { label: 'Redo', accelerator: 'Shift+CmdOrCtrl+Z', click: () => void editHistory('redo') },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'pasteAndMatchStyle' },
+        { role: 'delete' },
+        { role: 'selectAll' },
+      ],
+    },
     {
       label: 'View',
       submenu: [
@@ -473,7 +526,7 @@ if (!app.requestSingleInstanceLock()) {
     // The Agent menu lists what's installed and signed in.
     agentHealth.on('change', buildMenu)
     // Pick up agents installed (or added to agents.json) while Grat was in the background.
-    app.on('browser-window-focus', () => void agentHealth.rescan())
+    app.on('browser-window-focus', () => void agentHealth.onAppFocus())
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

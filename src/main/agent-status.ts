@@ -1,17 +1,21 @@
 import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, shell } from 'electron'
 import { AGENTS, type AgentHealth, type AgentId } from '../shared/types'
 import { AgentAuthError, AgentSession } from './agent'
-import { listAgents } from './agents'
-import { isAgentEnabled, prefsEvents } from './prefs'
+import { type AgentDefinition, listAgents } from './agents'
+import { describeError } from './errors'
+import { getPrefs, isAgentEnabled, prefsEvents } from './prefs'
+import { runInTerminal } from './terminal'
 
 const CHECK_TIMEOUT_MS = 45_000
 /** Browser sign-in waits on the user. */
 const SIGN_IN_TIMEOUT_MS = 5 * 60_000
 /** Browser-based sign-in methods Grat can drive; API keys belong in the user's environment. */
 const SIGN_IN_METHODS = ['chat-gpt', 'chatgpt', 'browser', 'oauth', 'claude-ai', 'login']
+/** Marks a sign-in Grat starts in Terminal rather than through the agent. */
+const TERMINAL_SIGN_IN = 'grat:terminal'
 /** Agents Grat bundles; checked on every launch since they're always there. */
 const BUNDLED: readonly AgentId[] = ['claude', 'codex']
 
@@ -30,13 +34,14 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
 }
 
 const unchecked = (
-  agent: Pick<AgentHealth, 'id' | 'name' | 'command'>,
+  agent: Pick<AgentHealth, 'id' | 'name' | 'command' | 'installUrl'>,
   installed: boolean,
 ): AgentHealth => ({
   ...agent,
   enabled: isAgentEnabled(agent.id),
   status: installed ? 'unknown' : 'not-installed',
   message: null,
+  detail: null,
   signIn: null,
 })
 
@@ -47,7 +52,10 @@ const unchecked = (
  */
 class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }> {
   private health = new Map<AgentId, AgentHealth>(
-    AGENTS.map((agent) => [agent.id, unchecked({ ...agent, command: null }, true)]),
+    AGENTS.map((agent) => [
+      agent.id,
+      unchecked({ ...agent, command: null, installUrl: null }, true),
+    ]),
   )
   private running = new Map<AgentId, Promise<void>>()
   /** Scans run one after another, so one asked for after a change sees that change. */
@@ -57,6 +65,10 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   /** Probe processes still alive; detached, so they'd outlive the app if not stopped. */
   private sessions = new Set<AgentSession>()
   private disposed = false
+  /** Agents whose sign-in can run in Terminal, from the catalog */
+  private terminalSignIns = new Map<AgentId, NonNullable<AgentDefinition['terminalSignIn']>>()
+  /** Signing in in Terminal right now; checked again when the user comes back to Grat */
+  private awaitingTerminal = new Set<AgentId>()
 
   constructor() {
     super()
@@ -94,12 +106,23 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   /** On launch: the bundled agents plus the one the user picked, when they're enabled. */
   async checkOnLaunch(preferred: AgentId) {
     if (this.disposed) return
+    const targets = [...new Set([...BUNDLED, preferred])]
+    // Finding what's installed takes a moment; say it's being checked rather than not.
+    for (const id of targets) {
+      if (this.health.get(id)?.status === 'unknown') this.set(id, { status: 'checking' })
+    }
     await this.rescan()
-    const ids = [...new Set([...BUNDLED, preferred])].filter((id) => {
+    const ids = targets.filter((id) => {
       const agent = this.health.get(id)
       return agent?.enabled && agent.status !== 'not-installed'
     })
     await Promise.all(ids.map((id) => this.check(id)))
+  }
+
+  /** Checks an agent the user just picked, unless its state is already known. */
+  ensureChecked(id: AgentId) {
+    const agent = this.health.get(id)
+    if (agent?.enabled && agent.status === 'unknown') void this.check(id)
   }
 
   check(id: AgentId) {
@@ -115,16 +138,52 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   async signIn(id: AgentId) {
     const method = this.health.get(id)?.signIn?.methodId
     if (!method || this.disposed) return
+    if (method === TERMINAL_SIGN_IN) return this.signInInTerminal(id)
     await this.running.get(id)
     const run = this.probe(id, method).finally(() => this.running.delete(id))
     this.running.set(id, run)
     await run
   }
 
+  /** Opens the agent's official install page. */
+  openInstallPage(id: AgentId) {
+    const url = this.health.get(id)?.installUrl
+    if (url?.startsWith('https://')) void shell.openExternal(url)
+  }
+
+  /**
+   * The user came back to Grat: pick up agents installed meanwhile, and re-check ones
+   * they were signing in to in Terminal (and the default agent, if it's new here).
+   */
+  async onAppFocus() {
+    if (this.disposed) return
+    await this.rescan()
+    const ids = new Set(this.awaitingTerminal)
+    this.awaitingTerminal.clear()
+    const preferred = this.health.get(getPrefs().agentId)
+    if (preferred?.enabled && preferred.status === 'unknown') ids.add(preferred.id)
+    await Promise.all([...ids].map((id) => this.check(id)))
+  }
+
+  private async signInInTerminal(id: AgentId) {
+    const agent = this.health.get(id)
+    const login = this.terminalSignIns.get(id)
+    if (!agent || !login) return
+    await runInTerminal(login.command, `Signing in to ${agent.name}. ${login.hint}`)
+    this.awaitingTerminal.add(id)
+    this.set(id, {
+      status: 'signing-in',
+      message: 'Finish signing in in Terminal, then come back to Grat.',
+      detail: null,
+    })
+  }
+
   private async scan() {
     const { agents, customError } = await listAgents()
     const next = new Map<AgentId, AgentHealth>()
-    for (const { installed, ...agent } of agents) {
+    for (const { installed, terminalSignIn, ...agent } of agents) {
+      if (terminalSignIn) this.terminalSignIns.set(agent.id, terminalSignIn)
+      else this.terminalSignIns.delete(agent.id)
       const current = this.health.get(agent.id)
       const keep = current && installed && current.status !== 'not-installed'
       next.set(
@@ -160,6 +219,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     this.set(id, {
       status: authenticate ? 'signing-in' : 'checking',
       message: authenticate ? 'Finish signing in in your browser…' : null,
+      detail: null,
     })
     const dir = join(app.getPath('userData'), 'agent-check')
     await mkdir(dir, { recursive: true, mode: 0o700 })
@@ -172,20 +232,26 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
         authenticate ? SIGN_IN_TIMEOUT_MS : CHECK_TIMEOUT_MS,
         authenticate ? 'Sign-in timed out.' : "The agent didn't respond. Try again.",
       )
-      this.set(id, { status: 'ready', message: null, signIn: null })
+      this.set(id, { status: 'ready', message: null, detail: null, signIn: null })
     } catch (error) {
       if (error instanceof AgentAuthError) {
         const method =
           error.methods.find((m) => SIGN_IN_METHODS.includes(m.id.toLowerCase())) ??
           error.methods.find((m) => !/api.?key/i.test(m.id))
-        this.set(id, {
-          status: 'signed-out',
-          message: error.message,
-          signIn: method ? { methodId: method.id, label: `Sign in with ${method.name}` } : null,
-        })
+        const signIn = method
+          ? { methodId: method.id, label: `Sign in with ${method.name}` }
+          : this.terminalSignIns.has(id)
+            ? { methodId: TERMINAL_SIGN_IN, label: 'Sign in' }
+            : null
+        this.set(id, { status: 'signed-out', message: error.message, detail: null, signIn })
       } else {
-        const message = error instanceof Error ? error.message : String(error)
-        this.set(id, { status: 'error', message, signIn: this.health.get(id)?.signIn ?? null })
+        const { message, detail } = describeError(error)
+        this.set(id, {
+          status: 'error',
+          message,
+          detail,
+          signIn: this.health.get(id)?.signIn ?? null,
+        })
       }
     } finally {
       this.sessions.delete(session)

@@ -36,8 +36,12 @@ export interface AgentHealth {
   name: string
   status: 'unknown' | 'not-installed' | 'checking' | 'signing-in' | 'ready' | 'signed-out' | 'error'
   message: string | null
+  /** Technical detail behind `message` (exit code, stderr), shown on request */
+  detail: string | null
   /** The CLI this agent needs on PATH; null when Grat bundles everything it needs */
   command: string | null
+  /** The agent's official install page, for agents the user installs themselves */
+  installUrl: string | null
   /** Switched on in Settings; disabled agents are hidden from menus and not checked */
   enabled: boolean
   /** A sign-in flow Grat can start for this agent, when it offers one */
@@ -69,6 +73,8 @@ export interface DevServerState {
   url: string | null
   exitCode: number | null
   lastLine: string
+  /** Still starting well after most apps are up (no reachable address yet) */
+  slow: boolean
 }
 
 export type Viewport = 'desktop' | 'tablet' | 'mobile'
@@ -144,6 +150,8 @@ export interface ChatMeta {
   agentName: string
   status: AgentStatus
   error: string | null
+  /** Technical detail behind `error` (exit code, stderr), shown on request */
+  errorDetail: string | null
   modeName: string | null
   selection: ElementContext | null
   /** Why the last element pick failed, shown until the next pick */
@@ -180,11 +188,25 @@ export type TurnItem =
   | {
       kind: 'permission'
       id: string
+      /** The agent's own description of the action, paths relative to the project */
       title: string
+      /** ACP tool kind (edit, delete, move, execute, fetch, read, …) */
+      toolKind: string
+      /** Files the action touches, relative to the project */
+      locations: string[]
+      /** It touches files that change how the project builds or runs (config, deps, scripts) */
+      sensitive: boolean
       options: PermissionChoice[]
       resolved: string | null
     }
-  | { kind: 'notice'; id: string; text: string; tone: 'info' | 'error' }
+  | {
+      kind: 'notice'
+      id: string
+      text: string
+      tone: 'info' | 'error'
+      /** Technical detail, shown on request */
+      detail?: string
+    }
 
 export interface FileChange {
   path: string
@@ -203,6 +225,13 @@ export interface Turn {
   items: TurnItem[]
   status: TurnStatus
   error: string | null
+  /** Technical detail behind `error`, shown on request */
+  errorDetail?: string | null
+  /**
+   * Small JPEG data URLs of the picked element before the turn and after hot reload.
+   * Kept in memory only (not in saved history); either may be missing.
+   */
+  preview?: { before: string | null; after: string | null } | null
   startedAt: number
   endedAt: number | null
   changes: FileChange[] | null

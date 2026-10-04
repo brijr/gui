@@ -2,7 +2,7 @@ import { type ReactNode, useId, useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Button } from '../lib/ui'
+import { Button, TechnicalDetails } from '../lib/ui'
 import { AgentStatusLabel } from './agent-status'
 import { Switch } from './controls'
 import { errorMessage } from './use-action'
@@ -55,6 +55,9 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
           <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">
             {signInError ?? live.message}
           </p>
+        )}
+        {live?.status === 'error' && live.detail && (
+          <TechnicalDetails text={live.detail} className="mt-1" />
         )}
         {error && (
           <p role="alert" className="mt-0.5 select-text text-pretty text-[12px] text-danger">

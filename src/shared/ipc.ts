@@ -65,6 +65,7 @@ export const Send = {
   setDefaultAgent: 'settings:default-agent',
   setChatDocked: 'settings:chat-docked',
   openCustomAgentsFile: 'settings:open-agents-file',
+  installAgent: 'agents:install',
 } as const
 
 /** Main → renderer */
@@ -145,6 +146,8 @@ export interface GratApi {
   deleteCustomAgent(name: string): Promise<void>
   /** Opens agents.json in the user's editor */
   openCustomAgentsFile(): void
+  /** Opens the agent's official install page in the browser */
+  installAgent(agentId: AgentId): void
   /** The project's dev script will ask before running again */
   untrustProject(root: string): Promise<void>
   clearRecent(): Promise<void>

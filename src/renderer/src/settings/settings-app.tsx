@@ -38,6 +38,11 @@ export function SettingsApp() {
         <ul className="flex flex-col gap-0.5 px-2">
           {SECTIONS.map(({ id, label, icon: Icon }) => (
             <li key={id}>
+              {id === 'storage' && (
+                <p className="px-2 pt-3 pb-1 font-medium text-[11px] text-subtle uppercase tracking-wide">
+                  Advanced
+                </p>
+              )}
               <button
                 type="button"
                 aria-current={section === id ? 'page' : undefined}

@@ -1,4 +1,4 @@
-import { Plus, TriangleAlert } from 'lucide-react'
+import { ChevronRight, Plus, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import {
   type AgentHealth,
@@ -6,11 +6,14 @@ import {
   type CustomAgentEntry,
   type SettingsState,
 } from '../../../shared/types'
+import { AgentCard } from '../agents/agent-card'
 import { grat } from '../lib/api'
+import { cn } from '../lib/cn'
 import { Button, Spinner } from '../lib/ui'
 import { AgentRow } from './agent-row'
 import { GroupHeading, List } from './controls'
 import { CustomAgentForm } from './custom-agent-form'
+import { DefaultAgentSelect } from './default-agent-select'
 import { useAction } from './use-action'
 
 export function AgentsSection({ settings }: { settings: SettingsState }) {
@@ -22,9 +25,17 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 
   return (
     <>
+      <AgentCard
+        agentId={settings.defaultAgentId}
+        health={settings.agents.find((agent) => agent.id === settings.defaultAgentId) ?? null}
+        change={
+          <DefaultAgentSelect agents={settings.agents} defaultAgentId={settings.defaultAgentId} />
+        }
+      />
+
       <section aria-labelledby={foundId} className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
-          <GroupHeading id={foundId}>Built-in agents</GroupHeading>
+          <GroupHeading id={foundId}>Installed agents</GroupHeading>
           <Button variant="ghost" onClick={() => grat.checkAgents()}>
             Check again
           </Button>
@@ -36,7 +47,7 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
             ))}
           </List>
         ) : (
-          <p className="text-muted">None of the built-in agents were found on your PATH.</p>
+          <p className="text-muted">None of Grat's agents are installed yet.</p>
         )}
       </section>
 
@@ -59,11 +70,14 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 function NotInstalledRow({ agent }: { agent: AgentHealth }) {
   const command = agent.command ?? agent.id
   return (
-    <li className="flex items-baseline gap-3 px-3 py-2">
-      <span className="shrink-0 font-medium">{agent.name}</span>
-      <span className="min-w-0 truncate text-[12px] text-muted">
-        <code className="font-mono text-[11px]">{command}</code> isn't on your PATH
-      </span>
+    <li className="flex items-center gap-3 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <p className="font-medium">{agent.name}</p>
+        <p className="truncate text-[11.5px] text-subtle">
+          Needs the <code className="font-mono text-[11px]">{command}</code> command on your PATH
+        </p>
+      </div>
+      {agent.installUrl && <Button onClick={() => grat.installAgent(agent.id)}>Install</Button>}
     </li>
   )
 }
@@ -107,10 +121,21 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
     )
   }
 
+  // For people bringing their own ACP agent; open when there's something in it.
+  const [open, setOpen] = useState(customAgents.length > 0 || locked)
+
+  if (!open) {
+    return (
+      <section aria-labelledby={headingId} className="flex flex-col gap-2">
+        <AdvancedToggle id={headingId} open={false} onToggle={() => setOpen(true)} />
+      </section>
+    )
+  }
+
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <GroupHeading id={headingId}>Custom agents</GroupHeading>
+        <AdvancedToggle id={headingId} open onToggle={() => setOpen(false)} />
         <Button variant="ghost" onClick={() => grat.openCustomAgentsFile()}>
           Edit agents.json
         </Button>
@@ -210,5 +235,32 @@ function CustomAgentRow({ entry, health, locked, onEdit }: CustomAgentRowProps) 
       actions={actions}
       error={remove.error}
     />
+  )
+}
+
+function AdvancedToggle({
+  id,
+  open,
+  onToggle,
+}: {
+  id: string
+  open: boolean
+  onToggle: () => void
+}) {
+  return (
+    <GroupHeading id={id}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex items-center gap-1 rounded uppercase tracking-wide hover:text-fg"
+      >
+        <ChevronRight
+          className={cn('size-3 transition-transform', open && 'rotate-90')}
+          aria-hidden="true"
+        />
+        Custom agents
+      </button>
+    </GroupHeading>
   )
 }

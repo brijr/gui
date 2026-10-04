@@ -34,10 +34,19 @@ export interface AgentDefinition extends AgentInfo {
   signIn: string | null
   /** Grat can run this agent's ACP sign-in flow itself (it opens the browser) */
   inAppSignIn: boolean
+  /** Official install page, for agents the user installs themselves */
+  installUrl?: string
+  /** Sign-in Grat can start in Terminal: the command, and what to do once it runs */
+  terminalSignIn?: { command: string; hint: string }
 }
 
 export interface AgentListing {
-  agents: (AgentInfo & { command: string | null; installed: boolean })[]
+  agents: (AgentInfo & {
+    command: string | null
+    installed: boolean
+    installUrl: string | null
+    terminalSignIn: AgentDefinition['terminalSignIn'] | null
+  })[]
   /** Why agents.json couldn't be read, if it couldn't */
   customError: string | null
 }
@@ -81,24 +90,41 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
   },
   grok: {
     launch: cli('grok', 'agent', 'stdio'),
-    signIn: 'Run `grok login` in a terminal, then try again.',
+    signIn: 'Sign in from Settings → Agents, or run `grok login` in a terminal.',
     inAppSignIn: false,
+    installUrl: 'https://x.ai/build',
+    terminalSignIn: { command: 'grok login', hint: 'Finish signing in in your browser.' },
   },
   kiro: {
     launch: cli('kiro-cli', 'acp'),
-    signIn: 'Run `kiro-cli login` in a terminal, then try again.',
+    signIn: 'Sign in from Settings → Agents, or run `kiro-cli login` in a terminal.',
     inAppSignIn: false,
+    installUrl: 'https://kiro.dev/docs/cli/',
+    terminalSignIn: {
+      command: 'kiro-cli login',
+      hint: 'Pick how you sign in, then follow the steps.',
+    },
   },
   opencode: {
     launch: cli('opencode', 'acp'),
-    signIn: 'Run `opencode auth login` in a terminal, then try again.',
+    signIn: 'Sign in from Settings → Agents, or run `opencode auth login` in a terminal.',
     inAppSignIn: false,
+    installUrl: 'https://opencode.ai/docs/',
+    terminalSignIn: {
+      command: 'opencode auth login',
+      hint: 'Pick a provider, then follow the steps.',
+    },
   },
   pi: {
     // pi has no ACP mode of its own; the bundled adapter drives `pi --mode rpc`.
     launch: adapter('pi-acp', { requires: 'pi' }),
-    signIn: 'Run `pi` in a terminal and use /login (or set a provider API key), then try again.',
+    signIn: 'Sign in from Settings → Agents, or run `pi` in a terminal and use /login.',
     inAppSignIn: false,
+    installUrl: 'https://pi.dev',
+    terminalSignIn: {
+      command: 'pi',
+      hint: 'Type /login and pick a provider. When you are signed in, quit pi and close this window.',
+    },
   },
 }
 
@@ -278,11 +304,20 @@ export async function resolveAgent(id: AgentId): Promise<AgentDefinition> {
 export async function listAgents(): Promise<AgentListing> {
   const [custom, env] = await Promise.all([loadCustomAgents(), getShellEnv()])
   const agents = await Promise.all(
-    [...BUILT_IN, ...custom.agents].map(async ({ id, name, launch }) => {
-      const command = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
-      const installed = command === null || (await findExecutable(command, env.PATH)) !== null
-      return { id, name, command, installed }
-    }),
+    [...BUILT_IN, ...custom.agents].map(
+      async ({ id, name, launch, installUrl, terminalSignIn }) => {
+        const command = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
+        const installed = command === null || (await findExecutable(command, env.PATH)) !== null
+        return {
+          id,
+          name,
+          command,
+          installed,
+          installUrl: installUrl ?? null,
+          terminalSignIn: terminalSignIn ?? null,
+        }
+      },
+    ),
   )
   return { agents, customError: custom.error }
 }

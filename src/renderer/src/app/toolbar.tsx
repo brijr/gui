@@ -114,19 +114,26 @@ export function Toolbar({ state }: { state: WindowState }) {
 
 function DevServerPill({ state }: { state: WindowState }) {
   const { status, url, exitCode } = state.devServer
+  const crashed = status === 'exited' && exitCode !== 0
   const label =
     status === 'running' && url
       ? new URL(url).host
       : status === 'starting'
         ? 'Starting…'
-        : status === 'exited'
-          ? `Exited${exitCode !== null ? ` (${exitCode})` : ''}`
+        : crashed
+          ? 'Stopped with an error'
           : 'Stopped'
+  const title = [
+    state.devServer.command ?? 'Your app',
+    status === 'exited' && exitCode !== null ? `exited with code ${exitCode}` : null,
+  ]
+    .filter(Boolean)
+    .join(' — ')
   return (
     <button
       type="button"
       onClick={() => grat.showDevServerMenu()}
-      title={state.devServer.command ?? 'Dev server'}
+      title={title}
       className="no-drag flex h-6 items-center gap-1.5 rounded-full border border-line bg-raised px-2 font-mono text-[11px] text-muted hover:border-line-strong hover:text-fg"
     >
       <span
@@ -159,7 +166,8 @@ function AddressBar({ url, disabled }: { url: string | null; disabled: boolean }
   return (
     <form onSubmit={submit} className="no-drag min-w-0 flex-1">
       <input
-        aria-label="Preview URL"
+        id="preview-address"
+        aria-label="App address"
         value={value}
         disabled={disabled}
         spellCheck={false}

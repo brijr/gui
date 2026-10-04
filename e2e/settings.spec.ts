@@ -66,6 +66,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await expect(codex).toHaveAttribute('aria-checked', 'true')
 
   // A custom agent added in the form is saved, found on disk, and removable.
+  await page.getByRole('button', { name: 'Custom agents' }).click()
   await page.getByRole('button', { name: 'Add agent' }).click()
   await page.getByLabel('Name').fill('Echo')
   await page.getByLabel('Command').fill('/bin/echo')
@@ -87,8 +88,8 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await settingsWhere(page, 'the custom agent to be removed', (s) => s.customAgents.length === 0)
 
   // Chat defaults are what new windows and chats start with.
-  await page.getByRole('button', { name: 'Chat' }).click()
   await page.getByLabel('Default agent').selectOption('codex')
+  await page.getByRole('button', { name: 'Chat' }).click()
   await page.getByRole('switch', { name: 'Start the chat docked to the side' }).click()
   await settingsWhere(
     page,

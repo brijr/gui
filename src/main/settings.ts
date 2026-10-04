@@ -135,6 +135,7 @@ export function setAgentEnabled(id: AgentId, enabled: boolean) {
 }
 
 export function setDefaultAgent(id: AgentId) {
+  agentHealth.ensureChecked(id)
   setPrefs({ agentId: id })
 }
 

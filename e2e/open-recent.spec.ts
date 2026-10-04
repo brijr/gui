@@ -13,6 +13,14 @@ test('double openRecent yields one window and one dev server', async ({ launch }
   const session = await launch({ fixture: 'vite', open: 'recent' })
   const { root } = session.fixture
   expect((await session.state()).project).toBeNull()
+  // The start screen: its agent card settles once the launch check has run.
+  const settled = async () => {
+    const { agents, agentId } = await session.state()
+    const status = agents.find((agent) => agent.id === agentId)?.status
+    return status !== undefined && status !== 'unknown' && status !== 'checking'
+  }
+  await waitFor(settled, 'the agent check to settle', { timeout: 60_000 }).catch(() => undefined)
+  await session.shot('start-screen')
 
   await session.chrome.evaluate(openTwice, root)
   await session.waitForPreview()

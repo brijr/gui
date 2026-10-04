@@ -6,6 +6,8 @@ import { getShellEnv } from './shell-env'
 
 const MAX_LOG = 512 * 1024
 const PROBE_TIMEOUT_MS = 120_000
+/** Most dev servers are up well within this; past it, the UI offers a way forward. */
+const SLOW_START_MS = 30_000
 /** After this long, accept any listener on the port even if we can't prove it's ours. */
 const OWNERSHIP_GRACE_MS = 20_000
 const ESC = '\u001b'
@@ -38,7 +40,14 @@ export interface DevServerEvents {
 
 /** Runs the project's dev script in a real PTY and detects when its URL is reachable. */
 export class DevServer extends EventEmitter<DevServerEvents> {
-  state: DevServerState = { status: 'idle', command: null, url: null, exitCode: null, lastLine: '' }
+  state: DevServerState = {
+    status: 'idle',
+    command: null,
+    url: null,
+    exitCode: null,
+    lastLine: '',
+    slow: false,
+  }
   private proc: IPty | null = null
   private log = ''
   /** Incomplete last line of output; URLs and escape codes can span PTY reads. */
@@ -66,7 +75,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.stopping = false
     this.partial = ''
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
-    this.update({ status: 'starting', command, url: null, exitCode: null })
+    this.update({ status: 'starting', command, url: null, exitCode: null, slow: false })
+    setTimeout(() => {
+      if (run === this.run && this.state.status === 'starting') this.update({ slow: true })
+    }, SLOW_START_MS).unref()
 
     let proc: IPty
     try {
@@ -226,7 +238,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   private update(patch: Partial<DevServerState>) {
-    this.state = { ...this.state, ...patch }
+    // Only a server that's still starting can be slow to start.
+    const slow =
+      (patch.status ?? this.state.status) === 'starting' && (patch.slow ?? this.state.slow)
+    this.state = { ...this.state, ...patch, slow }
     this.emit('change', this.state)
   }
 }

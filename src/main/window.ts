@@ -41,6 +41,7 @@ import { addRecent, loadRecent } from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { getShellEnv } from './shell-env'
 import { PREVIEW_PARTITION } from './storage'
+import { thumbnail } from './thumbnail'
 import { isTrusted, trust } from './trust'
 
 const TOOLBAR_HEIGHT = 44
@@ -76,6 +77,7 @@ const idleDevServer = (): DevServerState => ({
   url: null,
   exitCode: null,
   lastLine: '',
+  slow: false,
 })
 
 export class ProjectWindow {
@@ -87,6 +89,8 @@ export class ProjectWindow {
   private devServer: DevServer | null = null
   private chat: ChatController | null = null
   private mcp: RunningMcpServer | null = null
+  /** The current project's preview tools; also used to show how a change turned out. */
+  private previewTools: PreviewTools | null = null
   private readonly problems = new Problems()
   /** Selection shown in the chat last time meta changed, to clear the highlight only when it goes away. */
   private shownSelectionId: string | null = null
@@ -209,6 +213,7 @@ export class ProjectWindow {
         agentName: agentName(this.state.agentId),
         status: 'idle',
         error: null,
+        errorDetail: null,
         modeName: null,
         selection: null,
         selectionError: null,
@@ -255,6 +260,7 @@ export class ProjectWindow {
         navigate: (url) => this.loadPreview(url),
         logs: () => this.getLogs(),
       })
+      this.previewTools = tools
       const mcp = await startMcpServer(tools).catch((error: unknown) => {
         console.error('[grat] preview tools unavailable', error)
         return null
@@ -295,7 +301,10 @@ export class ProjectWindow {
           if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
           this.rehighlightTimer = setTimeout(() => {
             this.rehighlightTimer = null
-            void this.highlightSelector(selector)
+            // After hot reload: show how it looks now, then point at it again.
+            void this.captureAfter(chat, turn.id, selector).then(() =>
+              this.highlightSelector(selector),
+            )
           }, REHIGHLIGHT_DELAY_MS)
         }
       })
@@ -330,11 +339,12 @@ export class ProjectWindow {
   private async confirmDevScript(project: ProjectInfo) {
     if (await isTrusted(project.root)) return true
     if (this.disposed) return false
+    const script = project.devScript ? `\n\n${project.devScript}` : ''
     const { response } = await dialog.showMessageBox(this.win, {
       type: 'question',
-      message: `Run ${project.devCommand}?`,
-      detail: `Grat starts the project's dev server to preview it. This runs:\n\n${project.devScript ?? project.devCommand}\n\nOnly run scripts from projects you trust.`,
-      buttons: ['Run dev server', 'Not now'],
+      message: `Start ${project.name}?`,
+      detail: `To show your app, Grat runs its start command, ${project.devCommand}:${script}\n\nOnly start projects you trust. Grat won't ask again for this project.`,
+      buttons: ['Start App', 'Not Now'],
       defaultId: 0,
       cancelId: 1,
     })
@@ -351,6 +361,7 @@ export class ProjectWindow {
     this.chat = null
     this.mcp?.close()
     this.mcp = null
+    this.previewTools = null
     this.problems.clear()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
@@ -607,6 +618,7 @@ export class ProjectWindow {
 
   setAgent(agentId: AgentId) {
     if (!agentHealth.has(agentId)) return
+    agentHealth.ensureChecked(agentId)
     setPrefs({ agentId })
     this.patch({ agentId })
     void this.chat?.setAgent(agentId)
@@ -625,6 +637,26 @@ export class ProjectWindow {
     const sent = this.chat?.fixProblems() ?? false
     if (sent) this.focusChat()
     return sent
+  }
+
+  /** Shows the changed element in the turn, next to how it looked when it was picked. */
+  private async captureAfter(chat: ChatController, turnId: string, selector: string) {
+    const tools = this.previewTools
+    if (!tools || chat !== this.chat || !this.state.preview.visible) return
+    const shot = await tools.screenshot({ selector }).catch(() => null)
+    if (chat === this.chat) chat.setPreviewAfter(turnId, thumbnail(shot))
+  }
+
+  /** Undoes the newest turn that changed files and hasn't been undone. */
+  async undoLastChange() {
+    const turnId = this.chat?.lastUndoableTurnId()
+    if (!turnId) return shell.beep()
+    await this.chat?.restoreTurn(turnId).catch(() => shell.beep())
+  }
+
+  async redoLastChange() {
+    if (!this.chat?.meta.redoTurnIds.length) return shell.beep()
+    await this.chat.redo().catch(() => shell.beep())
   }
 
   /** Re-finds an element after hot reload (its old node is gone) and highlights it. */

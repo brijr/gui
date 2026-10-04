@@ -90,6 +90,12 @@ test.describe('agent turn', () => {
     expect(gitStatus(root)).not.toBe('')
     // The edit has to show up in the running preview, not just on disk.
     await waitFor(isRed, 'the button to turn red in the preview', { timeout: 45_000 })
+    // The turn shows how the picked element looked before the change and after it reloaded.
+    const shown = async () => {
+      const preview = (await session.chatSnapshot()).turns[0]?.preview
+      return preview?.before && preview.after ? preview : null
+    }
+    await waitFor(shown, 'before/after images of the change', { timeout: 20_000 })
     await session.shot('edited')
 
     // Undo: the files go back to how they were before the turn, and the preview follows.
@@ -107,5 +113,15 @@ test.describe('agent turn', () => {
     expect(redone.turns[0]?.reverted).toBe(false)
     expect(redone.meta.redoTurnIds).toEqual([])
     await waitFor(isRed, 'the red background after redo', { timeout: 45_000 })
+
+    // Edit → Undo (⌘Z) undoes the last change when no text field has focus.
+    await session.chrome.evaluate(() => {
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+    })
+    await session.app.evaluate(({ Menu }) => {
+      const edit = Menu.getApplicationMenu()?.items.find((item) => item.label === 'Edit')
+      edit?.submenu?.items.find((item) => item.label === 'Undo')?.click()
+    })
+    await waitFor(isOriginal, 'the original background after Edit → Undo', { timeout: 45_000 })
   })
 })

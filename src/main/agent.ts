@@ -4,8 +4,9 @@ import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
-import type { AgentId } from '../shared/types'
+import { type AgentId, agentName } from '../shared/types'
 import { type AgentDefinition, findExecutable, resolveAgent } from './agents'
+import { DetailedError } from './errors'
 import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
@@ -40,8 +41,9 @@ function sessionMeta(id: AgentId) {
 async function requireExecutable(agent: AgentDefinition, command: string, env: NodeJS.ProcessEnv) {
   const path = await findExecutable(command, env.PATH)
   if (!path) {
-    throw new Error(
-      `${agent.name} isn't installed: \`${command}\` isn't on your PATH. Install it, then try again.`,
+    throw new DetailedError(
+      `${agent.name} isn't installed. Install it from Settings → Agents, then try again.`,
+      `\`${command}\` wasn't found on your login shell's PATH.`,
     )
   }
   return path
@@ -68,7 +70,7 @@ export type PermissionResolver = (optionId: string | null) => void
 export interface AgentHandlers {
   onUpdate(update: acp.SessionNotification['update']): void
   onPermission(request: acp.RequestPermissionRequest, resolve: PermissionResolver): void
-  onExit(error: string | null): void
+  onExit(error: DetailedError): void
 }
 
 export interface AgentInfo {
@@ -172,11 +174,11 @@ export class AgentSession {
       this.stderr = (this.stderr + chunk).slice(-4000)
     })
     this.exited = new Promise<never>((_resolve, reject) => {
-      child.once('exit', (code, signal) => reject(new Error(this.exitMessage(code, signal))))
+      child.once('exit', (code, signal) => reject(this.exitError(code, signal)))
     })
     this.exited.catch(() => undefined)
     child.once('exit', (code, signal) => {
-      if (!this.disposed) this.handlers.onExit(this.exitMessage(code, signal))
+      if (!this.disposed) this.handlers.onExit(this.exitError(code, signal))
     })
     await new Promise<void>((resolve, reject) => {
       child.once('spawn', resolve)
@@ -313,9 +315,13 @@ export class AgentSession {
     return Promise.race([promise, this.exited])
   }
 
-  private exitMessage(code: number | null, signal: NodeJS.Signals | null) {
-    const detail = this.stderr.trim().split('\n').slice(-3).join('\n')
-    return `Agent exited (${signal ?? code})${detail ? `: ${detail}` : ''}`
+  private exitError(code: number | null, signal: NodeJS.Signals | null) {
+    const output = this.stderr.trim().split('\n').slice(-3).join('\n')
+    const how = signal ? `Exited on ${signal}` : `Exited with code ${code}`
+    return new DetailedError(
+      `${agentName(this.agentId)} stopped unexpectedly.`,
+      output ? `${how}:\n${output}` : how,
+    )
   }
 }
 

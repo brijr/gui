@@ -79,10 +79,15 @@ function settleTurn(turn: Turn, before: string | null): Turn {
 }
 
 function settleItem(item: TurnItem): TurnItem {
-  if (item.kind === 'permission' && item.resolved === null) {
-    return { ...item, resolved: 'cancelled' }
+  if (item.kind !== 'permission') return item
+  // Saved before prompts described the action; fill in what the transcript expects.
+  return {
+    ...item,
+    toolKind: item.toolKind ?? 'other',
+    locations: item.locations ?? [],
+    sensitive: item.sensitive ?? false,
+    resolved: item.resolved ?? 'cancelled',
   }
-  return item
 }
 
 /** Query strings and fragments can carry tokens; history only needs the page. */
@@ -96,7 +101,8 @@ function withoutQuery(url: string) {
 }
 
 function serialize(chat: SavedChat) {
-  const turns = chat.turns.map((turn) =>
+  // Before/after images are for the live session only; history stays small.
+  const turns = chat.turns.map(({ preview: _preview, ...turn }) =>
     turn.context
       ? { ...turn, context: { ...turn.context, url: withoutQuery(turn.context.url) } }
       : turn,

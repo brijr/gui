@@ -78,6 +78,7 @@ const api: GratApi = {
     invokeOrThrow(Invoke.saveCustomAgent, originalName, entry),
   deleteCustomAgent: (name) => invokeOrThrow(Invoke.deleteCustomAgent, name),
   openCustomAgentsFile: send(Send.openCustomAgentsFile),
+  installAgent: send(Send.installAgent),
   untrustProject: (root) => ipcRenderer.invoke(Invoke.untrustProject, root),
   clearRecent: () => ipcRenderer.invoke(Invoke.clearRecent),
   clearStorage: (kind) => ipcRenderer.invoke(Invoke.clearStorage, kind),

@@ -15,7 +15,7 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
   | OpenCode | `opencode acp` | `opencode auth login` |
   | Pi | `pi --mode rpc` (via `pi-acp`) | `pi`, then `/login` |
 
-  Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Grat's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
+  The start screen and **Settings → Agents** show your agent's state with one next step: **Install** opens the agent's install page, and **Sign in** runs its login in Terminal (Claude Code and Codex sign in from Grat directly); Grat re-checks when you come back. Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Grat's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
 
   ```json
   { "Amp": { "command": "amp-acp", "args": [], "env": {} } }
@@ -41,6 +41,7 @@ Open a project folder (⌘O). Grat detects the package manager and `dev` script,
 | Reload preview | ⌘R |
 | New chat | ⇧⌘K |
 | Stop agent | ⌘. |
+| Undo / redo the agent's last change (outside a text field) | ⌘Z / ⇧⌘Z |
 | Settings | ⌘, |
 | Preview DevTools | ⌥⌘I |
 
