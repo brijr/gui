@@ -274,7 +274,9 @@ function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{app.name}</span>
-                <span className="block truncate font-mono text-[11px] text-subtle">{app.dir}</span>
+                <span className="block truncate font-mono text-[11px] text-subtle">
+                  {app.dir === '.' ? 'project root' : app.dir}
+                </span>
               </span>
               <ChevronRight className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
             </button>

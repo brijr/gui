@@ -28,7 +28,8 @@ import {
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { isLoopback } from './loopback'
-import { getPrefs } from './prefs'
+import { getPrefs, setPrefs } from './prefs'
+import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
 import {
   clearRecent,
@@ -124,23 +125,38 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
     dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
-  const real = await canonical(root)
+  // A monorepo app's folder opens the monorepo with that app chosen, so installs, the
+  // agent and checkpoints work from the root.
+  const member = await findWorkspaceRoot(root)
+  const real = member?.root ?? (await canonical(root))
   const roots = await Promise.all(
     allWindows().map(async (w) => ({ w, root: w.projectRoot && (await canonical(w.projectRoot)) })),
   )
   // Checked and claimed with no await in between.
   const existing = roots.find((entry) => entry.root === real)?.w
   if (existing || opening.has(real)) {
+    if (existing && member) showApp(existing, member.appDir)
     existing?.win.focus()
     return
   }
   opening.add(real)
   try {
+    // The window reads the app to run from prefs as it opens.
+    if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
     const empty = target && !target.hasProject ? target : allWindows().find((w) => !w.hasProject)
     await (empty ?? createWindow()).openProject(real)
   } finally {
     opening.delete(real)
   }
+}
+
+/**
+ * Switches a window that has the monorepo open to `appDir`, unless it already shows it.
+ * A window still opening keeps what it's opening.
+ */
+function showApp(win: ProjectWindow, appDir: string) {
+  const { project, setup } = win.getState()
+  if (project && (setup?.apps || project.appDir !== appDir)) win.chooseApp(appDir)
 }
 
 /** For user-initiated opens: surface failures instead of dropping them. */

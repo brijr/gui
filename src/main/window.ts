@@ -293,13 +293,12 @@ export class ProjectWindow {
     const current = () => !this.disposed && generation === this.openGeneration
     try {
       const file = await historyFile(root)
-      const [{ project, apps }, env, saved] = await Promise.all([
+      const [{ project, apps, choosing }, env, saved] = await Promise.all([
         detectProject(root, getPrefs().apps[root] ?? null),
         getShellEnv(),
         loadHistory(file),
       ])
       // Several apps and none picked yet: nothing runs until the user chooses one.
-      const choosing = !project.appDir && apps.length > 1
       const setup = await detectSetup(project, choosing ? apps : null)
       if (!current()) return
 

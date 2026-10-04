@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { WebContents } from 'electron'
 import type { ElementContext, Rect, SourceLocation } from '../shared/types'
-import { normalizeSourcePath, resolveStack } from './source-resolver'
+import { normalizeSourcePath, projectRelativePath, resolveStack } from './source-resolver'
 
 const COMMAND_TIMEOUT_MS = 15_000
 const HIGHLIGHT = {
@@ -123,6 +123,20 @@ const MAX_HTML = 4000
 const REACT_TIMEOUT_MS = 4000
 
 /**
+ * Attributes some dev servers put on elements, naming the file (and `line:column`) that
+ * wrote them. Read when React has no source for the element.
+ */
+const SOURCE_ATTRIBUTES = [
+  // Astro, for elements written in .astro files; the column is where the opening tag ends.
+  { file: 'data-astro-source-file', loc: 'data-astro-source-loc' },
+]
+/** How many ancestors up the nearest element with source attributes may be. */
+const SOURCE_ANCESTORS = 10
+/** Bounds the walk from the picked element to the document. */
+const MAX_LINEAGE = 64
+const MAX_FILE_STACK = 5
+
+/**
  * The only part of extraction that runs as page JavaScript: React's fiber data is
  * reachable nowhere else. Everything it returns is untrusted and validated in main.
  * Plain JS string so bundling can't inject helpers that don't exist in the page.
@@ -181,6 +195,18 @@ interface ReactInfo {
   componentStack: string[]
   debugStack: string | null
   debugSource: { fileName: string; lineNumber: number; columnNumber?: number } | null
+}
+
+/** An element's source attributes (see SOURCE_ATTRIBUTES); page data, unverified. */
+interface SourceTag {
+  file: string
+  loc: string | null
+}
+
+/** A node the protocol reported while pushing a path to the frontend. */
+interface LineageNode {
+  parentId: number | undefined
+  tag: SourceTag | null
 }
 
 interface InspectorEvents {
@@ -283,19 +309,22 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     await this.ready()
     // Page JavaScript that may wait for hydration; it holds no node ids, so it runs unlocked.
     const pendingReact = this.reactInfo(backendNodeId)
-    const { described, outer, rect, viewport, styles, screenshot } = await this.exclusive(
+    const { described, outer, rect, viewport, styles, lineage, screenshot } = await this.exclusive(
       async () => {
-        const [described, outer, rect, viewport, styles] = await Promise.all([
+        const [described, outer, rect, viewport, { styles, lineage }] = await Promise.all([
           this.cmd<{ node: { localName: string; attributes?: string[] } }>('DOM.describeNode', {
             backendNodeId,
           }),
           this.cmd<{ outerHTML: string }>('DOM.getOuterHTML', { backendNodeId }),
           this.boxRect(backendNodeId),
           this.viewport(),
-          this.computedStyles(backendNodeId),
+          this.pushNode(backendNodeId).then(async ({ nodeId, lineage }) => ({
+            styles: await this.computedStyles(nodeId),
+            lineage,
+          })),
         ])
         const screenshot = options.screenshot === false ? null : await this.capture(rect, viewport)
-        return { described, outer, rect, viewport, styles, screenshot }
+        return { described, outer, rect, viewport, styles, lineage, screenshot }
       },
     )
     const react = await pendingReact
@@ -306,7 +335,11 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       attributes[attrs[i]] = attrs[i + 1].slice(0, 300)
     }
     const html = outer.outerHTML
-    const source = await locateSource(react, projectRoot, devOrigin)
+    const reactSource = await locateSource(react, projectRoot, devOrigin)
+    // Pages React didn't render (Astro) can still name their source in dev-mode attributes.
+    const source = reactSource ?? (await sourceFromAttributes(lineage, projectRoot))
+    const reactStack = react?.componentStack ?? []
+    const componentStack = reactSource || reactStack.length > 0 ? reactStack : fileStack(lineage)
 
     return {
       id: randomUUID(),
@@ -319,7 +352,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       outerHTML: html.length > MAX_HTML ? `${html.slice(0, MAX_HTML)}…` : html,
       rect,
       styles,
-      componentStack: react?.componentStack ?? [],
+      componentStack,
       source,
       screenshot,
     }
@@ -413,17 +446,42 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     return { width: cssLayoutViewport.clientWidth, height: cssLayoutViewport.clientHeight }
   }
 
+  /**
+   * Unlocked; `inspect` holds the lock around it. Binds `backendNodeId` to a node id. The
+   * push reports every node on the path down to it (`DOM.setChildNodes`, sent before the
+   * reply), so the element's and its ancestors' source attributes come at no extra cost,
+   * from the protocol rather than page JavaScript that could misreport them.
+   */
+  private async pushNode(backendNodeId: number) {
+    const nodes = new Map<number, LineageNode>()
+    const collect = (_event: unknown, method: string, params: unknown) => {
+      if (method === 'DOM.setChildNodes') addPathNodes(nodes, params)
+    }
+    this.dbg.on('message', collect)
+    try {
+      await this.cmd('DOM.getDocument', { depth: 0 })
+      const { nodeIds } = await this.cmd<{ nodeIds: number[] }>(
+        'DOM.pushNodesByBackendIdsToFrontend',
+        { backendNodeIds: [backendNodeId] },
+      )
+      const nodeId = nodeIds[0]
+      const lineage: (SourceTag | null)[] = []
+      for (let node = nodes.get(nodeId); node && lineage.length < MAX_LINEAGE; ) {
+        lineage.push(node.tag)
+        node = node.parentId === undefined ? undefined : nodes.get(node.parentId)
+      }
+      return { nodeId, lineage }
+    } finally {
+      this.dbg.off('message', collect)
+    }
+  }
+
   /** Unlocked; `inspect` holds the lock around it. */
-  private async computedStyles(backendNodeId: number) {
-    await this.cmd('DOM.getDocument', { depth: 0 })
-    const { nodeIds } = await this.cmd<{ nodeIds: number[] }>(
-      'DOM.pushNodesByBackendIdsToFrontend',
-      { backendNodeIds: [backendNodeId] },
-    )
+  private async computedStyles(nodeId: number) {
     await this.cmd('CSS.enable')
     const { computedStyle } = await this.cmd<{
       computedStyle: { name: string; value: string }[]
-    }>('CSS.getComputedStyleForNode', { nodeId: nodeIds[0] })
+    }>('CSS.getComputedStyleForNode', { nodeId })
     const computed = new Map(computedStyle.map(({ name, value }) => [name, value]))
     for (const [shorthand, longhands] of Object.entries(BOX_SHORTHANDS)) {
       const values = longhands.map((name) => computed.get(name) ?? '')
@@ -596,6 +654,79 @@ async function locateSource(
     }
   })
   return resolveStack(unwrapped, projectRoot, devOrigin ?? undefined)
+}
+
+/** Records the nodes of a `DOM.setChildNodes` event: each one's parent and source tag. */
+function addPathNodes(into: Map<number, LineageNode>, params: unknown) {
+  const event = params as {
+    parentId?: number
+    nodes?: { nodeId: number; parentId?: number; attributes?: string[] }[]
+  }
+  for (const node of event.nodes ?? []) {
+    into.set(node.nodeId, {
+      parentId: node.parentId ?? event.parentId,
+      tag: sourceTag(node.attributes ?? []),
+    })
+  }
+}
+
+/** The first SOURCE_ATTRIBUTES pair an element carries; attributes come as name, value, … */
+function sourceTag(attributes: string[]): SourceTag | null {
+  const value = (name: string) => {
+    for (let i = 0; i + 1 < attributes.length; i += 2) {
+      if (attributes[i] === name) return attributes[i + 1]
+    }
+    return null
+  }
+  for (const names of SOURCE_ATTRIBUTES) {
+    const file = value(names.file)
+    if (file && file.length < 1000) return { file, loc: value(names.loc) }
+  }
+  return null
+}
+
+/**
+ * Where the nearest element with source attributes (the picked one or an ancestor) was
+ * written. A library's component (Astro's <Image>) is passed over for the app element
+ * around it, so that location is approximate.
+ */
+async function sourceFromAttributes(
+  lineage: (SourceTag | null)[],
+  projectRoot: string,
+): Promise<SourceLocation | null> {
+  let passedLibrary = false
+  for (const tag of lineage.slice(0, SOURCE_ANCESTORS + 1)) {
+    if (!tag) continue
+    if (tag.file.replace(/\\/g, '/').split('/').includes('node_modules')) {
+      passedLibrary = true
+      continue
+    }
+    // Outside this root: a monorepo app's caller tries again from the repo root.
+    const file = projectRelativePath(tag.file, projectRoot)
+    if (!file || !(await isFile(join(projectRoot, file)))) return null
+    const loc = /^(\d{1,7})(?::(\d{1,7}))?$/.exec(tag.loc ?? '')
+    const line = Number(loc?.[1])
+    if (!loc || line < 1) return { file, line: 1, approximate: true }
+    const column = loc[2] ? Number(loc[2]) : undefined
+    return { file, line, column, approximate: passedLibrary }
+  }
+  return null
+}
+
+const FILE_NAME = /^[A-Za-z_$][\w$.-]{0,79}$/
+
+/** Names of the files that wrote the element and its ancestors, innermost first: `Hero`, `Layout`. */
+function fileStack(lineage: (SourceTag | null)[]): string[] {
+  const names: string[] = []
+  for (const tag of lineage) {
+    if (!tag) continue
+    const base = tag.file.slice(Math.max(tag.file.lastIndexOf('/'), tag.file.lastIndexOf('\\')) + 1)
+    const dot = base.lastIndexOf('.')
+    const name = dot > 0 ? base.slice(0, dot) : base
+    if (FILE_NAME.test(name) && !names.includes(name)) names.push(name)
+    if (names.length === MAX_FILE_STACK) break
+  }
+  return names
 }
 
 async function isFile(path: string) {

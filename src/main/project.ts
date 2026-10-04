@@ -1,6 +1,7 @@
 import type { Dirent } from 'node:fs'
 import { access, lstat, readdir, readFile, realpath, stat } from 'node:fs/promises'
-import { basename, isAbsolute, join, posix, relative, sep } from 'node:path'
+import { homedir } from 'node:os'
+import { basename, dirname, isAbsolute, join, posix, relative, sep } from 'node:path'
 import type { PackageManager, ProjectInfo, WorkspaceApp } from '../shared/types'
 
 const LOCKFILES: [string, PackageManager][] = [
@@ -364,6 +365,9 @@ interface Workspace extends WorkspaceApp {
   script: DevScript
 }
 
+/** The repo root's own app, when it's offered next to workspace apps. */
+export const ROOT_APP_DIR = '.'
+
 /** Workspace packages with a dev script, keeping only the most app-like ones. */
 async function findApps(root: string, pkg: PackageJson | null): Promise<Workspace[]> {
   const dirs = await expandPatterns(root, await workspacePatterns(root, pkg))
@@ -384,15 +388,18 @@ async function findApps(root: string, pkg: PackageJson | null): Promise<Workspac
 export interface DetectedProject {
   project: ProjectInfo
   /**
-   * The monorepo's apps Gui can preview; empty outside a monorepo or when the root's
-   * own dev script runs the app. Several with no `project.appDir` means "ask the user".
+   * The monorepo's apps Gui can preview (the root's own app as `ROOT_APP_DIR`); empty
+   * when there's only one thing to run. Several with no choice yet means "ask the user".
    */
   apps: WorkspaceApp[]
+  /** Several apps and none chosen: nothing runs until the user picks one */
+  choosing: boolean
 }
 
 /**
- * Finds what to run. In a monorepo whose root dev script starts every package at once
- * (turbo, `pnpm -r`), Gui runs one app instead: the remembered `preferredApp`, the only
+ * Finds what to run. A monorepo can hold several apps: workspace packages with a dev
+ * script, plus the root's own app when its dev script isn't one that starts every
+ * package at once (turbo, `pnpm -r`). Gui runs the remembered `preferredApp`, the only
  * one there is, or (with several) the one the user picks.
  */
 export async function detectProject(
@@ -410,16 +417,67 @@ export async function detectProject(
   })
 
   const rootScript = devScriptOf(pkg)
-  if (rootScript && !isWorkspaceRunner(rootScript.body)) {
-    return { project: run(rootScript, null), apps: [] }
+  const rootApp: Workspace | null =
+    rootScript && !isWorkspaceRunner(rootScript.body)
+      ? { dir: ROOT_APP_DIR, name: base.name, script: rootScript }
+      : null
+  const candidates = [...(rootApp ? [rootApp] : []), ...(await findApps(root, pkg))]
+  // Nothing to choose between: the root's script, runner or not.
+  if (candidates.length <= 1 && (rootApp || candidates.length === 0)) {
+    return { project: run(rootScript, null), apps: [], choosing: false }
   }
-  const workspaces = await findApps(root, pkg)
-  // No app to pick: fall back to the root's script, runner or not.
-  if (workspaces.length === 0) return { project: run(rootScript, null), apps: [] }
 
-  const apps = workspaces.map(({ dir, name }) => ({ dir, name }))
+  const apps = candidates.map(({ dir, name }) => ({ dir, name }))
   const chosen =
-    workspaces.find((app) => app.dir === preferredApp) ??
-    (workspaces.length === 1 ? workspaces[0] : undefined)
-  return { project: chosen ? run(chosen.script, chosen.dir) : run(null, null), apps }
+    candidates.find((app) => app.dir === preferredApp) ??
+    (candidates.length === 1 ? candidates[0] : undefined)
+  if (!chosen) return { project: run(null, null), apps, choosing: true }
+  const appDir = chosen.dir === ROOT_APP_DIR ? null : chosen.dir
+  return { project: run(chosen.script, appDir), apps, choosing: false }
+}
+
+/** How many folders up `findWorkspaceRoot` looks; workspace apps sit a level or two down. */
+const MAX_WORKSPACE_DEPTH = 8
+
+export interface WorkspaceMember {
+  /** Real path of the monorepo root */
+  root: string
+  /** The app's folder, relative to `root` */
+  appDir: string
+}
+
+/**
+ * The monorepo `dir` is an app of. Opened on its own, a workspace app would install in
+ * its folder with the wrong package manager (the lockfile is at the root), and the agent
+ * and checkpoints would only see the app. Looks at most MAX_WORKSPACE_DEPTH folders up,
+ * never above the repo (a folder with `.git`) or into the home folder or the disk root.
+ * Only an app `detectProject` would offer counts; a library package opens as itself.
+ */
+export async function findWorkspaceRoot(dir: string): Promise<WorkspaceMember | null> {
+  try {
+    const real = await realpath(dir)
+    const home = await realpath(homedir()).catch(() => homedir())
+    let current = real
+    for (let level = 0; level < MAX_WORKSPACE_DEPTH; level++) {
+      if (await exists(join(current, '.git'))) return null
+      const parent = dirname(current)
+      if (parent === current || parent === home || dirname(parent) === parent) return null
+      current = parent
+      const member = await workspaceMember(current, real)
+      if (member) return member
+    }
+  } catch {
+    // Unreadable folders on the way: open the folder as it is.
+  }
+  return null
+}
+
+/** `{ root, appDir }` when `root`'s workspaces list `dir` and it's one of root's apps. */
+async function workspaceMember(root: string, dir: string): Promise<WorkspaceMember | null> {
+  const patterns = await workspacePatterns(root, await readPackageJson(root))
+  if (patterns.length === 0) return null
+  const appDir = relative(root, dir).split(sep).join('/')
+  if (!(await expandPatterns(root, patterns)).includes(appDir)) return null
+  const { apps } = await detectProject(root)
+  return apps.some((app) => app.dir === appDir) ? { root, appDir } : null
 }

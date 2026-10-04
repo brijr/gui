@@ -1,0 +1,9 @@
+{
+  "name": "gui-e2e-astro-like",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.0",
+  "scripts": {
+    "dev": "bun server.js"
+  }
+}

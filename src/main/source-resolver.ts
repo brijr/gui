@@ -142,6 +142,16 @@ export function normalizeSourcePath(source: string, projectRoot: string): string
 }
 
 /**
+ * A filesystem path a page reported (absolute, or relative to the root) as a path
+ * relative to `projectRoot`; null when it's outside the root or in node_modules.
+ */
+export function projectRelativePath(path: string, projectRoot: string): string | null {
+  const s = path.trim().replace(/\\/g, '/')
+  if (s.startsWith('/') || WINDOWS_ABS.test(s)) return fromAbsolute(s, projectRoots(projectRoot))
+  return SCHEME.test(s) ? null : cleanRelative(s)
+}
+
+/**
  * `origin` restricts which server we fetch scripts and maps from. Stacks come from
  * the previewed page, so without it a page could make us probe any loopback port.
  */
