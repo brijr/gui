@@ -254,10 +254,10 @@ export interface GuiApi {
    */
   onChatFloat(cb: (float: ChatFloat) => void): Unsubscribe
   /**
-   * The chat has finished morphing into `form`, so main can shrink the view to it. Without this
-   * main shrinks it after a short while anyway.
+   * The chat has finished morphing into `form` (the float numbered `seq`), so main can shrink
+   * the view to it. Without this main shrinks it after a short while anyway.
    */
-  chatMorphed(form: ChatForm): void
+  chatMorphed(form: ChatForm, seq: number): void
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project).

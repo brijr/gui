@@ -142,9 +142,9 @@ export function TabStrip({ state }: { state: WindowState }) {
         if (!initial) growIn(el)
         continue
       }
-      const dropped = drop?.id === id
+      const isDropped = drop?.id === id
       if (Math.abs(drawn - slot) >= 0.5 || slides.current.has(id)) {
-        slide(el, id, drawn - slot, dropped ? drop.velocity : 0, dropped)
+        slide(el, id, drawn - slot, isDropped ? drop.velocity : 0, isDropped)
       }
     }
     for (const id of [...slots.current.keys()]) {
@@ -187,7 +187,8 @@ export function TabStrip({ state }: { state: WindowState }) {
         slides.current.delete(id)
       },
     })
-    slides.current.set(id, { spring, stop })
+    // Landed already (a hidden page): nothing to keep.
+    if (stop) slides.current.set(id, { spring, stop })
   }
 
   const { tabs, activeTab } = state

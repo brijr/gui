@@ -224,8 +224,14 @@ export class ProjectTab {
    * off by the view's edge.
    */
   private viewForm: ChatForm = 'panel'
-  /** The smaller form the view waits to shrink to, and the fallback that shrinks it anyway. */
-  private morphing: { form: ChatForm; timer: NodeJS.Timeout } | null = null
+  /**
+   * The smaller form the view waits to shrink to (as of float `seq`), and the fallback that
+   * shrinks it anyway.
+   */
+  private morphing: { form: ChatForm; seq: number; timer: NodeJS.Timeout } | null = null
+  /** Counts changes of the floating form, so a report of a morph that has since turned around is ignored. */
+  private formSeq = 0
+  private lastForm: ChatForm = 'panel'
   /** A permission card came up while the user picked over the bubble; shown when picking ends. */
   private attentionWaiting = false
   /** The screenshot menu is open or its capture is running. */
@@ -1425,9 +1431,9 @@ export class ProjectTab {
     this.fly(rect, velocity, speed > THROW_SPEED ? SPRINGS.thrown : SPRINGS.default)
   }
 
-  /** The chat has morphed into `form`: the view can shrink to it now. */
-  chatMorphed(form: ChatForm) {
-    if (this.morphing?.form !== form) return
+  /** The chat has morphed into `form` (float `seq`): the view can shrink to it now. */
+  chatMorphed(form: ChatForm, seq: number) {
+    if (this.morphing?.form !== form || this.morphing.seq !== seq) return
     this.settleForm(form)
     this.layoutChat()
   }
@@ -1670,11 +1676,14 @@ export class ProjectTab {
     // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
     const docked = showChat && this.docked
     const covered = this.host.shortcutsOpen
-    const form = this.wantedForm()
-    // Hidden or docked, a panel still landing is simply there, already in its new form.
+    const float = this.float()
+    const { form } = float
+    // Hidden or docked, a panel still landing is simply there, already in its new form; the
+    // chat page is told too, so it isn't still morphing when it's floating in sight again.
     if (!showChat || docked) {
       this.flight?.finish()
       this.settleForm(form)
+      this.showFloat(float)
     }
     this.chatView.setVisible(showChat && !covered)
     if (docked) {
@@ -1694,7 +1703,7 @@ export class ProjectTab {
     else if (form !== this.viewForm) this.awaitMorph(form)
     else this.settleForm(form)
     this.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, this.viewForm))
-    this.showFloat(this.float())
+    this.showFloat(float)
   }
 
   /** What the floating chat should be drawn as now. */
@@ -1704,7 +1713,12 @@ export class ProjectTab {
   }
 
   private float(): ChatFloat {
-    return { form: this.wantedForm(), corner: { x: this.anchor.x, y: this.anchor.y } }
+    const form = this.wantedForm()
+    if (form !== this.lastForm) {
+      this.lastForm = form
+      this.formSeq++
+    }
+    return { form, corner: { x: this.anchor.x, y: this.anchor.y }, seq: this.formSeq }
   }
 
   /** The view is sized to `form` from now on; any wait to shrink is over. */
@@ -1716,10 +1730,11 @@ export class ProjectTab {
 
   /** Waits for the chat to morph into `form` before shrinking the view to it. */
   private awaitMorph(form: ChatForm) {
-    if (this.morphing?.form === form) return
+    if (this.morphing?.form === form && this.morphing.seq === this.formSeq) return
     if (this.morphing) clearTimeout(this.morphing.timer)
-    const timer = setTimeout(() => this.chatMorphed(form), MORPH_TIMEOUT_MS)
-    this.morphing = { form, timer }
+    const seq = this.formSeq
+    const timer = setTimeout(() => this.chatMorphed(form, seq), MORPH_TIMEOUT_MS)
+    this.morphing = { form, seq, timer }
   }
 
   /**
@@ -1749,13 +1764,15 @@ export class ProjectTab {
     contentWidth: number,
     contentHeight: number,
     shape: 'panel' | 'pill' = this.chat?.meta.minimized ? 'pill' : 'panel',
+    /** Where it rests at its anchor, even mid-flight */
+    atRest = false,
   ): Rect {
     const { width, height } =
       shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight)
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
     // The anchored corner's point: the flight's, or the anchor's.
-    const corner = this.flight?.point ?? {
+    const corner = (!atRest && this.flight?.point) || {
       x: x === 'left' ? area.x + dx : area.x + area.width - dx,
       y: y === 'top' ? area.y + dy : area.y + area.height - dy,
     }
@@ -1771,12 +1788,8 @@ export class ProjectTab {
 
   /** Where the floating panel's anchored corner is when at rest at its anchor. */
   private restingCorner(): Point {
-    const flight = this.flight
-    this.flight = null
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const rect = this.floatingRect(contentWidth, contentHeight)
-    this.flight = flight
-    return cornerPoint(rect, this.anchor)
+    return cornerPoint(this.floatingRect(contentWidth, contentHeight, undefined, true), this.anchor)
   }
 
   /**

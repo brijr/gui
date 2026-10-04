@@ -10,7 +10,7 @@ import type {
 import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
 import { closeShipSheet, useShipSheet } from './ship-sheet'
-import { applyInOrder, type Move, markSeen, rowKeys, transition } from './transitions'
+import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
 
 interface ChatStore {
   meta: ChatMeta | null
@@ -34,7 +34,7 @@ export const useChat = create<ChatStore>(() => ({
   attachments: [],
   notice: null,
   pickModel: false,
-  float: { form: 'panel', corner: { x: 'left', y: 'bottom' } },
+  float: { form: 'panel', corner: { x: 'left', y: 'bottom' }, seq: 0 },
 }))
 
 /** The permission card waiting longest for an answer, and its turn; null when none is. */
@@ -136,10 +136,20 @@ const queueItem = (id: string) => () =>
 const permission = (itemId: string) => () =>
   document.querySelector(`[data-permission="${CSS.escape(itemId)}"]`)
 
+interface Sent {
+  prompt: string
+  images: string[]
+  at: number
+  /** Main took it, but its turn (or queued message) hasn't arrived: clears the composer soon */
+  fallback?: ReturnType<typeof setTimeout>
+}
+
 /** The message the composer just sent, until its turn or queued message arrives. */
-let sent: { prompt: string; images: string[]; at: number } | null = null
+let sent: Sent | null = null
 /** How long a sent message waits for main's turn (or queued message) to rise into. */
 const SENT_WINDOW_MS = 3000
+/** How long main's answer waits for the turn before the composer clears without the rise. */
+const SENT_CLEAR_MS = 300
 
 /**
  * The composer is sending `text` with the draft images `images` (by id): when main's turn or
@@ -149,6 +159,30 @@ export function noteSend(text: string, images: string[]) {
   sent = { prompt: text.trim(), images, at: performance.now() }
 }
 
+/**
+ * Main answered the send. Taken, the composer clears: with the turn's arrival (the rise owns
+ * the clear, so the rise starts from the text), or shortly after if that doesn't come. Not
+ * taken, the draft stays as it was.
+ */
+export function settleSend(accepted: boolean, text: string, images: string[]) {
+  const pending = sent
+  if (!accepted) {
+    if (pending?.fallback) clearTimeout(pending.fallback)
+    sent = null
+    return
+  }
+  if (pending && !pending.fallback) {
+    pending.fallback = setTimeout(() => {
+      if (sent !== pending) return
+      sent = null
+      applyInOrder(() => clearSent(pending.prompt, pending.images))
+    }, SENT_CLEAR_MS)
+    return
+  }
+  // Already risen (or rising, its update about to apply): this only finds it done.
+  applyInOrder(() => clearSent(text.trim(), images))
+}
+
 /** Takes the sent message if `prompt` is it, still fresh. */
 function takeSent(prompt: string) {
   const match =
@@ -156,6 +190,7 @@ function takeSent(prompt: string) {
     performance.now() - sent.at < SENT_WINDOW_MS &&
     (sent.prompt === prompt || sent.prompt === '')
   const taken = match ? sent : null
+  if (taken?.fallback) clearTimeout(taken.fallback)
   if (match) sent = null
   return taken
 }
@@ -188,7 +223,16 @@ function releaseStarting() {
   clearTimeout(starting.timer)
   const held = starting
   starting = null
+  // Removals that came in while it waited are done with too.
+  for (const id of removing) {
+    if (!held.meta.queue.some((item) => item.id === id)) removing.delete(id)
+  }
   return held
+}
+
+/** `meta` with the queue as it's shown now: only the queue waits for the starting turn. */
+function withShownQueue(meta: ChatMeta): ChatMeta {
+  return { ...meta, queue: useChat.getState().meta?.queue ?? meta.queue }
 }
 
 /** Queued messages moving, entering and leaving between two queues. */
@@ -200,6 +244,7 @@ function queueMoves(before: QueuedMessage[], after: QueuedMessage[]): Move[] {
     name: `queue-${id}`,
     from: known.has(id) ? queueItem(id) : () => null,
     to: kept.has(id) ? queueItem(id) : () => null,
+    enters: !known.has(id),
   }))
 }
 
@@ -211,8 +256,10 @@ function onMeta(meta: ChatMeta) {
   const apply = () => useChat.setState({ meta })
 
   if (starting) {
-    // Newer news about the queue while its first message starts: wait on with the latest.
+    // Newer news while the queue's first message starts: the queue waits on with the latest,
+    // everything else applies now.
     starting.meta = meta
+    applyInOrder(() => useChat.setState({ meta: withShownQueue(meta) }))
     return
   }
   const [first] = removed
@@ -230,6 +277,7 @@ function onMeta(meta: ChatMeta) {
         transition(() => useChat.setState({ meta: held.meta }), queueMoves(before, held.meta.queue))
     }, STARTING_WAIT_MS)
     starting = { meta, item: first, timer }
+    applyInOrder(() => useChat.setState({ meta: withShownQueue(meta) }))
     return
   }
   for (const item of removed) removing.delete(item.id)
@@ -323,8 +371,12 @@ function onTurn(turn: Turn) {
 
 function onReset(snapshot: ChatSnapshot) {
   releaseStarting()
+  if (sent?.fallback) clearTimeout(sent.fallback)
   sent = null
-  applyInOrder(() => applySnapshot(snapshot))
+  applyInOrder(() => {
+    forgetSeen()
+    applySnapshot(snapshot)
+  })
 }
 
 export function connectChat() {
@@ -336,15 +388,17 @@ export function connectChat() {
     gui.onChatAttach(attachFromMain),
     gui.onChatFloat((float) => {
       floatReceived = true
-      useChat.setState({ float })
+      applyInOrder(() => useChat.setState({ float }))
     }),
     gui.onCommand((command) => {
       if (command === 'chooseModel') chooseModel()
     }),
   ]
   void gui.getChat().then((snapshot) => {
-    if (!useChat.getState().meta) applySnapshot(snapshot)
-    if (snapshot.float && !floatReceived) useChat.setState({ float: snapshot.float })
+    applyInOrder(() => {
+      if (!useChat.getState().meta) applySnapshot(snapshot)
+      if (snapshot.float && !floatReceived) useChat.setState({ float: snapshot.float })
+    })
   })
   return () => {
     for (const off of offs) off()

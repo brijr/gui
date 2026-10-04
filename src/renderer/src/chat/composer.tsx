@@ -19,7 +19,15 @@ import { AutoToggle } from './auto-toggle'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
 import { ModelButton } from './model-picker'
 import { QueuedMessages } from './queue'
-import { addAttachments, noteSend, removeAttachments, setDraft, setNotice, useChat } from './store'
+import {
+  addAttachments,
+  noteSend,
+  removeAttachments,
+  setDraft,
+  setNotice,
+  settleSend,
+  useChat,
+} from './store'
 import { elementLabel } from './turn-view'
 
 const NOTICE_MS = 5000
@@ -92,13 +100,15 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       sent.map((image) => image.id),
     )
     try {
-      // Keep the draft unless main took it (started the turn or queued it).
-      if (await gui.send(text, images)) {
-        setDraft('')
-        // Only what went out: an image attached while sending stays for the next message.
-        removeAttachments(sent.map((image) => image.id))
-        setNotice(null)
-      }
+      // Keep the draft unless main took it (started the turn or queued it). Only what went
+      // out clears: an image attached while sending stays for the next message.
+      const accepted = await gui.send(text, images)
+      settleSend(
+        accepted,
+        text,
+        sent.map((image) => image.id),
+      )
+      if (accepted) setNotice(null)
     } finally {
       sending.current = false
     }

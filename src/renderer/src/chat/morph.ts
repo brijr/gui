@@ -81,7 +81,12 @@ export class Morph {
       spring.retarget(target)
       // Before the first frame, so a form that just mounted doesn't flash in full.
       this.apply(each)
-      if (!running) this.start(each)
+      // A fade can't turn around midway like a spring: it starts again from where it is.
+      if (running && this.reduced) {
+        this.stops[each]?.()
+        delete this.stops[each]
+      }
+      if (this.stops[each] === undefined) this.start(each)
     }
     this.checkGone()
   }
@@ -112,7 +117,7 @@ export class Morph {
       spring.finish()
       rest()
     }
-    this.stops[form] = this.reduced
+    const stop = this.reduced
       ? animateFade(spring.value, spring.target, FADE_MS * Math.abs(spring.target - spring.value), {
           update: (value) => {
             spring.value = value
@@ -124,6 +129,8 @@ export class Morph {
           },
         })
       : animateSpring(spring, { precision: PRECISION, update, rest })
+    // Null when it landed at once (a hidden page): nothing is running.
+    if (stop) this.stops[form] = stop
   }
 
   /** Tells the chat once every form but the current one is out of sight. */

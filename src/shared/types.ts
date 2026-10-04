@@ -310,6 +310,8 @@ export function isChatForm(value: unknown): value is ChatForm {
 export interface ChatFloat {
   form: ChatForm
   corner: PanelCorner
+  /** Counts changes of form; the chat names it when it reports a morph done (`chatMorphed`) */
+  seq: number
 }
 
 /**

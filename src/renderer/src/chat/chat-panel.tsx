@@ -21,6 +21,7 @@ import {
 } from 'react'
 import { BUBBLE, MINI, PANEL_SHADOW_MARGIN } from '../../../shared/layout'
 import {
+  CHAT_FORMS,
   type ChatFloat,
   type ChatForm,
   type ChatMeta,
@@ -162,24 +163,39 @@ function FloatingChat({
   running: boolean
   children: ReactNode
 }) {
-  const { form, corner } = float
+  const { form, corner, seq } = float
   const elements = useRef<Partial<Record<ChatForm, HTMLElement | null>>>({})
   const morph = useRef<Morph | null>(null)
+  /** The float the morph under way is for, which main checks the report against. */
+  const morphSeq = useRef(seq)
   /** Forms still drawn: the current one, and any still morphing away. */
   const [drawn, setDrawn] = useState<ChatForm[]>([form])
 
   useLayoutEffect(() => {
     // Mounted with the form, so the morph styles it before the first paint.
     setDrawn((forms) => (forms.includes(form) ? forms : [...forms, form]))
+    // The control that was pressed is in the form going away, now inert: the keyboard moves on
+    // to the form taking its place (the pill's button, the panel's message box).
+    const active = document.activeElement
+    const left = CHAT_FORMS.some(
+      (each) => each !== form && elements.current[each]?.contains(active),
+    )
+    if (left && document.hasFocus()) {
+      const next = elements.current[form]?.querySelector<HTMLElement>(
+        form === 'panel' ? '[data-composer]' : 'button',
+      )
+      next?.focus({ preventScroll: true })
+    }
+    morphSeq.current = seq
     morph.current ??= new Morph(form, {
       element: (each) => elements.current[each] ?? null,
       gone: (shown) => {
         setDrawn([shown])
-        gui.chatMorphed(shown)
+        gui.chatMorphed(shown, morphSeq.current)
       },
     })
     morph.current.to(form, corner)
-  }, [form, corner])
+  }, [form, corner, seq])
   useEffect(() => () => morph.current?.stop(), [])
 
   const layer = (each: ChatForm) => ({

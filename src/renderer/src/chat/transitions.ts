@@ -18,6 +18,8 @@ export interface Move {
   name: string
   from: () => Element | null
   to: () => Element | null
+  /** New with this update (a queued message arriving), so it fades in with no `from` */
+  enters?: boolean
 }
 
 /** Rows (`rowKeys`) that have been on screen, or arrived while the transcript wasn't. */
@@ -32,12 +34,22 @@ export function markSeen(keys: Iterable<string>) {
   for (const key of keys) seen.add(key)
 }
 
+/** A new chat: the old one's rows are gone for good. */
+export function forgetSeen() {
+  seen.clear()
+}
+
 /** Every row a turn has now: its message, each block of items, and its ending. */
 export function rowKeys(turn: Turn) {
   return [`${turn.id}:user`, `${turn.id}:end`, ...turn.items.map((item) => item.id)]
 }
 
 let current: ViewTransition | null = null
+/**
+ * A transition's update normally applies at its next frame; if it hasn't in this long, the
+ * transition is skipped so the updates waiting on it apply.
+ */
+const UPDATE_DEADLINE_MS = 500
 /** Updates that came in while a transition waited to apply its own; applied right after it. */
 let deferred: (() => void)[] | null = null
 
@@ -69,19 +81,23 @@ function inSight(el: Element) {
  */
 export function transition(update: () => void, moves: Move[], rows: string[] = []) {
   const supported = typeof document.startViewTransition === 'function'
+  // Only while the panel's transcript and composer are drawn (not the pill, the bubble or the
+  // pull-request sheet): elsewhere there's nothing to move, and a transition would only hold
+  // back the next updates.
   const able =
     supported &&
     !current &&
     !deferred &&
     !prefersReducedMotion() &&
-    document.visibilityState === 'visible'
+    document.visibilityState === 'visible' &&
+    document.querySelector('[data-composer]') !== null
   const named = able
     ? moves.flatMap((move) => {
         const el = move.from()
         return el && inSight(el) ? [{ el, name: move.name }] : []
       })
     : []
-  const entering = able && moves.some((move) => move.from() === null)
+  const entering = able && moves.some((move) => move.enters)
   if (named.length === 0 && !entering) {
     applyInOrder(update)
     return
@@ -114,9 +130,13 @@ export function transition(update: () => void, moves: Move[], rows: string[] = [
     for (const run of queued) run()
     return
   }
+  const transition = current
   const settled = () => {
     for (const el of after) el.style.viewTransitionName = ''
-    current = null
+    if (current === transition) current = null
   }
-  current.finished.then(settled, settled)
+  transition.finished.then(settled, settled)
+  setTimeout(() => {
+    if (deferred && current === transition) transition.skipTransition()
+  }, UPDATE_DEADLINE_MS)
 }

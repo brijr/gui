@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState } from 'react'
 import { REDUCED_MOTION_QUERY, type Spring } from '../../../shared/motion'
 
 /*
@@ -12,16 +12,6 @@ const reducedMotion = matchMedia(REDUCED_MOTION_QUERY)
 /** Read when an animation starts, so a change to the setting applies from the next one. */
 export function prefersReducedMotion() {
   return reducedMotion.matches
-}
-
-function subscribe(onChange: () => void) {
-  reducedMotion.addEventListener('change', onChange)
-  return () => reducedMotion.removeEventListener('change', onChange)
-}
-
-/** For rendering: true while the user asks for reduced motion. */
-export function useReducedMotion() {
-  return useSyncExternalStore(subscribe, prefersReducedMotion)
 }
 
 /** Advances by `dt` seconds; true once it's done and can leave the loop. */
@@ -71,7 +61,8 @@ export function onFrames(tick: Tick): () => void {
  * Steps `spring` every frame, calling `update` with its value, until it rests (`precision`, in
  * the spring's units), then lands it on its target and calls `rest`. The spring stays the
  * caller's: retarget it while this runs and the animation follows, keeping its velocity. A
- * hidden page has no frames, so there it lands at once.
+ * hidden page has no frames, so there it lands at once, calls `rest` before returning, and
+ * returns null: there's nothing running to stop.
  */
 export function animateSpring(
   spring: Spring,
@@ -80,7 +71,7 @@ export function animateSpring(
     update,
     rest,
   }: { precision?: number; update: (value: number) => void; rest?: () => void },
-): () => void {
+): (() => void) | null {
   const land = () => {
     spring.finish()
     update(spring.value)
@@ -88,7 +79,7 @@ export function animateSpring(
   }
   if (document.visibilityState === 'hidden') {
     land()
-    return () => undefined
+    return null
   }
   return onFrames((dt) => {
     spring.step(dt)
@@ -103,18 +94,18 @@ export function animateSpring(
 
 /**
  * A plain fade of `duration` ms from `from` to `to`, for reduced motion: no spring, no
- * movement, just opacity changing linearly.
+ * movement, just opacity changing linearly. Null when it's done at once (a hidden page).
  */
 export function animateFade(
   from: number,
   to: number,
   duration: number,
   { update, rest }: { update: (value: number) => void; rest?: () => void },
-): () => void {
+): (() => void) | null {
   if (document.visibilityState === 'hidden' || duration <= 0) {
     update(to)
     rest?.()
-    return () => undefined
+    return null
   }
   let elapsed = 0
   return onFrames((dt) => {

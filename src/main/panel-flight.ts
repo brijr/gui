@@ -73,7 +73,15 @@ export class Flight {
     const target = options.target()
     this.x = new Spring(from.x, { target: target.x, velocity: velocity.x, config })
     this.y = new Spring(from.y, { target: target.y, velocity: velocity.y, config })
-    this.timer = setInterval(() => this.tick(), 1000 / refreshRate(options.win))
+    this.timer = setInterval(() => {
+      try {
+        this.tick()
+      } catch (error) {
+        // A window gone mid-flight: stop here rather than fail at the display's rate.
+        this.stop()
+        console.error('[gui] panel flight stopped', error)
+      }
+    }, 1000 / refreshRate(options.win))
   }
 
   /** Where it is now. */
