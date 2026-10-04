@@ -61,7 +61,8 @@ export function Canvas({ state }: { state: WindowState }) {
 
   return (
     <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
-      {preview.frame && preview.visible && (
+      {/* Main hides the preview under the shortcuts sheet, and so its frame goes too. */}
+      {preview.frame && preview.visible && !state.shortcutsOpen && (
         <DeviceFrame viewport={preview.viewport} frame={preview.frame} />
       )}
       {/* Centered while it fits; scrolls from the top in a short window. */}

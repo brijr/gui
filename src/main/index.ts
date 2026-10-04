@@ -509,6 +509,9 @@ function registerIpc() {
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   onWindow(Send.setFocusMode, (win, on) => typeof on === 'boolean' && win.setFocusMode(on))
+  onWindow(Send.setShortcutsOpen, (win, open) => {
+    if (typeof open === 'boolean') win.setShortcutsOpen(open)
+  })
   on(Send.toggleChat, (tab) => tab.toggleChat())
   on(Send.resizeLogs, (tab, cols, rows) => {
     if (isNumber(cols) && isNumber(rows)) tab.resizeLogs(Math.floor(cols), Math.floor(rows))
@@ -843,6 +846,16 @@ function buildMenu() {
         },
         { type: 'separator' },
         { role: 'front' },
+      ],
+    },
+    {
+      // macOS puts its search field at the top.
+      label: 'Help',
+      role: 'help',
+      submenu: [
+        ...item('keyboardShortcuts', {
+          click: withTabs((w) => w.setShortcutsOpen(!w.shortcutsOpen)),
+        }),
       ],
     },
   ]

@@ -59,6 +59,7 @@ const api: GuiApi = {
   stopSelecting: send(Send.stopSelecting),
   setCanvasRect: send(Send.setCanvasRect),
   setFocusMode: send(Send.setFocusMode),
+  setShortcutsOpen: send(Send.setShortcutsOpen),
   toggleChat: send(Send.toggleChat),
   setDrawerOpen: send(Send.setDrawerOpen),
   showLogs: send(Send.showLogs),

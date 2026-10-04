@@ -259,6 +259,8 @@ export interface WindowState {
    * tab strip, chat and drawer keep their state, and show again as they were when it ends.
    */
   focusMode: boolean
+  /** Help → Keyboard Shortcuts is open over the window */
+  shortcutsOpen: boolean
 }
 
 export interface Rect {

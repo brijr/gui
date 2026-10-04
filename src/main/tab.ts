@@ -113,7 +113,7 @@ interface Anchor extends PanelCorner {
 }
 
 /** What the window shows for its active tab, without the window's own tab strip. */
-export type TabState = Omit<WindowState, 'tabs' | 'activeTab' | 'focusMode'>
+export type TabState = Omit<WindowState, 'tabs' | 'activeTab' | 'focusMode' | 'shortcutsOpen'>
 
 /** The window a tab is in (window.ts), as the tab sees it. */
 export interface TabHost {
@@ -124,6 +124,8 @@ export interface TabHost {
   readonly chromeHeight: number
   /** Focus mode: the preview alone, without the chat (WindowState.focusMode). */
   readonly focusMode: boolean
+  /** The chrome's shortcuts sheet is open over the window, where the tab's views would hide it. */
+  readonly shortcutsOpen: boolean
   setFocusMode(on: boolean): void
   /** The tab whose views are in the window; only it lays out and talks to the chrome. */
   isActive(tab: ProjectTab): boolean
@@ -1546,7 +1548,8 @@ export class ProjectTab {
     const { viewport } = preview
     const { bounds, emulation } = placePreview(viewport, area, this.zooms[viewport])
     this.preview.setBounds(bounds)
-    this.preview.setVisible(preview.visible && area.width > 0)
+    const covered = this.host.shortcutsOpen
+    this.preview.setVisible(preview.visible && area.width > 0 && !covered)
     this.emulation.set(emulation)
     // Desktop's zoom emulates too, without a frame.
     const frame = viewportSpec(viewport).size !== null && emulation
@@ -1555,7 +1558,7 @@ export class ProjectTab {
     // The chat view draws the bubble before shrinking to it, and the panel after growing back.
     const bubble = this.bubbled
     if (bubble) this.showBubble(true)
-    this.chatView.setVisible(showChat)
+    this.chatView.setVisible(showChat && !covered)
     if (docked) {
       this.chatView.setBounds({
         x: Math.round(this.host.canvas.x + this.host.canvas.width - dockWidth),

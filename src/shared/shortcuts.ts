@@ -2,7 +2,7 @@ import { type Viewport, viewportKey, viewportSpec } from './types'
 
 /**
  * Gui's keyboard shortcuts, in one place: the app menu (src/main/index.ts) takes each item's
- * label and keys from here, the Keyboard Shortcuts sheet lists them, and controls name
+ * label and keys from here, the Keyboard Shortcuts sheet (⌘/) lists them, and controls name
  * theirs in their tooltip and `aria-keyshortcuts`, so the three can't drift apart.
  */
 
@@ -88,6 +88,13 @@ export const SHORTCUTS = {
     menu: 'edit',
     group: 'app',
     description: "Redo typing, or the agent's change you undid",
+  },
+  keyboardShortcuts: {
+    label: 'Keyboard Shortcuts',
+    accelerator: 'CmdOrCtrl+/',
+    menu: 'help',
+    group: 'app',
+    description: 'Show these shortcuts',
   },
   appDevTools: {
     label: 'App Developer Tools',

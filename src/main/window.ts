@@ -77,6 +77,8 @@ export class ProjectWindow implements TabHost {
   private lights: { x: number; y: number } = TRAFFIC_LIGHTS
   /** Focus mode (WindowState.focusMode). */
   private focus = false
+  /** The Keyboard Shortcuts sheet is open (WindowState.shortcutsOpen). */
+  private sheet = false
   private disposed = false
 
   /** Opens with a start-screen tab, or with `tab`, moved here from another window. */
@@ -142,6 +144,10 @@ export class ProjectWindow implements TabHost {
     return this.focus
   }
 
+  get shortcutsOpen() {
+    return this.sheet
+  }
+
   isActive(tab: ProjectTab) {
     return tab === this.active && !this.disposed
   }
@@ -153,6 +159,7 @@ export class ProjectWindow implements TabHost {
       tabs: this.tabInfos(),
       activeTab: this.active.id,
       focusMode: this.focus,
+      shortcutsOpen: this.sheet,
     }
   }
 
@@ -176,6 +183,18 @@ export class ProjectWindow implements TabHost {
     // The keys go to the page, where Esc ends focus mode; the chat that had them is hidden.
     if (focus && this.win.isFocused()) this.active.focusPreview()
     windowEvents.emit('changed')
+  }
+
+  /**
+   * ⌘/: the chrome's Keyboard Shortcuts sheet, over the window. The preview and the chat are
+   * views on top of the chrome, so they're hidden while it's open; it has the keyboard.
+   */
+  setShortcutsOpen(open: boolean) {
+    if (open === this.sheet) return
+    this.sheet = open
+    this.active.layout()
+    this.sendState()
+    if (open) this.win.webContents.focus()
   }
 
   // Shortcuts for the chrome's own controls (UiCommand)

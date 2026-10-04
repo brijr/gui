@@ -65,6 +65,7 @@ export const Send = {
   stopSelecting: 'preview:select-stop',
   setCanvasRect: 'layout:canvas',
   setFocusMode: 'layout:focus-mode',
+  setShortcutsOpen: 'layout:shortcuts',
   toggleChat: 'chat:toggle',
   setDrawerOpen: 'drawer:open',
   showLogs: 'drawer:logs',
@@ -205,6 +206,8 @@ export interface GuiApi {
   setCanvasRect(rect: Rect): void
   /** Focus mode on or off (see `WindowState.focusMode`) */
   setFocusMode(on: boolean): void
+  /** Shows or closes the Keyboard Shortcuts sheet (`WindowState.shortcutsOpen`) */
+  setShortcutsOpen(open: boolean): void
   /** Shows or hides the chat panel, as the toolbar's button does */
   toggleChat(): void
 

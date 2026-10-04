@@ -38,6 +38,7 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-knob: var(--knob);
+  --color-scrim: var(--scrim);
 
   --shadow-*: initial;
   --shadow-raised: var(--elevation-raised);
@@ -134,6 +135,8 @@
   --danger-soft: rgb(184 61 11 / 0.1);
   /* A switch's thumb */
   --knob: #ffffff;
+  /* Behind a modal sheet */
+  --scrim: rgb(0 0 0 / 0.24);
   --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
   --elevation-popover: 0 8px 24px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
   /* Stays within the floating chat view's transparent margin (PANEL_SHADOW_MARGIN, 18px). */
@@ -186,6 +189,7 @@
     --danger: #fb923c;
     --danger-soft: rgb(251 146 60 / 0.16);
     --knob: #f2f2f4;
+    --scrim: rgb(0 0 0 / 0.5);
     --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4);
     --elevation-popover:
       0 8px 24px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);

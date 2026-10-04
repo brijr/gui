@@ -6,12 +6,14 @@ import { Button } from '../lib/ui'
 import { useWindowState } from '../lib/use-window-state'
 import { Canvas, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
+import { ShortcutsSheet } from './shortcuts-sheet'
 import { TabStrip } from './tab-strip'
 import { focusAddressBar, Toolbar } from './toolbar'
 
 export function App() {
   const state = useWindowState()
   const focusMode = state?.focusMode ?? false
+  const sheet = state?.shortcutsOpen ?? false
   // Here rather than in the toolbar, which may only be on its way.
   useEffect(
     () =>
@@ -20,15 +22,16 @@ export function App() {
       }),
     [],
   )
-  // Esc ends focus mode here; on the page, main sees it first (tab.ts).
+  // Esc ends focus mode here; on the page, main sees it first (tab.ts). The sheet's own Esc
+  // only closes the sheet.
   useEffect(() => {
-    if (!focusMode) return
+    if (!focusMode || sheet) return
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && !event.defaultPrevented) gui.setFocusMode(false)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [focusMode])
+  }, [focusMode, sheet])
 
   if (!state) return <div className="drag h-dvh bg-surface" />
   // Focus mode hides the chrome rather than unmounting it, so it comes back as it was.
@@ -51,6 +54,7 @@ export function App() {
           <Drawer state={state} />
         </div>
       </Fragment>
+      {sheet && <ShortcutsSheet />}
     </div>
   )
 }
