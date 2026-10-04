@@ -502,6 +502,9 @@ function registerIpc() {
   on(Send.forward, (tab) => tab.forward())
   on(Send.reload, (tab) => tab.reload())
   on(Send.setViewport, (tab, viewport) => isViewport(viewport) && tab.setViewport(viewport))
+  on(Send.zoomPreview, (tab, step) => {
+    if (step === 1 || step === -1 || step === 0) tab.zoom(step)
+  })
   on(Send.toggleSelect, (tab) => void tab.toggleSelect())
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
@@ -775,6 +778,10 @@ function buildMenu() {
         ...VIEWPORTS.flatMap(({ id }) =>
           item(VIEWPORT_SHORTCUTS[id], { click: withWindow((w) => w.setViewport(id)) }),
         ),
+        { type: 'separator' },
+        ...item('zoomIn', { click: withWindow((w) => w.zoom(1)) }),
+        ...item('zoomOut', { click: withWindow((w) => w.zoom(-1)) }),
+        ...item('actualSize', { click: withWindow((w) => w.zoom(0)) }),
         { type: 'separator' },
         ...item('screenshot', { click: withTabs((w) => w.screenshot()) }),
         { type: 'separator' },

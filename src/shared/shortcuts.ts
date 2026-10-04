@@ -136,6 +136,29 @@ export const SHORTCUTS = {
   viewportLaptop: viewportShortcut('laptop'),
   viewportTablet: viewportShortcut('tablet'),
   viewportMobile: viewportShortcut('mobile'),
+  zoomIn: {
+    label: 'Zoom In',
+    accelerator: 'CmdOrCtrl+Plus',
+    // ⌘= is the same key without Shift, as in Safari and Chrome.
+    alternates: ['CmdOrCtrl+='],
+    menu: 'view',
+    group: 'preview',
+    description: 'Zoom in: the page, or a device frame up to the size that fits',
+  },
+  zoomOut: {
+    label: 'Zoom Out',
+    accelerator: 'CmdOrCtrl+-',
+    menu: 'view',
+    group: 'preview',
+    description: 'Zoom out',
+  },
+  actualSize: {
+    label: 'Actual Size',
+    accelerator: 'CmdOrCtrl+0',
+    menu: 'view',
+    group: 'preview',
+    description: 'Page at 100%, or a device frame back to fit',
+  },
   selectElement: {
     label: 'Select Element',
     accelerator: 'Shift+CmdOrCtrl+C',

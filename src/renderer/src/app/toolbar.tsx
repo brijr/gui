@@ -222,6 +222,26 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
 const ADDRESS_ID = 'preview-address'
 
 /**
+ * Desktop's page zoom while it isn't 100%, at the end of the address field, like a browser's;
+ * clicking it goes back to 100%. (A device frame's label shows its own.)
+ */
+function ZoomButton({ zoom }: { zoom: number }) {
+  const percent = Math.round(zoom * 100)
+  return (
+    <button
+      type="button"
+      aria-label={`Zoom ${percent}%, reset to 100%`}
+      title={withShortcut('Reset zoom', 'actualSize')}
+      aria-keyshortcuts={ariaShortcut('actualSize')}
+      onClick={() => gui.zoomPreview(0)}
+      className="flex h-full shrink-0 items-center rounded-r-md pr-2.5 pl-2 text-caption font-medium text-muted tabular-nums transition-colors hover:bg-hover hover:text-fg focus-visible:-outline-offset-2"
+    >
+      {percent}%
+    </button>
+  )
+}
+
+/**
  * Focuses the address field with its text selected (⇧⌘L, "Enter address"), once it's on
  * screen: the toolbar can be on its way back.
  */
@@ -285,6 +305,9 @@ function AddressBar({ state }: { state: WindowState }) {
         onKeyDown={(event) => {
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
+        trailing={
+          preview.viewport === 'desktop' && preview.zoom !== 1 && <ZoomButton zoom={preview.zoom} />
+        }
         leading={
           <button
             type="button"

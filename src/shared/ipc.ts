@@ -60,6 +60,7 @@ export const Send = {
   forward: 'preview:forward',
   reload: 'preview:reload',
   setViewport: 'preview:viewport',
+  zoomPreview: 'preview:zoom',
   toggleSelect: 'preview:select',
   stopSelecting: 'preview:select-stop',
   setCanvasRect: 'layout:canvas',
@@ -195,6 +196,8 @@ export interface GuiApi {
   forward(): void
   reload(): void
   setViewport(viewport: Viewport): void
+  /** Zooms the viewport shown in (`step` 1), out (-1), or back to 100% or fitting (0) */
+  zoomPreview(step: 1 | -1 | 0): void
   toggleSelect(): void
   /** Ends element picking (the chat bubble's click) */
   stopSelecting(): void

@@ -54,6 +54,7 @@ const api: GuiApi = {
   forward: send(Send.forward),
   reload: send(Send.reload),
   setViewport: send(Send.setViewport),
+  zoomPreview: send(Send.zoomPreview),
   toggleSelect: send(Send.toggleSelect),
   stopSelecting: send(Send.stopSelecting),
   setCanvasRect: send(Send.setCanvasRect),

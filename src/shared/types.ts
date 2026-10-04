@@ -212,6 +212,11 @@ export interface PreviewState {
   viewport: Viewport
   /** The device frame the preview is shown in; null for Desktop, which fills the canvas */
   frame: ViewportFrame | null
+  /**
+   * Desktop's page zoom, 1 at 100% (View → Zoom In, Zoom Out, Actual Size). A device frame's
+   * zoom is its `frame.scale`.
+   */
+  zoom: number
   selecting: boolean
   /** Element picking is only allowed on the local app, not off-site pages */
   selectable: boolean

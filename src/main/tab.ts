@@ -80,7 +80,7 @@ import { PREVIEW_PARTITION } from './storage'
 import { Terminals } from './terminals'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
-import { placePreview, ViewportEmulation } from './viewport'
+import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 
 const PANEL_MIN = { width: 320, height: 360 }
 /** Below this the panel can't show its header, a line of transcript and the composer. */
@@ -158,6 +158,8 @@ export class ProjectTab {
   private readonly inspector: Inspector
   /** The page at its viewport's size: a device frame's, or none for Desktop. */
   private readonly emulation: ViewportEmulation
+  /** Each viewport's zoom, Desktop's at 100% and the frames fitting until the user zooms. */
+  private zooms: Record<Viewport, Zoom> = { desktop: 1, laptop: null, tablet: null, mobile: null }
   private state: TabState
   private devServer: DevServer | null = null
   /** The project's terminals in the drawer; none run until the user opens one. */
@@ -224,6 +226,7 @@ export class ProjectTab {
         error: null,
         viewport: 'desktop',
         frame: null,
+        zoom: 1,
         selecting: false,
         selectable: false,
         visible: false,
@@ -731,6 +734,19 @@ export class ProjectTab {
     this.layout()
   }
 
+  /**
+   * View → Zoom In (`step` 1), Zoom Out (-1) or Actual Size (0), for the viewport shown: the
+   * page, or a device frame's scale. The page keeps its CSS size either way.
+   */
+  zoom(step: 1 | -1 | 0) {
+    const { viewport } = this.state.preview
+    const next = zoomed(viewport, this.previewArea(), this.zooms[viewport], step)
+    if (next === undefined) return shell.beep()
+    this.zooms = { ...this.zooms, [viewport]: next }
+    this.patchPreview({ zoom: this.zooms.desktop ?? 1 })
+    this.layout()
+  }
+
   toggleDevTools() {
     this.preview.webContents.toggleDevTools()
   }
@@ -899,11 +915,21 @@ export class ProjectTab {
     return { ...element, source }
   }
 
-  /** The viewport named in each prompt: a device frame's size, or the preview's (Desktop). */
+  /**
+   * The viewport named in each prompt: a device frame's size, or the preview's (Desktop), in
+   * CSS pixels at its zoom.
+   */
   private promptViewport(): PromptViewport {
     const { name, size } = viewportSpec(this.state.preview.viewport)
-    const { width, height } = size ?? this.preview.getBounds()
-    return { name, width, height, fixed: size !== null }
+    if (size) return { name, ...size, fixed: true }
+    const zoom = this.zooms.desktop ?? 1
+    const { width, height } = this.preview.getBounds()
+    return {
+      name,
+      width: Math.round(width / zoom),
+      height: Math.round(height / zoom),
+      fixed: false,
+    }
   }
 
   private devOrigin() {
@@ -1491,24 +1517,21 @@ export class ProjectTab {
   layout() {
     if (this.disposed || !this.host.isActive(this)) return
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const showChat = this.state.chatVisible && this.hasProject
+    const showChat = this.chatShown
     // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
     const docked = showChat && this.docked
-
-    // A docked panel takes a column on the right; the preview gets what's left.
     const dockWidth = this.dockedWidth()
-    const area = docked
-      ? { ...this.host.canvas, width: Math.max(0, this.host.canvas.width - dockWidth) }
-      : this.host.canvas
+    const area = this.previewArea()
     const preview = this.state.preview
     // Even while nothing shows, so a page that loads lays out at its viewport's size at once.
-    const { bounds, emulation } = placePreview(preview.viewport, area)
+    const { viewport } = preview
+    const { bounds, emulation } = placePreview(viewport, area, this.zooms[viewport])
     this.preview.setBounds(bounds)
     this.preview.setVisible(preview.visible && area.width > 0)
     this.emulation.set(emulation)
-    this.showFrame(
-      emulation && { rect: inCanvas(bounds, this.host.canvas), scale: emulation.scale },
-    )
+    // Desktop's zoom emulates too, without a frame.
+    const frame = viewportSpec(viewport).size !== null && emulation
+    this.showFrame(frame ? { rect: inCanvas(bounds, this.host.canvas), scale: frame.scale } : null)
 
     // The chat view draws the bubble before shrinking to it, and the panel after growing back.
     const bubble = this.bubbled
@@ -1601,6 +1624,18 @@ export class ProjectTab {
     if (corner?.x === shown?.x && corner?.y === shown?.y) return
     this.bubbleShown = corner
     this.sendChat(Events.chatBubble, corner)
+  }
+
+  /** The chat shows: the user hasn't hidden it, and there's a project to chat about. */
+  private get chatShown() {
+    return this.state.chatVisible && this.hasProject
+  }
+
+  /** Where the preview goes: the canvas, less the column a docked panel takes on its right. */
+  private previewArea(): Rect {
+    const { canvas } = this.host
+    if (!this.chatShown || !this.docked) return canvas
+    return { ...canvas, width: Math.max(0, canvas.width - this.dockedWidth()) }
   }
 
   /** The docked panel's width: the remembered one, within what the canvas leaves room for. */

@@ -24,11 +24,13 @@ interface InputProps extends ComponentProps<'input'>, FieldStyleProps {
    * It sits flush with the field's left edge; give it its own padding.
    */
   leading?: ReactNode
+  /** The same after the text, flush with the right edge: the address bar's zoom */
+  trailing?: ReactNode
 }
 
 /** A single-line text field, 28px tall. */
-export function Input({ mono = false, leading, className, ...props }: InputProps) {
-  if (!leading) {
+export function Input({ mono = false, leading, trailing, className, ...props }: InputProps) {
+  if (!leading && !trailing) {
     return <input className={cn(FIELD, 'h-7 w-full', text(mono), className)} {...props} />
   }
   return (
@@ -36,11 +38,14 @@ export function Input({ mono = false, leading, className, ...props }: InputProps
       {leading}
       <input
         className={cn(
-          'h-full min-w-0 flex-1 bg-transparent pr-2.5 outline-none placeholder:text-subtle',
+          'h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-subtle',
+          !leading && 'pl-2.5',
+          !trailing && 'pr-2.5',
           text(mono),
         )}
         {...props}
       />
+      {trailing}
     </div>
   )
 }
