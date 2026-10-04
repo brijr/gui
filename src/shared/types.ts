@@ -10,16 +10,10 @@ export interface AgentInfo {
 export const AGENTS: readonly AgentInfo[] = [
   { id: 'claude', name: 'Claude Code' },
   { id: 'codex', name: 'Codex' },
-  { id: 'auggie', name: 'Auggie' },
-  { id: 'cursor', name: 'Cursor' },
-  { id: 'gemini', name: 'Gemini CLI' },
-  { id: 'copilot', name: 'GitHub Copilot' },
-  { id: 'goose', name: 'goose' },
   { id: 'grok', name: 'Grok Build' },
   { id: 'kiro', name: 'Kiro' },
-  { id: 'vibe', name: 'Mistral Vibe' },
   { id: 'opencode', name: 'OpenCode' },
-  { id: 'qwen', name: 'Qwen Code' },
+  { id: 'pi', name: 'Pi' },
 ]
 
 export const DEFAULT_AGENT_ID: AgentId = 'claude'
@@ -42,7 +36,7 @@ export interface AgentHealth {
   name: string
   status: 'unknown' | 'not-installed' | 'checking' | 'signing-in' | 'ready' | 'signed-out' | 'error'
   message: string | null
-  /** The CLI Grat runs for this agent; null for the bundled adapters */
+  /** The CLI this agent needs on PATH; null when Grat bundles everything it needs */
   command: string | null
   /** A sign-in flow Grat can start for this agent, when it offers one */
   signIn: { methodId: string; label: string } | null

@@ -37,24 +37,30 @@ function sessionMeta(id: AgentId) {
  * commands the agent runs (it would break any Electron binary they start).
  * Every other agent is a CLI the user installed, resolved on their login-shell PATH.
  */
-async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promise<SpawnSpec> {
-  const { launch } = agent
-  if (launch.kind === 'adapter') {
-    const entry = pathToFileURL(join(packageDir(launch.package), 'dist/index.js')).href
-    const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
-    return {
-      command: process.execPath,
-      args: ['-e', bootstrap],
-      env: { ELECTRON_RUN_AS_NODE: '1', ...launch.env?.() },
-    }
-  }
-  const command = await findExecutable(launch.command, env.PATH)
-  if (!command) {
+async function requireExecutable(agent: AgentDefinition, command: string, env: NodeJS.ProcessEnv) {
+  const path = await findExecutable(command, env.PATH)
+  if (!path) {
     throw new Error(
-      `${agent.name} isn't installed: \`${launch.command}\` isn't on your PATH. Install it, then try again.`,
+      `${agent.name} isn't installed: \`${command}\` isn't on your PATH. Install it, then try again.`,
     )
   }
-  return { command, args: launch.args, env: launch.env }
+  return path
+}
+
+async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promise<SpawnSpec> {
+  const { launch } = agent
+  if (launch.kind === 'command') {
+    const command = await requireExecutable(agent, launch.command, env)
+    return { command, args: launch.args, env: launch.env }
+  }
+  if (launch.requires) await requireExecutable(agent, launch.requires, env)
+  const entry = pathToFileURL(join(packageDir(launch.package), 'dist/index.js')).href
+  const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
+  return {
+    command: process.execPath,
+    args: ['-e', bootstrap],
+    env: { ELECTRON_RUN_AS_NODE: '1', ...launch.env?.() },
+  }
 }
 
 export type PermissionResolver = (optionId: string | null) => void
@@ -108,15 +114,11 @@ function errorDetail(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
-function isAuthError(error: unknown, agent: AgentDefinition) {
+function isAuthError(error: unknown) {
   const code = (error as { code?: unknown } | null)?.code
   const message = errorDetail(error)
   // -32000 is ACP's auth_required.
-  return (
-    code === -32000 ||
-    /auth|log ?in|sign ?in|credential|api key/i.test(message) ||
-    agent.setupError?.test(message) === true
-  )
+  return code === -32000 || /auth|log ?in|sign ?in|credential|api key/i.test(message)
 }
 
 /** The agent's own reason (when it says more than "auth required") plus how to sign in. */
@@ -242,7 +244,7 @@ export class AgentSession {
         _meta: sessionMeta(this.agentId),
       }),
     ).catch((error: unknown) => {
-      if (!isAuthError(error, definition)) throw new Error(errorDetail(error))
+      if (!isAuthError(error)) throw new Error(errorDetail(error))
       // Only offer sign-in flows Grat knows open a browser; others are run in a terminal.
       const methods = definition.inAppSignIn
         ? (init.authMethods ?? []).map((method) => ({

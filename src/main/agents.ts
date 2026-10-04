@@ -17,7 +17,13 @@ const require = createRequire(import.meta.url)
 
 export type AgentLaunch =
   /** An ACP adapter package bundled with Grat, run on Electron's Node */
-  | { kind: 'adapter'; package: string; env?: () => Record<string, string> }
+  | {
+      kind: 'adapter'
+      package: string
+      env?: () => Record<string, string>
+      /** A CLI the adapter drives, which must be on the user's PATH */
+      requires?: string
+    }
   /** An agent CLI the user installed, found on their login-shell PATH */
   | { kind: 'command'; command: string; args: string[]; env: Record<string, string> }
 
@@ -27,8 +33,6 @@ export interface AgentDefinition extends AgentInfo {
   signIn: string | null
   /** Grat can run this agent's ACP sign-in flow itself (it opens the browser) */
   inAppSignIn: boolean
-  /** Agent-specific errors that also mean "not set up yet", beyond ACP's auth_required */
-  setupError?: RegExp
 }
 
 export interface AgentListing {
@@ -37,11 +41,10 @@ export interface AgentListing {
   customError: string | null
 }
 
-const adapter = (pkg: string, env?: () => Record<string, string>): AgentLaunch => ({
-  kind: 'adapter',
-  package: pkg,
-  env,
-})
+const adapter = (
+  pkg: string,
+  options: { env?: () => Record<string, string>; requires?: string } = {},
+): AgentLaunch => ({ kind: 'adapter', package: pkg, ...options })
 const cli = (command: string, ...args: string[]): AgentLaunch => ({
   kind: 'command',
   command,
@@ -69,36 +72,11 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     inAppSignIn: true,
   },
   codex: {
-    launch: adapter('@agentclientprotocol/codex-acp', () => ({ CODEX_PATH: codexBinary() })),
+    launch: adapter('@agentclientprotocol/codex-acp', {
+      env: () => ({ CODEX_PATH: codexBinary() }),
+    }),
     signIn: 'Sign in with ChatGPT from the Grat start screen, or run `codex login`.',
     inAppSignIn: true,
-  },
-  auggie: {
-    launch: cli('auggie', '--acp'),
-    signIn: 'Run `auggie login` in a terminal, then try again.',
-    inAppSignIn: false,
-  },
-  cursor: {
-    // Not `agent acp`: other tools (Grok Build) also install an `agent` binary.
-    launch: cli('cursor-agent', 'acp'),
-    signIn: 'Run `cursor-agent login` in a terminal, then try again.',
-    inAppSignIn: false,
-  },
-  gemini: {
-    launch: cli('gemini', '--acp'),
-    signIn: 'Run `gemini` in a terminal to sign in, or set GEMINI_API_KEY, then try again.',
-    inAppSignIn: false,
-  },
-  copilot: {
-    launch: cli('copilot', '--acp'),
-    signIn: 'Run `copilot` in a terminal and use /login, then try again.',
-    inAppSignIn: false,
-  },
-  goose: {
-    launch: cli('goose', 'acp'),
-    signIn: 'Run `goose configure` in a terminal to set up a provider, then try again.',
-    inAppSignIn: false,
-    setupError: /GOOSE_PROVIDER|resolve provider/i,
   },
   grok: {
     launch: cli('grok', 'agent', 'stdio'),
@@ -110,19 +88,15 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     signIn: 'Run `kiro-cli login` in a terminal, then try again.',
     inAppSignIn: false,
   },
-  vibe: {
-    launch: cli('vibe-acp'),
-    signIn: 'Run `vibe` in a terminal to sign in, or set MISTRAL_API_KEY, then try again.',
-    inAppSignIn: false,
-  },
   opencode: {
     launch: cli('opencode', 'acp'),
     signIn: 'Run `opencode auth login` in a terminal, then try again.',
     inAppSignIn: false,
   },
-  qwen: {
-    launch: cli('qwen', '--acp'),
-    signIn: 'Run `qwen` in a terminal to set up authentication, then try again.',
+  pi: {
+    // pi has no ACP mode of its own; the bundled adapter drives `pi --mode rpc`.
+    launch: adapter('pi-acp', { requires: 'pi' }),
+    signIn: 'Run `pi` in a terminal and use /login (or set a provider API key), then try again.',
     inAppSignIn: false,
   },
 }
@@ -217,7 +191,7 @@ export async function listAgents(): Promise<AgentListing> {
   const [custom, env] = await Promise.all([loadCustomAgents(), getShellEnv()])
   const agents = await Promise.all(
     [...BUILT_IN, ...custom.agents].map(async ({ id, name, launch }) => {
-      const command = launch.kind === 'command' ? launch.command : null
+      const command = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
       const installed = command === null || (await findExecutable(command, env.PATH)) !== null
       return { id, name, command, installed }
     }),
