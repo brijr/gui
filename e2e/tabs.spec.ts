@@ -175,6 +175,12 @@ async function newChatPage(session: GuiSession, known: Page[]) {
   return page
 }
 
+/** Whether Window → Move Tab to New Window can be chosen. */
+const canMoveTab = (session: GuiSession) =>
+  session.app.evaluate(
+    ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('move-tab')?.enabled ?? null,
+  )
+
 const tabsOf = async (session: GuiSession) => (await session.state()).tabs
 const tabStrip = (session: GuiSession) => session.chrome.getByRole('tablist')
 const tabNamed = (session: GuiSession, name: string) =>
@@ -219,6 +225,8 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
     title: name,
     lights: { x: 16, y: 15 },
   })
+  // A lone tab has nowhere to move from.
+  expect(await canMoveTab(session)).toBe(false)
 
   // File → New Tab: a start-screen tab, shown, and the tab row with the traffic lights in it.
   await clickMenu(session, 'New Tab')
@@ -235,6 +243,11 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
     title: 'Gui',
     lights: { x: 16, y: 11 },
   })
+  await waitFor(() => canMoveTab(session), 'Move Tab to New Window to be enabled')
+  // The tablist holds only tabs: each close button is for the pointer, hidden from assistive
+  // tech (the keyboard closes with Delete or ⌘W).
+  await expect(tabStrip(session).getByRole('button')).toHaveCount(0)
+  await expect(tabStrip(session).locator('button[aria-hidden="true"]')).toHaveCount(2)
   const secondChat = await newChatPage(session, [session.chat])
   await session.shot('new-tab')
 
@@ -315,6 +328,7 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
     title: name,
     lights: { x: 16, y: 15 },
   })
+  await waitFor(async () => (await canMoveTab(session)) === false, 'Move Tab to be disabled again')
   await waitFor(() => devServerPids(secondRoot).length === 0, 'the closed tab’s dev server to stop')
   expect(secondChat.isClosed()).toBe(true)
   expect(devServerPids(firstRoot).length).toBeGreaterThan(0)
@@ -408,5 +422,15 @@ for (const colorScheme of ['light', 'dark'] as const) {
     const left = await session.state()
     expect(left.tabs.map((tab) => tab.id)).not.toContain(second.activeTab)
     expect(left.tabs).toHaveLength(2)
+
+    // From the keyboard, Delete closes the focused tab.
+    await tabNamed(session, 'New tab').focus()
+    await session.chrome.keyboard.press('Delete')
+    const closed = await waitFor(async () => {
+      const state = await session.state()
+      return state.tabs.length === 1 ? state : null
+    }, 'the start tab to close')
+    expect(closed.activeTab).toBe(first.activeTab)
+    await expect(tabStrip(session)).toHaveCount(0)
   })
 }

@@ -161,6 +161,37 @@ test('a fresh clone installs its dependencies, then starts and shows the app', a
   await session.shot('fresh-preview')
 })
 
+test('a failed install says so in the address bar and offers its output', async ({ open }) => {
+  const session = await open('fresh', (root) => {
+    const pkg = join(root, 'package.json')
+    writeFileSync(pkg, readFileSync(pkg, 'utf8').replace('./vendor/greeting', './vendor/missing'))
+  })
+  const failed = await waitFor(
+    async () => {
+      const state = await session.state()
+      return state.setup?.dependencies === 'failed' ? state : null
+    },
+    'the install to fail',
+    { timeout: 60_000 },
+  )
+  // Not "Stopped": the address bar's status is the install's, and red.
+  const toolbar = session.chrome.getByRole('banner')
+  await expect(toolbar.getByRole('button', { name: /^Dev server: / })).toHaveAccessibleName(
+    "Dev server: Couldn't install dependencies",
+  )
+  await expect(toolbar.getByLabel('App address')).toHaveAttribute(
+    'placeholder',
+    "Couldn't install dependencies",
+  )
+  // The output waits behind the card's button rather than opening on its own.
+  expect(failed.logsOpen).toBe(false)
+  await expect(session.chrome.getByText("Couldn't install dependencies")).toHaveCount(1)
+  await session.shot('install-failed')
+  await session.chrome.getByRole('button', { name: 'Show output' }).click()
+  await waitFor(async () => (await session.state()).logsOpen, 'the output to open')
+  await expect(session.chrome.getByRole('heading', { name: 'Logs', exact: true })).toBeVisible()
+})
+
 test('a monorepo asks which app to preview, then runs the one picked', async ({ open }) => {
   const session = await open('monorepo', (root) => {
     // Committed fixtures can't hold .env files (the repo ignores .env*).
