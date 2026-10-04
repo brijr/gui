@@ -1,4 +1,5 @@
 import {
+  AppWindow,
   ChevronDown,
   ChevronRight,
   FolderOpen,
@@ -15,7 +16,7 @@ import { AgentCard } from '../agents/agent-card'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { PathText } from '../lib/path-text'
-import { Card, GroupLabel, List, ListRow, Message } from '../lib/surface'
+import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Kbd, Spinner } from '../lib/ui'
 
 /**
@@ -49,15 +50,20 @@ export function Canvas({ state }: { state: WindowState }) {
 
   return (
     <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
-      <div className="absolute inset-0 flex items-center justify-center p-8">
-        <CanvasMessage state={state} />
+      {/* Centered while it fits; scrolls from the top in a short window. */}
+      <div className="absolute inset-0 flex flex-col overflow-y-auto p-8">
+        <div className="m-auto flex w-full justify-center">
+          <CanvasMessage state={state} />
+        </div>
       </div>
     </main>
   )
 }
 
 const ALERT = <TriangleAlert className="size-4" aria-hidden="true" />
+const INFO = <Info className="size-4" aria-hidden="true" />
 const LOADING = <Spinner size="md" />
+const CHEVRON = <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />
 
 /**
  * Everything between opening a project and seeing its preview: picking the app,
@@ -71,7 +77,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (setup?.apps) return <AppChooser apps={setup.apps} />
 
   // Offered alongside whatever else the card says; the app may run without it.
-  const env = setup?.env && <EnvRow env={setup.env} />
+  const env = setup?.env ?? null
 
   if (setup?.dependencies === 'installing') {
     return (
@@ -80,7 +86,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="Installing dependencies…"
         detail="Getting the project ready to run. The first time can take a few minutes."
         actions={<LogsToggle open={logsOpen} noun="output" />}
-        footer={env}
+        env={env}
       />
     )
   }
@@ -95,11 +101,36 @@ function CanvasMessage({ state }: { state: WindowState }) {
         note={devServer.lastLine}
         actions={
           <>
-            <Button onClick={() => gui.installDependencies()}>Try again</Button>
+            <Button variant="primary" onClick={() => gui.installDependencies()}>
+              Try again
+            </Button>
             <LogsToggle open={logsOpen} noun="output" />
           </>
         }
-        footer={env}
+        env={env}
+      />
+    )
+  }
+
+  // Ahead of a load error: with its server gone the page can't load, and starting it is the fix.
+  if (devServer.status === 'exited') {
+    const failed = devServer.exitCode !== 0
+    return (
+      <SetupCard
+        icon={failed ? ALERT : INFO}
+        tone={failed ? 'danger' : 'neutral'}
+        title="Your app stopped"
+        detail={failed ? 'It quit with an error. The logs show what happened.' : undefined}
+        note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
+        actions={
+          <>
+            <Button variant="primary" onClick={() => gui.restartDevServer()}>
+              Start again
+            </Button>
+            <LogsToggle open={logsOpen} noun="logs" />
+          </>
+        }
+        env={env}
       />
     )
   }
@@ -113,11 +144,13 @@ function CanvasMessage({ state }: { state: WindowState }) {
         detail={preview.error}
         actions={
           <>
-            <Button onClick={() => gui.reload()}>Try again</Button>
+            <Button variant="primary" onClick={() => gui.reload()}>
+              Try again
+            </Button>
             <LogsToggle open={logsOpen} noun="logs" />
           </>
         }
-        footer={env}
+        env={env}
       />
     )
   }
@@ -137,7 +170,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
             </Button>
           </>
         }
-        footer={env}
+        env={env}
       />
     )
   }
@@ -148,29 +181,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={LOADING}
         title={devServer.status === 'starting' ? 'Starting your app…' : 'Loading your app…'}
         note={devServer.lastLine || devServer.command || ''}
-        footer={env}
-      />
-    )
-  }
-
-  if (devServer.status === 'exited') {
-    const crashed = devServer.exitCode !== 0
-    return (
-      <SetupCard
-        icon={crashed ? ALERT : <Info className="size-4" aria-hidden="true" />}
-        tone={crashed ? 'danger' : 'neutral'}
-        title="Your app stopped"
-        detail={crashed ? 'It quit with an error. The logs show what happened.' : ''}
-        note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
-        actions={
-          <>
-            <Button variant="primary" onClick={() => gui.restartDevServer()}>
-              Start again
-            </Button>
-            <LogsToggle open={logsOpen} noun="logs" />
-          </>
-        }
-        footer={env}
+        env={env}
       />
     )
   }
@@ -178,7 +189,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (!project.devCommand && !preview.url) {
     return (
       <SetupCard
-        icon={<Info className="size-4" aria-hidden="true" />}
+        icon={INFO}
         title="Gui doesn't know how to start this app"
         detail="Add a “dev” script to package.json, or enter your app's address in the bar above."
         actions={
@@ -203,7 +214,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
             Install and start
           </Button>
         }
-        footer={env}
+        env={env}
       />
     )
   }
@@ -219,7 +230,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
             Start app
           </Button>
         }
-        footer={env}
+        env={env}
       />
     )
   }
@@ -236,24 +247,34 @@ interface SetupCardProps {
   /** The specifics (command, last output line), behind a Details toggle for people who want them */
   note?: string
   actions?: ReactNode
-  /** A quiet extra row under a divider */
-  footer?: ReactNode
+  /** What there is to choose from, as a List under the message */
+  children?: ReactNode
+  /** The env file to offer, as a row of its own */
+  env?: EnvSetup | null
 }
 
-/** A canvas state: the shared Message in a card, with optional details and a footer row. */
-function SetupCard({ icon, tone, title, detail, note, actions, footer }: SetupCardProps) {
+/**
+ * A canvas state: the shared Message in a card, then what there is to choose or set up as
+ * List rows (apps, the env file), then the technical details.
+ */
+function SetupCard({ icon, tone, title, detail, note, actions, children, env }: SetupCardProps) {
   return (
     <Card className="flex w-full max-w-sm flex-col gap-4 p-5">
       <Message icon={icon} tone={tone} title={title} actions={actions}>
         {detail}
       </Message>
+      {children}
+      {env && (
+        <List>
+          <EnvItem env={env} />
+        </List>
+      )}
       {note && <TechnicalDetails text={note} />}
-      {footer}
     </Card>
   )
 }
 
-/** Opens the logs panel: "output" while setting up, "logs" once the app runs. */
+/** Opens the logs drawer: "output" while setting up, "logs" once the app runs. */
 function LogsToggle({ open, noun }: { open: boolean; noun: 'output' | 'logs' }) {
   return (
     <Button variant="ghost" aria-expanded={open} onClick={() => gui.setLogsOpen(!open)}>
@@ -268,13 +289,11 @@ function focusAddressBar() {
 
 function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
   return (
-    <Card className="flex w-full max-w-sm flex-col gap-4 p-5">
-      <div className="flex flex-col gap-1 text-center">
-        <p className="font-semibold">Which app should Gui preview?</p>
-        <p className="text-pretty text-muted">
-          This project has {apps.length} apps. You can switch later from the project menu.
-        </p>
-      </div>
+    <SetupCard
+      icon={<AppWindow className="size-4" aria-hidden="true" />}
+      title="Which app should Gui preview?"
+      detail={`This project has ${apps.length} apps. You can switch later from the project menu.`}
+    >
       <List>
         {apps.map((app) => (
           <li key={app.dir}>
@@ -283,12 +302,12 @@ function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
               onClick={() => gui.chooseApp(app.dir)}
               title={app.name}
               detail={app.dir === '.' ? 'project root' : <PathText path={app.dir} />}
-              trailing={<ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />}
+              trailing={CHEVRON}
             />
           </li>
         ))}
       </List>
-    </Card>
+    </SetupCard>
   )
 }
 
@@ -296,6 +315,7 @@ type EnvSetup = NonNullable<ProjectSetup['env']>
 
 const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
 
+/** What to do about the env file: create it from the example, or fill it in. */
 function EnvText({ env }: { env: EnvSetup }) {
   if (env.created) {
     return (
@@ -306,34 +326,31 @@ function EnvText({ env }: { env: EnvSetup }) {
   }
   return (
     <>
-      This project uses environment variables. Create <Code>{fileName(env.target)}</Code> from{' '}
-      <Code>{fileName(env.example)}</Code>?
+      Create <Code>{fileName(env.target)}</Code> from <Code>{fileName(env.example)}</Code>?
     </>
   )
 }
 
-function EnvButton({ env }: { env: EnvSetup }) {
+function EnvButton({ env, size }: { env: EnvSetup; size?: 'sm' | 'md' }) {
   return env.created ? (
-    <Button className="shrink-0" title={env.target} onClick={() => gui.openEnvFile()}>
+    <Button size={size} title={env.target} onClick={() => gui.openEnvFile()}>
       Open
     </Button>
   ) : (
-    <Button className="shrink-0" title={env.target} onClick={() => gui.createEnvFile()}>
+    <Button size={size} title={env.target} onClick={() => gui.createEnvFile()}>
       Create
     </Button>
   )
 }
 
-/** The env file offer inside the setup card. */
-function EnvRow({ env }: { env: EnvSetup }) {
+/** The env file offer in a setup card. */
+function EnvItem({ env }: { env: EnvSetup }) {
   return (
-    <div className="flex items-center gap-3 border-t border-line pt-4 text-left">
-      <KeyRound className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-      <p className="min-w-0 flex-1 text-pretty text-small text-muted">
-        <EnvText env={env} />
-      </p>
-      <EnvButton env={env} />
-    </div>
+    <ListItem
+      title="Environment variables"
+      detail={<EnvText env={env} />}
+      trailing={<EnvButton env={env} />}
+    />
   )
 }
 
@@ -350,15 +367,16 @@ export function EnvBanner({ state }: { state: WindowState }) {
   const env = state.setup?.env
   if (!env || dismissed || !state.preview.visible) return null
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2.5 border-b border-line bg-surface pr-1.5 pl-3">
+    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-surface pr-1.5 pl-3">
       <KeyRound className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
       <p className="min-w-0 flex-1 truncate text-small text-muted">
-        <EnvText env={env} />
+        This project uses environment variables. <EnvText env={env} />
       </p>
-      <EnvButton env={env} />
+      <EnvButton env={env} size="sm" />
       <IconButton
         label="Dismiss"
         icon={X}
+        size="sm"
         onClick={() => {
           dismissedEnv.add(root)
           setDismissed(true)
@@ -379,45 +397,71 @@ const STEPS: readonly [string, ReactNode][] = [
   ['Describe the change', 'Your agent edits the code, and you see the result right away.'],
 ]
 
+/**
+ * The start screen: what Gui does, opening a project (or a recent one), and the agent that
+ * will do the work. On the first run, the three steps instead of recent projects.
+ */
 function EmptyState({ state }: { state: WindowState }) {
-  const firstRun = state.recent.length === 0
+  const recent = state.recent.slice(0, 6)
+  const firstRun = recent.length === 0
   return (
-    <div className="flex w-full max-w-md flex-col gap-7">
-      <div className="flex flex-col gap-1.5">
-        <h1 className="text-title font-semibold">
-          {firstRun ? 'Design your app with your own agents' : 'Open a project'}
-        </h1>
-        <p className="text-pretty text-muted">
-          Gui runs your app, shows it here, and lets your agent edit the real code while you point
-          at things.
-        </p>
+    <div className="flex w-full max-w-md flex-col gap-8">
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-col gap-1">
+          <h1 className="text-title font-semibold">
+            {firstRun ? 'Design your app with your own agents' : 'Open a project'}
+          </h1>
+          <p className="text-pretty text-muted">
+            Gui runs your app, shows it here, and lets your agent edit the real code while you point
+            at things.
+          </p>
+        </div>
+        {firstRun && (
+          <ol className="flex flex-col gap-2.5">
+            {STEPS.map(([title, detail], i) => (
+              <li key={title} className="flex gap-3">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-medium tabular-nums text-muted">
+                  {i + 1}
+                </span>
+                <span>
+                  <span className="font-medium">{title}</span>
+                  <span className="text-muted"> — {detail}</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+        <Button
+          variant="primary"
+          size="lg"
+          icon={FolderOpen}
+          className="self-start"
+          onClick={() => void gui.openProject()}
+        >
+          Open project…
+        </Button>
       </div>
 
-      {firstRun && (
-        <ol className="flex flex-col gap-2.5">
-          {STEPS.map(([title, detail], i) => (
-            <li key={title} className="flex gap-3">
-              <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-medium tabular-nums text-muted">
-                {i + 1}
-              </span>
-              <span>
-                <span className="font-medium">{title}</span>
-                <span className="text-muted"> — {detail}</span>
-              </span>
-            </li>
-          ))}
-        </ol>
+      {!firstRun && (
+        <section aria-labelledby="recent-projects" className="flex flex-col gap-2">
+          <GroupLabel id="recent-projects" as="h2">
+            Recent
+          </GroupLabel>
+          <List>
+            {recent.map((project) => (
+              <li key={project.root}>
+                <ListRow
+                  flush
+                  onClick={() => void gui.openRecent(project.root)}
+                  title={project.name}
+                  detail={<PathText path={project.root} home={state.home} />}
+                  trailing={CHEVRON}
+                />
+              </li>
+            ))}
+          </List>
+        </section>
       )}
-
-      <Button
-        variant="primary"
-        size="lg"
-        icon={FolderOpen}
-        className="self-start"
-        onClick={() => void gui.openProject()}
-      >
-        Open project…
-      </Button>
 
       <div className="flex flex-col gap-1">
         <AgentCard
@@ -438,23 +482,6 @@ function EmptyState({ state }: { state: WindowState }) {
           All agents and settings
         </Button>
       </div>
-
-      {state.recent.length > 0 && (
-        <div className="flex flex-col gap-1">
-          <GroupLabel>Recent</GroupLabel>
-          <ul className="-mx-2 flex flex-col">
-            {state.recent.slice(0, 6).map((project) => (
-              <li key={project.root}>
-                <ListRow
-                  onClick={() => void gui.openRecent(project.root)}
-                  title={project.name}
-                  detail={<PathText path={project.root} home={state.home} />}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
     </div>
   )
 }
