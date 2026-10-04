@@ -234,18 +234,18 @@ test('the transcript stays at its newest line as the queue appears; a re-logged 
   await useStandIn(session)
   const { chat } = session
 
-  // One uncaught error in the preview, which Vite also re-logs on the dev server.
+  // One uncaught error in the preview. Vite may re-log it on the dev server too (it does
+  // locally, not on CI); either way it counts once (problems.spec pairs the two exactly).
   const preview = await session.previewPage()
   await preview.evaluate(() => {
     setTimeout(() => {
       throw new TypeError('Gui e2e cannot read the list')
     })
   })
-  const relogged = async () =>
-    (await session.chrome.evaluate(() => window.gui.getLogs())).includes('[Unhandled error]')
-  await waitFor(relogged, 'Vite to re-log the error on the dev server', { timeout: 20_000 })
-  // Problems reach the chat after a short throttle.
-  await sleep(1000)
+  const reported = async () => (await session.chatSnapshot()).meta.problems.length > 0
+  await waitFor(reported, 'the error to reach the chat')
+  // Time for a re-log, if Vite sends one, to arrive and pass the change throttle.
+  await sleep(2000)
   const { meta } = await session.chatSnapshot()
   expect(meta.problems.map((problem) => problem.source)).toEqual(['console'])
   await expect(chat.getByText('1 error in the preview', { exact: true })).toBeVisible()
