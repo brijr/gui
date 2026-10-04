@@ -1484,7 +1484,12 @@ export class ProjectTab {
     Menu.buildFromTemplate(template).popup({ window: this.host.win })
   }
 
-  showAgentMenu(openSettings: () => void) {
+  /** At the pointer, or at `at` in `sender`'s page (the chat header's agent switcher). */
+  showAgentMenu(
+    openSettings: () => void,
+    sender: WebContents,
+    at: { x: number; y: number } | null,
+  ) {
     const template: MenuItemConstructorOptions[] = [
       ...agentMenuItems(
         agentHealth.list(),
@@ -1496,7 +1501,12 @@ export class ProjectTab {
       { type: 'separator' },
       { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
     ]
-    Menu.buildFromTemplate(template).popup({ window: this.host.win })
+    const menu = Menu.buildFromTemplate(template)
+    const window = this.host.win
+    if (!at) return menu.popup({ window })
+    // Window coordinates: the chat is a view inside the window.
+    const view = sender === this.chatView.webContents ? this.chatView.getBounds() : { x: 0, y: 0 }
+    menu.popup({ window, x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) })
   }
 
   showProjectMenu(openPicker: () => void, openRecent: (root: string) => void) {

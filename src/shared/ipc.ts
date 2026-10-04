@@ -121,7 +121,11 @@ export interface GuiApi {
   stopDevServer(): void
   restartDevServer(): void
   showDevServerMenu(): void
-  showAgentMenu(): void
+  /**
+   * The agent menu, at the pointer, or with its top-left corner at `at` (CSS pixels in the
+   * calling page) to open under the control that asked for it.
+   */
+  showAgentMenu(at?: { x: number; y: number }): void
   showProjectMenu(): void
   setAgent(agentId: AgentId): void
   checkAgents(): void

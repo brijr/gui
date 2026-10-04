@@ -1,6 +1,6 @@
 import {
+  ChevronDown,
   GitPullRequest,
-  GripHorizontal,
   Maximize2,
   MessageSquare,
   Minus,
@@ -199,6 +199,10 @@ function agentStatus(meta: ChatMeta, running: boolean): Status {
   return 'idle'
 }
 
+/**
+ * The panel's title bar: the agent's state and name, which switches agents, the session's
+ * mode, and the panel's actions. Floating, it's also where the panel is dragged from.
+ */
 function Header({ meta }: { meta: ChatMeta }) {
   const running = meta.status === 'working'
   const shipping = useShipSheet((s) => s.open)
@@ -207,39 +211,70 @@ function Header({ meta }: { meta: ChatMeta }) {
     <div
       onPointerDown={meta.docked ? undefined : onDragStart}
       className={cn(
-        'flex h-10 shrink-0 items-center gap-2 border-b border-line pr-1.5 pl-3',
+        'flex h-10 shrink-0 items-center gap-1.5 border-b border-line pr-2 pl-3',
         !meta.docked && 'cursor-grab active:cursor-grabbing',
       )}
     >
-      {!meta.docked && (
-        <GripHorizontal className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-      )}
       <StatusDot status={agentStatus(meta, running)} />
-      <span className="truncate font-medium">{meta.agentName}</span>
+      <AgentSwitcher name={meta.agentName} />
       {meta.modeName && (
-        <Badge>
+        <Badge title="The agent's mode">
           <span className="truncate">{meta.modeName}</span>
         </Badge>
       )}
-      <div className="ml-auto flex items-center">
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <IconButton
+          size="sm"
           label="Create pull request"
           icon={GitPullRequest}
           pressed={shipping}
           disabled={shipBusy}
           onClick={toggleShipSheet}
         />
-        <IconButton label="New chat (⇧⌘K)" icon={SquarePen} onClick={() => gui.newSession()} />
         <IconButton
+          size="sm"
+          label="New chat (⇧⌘K)"
+          icon={SquarePen}
+          onClick={() => gui.newSession()}
+        />
+        <IconButton
+          size="sm"
           label={meta.docked ? 'Float panel (⇧⌘D)' : 'Dock to the side (⇧⌘D)'}
           icon={meta.docked ? PanelRightClose : PanelRight}
           onClick={() => gui.toggleDock()}
         />
         {!meta.docked && (
-          <IconButton label="Minimize" icon={Minus} onClick={() => gui.setMinimized(true)} />
+          <IconButton
+            size="sm"
+            label="Minimize"
+            icon={Minus}
+            onClick={() => gui.setMinimized(true)}
+          />
         )}
       </div>
     </div>
+  )
+}
+
+/**
+ * The agent's name, which opens the agent menu under it: the other agents, Agent
+ * Settings…, New chat. The native menu takes the keyboard from there.
+ */
+function AgentSwitcher({ name }: { name: string }) {
+  return (
+    <button
+      type="button"
+      aria-haspopup="menu"
+      title="Switch agent"
+      onClick={(event) => {
+        const box = event.currentTarget.getBoundingClientRect()
+        gui.showAgentMenu({ x: box.left, y: box.bottom + 4 })
+      }}
+      className="no-drag -ml-1 flex h-6 min-w-0 items-center gap-1 rounded-md px-1 font-medium text-fg transition-colors hover:bg-hover"
+    >
+      <span className="truncate">{name}</span>
+      <ChevronDown className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+    </button>
   )
 }
 

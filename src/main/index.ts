@@ -233,6 +233,11 @@ function tabFor(event: IpcMainEvent | IpcMainInvokeEvent) {
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
+const isPoint = (value: unknown): value is { x: number; y: number } =>
+  !!value &&
+  typeof value === 'object' &&
+  isNumber((value as Record<string, unknown>).x) &&
+  isNumber((value as Record<string, unknown>).y)
 
 const SECTIONS: readonly SettingsSection[] = ['agents', 'chat', 'projects', 'storage']
 const STORAGE_KINDS: readonly StorageKind[] = ['chats', 'checkpoints', 'previewData']
@@ -377,7 +382,10 @@ function registerIpc() {
   on(Send.devServerStop, (tab) => tab.stopDevServer())
   on(Send.devServerRestart, (tab) => tab.restartDevServer())
   on(Send.showDevServerMenu, (tab) => tab.showDevServerMenu())
-  on(Send.showAgentMenu, (tab) => tab.showAgentMenu(() => openSettings('agents')))
+  ipcMain.on(Send.showAgentMenu, (event, at: unknown) => {
+    const point = isPoint(at) ? at : null
+    tabFor(event)?.showAgentMenu(() => openSettings('agents'), event.sender, point)
+  })
   onWindow(Send.showProjectMenu, (win) =>
     win.activeTab.showProjectMenu(
       () => void pickProject(win),
