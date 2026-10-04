@@ -273,16 +273,15 @@ test('an answered permission card collapses into its line; new rows fade up once
   await sleep(300)
   await reject.click()
   await expect(chat.getByText('Not allowed')).toBeVisible()
-  await waitFor(
-    async () =>
-      (await transitions(chat)).some((t) => t.before.includes('chat-permission-0:permission')),
-    'the card collapsing',
-  )
-  const collapse = (await transitions(chat)).find((t) =>
-    t.before.includes('chat-permission-0:permission'),
-  )
-  expect(collapse?.after).toEqual(['chat-permission-0:permission'])
-  expect(collapse?.ran).toBe(true)
+  // Read once it has started (or been skipped): the line is in the page a frame or two before.
+  const collapse = await waitFor(async () => {
+    const found = (await transitions(chat)).find((t) =>
+      t.before.includes('chat-permission-0:permission'),
+    )
+    return found?.ran === null ? null : found
+  }, 'the card collapsing')
+  expect(collapse.after).toEqual(['chat-permission-0:permission'])
+  expect(collapse.ran).toBe(true)
   await session.waitForTurn(1, 30_000)
 })
 
