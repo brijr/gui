@@ -161,7 +161,7 @@ export class ProjectTab {
   private readonly preview: WebContentsView
   private readonly chatView: WebContentsView
   private readonly inspector: Inspector
-  /** The page at its viewport's size: a device frame's, or none for Desktop. */
+  /** The page at its viewport's size: a device frame's or zoomed Desktop's; none at 100%. */
   private readonly emulation: ViewportEmulation
   /** Each viewport's zoom, Desktop's at 100% and the frames fitting until the user zooms. */
   private zooms: Record<Viewport, Zoom> = { desktop: 1, laptop: null, tablet: null, mobile: null }
@@ -671,7 +671,7 @@ export class ProjectTab {
   /** Only a tab the drawer has: the dev server's output, or one of this project's terminals. */
   private showDrawer(tab: DrawerTab, focus = false) {
     if (!this.terminals || (tab !== 'server' && !this.terminals.has(tab))) return
-    this.host.setFocusMode(false)
+    this.leaveFocusMode()
     this.patchDrawer({ open: true, tab })
     if (focus) this.focusDrawer(tab)
   }
@@ -756,6 +756,14 @@ export class ProjectTab {
 
   toggleDevTools() {
     this.preview.webContents.toggleDevTools()
+  }
+
+  /**
+   * Ends the window's focus mode for something that needs the chrome or the chat; only from
+   * the tab it shows (a card in a background tab waits there).
+   */
+  private leaveFocusMode() {
+    if (this.host.isActive(this)) this.host.setFocusMode(false)
   }
 
   /** The keyboard to the page (focus mode, where Esc on it ends focus mode). */
@@ -1202,7 +1210,7 @@ export class ProjectTab {
 
   toggleDock() {
     if (!this.chat) return
-    this.host.setFocusMode(false)
+    this.leaveFocusMode()
     const docked = !this.chat.meta.docked
     setPrefs({ chatDocked: docked })
     this.chat.setDocked(docked)
@@ -1486,7 +1494,7 @@ export class ProjectTab {
   }
 
   private focusChat() {
-    this.host.setFocusMode(false)
+    this.leaveFocusMode()
     // The floating panel is wanted in full, so picking over it ends first.
     if (this.state.preview.selecting && this.hasProject && !this.docked) {
       void this.setSelecting(false).then(() => {
@@ -1686,7 +1694,7 @@ export class ProjectTab {
   private dodge(rect: Rect) {
     // Picking again already: the view is the bubble, not the panel to move.
     if (!this.chat || this.chat.meta.docked || !this.chatShown || this.bubbled) return
-    // Page coordinates, which a device frame draws at its scale, in the window.
+    // Page coordinates, which a device frame or a zoom draws at its scale, in the window.
     const previewBounds = this.preview.getBounds()
     const scale = this.emulation.scale
     const element = {
