@@ -1,9 +1,10 @@
 import { type Viewport, viewportKey, viewportSpec } from './types'
 
 /**
- * Gui's keyboard shortcuts, in one place: the app menu (src/main/index.ts) takes each item's
- * label and keys from here, the Keyboard Shortcuts sheet (⌘/) lists them, and controls name
- * theirs in their tooltip and `aria-keyshortcuts`, so the three can't drift apart.
+ * Gui's keyboard shortcuts, in one place: the app menu (src/main/index.ts) takes its items'
+ * labels and keys from here, the Keyboard Shortcuts sheet (⌘/) lists them, and controls name
+ * theirs in their tooltip and `aria-keyshortcuts`, so the three can't drift apart. A few keys
+ * belong to a page rather than the menu, such as the terminal's ⌘K; they're listed here too.
  */
 
 /** The sheet's sections, in order. */
@@ -27,7 +28,8 @@ export interface ShortcutSpec {
   accelerator: string
   /** Other keys for the same command, hidden from the menu (Safari's ⇧⌘] for the next tab) */
   alternates?: readonly string[]
-  menu: ShortcutMenu
+  /** Null for a key a page handles itself, with no menu item (`matchesShortcut`) */
+  menu: ShortcutMenu | null
   group: ShortcutGroup
   /** What it does, in sentence case: the sheet's line for it */
   description: string
@@ -261,6 +263,20 @@ export const SHORTCUTS = {
     group: 'terminal',
     description: "Show or hide the terminal and the dev server's logs",
   },
+  clearTerminal: {
+    label: 'Clear Terminal',
+    accelerator: 'CmdOrCtrl+K',
+    menu: null,
+    group: 'terminal',
+    description: 'Clear the terminal (in a terminal)',
+  },
+  deleteLine: {
+    label: 'Delete Line',
+    accelerator: 'CmdOrCtrl+Backspace',
+    menu: null,
+    group: 'terminal',
+    description: "Delete the line you're typing (in a terminal)",
+  },
 
   newTab: {
     label: 'New Tab',
@@ -374,6 +390,35 @@ export function shortcutText(id: ShortcutId): string {
 /** "Reload preview (⌘R)": a control's tooltip, with its shortcut. */
 export function withShortcut(label: string, id: ShortcutId): string {
   return `${label} (${shortcutText(id)})`
+}
+
+/** The modifiers and key a keyboard event carries, as `matchesShortcut` reads them. */
+interface KeyPress {
+  key: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  shiftKey: boolean
+}
+
+/**
+ * The event is the shortcut's key (or one of its other keys), with exactly its modifiers: for
+ * a page that handles a key itself. CmdOrCtrl is ⌘, as everywhere Gui runs.
+ */
+export function matchesShortcut(event: KeyPress, id: ShortcutId): boolean {
+  const { accelerator, alternates = [] }: ShortcutSpec = SHORTCUTS[id]
+  return [accelerator, ...alternates].some((keys) => {
+    const { modifiers, key } = parse(keys)
+    const has = (aria: string) => modifiers.some((modifier) => modifier.aria === aria)
+    const name = KEYS[key]?.aria ?? key
+    return (
+      event.key.toLowerCase() === name.toLowerCase() &&
+      event.metaKey === has('Meta') &&
+      event.ctrlKey === has('Control') &&
+      event.altKey === has('Alt') &&
+      event.shiftKey === has('Shift')
+    )
+  })
 }
 
 /** For `aria-keyshortcuts`: "Shift+Meta+L", its other keys after a space. */

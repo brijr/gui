@@ -2,6 +2,7 @@ import type { Terminal } from '@xterm/xterm'
 import { ChevronDown, Plus, SquareTerminal, TriangleAlert, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { MAX_TERMINAL_INPUT } from '../../../shared/ipc'
+import { matchesShortcut } from '../../../shared/shortcuts'
 import {
   type DrawerTab,
   drawerNeighbor,
@@ -377,21 +378,29 @@ function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     const input = xterm.term.onData((data) => {
       if (!replaying) sendInput(id, data)
     })
+    // xterm would type ⌘↩ and ⌘⌫ as Return and Delete: the app's keys, and a text field's,
+    // come first. Returning false leaves a key to the page, and unhandled, to the app menu.
     xterm.term.attachCustomKeyEventHandler((event) => {
-      const clear =
-        event.key.toLowerCase() === 'k' &&
-        event.metaKey &&
-        !event.shiftKey &&
-        !event.altKey &&
-        !event.ctrlKey
-      if (!clear) return true
       // ⌘K clears it, as in Terminal; the shell isn't told. Handled, so nothing beeps.
-      if (event.type === 'keydown') {
-        event.preventDefault()
-        xterm.term.clear()
-        gui.clearTerminal(id)
+      if (matchesShortcut(event, 'clearTerminal')) {
+        if (event.type === 'keydown') {
+          event.preventDefault()
+          xterm.term.clear()
+          gui.clearTerminal(id)
+        }
+        return false
       }
-      return false
+      // ⌘⌫ deletes the line being typed, as in a text field (the shell's ⌃U, as in iTerm).
+      // Handled here, it never answers a waiting permission card from the terminal.
+      if (matchesShortcut(event, 'deleteLine')) {
+        if (event.type === 'keydown') {
+          event.preventDefault()
+          sendInput(id, KILL_LINE)
+        }
+        return false
+      }
+      // ⌘↩ is the app's: Agent → Allow, for a waiting card. Never a second Return here.
+      return !matchesShortcut(event, 'allow')
     })
 
     return () => {
@@ -406,6 +415,9 @@ function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
 
   return <div ref={host} className="size-full" />
 }
+
+/** ⌃U: deletes the line being typed, in zsh and bash. */
+const KILL_LINE = '\x15'
 
 /** Keystrokes, and pastes in pieces main accepts; a piece never splits a character. */
 function sendInput(id: TerminalId, data: string) {

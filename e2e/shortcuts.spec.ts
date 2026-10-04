@@ -1,4 +1,5 @@
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Locator, Page } from '@playwright/test'
 import { ZOOM_LEVELS } from '../src/main/viewport'
@@ -46,6 +47,14 @@ interface CacheStore {
   guiDocuments?: string[]
   guiSent?: Record<string, string>
 }
+
+/**
+ * The terminal's shell: zsh, which every Mac has, from an empty config folder, so the
+ * developer's own ~/.zshrc doesn't run (as in terminal.spec.ts).
+ */
+const ZDOTDIR = mkdtempSync(join(tmpdir(), 'gui-e2e-zsh-'))
+const SHELL = { SHELL: '/bin/zsh', ZDOTDIR }
+test.afterAll(() => rmSync(ZDOTDIR, { recursive: true, force: true }))
 
 /** Set explicitly: CI's screen is short, and expectations follow the canvas Gui gets. */
 const WINDOW = { width: 1280, height: 820 }
@@ -398,8 +407,13 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   await session.app.evaluate(setContentSize, WINDOW)
   const entries = await session.app.evaluate(menuEntries)
 
-  // Each shortcut's item, with its keys; its other keys on hidden items that still work.
+  // Each shortcut's item, with its keys; its other keys on hidden items that still work. (A
+  // page's own key, like the terminal's ⌘K, has none.)
   for (const shortcut of allShortcuts()) {
+    if (shortcut.menu === null) {
+      expect(entries.filter((entry) => entry.label === shortcut.label)).toEqual([])
+      continue
+    }
     const shown = entries.filter(
       (entry) => entry.label === shortcut.label && entry.visible && entry.accelerator !== null,
     )
@@ -745,6 +759,73 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   await session.waitForTurn(0)
   await waitFor(async () => !(await keys()).allow, 'Allow off again')
   expect(outcomes()).toHaveLength(4)
+})
+
+test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the line, never answering', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', env: SHELL })
+  await session.declineConsentDialogs()
+  const outcomes = await useStandIn(session)
+  await session.app.evaluate(setContentSize, WINDOW)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
+  expect(await session.chat.evaluate(() => window.gui.send('ASK 1'))).toBe(true)
+  await waitingCard(session, 'npm run step-1')
+
+  // View → Toggle Terminal: a terminal, with the keyboard in it.
+  await clickMenu(session, 'Toggle Terminal')
+  const { drawer } = await waitFor(async () => {
+    const state = await session.state()
+    return state.drawer.terminals.length === 1 ? state : null
+  }, 'a terminal')
+  const id = drawer.terminals[0]?.id
+  if (!id) throw new Error('No terminal')
+  await waitFor(
+    () =>
+      session.chrome.evaluate(
+        () => document.activeElement?.classList.contains('xterm-helper-textarea') ?? false,
+      ),
+    'the keyboard in the terminal',
+  )
+  const output = () => session.chrome.evaluate((terminal) => window.gui.getTerminal(terminal), id)
+  await session.chrome.keyboard.type(' echo ready-$((1+1))')
+  await session.chrome.keyboard.press('Enter')
+  await waitFor(async () => /ready-2/.test(await output()), 'the shell')
+
+  // Which ⌘ keys the page handled: those it did never reach the app menu.
+  await session.chrome.evaluate(() => {
+    const keys: { key: string; handled: boolean }[] = []
+    Object.assign(window, { guiKeys: keys })
+    window.addEventListener('keydown', (event) => {
+      if (event.metaKey && event.key !== 'Meta') {
+        keys.push({ key: event.key, handled: event.defaultPrevented })
+      }
+    })
+  })
+  // A line typed, then ⌘D (Select Element), ⌘↩ (Allow) and ⌘⌫ (here, the line).
+  await session.chrome.keyboard.type(' echo stray-$((3+4))')
+  await session.chrome.keyboard.press('Meta+d')
+  await session.chrome.keyboard.press('Meta+Enter')
+  await session.chrome.keyboard.press('Meta+Backspace')
+  const keys = await session.chrome.evaluate(
+    () => (window as unknown as { guiKeys: { key: string; handled: boolean }[] }).guiKeys,
+  )
+  expect(keys).toEqual([
+    { key: 'd', handled: false },
+    { key: 'Enter', handled: false },
+    { key: 'Backspace', handled: true },
+  ])
+  // ⌘↩ wasn't a Return for the shell, and ⌘⌫ deleted the line: only this runs.
+  await session.chrome.keyboard.type(' echo kept-$((5+6))')
+  await session.chrome.keyboard.press('Enter')
+  await waitFor(async () => /kept-11/.test(await output()), 'the next command')
+  expect(await output()).not.toMatch(/stray-7/)
+  expect(outcomes()).toEqual([])
+
+  // The card waits for its answer; the app's ⌘↩, Agent → Allow, gives it.
+  await clickMenu(session, 'Allow')
+  expect((await answered(outcomes, 1))[0]?.outcome.optionId).toBe('allow')
 })
 
 test('zoom steps a device frame from 25% to fit and zooms the desktop page, per viewport', async ({
