@@ -307,6 +307,8 @@ export interface ChatMeta {
   selection: ElementContext | null
   /** Why the last element pick failed, shown until the next pick */
   selectionError: string | null
+  /** The user is picking an element in the preview (the composer's Select is on) */
+  selecting: boolean
   minimized: boolean
   /** Docked to the right edge of the canvas instead of floating over the preview */
   docked: boolean

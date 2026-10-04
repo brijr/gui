@@ -1,4 +1,4 @@
-import { ChevronDown, Search } from 'lucide-react'
+import { Check, ChevronDown, Search } from 'lucide-react'
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -24,9 +24,11 @@ const SEARCH_AFTER = 8
 const EDGE = 8
 /** Between the picker and the button. */
 const GAP = 4
-const WIDTH = 288
+const WIDTH = 336
 /** In a tall panel the list stops growing here and scrolls. */
 const MAX_HEIGHT = 440
+/** Effort levels side by side up to this many; more go one per row. */
+const SEGMENTS_MAX = 6
 
 /** Where the picker goes, in the chat view's CSS pixels. */
 interface Placement {
@@ -65,6 +67,29 @@ function place(button: HTMLElement): Placement {
 /** The selected choice's name; null when the agent reports a value it doesn't list. */
 function choiceName(setting: AgentSetting) {
   return setting.options.find((option) => option.value === setting.value)?.name ?? null
+}
+
+/**
+ * Gui's own names for the effort levels agents share, so they read the same whichever
+ * agent offers them ("xhigh" isn't "Xhigh"). Any other level keeps the agent's name.
+ */
+const EFFORT_LABELS: Record<string, string> = {
+  minimal: 'Minimal',
+  low: 'Low',
+  medium: 'Medium',
+  high: 'High',
+  xhigh: 'Extra high',
+  max: 'Max',
+}
+
+function effortLabel(choice: { value: string; name: string }) {
+  return Object.hasOwn(EFFORT_LABELS, choice.value) ? EFFORT_LABELS[choice.value] : choice.name
+}
+
+/** The selected effort's label; the raw value when the agent reports one it doesn't list. */
+function effortName(setting: AgentSetting) {
+  const choice = setting.options.find((option) => option.value === setting.value)
+  return choice ? effortLabel(choice) : setting.value
 }
 
 /** "OpenCode Zen/Big Pickle" reads as "Big Pickle"; the picker keeps the full name. */
@@ -111,7 +136,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   const pickerId = useId()
   const fullName = choiceName(models.model) ?? models.model.value
   const model = shortName(fullName)
-  const effort = models.effort && (choiceName(models.effort) ?? models.effort.value)
+  const effort = models.effort && effortName(models.effort)
 
   const close = (refocus: boolean) => {
     setPlacement(null)
@@ -375,22 +400,44 @@ function ModelPicker({ id, models, placement, button, onClose }: ModelPickerProp
         </p>
       )}
       {effort && (
-        <div className="flex shrink-0 items-center gap-2.5 border-t border-line py-2 pr-2 pl-2.5">
-          <span id={effortId} className="shrink-0 text-small font-medium text-muted">
+        <div className="flex shrink-0 flex-col gap-1.5 border-t border-line p-2">
+          <GroupLabel id={effortId} className="px-1">
             Effort
-          </span>
-          <SegmentedControl
-            labelledBy={effortId}
-            segments={effort.options.map((choice) => ({
-              value: choice.value,
-              label: choice.name,
-              title: choice.name,
-            }))}
-            value={effort.value}
-            onChange={(value) => gui.setAgentSetting(effort.id, value)}
-            stretch
-            className="flex-1"
-          />
+          </GroupLabel>
+          {effort.options.length <= SEGMENTS_MAX ? (
+            <SegmentedControl
+              labelledBy={effortId}
+              segments={effort.options.map((choice) => ({
+                value: choice.value,
+                label: effortLabel(choice),
+                title: effortLabel(choice),
+              }))}
+              value={effort.value}
+              onChange={(value) => gui.setAgentSetting(effort.id, value)}
+              stretch
+            />
+          ) : (
+            // Too many levels to sit side by side: one per row, like the models.
+            <fieldset aria-labelledby={effortId} className="flex flex-col">
+              {effort.options.map((choice) => {
+                const on = choice.value === effort.value
+                return (
+                  <button
+                    key={choice.value}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => gui.setAgentSetting(effort.id, choice.value)}
+                    className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-small transition-colors hover:bg-hover"
+                  >
+                    <span className="min-w-0 flex-1 truncate">{effortLabel(choice)}</span>
+                    {on && (
+                      <Check className="size-3 shrink-0 text-accent-text" aria-hidden="true" />
+                    )}
+                  </button>
+                )
+              })}
+            </fieldset>
+          )}
         </div>
       )}
     </Popover>,

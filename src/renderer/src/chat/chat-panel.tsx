@@ -359,6 +359,15 @@ function ChatBubble({
 }
 
 function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
+  if (turns.length === 0) return <EmptyTranscript />
+  return <Turns turns={turns} meta={meta} />
+}
+
+/**
+ * Stays pinned to the newest line unless the user scrolled up: as turns stream in, and as
+ * the composer's stack (queue, problems, the picked element) grows or shrinks under it.
+ */
+function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
@@ -367,18 +376,28 @@ function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
     if (el && stick.current && turns.length) el.scrollTop = el.scrollHeight
   }, [turns])
 
-  if (turns.length === 0) return <EmptyTranscript />
+  // The composer growing shrinks the transcript without scrolling it.
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const observer = new ResizeObserver(() => {
+      if (stick.current) el.scrollTop = el.scrollHeight
+    })
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [])
 
   return (
     <div
       ref={scroller}
+      data-transcript
       onScroll={(event) => {
         const el = event.currentTarget
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
       }}
-      className="min-h-0 flex-1 select-text overflow-y-auto px-3 py-3"
+      className="min-h-0 flex-1 select-text overflow-y-auto px-3 py-4"
     >
-      <div className="flex flex-col gap-5">
+      <div className="flex flex-col gap-6">
         {turns.map((turn) => (
           <TurnView key={turn.id} turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
         ))}

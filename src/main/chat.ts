@@ -242,6 +242,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       modeName: null,
       selection: null,
       selectionError: null,
+      selecting: false,
       minimized: false,
       docked: options.docked,
       redoTurnIds: saved?.redo?.turnIds ?? [],
@@ -325,6 +326,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setSelectionError(message: string) {
     this.patchMeta({ selectionError: message })
+  }
+
+  setSelecting(selecting: boolean) {
+    if (selecting !== this.meta.selecting) this.patchMeta({ selecting })
   }
 
   setMinimized(minimized: boolean) {

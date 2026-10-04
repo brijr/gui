@@ -1,9 +1,10 @@
-import { ArrowUp, ImagePlus, MousePointer2, Square, TriangleAlert, X } from 'lucide-react'
+import { ArrowUp, ImagePlus, Info, MousePointer2, Square, TriangleAlert, X } from 'lucide-react'
 import {
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
   useEffect,
   useRef,
   useState,
@@ -149,9 +150,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       <AgentStatus meta={meta} />
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
       <QueuedMessages meta={meta} />
-      {meta.selectionError && (
-        <p className="select-text px-1 text-small text-danger">{meta.selectionError}</p>
-      )}
+      {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}
       {meta.selection && (
         <Card tone="inset" className="flex items-center gap-2 p-1.5">
           {meta.selection.screenshot ? (
@@ -171,9 +170,9 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         </Card>
       )}
       {notice && (
-        <p role="status" className="px-1 text-small text-muted">
+        <Line tone="info" role="status">
           {notice}
-        </p>
+        </Line>
       )}
       <div
         className={cn(
@@ -227,6 +226,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           <IconButton
             label="Select element (⇧⌘C)"
             icon={MousePointer2}
+            pressed={meta.selecting}
             onClick={() => gui.toggleSelect()}
           />
           <IconButton
@@ -332,22 +332,47 @@ function SelectionLabel({ meta }: { meta: ChatMeta }) {
   )
 }
 
+/** A line above the message box: an icon in a 14px slot, then small text. */
+function Line({
+  tone,
+  role,
+  children,
+}: {
+  tone: 'info' | 'error' | 'busy'
+  role?: 'status'
+  children: ReactNode
+}) {
+  return (
+    <p
+      role={role}
+      className={cn(
+        'flex gap-1.5 px-1 text-small',
+        tone === 'error' ? 'text-danger' : 'text-muted',
+      )}
+    >
+      <span className="flex h-4 w-3.5 shrink-0 items-center justify-center">
+        {tone === 'busy' ? (
+          <Spinner />
+        ) : tone === 'error' ? (
+          <TriangleAlert className="size-3.5" aria-hidden="true" />
+        ) : (
+          <Info className="size-3.5" aria-hidden="true" />
+        )}
+      </span>
+      <span className="min-w-0 select-text break-words">{children}</span>
+    </p>
+  )
+}
+
 function AgentStatus({ meta }: { meta: ChatMeta }) {
-  if (meta.status === 'starting') {
-    return (
-      <p className="flex items-center gap-2 px-1 text-small text-muted">
-        <Spinner />
-        Starting {meta.agentName}…
-      </p>
-    )
-  }
+  if (meta.status === 'starting') return <Line tone="busy">Starting {meta.agentName}…</Line>
   if (meta.status === 'error' && meta.error) {
     return (
-      <div className="flex flex-col gap-1 px-1">
-        <p className="select-text text-small text-danger">
+      <div className="flex flex-col gap-1">
+        <Line tone="error">
           {meta.error} <span className="text-muted">Send a message to retry.</span>
-        </p>
-        {meta.errorDetail && <TechnicalDetails text={meta.errorDetail} />}
+        </Line>
+        {meta.errorDetail && <TechnicalDetails text={meta.errorDetail} className="pl-6" />}
       </div>
     )
   }

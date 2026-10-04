@@ -320,6 +320,7 @@ export class ProjectTab {
         modeName: null,
         selection: null,
         selectionError: null,
+        selecting: this.state.preview.selecting,
         minimized: false,
         docked: getPrefs().chatDocked,
         redoTurnIds: [],
@@ -1558,6 +1559,7 @@ export class ProjectTab {
     // Picking draws the floating chat as a bubble (see `bubbled`).
     if (preview.visible !== visible || preview.selecting !== selecting) this.layout()
     if (preview.selecting === selecting) return
+    this.chat?.setSelecting(preview.selecting)
     const attention = this.attentionWaiting
     this.attentionWaiting = false
     // A permission card that came up while the user picked shows now, as it would have then.

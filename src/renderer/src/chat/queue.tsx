@@ -31,7 +31,7 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
     <Card tone="inset">
       <div
         className={
-          paused ? 'flex items-center gap-2 border-b border-line py-1 pr-1 pl-2.5' : undefined
+          paused ? 'flex items-center gap-2 border-b border-line py-1 pr-1 pl-3' : undefined
         }
       >
         {/* Mounted with the queue rather than the pause, so the pause is announced. */}
@@ -49,7 +49,7 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
       </div>
       <ul aria-label="Queued messages" className="max-h-28 overflow-y-auto py-1">
         {meta.queue.map((item) => (
-          <li key={item.id} className="flex h-7 items-center gap-2 pr-0.5 pl-2.5">
+          <li key={item.id} className="flex h-7 items-center gap-2 pr-1 pl-3">
             <Clock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
             <p className="min-w-0 flex-1 truncate text-small" title={item.prompt}>
               {item.prompt}

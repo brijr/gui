@@ -184,8 +184,9 @@ export function ShipSheet() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-1 border-b border-line px-1.5">
+      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-line px-2">
         <IconButton
+          size="sm"
           label="Back to chat"
           icon={ArrowLeft}
           disabled={busy}

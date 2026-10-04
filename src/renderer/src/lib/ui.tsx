@@ -221,7 +221,7 @@ export function SegmentedControl<T extends string>({
             onClick={() => onChange(segment.value)}
             className={cn(
               'flex h-6 items-center justify-center rounded-sm text-small font-medium transition-colors',
-              iconOnly ? 'w-6' : 'px-2',
+              iconOnly ? 'w-6' : stretch ? 'px-1.5' : 'px-2',
               stretch && 'min-w-0 flex-auto',
               on ? 'bg-accent-soft text-accent-text' : 'text-muted hover:bg-hover hover:text-fg',
             )}
