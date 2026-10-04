@@ -55,6 +55,11 @@ export interface AgentDefinition extends AgentInfo {
   installUrl?: string
   /** Sign-in Gui can start in Terminal: the command, and what to do once it runs */
   terminalSignIn?: { command: string; hint: string }
+  /**
+   * Tool calls the agent reports for its own bookkeeping rather than work: the title of a
+   * call of no particular kind ('other'). They, and their updates, never reach the chat.
+   */
+  hiddenTools?: RegExp
 }
 
 export interface AgentListing {
@@ -151,6 +156,9 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     inAppSignIn: false,
     installUrl: 'https://dev.meta.ai/docs/muse-code/',
     terminalSignIn: { command: 'muse login', hint: 'Follow the steps to sign in.' },
+    // The adapter reports Muse's reminder attribution cards as calls titled
+    // `reminderChild: <status>`; workflows and subagents, which are real work, stay.
+    hiddenTools: /^reminderChild: [\w ]+$/,
     // On request passes approvals on to Gui; Auto-approve picks Muse's approve-once
     // choice at every stage, with the sandbox still on. For Ask, Muse 1.2.1+ also offers
     // the native policy that asks about every call the user's own rules don't allow

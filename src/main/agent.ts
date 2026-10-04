@@ -272,6 +272,9 @@ export class AgentSession {
   private controls: PermissionControls | undefined
   /** The Ask or Auto the session started with (see StartOptions.permissions) */
   private startedWith: PermissionPolicy | undefined
+  /** Bookkeeping calls this agent reports (AgentDefinition.hiddenTools), and those seen so far */
+  private hiddenTools: RegExp | undefined
+  private hiddenCalls = new Set<string>()
   /** The session's settings and modes, as the agent last reported them */
   private configOptions: acp.SessionConfigOption[] = []
   private modes: acp.SessionModeState | null = null
@@ -293,6 +296,7 @@ export class AgentSession {
     if (this.disposed) throw new Error('Agent was stopped')
     this.controls = definition.permissions
     this.startedWith = permissions
+    this.hiddenTools = definition.hiddenTools
     const meta = sessionMeta(definition, permissions)
     const spec = await spawnSpec(definition, shellEnv)
     if (this.disposed) throw new Error('Agent was stopped')
@@ -333,6 +337,7 @@ export class AgentSession {
         const { update } = ctx.params
         if (update.sessionUpdate === 'config_option_update') this.remember(update.configOptions)
         if (update.sessionUpdate === 'current_mode_update') this.rememberMode(update.currentModeId)
+        if (this.isHidden(update)) return
         this.handlers.onUpdate(update)
       })
       .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
@@ -556,6 +561,15 @@ export class AgentSession {
     this.configOptions = Array.isArray(configOptions) ? configOptions : []
     const mode = selectSetting(this.configOptions, 'mode')
     if (mode && this.modes) this.modes = { ...this.modes, currentModeId: mode.value }
+  }
+
+  /** A bookkeeping call the definition hides (AgentDefinition.hiddenTools), or an update to one. */
+  private isHidden(update: acp.SessionNotification['update']) {
+    if (update.sessionUpdate === 'tool_call_update') return this.hiddenCalls.has(update.toolCallId)
+    if (update.sessionUpdate !== 'tool_call' || !this.hiddenTools) return false
+    const hidden = (update.kind ?? 'other') === 'other' && this.hiddenTools.test(update.title)
+    if (hidden) this.hiddenCalls.add(update.toolCallId)
+    return hidden
   }
 
   private rememberMode(modeId: string) {
