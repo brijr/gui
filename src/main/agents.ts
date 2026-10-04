@@ -109,6 +109,15 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
       hint: 'Type /login and pick a provider. When you are signed in, quit pi and close this window.',
     },
   },
+  muse: {
+    // Muse Code speaks its own session protocol; the bundled adapter (built on Meta's
+    // Muse Code SDK) drives the user's `muse`.
+    launch: adapter('@bex-co/muse-code-acp', { requires: 'muse' }),
+    signIn: 'Sign in from Settings → Agents, or run `muse login` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://dev.meta.ai/docs/muse-code/',
+    terminalSignIn: { command: 'muse login', hint: 'Follow the steps to sign in.' },
+  },
 }
 
 const BUILT_IN: readonly AgentDefinition[] = AGENTS.map((agent) => ({
