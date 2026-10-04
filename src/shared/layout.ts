@@ -9,6 +9,12 @@ export const TOOLBAR_HEIGHT = 44
 /** Where the window's traffic lights sit (main and Settings windows). */
 export const TRAFFIC_LIGHTS = { x: 16, y: 15 } as const
 
+/** The tab row above the toolbar, shown while a window has two or more tabs (tab-strip.tsx). */
+export const TAB_ROW_HEIGHT = 36
+
+/** The traffic lights while the tab row shows: centered in it. */
+export const TAB_ROW_TRAFFIC_LIGHTS = { x: 16, y: 11 } as const
+
 /** Room the toolbar leaves on its left for the traffic lights. */
 export const TRAFFIC_LIGHTS_INSET = 84
 

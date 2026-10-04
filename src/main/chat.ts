@@ -470,6 +470,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /** Whether the running turn has started a tool, so the preview may already show its changes. */
+  /** A turn is running (not an undo or redo); changes come with a `turn` event. */
+  get turnRunning() {
+    return this.active !== null
+  }
+
   activeTurnUsedTools() {
     return this.active?.turn.items.some((item) => item.kind === 'tool') ?? false
   }

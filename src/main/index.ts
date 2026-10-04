@@ -48,7 +48,18 @@ import {
   watchSettings,
 } from './settings'
 import { PREVIEW_PARTITION } from './storage'
-import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
+import type { ProjectTab } from './tab'
+import {
+  allTabs,
+  allWindows,
+  findTab,
+  findWindow,
+  focusedWindow,
+  lastFocusedWindow,
+  ProjectWindow,
+  windowEvents,
+  windowOf,
+} from './window'
 
 app.setName('Gui')
 
@@ -121,7 +132,10 @@ const opening = new Set<string>()
 
 const canonical = (path: string) => realpath(path).catch(() => path)
 
-/** Opens in the given window if it's empty, otherwise in a new window. */
+/**
+ * Opens in the window's active tab if it's a start screen, otherwise in a new tab there. With
+ * no window given, the focused one (or the one focused last) is used.
+ */
 async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   if (!(await isDirectory(root))) {
     dialog.showErrorBox('Project not found', `${root} is not a folder.`)
@@ -132,34 +146,51 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   const member = await findWorkspaceRoot(root)
   const real = member?.root ?? (await canonical(root))
   const roots = await Promise.all(
-    allWindows().map(async (w) => ({ w, root: w.projectRoot && (await canonical(w.projectRoot)) })),
+    allTabs().map(async (tab) => ({
+      tab,
+      root: tab.projectRoot && (await canonical(tab.projectRoot)),
+    })),
   )
   // Checked and claimed with no await in between.
-  const existing = roots.find((entry) => entry.root === real)?.w
+  const existing = roots.find((entry) => entry.root === real)?.tab
   if (existing || opening.has(real)) {
     if (existing && member) showApp(existing, member.appDir)
-    existing?.win.focus()
+    if (existing) showTab(existing)
     return
   }
   opening.add(real)
   try {
-    // The window reads the app to run from prefs as it opens.
+    // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    const empty = target && !target.hasProject ? target : allWindows().find((w) => !w.hasProject)
-    await (empty ?? createWindow()).openProject(real)
+    await tabToOpenIn(target).openProject(real)
   } finally {
     opening.delete(real)
     syncAutoModeItem()
   }
 }
 
+/** The window's start-screen tab, or a new tab in it; ⌘N is what makes a new window. */
+function tabToOpenIn(target: ProjectWindow | undefined) {
+  const live = target && allWindows().includes(target) ? target : undefined
+  const win = live ?? lastFocusedWindow() ?? createWindow()
+  return win.activeTab.hasProject ? win.newTab() : win.activeTab
+}
+
+/** Brings a tab to the front: its window, and the tab in it. */
+function showTab(tab: ProjectTab) {
+  const win = windowOf(tab)
+  if (!win) return
+  win.showTab(tab)
+  win.win.focus()
+}
+
 /**
- * Switches a window that has the monorepo open to `appDir`, unless it already shows it.
- * A window still opening keeps what it's opening.
+ * Switches a tab that has the monorepo open to `appDir`, unless it already shows it.
+ * A tab still opening keeps what it's opening.
  */
-function showApp(win: ProjectWindow, appDir: string) {
-  const { project, setup } = win.getState()
-  if (project && (setup?.apps || project.appDir !== appDir)) win.chooseApp(appDir)
+function showApp(tab: ProjectTab, appDir: string) {
+  const { project, setup } = tab.getState()
+  if (project && (setup?.apps || project.appDir !== appDir)) tab.chooseApp(appDir)
 }
 
 /** For user-initiated opens: surface failures instead of dropping them. */
@@ -192,6 +223,11 @@ function createWindow() {
 
 function windowFor(event: IpcMainEvent | IpcMainInvokeEvent) {
   return findWindow(event.sender)
+}
+
+/** A chat panel's own tab, or the active tab of the window whose chrome sent it. */
+function tabFor(event: IpcMainEvent | IpcMainInvokeEvent) {
+  return findTab(event.sender)
 }
 
 const isString = (value: unknown): value is string => typeof value === 'string'
@@ -285,8 +321,8 @@ function isShipRequest(value: unknown): value is ShipRequest {
 
 function registerIpc() {
   ipcMain.handle(Invoke.getState, (event) => windowFor(event)?.getState())
-  ipcMain.handle(Invoke.getLogs, (event) => windowFor(event)?.getLogs() ?? '')
-  ipcMain.handle(Invoke.getChat, (event) => windowFor(event)?.getChat())
+  ipcMain.handle(Invoke.getLogs, (event) => tabFor(event)?.getLogs() ?? '')
+  ipcMain.handle(Invoke.getChat, (event) => tabFor(event)?.getChat())
   ipcMain.handle(Invoke.openProject, (event) => pickProject(windowFor(event)))
   ipcMain.handle(Invoke.openRecent, async (event, root: unknown) => {
     if (!isString(root)) return
@@ -300,21 +336,21 @@ function registerIpc() {
     if (!Array.isArray(attached) || attached.length > MAX_IMAGES || !attached.every(isImage)) {
       return false
     }
-    return windowFor(event)?.sendChatMessage(text, attached) ?? false
+    return tabFor(event)?.sendChatMessage(text, attached) ?? false
   })
-  ipcMain.handle(Invoke.shipInfo, (event) => windowFor(event)?.getShipInfo() ?? null)
-  ipcMain.handle(Invoke.takeScreenshot, (event) => windowFor(event)?.screenshotMenu() ?? null)
+  ipcMain.handle(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
+  ipcMain.handle(Invoke.takeScreenshot, (event) => tabFor(event)?.screenshotMenu() ?? null)
   ipcMain.handle(Invoke.ship, (event, request: unknown) => {
     if (!isShipRequest(request)) throw new Error('Invalid request')
-    const win = windowFor(event)
-    if (!win) throw new Error('No project is open.')
-    return win.ship(request)
+    const tab = tabFor(event)
+    if (!tab) throw new Error('No project is open.')
+    return tab.ship(request)
   })
   ipcMain.handle(Invoke.restoreTurn, (event, turnId: unknown) => {
-    if (isString(turnId)) return windowFor(event)?.restoreTurn(turnId)
+    if (isString(turnId)) return tabFor(event)?.restoreTurn(turnId)
   })
-  ipcMain.handle(Invoke.redo, (event) => windowFor(event)?.redo())
-  ipcMain.handle(Invoke.fixProblems, (event) => windowFor(event)?.fixProblems() ?? false)
+  ipcMain.handle(Invoke.redo, (event) => tabFor(event)?.redo())
+  ipcMain.handle(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
   ipcMain.handle(Invoke.signIn, async (event, agentId: unknown) => {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.signIn(agentId)
   })
@@ -322,25 +358,40 @@ function registerIpc() {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.install(agentId)
   })
 
-  const on = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
+  /** For the tab the sender acts on (`tabFor`). */
+  const on = (channel: string, handler: (tab: ProjectTab, ...args: unknown[]) => void) => {
+    ipcMain.on(channel, (event, ...args: unknown[]) => {
+      const tab = tabFor(event)
+      if (tab) handler(tab, ...args)
+    })
+  }
+  /** For the window, from its own chrome only: the canvas and the tab strip. */
+  const onWindow = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
       const win = windowFor(event)
-      if (win) handler(win, ...args)
+      if (win?.win.webContents === event.sender) handler(win, ...args)
     })
   }
 
-  on(Send.devServerStart, (win) => win.startDevServer())
-  on(Send.devServerStop, (win) => win.stopDevServer())
-  on(Send.devServerRestart, (win) => win.restartDevServer())
-  on(Send.showDevServerMenu, (win) => win.showDevServerMenu())
-  on(Send.showAgentMenu, (win) => win.showAgentMenu(() => openSettings('agents')))
-  on(Send.showProjectMenu, (win) =>
-    win.showProjectMenu(
+  on(Send.devServerStart, (tab) => tab.startDevServer())
+  on(Send.devServerStop, (tab) => tab.stopDevServer())
+  on(Send.devServerRestart, (tab) => tab.restartDevServer())
+  on(Send.showDevServerMenu, (tab) => tab.showDevServerMenu())
+  on(Send.showAgentMenu, (tab) => tab.showAgentMenu(() => openSettings('agents')))
+  onWindow(Send.showProjectMenu, (win) =>
+    win.activeTab.showProjectMenu(
       () => void pickProject(win),
       (root) => openSafely(win, root),
     ),
   )
-  on(Send.setAgent, (win, agentId) => isAgentId(agentId) && win.setAgent(agentId))
+  on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
+  onWindow(Send.newTab, (win) => win.newTab())
+  onWindow(Send.selectTab, (win, id) => isString(id) && win.selectTab(id))
+  onWindow(Send.closeTab, (win, id) => isString(id) && win.closeTab(id))
+  onWindow(Send.moveTab, (win, id, index) => {
+    if (isString(id) && isNumber(index)) win.moveTab(id, index)
+  })
+  onWindow(Send.showTabMenu, (win, id) => isString(id) && win.showTabMenu(id))
 
   const handleSettings = (
     channel: string,
@@ -393,50 +444,50 @@ function registerIpc() {
   onSettings(Send.setDefaultAgent, (agentId) => isAgentId(agentId) && setDefaultAgent(agentId))
   onSettings(Send.setChatDocked, (docked) => typeof docked === 'boolean' && setChatDocked(docked))
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
-  on(Send.navigate, (win, url) => isString(url) && win.navigate(url))
-  on(Send.back, (win) => win.back())
-  on(Send.forward, (win) => win.forward())
-  on(Send.reload, (win) => win.reload())
-  on(Send.setViewport, (win, viewport) => {
-    if (VIEWPORTS.includes(viewport as Viewport)) win.setViewport(viewport as Viewport)
+  on(Send.navigate, (tab, url) => isString(url) && tab.navigate(url))
+  on(Send.back, (tab) => tab.back())
+  on(Send.forward, (tab) => tab.forward())
+  on(Send.reload, (tab) => tab.reload())
+  on(Send.setViewport, (tab, viewport) => {
+    if (VIEWPORTS.includes(viewport as Viewport)) tab.setViewport(viewport as Viewport)
   })
-  on(Send.toggleSelect, (win) => void win.toggleSelect())
-  on(Send.stopSelecting, (win) => void win.setSelecting(false))
-  on(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
-  on(Send.toggleChat, (win) => win.toggleChat())
-  on(Send.setLogsOpen, (win, open) => win.setLogsOpen(open === true))
-  on(Send.resizeLogs, (win, cols, rows) => {
-    if (isNumber(cols) && isNumber(rows)) win.resizeLogs(Math.floor(cols), Math.floor(rows))
+  on(Send.toggleSelect, (tab) => void tab.toggleSelect())
+  on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
+  onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
+  on(Send.toggleChat, (tab) => tab.toggleChat())
+  on(Send.setLogsOpen, (tab, open) => tab.setLogsOpen(open === true))
+  on(Send.resizeLogs, (tab, cols, rows) => {
+    if (isNumber(cols) && isNumber(rows)) tab.resizeLogs(Math.floor(cols), Math.floor(rows))
   })
-  on(Send.cancel, (win) => win.cancelChat())
-  on(Send.removeQueued, (win, id) => isString(id) && win.removeQueued(id))
-  on(Send.sendQueuedNow, (win) => win.sendQueuedNow())
-  on(Send.setAutoApprove, (win, on) => typeof on === 'boolean' && win.setAutoApprove(on))
-  on(Send.setAgentSetting, (win, settingId, value) => {
+  on(Send.cancel, (tab) => tab.cancelChat())
+  on(Send.removeQueued, (tab, id) => isString(id) && tab.removeQueued(id))
+  on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
+  on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
+  on(Send.setAgentSetting, (tab, settingId, value) => {
     // Only a choice the composer offers right now: the chat panel renders what agents write.
-    if (isString(settingId) && isString(value) && offersChoice(win.chatModels, settingId, value)) {
-      win.setAgentSetting(settingId, value)
+    if (isString(settingId) && isString(value) && offersChoice(tab.chatModels, settingId, value)) {
+      tab.setAgentSetting(settingId, value)
     }
   })
-  on(Send.respondPermission, (win, turnId, itemId, optionId) => {
+  on(Send.respondPermission, (tab, turnId, itemId, optionId) => {
     if (isString(turnId) && isString(itemId) && (optionId === null || isString(optionId))) {
-      win.respondPermission(turnId, itemId, optionId)
+      tab.respondPermission(turnId, itemId, optionId)
     }
   })
-  on(Send.newSession, (win) => win.newChat())
-  on(Send.clearSelection, (win) => win.clearSelection())
-  on(Send.setMinimized, (win, minimized) => win.setMinimized(minimized === true))
-  on(Send.toggleDock, (win) => win.toggleDock())
-  on(Send.dragChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.dragChat(dx, dy))
-  on(Send.endDragChat, (win) => win.endDragChat())
-  on(Send.resizeChat, (win, edge, dx, dy) => {
-    if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) win.resizeChat(edge, dx, dy)
+  on(Send.newSession, (tab) => tab.newChat())
+  on(Send.clearSelection, (tab) => tab.clearSelection())
+  on(Send.setMinimized, (tab, minimized) => tab.setMinimized(minimized === true))
+  on(Send.toggleDock, (tab) => tab.toggleDock())
+  on(Send.dragChat, (tab, dx, dy) => isNumber(dx) && isNumber(dy) && tab.dragChat(dx, dy))
+  on(Send.endDragChat, (tab) => tab.endDragChat())
+  on(Send.resizeChat, (tab, edge, dx, dy) => {
+    if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) tab.resizeChat(edge, dx, dy)
   })
-  on(Send.endResizeChat, (win) => win.endResizeChat())
-  on(Send.chooseApp, (win, dir) => isString(dir) && win.chooseApp(dir))
-  on(Send.installDependencies, (win) => win.installDependencies())
-  on(Send.createEnvFile, (win) => win.createEnvFile())
-  on(Send.openEnvFile, (win) => win.openEnvFile())
+  on(Send.endResizeChat, (tab) => tab.endResizeChat())
+  on(Send.chooseApp, (tab, dir) => isString(dir) && tab.chooseApp(dir))
+  on(Send.installDependencies, (tab) => tab.installDependencies())
+  on(Send.createEnvFile, (tab) => tab.createEnvFile())
+  on(Send.openEnvFile, (tab) => tab.openEnvFile())
 }
 
 /** Permissions the previewed app may use, and only from a local origin. */
@@ -501,6 +552,11 @@ function menuWindow() {
   return focusedWindow() ?? (lone ? allWindows()[0] : undefined)
 }
 
+/** The tab a menu command acts on: the active tab of `menuWindow`. */
+function menuTab() {
+  return menuWindow()?.activeTab
+}
+
 /**
  * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Gui or the previewed app);
  * otherwise, including from an empty chat box, they undo or redo the agent's last change.
@@ -509,9 +565,9 @@ async function editHistory(direction: 'undo' | 'redo') {
   const wc = webContents.getFocusedWebContents()
   const textEdit = () => (direction === 'undo' ? wc?.undo() : wc?.redo())
   if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
-  const win = menuWindow()
-  if (!win) return textEdit()
-  await (direction === 'undo' ? win.undoLastChange() : win.redoLastChange())
+  const tab = menuTab()
+  if (!tab) return textEdit()
+  await (direction === 'undo' ? tab.undoLastChange() : tab.redoLastChange())
 }
 
 const AUTO_MODE_ITEM = 'auto-mode'
@@ -519,24 +575,59 @@ const AUTO_MODE_ITEM = 'auto-mode'
 /** Agent → Auto Mode is checked when the project it would change is in Auto mode. */
 function syncAutoModeItem() {
   const item = Menu.getApplicationMenu()?.getMenuItemById(AUTO_MODE_ITEM)
-  if (item) item.checked = menuWindow()?.autoApprove ?? false
+  if (item) item.checked = menuTab()?.autoApprove ?? false
 }
 
 /** Only from the user's own menu choice or keystroke: agents never get to turn this on. */
 function toggleAutoMode() {
-  const win = menuWindow()
-  win?.setAutoApprove(!win.autoApprove)
+  const tab = menuTab()
+  tab?.setAutoApprove(!tab.autoApprove)
   // The click already flipped the checkmark; it follows the project's setting instead.
   syncAutoModeItem()
 }
 
+/** ⌘T: a start-screen tab in the window menus act on, or a new window when there's none. */
+function newTab() {
+  const win = menuWindow()
+  // A minimized window would hide the tab.
+  if (win && !win.win.isMinimized()) win.newTab()
+  else createWindow()
+}
+
+/** ⌘W: the active tab (a window's last closes it), or another window such as Settings. */
+function closeTab() {
+  // Detached DevTools (the preview's) isn't a BrowserWindow; ⌘W closes it, not a tab.
+  const focused = webContents.getFocusedWebContents()
+  const inspected = webContents
+    .getAllWebContents()
+    .find((wc) => focused && wc.devToolsWebContents?.id === focused.id)
+  if (inspected) return inspected.closeDevTools()
+  const win = menuWindow()
+  if (!win) BrowserWindow.getFocusedWindow()?.close()
+  else if (!win.win.isMinimized()) win.closeTab(win.activeTab.id)
+}
+
 function buildMenu() {
+  /** For the focused window's active tab: menu commands act on the project it shows. */
   const withWindow =
+    (fn: (tab: ProjectTab) => void): MenuItemConstructorOptions['click'] =>
+    () => {
+      const tab = focusedWindow()?.activeTab
+      if (tab) fn(tab)
+    }
+  /** For the tabs of the window menus act on (`menuWindow`). */
+  const withTabs =
     (fn: (win: ProjectWindow) => void): MenuItemConstructorOptions['click'] =>
     () => {
-      const win = focusedWindow()
+      const win = menuWindow()
       if (win) fn(win)
     }
+  // Safari's other keys for the same commands; they work while hidden from the menu.
+  const alternate = (item: MenuItemConstructorOptions): MenuItemConstructorOptions => ({
+    ...item,
+    visible: false,
+    acceleratorWorksWhenHidden: true,
+  })
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
@@ -557,6 +648,7 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
+        { label: 'New Tab', accelerator: 'CmdOrCtrl+T', click: newTab },
         { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => createWindow() },
         {
           label: 'Open Project…',
@@ -565,7 +657,8 @@ function buildMenu() {
         },
         { role: 'recentDocuments', submenu: [{ role: 'clearRecentDocuments' }] },
         { type: 'separator' },
-        { role: 'close' },
+        { label: 'Close Tab', accelerator: 'CmdOrCtrl+W', click: closeTab },
+        { role: 'close', label: 'Close Window', accelerator: 'Shift+CmdOrCtrl+W' },
       ],
     },
     {
@@ -637,7 +730,7 @@ function buildMenu() {
           agentHealth.list(),
           agentHealth.customError,
           null,
-          (id) => focusedWindow()?.setAgent(id),
+          (id) => focusedWindow()?.activeTab.setAgent(id),
           () => openSettings('agents'),
         ),
         { type: 'separator' },
@@ -657,7 +750,41 @@ function buildMenu() {
         },
       ],
     },
-    { role: 'windowMenu' },
+    {
+      label: 'Window',
+      role: 'window',
+      submenu: [
+        { role: 'minimize' },
+        { role: 'zoom' },
+        { type: 'separator' },
+        {
+          label: 'Show Previous Tab',
+          accelerator: 'Ctrl+Shift+Tab',
+          click: withTabs((w) => w.showAdjacentTab(-1)),
+        },
+        {
+          label: 'Show Next Tab',
+          accelerator: 'Ctrl+Tab',
+          click: withTabs((w) => w.showAdjacentTab(1)),
+        },
+        alternate({
+          label: 'Show Previous Tab',
+          accelerator: 'Shift+CmdOrCtrl+[',
+          click: withTabs((w) => w.showAdjacentTab(-1)),
+        }),
+        alternate({
+          label: 'Show Next Tab',
+          accelerator: 'Shift+CmdOrCtrl+]',
+          click: withTabs((w) => w.showAdjacentTab(1)),
+        }),
+        {
+          label: 'Move Tab to New Window',
+          click: withTabs((w) => w.moveToNewWindow(w.activeTab.id)),
+        },
+        { type: 'separator' },
+        { role: 'front' },
+      ],
+    },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
   syncAutoModeItem()
@@ -707,6 +834,7 @@ if (!app.requestSingleInstanceLock()) {
     // Agent → Auto Mode shows the project the menu acts on.
     app.on('browser-window-focus', syncAutoModeItem)
     app.on('browser-window-blur', syncAutoModeItem)
+    windowEvents.on('activeTab', syncAutoModeItem)
     prefsEvents.on('change', syncAutoModeItem)
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

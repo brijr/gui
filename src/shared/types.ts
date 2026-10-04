@@ -137,6 +137,21 @@ export interface PreviewState {
   visible: boolean
 }
 
+/**
+ * What a tab shows next to its name: its agent working, a permission card waiting for the
+ * user, or something that failed (the agent, the install or the dev server).
+ */
+export type TabStatus = 'idle' | 'working' | 'attention' | 'error'
+
+/** A tab in a window's tab strip: one project with its own preview, chat and dev server */
+export interface TabInfo {
+  id: string
+  /** The project's name; null for a start-screen tab */
+  title: string | null
+  status: TabStatus
+}
+
+/** The window's active tab: its project, preview and chat, and the window's tab strip */
 export interface WindowState {
   project: ProjectInfo | null
   devServer: DevServerState
@@ -149,6 +164,10 @@ export interface WindowState {
   home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
+  /** The window's tabs, in order; the strip shows once there are two or more */
+  tabs: TabInfo[]
+  /** Id of the tab this state is for, the one the window shows */
+  activeTab: string
 }
 
 export interface Rect {
@@ -455,7 +474,7 @@ export interface SettingsState {
   trustedProjects: string[]
   recentProjects: RecentProject[]
   storage: StorageUsage
-  /** Project roots open in a window; clearing storage keeps their data */
+  /** Project roots open in a tab of any window; clearing storage keeps their data */
   openProjects: string[]
   /** The user's home folder, so paths can show it as ~ */
   home: string

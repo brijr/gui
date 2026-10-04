@@ -19,7 +19,7 @@ import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { clearStorage as clearStorageData, measureStorage } from './storage'
 import { followSurface, surfaceColor } from './theme'
 import { listTrusted, untrust } from './trust'
-import { allWindows } from './window'
+import { allTabs } from './window'
 
 let win: BrowserWindow | null = null
 /** Section to show once the Settings page has loaded and asked for its state. */
@@ -29,7 +29,7 @@ let storage: StorageUsage = { chats: null, checkpoints: null, previewData: null 
 let generation = 0
 
 const customId = (name: string): AgentId => `${CUSTOM_AGENT_PREFIX}${name}`
-const openRoots = () => allWindows().flatMap((w) => (w.projectRoot ? [w.projectRoot] : []))
+const openRoots = () => allTabs().flatMap((tab) => (tab.projectRoot ? [tab.projectRoot] : []))
 const live = (window: BrowserWindow | null): window is BrowserWindow =>
   window !== null && !window.isDestroyed()
 
@@ -181,7 +181,7 @@ export async function untrustProject(root: string) {
 
 export async function clearRecent() {
   await clearRecentFile()
-  for (const window of allWindows()) window.setRecent([])
+  for (const tab of allTabs()) tab.setRecent([])
   await refreshSettings()
 }
 
@@ -209,7 +209,7 @@ export async function confirmAndClear(kind: StorageKind) {
   const options: MessageBoxOptions = {
     type: 'warning',
     message: prompt.message,
-    detail: keepsOpen ? `${prompt.detail} Projects open in a window keep theirs.` : prompt.detail,
+    detail: keepsOpen ? `${prompt.detail} Projects open in a tab keep theirs.` : prompt.detail,
     buttons: ['Clear', 'Cancel'],
     defaultId: 1,
     cancelId: 1,

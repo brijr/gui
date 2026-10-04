@@ -77,6 +77,11 @@ export const Send = {
   sendQueuedNow: 'chat:queue-send',
   setAutoApprove: 'chat:auto-approve',
   setAgentSetting: 'chat:agent-setting',
+  newTab: 'tabs:new',
+  selectTab: 'tabs:select',
+  closeTab: 'tabs:close',
+  moveTab: 'tabs:move',
+  showTabMenu: 'tabs:menu',
   chooseApp: 'setup:choose-app',
   installDependencies: 'setup:install',
   createEnvFile: 'setup:create-env',
@@ -127,6 +132,19 @@ export interface GuiApi {
    * `WindowState.agents`). Other agents: opens their official install page.
    */
   installAgent(agentId: AgentId): Promise<void>
+
+  /**
+   * Opens a start-screen tab in this window and shows it. Each tab (`WindowState.tabs`) is a
+   * project with its own preview, chat and dev server.
+   */
+  newTab(): void
+  selectTab(id: string): void
+  /** Closes the tab, stopping its agent and dev server; the last one closes the window */
+  closeTab(id: string): void
+  /** Moves the tab to `index` in the strip (drag to reorder) */
+  moveTab(id: string, index: number): void
+  /** The tab's context menu: close it, close the others, move it to a new window */
+  showTabMenu(id: string): void
 
   /** Project setup (`WindowState.setup`): pick the monorepo app to preview */
   chooseApp(dir: string): void
