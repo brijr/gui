@@ -518,6 +518,13 @@ function registerIpc() {
   on(Send.toggleSelect, (tab) => void tab.toggleSelect())
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
+  onWindow(Send.morphShown, (win, id, canvas) => {
+    if (isNumber(id) && isRect(canvas)) win.morphShown(id, canvas)
+  })
+  onWindow(Send.morphLanded, (win, id, seq) => {
+    if (isNumber(id) && isNumber(seq)) win.activeTab.morphLanded(id, seq)
+  })
+  onWindow(Send.cancelMorph, (win, id) => isNumber(id) && win.activeTab.cancelMorph(id))
   onWindow(Send.setFocusMode, (win, on) => typeof on === 'boolean' && win.setFocusMode(on))
   onWindow(Send.setShortcutsOpen, (win, open) => {
     if (typeof open === 'boolean') win.setShortcutsOpen(open)

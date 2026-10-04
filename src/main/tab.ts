@@ -34,6 +34,7 @@ import {
   type ElementContext,
   type ImageAttachment,
   isTerminalId,
+  type MorphKind,
   type PanelCorner,
   type PanelEdge,
   type PreviewFrame,
@@ -65,6 +66,7 @@ import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
+import { PreviewMorph } from './preview-morph'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
@@ -190,6 +192,13 @@ export class ProjectTab {
   private readonly emulation: ViewportEmulation
   /** Each viewport's zoom, Desktop's at 100% and the frames fitting until the user zooms. */
   private zooms: Record<Viewport, Zoom> = { desktop: 1, laptop: null, tablet: null, mobile: null }
+  /** Moves the preview into a new layout by morphing a snapshot of it (preview-morph.ts). */
+  private readonly morph: PreviewMorph
+  /**
+   * Where the preview is laid out, in the window: the view's bounds, except mid-morph, when
+   * the view is out of sight. What picks, the chat's dodge and prompts measure against.
+   */
+  private placement: Rect = { x: 0, y: 0, width: 0, height: 0 }
   private state: TabState
   private devServer: DevServer | null = null
   /** The project's terminals in the drawer; none run until the user opens one. */
@@ -310,6 +319,13 @@ export class ProjectTab {
 
     this.inspector = new Inspector(this.preview.webContents, () => this.emulation.scale)
     this.emulation = new ViewportEmulation(this.inspector)
+    this.morph = new PreviewMorph({
+      window: () => this.host.win,
+      view: this.preview,
+      exclusive: (fn) => this.inspector.exclusive(() => fn()),
+      send: (event) => this.send(Events.morph, event),
+      layout: () => this.layout(),
+    })
     this.inspector.on('pick', (nodeId) => void this.onPick(nodeId))
     this.inspector.on('cancel', () => this.patchPreview({ selecting: false }))
     this.problems.on('change', (problems) => this.chat?.setProblems(problems))
@@ -364,6 +380,8 @@ export class ProjectTab {
    */
   deactivate() {
     if (this.state.preview.selecting) void this.setSelecting(false)
+    // So is a preview still morphing (its view is placed again when the tab is back).
+    this.morph.finish(false)
     // A panel still landing is where it was going when the tab comes back, in its new form.
     this.flight?.finish()
     this.settleForm(this.wantedForm())
@@ -763,6 +781,12 @@ export class ProjectTab {
   }
 
   private patchDrawer(patch: Partial<DrawerState>) {
+    // Opening or closing it moves the canvas's edge, and the preview with it (in focus mode
+    // it's hidden either way).
+    const { open } = patch
+    if (open !== undefined && open !== this.state.drawer.open && !this.host.focusMode) {
+      this.morphLayout('drawer')
+    }
     this.patch({ drawer: { ...this.state.drawer, ...patch } })
   }
 
@@ -815,6 +839,7 @@ export class ProjectTab {
   }
 
   setViewport(viewport: Viewport) {
+    if (viewport !== this.state.preview.viewport) this.morphLayout('viewport')
     this.patchPreview({ viewport })
     this.layout()
   }
@@ -827,6 +852,7 @@ export class ProjectTab {
     const { viewport } = this.state.preview
     const next = zoomed(viewport, this.previewArea(), this.zooms[viewport], step)
     if (next === undefined) return shell.beep()
+    if (next !== this.zooms[viewport]) this.morphLayout('zoom')
     this.zooms = { ...this.zooms, [viewport]: next }
     this.patchPreview({ zoom: this.zooms.desktop ?? 1 })
     this.layout()
@@ -957,6 +983,8 @@ export class ProjectTab {
     // Only pick from the local app: element data is sent to the agent.
     const local = isLoopback(this.preview.webContents.getURL())
     if (on && (!this.state.preview.visible || !this.chat || !local)) return
+    // Picking is on the live page: a morph in progress lands at once.
+    if (on) this.morph.finish()
     try {
       // Report "selecting" only once inspect mode is live; a click before that would
       // land on the page instead of picking.
@@ -970,6 +998,7 @@ export class ProjectTab {
   }
 
   private async onPick(nodeId: number) {
+    this.morph.finish()
     this.patchPreview({ selecting: false })
     const generation = ++this.pickGeneration
     const project = this.state.project
@@ -1026,7 +1055,7 @@ export class ProjectTab {
     const { name, size } = viewportSpec(this.state.preview.viewport)
     if (size) return { name, ...size, fixed: true }
     const zoom = this.zooms.desktop ?? 1
-    const { width, height } = this.preview.getBounds()
+    const { width, height } = this.placement
     return {
       name,
       width: Math.round(width / zoom),
@@ -1289,6 +1318,7 @@ export class ProjectTab {
   toggleDock() {
     if (!this.chat) return
     this.leaveFocusMode()
+    this.morphLayout('dock')
     const docked = !this.chat.meta.docked
     setPrefs({ chatDocked: docked })
     this.chat.setDocked(docked)
@@ -1361,6 +1391,8 @@ export class ProjectTab {
   toggleChat() {
     // In focus mode the chat is out of sight whatever its setting: bring everything back.
     if (this.host.focusMode) return this.focusChat()
+    // Docked, it takes its column from the preview, or gives it back.
+    if (this.docked) this.morphLayout('dock')
     this.patch({ chatVisible: !this.state.chatVisible })
     this.layout()
     // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
@@ -1376,6 +1408,7 @@ export class ProjectTab {
     if (!this.state.chatVisible) return this.toggleChat()
     if (!(await this.composerFocused())) return this.focusChat()
     if (this.disposed || !this.state.chatVisible) return
+    if (this.docked) this.morphLayout('dock')
     this.patch({ chatVisible: false })
     this.layout()
     // Typing goes to the chrome, not to the panel that just left.
@@ -1634,6 +1667,7 @@ export class ProjectTab {
       return
     }
     if (!this.state.chatVisible) {
+      if (this.docked) this.morphLayout('dock')
       this.patch({ chatVisible: true })
     }
     if (this.chat?.meta.minimized) this.chat.setMinimized(false)
@@ -1683,14 +1717,57 @@ export class ProjectTab {
     // Even while nothing shows, so a page that loads lays out at its viewport's size at once.
     const { viewport } = preview
     const { bounds, emulation } = placePreview(viewport, area, this.zooms[viewport])
-    this.preview.setBounds(bounds)
+    this.placement = bounds
     const covered = this.host.shortcutsOpen
-    this.preview.setVisible(preview.visible && area.width > 0 && !covered)
-    this.emulation.set(emulation)
+    const visible = preview.visible && area.width > 0 && !covered
+    // Nothing on screen to morph into: the new layout is simply there.
+    if (!visible) this.morph.finish(false)
     // Desktop's zoom emulates too, without a frame.
     const frame = viewportSpec(viewport).size !== null && emulation
-    this.showFrame(frame ? { rect: inCanvas(bounds, this.host.canvas), scale: frame.scale } : null)
+    // Where the view goes: here, or mid-morph out of sight at this size; frozen, nowhere yet.
+    const [, contentHeight = 0] = this.host.win.getContentSize()
+    const placed = { rect: bounds, scale: emulation?.scale ?? 1, frame: frame ? viewport : null }
+    const at = this.morph.place(placed, contentHeight)
+    if (at) this.preview.setBounds(at)
+    this.preview.setVisible(visible)
+    // Frozen, the emulation waits behind the morph's capture in the inspector's lock, and the
+    // chrome's device frame stays around the view where it is, until the morph draws it.
+    this.emulation.set(emulation)
+    if (!this.morph.frozen) {
+      const rect = inCanvas(bounds, this.host.canvas)
+      this.showFrame(frame ? { viewport, rect, scale: frame.scale } : null)
+    }
     this.layoutChat()
+  }
+
+  /**
+   * Before a change that moves or resizes the preview: it morphs into its new layout (when the
+   * preview is on screen and nothing's being picked), rather than jumping there.
+   */
+  morphLayout(kind: MorphKind) {
+    const { win } = this.host
+    const eligible =
+      !this.disposed &&
+      this.host.isActive(this) &&
+      this.state.preview.visible &&
+      !this.state.preview.selecting &&
+      !this.host.shortcutsOpen &&
+      win.isVisible() &&
+      !win.isMinimized()
+    this.morph.request(kind, eligible)
+  }
+
+  /** The chrome has the morph's snapshot on screen; false when it's not this tab's morph. */
+  morphShown(id: number) {
+    return this.morph.snapshotShown(id)
+  }
+
+  morphLanded(id: number, seq: number) {
+    this.morph.landed(id, seq)
+  }
+
+  cancelMorph(id: number) {
+    this.morph.cancel(id)
   }
 
   /**
@@ -1888,6 +1965,7 @@ export class ProjectTab {
       frame === shown ||
       (frame !== null &&
         shown !== null &&
+        frame.viewport === shown.viewport &&
         frame.scale === shown.scale &&
         frame.rect.x === shown.rect.x &&
         frame.rect.y === shown.rect.y &&
@@ -1947,7 +2025,7 @@ export class ProjectTab {
     // Picking again already: the view is the bubble, not the panel to move.
     if (!this.chat || this.chat.meta.docked || !this.chatShown || this.bubbled) return
     // Page coordinates, which a device frame or a zoom draws at its scale, in the window.
-    const previewBounds = this.preview.getBounds()
+    const previewBounds = this.placement
     const scale = this.emulation.scale
     const element = {
       x: previewBounds.x + rect.x * scale,
@@ -2116,6 +2194,7 @@ export class ProjectTab {
     this.disposed = true
     agentHealth.off('change', this.onAgentHealth)
     this.flight?.stop()
+    this.morph.dispose()
     if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()

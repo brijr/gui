@@ -190,6 +190,17 @@ export function viewportSpec(id: Viewport): ViewportSpec {
   return VIEWPORTS.find((viewport) => viewport.id === id) ?? VIEWPORTS[0]
 }
 
+/**
+ * The line above a device frame: its name, then "· 1440 × 900", and "· 80%" when it's drawn
+ * smaller (floored, so a frame drawn even slightly smaller never reads 100%).
+ */
+export function frameLabel(id: Viewport, scale: number) {
+  const { name, size } = viewportSpec(id)
+  const percent = Math.floor(scale * 100)
+  const detail = `${size ? ` · ${size.width} × ${size.height}` : ''}${percent < 100 ? ` · ${percent}%` : ''}`
+  return { name, detail }
+}
+
 /** Its key with ⌘ (the View menu's shortcut): 1 for the first viewport, and so on. */
 export function viewportKey(id: Viewport) {
   return String(VIEWPORTS.findIndex((viewport) => viewport.id === id) + 1)
@@ -197,6 +208,8 @@ export function viewportKey(id: Viewport) {
 
 /** A fixed viewport's frame on the canvas, for the chrome to draw around the preview */
 export interface ViewportFrame {
+  /** The device, which the label names (the viewport it was drawn for, mid-change) */
+  viewport: Viewport
   /** Where the preview is, in the canvas's own coordinates */
   rect: Rect
   /** How large the page is drawn: 1 at its CSS size, less when scaled down to fit */
@@ -222,6 +235,45 @@ export interface PreviewState {
   selectable: boolean
   visible: boolean
 }
+
+/**
+ * A change that moves or resizes the preview, which morphs into its new layout rather than
+ * jumping there (main/preview-morph.ts, renderer app/layout-morph.ts): another viewport, a
+ * zoom step, the drawer opening or closing, the chat docking (or a docked chat showing or
+ * hiding), focus mode.
+ */
+export type MorphKind = 'viewport' | 'zoom' | 'drawer' | 'dock' | 'focus'
+
+/** Where the preview is, or is going, in a morph. */
+export interface MorphPlacement {
+  /** The preview view, in window coordinates */
+  rect: Rect
+  /** How large the page is drawn: a device frame's scale, or Desktop's zoom */
+  scale: number
+  /** The device frame around it, drawn with its label; null for Desktop */
+  frame: Viewport | null
+}
+
+/**
+ * Main → the chrome, one morph (`id`) at a time: a change is coming (`pending`), the preview
+ * as it was (`snapshot`, a JPEG of the view), where it's going (`target`, again for every
+ * change before it lands, numbered `seq`), the preview as it will be there (`after`, null if
+ * it couldn't be captured), and the live view back in its place (`end`).
+ */
+export type MorphEvent =
+  | { type: 'pending'; id: number; kind: MorphKind }
+  | {
+      type: 'snapshot'
+      id: number
+      kind: MorphKind
+      image: Uint8Array
+      from: MorphPlacement
+      /** Reduce motion: nothing moves; the snapshot fades out where the preview left */
+      reduced: boolean
+    }
+  | { type: 'target'; id: number; seq: number; kind: MorphKind; to: MorphPlacement }
+  | { type: 'after'; id: number; seq: number; image: Uint8Array | null }
+  | { type: 'end'; id: number }
 
 /**
  * What a tab shows next to its name: its agent working, a permission card waiting for the

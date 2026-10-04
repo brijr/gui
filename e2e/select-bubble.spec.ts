@@ -42,11 +42,16 @@ function views({ BrowserWindow, WebContentsView }: ElectronModule): Views | null
   return { chat: chat.getBounds(), chatVisible: chat.getVisible(), preview: preview.getBounds() }
 }
 
-/** Waits for the visible chat view's bounds to satisfy `check`. */
+/**
+ * Waits for the visible chat view's bounds to satisfy `check`, outside a morph of the preview's
+ * layout (mid-morph the preview waits out of sight, off the window's left edge, and a docked
+ * chat slides in).
+ */
 function chatWhere(session: GuiSession, label: string, check: (chat: Rect) => boolean) {
   return waitFor(async () => {
     const layout = await session.app.evaluate(views)
-    return layout?.chatVisible && check(layout.chat) ? layout : null
+    const settled = layout !== null && layout.preview.x >= 0
+    return settled && layout.chatVisible && check(layout.chat) ? layout : null
   }, label)
 }
 

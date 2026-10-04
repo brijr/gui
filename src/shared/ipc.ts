@@ -8,6 +8,7 @@ import type {
   CustomAgentEntry,
   DrawerTab,
   ImageAttachment,
+  MorphEvent,
   PanelEdge,
   Rect,
   SettingsSection,
@@ -66,6 +67,9 @@ export const Send = {
   toggleSelect: 'preview:select',
   stopSelecting: 'preview:select-stop',
   setCanvasRect: 'layout:canvas',
+  morphShown: 'layout:morph-shown',
+  morphLanded: 'layout:morph-landed',
+  cancelMorph: 'layout:morph-cancel',
   setFocusMode: 'layout:focus-mode',
   setShortcutsOpen: 'layout:shortcuts',
   toggleChat: 'chat:toggle',
@@ -129,6 +133,7 @@ export const Events = {
   chatFocus: 'chat:focus',
   chatAttach: 'chat:attach',
   chatFloat: 'chat:float',
+  morph: 'layout:morph',
   settings: 'settings',
   settingsSection: 'settings:section',
 } as const
@@ -224,6 +229,20 @@ export interface GuiApi {
   /** Ends element picking (the chat bubble's click) */
   stopSelecting(): void
   setCanvasRect(rect: Rect): void
+  /**
+   * The preview's layout morphs (`MorphEvent`): the chrome draws its snapshot moving from where
+   * the preview was to where it's going, under the toolbar and the drawer.
+   */
+  onMorph(cb: (event: MorphEvent) => void): Unsubscribe
+  /**
+   * The morph's snapshot is on screen, so main can take the live view away, with the canvas
+   * as the change left it (the drawer or focus mode change it first).
+   */
+  morphShown(id: number, canvas: Rect): void
+  /** The morph has come to rest on its target `seq`: main shows the live view there */
+  morphLanded(id: number, seq: number): void
+  /** A click on the moving snapshot: the live view, in its new place, at once */
+  cancelMorph(id: number): void
   /** Focus mode on or off (see `WindowState.focusMode`) */
   setFocusMode(on: boolean): void
   /** Shows or closes the Keyboard Shortcuts sheet (`WindowState.shortcutsOpen`) */

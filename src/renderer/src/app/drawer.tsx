@@ -39,10 +39,12 @@ export function Drawer({ state }: { state: WindowState }) {
   // by a click on its tab here.
   const [focusRequest, setFocusRequest] = useState<DrawerTab | null>(null)
   useEffect(() => gui.onDrawerFocus(setFocusRequest), [])
+  // Focus mode hides it, with the rest of the chrome.
+  const open = state.drawer.open && !state.focusMode && state.project !== null
 
   const { project, drawer } = state
   if (!project) return null
-  const { open, terminals } = drawer
+  const { terminals } = drawer
   const shown = drawer.tab ?? 'server'
   const failed = crashed(state)
   const exited = terminals.find((terminal) => terminal.id === shown)?.exited ?? false
@@ -106,12 +108,12 @@ export function Drawer({ state }: { state: WindowState }) {
 
   return (
     <>
-      {!open && failed && state.preview.visible && <CrashBar />}
+      {!open && !state.focusMode && failed && state.preview.visible && <CrashBar />}
       {/* Kept mounted while closed, so the terminals keep their scrollback and place. */}
       <section
         aria-label="Terminal"
         inert={!open}
-        className={cn('shrink-0 bg-surface', open && 'border-t border-line')}
+        className={cn('relative z-20 shrink-0 bg-surface', open && 'border-t border-line')}
       >
         {open && (
           <div className="flex h-9 items-center gap-1 pr-1.5 pl-1.5">
@@ -274,7 +276,7 @@ function CrashBar() {
   return (
     <div
       role="alert"
-      className="flex h-9 shrink-0 items-center gap-2 border-t border-line bg-danger-soft pr-1.5 pl-3"
+      className="relative z-20 flex h-9 shrink-0 items-center gap-2 border-t border-line bg-danger-soft pr-1.5 pl-3"
     >
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <p className="min-w-0 flex-1 truncate text-small">

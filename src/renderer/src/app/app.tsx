@@ -1,11 +1,13 @@
-import { Fragment, useEffect } from 'react'
+import { Fragment, useEffect, useRef } from 'react'
 import { FOCUS_BAR_HEIGHT } from '../../../shared/layout'
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
 import { Button } from '../lib/ui'
 import { useWindowState } from '../lib/use-window-state'
 import { Canvas, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
+import { useLayoutMorphs } from './layout-morph'
 import { ShortcutsSheet } from './shortcuts-sheet'
 import { TabStrip } from './tab-strip'
 import { focusAddressBar, Toolbar } from './toolbar'
@@ -14,6 +16,8 @@ export function App() {
   const state = useWindowState()
   const focusMode = state?.focusMode ?? false
   const sheet = state?.shortcutsOpen ?? false
+  const morphs = useRef<HTMLDivElement>(null)
+  useLayoutMorphs(morphs, state?.activeTab ?? null)
   // Here rather than in the toolbar, which may only be on its way.
   useEffect(
     () =>
@@ -33,28 +37,32 @@ export function App() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [focusMode, sheet])
 
-  if (!state) return <div className="drag h-dvh bg-surface" />
-  // Focus mode hides the chrome rather than unmounting it, so it comes back as it was.
-  const chrome = focusMode ? 'hidden' : 'contents'
   return (
-    <div className="flex h-dvh flex-col">
-      {focusMode && <FocusBar state={state} />}
-      <div className={chrome}>
-        <TabStrip state={state} />
-      </div>
-      {/* Keyed by tab, so each tab's project gets its own toolbar, canvas and drawer. */}
-      <Fragment key={state.activeTab}>
-        <div className={chrome}>
-          <Toolbar state={state} />
-          {/* Outside the canvas, so the preview is laid out below it. Keyed so a dismissal is per project. */}
-          <EnvBanner key={state.project?.root} state={state} />
-        </div>
-        <Canvas state={state} />
-        <div className={chrome}>
-          <Drawer state={state} />
-        </div>
-      </Fragment>
-      {sheet && <ShortcutsSheet />}
+    <div className="relative flex h-dvh flex-col">
+      {/* The preview's layout morphs: over the canvas, under the bars and the drawer. */}
+      <div ref={morphs} aria-hidden="true" className="pointer-events-none fixed inset-0 z-10" />
+      {!state ? (
+        <div className="drag h-dvh bg-surface" />
+      ) : (
+        <>
+          {focusMode && <FocusBar state={state} />}
+          {/* Focus mode hides the bars rather than unmounting them, so they come back as they were. */}
+          <div className={cn('relative z-20 shrink-0', focusMode && 'hidden')}>
+            <TabStrip state={state} />
+            {/* Keyed by tab, so each tab's project gets its own toolbar, canvas and drawer. */}
+            <Fragment key={state.activeTab}>
+              <Toolbar state={state} />
+              {/* Outside the canvas, so the preview is laid out below it. Keyed so a dismissal is per project. */}
+              <EnvBanner key={state.project?.root} state={state} />
+            </Fragment>
+          </div>
+          <Fragment key={state.activeTab}>
+            <Canvas state={state} />
+            <Drawer state={state} />
+          </Fragment>
+          {sheet && <ShortcutsSheet />}
+        </>
+      )}
     </div>
   )
 }
@@ -66,7 +74,7 @@ export function App() {
 function FocusBar({ state }: { state: WindowState }) {
   return (
     <header
-      className="drag relative flex shrink-0 items-center justify-end border-b border-line bg-surface pr-2"
+      className="drag relative z-20 flex shrink-0 items-center justify-end border-b border-line bg-surface pr-2"
       style={{ height: FOCUS_BAR_HEIGHT }}
     >
       <p className="pointer-events-none absolute inset-x-40 truncate text-center text-caption font-medium text-subtle">

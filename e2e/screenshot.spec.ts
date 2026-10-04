@@ -288,6 +288,9 @@ async function chatLayout({ BrowserWindow, WebContentsView }: ElectronModule) {
   const chat = views.find((view) => view.webContents.getURL().endsWith('/chat.html'))
   const preview = views.find((view) => /^https?:\/\//.test(view.webContents.getURL()))
   if (!chat?.getVisible() || !preview) return null
+  // Mid-morph the preview waits out of sight, off the window's left edge (preview-morph.ts),
+  // and the layout isn't where it's going yet.
+  if (preview.getBounds().x < 0) return null
   const [width = 0, height = 0] = win.getContentSize()
   return { chat: chat.getBounds(), preview: preview.getBounds(), content: { width, height } }
 }
@@ -540,7 +543,15 @@ test('the chat panel resizes from its edges and corners and remembers the size',
 
   // Docked: the left edge sets the column's width and the preview gets the rest.
   await session.chat.evaluate(() => window.gui.toggleDock())
-  const docked = await layoutWhere(session, 'the docked panel', (chat) => chat.width === 400)
+  // In its place against the canvas's right edge (once it has slid in), the preview beside it.
+  const docked = await layoutWhen(
+    session,
+    'the docked panel',
+    ({ chat, preview, content }) =>
+      chat.width === 400 &&
+      chat.x + chat.width === content.width &&
+      preview.x + preview.width <= chat.x,
+  )
   await resize(session, 'left', -100, 0)
   const wider = await layoutWhere(session, 'the wider docked panel', (chat) => chat.width === 500)
   expect(wider.chat.x + wider.chat.width).toBe(docked.chat.x + docked.chat.width)

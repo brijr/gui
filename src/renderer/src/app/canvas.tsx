@@ -14,10 +14,9 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
 import { shortcutText } from '../../../shared/shortcuts'
 import {
+  frameLabel,
   type ProjectSetup,
-  type Viewport,
   type ViewportFrame,
-  viewportSpec,
   type WindowState,
   type WorkspaceApp,
 } from '../../../shared/types'
@@ -27,6 +26,7 @@ import { TechnicalDetails } from '../lib/disclosure'
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Kbd, Spinner } from '../lib/ui'
+import { useMorphDrawsFrame } from './layout-morph'
 import { focusAddressBar } from './toolbar'
 
 /**
@@ -36,6 +36,8 @@ import { focusAddressBar } from './toolbar'
 export function Canvas({ state }: { state: WindowState }) {
   const { preview } = state
   const ref = useRef<HTMLElement>(null)
+  // Mid-morph the frame moves with the preview's snapshot, which draws it (layout-morph.ts).
+  const morphing = useMorphDrawsFrame()
 
   useEffect(() => {
     const el = ref.current
@@ -62,8 +64,8 @@ export function Canvas({ state }: { state: WindowState }) {
   return (
     <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
       {/* Main hides the preview under the shortcuts sheet, and so its frame goes too. */}
-      {preview.frame && preview.visible && !state.shortcutsOpen && (
-        <DeviceFrame viewport={preview.viewport} frame={preview.frame} />
+      {preview.frame && preview.visible && !state.shortcutsOpen && !morphing && (
+        <DeviceFrame frame={preview.frame} />
       )}
       {/* Centered while it fits; scrolls from the top in a short window. */}
       <div className="absolute inset-0 flex flex-col overflow-y-auto p-8">
@@ -79,11 +81,9 @@ export function Canvas({ state }: { state: WindowState }) {
  * A fixed viewport's edge and shadow around the preview, which is the device's screen, and
  * its name above: "Laptop · 1440 × 900", with the scale when it's drawn smaller.
  */
-function DeviceFrame({ viewport, frame }: { viewport: Viewport; frame: ViewportFrame }) {
-  const { name, size } = viewportSpec(viewport)
+function DeviceFrame({ frame }: { frame: ViewportFrame }) {
+  const { name, detail } = frameLabel(frame.viewport, frame.scale)
   const { rect } = frame
-  // Floored, so a frame drawn even slightly smaller never reads 100%.
-  const percent = Math.floor(frame.scale * 100)
   return (
     <>
       <div
@@ -102,8 +102,7 @@ function DeviceFrame({ viewport, frame }: { viewport: Viewport; frame: ViewportF
       >
         <span>
           <span className="font-medium text-muted">{name}</span>
-          {size && ` · ${size.width} × ${size.height}`}
-          {percent < 100 && ` · ${percent}%`}
+          {detail}
         </span>
       </p>
     </>
