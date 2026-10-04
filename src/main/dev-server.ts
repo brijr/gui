@@ -109,9 +109,12 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       this.update({ status: 'exited', exitCode: null, lastLine: `Couldn't start: ${message}` })
       return
     }
-    proc.onExit(({ exitCode }) => {
+    proc.onExit(({ exitCode: code, signal }) => {
       if (run !== this.run) return
       this.proc = null
+      // Killed by a signal (a crash, the OOM killer) is a failure too: 128 + the signal, as a
+      // shell reports it. node-pty says exit code 0 then.
+      const exitCode = signal ? 128 + signal : code
       this.write(`\r\n${ESC}[2m[process exited with code ${exitCode}]${ESC}[0m\r\n`)
       this.update(
         this.stopping
