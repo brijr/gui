@@ -788,7 +788,8 @@ test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the li
       ),
     'the keyboard in the terminal',
   )
-  const output = () => session.chrome.evaluate((terminal) => window.gui.getTerminal(terminal), id)
+  const output = () =>
+    session.chrome.evaluate(async (terminal) => (await window.gui.getTerminal(terminal)).data, id)
   await session.chrome.keyboard.type(' echo ready-$((1+1))')
   await session.chrome.keyboard.press('Enter')
   await waitFor(async () => /ready-2/.test(await output()), 'the shell')

@@ -1,10 +1,11 @@
 import { EventEmitter } from 'node:events'
 import { type IPty, spawn as spawnPty } from 'node-pty'
+import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
+import { Output } from './output'
 import { listenersOn, loopbackFor, portOpen, processGroups } from './ports'
 import { getShellEnv } from './shell-env'
 
-const MAX_LOG = 512 * 1024
 const PROBE_TIMEOUT_MS = 120_000
 /** Most dev servers are up well within this; past it, the UI offers a way forward. */
 const SLOW_START_MS = 30_000
@@ -16,6 +17,8 @@ const LOCAL_URL =
   /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.localhost)(?::\d{2,5})?[^\s'"]*/
 
 const stripAnsi = (text: string) => text.replace(ANSI, '')
+
+let lastLogsId = 0
 
 function normalizeUrl(raw: string) {
   try {
@@ -30,7 +33,8 @@ function normalizeUrl(raw: string) {
 }
 
 export interface DevServerEvents {
-  data: [chunk: string]
+  /** Output for the drawer's logs, while they're on screen */
+  data: [chunk: OutputChunk]
   change: [state: DevServerState]
   /** One complete line of output, escape codes stripped */
   line: [line: string]
@@ -52,7 +56,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private proc: IPty | null = null
   /** Settles when `proc` has exited and its exit has been handled. */
   private exited: Promise<void> = Promise.resolve()
-  private log = ''
+  /** Its output and Gui's notes in between, kept to draw again; never held up by the drawer */
+  readonly output = new Output(`logs-${++lastLogsId}`, {
+    send: (chunk) => this.emit('data', chunk),
+  })
   /** Incomplete last line of output; URLs and escape codes can span PTY reads. */
   private partial = ''
   private lastLineTimer: NodeJS.Timeout | null = null
@@ -69,7 +76,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   logs() {
-    return this.log
+    return this.output.snapshot().data
   }
 
   /** Takes effect on the next start. */
@@ -197,6 +204,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
 
   dispose() {
     this.run++
+    this.output.dispose()
     if (this.lastLineTimer) clearTimeout(this.lastLineTimer)
     if (this.proc) killGroup(this.proc.pid, 'SIGKILL')
     this.proc = null
@@ -300,9 +308,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   private write(chunk: string) {
-    this.log += chunk
-    if (this.log.length > MAX_LOG) this.log = this.log.slice(-MAX_LOG)
-    this.emit('data', chunk)
+    this.output.append(chunk)
   }
 
   private update(patch: Partial<DevServerState>) {

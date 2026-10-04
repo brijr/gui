@@ -14,7 +14,7 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { Invoke, MAX_TERMINAL_INPUT, Send } from '../shared/ipc'
+import { Invoke, MAX_TERMINAL_INPUT, type OutputChunk, Send } from '../shared/ipc'
 import {
   SHORTCUTS,
   type ShortcutId,
@@ -242,6 +242,11 @@ function tabFor(event: IpcMainEvent | IpcMainInvokeEvent) {
 const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
+/** For a drawer view asking about output it can't have: nothing to draw. */
+const NO_OUTPUT: OutputChunk = { id: '', data: '', end: 0 }
+/** Where in a drawer view's output: a count of characters. */
+const isOutputPosition = (value: unknown): value is number =>
+  isNumber(value) && Number.isSafeInteger(value) && value >= 0
 /** Columns or rows of a terminal: a whole number a window could hold. */
 const isTerminalSize = (value: unknown): value is number =>
   isNumber(value) && Number.isInteger(value) && value >= 2 && value <= 1000
@@ -338,11 +343,11 @@ function isShipRequest(value: unknown): value is ShipRequest {
 
 function registerIpc() {
   ipcMain.handle(Invoke.getState, (event) => windowFor(event)?.getState())
-  ipcMain.handle(Invoke.getLogs, (event) => tabFor(event)?.getLogs() ?? '')
+  ipcMain.handle(Invoke.getLogs, (event) => tabFor(event)?.logsOutput() ?? NO_OUTPUT)
   ipcMain.handle(Invoke.getTerminal, (event, id: unknown) => {
     // Like the terminals' other channels: the window's own chrome, for its active tab.
     const win = windowFor(event)
-    if (win?.win.webContents !== event.sender || !isTerminalId(id)) return ''
+    if (win?.win.webContents !== event.sender || !isTerminalId(id)) return NO_OUTPUT
     return win.activeTab.terminalOutput(id)
   })
   ipcMain.handle(Invoke.getChat, (event) => tabFor(event)?.getChat())
@@ -447,6 +452,9 @@ function registerIpc() {
     }
   })
   onDrawer(Send.clearTerminal, (tab, id) => isTerminalId(id) && tab.clearTerminal(id))
+  onDrawer(Send.ackOutput, (tab, id, end) => {
+    if (isString(id) && isOutputPosition(end)) tab.ackOutput(id, end)
+  })
 
   const handleSettings = (
     channel: string,

@@ -50,7 +50,10 @@ function drawerWith(session: GuiSession, count: number) {
 
 /** Everything the terminal has printed, as main keeps it to draw it again. */
 function output(session: GuiSession, id: TerminalId) {
-  return session.chrome.evaluate((terminal) => window.gui.getTerminal(terminal), id)
+  return session.chrome.evaluate(
+    async (terminal) => (await window.gui.getTerminal(terminal)).data,
+    id,
+  )
 }
 
 function waitForOutput(session: GuiSession, id: TerminalId, pattern: RegExp, label: string) {

@@ -33,6 +33,7 @@ import {
   drawerNeighbor,
   type ElementContext,
   type ImageAttachment,
+  isTerminalId,
   type PanelCorner,
   type PanelEdge,
   type PreviewFrame,
@@ -369,6 +370,7 @@ export class ProjectTab {
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
     contentView.removeChildView(this.chatView)
+    this.syncDrawerOutput()
   }
 
   /** Hands the tab to another window; its views are already out of the old one. */
@@ -386,6 +388,11 @@ export class ProjectTab {
 
   getLogs() {
     return this.devServer?.logs() ?? ''
+  }
+
+  /** The dev server's output, for the drawer to draw it from. */
+  logsOutput() {
+    return this.devServer?.output.snapshot()
   }
 
   getChat(): ChatSnapshot {
@@ -531,7 +538,7 @@ export class ProjectTab {
 
       // At the root, like the agent: a monorepo's app is a `cd` away.
       const terminals = new Terminals(project.root)
-      terminals.on('data', (id, data) => this.send(Events.terminalData, { id, data }))
+      terminals.on('data', (output) => this.send(Events.terminalData, output))
       terminals.on('change', () => this.patchDrawer({ terminals: terminals.list() }))
       this.terminals = terminals
 
@@ -718,6 +725,25 @@ export class ProjectTab {
 
   clearTerminal(id: TerminalId) {
     this.terminals?.clear(id)
+  }
+
+  /** The drawer has drawn a view's output up to `end`: the dev server's, or a terminal's. */
+  ackOutput(id: string, end: number) {
+    if (id === this.devServer?.output.id) this.devServer.output.ack(end)
+    else if (isTerminalId(id)) this.terminals?.ack(id, end)
+  }
+
+  /**
+   * Only the drawer tab on screen streams its output to the chrome: in the window's active
+   * tab, with the drawer open and not hidden by focus mode. Everything else keeps running, and
+   * main keeps what it prints for the drawer to catch up on when it shows it (output.ts).
+   */
+  private syncDrawerOutput() {
+    const { open, tab } = this.state.drawer
+    const onScreen = open && !this.host.focusMode && this.host.isActive(this) && !this.disposed
+    const shown = onScreen ? (tab ?? 'server') : null
+    this.devServer?.output.setShown(shown === 'server')
+    this.terminals?.show(shown === 'server' ? null : shown)
   }
 
   /** Only a tab the drawer has: the dev server's output, or one of this project's terminals. */
@@ -1649,6 +1675,8 @@ export class ProjectTab {
 
   /** Places the tab's views over the canvas; only the active tab's are in the window. */
   layout() {
+    // Focus mode, which lays the tab out again, hides the drawer.
+    this.syncDrawerOutput()
     if (this.disposed || !this.host.isActive(this)) return
     const area = this.previewArea()
     const preview = this.state.preview
@@ -2051,6 +2079,7 @@ export class ProjectTab {
 
   private patch(patch: Partial<TabState>) {
     this.state = { ...this.state, ...patch }
+    this.syncDrawerOutput()
     this.host.tabChanged(this, true)
   }
 

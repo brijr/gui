@@ -74,6 +74,7 @@ const api: GuiApi = {
   writeTerminal: send(Send.writeTerminal),
   resizeTerminal: send(Send.resizeTerminal),
   clearTerminal: send(Send.clearTerminal),
+  ackOutput: send(Send.ackOutput),
 
   getChat: () => ipcRenderer.invoke(Invoke.getChat),
   onChatMeta: (cb) => subscribe(Events.chatMeta, cb),

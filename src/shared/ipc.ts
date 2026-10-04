@@ -79,6 +79,7 @@ export const Send = {
   writeTerminal: 'terminal:write',
   resizeTerminal: 'terminal:resize',
   clearTerminal: 'terminal:clear',
+  ackOutput: 'output:ack',
   cancel: 'chat:cancel',
   respondPermission: 'chat:permission',
   newSession: 'chat:new',
@@ -134,10 +135,24 @@ export const Events = {
 
 export type Unsubscribe = () => void
 
-/** Output from one of the active tab's terminals */
-export interface TerminalOutput {
-  id: TerminalId
+/**
+ * Output for one of the drawer's views, from what main keeps of it: the dev server's (`id`
+ * "logs-…", one per project opened) or a terminal's. Main sends it a frame's worth at a time,
+ * and only while the view is on screen (main/output.ts). Each chunk follows on from what main
+ * sent before, unless main no longer has all the view missed: then it's all main has, and
+ * starts later than what the view has drawn, so the view starts over with it.
+ */
+export interface OutputChunk {
+  id: string
+  /** What was printed just before `end` */
   data: string
+  /** Where `data` ends, in characters printed since the output began */
+  end: number
+}
+
+/** Output from one of the active tab's terminals */
+export interface TerminalOutput extends OutputChunk {
+  id: TerminalId
 }
 
 /**
@@ -149,8 +164,9 @@ export type UiCommand = 'focusAddress' | 'screenshot' | 'chooseModel'
 export interface GuiApi {
   getState(): Promise<WindowState>
   onState(cb: (state: WindowState) => void): Unsubscribe
-  getLogs(): Promise<string>
-  onLogs(cb: (chunk: string) => void): Unsubscribe
+  /** All main keeps of the dev server's output, to draw it from */
+  getLogs(): Promise<OutputChunk>
+  onLogs(cb: (chunk: OutputChunk) => void): Unsubscribe
   /** A shortcut for something on this page (see `UiCommand`) */
   onCommand(cb: (command: UiCommand) => void): Unsubscribe
 
@@ -234,8 +250,13 @@ export interface GuiApi {
   /** A new shell in place of one that exited */
   restartTerminal(id: TerminalId): void
   /** What the terminal has shown recently, to draw it again after switching tabs */
-  getTerminal(id: TerminalId): Promise<string>
+  getTerminal(id: TerminalId): Promise<TerminalOutput>
   onTerminalData(cb: (output: TerminalOutput) => void): Unsubscribe
+  /**
+   * The drawer has drawn a view's output up to `end`: main sends it more, and a terminal's
+   * shell waits for it while it's far behind.
+   */
+  ackOutput(id: string, end: number): void
   /** Keystrokes and pastes, up to `MAX_TERMINAL_INPUT` characters at a time */
   writeTerminal(id: TerminalId, data: string): void
   resizeTerminal(id: TerminalId, cols: number, rows: number): void

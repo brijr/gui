@@ -151,7 +151,7 @@ test('a fresh clone installs its dependencies, then starts and shows the app', a
   expect(existsSync(join(root, 'node_modules', 'greeting'))).toBe(true)
 
   // One terminal: the install's output, then the dev server's.
-  const logs = await session.chrome.evaluate(() => window.gui.getLogs())
+  const { data: logs } = await session.chrome.evaluate(() => window.gui.getLogs())
   const install = logs.indexOf('$ bun install')
   expect(install).toBeGreaterThanOrEqual(0)
   expect(install).toBeLessThan(logs.indexOf('$ bun run dev'))

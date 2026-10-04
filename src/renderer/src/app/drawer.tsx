@@ -14,7 +14,7 @@ import { cn } from '../lib/cn'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton } from '../lib/ui'
 import { crashed, serverStatus } from './server-status'
-import { mountXterm } from './xterm'
+import { drawOutput, mountXterm } from './xterm'
 
 const tabId = (tab: DrawerTab) => `drawer-tab-${tab}`
 const panelId = (tab: DrawerTab) => `drawer-panel-${tab}`
@@ -318,21 +318,10 @@ function LogsView(props: ViewProps) {
       onResize: (cols, rows) => gui.resizeLogs(cols, rows),
     })
     term.current = xterm.term
-
-    // Main sends live chunks and the snapshot reply on one ordered channel, so anything
-    // that arrives before the snapshot is already in it.
-    let ready = false
-    const off = gui.onLogs((chunk) => {
-      if (ready) xterm.term.write(chunk)
-    })
-    void gui.getLogs().then((logs) => {
-      if (logs) xterm.term.write(logs)
-      ready = true
-    })
+    const output = drawOutput(xterm.term, { snapshot: gui.getLogs, subscribe: gui.onLogs })
 
     return () => {
-      ready = false
-      off()
+      output.dispose()
       term.current = null
       xterm.dispose()
     }
@@ -356,27 +345,17 @@ function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
       onResize: (cols, rows) => gui.resizeTerminal(id, cols, rows),
     })
     term.current = xterm.term
-
-    // As with the logs: output that arrives before the snapshot is already in it. Drawing
-    // the snapshot makes xterm answer the queries in it (cursor position, colors) as if the
-    // shell had just asked; those answers mustn't reach the shell.
-    let ready = false
-    let replaying = true
-    const off = gui.onTerminalData((output) => {
-      if (ready && output.id === id) xterm.term.write(output.data)
-    })
-    void gui.getTerminal(id).then((output) => {
-      ready = true
-      if (!output) {
-        replaying = false
-        return
-      }
-      xterm.term.write(output, () => {
-        replaying = false
-      })
+    const output = drawOutput(xterm.term, {
+      snapshot: () => gui.getTerminal(id),
+      subscribe: (cb) =>
+        gui.onTerminalData((chunk) => {
+          if (chunk.id === id) cb(chunk)
+        }),
     })
     const input = xterm.term.onData((data) => {
-      if (!replaying) sendInput(id, data)
+      // An answer to a query in old output, which starts with ESC as answers do, stays here.
+      // Keys typed meanwhile still go: ⌃C, just after switching to a terminal that floods.
+      if (!(output.replaying() && data.startsWith(ESC))) sendInput(id, data)
     })
     // xterm would type ⌘↩ and ⌘⌫ as Return and Delete: the app's keys, and a text field's,
     // come first. Returning false leaves a key to the page, and unhandled, to the app menu.
@@ -404,8 +383,7 @@ function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     })
 
     return () => {
-      ready = false
-      off()
+      output.dispose()
       input.dispose()
       term.current = null
       xterm.dispose()
@@ -418,6 +396,7 @@ function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
 
 /** ⌃U: deletes the line being typed, in zsh and bash. */
 const KILL_LINE = '\x15'
+const ESC = '\x1b'
 
 /** Keystrokes, and pastes in pieces main accepts; a piece never splits a character. */
 function sendInput(id: TerminalId, data: string) {

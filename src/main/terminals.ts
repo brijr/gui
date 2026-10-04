@@ -3,11 +3,11 @@ import { EventEmitter } from 'node:events'
 import { basename } from 'node:path'
 import { app } from 'electron'
 import { type IPty, spawn as spawnPty } from 'node-pty'
+import type { TerminalOutput } from '../shared/ipc'
 import type { TerminalId, TerminalInfo } from '../shared/types'
+import { Output } from './output'
 import { getShellEnv } from './shell-env'
 
-/** Output kept per terminal, to draw it again after switching tabs; as much as the dev server's. */
-const MAX_OUTPUT = 512 * 1024
 /** How long hung-up shells and their jobs get to exit before what's left is killed. */
 const HANGUP_GRACE_MS = 500
 const ESC = '\u001b'
@@ -22,13 +22,14 @@ interface Shell {
   /** Bumped per shell started, and when it's ended here, so a replaced shell's exit is dropped */
   run: number
   exited: boolean
-  output: string
+  /** What it printed, kept to draw again and sent while it's on screen */
+  readonly output: Output
   size: { cols: number; rows: number }
 }
 
 export interface TerminalsEvents {
-  /** Output from a terminal's shell */
-  data: [id: TerminalId, chunk: string]
+  /** Output from a terminal's shell, for the drawer while it shows the terminal */
+  data: [output: TerminalOutput]
   /** A terminal was added or removed, or its shell exited or started again */
   change: []
 }
@@ -60,8 +61,21 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
     return this.shells.has(id)
   }
 
-  output(id: TerminalId) {
-    return this.shells.get(id)?.output ?? ''
+  output(id: TerminalId): TerminalOutput {
+    return { ...(this.shells.get(id)?.output.snapshot() ?? { data: '', end: 0 }), id }
+  }
+
+  /**
+   * The terminal on screen, if any: only its output is sent to the drawer, and only its shell
+   * ever waits for the drawer to draw. The others go on, keeping what they print.
+   */
+  show(id: TerminalId | null) {
+    for (const shell of this.shells.values()) shell.output.setShown(shell.id === id)
+  }
+
+  /** The drawer has drawn the terminal's output up to `end`. */
+  ack(id: TerminalId, end: number) {
+    this.shells.get(id)?.output.ack(end)
   }
 
   /** Adds a terminal and starts its shell; the terminal is there at once, the shell a moment later. */
@@ -77,7 +91,12 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
       proc: null,
       run: 0,
       exited: false,
-      output: '',
+      output: new Output(id, {
+        send: (chunk) => this.emit('data', { ...chunk, id }),
+        // node-pty stops reading, so the shell's writes wait. Typing still reaches it, so ⌃C
+        // stops a flood at once. (A shell exiting meanwhile waits for its output to be read.)
+        hold: (held) => (held ? shell.proc?.pause() : shell.proc?.resume()),
+      }),
       size: { cols: 80, rows: 24 },
     }
     this.shells.set(id, shell)
@@ -103,8 +122,7 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
 
   /** ⌘K: forgets what the terminal showed, except the line the cursor is on (the prompt). */
   clear(id: TerminalId) {
-    const shell = this.shells.get(id)
-    if (shell) shell.output = shell.output.slice(shell.output.lastIndexOf('\n') + 1)
+    this.shells.get(id)?.output.clear()
   }
 
   /** A new shell in place of one that exited, below what the old one showed. */
@@ -120,6 +138,7 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
     const shell = this.shells.get(id)
     if (!shell) return
     this.shells.delete(id)
+    shell.output.dispose()
     end([shell])
     this.emit('change')
   }
@@ -128,6 +147,7 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    for (const shell of this.shells.values()) shell.output.dispose()
     end([...this.shells.values()])
     this.shells.clear()
     this.removeAllListeners()
@@ -150,32 +170,22 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      this.append(shell, `${ESC}[31mCouldn't start your shell: ${message}${ESC}[0m\r\n`)
+      shell.output.append(`${ESC}[31mCouldn't start your shell: ${message}${ESC}[0m\r\n`)
       shell.exited = true
       this.emit('change')
       return
     }
     shell.proc = proc
     proc.onData((chunk) => {
-      if (run === shell.run) this.append(shell, chunk)
+      if (run === shell.run) shell.output.append(chunk)
     })
     proc.onExit(() => {
       if (run !== shell.run) return
       shell.proc = null
       shell.exited = true
-      this.append(shell, `\r\n${ESC}[2m[process exited]${ESC}[0m\r\n`)
+      shell.output.append(`\r\n${ESC}[2m[process exited]${ESC}[0m\r\n`)
       this.emit('change')
     })
-  }
-
-  private append(shell: Shell, chunk: string) {
-    shell.output += chunk
-    if (shell.output.length > MAX_OUTPUT) {
-      // From the start of a line, so drawing it again doesn't begin inside an escape sequence.
-      const kept = shell.output.slice(-MAX_OUTPUT)
-      shell.output = kept.slice(kept.indexOf('\n') + 1)
-    }
-    this.emit('data', shell.id, chunk)
   }
 }
 

@@ -278,7 +278,9 @@ export class GuiSession {
   /** Everything worth reading after a failure: screenshot, dev-server log, app output. */
   async captureDiagnostics(): Promise<void> {
     await this.shot('failure', true).catch(() => undefined)
-    const logs = await this.chrome.evaluate(() => window.gui.getLogs()).catch(() => '')
+    const logs = await this.chrome
+      .evaluate(async () => (await window.gui.getLogs()).data)
+      .catch(() => '')
     const state = await this.state().catch(() => null)
     await this.attach('dev-server.log', logs)
     await this.attach('app-output.log', this.output.join(''))
