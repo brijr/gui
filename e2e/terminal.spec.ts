@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { TerminalId } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
@@ -7,12 +10,13 @@ import { expect, test } from './helpers/test'
 // they open one (⌘J or +), typed into from the drawer, and ended with everything it started
 // when its terminal, its project tab or window closes, or Gui quits.
 //
-// The shell is set to zsh, which every Mac has (CI's login shell may be another), and the
-// commands are plain POSIX: nothing here depends on the prompt or the user's shell config.
-// Each command starts with a space, which keeps it out of the shell's history where the
-// user's config allows (zsh's HIST_IGNORE_SPACE).
+// The shell is zsh, which every Mac has (CI's login shell may be another), started from an
+// empty config folder: the developer's own ~/.zshrc doesn't run, and nothing typed here ends up
+// in their shell history. The commands are plain POSIX, so nothing depends on the prompt.
 
-const SHELL = { SHELL: '/bin/zsh' }
+const ZDOTDIR = mkdtempSync(join(tmpdir(), 'gui-e2e-zsh-'))
+const SHELL = { SHELL: '/bin/zsh', ZDOTDIR }
+test.afterAll(() => rmSync(ZDOTDIR, { recursive: true, force: true }))
 
 /** Clicks a visible item of the app menu by label, as the user would in the menu bar. */
 function clickMenu(session: GuiSession, label: string) {
