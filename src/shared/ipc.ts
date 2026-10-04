@@ -1,12 +1,13 @@
 import type {
   AgentId,
+  ChatFloat,
+  ChatForm,
   ChatGrab,
   ChatMeta,
   ChatSnapshot,
   CustomAgentEntry,
   DrawerTab,
   ImageAttachment,
-  PanelCorner,
   PanelEdge,
   Rect,
   SettingsSection,
@@ -89,6 +90,7 @@ export const Send = {
   resizeChat: 'chat:resize',
   endResizeChat: 'chat:resize-end',
   endDragChat: 'chat:drag-end',
+  chatMorphed: 'chat:morphed',
   removeQueued: 'chat:queue-remove',
   sendQueuedNow: 'chat:queue-send',
   setAutoApprove: 'chat:auto-approve',
@@ -125,7 +127,7 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatAttach: 'chat:attach',
-  chatBubble: 'chat:bubble',
+  chatFloat: 'chat:float',
   settings: 'settings',
   settingsSection: 'settings:section',
 } as const
@@ -246,10 +248,16 @@ export interface GuiApi {
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
   /**
-   * Where the floating panel is drawn as a bubble, its anchored corner, or null when it isn't:
-   * while the user picks an element, the view shrinks to it so it doesn't cover the page.
+   * What the floating chat is drawn as, and the corner it's anchored by: the panel, the pill
+   * while minimized, or the bubble while the user picks an element. The view grows to a larger
+   * form at once; to a smaller one only once the chat has morphed into it (`chatMorphed`).
    */
-  onChatBubble(cb: (bubble: PanelCorner | null) => void): Unsubscribe
+  onChatFloat(cb: (float: ChatFloat) => void): Unsubscribe
+  /**
+   * The chat has finished morphing into `form`, so main can shrink the view to it. Without this
+   * main shrinks it after a short while anyway.
+   */
+  chatMorphed(form: ChatForm): void
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project).

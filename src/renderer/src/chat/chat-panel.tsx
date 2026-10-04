@@ -9,9 +9,20 @@ import {
   PanelRightClose,
   SquarePen,
 } from 'lucide-react'
-import { type PointerEvent as ReactPointerEvent, useEffect, useId, useRef } from 'react'
-import { BUBBLE, PANEL_SHADOW_MARGIN } from '../../../shared/layout'
 import {
+  type CSSProperties,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
+import { BUBBLE, MINI, PANEL_SHADOW_MARGIN } from '../../../shared/layout'
+import {
+  type ChatFloat,
+  type ChatForm,
   type ChatMeta,
   PANEL_EDGES,
   type PanelCorner,
@@ -24,6 +35,7 @@ import { Badge, type Status, StatusDot } from '../lib/status'
 import { Message } from '../lib/surface'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { Composer } from './composer'
+import { Morph } from './morph'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
 import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
 import { TurnView } from './turn-view'
@@ -77,7 +89,7 @@ export function ChatPanel() {
   const turns = useChat((s) => s.turns)
   // "Create pull request" takes over the transcript and composer until it's closed.
   const shipping = useShipSheet((s) => s.open)
-  const bubble = useChat((s) => s.bubble)
+  const float = useChat((s) => s.float)
   if (!meta) return null
 
   const running = turns.some((turn) => turn.status === 'running')
@@ -102,32 +114,110 @@ export function ChatPanel() {
     )
   }
 
-  if (bubble) return <ChatBubble corner={bubble} turns={turns} running={running} />
+  return (
+    <FloatingChat float={float} meta={meta} turns={turns} running={running}>
+      <div
+        data-chat-panel
+        className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
+      >
+        <Header meta={meta} />
+        {shipping ? (
+          <ShipSheet />
+        ) : (
+          <>
+            <Transcript turns={turns} meta={meta} />
+            <Composer meta={meta} running={running} />
+          </>
+        )}
+      </div>
+      {/* Every edge and corner resizes the panel; the opposite ones stay put. */}
+      {PANEL_EDGES.map((edge) => (
+        <ResizeHandle key={edge} edge={edge} />
+      ))}
+    </FloatingChat>
+  )
+}
+
+/** Puts a box in the view's `corner`, inside the shadow margin. */
+function atCorner(corner: PanelCorner): CSSProperties {
+  return { [corner.x]: PANEL_SHADOW_MARGIN, [corner.y]: PANEL_SHADOW_MARGIN }
+}
+
+/**
+ * The floating chat as the panel (`children`), the pill while minimized, or the bubble while
+ * the user picks an element, each at the view's anchored corner. Changing form morphs (see
+ * morph.ts): main keeps the view at the larger form's size meanwhile, and shrinks it once
+ * told the morph is done. The form on its way out is inert.
+ */
+function FloatingChat({
+  float,
+  meta,
+  turns,
+  running,
+  children,
+}: {
+  float: ChatFloat
+  meta: ChatMeta
+  turns: Turn[]
+  running: boolean
+  children: ReactNode
+}) {
+  const { form, corner } = float
+  const elements = useRef<Partial<Record<ChatForm, HTMLElement | null>>>({})
+  const morph = useRef<Morph | null>(null)
+  /** Forms still drawn: the current one, and any still morphing away. */
+  const [drawn, setDrawn] = useState<ChatForm[]>([form])
+
+  useLayoutEffect(() => {
+    // Mounted with the form, so the morph styles it before the first paint.
+    setDrawn((forms) => (forms.includes(form) ? forms : [...forms, form]))
+    morph.current ??= new Morph(form, {
+      element: (each) => elements.current[each] ?? null,
+      gone: (shown) => {
+        setDrawn([shown])
+        gui.chatMorphed(shown)
+      },
+    })
+    morph.current.to(form, corner)
+  }, [form, corner])
+  useEffect(() => () => morph.current?.stop(), [])
+
+  const layer = (each: ChatForm) => ({
+    'data-chat-form': each,
+    ref: (el: HTMLElement | null) => {
+      elements.current[each] = el
+    },
+    inert: each !== form,
+  })
+  const shows = (each: ChatForm) => each === form || drawn.includes(each)
 
   return (
-    <div className="h-dvh" style={{ padding: PANEL_SHADOW_MARGIN }}>
-      {meta.minimized ? (
-        <MiniPanel meta={meta} running={running} />
-      ) : (
-        <div className="relative h-full">
-          <div
-            data-chat-panel
-            className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
-          >
-            <Header meta={meta} />
-            {shipping ? (
-              <ShipSheet />
-            ) : (
-              <>
-                <Transcript turns={turns} meta={meta} />
-                <Composer meta={meta} running={running} />
-              </>
-            )}
-          </div>
-          {/* Every edge and corner resizes the panel; the opposite ones stay put. */}
-          {PANEL_EDGES.map((edge) => (
-            <ResizeHandle key={edge} edge={edge} />
-          ))}
+    <div className="relative h-dvh">
+      {shows('panel') && (
+        <div
+          {...layer('panel')}
+          className={cn('absolute', form !== 'panel' && 'pointer-events-none')}
+          style={{ inset: PANEL_SHADOW_MARGIN }}
+        >
+          {children}
+        </div>
+      )}
+      {shows('pill') && (
+        <div
+          {...layer('pill')}
+          className={cn('absolute', form !== 'pill' && 'pointer-events-none')}
+          style={{ ...atCorner(corner), width: MINI.width, height: MINI.height }}
+        >
+          <MiniPanel meta={meta} running={running} />
+        </div>
+      )}
+      {shows('bubble') && (
+        <div
+          {...layer('bubble')}
+          className={cn('absolute', form !== 'bubble' && 'pointer-events-none')}
+          style={{ ...atCorner(corner), width: BUBBLE.width, height: BUBBLE.height }}
+        >
+          <ChatBubble turns={turns} running={running} />
         </div>
       )}
     </div>
@@ -363,7 +453,7 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
   return (
     <div
       onPointerDown={onDragStart}
-      className="flex h-full cursor-grab items-center gap-2 rounded-full border border-line-strong bg-raised pr-1.5 pl-4 shadow-panel active:cursor-grabbing"
+      className="flex size-full cursor-grab items-center gap-2 rounded-full border border-line-strong bg-raised pr-1.5 pl-4 shadow-panel active:cursor-grabbing"
     >
       {running ? (
         <Spinner className="text-muted" />
@@ -379,18 +469,11 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
 }
 
 /**
- * The floating panel while the user picks an element: main shrinks the view to this bubble
- * at the panel's anchored corner. Clicking it stops picking, which brings the panel back.
+ * The floating panel while the user picks an element: the panel morphs into this bubble at
+ * its anchored corner and main shrinks the view to it. Clicking it stops picking, which brings
+ * the panel back.
  */
-function ChatBubble({
-  corner,
-  turns,
-  running,
-}: {
-  corner: PanelCorner
-  turns: Turn[]
-  running: boolean
-}) {
+function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
   const statusId = useId()
   // A permission card in the running turn; it shows once the panel is back.
   const waiting = waitingCard(turns) !== null
@@ -400,24 +483,14 @@ function ChatBubble({
       ? 'The agent is working. '
       : ''
   return (
-    // In the view's corner where the panel is anchored, so it stays put while the view
-    // resizes around it.
-    <div
-      className={cn(
-        'flex h-dvh',
-        corner.x === 'right' && 'justify-end',
-        corner.y === 'bottom' && 'items-end',
-      )}
-      style={{ padding: PANEL_SHADOW_MARGIN }}
-    >
+    <>
       <button
         type="button"
         aria-label="Show chat"
         aria-describedby={statusId}
         title="Show chat (stops selecting)"
         onClick={() => gui.stopSelecting()}
-        style={{ width: BUBBLE.width, height: BUBBLE.height }}
-        className="relative flex shrink-0 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-colors hover:text-fg motion-safe:animate-bubble-in"
+        className="relative flex size-full items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-colors hover:text-fg"
       >
         {/* 16px: a control's 14px icon looks lost in the 44px bubble */}
         {running ? <Spinner size="md" /> : <MessageSquare className="size-4" aria-hidden="true" />}
@@ -431,7 +504,7 @@ function ChatBubble({
       <span id={statusId} hidden>
         {status}Stops selecting.
       </span>
-    </div>
+    </>
   )
 }
 

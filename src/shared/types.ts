@@ -295,6 +295,24 @@ export interface PanelCorner {
 }
 
 /**
+ * What the floating chat is drawn as: the panel, the pill while minimized, or the bubble while
+ * the user picks an element. Each sits at the anchored corner.
+ */
+export type ChatForm = 'panel' | 'pill' | 'bubble'
+
+export const CHAT_FORMS: readonly ChatForm[] = ['panel', 'pill', 'bubble']
+
+export function isChatForm(value: unknown): value is ChatForm {
+  return CHAT_FORMS.some((form) => form === value)
+}
+
+/** The floating chat's form and the corner it's anchored by, as main lays its view out. */
+export interface ChatFloat {
+  form: ChatForm
+  corner: PanelCorner
+}
+
+/**
  * Where the pointer pressed the floating chat to drag it: on screen, and in the chat view's
  * page. Together they say where the view was at that moment, even while it moves.
  */
@@ -530,6 +548,8 @@ export interface Turn {
 export interface ChatSnapshot {
   meta: ChatMeta
   turns: Turn[]
+  /** How the floating chat is drawn; from the window, when it asks (`getChat`) */
+  float?: ChatFloat
 }
 
 /** An image the user pasted or dropped into the composer, already downscaled */

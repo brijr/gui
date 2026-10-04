@@ -32,8 +32,11 @@ function refreshRate(win: BrowserWindow) {
   }
 }
 
-/** A step that late (the main thread was busy) is cut short so it reads as motion, not a jump. */
-const MAX_STEP = 1 / 30
+/**
+ * Steps follow real time, so a late tick catches up (the springs are exact for any step); a
+ * stall longer than this is taken as this long.
+ */
+const MAX_STEP = 0.1
 
 interface FlightOptions {
   win: BrowserWindow

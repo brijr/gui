@@ -32,9 +32,9 @@ let frame = 0
 let last = 0
 
 function loop(now: number) {
-  // A frame that comes late (a busy main thread) steps by at most 1/30 s: the spring is exact
-  // for any step, but a jump that large would read as a skip rather than motion.
-  const dt = last ? Math.min((now - last) / 1000, 1 / 30) : 1 / 60
+  // Real time, so a late frame catches up rather than slowing the motion down (the spring is
+  // exact for any step); a stall longer than 0.1 s is taken as 0.1 s.
+  const dt = last ? Math.min((now - last) / 1000, 0.1) : 1 / 60
   last = now
   for (const tick of [...ticks]) {
     if (tick(dt)) ticks.delete(tick)
@@ -46,6 +46,17 @@ function loop(now: number) {
     last = 0
   }
 }
+
+// A hidden page gets no frames: whatever is moving lands now, rather than playing out the rest
+// when the page is shown again (a tab switched back to, a chat shown again).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'hidden') return
+  for (let pass = 0; pass < 10 && ticks.size > 0; pass++) {
+    for (const tick of [...ticks]) {
+      if (tick(10)) ticks.delete(tick)
+    }
+  }
+})
 
 /** Runs `tick` every animation frame until it returns true or the returned stop is called. */
 export function onFrames(tick: Tick): () => void {

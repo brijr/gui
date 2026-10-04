@@ -23,6 +23,8 @@ import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import {
   type AgentId,
   agentName,
+  type ChatFloat,
+  type ChatForm,
   type ChatGrab,
   type ChatSnapshot,
   type DevServerState,
@@ -109,6 +111,13 @@ const MAX_THROW_SPEED = 8000
  * than this from where it's drawn: then the report doesn't match the view, so it stays put.
  */
 const GRAB_SLOP = 240
+/**
+ * The floating view shrinks to a smaller form once the chat reports its morph done; if it
+ * doesn't in this long (its page isn't drawing), it shrinks anyway.
+ */
+const MORPH_TIMEOUT_MS = 700
+/** The floating forms by size: the view grows to a larger one at once. */
+const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
 /** The chat's message box has the keyboard (run in the chat view's isolated world). */
@@ -207,8 +216,16 @@ export class ProjectTab {
   private dockWidth = getPrefs().chatDockWidth
   /** Which size the resize in progress changes, to remember it when it ends. */
   private resizing: 'floating' | 'docked' | null = null
-  /** Where the chat view was last told to draw the bubble (Events.chatBubble); null for none. */
-  private bubbleShown: PanelCorner | null = null
+  /** What the chat view was last told to draw (Events.chatFloat); null until it's told. */
+  private floatShown: ChatFloat | null = null
+  /**
+   * The form the floating view is sized to. It grows to a larger form at once, and shrinks to a
+   * smaller one only once the chat has morphed into it (`chatMorphed`), so the morph isn't cut
+   * off by the view's edge.
+   */
+  private viewForm: ChatForm = 'panel'
+  /** The smaller form the view waits to shrink to, and the fallback that shrinks it anyway. */
+  private morphing: { form: ChatForm; timer: NodeJS.Timeout } | null = null
   /** A permission card came up while the user picked over the bubble; shown when picking ends. */
   private attentionWaiting = false
   /** The screenshot menu is open or its capture is running. */
@@ -293,6 +310,10 @@ export class ProjectTab {
 
     this.bindPreview()
     guardAppContents(this.chatView.webContents)
+    // A reloaded chat page starts from what main tells it next.
+    this.chatView.webContents.on('did-start-loading', () => {
+      this.floatShown = null
+    })
     loadRenderer(this.chatView.webContents, 'chat').catch((error) =>
       console.error('[gui] failed to load chat', error),
     )
@@ -336,8 +357,9 @@ export class ProjectTab {
    */
   deactivate() {
     if (this.state.preview.selecting) void this.setSelecting(false)
-    // A panel still landing is where it was going when the tab comes back.
+    // A panel still landing is where it was going when the tab comes back, in its new form.
     this.flight?.finish()
+    this.settleForm(this.wantedForm())
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
     contentView.removeChildView(this.chatView)
@@ -361,7 +383,7 @@ export class ProjectTab {
   }
 
   getChat(): ChatSnapshot {
-    if (this.chat) return this.chat.snapshot()
+    if (this.chat) return { ...this.chat.snapshot(), float: this.float() }
     return {
       meta: {
         agentId: this.state.agentId,
@@ -384,6 +406,7 @@ export class ProjectTab {
         autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
       },
       turns: [],
+      float: this.float(),
     }
   }
 
@@ -1353,13 +1376,14 @@ export class ProjectTab {
     if (!this.flight) return
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
     const drawn = this.floatingRect(contentWidth, contentHeight)
+    const view = this.floatingBounds(contentWidth, contentHeight, this.viewForm)
     // Where the view was under the pointer: the pointer, less where it was in the view's page.
     const content = this.host.win.getContentBounds()
     const zoom = this.chatView.webContents.getZoomFactor()
-    const x = Math.round(at.screenX - content.x - at.clientX * zoom) + PANEL_SHADOW_MARGIN
-    const y = Math.round(at.screenY - content.y - at.clientY * zoom) + PANEL_SHADOW_MARGIN
-    const near = Math.abs(x - drawn.x) <= GRAB_SLOP && Math.abs(y - drawn.y) <= GRAB_SLOP
-    this.holdFlight(near ? { ...drawn, x, y } : drawn)
+    const dx = Math.round(at.screenX - content.x - at.clientX * zoom) - view.x
+    const dy = Math.round(at.screenY - content.y - at.clientY * zoom) - view.y
+    const near = Math.abs(dx) <= GRAB_SLOP && Math.abs(dy) <= GRAB_SLOP
+    this.holdFlight(near ? { ...drawn, x: drawn.x + dx, y: drawn.y + dy } : drawn)
     this.layoutChat()
   }
 
@@ -1399,6 +1423,13 @@ export class ProjectTab {
       dy: PANEL_MARGIN,
     }
     this.fly(rect, velocity, speed > THROW_SPEED ? SPRINGS.thrown : SPRINGS.default)
+  }
+
+  /** The chat has morphed into `form`: the view can shrink to it now. */
+  chatMorphed(form: ChatForm) {
+    if (this.morphing?.form !== form) return
+    this.settleForm(form)
+    this.layoutChat()
   }
 
   /**
@@ -1628,7 +1659,10 @@ export class ProjectTab {
     this.layoutChat()
   }
 
-  /** Places the chat view: docked, floating at its anchor, or where its flight has got to. */
+  /**
+   * Places the chat view: docked, or floating at its anchor (or where its flight has got to) as
+   * the panel, the pill or the bubble.
+   */
   private layoutChat() {
     if (this.disposed || !this.host.isActive(this)) return
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
@@ -1636,12 +1670,12 @@ export class ProjectTab {
     // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
     const docked = showChat && this.docked
     const covered = this.host.shortcutsOpen
-    // Hidden or docked, a panel still landing is simply there.
-    if (!showChat || docked) this.flight?.finish()
-
-    // The chat view draws the bubble before shrinking to it, and the panel after growing back.
-    const bubble = this.bubbled
-    if (bubble) this.showBubble(true)
+    const form = this.wantedForm()
+    // Hidden or docked, a panel still landing is simply there, already in its new form.
+    if (!showChat || docked) {
+      this.flight?.finish()
+      this.settleForm(form)
+    }
     this.chatView.setVisible(showChat && !covered)
     if (docked) {
       const dockWidth = this.dockedWidth()
@@ -1651,19 +1685,53 @@ export class ProjectTab {
         width: dockWidth,
         height: Math.max(0, Math.round(this.host.canvas.height)),
       })
-    } else if (showChat) {
-      this.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, bubble))
+      return
     }
-    this.showBubble(bubble)
+    if (!showChat) return
+    // Growing, the view makes room first and the chat morphs into it; shrinking, the chat
+    // morphs first (the smaller form drawn in the view's anchored corner) and says when.
+    if (FORM_SIZE[form] > FORM_SIZE[this.viewForm]) this.settleForm(form)
+    else if (form !== this.viewForm) this.awaitMorph(form)
+    else this.settleForm(form)
+    this.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, this.viewForm))
+    this.showFloat(this.float())
+  }
+
+  /** What the floating chat should be drawn as now. */
+  private wantedForm(): ChatForm {
+    if (this.bubbled) return 'bubble'
+    return this.chat?.meta.minimized ? 'pill' : 'panel'
+  }
+
+  private float(): ChatFloat {
+    return { form: this.wantedForm(), corner: { x: this.anchor.x, y: this.anchor.y } }
+  }
+
+  /** The view is sized to `form` from now on; any wait to shrink is over. */
+  private settleForm(form: ChatForm) {
+    this.viewForm = form
+    if (this.morphing) clearTimeout(this.morphing.timer)
+    this.morphing = null
+  }
+
+  /** Waits for the chat to morph into `form` before shrinking the view to it. */
+  private awaitMorph(form: ChatForm) {
+    if (this.morphing?.form === form) return
+    if (this.morphing) clearTimeout(this.morphing.timer)
+    const timer = setTimeout(() => this.chatMorphed(form), MORPH_TIMEOUT_MS)
+    this.morphing = { form, timer }
   }
 
   /**
-   * The floating panel's view: the panel, or the pill while minimized, at its anchor. The bubble
-   * sits in the anchored corner of either.
+   * The floating view for `form`: the panel, or the pill while minimized, at its anchor (or
+   * mid-flight); the bubble sits in the anchored corner of either.
    */
-  private floatingBounds(contentWidth: number, contentHeight: number, bubble: boolean): Rect {
-    const panel = this.floatingRect(contentWidth, contentHeight)
-    const { x, y, width, height } = bubble ? inCorner(panel, BUBBLE, this.anchor) : panel
+  private floatingBounds(contentWidth: number, contentHeight: number, form: ChatForm): Rect {
+    const base =
+      form === 'bubble'
+        ? this.floatingRect(contentWidth, contentHeight)
+        : this.floatingRect(contentWidth, contentHeight, form)
+    const { x, y, width, height } = form === 'bubble' ? inCorner(base, BUBBLE, this.anchor) : base
     return {
       x: x - PANEL_SHADOW_MARGIN,
       y: y - PANEL_SHADOW_MARGIN,
@@ -1677,9 +1745,13 @@ export class ProjectTab {
    * with its anchored corner where the flight has got to. Kept inside the window below the
    * toolbar, and above the logs drawer when it's open.
    */
-  private floatingRect(contentWidth: number, contentHeight: number): Rect {
-    const minimized = this.chat?.meta.minimized ?? false
-    const { width, height } = minimized ? MINI : this.floatingSize(contentWidth, contentHeight)
+  private floatingRect(
+    contentWidth: number,
+    contentHeight: number,
+    shape: 'panel' | 'pill' = this.chat?.meta.minimized ? 'pill' : 'panel',
+  ): Rect {
+    const { width, height } =
+      shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight)
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
     // The anchored corner's point: the flight's, or the anchor's.
@@ -1783,13 +1855,16 @@ export class ProjectTab {
     if (!same) this.patchPreview({ frame })
   }
 
-  /** Tells the chat view where to draw the bubble, or that it's gone, when that changes. */
-  private showBubble(bubble: boolean) {
-    const corner = bubble ? { x: this.anchor.x, y: this.anchor.y } : null
-    const shown = this.bubbleShown
-    if (corner?.x === shown?.x && corner?.y === shown?.y) return
-    this.bubbleShown = corner
-    this.sendChat(Events.chatBubble, corner)
+  /** Tells the chat view what to draw and where it's anchored, when that changes. */
+  private showFloat(float: ChatFloat) {
+    const shown = this.floatShown
+    const same =
+      shown?.form === float.form &&
+      shown.corner.x === float.corner.x &&
+      shown.corner.y === float.corner.y
+    if (same) return
+    this.floatShown = float
+    this.sendChat(Events.chatFloat, float)
   }
 
   /**
@@ -1999,6 +2074,7 @@ export class ProjectTab {
     this.disposed = true
     agentHealth.off('change', this.onAgentHealth)
     this.flight?.stop()
+    if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()
     this.devServer?.dispose()

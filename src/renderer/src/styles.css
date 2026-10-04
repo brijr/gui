@@ -107,16 +107,6 @@
   );
   --default-transition-duration: var(--motion-press);
   --default-transition-timing-function: var(--ease-out);
-
-  /* The chat bubble popping in where the floating panel was. */
-  --animate-bubble-in: bubble-in var(--motion-pop) var(--ease-out);
-
-  @keyframes bubble-in {
-    from {
-      opacity: 0;
-      transform: scale(0.6);
-    }
-  }
 }
 
 /*
@@ -128,7 +118,7 @@
   color-scheme: light dark;
   /* Hover and press colors */
   --motion-press: 120ms;
-  /* Popovers and the bubble popping in (duration-(--motion-pop)) */
+  /* Popovers opening, new rows in the transcript (duration-(--motion-pop)) */
   --motion-pop: 160ms;
   /* Panels and sheets moving in */
   --motion-panel: 220ms;

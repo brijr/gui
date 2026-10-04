@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 import type {
+  ChatFloat,
   ChatMeta,
   ChatSnapshot,
   ImageAttachment,
-  PanelCorner,
   Turn,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -19,10 +19,10 @@ interface ChatStore {
   attachments: DraftImage[]
   /** Why an image wasn't attached; the composer shows it briefly */
   notice: string | null
-  /** Where the floating panel is a bubble while the user picks, if it is (main sizes the view) */
-  bubble: PanelCorner | null
   /** ⇧⌘M asked for the model picker; the composer's model button opens it and clears this */
   pickModel: boolean
+  /** What the floating chat is drawn as, and its anchored corner (main sizes the view) */
+  float: ChatFloat
 }
 
 export const useChat = create<ChatStore>(() => ({
@@ -31,8 +31,8 @@ export const useChat = create<ChatStore>(() => ({
   draft: '',
   attachments: [],
   notice: null,
-  bubble: null,
   pickModel: false,
+  float: { form: 'panel', corner: { x: 'left', y: 'bottom' } },
 }))
 
 /** The permission card waiting longest for an answer, and its turn; null when none is. */
@@ -58,6 +58,9 @@ export function keyedAnswer(turns: Turn[], allow: boolean) {
   if (!waiting || !option) return null
   return { turnId: waiting.turnId, itemId: waiting.item.id, optionId: option.optionId }
 }
+
+/** A float from main has arrived, so the snapshot's (possibly older) one doesn't apply. */
+let floatReceived = false
 
 export function setDraft(draft: string) {
   useChat.setState({ draft })
@@ -119,13 +122,17 @@ export function connectChat() {
     gui.onChatReset(applySnapshot),
     // Here rather than in the composer, which isn't mounted while the panel is minimized.
     gui.onChatAttach(attachFromMain),
-    gui.onChatBubble((bubble) => useChat.setState({ bubble })),
+    gui.onChatFloat((float) => {
+      floatReceived = true
+      useChat.setState({ float })
+    }),
     gui.onCommand((command) => {
       if (command === 'chooseModel') chooseModel()
     }),
   ]
   void gui.getChat().then((snapshot) => {
     if (!useChat.getState().meta) applySnapshot(snapshot)
+    if (snapshot.float && !floatReceived) useChat.setState({ float: snapshot.float })
   })
   return () => {
     for (const off of offs) off()

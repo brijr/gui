@@ -274,3 +274,180 @@ test('with Reduce motion on, the panel jumps to its corner', async ({ launch }) 
   expect(moves.length).toBeLessThanOrEqual(2)
   expect(moves.at(-1)).toMatchObject({ x: end.chat.x, y: end.chat.y })
 })
+
+// The panel and its bubble (or pill) are one thing changing shape: the panel shrinks toward
+// its anchored corner as the bubble grows out of it, inside a view main keeps at the panel's
+// size until the chat says the morph is done. These record every frame in the chat page.
+
+/** One frame in the chat page: the view's size, and each form's scale and opacity. */
+interface MorphFrame {
+  t: number
+  width: number
+  panel?: { scale: number; opacity: number }
+  pill?: { scale: number; opacity: number }
+  bubble?: { scale: number; opacity: number }
+}
+
+interface MorphStore {
+  guiMorphFrames?: MorphFrame[]
+  guiMorphRecording?: boolean
+}
+
+/** Runs in the chat page: records a MorphFrame every animation frame until `stopRecording`. */
+function startRecording() {
+  const store = globalThis as unknown as MorphStore
+  const frames: MorphFrame[] = []
+  const start = performance.now()
+  store.guiMorphFrames = frames
+  store.guiMorphRecording = true
+  const record = () => {
+    const frame: MorphFrame = { t: Math.round(performance.now() - start), width: innerWidth }
+    for (const el of document.querySelectorAll<HTMLElement>('[data-chat-form]')) {
+      const style = getComputedStyle(el)
+      const scale = style.transform === 'none' ? 1 : Number(style.transform.slice(7).split(',')[0])
+      const form = el.dataset.chatForm as 'panel' | 'pill' | 'bubble'
+      frame[form] = { scale, opacity: Number(style.opacity) }
+    }
+    frames.push(frame)
+    if (store.guiMorphRecording) requestAnimationFrame(record)
+  }
+  requestAnimationFrame(record)
+}
+
+function stopRecording() {
+  const store = globalThis as unknown as MorphStore
+  store.guiMorphRecording = false
+  return store.guiMorphFrames ?? []
+}
+
+/** The bubble's view width: the 44 px bubble and its shadow margin. */
+const BUBBLE_VIEW = 44 + SHADOW * 2
+
+async function setSelecting(session: GuiSession, on: boolean) {
+  await session.chrome.evaluate((on) => {
+    if (on) window.gui.toggleSelect()
+    else window.gui.stopSelecting()
+  }, on)
+  const label = on ? 'selection mode' : 'selection mode to end'
+  await waitFor(async () => (await session.state()).preview.selecting === on, label)
+}
+
+test('picking morphs the panel into its bubble and back along the same path', async ({
+  launch,
+}, testInfo) => {
+  const session = await launch({ fixture: 'vite' })
+  const start = await ready(session)
+  const panelWidth = start.chat.width
+
+  // Into the bubble: the panel shrinks toward its bottom-left corner while the view keeps its
+  // size, and only then does the view shrink to the bubble.
+  await session.chat.evaluate(startRecording)
+  await setSelecting(session, true)
+  await layoutWhen(session, 'the bubble', ({ chat }) => chat.width === BUBBLE_VIEW)
+  await sleep(600)
+  const into = await session.chat.evaluate(stopRecording)
+  await testInfo.attach('morph-into-bubble.json', {
+    body: JSON.stringify(into),
+    contentType: 'application/json',
+  })
+  const shrinking = into.filter(
+    (f) => f.width === panelWidth && f.panel && f.panel.scale < 0.95 && f.panel.scale > 0.15,
+  )
+  expect(shrinking.length).toBeGreaterThan(3)
+  // The panel went smaller and fainter frame by frame, never back.
+  for (let i = 1; i < shrinking.length; i++) {
+    expect(shrinking[i]?.panel?.scale).toBeLessThanOrEqual(shrinking[i - 1]?.panel?.scale ?? 1)
+  }
+  // The view shrank once the panel was gone, on the chat's word rather than main's fallback.
+  const firstSmall = into.findIndex((f) => f.width === BUBBLE_VIEW)
+  expect(firstSmall).toBeGreaterThan(0)
+  expect(into[firstSmall]?.panel?.opacity ?? 0).toBeLessThan(0.05)
+  const morphStart = into.find((f) => f.panel && f.panel.scale < 1)?.t ?? 0
+  expect((into[firstSmall]?.t ?? 0) - morphStart).toBeLessThan(650)
+  expect(into.at(-1)?.bubble).toEqual({ scale: 1, opacity: 1 })
+
+  // Back: the view grows first, then the panel grows out of the bubble's corner.
+  await session.chat.evaluate(startRecording)
+  await setSelecting(session, false)
+  const back = await layoutWhen(session, 'the panel again', ({ chat }) => chat.width === panelWidth)
+  expect(back.chat).toEqual(start.chat)
+  await sleep(600)
+  const out = await session.chat.evaluate(stopRecording)
+  await testInfo.attach('morph-out-of-bubble.json', {
+    body: JSON.stringify(out),
+    contentType: 'application/json',
+  })
+  const growing = out.filter((f) => f.panel && f.panel.scale < 0.95)
+  expect(growing.length).toBeGreaterThan(3)
+  expect(growing[0]?.width).toBe(panelWidth)
+  expect(growing[0]?.panel?.scale ?? 1).toBeLessThan(0.4)
+  expect(out.at(-1)?.panel).toEqual({ scale: 1, opacity: 1 })
+  expect(out.at(-1)?.bubble).toBeUndefined()
+
+  // Interrupted halfway, it turns around from where it is: no jump in scale.
+  await session.chat.evaluate(startRecording)
+  await setSelecting(session, true)
+  await sleep(150)
+  await setSelecting(session, false)
+  await sleep(700)
+  const turned = await session.chat.evaluate(stopRecording)
+  await testInfo.attach('morph-interrupted.json', {
+    body: JSON.stringify(turned),
+    contentType: 'application/json',
+  })
+  const scales = turned.flatMap((f) => (f.panel ? [f.panel.scale] : []))
+  expect(Math.min(...scales)).toBeLessThan(0.9)
+  for (let i = 1; i < scales.length; i++) {
+    expect(Math.abs((scales[i] ?? 0) - (scales[i - 1] ?? 0))).toBeLessThan(0.2)
+  }
+  expect(turned.at(-1)?.panel).toEqual({ scale: 1, opacity: 1 })
+  expect((await session.app.evaluate(chatLayout))?.chat).toEqual(start.chat)
+})
+
+test('minimizing morphs the panel into its pill and back', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  const start = await ready(session)
+  await session.chat.evaluate(startRecording)
+  await session.chat.evaluate(() => window.gui.setMinimized(true))
+  const pill = await layoutWhen(session, 'the pill', ({ chat }) => chat.height === 52 + SHADOW * 2)
+  const into = await session.chat.evaluate(stopRecording)
+  // In the panel's view while it shrank, then the pill's, in the same bottom-left corner.
+  expect(into.some((f) => f.width === start.chat.width && f.panel && f.panel.scale < 0.95)).toBe(
+    true,
+  )
+  expect(pill.chat.x).toBe(start.chat.x)
+  expect(pill.chat.y + pill.chat.height).toBe(start.chat.y + start.chat.height)
+  await expect(session.chat.getByRole('button', { name: 'Expand chat' })).toBeVisible()
+
+  await session.chat.getByRole('button', { name: 'Expand chat' }).click()
+  const back = await layoutWhen(
+    session,
+    'the panel again',
+    ({ chat }) => chat.height > pill.chat.height,
+  )
+  expect(back.chat).toEqual(start.chat)
+  await expect(session.chat.getByRole('button', { name: 'Minimize' })).toBeVisible()
+})
+
+test('with reduced motion the bubble cross-fades in place', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  const start = await ready(session)
+  await session.chat.emulateMedia({ reducedMotion: 'reduce' })
+  await session.chat.evaluate(startRecording)
+  await setSelecting(session, true)
+  await layoutWhen(session, 'the bubble', ({ chat }) => chat.width === BUBBLE_VIEW)
+  const frames = await session.chat.evaluate(stopRecording)
+  // Nothing scales: the panel fades out and the bubble fades in where they are.
+  for (const frame of frames) {
+    expect(frame.panel?.scale ?? 1).toBe(1)
+    expect(frame.bubble?.scale ?? 1).toBe(1)
+  }
+  expect(frames.some((f) => f.panel && f.panel.opacity > 0 && f.panel.opacity < 1)).toBe(true)
+  await setSelecting(session, false)
+  const back = await layoutWhen(
+    session,
+    'the panel again',
+    ({ chat }) => chat.width === start.chat.width,
+  )
+  expect(back.chat).toEqual(start.chat)
+})

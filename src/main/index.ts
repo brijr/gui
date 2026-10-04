@@ -25,6 +25,7 @@ import {
   type CustomAgentEntry,
   type ImageAttachment,
   isAgentId,
+  isChatForm,
   isChatGrab,
   isDrawerTab,
   isPanelEdge,
@@ -540,6 +541,7 @@ function registerIpc() {
   on(Send.grabChat, (tab, at) => isChatGrab(at) && tab.grabChat(at))
   on(Send.dragChat, (tab, dx, dy) => isNumber(dx) && isNumber(dy) && tab.dragChat(dx, dy))
   on(Send.endDragChat, (tab, velocity) => tab.endDragChat(isPoint(velocity) ? velocity : undefined))
+  on(Send.chatMorphed, (tab, form) => isChatForm(form) && tab.chatMorphed(form))
   on(Send.resizeChat, (tab, edge, dx, dy) => {
     if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) tab.resizeChat(edge, dx, dy)
   })
