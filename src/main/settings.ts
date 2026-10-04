@@ -1,11 +1,6 @@
-import {
-  BrowserWindow,
-  dialog,
-  type MessageBoxOptions,
-  nativeTheme,
-  type WebContents,
-} from 'electron'
+import { app, BrowserWindow, dialog, type MessageBoxOptions, type WebContents } from 'electron'
 import { Events } from '../shared/ipc'
+import { TRAFFIC_LIGHTS } from '../shared/layout'
 import {
   type AgentId,
   CUSTOM_AGENT_PREFIX,
@@ -22,6 +17,7 @@ import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { clearRecent as clearRecentFile, loadRecent } from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { clearStorage as clearStorageData, measureStorage } from './storage'
+import { followSurface, surfaceColor } from './theme'
 import { listTrusted, untrust } from './trust'
 import { allWindows } from './window'
 
@@ -64,10 +60,11 @@ export function openSettings(section?: SettingsSection) {
     title: 'Settings',
     fullscreenable: false,
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 15 },
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#141414' : '#f5f5f4',
+    trafficLightPosition: TRAFFIC_LIGHTS,
+    backgroundColor: surfaceColor(),
     webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true },
   })
+  followSurface(window)
   win = window
   guardAppContents(window.webContents)
   window.once('ready-to-show', () => window.show())
@@ -112,6 +109,7 @@ async function buildState(): Promise<SettingsState> {
     recentProjects,
     storage,
     openProjects: openRoots(),
+    home: app.getPath('home'),
   }
 }
 

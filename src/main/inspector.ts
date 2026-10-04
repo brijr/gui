@@ -2,19 +2,29 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { WebContents } from 'electron'
+import { nativeTheme, type WebContents } from 'electron'
+import { ACCENT, FILL } from '../shared/theme'
 import type { ElementContext, Rect, SourceLocation } from '../shared/types'
 import { normalizeSourcePath, projectRelativePath, resolveStack } from './source-resolver'
 
 const COMMAND_TIMEOUT_MS = 15_000
-const HIGHLIGHT = {
-  showInfo: true,
-  showStyles: false,
-  showAccessibilityInfo: false,
-  contentColor: { r: 59, g: 130, b: 246, a: 0.16 },
-  paddingColor: { r: 147, g: 196, b: 125, a: 0.3 },
-  marginColor: { r: 246, g: 178, b: 107, a: 0.3 },
-  borderColor: { r: 59, g: 130, b: 246, a: 0.95 },
+/**
+ * The element highlight in Gui's accent for the current appearance: the content tinted, the
+ * padding lighter, the margin a neutral fill, an accent outline.
+ */
+function highlightConfig() {
+  const dark = nativeTheme.shouldUseDarkColors
+  const hex = dark ? ACCENT.dark : ACCENT.light
+  const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16))
+  return {
+    showInfo: true,
+    showStyles: false,
+    showAccessibilityInfo: false,
+    contentColor: { r, g, b, a: 0.18 },
+    paddingColor: { r, g, b, a: 0.1 },
+    marginColor: dark ? FILL.dark : FILL.light,
+    borderColor: { r, g, b, a: 1 },
+  }
 }
 
 /** Properties worth showing a designer or an agent, in reading order. */
@@ -256,7 +266,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     await this.ready()
     await this.cmd('Overlay.setInspectMode', {
       mode: on ? 'searchForNode' : 'none',
-      highlightConfig: HIGHLIGHT,
+      highlightConfig: highlightConfig(),
     })
   }
 
@@ -397,7 +407,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   private async showHighlight(backendNodeId: number, token = this.highlightToken) {
     await this.ready()
     if (token !== this.highlightToken) return
-    await this.cmd('Overlay.highlightNode', { backendNodeId, highlightConfig: HIGHLIGHT })
+    await this.cmd('Overlay.highlightNode', { backendNodeId, highlightConfig: highlightConfig() })
     if (token === this.highlightToken) this.highlighted = backendNodeId
   }
 

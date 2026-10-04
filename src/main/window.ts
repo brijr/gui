@@ -12,13 +12,13 @@ import {
   type MessageBoxOptions,
   type NativeImage,
   nativeImage,
-  nativeTheme,
   shell,
   type WebContents,
   WebContentsView,
   type WebFrameMain,
 } from 'electron'
 import { Events } from '../shared/ipc'
+import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TOOLBAR_HEIGHT, TRAFFIC_LIGHTS } from '../shared/layout'
 import {
   type AgentId,
   agentName,
@@ -67,16 +67,13 @@ import {
 import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
+import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
 
-const TOOLBAR_HEIGHT = 44
 const PANEL_MIN = { width: 320, height: 360 }
 /** Space the floating panel's size leaves around it in the window. */
 const PANEL_MARGIN = 12
-const MINI = { width: 248, height: 52 }
-/** The floating panel while the user picks an element: a round button at its anchored corner. */
-const BUBBLE = { width: 44, height: 44 }
 const DOCK_MIN_WIDTH = 320
 /** The docked panel leaves the preview at least the rest of the canvas. */
 const DOCK_MAX_SHARE = 0.6
@@ -86,8 +83,6 @@ const ATTACH_THUMBNAIL_EDGE = 160
 const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
-/** Transparent margin around the floating panel so its shadow isn't clipped. */
-const SHADOW = 18
 const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobile: 390 }
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
@@ -198,6 +193,7 @@ export class ProjectWindow {
       chatVisible: true,
       logsOpen: false,
       recent: [],
+      home: app.getPath('home'),
       agents: agentHealth.list(),
       setup: null,
     }
@@ -210,10 +206,11 @@ export class ProjectWindow {
       show: false,
       title: 'Gui',
       titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 15 },
-      backgroundColor: nativeTheme.shouldUseDarkColors ? '#141414' : '#f5f5f4',
+      trafficLightPosition: TRAFFIC_LIGHTS,
+      backgroundColor: surfaceColor(),
       webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true },
     })
+    followSurface(this.win)
 
     this.preview = new WebContentsView({
       webPreferences: {
@@ -1156,11 +1153,11 @@ export class ProjectWindow {
         enabled = true,
       ): MenuItemConstructorOptions => ({ label, enabled, click: () => resolve(action) })
       Menu.buildFromTemplate([
-        item('Copy Screenshot', 'copy'),
-        item('Copy Full Page', 'copy-full-page'),
-        item('Save Screenshot…', 'save'),
+        item('Copy screenshot', 'copy'),
+        item('Copy full page', 'copy-full-page'),
+        item('Save screenshot…', 'save'),
         { type: 'separator' },
-        item('Attach to Chat', 'attach', this.chat !== null),
+        item('Attach to chat', 'attach', this.chat !== null),
       ]).popup({
         window: this.win,
         // Electron runs a chosen item's click before this, so this only settles a dismissal.
@@ -1295,7 +1292,12 @@ export class ProjectWindow {
   private floatingBounds(contentWidth: number, contentHeight: number, bubble: boolean): Rect {
     const panel = this.floatingRect(contentWidth, contentHeight)
     const { x, y, width, height } = bubble ? inCorner(panel, BUBBLE, this.anchor) : panel
-    return { x: x - SHADOW, y: y - SHADOW, width: width + SHADOW * 2, height: height + SHADOW * 2 }
+    return {
+      x: x - PANEL_SHADOW_MARGIN,
+      y: y - PANEL_SHADOW_MARGIN,
+      width: width + PANEL_SHADOW_MARGIN * 2,
+      height: height + PANEL_SHADOW_MARGIN * 2,
+    }
   }
 
   /**
@@ -1370,10 +1372,10 @@ export class ProjectWindow {
     }
     const view = this.chatView.getBounds()
     const panel = {
-      x: view.x + SHADOW,
-      y: view.y + SHADOW,
-      width: view.width - SHADOW * 2,
-      height: view.height - SHADOW * 2,
+      x: view.x + PANEL_SHADOW_MARGIN,
+      y: view.y + PANEL_SHADOW_MARGIN,
+      width: view.width - PANEL_SHADOW_MARGIN * 2,
+      height: view.height - PANEL_SHADOW_MARGIN * 2,
     }
     const overlaps =
       element.x < panel.x + panel.width &&

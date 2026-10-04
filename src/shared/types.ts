@@ -145,6 +145,8 @@ export interface WindowState {
   chatVisible: boolean
   logsOpen: boolean
   recent: RecentProject[]
+  /** The user's home folder, so paths can show it as ~ */
+  home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
 }
@@ -455,4 +457,6 @@ export interface SettingsState {
   storage: StorageUsage
   /** Project roots open in a window; clearing storage keeps their data */
   openProjects: string[]
+  /** The user's home folder, so paths can show it as ~ */
+  home: string
 }
