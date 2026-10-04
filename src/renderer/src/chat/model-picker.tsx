@@ -10,11 +10,13 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
+import { ariaShortcut, withShortcut } from '../../../shared/shortcuts'
 import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { GroupLabel, MenuRow, Popover } from '../lib/surface'
 import { Button, SegmentedControl } from '../lib/ui'
+import { useChat } from './store'
 
 type Choice = AgentSetting['options'][number]
 
@@ -29,6 +31,8 @@ const WIDTH = 336
 const MAX_HEIGHT = 440
 /** Effort levels side by side up to this many; more go one per row. */
 const SEGMENTS_MAX = 6
+/** At most this many frames for the panel to settle before ⇧⌘M opens the picker. */
+const SETTLE_FRAMES = 10
 
 /** Where the picker goes, in the chat view's CSS pixels. */
 interface Placement {
@@ -62,6 +66,22 @@ function place(button: HTMLElement): Placement {
         top: null,
       }
     : { left, width, maxHeight: Math.min(MAX_HEIGHT, below), bottom: null, top: at.bottom + GAP }
+}
+
+/**
+ * Calls `fn` once the view has kept its size for a frame, or after `frames`. ⇧⌘M can bring
+ * the panel back as it asks (from minimized, say), and the picker closes on a resize.
+ */
+function whenSettled(fn: () => void, frames = SETTLE_FRAMES) {
+  let size = `${window.innerWidth}×${window.innerHeight}`
+  let left = frames
+  const check = () => {
+    const now = `${window.innerWidth}×${window.innerHeight}`
+    if (now === size || --left <= 0) return fn()
+    size = now
+    requestAnimationFrame(check)
+  }
+  requestAnimationFrame(check)
 }
 
 /** The selected choice's name; null when the agent reports a value it doesn't list. */
@@ -137,6 +157,16 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   const fullName = choiceName(models.model) ?? models.model.value
   const model = shortName(fullName)
   const effort = models.effort && effortName(models.effort)
+  const pickModel = useChat((s) => s.pickModel)
+
+  // ⇧⌘M (Agent → Choose Model…): open, searching.
+  useEffect(() => {
+    if (!pickModel) return
+    useChat.setState({ pickModel: false })
+    whenSettled(() => {
+      if (button.current) setPlacement(place(button.current))
+    })
+  }, [pickModel])
 
   const close = (refocus: boolean) => {
     setPlacement(null)
@@ -153,7 +183,8 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         aria-expanded={placement !== null}
         aria-controls={placement ? pickerId : undefined}
         aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
-        title={effort ? `${fullName} · ${effort}` : fullName}
+        title={withShortcut(effort ? `${fullName} · ${effort}` : fullName, 'chooseModel')}
+        aria-keyshortcuts={ariaShortcut('chooseModel')}
         onClick={(event) => setPlacement(placement ? null : place(event.currentTarget))}
         // Looks hovered while its picker is open.
         className="min-w-0 aria-expanded:bg-hover aria-expanded:text-fg"

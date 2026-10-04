@@ -172,6 +172,13 @@ export const SHORTCUTS = {
     group: 'chat',
     description: 'Dock the chat beside the preview, or float it',
   },
+  chooseModel: {
+    label: 'Choose Model…',
+    accelerator: 'Shift+CmdOrCtrl+M',
+    menu: 'agent',
+    group: 'chat',
+    description: "Choose the agent's model and effort",
+  },
   newChat: {
     label: 'New Chat',
     accelerator: 'Shift+CmdOrCtrl+K',

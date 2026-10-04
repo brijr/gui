@@ -55,7 +55,7 @@ export function toggleShipSheet() {
   useShipSheet.setState(open ? CLOSED : { ...CLOSED, open: true })
 }
 
-function closeShipSheet() {
+export function closeShipSheet() {
   if (useShipSheet.getState().busy) return
   generation++
   useShipSheet.setState(CLOSED)

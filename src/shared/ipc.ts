@@ -134,9 +134,9 @@ export interface TerminalOutput {
 
 /**
  * A menu command main hands to a page because the page owns what it acts on: the chrome's
- * address field and screenshot button.
+ * address field and screenshot button, the chat's model picker.
  */
-export type UiCommand = 'focusAddress' | 'screenshot'
+export type UiCommand = 'focusAddress' | 'screenshot' | 'chooseModel'
 
 export interface GuiApi {
   getState(): Promise<WindowState>

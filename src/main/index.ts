@@ -781,6 +781,7 @@ function buildMenu() {
           () => openSettings('agents'),
         ),
         { type: 'separator' },
+        ...item('chooseModel', { click: withWindow((w) => w.chooseModel()) }),
         ...item('newChat', { click: withWindow((w) => w.newChat()) }),
         ...item('stop', { click: withWindow((w) => w.cancelChat()) }),
         { type: 'separator' },

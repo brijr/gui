@@ -1095,6 +1095,13 @@ export class ProjectTab {
     this.chat?.setAgentSetting(settingId, value)
   }
 
+  /** ⇧⌘M: shows the chat and opens the composer's model picker, searching. */
+  chooseModel() {
+    if (!this.chat?.meta.models) return shell.beep()
+    this.focusChat()
+    this.sendChat(Events.command, 'chooseModel')
+  }
+
   respondPermission(turnId: string, itemId: string, optionId: string | null) {
     this.chat?.respondPermission(turnId, itemId, optionId)
   }
