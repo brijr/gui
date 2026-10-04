@@ -311,10 +311,10 @@ test('the model picker searches the models, sets the model and effort, and new s
   await chat.keyboard.press('Enter')
   await expect(search).toBeFocused()
   await expect(search).toHaveValue('')
-  const message = chat.getByRole('textbox', { name: /^Message / })
-  await message.click({ position: { x: 12, y: 12 } })
+  // (In the transcript: the picker, as wide as six effort levels need, covers the message box.)
+  await chat.getByRole('article').first().getByText('Hello', { exact: true }).click()
   await expect(dialog).toBeHidden()
-  await expect(message).toBeFocused()
+  await expect(sageHigh).not.toBeFocused()
   expect(configCalls(runs()[0])).toHaveLength(2)
 
   // At the panel's smallest it still fits inside the panel and scrolls its list.
