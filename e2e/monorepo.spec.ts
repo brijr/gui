@@ -196,8 +196,7 @@ test('only a workspace app folder leads to its monorepo', async () => {
 test('opening an app folder inside a monorepo opens the monorepo with that app', async ({
   open,
 }) => {
-  // Opened from recent projects, as an entry saved before Gui redirected app folders would
-  // be. (Opening it at launch races Playwright attaching to the preview's first page.)
+  // Opened from recent projects, as an entry saved before Gui redirected app folders would be.
   const { session, root } = await open('monorepo', { recent: 'apps/web' })
   const { userData } = session.fixture
   await session.chrome.evaluate((path) => window.gui.openRecent(path), join(root, 'apps', 'web'))

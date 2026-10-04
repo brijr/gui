@@ -491,7 +491,13 @@ export class ProjectWindow {
     this.problems.clear()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
-    this.preview.webContents.loadURL('about:blank').catch(() => undefined)
+    // Unload the previous app, if one was ever loaded. A project opened at launch gets here
+    // while the constructor's blank page is still committing; a second blank load then swaps
+    // the renderer's frame, and Chromium crashes the renderer in that swap when a DevTools
+    // client (Playwright at launch) is still attaching to the new page.
+    if (this.state.preview.url !== null) {
+      this.preview.webContents.loadURL('about:blank').catch(() => undefined)
+    }
     this.patch({
       project: null,
       setup: null,
