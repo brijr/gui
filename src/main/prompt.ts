@@ -32,9 +32,20 @@ function preamble(tools: boolean) {
   return `${INTRO}\n\n${rules.map((rule) => `- ${rule}`).join('\n')}`
 }
 
+/** The preview's viewport as the user sees it, so "on mobile" means the same to the agent. */
+export interface PromptViewport {
+  name: string
+  /** The page's size in CSS pixels */
+  width: number
+  height: number
+  /** A device frame's fixed size, rather than whatever the window leaves (Desktop) */
+  fixed: boolean
+}
+
 interface PromptOptions {
   text: string
   selection: ElementContext | null
+  viewport: PromptViewport
   /** Only for asking the agent to fix them; otherwise they're usually unrelated noise. */
   problems: Problem[]
   /** Include Gui's instructions (the session hasn't received them yet) */
@@ -50,6 +61,7 @@ interface PromptOptions {
 export function buildPrompt({
   text,
   selection,
+  viewport,
   problems,
   preamble: withPreamble,
   tools,
@@ -59,6 +71,7 @@ export function buildPrompt({
   const blocks: ContentBlock[] = []
   if (withPreamble) blocks.push({ type: 'text', text: preamble(tools) })
   if (problems.length) blocks.push({ type: 'text', text: describeProblems(problems) })
+  blocks.push({ type: 'text', text: describeViewport(viewport) })
   if (selection) {
     blocks.push({ type: 'text', text: describeElement(selection) })
     const image = images && selection.screenshot ? parseDataUrl(selection.screenshot) : null
@@ -72,6 +85,13 @@ export function buildPrompt({
     for (const { mimeType, data } of attachments) blocks.push({ type: 'image', mimeType, data })
   }
   return blocks
+}
+
+export function describeViewport({ name, width, height, fixed }: PromptViewport) {
+  const size = `${Math.round(width)}×${Math.round(height)} CSS px`
+  return fixed
+    ? `The user is viewing the preview in its ${name} viewport (${size}).`
+    : `The user is viewing the preview in its ${name} viewport, which fills Gui's window (${size} now).`
 }
 
 /** Page-derived values are untrusted: keep them on one line so they can't fake structure. */

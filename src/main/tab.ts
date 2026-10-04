@@ -40,6 +40,7 @@ import {
   type TabStatus,
   type Viewport,
   type ViewportFrame,
+  viewportSpec,
   type WindowState,
   type WorkspaceApp,
 } from '../shared/types'
@@ -57,6 +58,7 @@ import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
+import type { PromptViewport } from './prompt'
 import { addRecent, loadRecent } from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import {
@@ -401,6 +403,7 @@ export class ProjectTab {
         saved,
         historyFile: file,
         mcpServers: () => (this.mcp ? [this.mcp.config] : []),
+        viewport: () => this.promptViewport(),
       })
       chat.on('meta', (meta) => {
         this.sendChat(Events.chatMeta, meta)
@@ -789,6 +792,13 @@ export class ProjectTab {
     }
     const { source } = await this.inspector.inspect(nodeId, root, origin, { screenshot: false })
     return { ...element, source }
+  }
+
+  /** The viewport named in each prompt: a device frame's size, or the preview's (Desktop). */
+  private promptViewport(): PromptViewport {
+    const { name, size } = viewportSpec(this.state.preview.viewport)
+    const { width, height } = size ?? this.preview.getBounds()
+    return { name, width, height, fixed: size !== null }
   }
 
   private devOrigin() {

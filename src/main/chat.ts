@@ -46,7 +46,7 @@ import { type DetailedError, describeError } from './errors'
 import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
-import { buildPrompt } from './prompt'
+import { buildPrompt, type PromptViewport } from './prompt'
 import { cornerColor, thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
 
@@ -69,6 +69,8 @@ export interface ChatOptions {
   historyFile: string
   /** Gui's preview tools, offered to every agent session */
   mcpServers: () => McpServer[]
+  /** The preview's viewport as the user sees it now, which each prompt names */
+  viewport: () => PromptViewport
 }
 
 interface TurnRecord {
@@ -82,6 +84,8 @@ interface TurnRecord {
 interface QueuedPayload {
   images: ImageAttachment[]
   selection: ElementContext | null
+  /** The viewport the message was written in */
+  viewport: PromptViewport
 }
 
 interface RedoPoint {
@@ -573,6 +577,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (!prompt || this.lock || this.disposed) return false
 
     const selection = queued ? queued.selection : fix ? null : this.meta.selection
+    const viewport = queued?.viewport ?? this.options.viewport()
     const record: TurnRecord = {
       turn: {
         id: randomUUID(),
@@ -609,7 +614,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.flushTurn(record)
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
     const problems = fix ? this.meta.problems : []
-    record.settled = this.runTurn(record, selection, problems, images, this.epoch)
+    record.settled = this.runTurn(record, selection, viewport, problems, images, this.epoch)
     return true
   }
 
@@ -624,7 +629,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       context: selection ? { ...selection, screenshot: null } : null,
       attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })),
     }
-    this.queued.set(item.id, { images, selection })
+    this.queued.set(item.id, { images, selection, viewport: this.options.viewport() })
     this.patchMeta({ queue: [...this.meta.queue, item], selection: null })
     return true
   }
@@ -634,7 +639,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.lock || this.disposed || this.meta.queuePaused) return
     const [next, ...rest] = this.meta.queue
     if (!next) return
-    const payload = this.queued.get(next.id) ?? { images: [], selection: next.context }
+    const payload = this.queued.get(next.id) ?? {
+      images: [],
+      selection: next.context,
+      viewport: this.options.viewport(),
+    }
     this.queued.delete(next.id)
     this.patchMeta({ queue: rest })
     this.startTurn(next.prompt, false, payload.images, payload)
@@ -648,6 +657,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private async runTurn(
     record: TurnRecord,
     selection: ElementContext | null,
+    viewport: PromptViewport,
     problems: Problem[],
     images: ImageAttachment[],
     epoch: number,
@@ -701,6 +711,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const blocks = buildPrompt({
         text: record.turn.prompt,
         selection,
+        viewport,
         // Only Fix carries errors: they're usually unrelated to an ordinary request.
         problems,
         preamble,
