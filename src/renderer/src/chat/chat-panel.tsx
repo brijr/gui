@@ -33,12 +33,9 @@ const TEXT_INPUT = /^(text|search|url|email|password|tel|number)$/
 
 /** A field with text in it, which ⌘⌫ deletes back to the start of the line. */
 function typing(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false
-  if (target.isContentEditable) return (target.textContent ?? '') !== ''
-  const field =
-    target instanceof HTMLTextAreaElement ||
-    (target instanceof HTMLInputElement && TEXT_INPUT.test(target.type))
-  return field && (target as HTMLInputElement | HTMLTextAreaElement).value !== ''
+  if (target instanceof HTMLTextAreaElement) return target.value !== ''
+  if (target instanceof HTMLInputElement) return TEXT_INPUT.test(target.type) && target.value !== ''
+  return target instanceof HTMLElement && target.isContentEditable && !!target.textContent
 }
 
 /**

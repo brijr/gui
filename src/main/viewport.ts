@@ -114,13 +114,14 @@ const same = (a: Emulation | null, b: Emulation | null) =>
 
 /**
  * Keeps the preview's page at its viewport's size with Chromium's device emulation, over
- * the inspector's debugger session. Desktop's zoom is done the same way rather than with
- * Chromium's page zoom, which is shared by every page of a host: each project's dev
- * server is on localhost. The page lays out at the frame's CSS size and is drawn
+ * the inspector's debugger session. The page lays out at the frame's CSS size and is drawn
  * at `scale` into a view that size times the scale (`dontSetVisibleSize`: the view's size
  * stays the layout's). Changes go through the inspector's lock, the newest one winning, so
  * they never land in the middle of a pick or an agent screenshot; one that emulates a width
  * of its own puts the user's viewport back with `restore`.
+ *
+ * Desktop's zoom is emulated the same way, rather than with Chromium's page zoom: that's
+ * kept per host, and every project's dev server is on localhost, so tabs would share it.
  *
  * Phones and tablets are `mobile` (their `<meta name=viewport>` applies, scrollbars overlay)
  * and report a touch screen to media queries (`pointer: coarse`, `hover: none`) and

@@ -37,9 +37,6 @@ import {
   type TurnStatus,
 } from '../shared/types'
 import { type AgentInfo, AgentSession, type PermissionResolver, parseModelSettings } from './agent'
-
-type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
-
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
 import type { PermissionPolicy } from './agents'
@@ -54,6 +51,7 @@ import { cornerColor, thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
 
 type SessionUpdate = SessionNotification['update']
+type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
 
 interface ChatEvents {
   meta: [meta: ChatMeta]
