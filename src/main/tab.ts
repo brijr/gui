@@ -173,6 +173,11 @@ export class ProjectTab {
   private pickGeneration = 0
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
   private rehighlightTimer: NodeJS.Timeout | null = null
+  /**
+   * The preview's current page is Chromium's error page for a load that failed. It fires
+   * dom-ready like any page, which must not take the failure back.
+   */
+  private loadFailed = false
   /** The current highlight is that post-turn re-highlight, not a pending selection. */
   private rehighlightShown = false
   /** Bumped when a turn starts or a pick lands; a re-highlight from before must not show. */
@@ -623,8 +628,14 @@ export class ProjectTab {
     const wc = this.preview.webContents
     wc.on('did-start-loading', () => this.patchPreview({ loading: true }))
     wc.on('did-stop-loading', () => this.patchPreview({ loading: false }))
+    // A new document is on its way: whatever failed before is behind it. (Same-document
+    // navigations, such as HMR's and the router's, keep the page they're on.)
+    wc.on('did-start-navigation', (event) => {
+      if (event.isMainFrame && !event.isSameDocument) this.loadFailed = false
+    })
     wc.on('dom-ready', () => {
-      if (wc.getURL() !== 'about:blank') this.patchPreview({ visible: true, error: null })
+      if (this.loadFailed || wc.getURL() === 'about:blank') return
+      this.patchPreview({ visible: true, error: null })
     })
     wc.on('did-navigate', (_event, url) => {
       this.problems.clearConsole()
@@ -641,7 +652,9 @@ export class ProjectTab {
     wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
       // -3 is ERR_ABORTED, which fires for superseded navigations.
       if (!isMainFrame || code === -3) return
-      this.patchPreview({ error: `${description} — ${url}`, visible: false, loading: false })
+      this.loadFailed = true
+      // The address is the one that failed, which Try again (a reload) loads again.
+      this.patchPreview({ url, error: `${description} — ${url}`, visible: false, loading: false })
     })
     wc.on('render-process-gone', (_event, details) => {
       this.patchPreview({
