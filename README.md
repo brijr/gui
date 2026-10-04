@@ -33,25 +33,54 @@ bun run dev
 
 Open a project folder (⌘O). Gui detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. A fresh clone just works: Gui installs missing dependencies (in the same confirmation), asks which app to preview in a monorepo, and offers to create `.env.local` from `.env.example`. Opening an app's folder inside a monorepo (say `shape/website`) opens the monorepo with that app chosen. Each project opens in a tab of the window (⌘T for a new one; ⌘N still opens a new window), with its own preview, chat, dev server and agent; tabs in the background keep running, and the tab strip shows when one's agent is working, waiting for your answer, or has failed. Opening a project that's already open shows its tab. To open a project on launch: `GUI_OPEN=/path/to/project bun run dev`.
 
-In the chat, the agent's name in the header switches agents (or starts a new chat). Each turn folds the agent's steps into one line ("6 steps · 12s") and, when it changed files, ends with the result: the picked element before and after, the files changed, and **Undo**. Paste or drop reference images ("make it look like this"); the agent sees them. Messages sent while the agent works wait in a queue above the composer and run in order (Stop pauses it; you can remove one or send the next now). The model button opens a searchable list of the agent's models, with its effort levels when it has them. **Auto** (on by default, per project) answers the agent's permission requests for you; switch a project to **Ask** with the chip or ⇧⌘A. Desktop fills the canvas; Laptop (1440 × 900), Tablet (820 × 1180) and Mobile (390 × 844) show your app in a device frame at exactly that size, so you see what fits above the fold on each. On a smaller window the frame is drawn smaller (the label above it says how much) while the page still lays out at the device's size; the agent is told which viewport you're looking at. The camera button in the toolbar copies or saves a full-resolution screenshot of the preview (the visible area or the full page), or attaches it to the chat. The dot at the start of the address bar is the dev server's status: click it to restart or stop the server, show its logs, or open the app in your browser. If the server crashes, a bar under the preview offers its logs and a restart. The logs live in the drawer under the preview (⌘J), next to terminals: your own login shell at the project root, as in Terminal. The first ⌘J opens a terminal; after that ⌘J shows whichever tab you left the drawer on. **+** adds another terminal, its **×** (or Delete on its tab) ends it and everything it started, and `exit` ends the shell but keeps the terminal, with **Restart** for a new one. ⌘K clears a terminal; copy, paste and the app's shortcuts work as usual while one has the keyboard (⌘W still closes the project's tab). Each project's terminals are its own: they keep running in a tab in the background and come back with their output when you switch to it. Drag any edge or corner of the chat panel to resize it (docked: its left edge); Gui remembers the size. When you're happy, the pull-request button in the chat header commits the changes to a new branch, pushes it, and opens the pull request (with `gh` when it's signed in, otherwise GitHub's or GitLab's new-PR page). Env files and keys are never committed.
+In the chat, the agent's name in the header switches agents (or starts a new chat). Each turn folds the agent's steps into one line ("6 steps · 12s") and, when it changed files, ends with the result: the picked element before and after, the files changed, and **Undo**. Paste or drop reference images ("make it look like this"); the agent sees them. Messages sent while the agent works wait in a queue above the composer and run in order (Stop pauses it; you can remove one or send the next now). The model button opens a searchable list of the agent's models, with its effort levels when it has them. **Auto** (on by default, per project) answers the agent's permission requests for you; switch a project to **Ask** with the chip or ⇧⌘A. A permission card waiting for you is answered with ⌘↩ (Allow) or ⌘⌫ (Don't allow), never with an "always". Desktop fills the canvas; Laptop (1440 × 900), Tablet (820 × 1180) and Mobile (390 × 844) show your app in a device frame at exactly that size, so you see what fits above the fold on each. On a smaller window the frame is drawn smaller (the label above it says how much) while the page still lays out at the device's size; the agent is told which viewport you're looking at. ⌘+ and ⌘− zoom: a device frame between 25% and the largest that fits (⌘0 fits it again), Desktop like a browser's page zoom (⌘0 is 100%, and the address bar shows the level otherwise); the page keeps its CSS size, and picking and the agent's screenshots work at any zoom. Focus mode (⌘\) hides everything but the preview until ⌘\ or Esc brings it all back. The camera button in the toolbar copies or saves a full-resolution screenshot of the preview (the visible area or the full page), or attaches it to the chat. The dot at the start of the address bar is the dev server's status: click it to restart or stop the server, show its logs, or open the app in your browser. If the server crashes, a bar under the preview offers its logs and a restart. The logs live in the drawer under the preview (⌘J), next to terminals: your own login shell at the project root, as in Terminal. The first ⌘J opens a terminal; after that ⌘J shows whichever tab you left the drawer on. **+** adds another terminal, its **×** (or Delete on its tab) ends it and everything it started, and `exit` ends the shell but keeps the terminal, with **Restart** for a new one. ⌘K clears a terminal; copy, paste and the app's shortcuts work as usual while one has the keyboard (⌘W still closes the project's tab). Each project's terminals are its own: they keep running in a tab in the background and come back with their output when you switch to it. Drag any edge or corner of the chat panel to resize it (docked: its left edge); Gui remembers the size. When you're happy, the pull-request button in the chat header commits the changes to a new branch, pushes it, and opens the pull request (with `gh` when it's signed in, otherwise GitHub's or GitLab's new-PR page). Env files and keys are never committed.
+
+Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/) lists them all; toolbar and chat buttons name theirs in their tooltips. They're defined once, in `src/shared/shortcuts.ts`.
 
 | Action | Shortcut |
 | --- | --- |
-| New tab / close tab | ⌘T / ⌘W |
-| Next / previous tab | ⌃⇥ / ⌃⇧⇥ (or ⇧⌘] / ⇧⌘[) |
-| Select element | ⇧⌘C (Esc cancels) |
-| Show the chat and its message box; from the message box, hide it | ⌘L |
-| Dock chat beside the preview | ⇧⌘D |
-| Toggle the drawer: terminals and dev server logs | ⌘J |
-| Clear the terminal (in a terminal) | ⌘K |
-| Desktop / laptop / tablet / mobile viewport | ⌘1 / ⌘2 / ⌘3 / ⌘4 |
-| Reload preview | ⌘R |
-| New chat | ⇧⌘K |
-| Stop agent | ⌘. |
-| Auto / Ask for the agent's permission requests | ⇧⌘A |
-| Undo / redo the agent's last change (outside a text field) | ⌘Z / ⇧⌘Z |
-| Settings | ⌘, |
-| Preview DevTools | ⌥⌘I |
+| **App** | |
+| Open Settings | ⌘, |
+| Open a new window | ⌘N |
+| Open a project folder | ⌘O |
+| Close the window and its tabs | ⇧⌘W |
+| Undo typing, or outside a text field the agent's last change | ⌘Z |
+| Redo typing, or the agent's change you undid | ⇧⌘Z |
+| Show the keyboard shortcuts | ⌘/ |
+| Inspect Gui's own window | ⌥⌘J |
+| **Preview** | |
+| Edit the preview's address | ⇧⌘L |
+| Reload the preview | ⌘R |
+| Reload the preview, ignoring the cache | ⇧⌘R |
+| Go back | ⌘[ |
+| Go forward | ⌘] |
+| Desktop: fill the window | ⌘1 |
+| Laptop: 1440 × 900 | ⌘2 |
+| Tablet: 820 × 1180 | ⌘3 |
+| Mobile: 390 × 844 | ⌘4 |
+| Zoom in: the page, or a device frame up to the size that fits | ⌘+ or ⌘= |
+| Zoom out | ⌘− |
+| Page at 100%, or a device frame back to fit | ⌘0 |
+| Pick an element to change (Esc cancels) | ⌘D or ⇧⌘C |
+| Copy, save or attach a screenshot | ⇧⌘S |
+| Show only the preview (Esc exits) | ⌘\ |
+| Inspect your app's page | ⌥⌘I |
+| **Chat & agent** | |
+| Show the chat and its message box; from there, hide it | ⌘L |
+| Dock the chat beside the preview, or float it | ⇧⌘D |
+| Choose the agent's model and effort | ⇧⌘M |
+| Start a new chat | ⇧⌘K |
+| Stop the agent | ⌘. |
+| Auto or Ask for the agent's permission requests | ⇧⌘A |
+| Allow what the agent's waiting to do | ⌘↩ |
+| Don't allow what the agent's waiting to do | ⌘⌫ |
+| **Terminal** | |
+| Show or hide the terminal and the dev server's logs | ⌘J |
+| **Tabs** | |
+| Open a new tab | ⌘T |
+| Close the tab, stopping its agent and app | ⌘W |
+| Show the previous tab | ⌃⇧⇥ or ⇧⌘[ |
+| Show the next tab | ⌃⇥ or ⇧⌘] |
 
 ## How it works
 

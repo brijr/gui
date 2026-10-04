@@ -94,7 +94,7 @@ export const SHORTCUTS = {
     accelerator: 'CmdOrCtrl+/',
     menu: 'help',
     group: 'app',
-    description: 'Show these shortcuts',
+    description: 'Show the keyboard shortcuts',
   },
   appDevTools: {
     label: 'App Developer Tools',
@@ -251,7 +251,7 @@ export const SHORTCUTS = {
     accelerator: 'CmdOrCtrl+Backspace',
     menu: 'agent',
     group: 'chat',
-    description: "Don't allow it",
+    description: "Don't allow what the agent's waiting to do",
   },
 
   toggleTerminal: {
