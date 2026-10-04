@@ -16,8 +16,11 @@ const windows = new Set<ProjectWindow>()
 /** The window focused last, for opening a project while Gui is in the background. */
 let lastFocused: ProjectWindow | null = null
 
-/** A window showed another tab, so menus that act on the active tab may now mean another. */
-export const windowEvents = new EventEmitter<{ activeTab: [] }>()
+/**
+ * A window showed another tab, so menus that act on the active tab may now mean another; or
+ * its tabs changed, which menus that act on its tabs follow.
+ */
+export const windowEvents = new EventEmitter<{ activeTab: []; tabs: [] }>()
 
 /** The window a page belongs to: its chrome, or one of its tabs' chat panels. */
 export function findWindow(sender: WebContents) {
@@ -277,6 +280,7 @@ export class ProjectWindow implements TabHost {
     }
     this.syncTitle()
     this.sendState()
+    windowEvents.emit('tabs')
   }
 
   /** The window is named like the active tab (its project), and is the project's proxy icon. */

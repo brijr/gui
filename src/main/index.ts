@@ -165,7 +165,7 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
     await tabToOpenIn(target).openProject(real)
   } finally {
     opening.delete(real)
-    syncAutoModeItem()
+    syncMenuItems()
   }
 }
 
@@ -571,11 +571,18 @@ async function editHistory(direction: 'undo' | 'redo') {
 }
 
 const AUTO_MODE_ITEM = 'auto-mode'
+const MOVE_TAB_ITEM = 'move-tab'
 
-/** Agent → Auto Mode is checked when the project it would change is in Auto mode. */
-function syncAutoModeItem() {
-  const item = Menu.getApplicationMenu()?.getMenuItemById(AUTO_MODE_ITEM)
-  if (item) item.checked = menuTab()?.autoApprove ?? false
+/**
+ * Menu items that follow the window menus act on: Agent → Auto Mode is checked when the
+ * project it would change is in Auto mode; Window → Move Tab to New Window needs a second tab.
+ */
+function syncMenuItems() {
+  const menu = Menu.getApplicationMenu()
+  const autoMode = menu?.getMenuItemById(AUTO_MODE_ITEM)
+  if (autoMode) autoMode.checked = menuTab()?.autoApprove ?? false
+  const moveTab = menu?.getMenuItemById(MOVE_TAB_ITEM)
+  if (moveTab) moveTab.enabled = (menuWindow()?.tabs.length ?? 0) > 1
 }
 
 /** Only from the user's own menu choice or keystroke: agents never get to turn this on. */
@@ -583,7 +590,7 @@ function toggleAutoMode() {
   const tab = menuTab()
   tab?.setAutoApprove(!tab.autoApprove)
   // The click already flipped the checkmark; it follows the project's setting instead.
-  syncAutoModeItem()
+  syncMenuItems()
 }
 
 /** ⌘T: a start-screen tab in the window menus act on, or a new window when there's none. */
@@ -778,6 +785,7 @@ function buildMenu() {
           click: withTabs((w) => w.showAdjacentTab(1)),
         }),
         {
+          id: MOVE_TAB_ITEM,
           label: 'Move Tab to New Window',
           click: withTabs((w) => w.moveToNewWindow(w.activeTab.id)),
         },
@@ -787,7 +795,7 @@ function buildMenu() {
     },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-  syncAutoModeItem()
+  syncMenuItems()
 }
 
 function focusExistingWindow() {
@@ -831,11 +839,12 @@ if (!app.requestSingleInstanceLock()) {
     agentHealth.on('change', buildMenu)
     // Pick up agents installed (or added to agents.json) while Gui was in the background.
     app.on('browser-window-focus', () => void agentHealth.onAppFocus())
-    // Agent → Auto Mode shows the project the menu acts on.
-    app.on('browser-window-focus', syncAutoModeItem)
-    app.on('browser-window-blur', syncAutoModeItem)
-    windowEvents.on('activeTab', syncAutoModeItem)
-    prefsEvents.on('change', syncAutoModeItem)
+    // Auto Mode and Move Tab follow the window and project the menu acts on.
+    app.on('browser-window-focus', syncMenuItems)
+    app.on('browser-window-blur', syncMenuItems)
+    windowEvents.on('activeTab', syncMenuItems)
+    windowEvents.on('tabs', syncMenuItems)
+    prefsEvents.on('change', syncMenuItems)
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

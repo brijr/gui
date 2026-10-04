@@ -74,6 +74,10 @@ function moved(ids: string[], id: string, index: number) {
  * more, so a window with one project looks as it always has. Each tab is a project with its
  * own preview, chat and dev server. Drag to reorder, middle-click to close, right-click for
  * more. The row itself drags the window.
+ *
+ * The tablist holds tabs only. A tab's close button is for the pointer and hidden from
+ * assistive tech; from the keyboard, Delete closes the focused tab, ⌘W the shown one, and
+ * the context menu key opens the tab's menu.
  */
 export function TabStrip({ state }: { state: WindowState }) {
   const list = useRef<HTMLDivElement>(null)
@@ -139,6 +143,16 @@ export function TabStrip({ state }: { state: WindowState }) {
 
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const count = ordered.length
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      const tab = ordered[index]
+      if (!tab) return
+      event.preventDefault()
+      // Main shows the next tab (or the previous one); keep the keyboard on it.
+      const neighbor = ordered[index + 1] ?? ordered[index - 1]
+      if (neighbor) focusTab(neighbor.id)
+      gui.closeTab(tab.id)
+      return
+    }
     const targets: Record<string, number> = {
       ArrowRight: (index + 1) % count,
       ArrowLeft: (index - 1 + count) % count,
@@ -150,8 +164,11 @@ export function TabStrip({ state }: { state: WindowState }) {
     if (!next) return
     event.preventDefault()
     select(next.id)
-    list.current?.querySelector<HTMLElement>(`[data-tab="${next.id}"] [role="tab"]`)?.focus()
+    focusTab(next.id)
   }
+
+  const focusTab = (id: string) =>
+    list.current?.querySelector<HTMLElement>(`[data-tab="${id}"] [role="tab"]`)?.focus()
 
   return (
     <nav
@@ -174,10 +191,11 @@ export function TabStrip({ state }: { state: WindowState }) {
           return (
             <div
               key={tab.id}
+              role="presentation"
               data-tab={tab.id}
               style={shift ? { transform: `translateX(${shift}px)` } : undefined}
               className={cn(
-                'no-drag group relative flex h-7 w-60 min-w-12 shrink items-center rounded-md border',
+                'no-drag group relative flex h-7 w-56 min-w-20 shrink items-center rounded-md border',
                 active
                   ? 'border-line bg-raised text-fg shadow-raised'
                   : 'border-transparent text-muted hover:bg-hover hover:text-fg',
@@ -222,12 +240,15 @@ export function TabStrip({ state }: { state: WindowState }) {
                 <StatusMark status={tab.status} />
                 <span className="truncate">{name}</span>
               </button>
+              {/* The pointer's way to close; the keyboard's is Delete on the tab, or ⌘W. */}
               <IconButton
                 label={`Close ${name}`}
                 icon={X}
                 size="sm"
-                // ⌘W closes the active tab from the keyboard.
+                aria-hidden="true"
                 tabIndex={-1}
+                // Keeps focus where it was rather than on a button hidden from assistive tech.
+                onMouseDown={(event) => event.preventDefault()}
                 onClick={() => gui.closeTab(tab.id)}
                 className={cn(
                   'absolute right-0.5',
@@ -245,13 +266,16 @@ export function TabStrip({ state }: { state: WindowState }) {
 
 /**
  * The agent working, a permission card waiting for an answer (an accent dot, the size of a
- * StatusDot), or something that failed. The tab's name says which to assistive tech.
+ * StatusDot), or something that failed, in one 12px slot so names line up whichever it is.
+ * The tab's name says which to assistive tech.
  */
 function StatusMark({ status }: { status: TabStatus }) {
-  if (status === 'working') return <Spinner className="text-muted" />
-  if (status === 'error') return <StatusDot status="error" />
-  if (status === 'attention') {
-    return <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-accent" />
-  }
-  return null
+  if (status === 'idle') return null
+  return (
+    <span aria-hidden="true" className="flex size-3 shrink-0 items-center justify-center">
+      {status === 'working' && <Spinner className="text-muted" />}
+      {status === 'error' && <StatusDot status="error" />}
+      {status === 'attention' && <span className="size-1.5 rounded-full bg-accent" />}
+    </span>
+  )
 }
