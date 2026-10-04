@@ -212,7 +212,11 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
   await expect(card).toBeVisible()
   await expect(card.getByText('npm run build', { exact: true })).toBeVisible()
   const buttons = card.getByRole('button')
-  await expect(buttons).toHaveText(["Don't allow", 'Always allow', 'Allow'])
+  // Each named as it says; the card waiting longest shows the keys that answer it.
+  await expect(buttons).toHaveText(["Don't allow⌘⌫", 'Always allow', 'Allow⌘↩'])
+  for (const [i, name] of ["Don't allow", 'Always allow', 'Allow'].entries()) {
+    await expect(buttons.nth(i)).toHaveAccessibleName(name)
+  }
   await expect(buttons.last()).toHaveClass(/\bbg-accent\b/)
   await buttons.last().click()
 

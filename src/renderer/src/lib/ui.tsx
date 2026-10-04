@@ -79,8 +79,12 @@ export function Button({
       {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
       {children}
       {shortcut && (
-        // On a filled button the keys take its text color.
-        <Kbd tone={variant === 'primary' || variant === 'danger' ? 'inherit' : 'muted'}>
+        // On a filled button the keys take its text color. Out of the button's name:
+        // aria-keyshortcuts says them.
+        <Kbd
+          aria-hidden="true"
+          tone={variant === 'primary' || variant === 'danger' ? 'inherit' : 'muted'}
+        >
           {shortcutText(shortcut)}
         </Kbd>
       )}
@@ -354,20 +358,21 @@ export function Switch({
   )
 }
 
-interface KbdProps {
-  children: ReactNode
+interface KbdProps extends ComponentProps<'kbd'> {
   /** muted (default) in running text; inherit takes the text's color, inside a filled button */
   tone?: 'muted' | 'inherit'
 }
 
 /** A key or shortcut named in running text, e.g. ⌘D. */
-export function Kbd({ children, tone = 'muted' }: KbdProps) {
+export function Kbd({ children, tone = 'muted', className, ...props }: KbdProps) {
   return (
     <kbd
       className={cn(
         'inline-flex h-4 min-w-4 items-center justify-center rounded-sm px-1 font-sans text-caption font-medium',
         tone === 'muted' ? 'bg-fill text-muted' : 'bg-current/15 text-current',
+        className,
       )}
+      {...props}
     >
       {children}
     </kbd>
