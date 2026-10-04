@@ -87,6 +87,7 @@ export const Send = {
   removeQueued: 'chat:queue-remove',
   sendQueuedNow: 'chat:queue-send',
   setAutoApprove: 'chat:auto-approve',
+  setShipSheetOpen: 'chat:ship-sheet',
   setAgentSetting: 'chat:agent-setting',
   newTab: 'tabs:new',
   selectTab: 'tabs:select',
@@ -256,6 +257,11 @@ export interface GuiApi {
   setAgentSetting(settingId: string, value: string): void
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
+  /**
+   * "Create pull request" took over the chat, or gave it back: its ⌘↩ wins over the Agent
+   * menu's Allow meanwhile.
+   */
+  setShipSheetOpen(open: boolean): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
   newSession(): void

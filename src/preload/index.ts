@@ -81,6 +81,7 @@ const api: GuiApi = {
   send: (text, images) => ipcRenderer.invoke(Invoke.send, text, images),
   cancel: send(Send.cancel),
   respondPermission: send(Send.respondPermission),
+  setShipSheetOpen: send(Send.setShipSheetOpen),
   restoreTurn: (turnId) => ipcRenderer.invoke(Invoke.restoreTurn, turnId),
   redo: () => ipcRenderer.invoke(Invoke.redo),
   newSession: send(Send.newSession),

@@ -185,6 +185,8 @@ export class ProjectTab {
   private attentionWaiting = false
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
+  /** "Create pull request" has the chat, and ⌘↩ with it (`permissionAnswer`). */
+  private shipSheetOpen = false
   private disposed = false
   /** Bumped per openProject; async steps of a superseded open must not touch the window. */
   private openGeneration = 0
@@ -1104,6 +1106,31 @@ export class ProjectTab {
 
   respondPermission(turnId: string, itemId: string, optionId: string | null) {
     this.chat?.respondPermission(turnId, itemId, optionId)
+  }
+
+  /**
+   * What Agent → Allow (⌘↩) or Don't Allow (⌘⌫) answers: the oldest waiting card, with its
+   * Allow or Don't Allow (`allow_once`, `reject_once`; never an "always"). Null when no card
+   * waits, it doesn't offer that, or the PR sheet has the keys.
+   */
+  permissionAnswer(allow: boolean) {
+    const waiting = this.shipSheetOpen ? null : this.chat?.oldestPermission()
+    const kind = allow ? 'allow_once' : 'reject_once'
+    const option = waiting?.item.options.find((choice) => choice.kind === kind)
+    if (!waiting || !option) return null
+    return { turnId: waiting.turnId, itemId: waiting.item.id, optionId: option.optionId }
+  }
+
+  answerPermission(allow: boolean) {
+    const answer = this.permissionAnswer(allow)
+    if (!answer) return shell.beep()
+    this.respondPermission(answer.turnId, answer.itemId, answer.optionId)
+  }
+
+  setShipSheetOpen(open: boolean) {
+    if (open === this.shipSheetOpen) return
+    this.shipSheetOpen = open
+    this.host.tabChanged(this, false)
   }
 
   restoreTurn(turnId: string) {

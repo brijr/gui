@@ -201,6 +201,21 @@ export const SHORTCUTS = {
     description: "Auto or Ask for the agent's permission requests",
   },
 
+  allow: {
+    label: 'Allow',
+    accelerator: 'CmdOrCtrl+Enter',
+    menu: 'agent',
+    group: 'chat',
+    description: "Allow what the agent's waiting to do",
+  },
+  dontAllow: {
+    label: "Don't Allow",
+    accelerator: 'CmdOrCtrl+Backspace',
+    menu: 'agent',
+    group: 'chat',
+    description: "Don't allow it",
+  },
+
   toggleTerminal: {
     label: 'Toggle Terminal',
     accelerator: 'CmdOrCtrl+J',

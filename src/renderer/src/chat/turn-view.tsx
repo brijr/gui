@@ -19,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
+import type { ShortcutId } from '../../../shared/shortcuts'
 import type {
   ElementContext,
   FileChange,
@@ -36,6 +37,7 @@ import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
+import { useChat, waitingCard } from './store'
 
 type ToolItem = Extract<TurnItem, { kind: 'tool' }>
 type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
@@ -488,6 +490,12 @@ const OUTCOME_LABELS: Record<string, string> = {
   reject_always: 'Never allowed',
 }
 
+/** The keys that answer the oldest waiting card, on its buttons (Agent → Allow, Don't Allow). */
+const OPTION_SHORTCUTS: Partial<Record<string, ShortcutId>> = {
+  allow_once: 'allow',
+  reject_once: 'dontAllow',
+}
+
 /** macOS order, the default last: refusals, anything else, then the allows. */
 const OPTION_ORDER: Record<string, number> = {
   reject_always: 0,
@@ -572,6 +580,8 @@ function Permission({
   turnId: string
   live: boolean
 }) {
+  // ⌘↩ and ⌘⌫ answer the card waiting longest, which shows them.
+  const keyed = useChat((s) => waitingCard(s.turns)?.item.id === item.id)
   // History saved before these fields existed lacks them.
   const toolKind = item.toolKind ?? 'other'
   const locations = item.locations ?? []
@@ -605,6 +615,7 @@ function Permission({
             key={option.optionId}
             variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
             title={option.name}
+            shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
             onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
           >
             {optionLabel(option)}

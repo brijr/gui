@@ -37,6 +37,9 @@ import {
   type TurnStatus,
 } from '../shared/types'
 import { type AgentInfo, AgentSession, type PermissionResolver, parseModelSettings } from './agent'
+
+type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
+
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
 import type { PermissionPolicy } from './agents'
@@ -379,6 +382,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** A permission card is waiting for the user's answer. */
   get awaitingPermission() {
     return this.permissions.size > 0
+  }
+
+  /** The permission card waiting longest for an answer, and its turn; null when none is. */
+  oldestPermission(): { turnId: string; item: PermissionItem } | null {
+    for (const { turn } of this.records) {
+      for (const item of turn.items) {
+        if (item.kind === 'permission' && this.permissions.has(`${turn.id}:${item.id}`)) {
+          return { turnId: turn.id, item }
+        }
+      }
+    }
+    return null
   }
 
   /**

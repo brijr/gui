@@ -25,11 +25,57 @@ import { Message } from '../lib/surface'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { Composer } from './composer'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
-import { connectChat, useChat } from './store'
+import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
 import { TurnView } from './turn-view'
+
+/** Fields ⌘⌫ deletes typing in. */
+const TEXT_INPUT = /^(text|search|url|email|password|tel|number)$/
+
+/** A field with text in it, which ⌘⌫ deletes back to the start of the line. */
+function typing(target: EventTarget | null) {
+  if (!(target instanceof HTMLElement)) return false
+  if (target.isContentEditable) return (target.textContent ?? '') !== ''
+  const field =
+    target instanceof HTMLTextAreaElement ||
+    (target instanceof HTMLInputElement && TEXT_INPUT.test(target.type))
+  return field && (target as HTMLInputElement | HTMLTextAreaElement).value !== ''
+}
+
+/**
+ * ⌘↩ and ⌘⌫ answer the oldest waiting permission card from anywhere in the panel, with its
+ * Allow or Don't Allow, as Agent → Allow and Don't Allow do from elsewhere; otherwise the
+ * composer would send on ⌘↩ and a text field take ⌘⌫. Not while the PR sheet is open (its
+ * ⌘↩ creates the pull request), nor ⌘⌫ in a field with text in it, which it deletes. Ahead
+ * of the panel's own handlers: a key answered here goes no further, the menu included.
+ */
+function answerPermissionKeys() {
+  const onKeyDown = (event: KeyboardEvent) => {
+    const modifiers = event.ctrlKey || event.altKey || event.shiftKey
+    if (!event.metaKey || modifiers || event.isComposing) return
+    const allow = event.key === 'Enter'
+    if (!allow && event.key !== 'Backspace') return
+    if (useShipSheet.getState().open || (!allow && typing(event.target))) return
+    const answer = keyedAnswer(useChat.getState().turns, allow)
+    if (!answer) return
+    event.preventDefault()
+    event.stopPropagation()
+    gui.respondPermission(answer.turnId, answer.itemId, answer.optionId)
+  }
+  window.addEventListener('keydown', onKeyDown, true)
+  return () => window.removeEventListener('keydown', onKeyDown, true)
+}
 
 export function ChatPanel() {
   useEffect(() => connectChat(), [])
+  useEffect(() => answerPermissionKeys(), [])
+  // Main gives ⌘↩ to the PR sheet while it's open: Agent → Allow waits.
+  useEffect(
+    () =>
+      useShipSheet.subscribe((sheet, before) => {
+        if (sheet.open !== before.open) gui.setShipSheetOpen(sheet.open)
+      }),
+    [],
+  )
   const meta = useChat((s) => s.meta)
   const turns = useChat((s) => s.turns)
   // "Create pull request" takes over the transcript and composer until it's closed.
@@ -314,11 +360,7 @@ function ChatBubble({
 }) {
   const statusId = useId()
   // A permission card in the running turn; it shows once the panel is back.
-  const waiting = turns.some(
-    (turn) =>
-      turn.status === 'running' &&
-      turn.items.some((item) => item.kind === 'permission' && item.resolved === null),
-  )
+  const waiting = waitingCard(turns) !== null
   const status = waiting
     ? 'The agent is waiting for you. '
     : running

@@ -35,6 +35,30 @@ export const useChat = create<ChatStore>(() => ({
   pickModel: false,
 }))
 
+/** The permission card waiting longest for an answer, and its turn; null when none is. */
+export function waitingCard(turns: Turn[]) {
+  for (const turn of turns) {
+    if (turn.status !== 'running') continue
+    for (const item of turn.items) {
+      if (item.kind === 'permission' && item.resolved === null) return { turnId: turn.id, item }
+    }
+  }
+  return null
+}
+
+/**
+ * What ⌘↩ (`allow`) or ⌘⌫ answers that card with: its Allow or Don't Allow, never an
+ * "always". Null when no card waits or it doesn't offer that. Main's Agent menu answers
+ * the same card the same way (`permissionAnswer` in tab.ts).
+ */
+export function keyedAnswer(turns: Turn[], allow: boolean) {
+  const waiting = waitingCard(turns)
+  const kind = allow ? 'allow_once' : 'reject_once'
+  const option = waiting?.item.options.find((choice) => choice.kind === kind)
+  if (!waiting || !option) return null
+  return { turnId: waiting.turnId, itemId: waiting.item.id, optionId: option.optionId }
+}
+
 export function setDraft(draft: string) {
   useChat.setState({ draft })
 }

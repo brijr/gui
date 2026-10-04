@@ -513,6 +513,7 @@ function registerIpc() {
   on(Send.removeQueued, (tab, id) => isString(id) && tab.removeQueued(id))
   on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
   on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
+  on(Send.setShipSheetOpen, (tab, open) => typeof open === 'boolean' && tab.setShipSheetOpen(open))
   on(Send.setAgentSetting, (tab, settingId, value) => {
     // Only a choice the composer offers right now: the chat panel renders what agents write.
     if (isString(settingId) && isString(value) && offersChoice(tab.chatModels, settingId, value)) {
@@ -622,17 +623,28 @@ async function editHistory(direction: 'undo' | 'redo') {
 
 const AUTO_MODE_ITEM = 'auto-mode'
 const MOVE_TAB_ITEM = 'move-tab'
+const ALLOW_ITEM = 'allow'
+const DONT_ALLOW_ITEM = 'dont-allow'
 
 /**
  * Menu items that follow the window menus act on: Agent → Auto Mode is checked when the
- * project it would change is in Auto mode; Window → Move Tab to New Window needs a second tab.
+ * project it would change is in Auto mode; Allow and Don't Allow answer a permission card
+ * that's waiting (see `permissionAnswer`); Window → Move Tab to New Window needs a second tab.
+ *
+ * Their keys reach a page first: ⌘⌫ deletes typing in a text field, and the chat panel
+ * answers ⌘↩ and ⌘⌫ itself (chat-panel.tsx), so only keys nothing else took get here.
  */
 function syncMenuItems() {
   const menu = Menu.getApplicationMenu()
-  const autoMode = menu?.getMenuItemById(AUTO_MODE_ITEM)
-  if (autoMode) autoMode.checked = menuTab()?.autoApprove ?? false
-  const moveTab = menu?.getMenuItemById(MOVE_TAB_ITEM)
-  if (moveTab) moveTab.enabled = (menuWindow()?.tabs.length ?? 0) > 1
+  const tab = menuTab()
+  const set = (id: string, key: 'checked' | 'enabled', value: boolean) => {
+    const item = menu?.getMenuItemById(id)
+    if (item && item[key] !== value) item[key] = value
+  }
+  set(AUTO_MODE_ITEM, 'checked', tab?.autoApprove ?? false)
+  set(ALLOW_ITEM, 'enabled', !!tab?.permissionAnswer(true))
+  set(DONT_ALLOW_ITEM, 'enabled', !!tab?.permissionAnswer(false))
+  set(MOVE_TAB_ITEM, 'enabled', (menuWindow()?.tabs.length ?? 0) > 1)
 }
 
 /** Only from the user's own menu choice or keystroke: agents never get to turn this on. */
@@ -785,6 +797,12 @@ function buildMenu() {
         ...item('newChat', { click: withWindow((w) => w.newChat()) }),
         ...item('stop', { click: withWindow((w) => w.cancelChat()) }),
         { type: 'separator' },
+        ...item('allow', { id: ALLOW_ITEM, click: withWindow((w) => w.answerPermission(true)) }),
+        ...item('dontAllow', {
+          id: DONT_ALLOW_ITEM,
+          click: withWindow((w) => w.answerPermission(false)),
+        }),
+        { type: 'separator' },
         ...item('autoMode', { id: AUTO_MODE_ITEM, type: 'checkbox', click: toggleAutoMode }),
       ],
     },
@@ -857,6 +875,7 @@ if (!app.requestSingleInstanceLock()) {
     app.on('browser-window-blur', syncMenuItems)
     windowEvents.on('activeTab', syncMenuItems)
     windowEvents.on('tabs', syncMenuItems)
+    windowEvents.on('changed', syncMenuItems)
     prefsEvents.on('change', syncMenuItems)
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

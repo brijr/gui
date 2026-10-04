@@ -18,9 +18,10 @@ let lastFocused: ProjectWindow | null = null
 
 /**
  * A window showed another tab, so menus that act on the active tab may now mean another; or
- * its tabs changed, which menus that act on its tabs follow.
+ * its tabs changed, which menus that act on its tabs follow; or its active tab changed in a
+ * way menus may follow (a permission card came or went).
  */
-export const windowEvents = new EventEmitter<{ activeTab: []; tabs: [] }>()
+export const windowEvents = new EventEmitter<{ activeTab: []; tabs: []; changed: [] }>()
 
 /** The window a page belongs to: its chrome, or one of its tabs' chat panels. */
 export function findWindow(sender: WebContents) {
@@ -266,7 +267,10 @@ export class ProjectWindow implements TabHost {
 
   tabChanged(tab: ProjectTab, stateChanged: boolean) {
     if (this.disposed || !this.list.includes(tab)) return
-    if (tab === this.active) this.syncTitle()
+    if (tab === this.active) {
+      this.syncTitle()
+      windowEvents.emit('changed')
+    }
     const strip = JSON.stringify(this.tabInfos())
     if ((stateChanged && tab === this.active) || strip !== this.sentTabs) this.sendState()
   }
