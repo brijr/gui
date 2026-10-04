@@ -12,6 +12,7 @@ export const Invoke = {
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
   signIn: 'agents:sign-in',
+  installAgent: 'agents:install',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -74,6 +75,8 @@ export interface GratApi {
   checkAgents(): void
   /** Runs the agent's sign-in flow (opens the browser) and re-checks it */
   signIn(agentId: AgentId): Promise<void>
+  /** Downloads the agent's CLI; progress and errors arrive through `WindowState.agents` */
+  installAgent(agentId: AgentId): Promise<void>
 
   navigate(url: string): void
   back(): void

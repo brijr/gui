@@ -32,13 +32,16 @@ files:
   # node-pty: only its JS and the darwin-arm64 prebuild are used at runtime.
   - "!**/node_modules/node-pty/{src,deps,third_party,scripts,typings,binding.gyp}"
   - "!**/node_modules/node-pty/prebuilds/{win32-*,darwin-x64}"
+  # The Claude Code and Codex CLIs (~530 MB) aren't shipped: Grat uses the user's own
+  # install, or downloads the exact version its adapters need (src/main/agent-binaries.ts).
+  - "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+  - "!**/node_modules/@openai/codex-*/**"
 
 asar: true
 # The agent adapters are spawned as `Grat -e "import('…/app.asar.unpacked/node_modules/…')"`
 # with ELECTRON_RUN_AS_NODE (src/main/agent.ts), and Node resolves their imports by walking
 # app.asar.unpacked/node_modules. So the adapters, their dependency trees, their peer deps
-# (@modelcontextprotocol/sdk, zod) and the native Claude/Codex binaries must all be real
-# files. Unpacking all of node_modules is the simplest setup that stays correct as the
+# (@modelcontextprotocol/sdk, zod) must all be real files. Unpacking all of node_modules is the simplest setup that stays correct as the
 # dependency graph changes. The app's own code (out/) stays in app.asar, which the asar
 # integrity fuse validates; unpacked files are covered only by the code signature seal.
 asarUnpack:
@@ -59,14 +62,6 @@ mac:
   hardenedRuntime: true
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
-  # Leave the bundled Claude Code and Codex CLIs with their vendor Developer ID signatures
-  # (hardened runtime, secure timestamp, their own JIT/library-validation entitlements).
-  # Re-signing them under our identity strips those entitlements and changes their
-  # keychain identity: Codex then needs approval to read its "Codex MCP Credentials"
-  # keychain items, and session/new hangs behind that prompt.
-  signIgnore:
-    - 'app\.asar\.unpacked/node_modules/@anthropic-ai/claude-agent-sdk-darwin-[^/]+/'
-    - 'app\.asar\.unpacked/node_modules/@openai/codex-darwin-[^/]+/'
   extendInfo:
     # Agents run arbitrary commands (osascript etc.); macOS attributes their Apple Events
     # to Grat and denies them unless Grat declares why it sends them.

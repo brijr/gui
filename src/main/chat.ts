@@ -20,6 +20,7 @@ import {
   type TurnStatus,
 } from '../shared/types'
 import { type AgentInfo, AgentSession, type PermissionResolver } from './agent'
+import { AgentMissingError } from './agent-binaries'
 import type { Checkpoints } from './checkpoints'
 import { HistoryWriter, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
@@ -553,7 +554,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     } catch (error) {
       if (this.agent === agent) {
         this.stopAgent()
-        this.patchMeta({ status: 'error', error: errorMessage(error) })
+        // The start screen's Agents list is where Grat installs a missing agent.
+        const hint =
+          error instanceof AgentMissingError ? ' Open a new window (⌘N) to set it up.' : ''
+        this.patchMeta({ status: 'error', error: `${errorMessage(error)}${hint}` })
       } else {
         agent.dispose()
       }

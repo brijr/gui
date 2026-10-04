@@ -10,12 +10,29 @@ export const AGENTS: readonly AgentInfo[] = [
   { id: 'codex', name: 'Codex' },
 ]
 
+/** Where an agent's CLI comes from: the user's own install, Grat's download, or dev's node_modules */
+export type AgentBinarySource = 'yours' | 'grat' | 'bundled'
+
 export interface AgentHealth {
   id: AgentId
-  status: 'unknown' | 'checking' | 'signing-in' | 'ready' | 'signed-out' | 'error'
+  status:
+    | 'unknown'
+    | 'checking'
+    | 'not-installed'
+    | 'installing'
+    | 'signing-in'
+    | 'ready'
+    | 'signed-out'
+    | 'error'
   message: string | null
   /** A sign-in flow Grat can start for this agent, when it offers one */
   signIn: { methodId: string; label: string } | null
+  /** Grat can download the agent's CLI: `update` when the user's own is incompatible */
+  install: 'install' | 'update' | null
+  /** Download progress while installing: bytes so far and total (null when unknown) */
+  progress: { received: number; total: number | null } | null
+  /** The CLI Grat runs for this agent, once found */
+  binary: { source: AgentBinarySource; version: string } | null
 }
 
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm'

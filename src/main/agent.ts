@@ -5,6 +5,7 @@ import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
 import type { AgentId } from '../shared/types'
+import { requireAgentBinary } from './agent-binaries'
 import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
@@ -35,28 +36,24 @@ const ADAPTERS: Record<AgentId, string> = {
   codex: '@agentclientprotocol/codex-acp',
 }
 
+/** Each adapter reads its CLI's location from the environment (see agent-binaries.ts). */
+const CLI_PATH_ENV: Record<AgentId, string> = {
+  claude: 'CLAUDE_CODE_EXECUTABLE',
+  codex: 'CODEX_PATH',
+}
+
 /**
  * Both adapters are Node programs; run them on Electron's bundled Node runtime.
  * The bootstrap drops ELECTRON_RUN_AS_NODE once Node is up, so it doesn't leak into
  * commands the agent runs (it would break any Electron binary they start).
  */
-function spawnSpec(id: AgentId): SpawnSpec {
+async function spawnSpec(id: AgentId): Promise<SpawnSpec> {
   const entry = pathToFileURL(join(packageDir(ADAPTERS[id]), 'dist/index.js')).href
   const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
-  const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' }
-  // codex-acp otherwise launches `process.execPath codex.js`, which in a packaged app
-  // is Grat itself, so point it at Codex's native binary.
-  if (id === 'codex') env.CODEX_PATH = codexBinary()
+  // Grat doesn't ship the agent CLIs: the user's own install or the copy Grat downloaded.
+  const binary = await requireAgentBinary(id)
+  const env = { ELECTRON_RUN_AS_NODE: '1', [CLI_PATH_ENV[id]]: binary.path }
   return { command: process.execPath, args: ['-e', bootstrap], env }
-}
-
-function codexBinary() {
-  const fromCodex = createRequire(require.resolve('@openai/codex/package.json'))
-  const pkg = dirname(
-    fromCodex.resolve(`@openai/codex-${process.platform}-${process.arch}/package.json`),
-  )
-  const triple = `${process.arch === 'arm64' ? 'aarch64' : 'x86_64'}-apple-darwin`
-  return join(pkg, 'vendor', triple, 'bin', 'codex').replace('app.asar', 'app.asar.unpacked')
 }
 
 export type PermissionResolver = (optionId: string | null) => void
@@ -88,6 +85,11 @@ export interface AuthMethod {
   id: string
   name: string
   description: string | null
+  /**
+   * Set for terminal sign-in: arguments for the agent's own program, which the client
+   * runs itself (ACP forbids passing these methods to `authenticate`).
+   */
+  terminalArgs: string[] | null
 }
 
 /** The agent is installed but needs the user to sign in. */
@@ -131,7 +133,7 @@ export class AgentSession {
   ) {}
 
   async start({ mcpServers, resumeSessionId, authenticate }: StartOptions): Promise<AgentInfo> {
-    const spec = spawnSpec(this.agentId)
+    const spec = await spawnSpec(this.agentId)
     const shellEnv = await getShellEnv()
     if (this.disposed) throw new Error('Agent was stopped')
     // Own process group, so dispose() can stop the agent and everything it started.
@@ -184,7 +186,12 @@ export class AgentSession {
     const init = await this.untilExit(
       agent.request(acp.methods.agent.initialize, {
         protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+          terminal: false,
+          // Grat runs terminal sign-in itself (agent-status.ts); Claude only offers it then.
+          auth: { terminal: true },
+        },
         clientInfo: { name: 'grat', version: '0.1.0' },
       }),
     )
@@ -221,11 +228,14 @@ export class AgentSession {
       }),
     ).catch((error: unknown) => {
       if (!isAuthError(error)) throw error
-      const methods = (init.authMethods ?? []).map((method) => ({
-        id: method.id,
-        name: method.name,
-        description: method.description ?? null,
-      }))
+      const methods = (init.authMethods ?? []).map(
+        (method): AuthMethod => ({
+          id: method.id,
+          name: method.name,
+          description: method.description ?? null,
+          terminalArgs: 'type' in method && method.type === 'terminal' ? (method.args ?? []) : null,
+        }),
+      )
       throw new AgentAuthError(signInMessage(this.agentId), methods)
     })
     this.sessionId = session.sessionId

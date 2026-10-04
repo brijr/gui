@@ -31,6 +31,7 @@ const api: GratApi = {
   setAgent: send(Send.setAgent),
   checkAgents: send(Send.checkAgents),
   signIn: (agentId) => ipcRenderer.invoke(Invoke.signIn, agentId),
+  installAgent: (agentId) => ipcRenderer.invoke(Invoke.installAgent, agentId),
 
   navigate: send(Send.navigate),
   back: send(Send.back),

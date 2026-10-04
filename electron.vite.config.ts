@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'electron-vite'
 import type { Plugin } from 'vite'
+import { agentBinaries } from './scripts/agent-binaries'
 
 /** Strict CSP for packaged builds; dev needs inline scripts for React Refresh. */
 const csp: Plugin = {
@@ -24,6 +25,8 @@ const csp: Plugin = {
 export default defineConfig({
   main: {
     build: { externalizeDeps: true },
+    // Agent CLIs aren't bundled; this pins the versions (and hashes) Grat downloads.
+    define: { __GRAT_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))) },
   },
   preload: {
     // Sandboxed preloads must be CommonJS.

@@ -1,6 +1,11 @@
 import { Check, FolderOpen, TriangleAlert } from 'lucide-react'
-import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { AGENTS, type AgentHealth, type WindowState } from '../../../shared/types'
+import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import {
+  AGENTS,
+  type AgentBinarySource,
+  type AgentHealth,
+  type WindowState,
+} from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, Spinner } from '../lib/ui'
@@ -224,13 +229,16 @@ function Agents({ state }: { state: WindowState }) {
 
 function AgentRow({ health, selected }: { health: AgentHealth; selected: boolean }) {
   const [error, setError] = useState<string | null>(null)
+  const nameId = useId()
   const name = AGENTS.find((agent) => agent.id === health.id)?.name ?? health.id
   const busy = health.status === 'checking' || health.status === 'signing-in'
+  const action = agentAction(health)
 
-  const signIn = async () => {
+  // Install and sign-in report failures through health; this catches IPC failures.
+  const perform = async (run: () => Promise<void>) => {
     setError(null)
     try {
-      await grat.signIn(health.id)
+      await run()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     }
@@ -252,23 +260,133 @@ function AgentRow({ health, selected }: { health: AgentHealth; selected: boolean
       </button>
       <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2">
-          <span className="font-medium">{name}</span>
+          <span id={nameId} className="font-medium">
+            {name}
+          </span>
           <AgentStatusLabel health={health} />
         </p>
-        {health.status !== 'ready' && (health.message || error) && (
-          <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">
-            {error ?? health.message}
-          </p>
-        )}
+        <AgentDetail health={health} name={name} error={error} />
       </div>
-      {health.signIn && health.status !== 'ready' && (
-        <Button disabled={busy} onClick={() => void signIn()}>
-          {health.status === 'signing-in' ? 'Waiting…' : health.signIn.label}
+      {action && (
+        <Button
+          className="shrink-0"
+          aria-describedby={nameId}
+          disabled={busy}
+          onClick={() => void perform(action.run)}
+        >
+          {action.label}
         </Button>
       )}
     </li>
   )
 }
+
+/** The row's one next step: installing the CLI comes before signing in. */
+function agentAction(health: AgentHealth): { label: string; run: () => Promise<void> } | null {
+  if (health.install) {
+    if (health.status === 'installing') return null
+    return { label: installLabel(health), run: () => grat.installAgent(health.id) }
+  }
+  if (health.signIn && health.status !== 'ready') {
+    return {
+      label: health.status === 'signing-in' ? 'Waiting…' : health.signIn.label,
+      run: () => grat.signIn(health.id),
+    }
+  }
+  return null
+}
+
+/** `install` stays set after a failed download, so the same button retries it. */
+function installLabel(health: AgentHealth) {
+  if (health.status === 'error') return 'Try again'
+  return health.install === 'update' ? "Install Grat's copy" : 'Install'
+}
+
+const BINARY_SOURCES: Record<AgentBinarySource, string> = {
+  yours: 'Your install',
+  grat: 'Installed by Grat',
+  bundled: 'Bundled (dev)',
+}
+
+function AgentDetail({
+  health,
+  name,
+  error,
+}: {
+  health: AgentHealth
+  name: string
+  error: string | null
+}) {
+  if (health.status === 'installing') {
+    return <InstallProgress name={name} progress={health.progress} />
+  }
+
+  if (health.status === 'ready') {
+    if (!health.binary) return null
+    const { source, version } = health.binary
+    return (
+      <p className="mt-0.5 select-text truncate text-[11.5px] text-subtle tabular-nums">
+        {BINARY_SOURCES[source]}
+        {version && ` · ${version}`}
+      </p>
+    )
+  }
+
+  const text = error ?? health.message
+  if (!text) return null
+  return <p className="mt-0.5 select-text text-pretty text-[12px] text-muted">{text}</p>
+}
+
+const megabytes = (bytes: number) => Math.round(bytes / 1e6)
+
+function progressText(received: number, total: number | null) {
+  if (received === 0) return 'Starting download…'
+  if (total === null) return `Downloading ${megabytes(received)} MB`
+  // The download is done; Grat is unpacking and checking it.
+  if (received >= total) return 'Finishing up…'
+  return `Downloading ${megabytes(received)} of ${megabytes(total)} MB`
+}
+
+function InstallProgress({ name, progress }: { name: string; progress: AgentHealth['progress'] }) {
+  const received = progress?.received ?? 0
+  const total = progress?.total ?? null
+  // Indeterminate until bytes arrive, and throughout when the server didn't send a size.
+  const fraction = received > 0 && total ? Math.min(received / total, 1) : null
+  const text = progressText(received, total)
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-1">
+      <div
+        role="progressbar"
+        aria-label={`Installing ${name}`}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
+        aria-valuetext={text}
+        className="h-1 overflow-hidden rounded-full bg-hover"
+      >
+        {fraction === null ? (
+          <div className="size-full animate-pulse bg-accent/40" />
+        ) : (
+          <div
+            className="size-full origin-left bg-accent transition-transform duration-150"
+            style={{ transform: `scaleX(${fraction})` }}
+          />
+        )}
+      </div>
+      {/* Read through the progress bar's value text */}
+      <p aria-hidden="true" className="text-[11.5px] text-subtle tabular-nums">
+        {text}
+      </p>
+    </div>
+  )
+}
+
+const PENDING_LABELS = {
+  checking: 'Checking',
+  'signing-in': 'Signing in',
+  installing: 'Installing',
+} as const
 
 function AgentStatusLabel({ health }: { health: AgentHealth }) {
   switch (health.status) {
@@ -276,11 +394,18 @@ function AgentStatusLabel({ health }: { health: AgentHealth }) {
       return <span className="text-[11.5px] text-success">Ready</span>
     case 'checking':
     case 'signing-in':
+    case 'installing':
       return (
         <span className="flex items-center gap-1.5 text-[11.5px] text-subtle">
           <Spinner className="size-2.5" />
-          {health.status === 'checking' ? 'Checking' : 'Signing in'}
+          {PENDING_LABELS[health.status]}
         </span>
+      )
+    case 'not-installed':
+      return health.install === 'update' ? (
+        <span className="text-[11.5px] text-warning">Needs update</span>
+      ) : (
+        <span className="text-[11.5px] text-subtle">Not installed</span>
       )
     case 'signed-out':
       return <span className="text-[11.5px] text-warning">Not signed in</span>

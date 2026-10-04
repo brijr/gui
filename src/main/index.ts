@@ -135,6 +135,10 @@ function registerIpc() {
     const agent = AGENTS.find((a) => a.id === agentId)
     if (agent) await agentHealth.signIn(agent.id)
   })
+  ipcMain.handle(Invoke.installAgent, async (_event, agentId: unknown) => {
+    const agent = AGENTS.find((a) => a.id === agentId)
+    if (agent) await agentHealth.install(agent.id)
+  })
 
   const on = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
