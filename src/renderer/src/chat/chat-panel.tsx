@@ -521,7 +521,8 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   const scroller = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
 
-  useEffect(() => {
+  // Before paint, so a message moving into the transcript lands where it ends up.
+  useLayoutEffect(() => {
     const el = scroller.current
     if (el && stick.current && turns.length) el.scrollTop = el.scrollHeight
   }, [turns])
@@ -541,6 +542,7 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
     <div
       ref={scroller}
       data-transcript
+      data-clip
       onScroll={(event) => {
         const el = event.currentTarget
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48

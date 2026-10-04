@@ -38,6 +38,7 @@ import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
 import { useChat, waitingCard } from './store'
+import { isNewRow, markSeen } from './transitions'
 
 type ToolItem = Extract<TurnItem, { kind: 'tool' }>
 type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
@@ -71,34 +72,66 @@ function plural(count: number, word: string) {
 export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   const blocks = toBlocks(turn.items)
   const running = turn.status === 'running'
+  const end = `${turn.id}:end`
   return (
     <article className="flex flex-col gap-3">
-      <UserMessage turn={turn} />
+      <Row rowKey={`${turn.id}:user`}>
+        <UserMessage turn={turn} />
+      </Row>
       <div className={cn('flex flex-col gap-3', turn.reverted && 'opacity-50')}>
         {blocks.map((block, index) => (
-          <BlockView
-            key={block.id}
-            block={block}
-            next={blocks[index + 1]}
-            turnId={turn.id}
-            live={running}
-            turnEnd={turn.endedAt}
-          />
+          <Row key={block.id} rowKey={block.id}>
+            <BlockView
+              block={block}
+              next={blocks[index + 1]}
+              turnId={turn.id}
+              live={running}
+              turnEnd={turn.endedAt}
+            />
+          </Row>
         ))}
         {running && <Working since={turn.startedAt} />}
         {turn.status === 'error' && (
-          <Note tone="error" detail={turn.errorDetail}>
-            {turn.error}
-          </Note>
+          <Row rowKey={end}>
+            <Note tone="error" detail={turn.errorDetail}>
+              {turn.error}
+            </Note>
+          </Row>
         )}
         {turn.status === 'cancelled' && (
-          <Badge icon={CircleSlash} className="self-start">
-            Stopped
-          </Badge>
+          <Row rowKey={end}>
+            <Badge icon={CircleSlash} className="self-start">
+              Stopped
+            </Badge>
+          </Row>
         )}
       </div>
-      {!running && <Result turn={turn} showRedo={showRedo} />}
+      {!running && (
+        <Row rowKey={end}>
+          <Result turn={turn} showRedo={showRedo} />
+        </Row>
+      )}
     </article>
+  )
+}
+
+/**
+ * A row of the transcript. It fades up once, when it first appears while the user watches;
+ * not when history loads or the panel comes back, and not as streaming text grows in it.
+ * Decided when it mounts, so later renders never cut the fade short.
+ */
+function Row({ rowKey, children }: { rowKey: string; children: ReactNode }) {
+  const [fresh] = useState(() => isNewRow(rowKey))
+  useEffect(() => markSeen([rowKey]), [rowKey])
+  return (
+    <div
+      className={cn(
+        'flex flex-col gap-3 empty:hidden',
+        fresh && 'animate-row-in motion-reduce:animate-row-fade',
+      )}
+    >
+      {children}
+    </div>
   )
 }
 
@@ -117,7 +150,10 @@ function UserMessage({ turn }: { turn: Turn }) {
           ))}
         </ul>
       )}
-      <p className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-1.5 text-fg">
+      <p
+        data-user-message={turn.id}
+        className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-1.5 text-fg"
+      >
         {turn.prompt}
       </p>
     </div>
@@ -558,7 +594,10 @@ function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: s
       : [X, 'text-subtle', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
   const firstLine = subject.split('\n')[0]
   return (
-    <p className="flex h-6 min-w-0 items-center gap-2 text-small text-muted">
+    <p
+      data-permission={item.id}
+      className="flex h-6 min-w-0 items-center gap-2 text-small text-muted"
+    >
       <Icon className={cn('size-3.5 shrink-0', tone)} aria-hidden="true" />
       <span className="shrink-0">{outcome}</span>
       <span
@@ -594,7 +633,13 @@ function Permission({
     ? 'These files control how the project builds or runs.'
     : 'This file controls how the project builds or runs.'
   return (
-    <Card tone="inset" as="section" aria-label={question} className="flex flex-col gap-3 p-3">
+    <Card
+      tone="inset"
+      as="section"
+      aria-label={question}
+      data-permission={item.id}
+      className="flex flex-col gap-3 p-3"
+    >
       <div className="flex min-w-0 items-start gap-2">
         <p className="min-w-0 flex-1 break-words font-semibold">{question}</p>
         {item.sensitive && (

@@ -19,7 +19,7 @@ import { AutoToggle } from './auto-toggle'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
 import { ModelButton } from './model-picker'
 import { QueuedMessages } from './queue'
-import { addAttachments, removeAttachments, setDraft, setNotice, useChat } from './store'
+import { addAttachments, noteSend, removeAttachments, setDraft, setNotice, useChat } from './store'
 import { elementLabel } from './turn-view'
 
 const NOTICE_MS = 5000
@@ -86,6 +86,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       thumbnail,
     }))
     sending.current = true
+    // Its turn (or queued message) rises out of the composer when main reports it.
+    noteSend(
+      text,
+      sent.map((image) => image.id),
+    )
     try {
       // Keep the draft unless main took it (started the turn or queued it).
       if (await gui.send(text, images)) {

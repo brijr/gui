@@ -4,11 +4,13 @@ import type {
   ChatMeta,
   ChatSnapshot,
   ImageAttachment,
+  QueuedMessage,
   Turn,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
 import { closeShipSheet, useShipSheet } from './ship-sheet'
+import { applyInOrder, type Move, markSeen, rowKeys, transition } from './transitions'
 
 interface ChatStore {
   meta: ChatMeta | null
@@ -102,10 +104,15 @@ function chooseModel() {
 }
 
 function applySnapshot(snapshot: ChatSnapshot) {
+  // History, not news: none of it fades in.
+  for (const turn of snapshot.turns) markSeen(rowKeys(turn))
+  markSeen(snapshot.meta.queue.map((item) => `queue:${item.id}`))
   useChat.setState({ meta: snapshot.meta, turns: snapshot.turns })
 }
 
 function upsertTurn(turn: Turn) {
+  // Whatever arrives while the transcript isn't drawn has no first appearance to show.
+  if (!transcriptShown()) markSeen(rowKeys(turn))
   useChat.setState(({ turns }) => {
     const index = turns.findIndex((t) => t.id === turn.id)
     if (index === -1) return { turns: [...turns, turn].sort((a, b) => a.index - b.index) }
@@ -115,11 +122,216 @@ function upsertTurn(turn: Turn) {
   })
 }
 
+function transcriptShown() {
+  const { meta, float } = useChat.getState()
+  return document.visibilityState === 'visible' && (meta?.docked || float.form === 'panel')
+}
+
+// Elements that move between states, by what they show.
+const composerInput = () => document.querySelector('[data-composer]')
+const userMessage = (turnId: string) => () =>
+  document.querySelector(`[data-user-message="${CSS.escape(turnId)}"]`)
+const queueItem = (id: string) => () =>
+  document.querySelector(`[data-queue-item="${CSS.escape(id)}"]`)
+const permission = (itemId: string) => () =>
+  document.querySelector(`[data-permission="${CSS.escape(itemId)}"]`)
+
+/** The message the composer just sent, until its turn or queued message arrives. */
+let sent: { prompt: string; images: string[]; at: number } | null = null
+/** How long a sent message waits for main's turn (or queued message) to rise into. */
+const SENT_WINDOW_MS = 3000
+
+/**
+ * The composer is sending `text` with the draft images `images` (by id): when main's turn or
+ * queued message for it arrives, it rises out of the composer as the composer clears.
+ */
+export function noteSend(text: string, images: string[]) {
+  sent = { prompt: text.trim(), images, at: performance.now() }
+}
+
+/** Takes the sent message if `prompt` is it, still fresh. */
+function takeSent(prompt: string) {
+  const match =
+    sent !== null &&
+    performance.now() - sent.at < SENT_WINDOW_MS &&
+    (sent.prompt === prompt || sent.prompt === '')
+  const taken = match ? sent : null
+  if (match) sent = null
+  return taken
+}
+
+/** Empties the composer of what was sent, unless the user has typed since. */
+function clearSent(prompt: string, images: string[]) {
+  const { draft } = useChat.getState()
+  if (draft.trim() === prompt) setDraft('')
+  removeAttachments(images)
+}
+
+/** Queued messages the user removed: they leave, rather than wait for a turn to move into. */
+const removing = new Set<string>()
+
+export function noteRemoveQueued(id: string) {
+  removing.add(id)
+}
+
+/**
+ * A queued message main just took off the queue to start its turn: the queue's update waits
+ * for that turn (main sends it next) so the message can move into the transcript.
+ */
+let starting: { meta: ChatMeta; item: QueuedMessage; timer: ReturnType<typeof setTimeout> } | null =
+  null
+/** Longer than main takes between the two; past it the queue updates on its own. */
+const STARTING_WAIT_MS = 150
+
+function releaseStarting() {
+  if (!starting) return null
+  clearTimeout(starting.timer)
+  const held = starting
+  starting = null
+  return held
+}
+
+/** Queued messages moving, entering and leaving between two queues. */
+function queueMoves(before: QueuedMessage[], after: QueuedMessage[]): Move[] {
+  const ids = new Set([...before, ...after].map((item) => item.id))
+  const known = new Set(before.map((item) => item.id))
+  const kept = new Set(after.map((item) => item.id))
+  return [...ids].map((id) => ({
+    name: `queue-${id}`,
+    from: known.has(id) ? queueItem(id) : () => null,
+    to: kept.has(id) ? queueItem(id) : () => null,
+  }))
+}
+
+function onMeta(meta: ChatMeta) {
+  const before = useChat.getState().meta?.queue ?? []
+  const after = meta.queue
+  const removed = before.filter((item) => !after.some((other) => other.id === item.id))
+  const added = after.filter((item) => !before.some((other) => other.id === item.id))
+  const apply = () => useChat.setState({ meta })
+
+  if (starting) {
+    // Newer news about the queue while its first message starts: wait on with the latest.
+    starting.meta = meta
+    return
+  }
+  const [first] = removed
+  const idle = !useChat.getState().turns.some((turn) => turn.status === 'running')
+  if (
+    first &&
+    removed.length === 1 &&
+    first.id === before[0]?.id &&
+    idle &&
+    !removing.has(first.id)
+  ) {
+    const timer = setTimeout(() => {
+      const held = releaseStarting()
+      if (held)
+        transition(() => useChat.setState({ meta: held.meta }), queueMoves(before, held.meta.queue))
+    }, STARTING_WAIT_MS)
+    starting = { meta, item: first, timer }
+    return
+  }
+  for (const item of removed) removing.delete(item.id)
+
+  if (removed.length === 0 && added.length === 0) {
+    applyInOrder(apply)
+    return
+  }
+  const moves = queueMoves(before, after)
+  const [newest] = added
+  const message = newest && takeSent(newest.prompt)
+  if (newest && message) {
+    // Sent while the agent works: it rises from the composer into the queue.
+    const index = moves.findIndex((move) => move.name === `queue-${newest.id}`)
+    moves[index] = { name: `queue-${newest.id}`, from: composerInput, to: queueItem(newest.id) }
+    transition(
+      () => {
+        apply()
+        clearSent(message.prompt, message.images)
+      },
+      moves,
+      [`queue:${newest.id}`],
+    )
+    return
+  }
+  transition(
+    apply,
+    moves,
+    added.map((item) => `queue:${item.id}`),
+  )
+}
+
+function onTurn(turn: Turn) {
+  const existing = useChat.getState().turns.find((t) => t.id === turn.id)
+  if (!existing) {
+    const held = starting?.item.prompt === turn.prompt ? releaseStarting() : null
+    if (held) {
+      // The queued message becomes the new turn's message.
+      transition(
+        () => {
+          useChat.setState({ meta: held.meta })
+          upsertTurn(turn)
+        },
+        [
+          { name: 'chat-message', from: queueItem(held.item.id), to: userMessage(turn.id) },
+          ...queueMoves(useChat.getState().meta?.queue ?? [], held.meta.queue).filter(
+            (move) => move.name !== `queue-${held.item.id}`,
+          ),
+        ],
+        [`${turn.id}:user`],
+      )
+      return
+    }
+    const message = turn.status === 'running' ? takeSent(turn.prompt) : null
+    if (message) {
+      transition(
+        () => {
+          upsertTurn(turn)
+          clearSent(message.prompt, message.images)
+        },
+        [{ name: 'chat-message', from: composerInput, to: userMessage(turn.id) }],
+        [`${turn.id}:user`],
+      )
+      return
+    }
+    applyInOrder(() => upsertTurn(turn))
+    return
+  }
+  // A permission card answered (or expired) collapses into the line that records it.
+  const answered = turn.items.filter(
+    (item) =>
+      item.kind === 'permission' &&
+      item.resolved !== null &&
+      existing.items.some(
+        (old) => old.id === item.id && old.kind === 'permission' && old.resolved === null,
+      ),
+  )
+  if (answered.length === 0) {
+    applyInOrder(() => upsertTurn(turn))
+    return
+  }
+  transition(
+    () => upsertTurn(turn),
+    answered.map((item, i) => ({
+      name: `chat-permission-${i}`,
+      from: permission(item.id),
+      to: permission(item.id),
+    })),
+  )
+}
+
+function onReset(snapshot: ChatSnapshot) {
+  releaseStarting()
+  sent = null
+  applyInOrder(() => applySnapshot(snapshot))
+}
+
 export function connectChat() {
   const offs = [
-    gui.onChatMeta((meta) => useChat.setState({ meta })),
-    gui.onChatTurn(upsertTurn),
-    gui.onChatReset(applySnapshot),
+    gui.onChatMeta(onMeta),
+    gui.onChatTurn(onTurn),
+    gui.onChatReset(onReset),
     // Here rather than in the composer, which isn't mounted while the panel is minimized.
     gui.onChatAttach(attachFromMain),
     gui.onChatFloat((float) => {

@@ -107,6 +107,24 @@
   );
   --default-transition-duration: var(--motion-press);
   --default-transition-timing-function: var(--ease-out);
+
+  /* A transcript row (a step, a card, a notice) arriving while the user watches; with reduced
+     motion, a short fade in place. */
+  --animate-row-in: row-in var(--motion-pop) var(--ease-out);
+  --animate-row-fade: row-fade var(--motion-fade) linear;
+
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+
+  @keyframes row-fade {
+    from {
+      opacity: 0;
+    }
+  }
 }
 
 /*
@@ -308,6 +326,18 @@ html.transparent body {
     /* biome-ignore lint/complexity/noImportantStyles: reduced motion must override component styles */
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Moves between chat states (chat/transitions.ts): what moves rides the default spring, the
+   rest of the panel cross-fades quickly underneath. */
+::view-transition-group(*) {
+  animation-duration: var(--motion-spring);
+  animation-timing-function: var(--ease-spring);
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--motion-pop);
 }
 
 .markdown > * + * {
