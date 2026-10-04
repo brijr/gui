@@ -6,7 +6,7 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
 
 - macOS (Apple Silicon tested)
 - [Bun](https://bun.sh) 1.4+
-- A signed-in agent CLI login: **Claude Code** (`claude`, then log in) and/or **Codex** (`codex login`). Grat bundles the ACP adapters for both and reuses your existing logins.
+- **Claude Code** and/or **Codex**. Grat uses your installed CLI and its login when the version matches; otherwise the start screen installs it and runs its sign-in.
 - git (Xcode Command Line Tools) — used for per-turn checkpoints
 
 ## Run
@@ -16,7 +16,9 @@ bun install
 bun run dev
 ```
 
-Open a project folder (⌘O). Grat detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. To open a project on launch: `GRAT_OPEN=/path/to/project bun run dev`.
+Open a project folder (⌘O). Grat detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. A fresh clone just works: Grat installs missing dependencies (in the same confirmation), asks which app to preview in a monorepo, and offers to create `.env.local` from `.env.example`. To open a project on launch: `GRAT_OPEN=/path/to/project bun run dev`.
+
+In the chat, paste or drop reference images ("make it look like this"); the agent sees them. When you're happy, the pull-request button in the chat header commits the changes to a new branch, pushes it, and opens the pull request (with `gh` when it's signed in, otherwise GitHub's or GitLab's new-PR page). Env files and keys are never committed.
 
 | Action | Shortcut |
 | --- | --- |

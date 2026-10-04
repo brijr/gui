@@ -61,15 +61,46 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
 /** Nothing was running when the app quit, so open permission prompts can't be answered. */
 function settleTurn(turn: Turn, before: string | null): Turn {
   const items = turn.items.map(settleItem)
-  if (turn.status !== 'running') return { ...turn, items }
+  const attachments = settleAttachments(turn.attachments)
+  if (turn.status !== 'running') return { ...turn, items, attachments }
   return {
     ...turn,
     items,
+    attachments,
     status: 'cancelled',
     endedAt: turn.startedAt,
     // Its edits were never diffed, but its starting checkpoint can still undo them.
     ...(before && turn.changes === null ? { changesUnknown: true } : {}),
   }
+}
+
+/** Same limits main puts on attachments when they're sent (see `isImage` in index.ts). */
+const THUMBNAIL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+const MAX_THUMBNAIL = 256 * 1024
+const MAX_NAME = 200
+
+type Attachment = NonNullable<Turn['attachments']>[number]
+
+function isAttachment(value: unknown): value is Attachment {
+  if (!value || typeof value !== 'object') return false
+  const { name, thumbnail } = value as Record<string, unknown>
+  return (
+    typeof name === 'string' &&
+    name.length <= MAX_NAME &&
+    typeof thumbnail === 'string' &&
+    thumbnail.length <= MAX_THUMBNAIL &&
+    THUMBNAIL.test(thumbnail)
+  )
+}
+
+/**
+ * History only ever holds thumbnails, but the file is just JSON on disk: keep the
+ * attachments that are exactly that and drop anything else.
+ */
+function settleAttachments(value: unknown): Turn['attachments'] {
+  if (!Array.isArray(value)) return undefined
+  const valid = value.filter(isAttachment).map(({ name, thumbnail }) => ({ name, thumbnail }))
+  return valid.length ? valid : undefined
 }
 
 function settleItem(item: TurnItem): TurnItem {

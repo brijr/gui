@@ -1,24 +1,87 @@
-import { ArrowUp, Crosshair, Square, TriangleAlert, X } from 'lucide-react'
-import { type FormEvent, type KeyboardEvent, useEffect, useRef } from 'react'
+import { ArrowUp, Crosshair, ImagePlus, Square, TriangleAlert, X } from 'lucide-react'
+import {
+  type ClipboardEvent,
+  type DragEvent,
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import type { ChatMeta } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { IconButton, Spinner } from '../lib/ui'
-import { setDraft, useChat } from './store'
+import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
+import { addAttachments, removeAttachments, setDraft, useChat } from './store'
 import { elementLabel } from './turn-view'
+
+const NOTICE_MS = 5000
+
+const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 
 export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }) {
   // The draft lives in the store: docking, floating and minimizing remount this component.
   const text = useChat((s) => s.draft)
+  const attachments = useChat((s) => s.attachments)
   const input = useRef<HTMLTextAreaElement>(null)
+  const picker = useRef<HTMLInputElement>(null)
+  /** Images still being downscaled; a ref so overlapping pastes count each other. */
+  const processing = useRef(0)
+  const [pending, setPending] = useState(0)
+  const [dropping, setDropping] = useState(false)
+  /** Why a file wasn't attached; quiet and short-lived. */
+  const [notice, setNotice] = useState<string | null>(null)
 
   useEffect(() => grat.onChatFocus(() => input.current?.focus()), [])
+  useEffect(() => {
+    if (!notice) return
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS)
+    return () => clearTimeout(timer)
+  }, [notice])
+
+  const canSend = (text.trim() !== '' || attachments.length > 0) && pending === 0
+
+  /** One at a time, in order: decoding several large images at once can spike memory. */
+  const attach = async (files: Iterable<File>) => {
+    const { images, rejected } = imageFiles(files)
+    const room = Math.max(
+      0,
+      MAX_IMAGES - useChat.getState().attachments.length - processing.current,
+    )
+    const accepted = images.slice(0, room)
+    setNotice(images.length > room ? `Up to ${MAX_IMAGES} images per message.` : (rejected ?? null))
+    processing.current += accepted.length
+    setPending(processing.current)
+    for (const file of accepted) {
+      try {
+        addAttachments([await prepareImage(file)])
+      } catch (error) {
+        setNotice(error instanceof ImageError ? error.message : `Couldn't attach ${file.name}.`)
+      } finally {
+        processing.current -= 1
+        setPending(processing.current)
+      }
+    }
+  }
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault()
-    if (!text.trim() || running) return
+    if (!canSend || running) return
+    const sent = attachments
+    const images = sent.map(({ name, mimeType, data, thumbnail }) => ({
+      name,
+      mimeType,
+      data,
+      thumbnail,
+    }))
     // Keep the draft unless main actually started the turn.
-    if (await grat.send(text)) setDraft('')
+    if (await grat.send(text, images)) {
+      setDraft('')
+      // Only what went out: an image attached while sending stays for the next message.
+      removeAttachments(sent.map((image) => image.id))
+      setNotice(null)
+    }
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -30,8 +93,45 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     }
   }
 
+  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = [...event.clipboardData.files]
+    if (imageFiles(files).images.length === 0) return
+    // Rich copies carry text along with the image; paste it as usual. Finder's copied
+    // file names (one per line) are the exception: they'd only clutter the message.
+    const names = new Set(files.map((file) => file.name))
+    const lines = event.clipboardData.getData('text/plain').split(/[\r\n]+/)
+    if (lines.every((line) => !line.trim() || names.has(line.trim()))) event.preventDefault()
+    void attach(files)
+  }
+
+  const onDragOver = (event: DragEvent<HTMLFormElement>) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'copy'
+    setDropping(true)
+  }
+
+  const onDragLeave = (event: DragEvent<HTMLFormElement>) => {
+    const next = event.relatedTarget
+    if (next instanceof Node && event.currentTarget.contains(next)) return
+    setDropping(false)
+  }
+
+  const onDrop = (event: DragEvent<HTMLFormElement>) => {
+    if (!hasFiles(event)) return
+    event.preventDefault()
+    setDropping(false)
+    void attach([...event.dataTransfer.files])
+  }
+
   return (
-    <form onSubmit={(event) => void submit(event)} className="shrink-0 border-t border-line p-2">
+    <form
+      onSubmit={(event) => void submit(event)}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      className="shrink-0 border-t border-line p-2"
+    >
       <AgentStatus meta={meta} />
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
       {meta.selectionError && (
@@ -54,21 +154,85 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           </IconButton>
         </div>
       )}
-      <div className="rounded-lg border border-line-strong bg-raised focus-within:border-accent">
+      {notice && (
+        <p role="status" className="mb-2 px-1 text-[12px] text-muted">
+          {notice}
+        </p>
+      )}
+      <div
+        className={cn(
+          'rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent',
+          dropping && 'border-accent bg-accent-soft',
+        )}
+      >
+        {(attachments.length > 0 || pending > 0) && (
+          <ul aria-label="Attached images" className="flex flex-wrap gap-1.5 px-2 pt-2">
+            {attachments.map((image) => (
+              <li key={image.id} className="relative">
+                <img
+                  src={image.thumbnail}
+                  alt={image.name}
+                  title={image.name}
+                  className="size-12 rounded-md border border-line bg-canvas object-cover"
+                />
+                <button
+                  type="button"
+                  aria-label={`Remove ${image.name}`}
+                  title="Remove"
+                  onClick={() => removeAttachments([image.id])}
+                  className="absolute -top-1.5 -right-1.5 flex size-4 items-center justify-center rounded-full border border-line-strong bg-raised text-muted hover:text-fg"
+                >
+                  <X className="size-2.5" aria-hidden="true" />
+                </button>
+              </li>
+            ))}
+            {pending > 0 && (
+              <li className="flex size-12 items-center justify-center rounded-md border border-line bg-surface text-subtle">
+                <Spinner className="size-3" />
+                <span className="sr-only">Preparing image</span>
+              </li>
+            )}
+          </ul>
+        )}
         <textarea
           ref={input}
           value={text}
           rows={1}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           aria-label={`Message ${meta.agentName}`}
-          placeholder={meta.selection ? 'Describe the change…' : `Ask ${meta.agentName}…`}
+          placeholder={
+            meta.selection || attachments.length > 0
+              ? 'Describe the change…'
+              : `Ask ${meta.agentName}…`
+          }
           className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-[13px] text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
         <div className="flex items-center gap-1 px-1.5 pb-1.5">
           <IconButton label="Select element (⇧⌘C)" onClick={() => grat.toggleSelect()}>
             <Crosshair className="size-3.5" />
           </IconButton>
+          <IconButton
+            label="Attach images"
+            disabled={attachments.length + pending >= MAX_IMAGES}
+            onClick={() => picker.current?.click()}
+          >
+            <ImagePlus className="size-3.5" />
+          </IconButton>
+          <input
+            ref={picker}
+            type="file"
+            accept="image/*"
+            multiple
+            hidden
+            onChange={(event) => {
+              const files = [...(event.target.files ?? [])]
+              // Cleared so choosing the same file again still fires a change.
+              event.target.value = ''
+              void attach(files)
+            }}
+          />
           <span className="ml-auto" />
           {running ? (
             <button
@@ -85,10 +249,10 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               type="submit"
               aria-label="Send"
               title="Send (↵)"
-              disabled={!text.trim()}
+              disabled={!canSend}
               className={cn(
                 'flex size-7 items-center justify-center rounded-md transition-colors',
-                text.trim() ? 'bg-accent text-accent-fg hover:opacity-90' : 'bg-hover text-subtle',
+                canSend ? 'bg-accent text-accent-fg hover:opacity-90' : 'bg-hover text-subtle',
               )}
             >
               <ArrowUp className="size-4" aria-hidden="true" />

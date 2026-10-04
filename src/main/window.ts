@@ -1,10 +1,12 @@
-import { join } from 'node:path'
+import { execFile } from 'node:child_process'
+import { join, posix } from 'node:path'
 import {
   app,
   BrowserWindow,
   dialog,
   Menu,
   type MenuItemConstructorOptions,
+  type MessageBoxOptions,
   nativeTheme,
   shell,
   type WebContents,
@@ -17,11 +19,17 @@ import {
   type AgentId,
   type ChatSnapshot,
   type DevServerState,
+  type ImageAttachment,
   type PreviewState,
   type ProjectInfo,
+  type ProjectSetup,
   type Rect,
+  type ShipInfo,
+  type ShipRequest,
+  type ShipResult,
   type Viewport,
   type WindowState,
+  type WorkspaceApp,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { ChatController } from './chat'
@@ -34,10 +42,20 @@ import { type RunningMcpServer, startMcpServer } from './mcp-server'
 import { getPrefs, setPrefs } from './prefs'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
-import { detectProject } from './project'
+import { detectProject, readPackageJson } from './project'
 import { addRecent, loadRecent } from './recent'
+import {
+  createEnvFile,
+  detectEnv,
+  detectSetup,
+  envFile,
+  installCommand,
+  missingPackageManager,
+  settleSetup,
+} from './setup'
 import { getShellEnv } from './shell-env'
-import { isTrusted, trust } from './trust'
+import { ship, shipInfo } from './ship'
+import { isTrusted, promptName, promptText, trust } from './trust'
 
 const TOOLBAR_HEIGHT = 44
 const PANEL = { width: 400, height: 640 }
@@ -48,6 +66,8 @@ const REHIGHLIGHT_DELAY_MS = 900
 /** Transparent margin around the floating panel so its shadow isn't clipped. */
 const SHADOW = 18
 const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobile: 390 }
+/** Package scripts an install runs from the project's own package.json. */
+const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
 const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')
 
@@ -117,6 +137,12 @@ export class ProjectWindow {
   private rehighlightShown = false
   /** Bumped when a turn starts or a pick lands; a re-highlight from before must not show. */
   private rehighlightGeneration = 0
+  /** The monorepo's apps, for "Switch app…"; empty outside a monorepo. */
+  private apps: WorkspaceApp[] = []
+  /** The dev server whose setup (consent, install, start) is in flight, so it runs once. */
+  private settingUp: DevServer | null = null
+  /** The dev server switching to a picked app; further picks wait for it. */
+  private switchingApp: DevServer | null = null
 
   constructor() {
     this.state = {
@@ -138,6 +164,7 @@ export class ProjectWindow {
       logsOpen: false,
       recent: [],
       agents: agentHealth.list(),
+      setup: null,
     }
 
     this.win = new BrowserWindow({
@@ -247,18 +274,25 @@ export class ProjectWindow {
     const current = () => !this.disposed && generation === this.openGeneration
     try {
       const file = await historyFile(root)
-      const [project, env, saved] = await Promise.all([
-        detectProject(root),
+      const [{ project, apps }, env, saved] = await Promise.all([
+        detectProject(root, getPrefs().apps[root] ?? null),
         getShellEnv(),
         loadHistory(file),
       ])
+      // Several apps and none picked yet: nothing runs until the user chooses one.
+      const choosing = !project.appDir && apps.length > 1
+      const setup = await detectSetup(project, choosing ? apps : null)
       if (!current()) return
 
       const tools = new PreviewTools({
         wc: this.preview.webContents,
         inspector: this.inspector,
         problems: this.problems,
-        projectRoot: () => this.state.project?.root ?? null,
+        inspectNode: (backendNodeId) => {
+          const project = this.state.project
+          if (!project) return Promise.reject(new Error('No project is open'))
+          return this.inspectElement(backendNodeId, project, { screenshot: false })
+        },
         devOrigin: () => this.devOrigin(),
         currentUrl: () => this.state.preview.url,
         navigate: (url) => this.loadPreview(url),
@@ -312,43 +346,93 @@ export class ProjectWindow {
       this.patch({ agentId: chat.meta.agentId })
       this.sendChat(Events.chatReset, chat.snapshot())
 
-      const devServer = new DevServer(root)
+      // The agent, checkpoints and history stay at the root; only the dev server moves into the app.
+      const devServer = new DevServer(appRoot(project))
       devServer.on('data', (chunk) => this.send(Events.logs, chunk))
       devServer.on('line', (line) => this.problems.addServerLine(line))
       devServer.on('change', (state) => this.onDevServer(state))
       devServer.on('stalled', () => this.patch({ logsOpen: true }))
       this.devServer = devServer
+      this.apps = apps
 
       this.win.setTitle(project.name)
       this.win.setRepresentedFilename(root)
-      this.patch({ project, devServer: devServer.state, logsOpen: !project.devCommand })
+      this.patch({
+        project,
+        setup,
+        devServer: devServer.state,
+        logsOpen: !project.devCommand && !choosing,
+      })
       this.layout()
 
       const recent = await addRecent({ root, name: project.name })
       if (!current()) return
       this.patch({ recent })
-      if (project.devCommand && (await this.confirmDevScript(project)) && current()) {
-        void devServer.start(project.devCommand)
-      }
+      void this.setUpAndStart()
     } finally {
       if (generation === this.openGeneration) this.opening = null
     }
   }
 
-  /** Opening a folder must not run its scripts until the user has seen them once. */
-  private async confirmDevScript(project: ProjectInfo) {
+  /**
+   * Opening a folder must not run its scripts until the user has seen them once.
+   * Installing runs package scripts too, so it's agreed to in the same dialog.
+   */
+  private async confirmScripts(project: ProjectInfo, install: boolean) {
     if (await isTrusted(project.root)) return true
+    // Scripts and folder names come from the project: shown cleaned up and cut short.
+    const devCommand = project.appDir
+      ? `${project.devCommand} in ${promptName(project.appDir)}`
+      : project.devCommand
+    const script = promptText(project.devScript ?? project.devCommand ?? '')
+    if (!install) {
+      return this.askToTrust(project.root, {
+        message: `Run ${devCommand}?`,
+        detail: `Grat starts the project's dev server to preview it. This runs:\n\n${script}\n\nOnly run scripts from projects you trust.`,
+        buttons: ['Run dev server', 'Not now'],
+      })
+    }
+    const scripts = (await readPackageJson(project.root))?.scripts
+    const installs = INSTALL_SCRIPTS.flatMap((name) => {
+      const body = scripts?.[name]
+      return typeof body === 'string' && body.trim() ? [`${name}: ${promptText(body)}`] : []
+    })
+    const installing = installs.length ? `Installing runs:\n\n${installs.join('\n\n')}\n\n` : ''
+    return this.askToTrust(project.root, {
+      message: `Install dependencies and run ${devCommand}?`,
+      detail: `Grat will install dependencies (${installCommand(project.packageManager)}) and start the dev server (${devCommand}) to preview the project. ${installing}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
+      buttons: ['Install and run', 'Not now'],
+    })
+  }
+
+  /**
+   * Git runs the repository's own hooks, and even `git status` can run a command set in
+   * its config (`core.fsmonitor`), so it waits for trust like the project's scripts do.
+   */
+  private async confirmGit(root: string) {
+    if (await isTrusted(root)) return true
+    return this.askToTrust(root, {
+      message: 'Create a pull request?',
+      detail:
+        "Grat runs Git in this project, which also runs the project's own Git hooks. Only continue for projects you trust.",
+      buttons: ['Continue', 'Cancel'],
+    })
+  }
+
+  /** The trust prompt; agreeing trusts the project from then on. */
+  private async askToTrust(root: string, options: MessageBoxOptions) {
     if (this.disposed) return false
     const { response } = await dialog.showMessageBox(this.win, {
       type: 'question',
-      message: `Run ${project.devCommand}?`,
-      detail: `Grat starts the project's dev server to preview it. This runs:\n\n${project.devScript ?? project.devCommand}\n\nOnly run scripts from projects you trust.`,
-      buttons: ['Run dev server', 'Not now'],
       defaultId: 0,
       cancelId: 1,
+      ...options,
     })
     if (response !== 0) return false
-    await trust(project.root)
+    // If it can't be saved, this run still goes ahead and the next one asks again.
+    await trust(root).catch((error: unknown) => {
+      console.error('[grat] failed to trust the project', error)
+    })
     return true
   }
 
@@ -356,6 +440,7 @@ export class ProjectWindow {
     this.cancelRehighlight()
     this.devServer?.dispose()
     this.devServer = null
+    this.apps = []
     this.chat?.dispose()
     this.chat = null
     this.mcp?.close()
@@ -366,6 +451,7 @@ export class ProjectWindow {
     this.preview.webContents.loadURL('about:blank').catch(() => undefined)
     this.patch({
       project: null,
+      setup: null,
       devServer: idleDevServer(),
       preview: { ...this.state.preview, url: null, error: null, visible: false, selecting: false },
     })
@@ -373,12 +459,9 @@ export class ProjectWindow {
 
   // Dev server
 
-  /** Starting from the UI is an explicit choice, so it also trusts the project. */
+  /** From the UI; an untrusted project still shows its scripts and asks first. */
   startDevServer() {
-    const project = this.state.project
-    if (!project?.devCommand) return
-    void trust(project.root)
-    void this.devServer?.start(project.devCommand)
+    void this.setUpAndStart()
   }
 
   stopDevServer() {
@@ -559,11 +642,11 @@ export class ProjectWindow {
   private async onPick(nodeId: number) {
     this.patchPreview({ selecting: false })
     const generation = ++this.pickGeneration
-    const root = this.state.project?.root
+    const project = this.state.project
     const chat = this.chat
-    if (!root || !chat || !isLoopback(this.preview.webContents.getURL())) return
+    if (!project || !chat || !isLoopback(this.preview.webContents.getURL())) return
     try {
-      const element = await this.inspector.inspect(nodeId, root, this.devOrigin())
+      const element = await this.inspectElement(nodeId, project)
       if (generation !== this.pickGeneration || chat !== this.chat) return
       chat.setSelection(element)
       this.focusChat()
@@ -580,14 +663,189 @@ export class ProjectWindow {
     }
   }
 
+  /**
+   * Inspects a picked element, with its source path relative to the repo root (where the
+   * agent works). A monorepo app's dev server reports paths relative to the app's folder
+   * (Vite's `/src/App.tsx`), so resolve there first; files in shared packages outside the
+   * app only resolve from the root.
+   */
+  private async inspectElement(
+    nodeId: number,
+    project: ProjectInfo,
+    options: { screenshot?: boolean } = {},
+  ) {
+    const { root, appDir } = project
+    const origin = this.devOrigin()
+    if (!appDir) return this.inspector.inspect(nodeId, root, origin, options)
+    const element = await this.inspector.inspect(nodeId, appRoot(project), origin, options)
+    if (element.source) {
+      return {
+        ...element,
+        source: { ...element.source, file: posix.join(appDir, element.source.file) },
+      }
+    }
+    const { source } = await this.inspector.inspect(nodeId, root, origin, { screenshot: false })
+    return { ...element, source }
+  }
+
   private devOrigin() {
     return this.state.devServer.url ? originOf(this.state.devServer.url) : null
   }
 
   // Chat
 
-  sendChatMessage(text: string) {
-    return this.chat?.send(text) ?? false
+  sendChatMessage(text: string, images: ImageAttachment[]) {
+    return this.chat?.send(text, images) ?? false
+  }
+
+  // Shipping (src/main/ship.ts)
+
+  async getShipInfo(): Promise<ShipInfo | null> {
+    const root = this.state.project?.root
+    const chat = this.chat
+    if (!root || !chat) return null
+    if (!(await this.confirmGit(root))) return cancelledShipInfo()
+    if (chat !== this.chat) return null
+    const prompts = chat
+      .snapshot()
+      .turns.filter((turn) => turn.status === 'done' && !turn.reverted)
+      .map((turn) => turn.prompt)
+    const info = await shipInfo(root, prompts)
+    if (chat.busy && !info.blocked)
+      return { ...info, blocked: 'Wait for the agent to finish first.' }
+    return info
+  }
+
+  async ship(request: ShipRequest): Promise<ShipResult> {
+    const root = this.state.project?.root
+    if (!root) throw new Error('No project is open.')
+    if (this.chat?.busy) throw new Error('Wait for the agent to finish first.')
+    if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
+    if (this.state.project?.root !== root) throw new Error('No project is open.')
+    return ship(root, request)
+  }
+
+  // Project setup (WindowState.setup)
+
+  /** Runs the picked monorepo app from now on, and remembers it for this project. */
+  chooseApp(dir: string) {
+    const project = this.state.project
+    if (!project || !this.apps.some((app) => app.dir === dir)) return
+    if (this.devServer && this.switchingApp === this.devServer) return
+    setPrefs({ apps: { ...getPrefs().apps, [project.root]: dir } })
+    void this.runApp(dir)
+  }
+
+  /** The canvas's button for a project that isn't set up yet, and "Try again" after a failure. */
+  installDependencies() {
+    void this.setUpAndStart()
+  }
+
+  async createEnvFile() {
+    const root = this.state.project?.root
+    const env = this.state.setup?.env
+    if (!root || !env) return
+    if (!env.created) {
+      try {
+        await createEnvFile(root, env)
+      } catch (error) {
+        console.error('[grat] failed to create the env file', error)
+        return
+      }
+      if (this.state.project?.root !== root) return
+      this.patchSetup({ env: { ...env, created: true } })
+    }
+    this.openEnvFile()
+  }
+
+  openEnvFile() {
+    const root = this.state.project?.root
+    const env = this.state.setup?.env
+    if (!root || !env?.created) return
+    void envFile(root, env.target).then(
+      // Always as text in the default text editor: `shell.openPath` would hand the file to
+      // whatever app its type maps to.
+      (path) => execFile('/usr/bin/open', ['-t', path], () => undefined),
+      (error: unknown) => console.error('[grat] not opening the env file', error),
+    )
+  }
+
+  /**
+   * Gets the project running: installs dependencies if they're missing, then starts the
+   * dev server. An untrusted project asks first, whether it's opening or the user clicked.
+   */
+  private async setUpAndStart() {
+    const { project, setup } = this.state
+    const devServer = this.devServer
+    if (!project?.devCommand || !devServer || setup?.apps) return
+    if (this.settingUp === devServer || setup?.dependencies === 'installing') return
+    this.settingUp = devServer
+    try {
+      const install = setup?.dependencies === 'missing' || setup?.dependencies === 'failed'
+      if (!(await this.confirmScripts(project, install))) return
+      if (devServer !== this.devServer) return
+      if (install && !(await this.install(devServer, project))) return
+      await devServer.start(project.devCommand)
+    } finally {
+      if (this.settingUp === devServer) this.settingUp = null
+    }
+  }
+
+  /** Installs at the (workspace) root, streaming into the logs. True when it succeeded. */
+  private async install(devServer: DevServer, project: ProjectInfo) {
+    this.patchSetup({ dependencies: 'installing' })
+    const missing = await missingPackageManager(project.packageManager, await getShellEnv())
+    if (devServer !== this.devServer) return false
+    const code = missing
+      ? null
+      : await devServer.runTask(installCommand(project.packageManager), project.root)
+    if (devServer !== this.devServer) return false
+    if (missing) devServer.print(missing)
+    if (code === 0) {
+      this.patchSetup({ dependencies: 'ok' })
+      return true
+    }
+    this.patchSetup({ dependencies: 'failed' })
+    this.patch({ logsOpen: true })
+    return false
+  }
+
+  /** Switches the dev server to another monorepo app, then sets it up and starts it. */
+  private async runApp(dir: string) {
+    const devServer = this.devServer
+    const root = this.state.project?.root
+    if (!devServer || !root) return
+    this.switchingApp = devServer
+    try {
+      await devServer.stopAndWait()
+      const { project } = await detectProject(root, dir)
+      const env = await detectEnv(root, project.appDir)
+      if (devServer !== this.devServer) return
+      devServer.setCwd(appRoot(project))
+      this.patch({ project, setup: this.nextSetup({ apps: null, env }) })
+    } finally {
+      if (this.switchingApp === devServer) this.switchingApp = null
+    }
+    await this.setUpAndStart()
+  }
+
+  /** "Switch app…": stops the current app and asks again. */
+  private showAppChooser() {
+    this.devServer?.stop()
+    void this.inspector.clearHighlight()
+    this.preview.setVisible(false)
+    this.preview.webContents.loadURL('about:blank').catch(() => undefined)
+    this.patchPreview({ url: null, error: null, visible: false, selecting: false })
+    this.patchSetup({ apps: this.apps })
+  }
+
+  private patchSetup(patch: Partial<ProjectSetup>) {
+    this.patch({ setup: this.nextSetup(patch) })
+  }
+
+  private nextSetup(patch: Partial<ProjectSetup>) {
+    const setup = this.state.setup ?? { apps: null, dependencies: 'ok', env: null }
+    return settleSetup({ ...setup, ...patch })
   }
 
   cancelChat() {
@@ -859,6 +1117,15 @@ export class ProjectWindow {
           ]
         : []),
       { type: 'separator' },
+      ...(this.apps.length > 1
+        ? [
+            {
+              label: 'Switch app…',
+              enabled: !this.state.setup?.apps && this.state.setup?.dependencies !== 'installing',
+              click: () => this.showAppChooser(),
+            },
+          ]
+        : []),
       {
         label: 'Reveal in Finder',
         enabled: this.hasProject,
@@ -926,6 +1193,24 @@ function guardAppContents(wc: WebContents) {
     openExternal(url)
     return { action: 'deny' }
   })
+}
+
+/** What the ship sheet shows when the user didn't let Grat run Git. */
+function cancelledShipInfo(): ShipInfo {
+  return {
+    blocked: 'Cancelled.',
+    branch: null,
+    onDefaultBranch: false,
+    files: [],
+    skipped: [],
+    remote: null,
+    suggestion: { branch: '', title: '', body: '' },
+  }
+}
+
+/** Where the dev server runs: a monorepo app's folder, or the project root. */
+function appRoot(project: ProjectInfo) {
+  return project.appDir ? join(project.root, project.appDir) : project.root
 }
 
 function originOf(url: string) {

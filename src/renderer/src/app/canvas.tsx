@@ -1,14 +1,17 @@
-import { Check, FolderOpen, TriangleAlert } from 'lucide-react'
+import { Check, ChevronRight, FolderOpen, KeyRound, TriangleAlert, X } from 'lucide-react'
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import {
   AGENTS,
   type AgentBinarySource,
   type AgentHealth,
+  type ProjectSetup,
   type WindowState,
+  type WorkspaceApp,
 } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Button, Spinner } from '../lib/ui'
+import { readableError } from '../lib/errors'
+import { Button, IconButton, Spinner } from '../lib/ui'
 
 /**
  * The preview is a native view layered over this element; we report our bounds so
@@ -48,10 +51,51 @@ export function Canvas({ state }: { state: WindowState }) {
   )
 }
 
+/**
+ * Everything between opening a project and seeing its preview: picking the app,
+ * installing, starting, and what went wrong. One card, one next step.
+ */
 function CanvasMessage({ state }: { state: WindowState }) {
-  const { project, devServer, preview } = state
+  const { project, devServer, preview, setup } = state
 
   if (!project) return <EmptyState state={state} />
+
+  if (setup?.apps) return <AppChooser apps={setup.apps} />
+
+  // Offered alongside whatever else the card says; the app may run without it.
+  const env = setup?.env && <EnvRow env={setup.env} />
+
+  if (setup?.dependencies === 'installing') {
+    return (
+      <Message
+        icon={<Spinner className="size-4 text-muted" />}
+        title="Installing dependencies…"
+        detail="Getting the project ready to run. The first time can take a few minutes."
+        action={<OutputToggle open={state.logsOpen} />}
+        footer={env}
+      />
+    )
+  }
+
+  if (setup?.dependencies === 'failed') {
+    return (
+      <Message
+        icon={<TriangleAlert className="size-5 text-danger" aria-hidden="true" />}
+        title="Couldn't install dependencies"
+        detail={devServer.lastLine || 'The install stopped with an error.'}
+        mono
+        action={
+          <>
+            <Button variant="primary" onClick={() => grat.installDependencies()}>
+              Try again
+            </Button>
+            <OutputToggle open={state.logsOpen} />
+          </>
+        }
+        footer={env}
+      />
+    )
+  }
 
   if (preview.error) {
     return (
@@ -60,6 +104,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="The preview couldn't load"
         detail={preview.error}
         action={<Button onClick={() => grat.reload()}>Retry</Button>}
+        footer={env}
       />
     )
   }
@@ -71,6 +116,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title={devServer.status === 'starting' ? 'Starting dev server' : 'Loading preview'}
         detail={devServer.lastLine || devServer.command || ''}
         mono
+        footer={env}
       />
     )
   }
@@ -83,6 +129,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         detail={devServer.lastLine || `Exit code ${devServer.exitCode}`}
         mono
         action={<Button onClick={() => grat.restartDevServer()}>Restart</Button>}
+        footer={env}
       />
     )
   }
@@ -92,6 +139,23 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <Message
         title="No dev script found"
         detail="Add a dev script to package.json, or enter your app's URL in the address bar."
+      />
+    )
+  }
+
+  // Not installed yet, and the user hasn't agreed to run anything (or said "Not now").
+  // The button asks first unless the project is already trusted.
+  if (setup?.dependencies === 'missing' && devServer.status === 'idle') {
+    return (
+      <Message
+        title="This project needs a quick setup"
+        detail="Grat will install its packages and start it, which runs the project's own scripts."
+        action={
+          <Button variant="primary" onClick={() => grat.installDependencies()}>
+            Install and start
+          </Button>
+        }
+        footer={env}
       />
     )
   }
@@ -107,11 +171,20 @@ function CanvasMessage({ state }: { state: WindowState }) {
             Start dev server
           </Button>
         }
+        footer={env}
       />
     )
   }
 
   return null
+}
+
+function Card({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-line bg-surface p-5 text-center">
+      {children}
+    </div>
+  )
 }
 
 interface MessageProps {
@@ -120,19 +193,137 @@ interface MessageProps {
   detail: string
   mono?: boolean
   action?: ReactNode
+  /** A quiet extra row under a divider */
+  footer?: ReactNode
 }
 
-function Message({ icon, title, detail, mono, action }: MessageProps) {
+function Message({ icon, title, detail, mono, action, footer }: MessageProps) {
   return (
-    <div className="flex max-w-md flex-col items-center gap-2 text-center">
-      {icon}
-      <p className="font-medium text-[13px]">{title}</p>
-      {detail && (
-        <p className={mono ? 'line-clamp-3 font-mono text-[11px] text-subtle' : 'text-muted'}>
-          {detail}
+    <Card>
+      <div className="flex flex-col items-center gap-2">
+        {icon}
+        <p className="font-medium text-[13px]">{title}</p>
+        {detail && (
+          <p
+            className={
+              mono
+                ? 'line-clamp-3 select-text break-words font-mono text-[11px] text-subtle'
+                : 'text-pretty text-muted'
+            }
+          >
+            {detail}
+          </p>
+        )}
+        {action && <div className="mt-2 flex items-center gap-2">{action}</div>}
+      </div>
+      {footer}
+    </Card>
+  )
+}
+
+function OutputToggle({ open }: { open: boolean }) {
+  return (
+    <Button variant="ghost" aria-expanded={open} onClick={() => grat.setLogsOpen(!open)}>
+      {open ? 'Hide output' : 'Show output'}
+    </Button>
+  )
+}
+
+function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
+  return (
+    <Card>
+      <div className="flex flex-col gap-1">
+        <p className="font-medium text-[13px]">Which app should Grat preview?</p>
+        <p className="text-pretty text-muted">
+          This project has {apps.length} apps. You can switch later from the project menu.
         </p>
-      )}
-      {action && <div className="mt-2">{action}</div>}
+      </div>
+      <ul className="flex flex-col divide-y divide-line overflow-hidden rounded-lg border border-line bg-raised text-left">
+        {apps.map((app) => (
+          <li key={app.dir}>
+            <button
+              type="button"
+              onClick={() => grat.chooseApp(app.dir)}
+              className="flex w-full items-center gap-3 px-3 py-2 text-left hover:bg-hover focus-visible:-outline-offset-2"
+            >
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{app.name}</span>
+                <span className="block truncate font-mono text-[11px] text-subtle">{app.dir}</span>
+              </span>
+              <ChevronRight className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+type EnvSetup = NonNullable<ProjectSetup['env']>
+
+const fileName = (path: string) => path.slice(path.lastIndexOf('/') + 1)
+
+function EnvText({ env }: { env: EnvSetup }) {
+  const code = 'font-mono text-[11px] text-fg'
+  if (env.created) {
+    return (
+      <>
+        Add your values to <span className={code}>{fileName(env.target)}</span> and save it.
+      </>
+    )
+  }
+  return (
+    <>
+      This project uses environment variables. Create{' '}
+      <span className={code}>{fileName(env.target)}</span> from{' '}
+      <span className={code}>{fileName(env.example)}</span>?
+    </>
+  )
+}
+
+function EnvButton({ env }: { env: EnvSetup }) {
+  return env.created ? (
+    <Button className="shrink-0" title={env.target} onClick={() => grat.openEnvFile()}>
+      Open
+    </Button>
+  ) : (
+    <Button className="shrink-0" title={env.target} onClick={() => grat.createEnvFile()}>
+      Create
+    </Button>
+  )
+}
+
+/** The env file offer inside the setup card. */
+function EnvRow({ env }: { env: EnvSetup }) {
+  return (
+    <div className="flex items-center gap-3 border-t border-line pt-4 text-left">
+      <KeyRound className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+      <p className="min-w-0 flex-1 text-pretty text-[12px] text-muted">
+        <EnvText env={env} />
+      </p>
+      <EnvButton env={env} />
+    </div>
+  )
+}
+
+/**
+ * The same offer as a slim bar above the preview once it's up, since many apps start
+ * without their env and only break later. Dismissed for the rest of the session.
+ */
+export function EnvBanner({ state }: { state: WindowState }) {
+  const [dismissed, setDismissed] = useState(false)
+  const env = state.setup?.env
+  if (!env || dismissed || !state.preview.visible) return null
+  return (
+    <div className="flex h-9 shrink-0 items-center gap-2.5 border-b border-line bg-surface pr-1.5 pl-3">
+      <KeyRound className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+      <p className="min-w-0 flex-1 truncate text-[12px] text-muted">
+        <EnvText env={env} />
+      </p>
+      <EnvButton env={env} />
+      <IconButton label="Dismiss" onClick={() => setDismissed(true)}>
+        <X className="size-3.5" />
+      </IconButton>
     </div>
   )
 }
@@ -240,7 +431,7 @@ function AgentRow({ health, selected }: { health: AgentHealth; selected: boolean
     try {
       await run()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setError(readableError(err))
     }
   }
 

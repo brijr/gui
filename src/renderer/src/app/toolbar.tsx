@@ -30,9 +30,15 @@ export function Toolbar({ state }: { state: WindowState }) {
       <button
         type="button"
         onClick={() => grat.showProjectMenu()}
-        className="no-drag flex h-7 max-w-48 items-center gap-1 rounded-md px-2 font-semibold hover:bg-hover"
+        className="no-drag flex h-7 max-w-64 items-center gap-1 rounded-md px-2 font-semibold hover:bg-hover"
       >
         <span className="truncate">{project?.name ?? 'Grat'}</span>
+        {/* The monorepo app being previewed */}
+        {project?.appDir && (
+          <span className="truncate font-normal text-subtle">
+            / {project.appDir.slice(project.appDir.lastIndexOf('/') + 1)}
+          </span>
+        )}
         <ChevronDown className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
       </button>
 
@@ -114,9 +120,13 @@ export function Toolbar({ state }: { state: WindowState }) {
 }
 
 function DevServerPill({ state }: { state: WindowState }) {
-  const { status, url, exitCode } = state.devServer
-  const label =
-    status === 'running' && url
+  const { url, exitCode } = state.devServer
+  // Installing runs before the dev server, in the same terminal.
+  const installing = state.setup?.dependencies === 'installing'
+  const status = installing ? 'starting' : state.devServer.status
+  const label = installing
+    ? 'Installing…'
+    : status === 'running' && url
       ? new URL(url).host
       : status === 'starting'
         ? 'Starting…'

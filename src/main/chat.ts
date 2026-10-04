@@ -13,6 +13,7 @@ import {
   type ChatMeta,
   type ChatSnapshot,
   type ElementContext,
+  type ImageAttachment,
   type Problem,
   type ToolStatus,
   type Turn,
@@ -81,6 +82,10 @@ const RESET_SETTLE_MS = 5000
 const OVERWRITE_LIST_MAX = 8
 
 const FIX_PROMPT = 'The preview has errors. Find the cause and fix them.'
+
+/** What an image sent without text asks for; also what the transcript and history show. */
+const imagePrompt = (count: number) =>
+  `Use the attached ${count === 1 ? 'image' : 'images'} as a reference.`
 
 /** Readable labels for Grat's own preview tools, which agents report by raw MCP name. */
 const PREVIEW_TOOL_LABELS: Record<string, string> = {
@@ -263,9 +268,17 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return this.startTurn(FIX_PROMPT, true)
   }
 
-  /** Starts a turn. Returns false (and does nothing) when another operation is in progress. */
-  send(text: string): boolean {
-    return this.startTurn(text, false)
+  /** Whether a turn, undo or redo is in progress. */
+  get busy() {
+    return this.lock !== null
+  }
+
+  /**
+   * Starts a turn. Returns false (and does nothing) when another operation is in progress.
+   * Images alone are a complete message: they're sent with a default prompt.
+   */
+  send(text: string, images: ImageAttachment[] = []): boolean {
+    return this.startTurn(text, false, images)
   }
 
   async cancel() {
@@ -391,8 +404,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /** `fix` turns carry the current problems and leave the pending selection alone. */
-  private startTurn(text: string, fix: boolean): boolean {
-    const prompt = text.trim()
+  private startTurn(text: string, fix: boolean, images: ImageAttachment[] = []): boolean {
+    const prompt = text.trim() || (images.length ? imagePrompt(images.length) : '')
     if (!prompt || this.lock || this.disposed) return false
 
     const selection = fix ? null : this.meta.selection
@@ -408,6 +421,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
         startedAt: Date.now(),
         endedAt: null,
         changes: null,
+        // Thumbnails only: the full images go to the agent and are never kept.
+        ...(images.length
+          ? { attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })) }
+          : {}),
         reverted: false,
       },
       before: null,
@@ -422,7 +439,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.flushTurn(record)
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
     const problems = fix ? this.meta.problems : []
-    record.settled = this.runTurn(record, selection, problems, this.epoch)
+    record.settled = this.runTurn(record, selection, problems, images, this.epoch)
     return true
   }
 
@@ -430,6 +447,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     record: TurnRecord,
     selection: ElementContext | null,
     problems: Problem[],
+    images: ImageAttachment[],
     epoch: number,
   ) {
     const live = () => this.epoch === epoch
@@ -449,6 +467,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // New work makes the previous undo unrecoverable by redo.
       this.redoPoint = null
       this.patchMeta({ status: 'working', redoTurnIds: [] })
+      // buildPrompt drops them too; the turn still runs on the text.
+      if (images.length && !info.supportsImages) {
+        const what = images.length === 1 ? "image wasn't" : "images weren't"
+        this.pushItem(record, {
+          kind: 'notice',
+          id: randomUUID(),
+          tone: 'error',
+          text: `${this.meta.agentName} can't see images, so the attached ${what} sent.`,
+        })
+      }
       const preamble = this.primedAgent !== agent
       const blocks = buildPrompt({
         text: record.turn.prompt,
@@ -458,6 +486,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         preamble,
         tools: this.agentHasTools,
         images: info.supportsImages,
+        attachments: images,
       })
       const response = await agent.prompt(blocks)
       status = response.stopReason === 'cancelled' ? 'cancelled' : 'done'

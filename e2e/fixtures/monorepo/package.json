@@ -1,0 +1,12 @@
+{
+  "name": "grat-e2e-monorepo",
+  "private": true,
+  "packageManager": "bun@1.2.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun run --filter '*' dev"
+  }
+}

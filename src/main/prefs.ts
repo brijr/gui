@@ -6,11 +6,22 @@ import type { AgentId } from '../shared/types'
 export interface Prefs {
   agentId: AgentId
   chatDocked: boolean
+  /** The app each monorepo previews: project root → app dir relative to it */
+  apps: Record<string, string>
 }
 
-const DEFAULTS: Prefs = { agentId: 'claude', chatDocked: false }
+const DEFAULTS: Prefs = { agentId: 'claude', chatDocked: false, apps: {} }
 const file = () => join(app.getPath('userData'), 'prefs.json')
 let cached: Prefs | null = null
+
+function stringRecord(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+}
 
 export function getPrefs(): Prefs {
   if (cached) return cached
@@ -19,9 +30,10 @@ export function getPrefs(): Prefs {
     cached = {
       agentId: parsed.agentId === 'codex' ? 'codex' : 'claude',
       chatDocked: parsed.chatDocked === true,
+      apps: stringRecord(parsed.apps),
     }
   } catch {
-    cached = { ...DEFAULTS }
+    cached = { ...DEFAULTS, apps: {} }
   }
   return cached
 }

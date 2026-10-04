@@ -1,0 +1,11 @@
+{
+  "name": "docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun server.js"
+  },
+  "dependencies": {
+    "@grat-e2e/ui": "workspace:*"
+  }
+}

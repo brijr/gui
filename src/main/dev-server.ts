@@ -36,10 +36,15 @@ export interface DevServerEvents {
   line: [line: string]
 }
 
-/** Runs the project's dev script in a real PTY and detects when its URL is reachable. */
+/**
+ * Runs the project's dev script in a real PTY and detects when its URL is reachable.
+ * One-off setup commands (installing dependencies) run in the same terminal before it.
+ */
 export class DevServer extends EventEmitter<DevServerEvents> {
   state: DevServerState = { status: 'idle', command: null, url: null, exitCode: null, lastLine: '' }
   private proc: IPty | null = null
+  /** Settles when `proc` has exited and its exit has been handled. */
+  private exited: Promise<void> = Promise.resolve()
   private log = ''
   /** Incomplete last line of output; URLs and escape codes can span PTY reads. */
   private partial = ''
@@ -48,13 +53,21 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private size = { cols: 120, rows: 30 }
   private run = 0
   private stopping = false
+  /** A one-off command is running; its output isn't the dev server's. */
+  private task = false
 
-  constructor(private readonly cwd: string) {
+  /** `cwd` is where the dev script runs: the project root, or a monorepo app's folder. */
+  constructor(private cwd: string) {
     super()
   }
 
   logs() {
     return this.log
+  }
+
+  /** Takes effect on the next start. */
+  setCwd(cwd: string) {
+    this.cwd = cwd
   }
 
   async start(command: string) {
@@ -63,30 +76,18 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const env = await getShellEnv()
     if (run !== this.run) return
 
-    this.stopping = false
-    this.partial = ''
-    this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
-    this.update({ status: 'starting', command, url: null, exitCode: null })
-
+    // The last line so far belongs to an earlier run or the install.
+    this.pendingLastLine = null
+    this.update({ status: 'starting', command, url: null, exitCode: null, lastLine: '' })
     let proc: IPty
     try {
-      proc = spawnPty(env.SHELL || '/bin/zsh', ['-lc', command], {
-        name: 'xterm-256color',
-        cols: this.size.cols,
-        rows: this.size.rows,
-        cwd: this.cwd,
-        env: { ...env, FORCE_COLOR: '1', BROWSER: 'none', TERM: 'xterm-256color' },
-      })
+      proc = this.spawn(command, this.cwd, env, run, false)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.write(`${ESC}[31mCouldn't start the dev server: ${message}${ESC}[0m\r\n`)
       this.update({ status: 'exited', exitCode: null, lastLine: `Couldn't start: ${message}` })
       return
     }
-    this.proc = proc
-    proc.onData((chunk) => {
-      if (run === this.run) this.onData(chunk)
-    })
     proc.onExit(({ exitCode }) => {
       if (run !== this.run) return
       this.proc = null
@@ -99,6 +100,42 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     })
   }
 
+  /**
+   * Runs a one-off command (e.g. `bun install`) in `cwd` while the dev server is stopped,
+   * streaming into the same log. Resolves with its exit code; null if it couldn't start,
+   * was stopped, or was superseded.
+   */
+  async runTask(command: string, cwd: string): Promise<number | null> {
+    if (this.proc) return null
+    const run = ++this.run
+    const env = await getShellEnv()
+    if (run !== this.run) return null
+
+    let proc: IPty
+    try {
+      proc = this.spawn(command, cwd, env, run, true)
+    } catch (error) {
+      this.print(`Couldn't run ${command}: ${error instanceof Error ? error.message : error}`)
+      return null
+    }
+    return new Promise((resolve) => {
+      proc.onExit(({ exitCode, signal }) => {
+        if (run !== this.run) return resolve(null)
+        this.proc = null
+        this.write(`\r\n${ESC}[2m[process exited with code ${exitCode}]${ESC}[0m\r\n`)
+        resolve(signal || this.stopping ? null : exitCode)
+      })
+    })
+  }
+
+  /** A message from Grat itself, shown in the log and as the status line. */
+  print(message: string) {
+    this.write(`${ESC}[33m${message}${ESC}[0m\r\n`)
+    // Output coalesced before it must not replace it.
+    this.pendingLastLine = null
+    this.update({ lastLine: message })
+  }
+
   stop() {
     const proc = this.proc
     if (!proc) return
@@ -109,21 +146,18 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     }, 3000)
   }
 
+  /** Stops whatever is running and resolves once it has exited. */
+  async stopAndWait() {
+    if (!this.proc) return
+    const exited = this.exited
+    this.stop()
+    await exited
+  }
+
   async restart() {
     const command = this.state.command
     if (!command) return
-    if (this.proc) {
-      const exited = new Promise<void>((resolve) => {
-        const onChange = (state: DevServerState) => {
-          if (state.status === 'running' || state.status === 'starting') return
-          this.off('change', onChange)
-          resolve()
-        }
-        this.on('change', onChange)
-      })
-      this.stop()
-      await exited
-    }
+    await this.stopAndWait()
     await this.start(command)
   }
 
@@ -145,12 +179,35 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.removeAllListeners()
   }
 
+  /** Runs `command` in the user's login shell on a fresh PTY; throws if it can't start. */
+  private spawn(command: string, cwd: string, env: NodeJS.ProcessEnv, run: number, task: boolean) {
+    this.stopping = false
+    this.task = task
+    this.partial = ''
+    this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
+    const proc = spawnPty(env.SHELL || '/bin/zsh', ['-lc', command], {
+      name: 'xterm-256color',
+      cols: this.size.cols,
+      rows: this.size.rows,
+      cwd,
+      env: { ...env, FORCE_COLOR: '1', BROWSER: 'none', TERM: 'xterm-256color' },
+    })
+    this.proc = proc
+    // Registered before the caller's exit handler, which has run by the time this settles.
+    this.exited = new Promise((resolve) => proc.onExit(() => resolve()))
+    proc.onData((chunk) => {
+      if (run === this.run) this.onData(chunk)
+    })
+    return proc
+  }
+
   private onData(chunk: string) {
     this.write(chunk)
     const parts = (this.partial + chunk).split(/\r\n|\n|\r/)
     this.partial = (parts.pop() ?? '').slice(-8000)
     const lines = parts.map((line) => stripAnsi(line).trim()).filter(Boolean)
-    for (const line of lines) this.emit('line', line)
+    // Install output isn't a problem with the app.
+    if (!this.task) for (const line of lines) this.emit('line', line)
     const last = lines.at(-1)
     if (last) this.setLastLine(last)
 

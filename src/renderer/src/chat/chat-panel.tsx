@@ -1,4 +1,5 @@
 import {
+  GitPullRequest,
   GripHorizontal,
   Maximize2,
   Minus,
@@ -13,6 +14,7 @@ import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { Composer } from './composer'
+import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
 import { connectChat, useChat } from './store'
 import { TurnView } from './turn-view'
 
@@ -22,6 +24,8 @@ export function ChatPanel() {
   useEffect(() => connectChat(), [])
   const meta = useChat((s) => s.meta)
   const turns = useChat((s) => s.turns)
+  // "Create pull request" takes over the transcript and composer until it's closed.
+  const shipping = useShipSheet((s) => s.open)
   if (!meta) return null
 
   const running = turns.some((turn) => turn.status === 'running')
@@ -30,8 +34,14 @@ export function ChatPanel() {
     return (
       <div className="flex h-dvh flex-col border-l border-line bg-raised">
         <Header meta={meta} />
-        <Transcript turns={turns} meta={meta} />
-        <Composer meta={meta} running={running} />
+        {shipping ? (
+          <ShipSheet />
+        ) : (
+          <>
+            <Transcript turns={turns} meta={meta} />
+            <Composer meta={meta} running={running} />
+          </>
+        )}
       </div>
     )
   }
@@ -48,8 +58,14 @@ export function ChatPanel() {
           )}
         >
           <Header meta={meta} />
-          <Transcript turns={turns} meta={meta} />
-          <Composer meta={meta} running={running} />
+          {shipping ? (
+            <ShipSheet />
+          ) : (
+            <>
+              <Transcript turns={turns} meta={meta} />
+              <Composer meta={meta} running={running} />
+            </>
+          )}
         </div>
       )}
     </div>
@@ -105,6 +121,8 @@ function StatusDot({ meta, running }: { meta: ChatMeta; running: boolean }) {
 
 function Header({ meta }: { meta: ChatMeta }) {
   const running = meta.status === 'working'
+  const shipping = useShipSheet((s) => s.open)
+  const shipBusy = useShipSheet((s) => s.busy)
   return (
     <div
       onPointerDown={meta.docked ? undefined : onDragStart}
@@ -124,6 +142,14 @@ function Header({ meta }: { meta: ChatMeta }) {
         </span>
       )}
       <div className="ml-auto flex items-center">
+        <IconButton
+          label="Create pull request"
+          active={shipping}
+          disabled={shipBusy}
+          onClick={toggleShipSheet}
+        >
+          <GitPullRequest className="size-3.5" />
+        </IconButton>
         <IconButton label="New chat (⇧⌘K)" onClick={() => grat.newSession()}>
           <SquarePen className="size-3.5" />
         </IconButton>

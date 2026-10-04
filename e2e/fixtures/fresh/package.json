@@ -1,0 +1,12 @@
+{
+  "name": "grat-e2e-fresh",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.2.0",
+  "scripts": {
+    "dev": "bun server.js"
+  },
+  "dependencies": {
+    "greeting": "file:./vendor/greeting"
+  }
+}

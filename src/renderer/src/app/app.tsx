@@ -1,5 +1,5 @@
 import { useWindowState } from '../lib/use-window-state'
-import { Canvas } from './canvas'
+import { Canvas, EnvBanner } from './canvas'
 import { Logs } from './logs'
 import { Toolbar } from './toolbar'
 
@@ -9,6 +9,8 @@ export function App() {
   return (
     <div className="flex h-dvh flex-col">
       <Toolbar state={state} />
+      {/* Outside the canvas, so the preview is laid out below it. Keyed so a dismissal is per project. */}
+      <EnvBanner key={state.project?.root} state={state} />
       <Canvas state={state} />
       <Logs state={state} />
     </div>

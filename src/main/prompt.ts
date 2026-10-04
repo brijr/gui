@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { ContentBlock } from '@agentclientprotocol/sdk'
-import type { ElementContext, Problem } from '../shared/types'
+import type { ElementContext, ImageAttachment, Problem } from '../shared/types'
 
 const INTRO = `You are working inside Grat, a visual design tool. The user sees their app running live in a browser preview backed by its dev server with hot reload. They select elements in the preview and ask for interface changes.`
 
@@ -41,7 +41,10 @@ interface PromptOptions {
   preamble: boolean
   /** Whether the session has Grat's preview tools */
   tools: boolean
+  /** Whether the agent accepts image blocks; without it, no image is sent */
   images: boolean
+  /** Reference images the user attached to this message */
+  attachments: ImageAttachment[]
 }
 
 export function buildPrompt({
@@ -51,6 +54,7 @@ export function buildPrompt({
   preamble: withPreamble,
   tools,
   images,
+  attachments,
 }: PromptOptions): ContentBlock[] {
   const blocks: ContentBlock[] = []
   if (withPreamble) blocks.push({ type: 'text', text: preamble(tools) })
@@ -61,6 +65,12 @@ export function buildPrompt({
     if (image) blocks.push({ type: 'image', ...image })
   }
   blocks.push({ type: 'text', text })
+  if (images && attachments.length) {
+    const count =
+      attachments.length === 1 ? 'a reference image' : `${attachments.length} reference images`
+    blocks.push({ type: 'text', text: `The user attached ${count} to this message:` })
+    for (const { mimeType, data } of attachments) blocks.push({ type: 'image', mimeType, data })
+  }
   return blocks
 }
 

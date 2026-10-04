@@ -23,6 +23,7 @@ import { useEffect, useState } from 'react'
 import type { ElementContext, Turn, TurnItem } from '../../../shared/types'
 import { grat } from '../lib/api'
 import { cn } from '../lib/cn'
+import { readableError } from '../lib/errors'
 import { Button, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
 
@@ -75,6 +76,22 @@ function UserMessage({ turn }: { turn: Turn }) {
   return (
     <div className="flex flex-col items-end gap-1">
       {turn.context && <ElementChip element={turn.context} />}
+      {turn.attachments && turn.attachments.length > 0 && (
+        <ul aria-label="Attached images" className="flex max-w-[88%] flex-wrap justify-end gap-1">
+          {turn.attachments.map((image, i) => (
+            // Thumbnails have no id and names repeat (every paste is "image.png").
+            // biome-ignore lint/suspicious/noArrayIndexKey: the list never reorders
+            <li key={i}>
+              <img
+                src={image.thumbnail}
+                alt={image.name}
+                title={image.name}
+                className="size-14 rounded-md border border-line bg-canvas object-cover"
+              />
+            </li>
+          ))}
+        </ul>
+      )}
       <p className="max-w-[88%] whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-2.5 py-1.5 text-fg">
         {turn.prompt}
       </p>
@@ -279,11 +296,7 @@ function TurnFooter({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
     try {
       await action()
     } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message.replace(/^Error invoking remote method '[^']+': /, '')
-          : String(err),
-      )
+      setError(readableError(err))
     } finally {
       setBusy(false)
     }

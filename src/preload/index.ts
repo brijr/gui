@@ -32,6 +32,10 @@ const api: GratApi = {
   checkAgents: send(Send.checkAgents),
   signIn: (agentId) => ipcRenderer.invoke(Invoke.signIn, agentId),
   installAgent: (agentId) => ipcRenderer.invoke(Invoke.installAgent, agentId),
+  chooseApp: send(Send.chooseApp),
+  installDependencies: send(Send.installDependencies),
+  createEnvFile: send(Send.createEnvFile),
+  openEnvFile: send(Send.openEnvFile),
 
   navigate: send(Send.navigate),
   back: send(Send.back),
@@ -49,7 +53,7 @@ const api: GratApi = {
   onChatTurn: (cb) => subscribe(Events.chatTurn, cb),
   onChatReset: (cb) => subscribe(Events.chatReset, cb),
   onChatFocus: (cb) => subscribe(Events.chatFocus, cb),
-  send: (text) => ipcRenderer.invoke(Invoke.send, text),
+  send: (text, images) => ipcRenderer.invoke(Invoke.send, text, images),
   cancel: send(Send.cancel),
   respondPermission: send(Send.respondPermission),
   restoreTurn: (turnId) => ipcRenderer.invoke(Invoke.restoreTurn, turnId),
@@ -61,6 +65,8 @@ const api: GratApi = {
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
   dragChat: send(Send.dragChat),
   endDragChat: send(Send.endDragChat),
+  getShipInfo: () => ipcRenderer.invoke(Invoke.shipInfo),
+  ship: (request) => ipcRenderer.invoke(Invoke.ship, request),
 }
 
 contextBridge.exposeInMainWorld('grat', api)

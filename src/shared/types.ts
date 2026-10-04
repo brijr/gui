@@ -44,6 +44,31 @@ export interface ProjectInfo {
   devCommand: string | null
   /** Body of the package.json script devCommand runs */
   devScript: string | null
+  /** In a monorepo, the app the dev server runs in (POSIX path relative to root); null for the root */
+  appDir: string | null
+}
+
+/** An app inside a monorepo that Grat can preview */
+export interface WorkspaceApp {
+  /** POSIX path relative to the project root */
+  dir: string
+  name: string
+}
+
+/**
+ * What a project needs before its dev server can run, shown in the canvas until the
+ * preview is up. Null when there's nothing to do.
+ */
+export interface ProjectSetup {
+  /** Set when a monorepo has several apps and none is chosen yet (see `chooseApp`) */
+  apps: WorkspaceApp[] | null
+  /** `installing` streams into the logs; `failed` offers a retry */
+  dependencies: 'ok' | 'missing' | 'installing' | 'failed'
+  /**
+   * An env example file exists but no local env file does. `target` is the file
+   * `createEnvFile` writes (gitignored), `created` once it has.
+   */
+  env: { example: string; target: string; created: boolean } | null
 }
 
 export interface RecentProject {
@@ -86,6 +111,7 @@ export interface WindowState {
   logsOpen: boolean
   recent: RecentProject[]
   agents: AgentHealth[]
+  setup: ProjectSetup | null
 }
 
 export interface Rect {
@@ -199,10 +225,64 @@ export interface Turn {
   changes: FileChange[] | null
   /** The turn was interrupted (e.g. the app quit) before its changes were recorded, but it can still be undone */
   changesUnknown?: boolean
+  /** Reference images the user attached; thumbnails only (the full images went to the agent) */
+  attachments?: { name: string; thumbnail: string }[]
   reverted: boolean
 }
 
 export interface ChatSnapshot {
   meta: ChatMeta
   turns: Turn[]
+}
+
+/** An image the user pasted or dropped into the composer, already downscaled */
+export interface ImageAttachment {
+  name: string
+  mimeType: 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif'
+  /** Base64, no data: prefix */
+  data: string
+  /** Small data URL shown in the transcript and kept in history */
+  thumbnail: string
+}
+
+export interface ShipFile {
+  /** POSIX path relative to the repository root */
+  path: string
+  status: 'added' | 'modified' | 'deleted' | 'renamed'
+}
+
+/** What "Create pull request" would do with the project's uncommitted changes */
+export interface ShipInfo {
+  /** Why it can't ship (not a git repo, nothing changed, agent busy); null when it can */
+  blocked: string | null
+  /** Current branch; null when detached */
+  branch: string | null
+  /** On the repository's default branch, so shipping starts a new branch */
+  onDefaultBranch: boolean
+  files: ShipFile[]
+  /** Changed files left out because they may hold secrets (e.g. `.env.local`) */
+  skipped: string[]
+  /** Where the branch is pushed; null without a remote (the commit stays local) */
+  remote: { host: 'github' | 'gitlab' | 'other'; repo: string } | null
+  suggestion: { branch: string; title: string; body: string }
+}
+
+export interface ShipRequest {
+  /** Branch to commit on; created from the current one when it differs */
+  branch: string
+  title: string
+  body: string
+}
+
+export interface ShipResult {
+  branch: string
+  /** Short commit sha */
+  commit: string
+  /**
+   * `created`: the PR exists (`url`). `compare`: pushed, and `url` opens the host's
+   * new-PR page to finish in the browser. `pushed`: pushed to a host Grat can't link.
+   * `committed`: no remote, committed locally only.
+   */
+  outcome: 'created' | 'compare' | 'pushed' | 'committed'
+  url: string | null
 }

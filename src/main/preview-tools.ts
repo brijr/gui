@@ -53,7 +53,11 @@ export interface PreviewToolsDeps {
   wc: WebContents
   inspector: Inspector
   problems: Problems
-  projectRoot: () => string | null
+  /**
+   * Inspects a node with its source path relative to the repo root (resolving a monorepo
+   * app's paths against its own folder first), without the screenshot.
+   */
+  inspectNode: (backendNodeId: number) => Promise<ElementContext>
   devOrigin: () => string | null
   /** Current preview URL, or null when nothing is loaded */
   currentUrl: () => string | null
@@ -104,14 +108,7 @@ export class PreviewTools {
   async inspect(selector: string): Promise<Omit<ElementContext, 'screenshot'>> {
     this.assertLoaded()
     const backendNodeId = await this.deps.inspector.querySelector(selector)
-    const root = this.deps.projectRoot()
-    if (!root) throw new Error('No project is open')
-    const { screenshot: _screenshot, ...element } = await this.deps.inspector.inspect(
-      backendNodeId,
-      root,
-      this.deps.devOrigin(),
-      { screenshot: false },
-    )
+    const { screenshot: _screenshot, ...element } = await this.deps.inspectNode(backendNodeId)
     return element
   }
 

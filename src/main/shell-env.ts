@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { isAbsolute } from 'node:path'
 
 const MARKER = '__GRAT_ENV__'
 const FALLBACK_PATHS = [
@@ -42,7 +43,9 @@ async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
     }
   }
 
-  const path = new Set((env.PATH ?? '').split(':').filter(Boolean))
+  // A relative entry (`./node_modules/.bin`, or an empty one, which means `.`) would find
+  // `git` or `gh` inside whatever project a command runs in.
+  const path = new Set((env.PATH ?? '').split(':').filter((p) => isAbsolute(p)))
   for (const p of FALLBACK_PATHS) path.add(p)
   env.PATH = [...path].join(':')
 

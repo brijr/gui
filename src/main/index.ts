@@ -13,7 +13,14 @@ import {
   session,
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
-import { AGENTS, type AgentId, type Rect, type Viewport } from '../shared/types'
+import {
+  AGENTS,
+  type AgentId,
+  type ImageAttachment,
+  type Rect,
+  type ShipRequest,
+  type Viewport,
+} from '../shared/types'
 import { agentHealth } from './agent-status'
 import { isLoopback } from './loopback'
 import { loadRecent } from './recent'
@@ -112,6 +119,45 @@ function isRect(value: unknown): value is Rect {
   return ['x', 'y', 'width', 'height'].every((key) => isNumber(rect[key]))
 }
 
+/** What the composer sends: it re-encodes every image, so never a GIF. */
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const MAX_IMAGES = 6
+/** The composer keeps images to about 5 MB, under 7 MB as base64; bigger didn't come from it. */
+const MAX_IMAGE_BASE64 = 7 * 1024 * 1024
+const MAX_THUMBNAIL = 256 * 1024
+/** The whole thumbnail, as history accepts it on load (`THUMBNAIL` in history.ts). */
+const THUMBNAIL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
+
+function isImage(value: unknown): value is ImageAttachment {
+  if (!value || typeof value !== 'object') return false
+  const image = value as Record<string, unknown>
+  return (
+    isString(image.name) &&
+    image.name.length <= 200 &&
+    isString(image.mimeType) &&
+    IMAGE_TYPES.has(image.mimeType) &&
+    isString(image.data) &&
+    image.data.length <= MAX_IMAGE_BASE64 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(image.data) &&
+    isString(image.thumbnail) &&
+    image.thumbnail.length <= MAX_THUMBNAIL &&
+    THUMBNAIL.test(image.thumbnail)
+  )
+}
+
+function isShipRequest(value: unknown): value is ShipRequest {
+  if (!value || typeof value !== 'object') return false
+  const request = value as Record<string, unknown>
+  return (
+    isString(request.branch) &&
+    request.branch.length <= 200 &&
+    isString(request.title) &&
+    request.title.length <= 500 &&
+    isString(request.body) &&
+    request.body.length <= 20_000
+  )
+}
+
 function registerIpc() {
   ipcMain.handle(Invoke.getState, (event) => windowFor(event)?.getState())
   ipcMain.handle(Invoke.getLogs, (event) => windowFor(event)?.getLogs() ?? '')
@@ -123,8 +169,20 @@ function registerIpc() {
     if (!(await loadRecent()).some((project) => project.root === root)) return
     openSafely(windowFor(event), root)
   })
-  ipcMain.handle(Invoke.send, (event, text: unknown) => {
-    return isString(text) ? (windowFor(event)?.sendChatMessage(text) ?? false) : false
+  ipcMain.handle(Invoke.send, (event, text: unknown, images: unknown) => {
+    if (!isString(text)) return false
+    const attached = images === undefined ? [] : images
+    if (!Array.isArray(attached) || attached.length > MAX_IMAGES || !attached.every(isImage)) {
+      return false
+    }
+    return windowFor(event)?.sendChatMessage(text, attached) ?? false
+  })
+  ipcMain.handle(Invoke.shipInfo, (event) => windowFor(event)?.getShipInfo() ?? null)
+  ipcMain.handle(Invoke.ship, (event, request: unknown) => {
+    if (!isShipRequest(request)) throw new Error('Invalid request')
+    const win = windowFor(event)
+    if (!win) throw new Error('No project is open.')
+    return win.ship(request)
   })
   ipcMain.handle(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (isString(turnId)) return windowFor(event)?.restoreTurn(turnId)
@@ -189,6 +247,10 @@ function registerIpc() {
   on(Send.toggleDock, (win) => win.toggleDock())
   on(Send.dragChat, (win, dx, dy) => isNumber(dx) && isNumber(dy) && win.dragChat(dx, dy))
   on(Send.endDragChat, (win) => win.endDragChat())
+  on(Send.chooseApp, (win, dir) => isString(dir) && win.chooseApp(dir))
+  on(Send.installDependencies, (win) => win.installDependencies())
+  on(Send.createEnvFile, (win) => win.createEnvFile())
+  on(Send.openEnvFile, (win) => win.openEnvFile())
 }
 
 /** Permissions the previewed app may use, and only from a local origin. */

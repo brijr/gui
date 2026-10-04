@@ -1,4 +1,16 @@
-import type { AgentId, ChatMeta, ChatSnapshot, Rect, Turn, Viewport, WindowState } from './types'
+import type {
+  AgentId,
+  ChatMeta,
+  ChatSnapshot,
+  ImageAttachment,
+  Rect,
+  ShipInfo,
+  ShipRequest,
+  ShipResult,
+  Turn,
+  Viewport,
+  WindowState,
+} from './types'
 
 /** Renderer → main, request/response */
 export const Invoke = {
@@ -13,6 +25,8 @@ export const Invoke = {
   fixProblems: 'chat:fix-problems',
   signIn: 'agents:sign-in',
   installAgent: 'agents:install',
+  shipInfo: 'ship:info',
+  ship: 'ship:run',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -43,6 +57,10 @@ export const Send = {
   toggleDock: 'chat:dock',
   dragChat: 'chat:drag',
   endDragChat: 'chat:drag-end',
+  chooseApp: 'setup:choose-app',
+  installDependencies: 'setup:install',
+  createEnvFile: 'setup:create-env',
+  openEnvFile: 'setup:open-env',
 } as const
 
 /** Main → renderer */
@@ -78,6 +96,14 @@ export interface GratApi {
   /** Downloads the agent's CLI; progress and errors arrive through `WindowState.agents` */
   installAgent(agentId: AgentId): Promise<void>
 
+  /** Project setup (`WindowState.setup`): pick the monorepo app to preview */
+  chooseApp(dir: string): void
+  /** Installs (or retries installing) the project's dependencies */
+  installDependencies(): void
+  /** Copies the env example to `setup.env.target`, then opens it */
+  createEnvFile(): void
+  openEnvFile(): void
+
   navigate(url: string): void
   back(): void
   forward(): void
@@ -95,7 +121,7 @@ export interface GratApi {
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
   /** Resolves false when the chat is busy and the message wasn't accepted */
-  send(text: string): Promise<boolean>
+  send(text: string, images?: ImageAttachment[]): Promise<boolean>
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
   restoreTurn(turnId: string): Promise<void>
@@ -108,4 +134,9 @@ export interface GratApi {
   fixProblems(): Promise<boolean>
   dragChat(dx: number, dy: number): void
   endDragChat(): void
+
+  /** Null without a project */
+  getShipInfo(): Promise<ShipInfo | null>
+  /** Commits, pushes and opens the PR; rejects with a readable message */
+  ship(request: ShipRequest): Promise<ShipResult>
 }

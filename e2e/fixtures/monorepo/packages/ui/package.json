@@ -1,0 +1,9 @@
+{
+  "name": "@grat-e2e/ui",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "dev": "bun --watch index.js"
+  }
+}
