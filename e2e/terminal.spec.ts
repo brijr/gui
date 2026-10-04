@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { TerminalId } from '../src/shared/types'
@@ -8,7 +8,8 @@ import { expect, test } from './helpers/test'
 
 // The drawer's terminals: the user's own login shell at the project root, started only when
 // they open one (⌘J or +), typed into from the drawer, and ended with everything it started
-// when its terminal, its project tab or window closes, or Gui quits.
+// when its terminal, its project tab or window closes, or Gui quits. Their output, and the dev
+// server's, reaches the drawer only while it shows, at the pace the drawer draws it.
 //
 // The shell is zsh, which every Mac has (CI's login shell may be another), started from an
 // empty config folder: the developer's own ~/.zshrc doesn't run, and nothing typed here ends up
@@ -287,6 +288,182 @@ test('a second terminal, closing one, exit and restart, other tabs, and ⌘W', a
   await waitFor(async () => (await session.state()).tabs.length === 1, 'the project tab to close')
   expect((await session.state()).project).toBeNull()
   await waitForGone([shell, job, thirdShell], "the closed tab's shells and job to end")
+})
+
+/**
+ * Records, in the chrome page, the drawer's output messages from now on (terminals' and the dev
+ * server's), and how late a 20ms timer runs: the page's own work, as its animations and input.
+ */
+function startProbe() {
+  const probe: Probe = { messages: [], timerLate: 0 }
+  Object.assign(window, { guiProbe: probe })
+  const record = (output: { id: string; data: string }) => {
+    probe.messages.push({ id: output.id, chars: output.data.length })
+  }
+  window.gui.onTerminalData(record)
+  window.gui.onLogs(record)
+  let last = performance.now()
+  setInterval(() => {
+    const now = performance.now()
+    probe.timerLate = Math.max(probe.timerLate, now - last - 20)
+    last = now
+  }, 20)
+}
+
+interface Probe {
+  messages: { id: string; chars: number }[]
+  timerLate: number
+}
+
+/** Starts the probe's numbers over. */
+function resetProbe(session: GuiSession) {
+  return session.chrome.evaluate(() => {
+    const probe = (window as unknown as { guiProbe: Probe }).guiProbe
+    probe.messages.length = 0
+    probe.timerLate = 0
+  })
+}
+
+/**
+ * While something floods: every 100ms for `seconds`, a state round trip from the chrome page
+ * through main, timed in the page and as the test waits for it. Then the probe's numbers for
+ * that time, for output whose id starts with `id`.
+ */
+async function measureFlood(session: GuiSession, id: string, seconds: number) {
+  await resetProbe(session)
+  const inPage: number[] = []
+  const total: number[] = []
+  const until = Date.now() + seconds * 1000
+  while (Date.now() < until) {
+    const start = Date.now()
+    inPage.push(
+      await session.chrome.evaluate(async () => {
+        const at = performance.now()
+        await window.gui.getState()
+        return performance.now() - at
+      }),
+    )
+    total.push(Date.now() - start)
+    await sleep(100)
+  }
+  const probe = await session.chrome.evaluate(
+    () => (window as unknown as { guiProbe: Probe }).guiProbe,
+  )
+  const messages = probe.messages.filter((message) => message.id.startsWith(id))
+  const flood = {
+    messagesPerSecond: messages.length / seconds,
+    megabytesPerSecond: messages.reduce((sum, { chars }) => sum + chars, 0) / seconds / 1e6,
+    roundTrip: Math.max(...inPage),
+    roundTripFromTest: Math.max(...total),
+    timerLate: probe.timerLate,
+  }
+  console.log(`[flood] ${id}: ${JSON.stringify(flood)}`)
+  return flood
+}
+
+/**
+ * The page stayed responsive and got the output in few messages: the numbers are generous for
+ * CI's slower runners. (Before flow control, a laptop saw ~25,000 messages a second.)
+ */
+function expectResponsive(flood: Awaited<ReturnType<typeof measureFlood>>) {
+  expect(flood.messagesPerSecond).toBeGreaterThan(0)
+  expect(flood.messagesPerSecond).toBeLessThan(600)
+  expect(flood.roundTrip).toBeLessThan(500)
+  expect(flood.roundTripFromTest).toBeLessThan(1000)
+  expect(flood.timerLate).toBeLessThan(500)
+}
+
+/** Where the terminal's output has got to, in main. */
+function outputEnd(session: GuiSession, id: TerminalId) {
+  return session.chrome.evaluate(
+    async (terminal) => (await window.gui.getTerminal(terminal)).end,
+    id,
+  )
+}
+
+test('a flood of output keeps Gui responsive, ⌃C stops it, and what follows is intact', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', env: SHELL })
+  await session.waitForPreview()
+  await clickMenu(session, 'Toggle Terminal')
+  const id = (await drawerWith(session, 1)).terminals[0]?.id
+  if (!id) throw new Error('No terminal')
+  await waitForFocus(session, id)
+  await session.chrome.evaluate(startProbe)
+  const rows = panel(session, id).locator('.xterm-rows')
+
+  // `yes` prints as fast as the terminal reads: the drawer gets it in a few large messages, at
+  // the pace it draws them, and the page keeps up with its own work and main's replies.
+  await run(session, 'yes gui-flood')
+  await waitForOutput(session, id, /(gui-flood\r\n){100}/, 'the flood')
+  expectResponsive(await measureFlood(session, id, 5))
+  await expect(rows).toContainText('gui-flood')
+
+  // Out of sight (the drawer on the dev server's output), none of it is sent, and the shell
+  // isn't held: main goes on reading it. Back in sight, the terminal shows where it's got to.
+  await tabs(session).getByRole('tab', { name: 'Dev server' }).click()
+  await sleep(300)
+  const hidden = await outputEnd(session, id)
+  expect((await measureFlood(session, id, 2)).messagesPerSecond).toBe(0)
+  expect((await outputEnd(session, id)) - hidden).toBeGreaterThan(1_000_000)
+  await tabs(session).getByRole('tab', { name: 'Terminal', exact: true }).click()
+  await waitForFocus(session, id)
+  await expect(rows).toContainText('gui-flood')
+
+  // ⌃C stops it at once, and the shell's prompt comes back to run the next command.
+  const stop = Date.now()
+  await session.chrome.keyboard.press('Control+C')
+  await run(session, 'echo after-$((2+2))')
+  await expect(rows).toContainText('after-4', { timeout: 10_000 })
+  console.log(`[flood] ⌃C to the next command's output: ${Date.now() - stop}ms`)
+
+  // A flood that ends: all of it arrives, in order, and what follows it too.
+  await run(session, 'seq 1 300000; echo seq-$((3+4))')
+  await expect(rows).toContainText('seq-7', { timeout: 60_000 })
+  expect(await output(session, id)).toMatch(/\r\n299999\r\n300000\r\nseq-7\r\n/)
+  const lines = (await rows.locator(':scope > div').allInnerTexts()).map((line) => line.trim())
+  const end = lines.indexOf('300000')
+  expect(end).toBeGreaterThan(2)
+  expect(lines.slice(end - 3, end + 2)).toEqual(['299997', '299998', '299999', '300000', 'seq-7'])
+})
+
+test("the dev server's flood reaches the drawer in a few messages, only while it shows", async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', env: SHELL })
+  await session.waitForPreview()
+  await session.chrome.evaluate(startProbe)
+  const logs = () => session.chrome.evaluate(() => window.gui.getLogs())
+  const rows = session.chrome.locator('[id="drawer-panel-server"] .xterm-rows')
+
+  // The dev script, as a restart runs it, prints as fast as it can; it isn't held for the drawer.
+  const file = join(session.fixture.root, 'package.json')
+  const pkg = JSON.parse(readFileSync(file, 'utf8'))
+  writeFileSync(file, JSON.stringify({ ...pkg, scripts: { dev: 'yes gui-server-flood' } }))
+  await session.chrome.evaluate(() => window.gui.showLogs())
+  await session.chrome.evaluate(() => window.gui.restartDevServer())
+  await waitFor(
+    async () => /(gui-server-flood\r\n){100}/.test((await logs()).data),
+    'the flood in the logs',
+  )
+  expectResponsive(await measureFlood(session, 'logs-', 4))
+  await expect(rows).toContainText('gui-server-flood')
+
+  // With a terminal on screen instead, none of it is sent, though it goes on.
+  await session.chrome.evaluate(() => window.gui.newTerminal())
+  await drawerWith(session, 1)
+  await sleep(300)
+  const hidden = (await logs()).end
+  expect((await measureFlood(session, 'logs-', 2)).messagesPerSecond).toBe(0)
+  expect((await logs()).end - hidden).toBeGreaterThan(1_000_000)
+
+  // Stopped, it says so under the last of the flood.
+  await session.chrome.evaluate(() => window.gui.stopDevServer())
+  await waitFor(async () => (await session.state()).devServer.status === 'idle', 'the stop')
+  await session.chrome.evaluate(() => window.gui.showLogs())
+  await expect(rows).toContainText('[process exited with code')
+  await expect(rows).toContainText('gui-server-flood')
 })
 
 test('closing the window ends its terminals', async ({ launch }) => {
