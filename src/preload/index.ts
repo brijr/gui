@@ -14,6 +14,12 @@ const send =
   (...args: unknown[]) =>
     ipcRenderer.send(channel, ...args)
 
+/** Main reports failures as `{ error }`; turn them back into a rejection with a clean message. */
+async function invokeOrThrow(channel: string, ...args: unknown[]) {
+  const result: { error: string | null } | undefined = await ipcRenderer.invoke(channel, ...args)
+  if (result?.error) throw new Error(result.error)
+}
+
 const api: GratApi = {
   getState: () => ipcRenderer.invoke(Invoke.getState),
   onState: (cb) => subscribe(Events.state, cb),
@@ -60,6 +66,21 @@ const api: GratApi = {
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
   dragChat: send(Send.dragChat),
   endDragChat: send(Send.endDragChat),
+
+  openSettings: send(Send.openSettings),
+  getSettings: () => ipcRenderer.invoke(Invoke.getSettings),
+  onSettings: (cb) => subscribe(Events.settings, cb),
+  onSettingsSection: (cb) => subscribe(Events.settingsSection, cb),
+  setAgentEnabled: send(Send.setAgentEnabled),
+  setDefaultAgent: send(Send.setDefaultAgent),
+  setChatDocked: send(Send.setChatDocked),
+  saveCustomAgent: (originalName, entry) =>
+    invokeOrThrow(Invoke.saveCustomAgent, originalName, entry),
+  deleteCustomAgent: (name) => invokeOrThrow(Invoke.deleteCustomAgent, name),
+  openCustomAgentsFile: send(Send.openCustomAgentsFile),
+  untrustProject: (root) => ipcRenderer.invoke(Invoke.untrustProject, root),
+  clearRecent: () => ipcRenderer.invoke(Invoke.clearRecent),
+  clearStorage: (kind) => ipcRenderer.invoke(Invoke.clearStorage, kind),
 }
 
 contextBridge.exposeInMainWorld('grat', api)

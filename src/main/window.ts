@@ -18,6 +18,7 @@ import {
   type DevServerState,
   type PreviewState,
   type ProjectInfo,
+  type RecentProject,
   type Rect,
   type Viewport,
   type WindowState,
@@ -36,7 +37,9 @@ import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject } from './project'
 import { addRecent, loadRecent } from './recent'
+import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { getShellEnv } from './shell-env'
+import { PREVIEW_PARTITION } from './storage'
 import { isTrusted, trust } from './trust'
 
 const TOOLBAR_HEIGHT = 44
@@ -48,8 +51,6 @@ const REHIGHLIGHT_DELAY_MS = 900
 /** Transparent margin around the floating panel so its shadow isn't clipped. */
 const SHADOW = 18
 const VIEWPORT_WIDTH: Record<Viewport, number> = { desktop: 0, tablet: 820, mobile: 390 }
-
-const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')
 
 const windows = new Set<ProjectWindow>()
 
@@ -66,20 +67,6 @@ export function focusedWindow() {
 
 export function allWindows() {
   return [...windows]
-}
-
-function rendererUrl(page: 'index' | 'chat') {
-  // Never honor the dev-server override in packaged builds: it would load remote
-  // content into renderers that have the privileged preload.
-  if (app.isPackaged) return null
-  const dev = process.env.ELECTRON_RENDERER_URL
-  return dev ? `${dev}/${page}.html` : null
-}
-
-function loadRenderer(wc: WebContents, page: 'index' | 'chat') {
-  const url = rendererUrl(page)
-  if (url) return wc.loadURL(url)
-  return wc.loadFile(join(import.meta.dirname, `../renderer/${page}.html`))
 }
 
 const idleDevServer = (): DevServerState => ({
@@ -152,7 +139,7 @@ export class ProjectWindow {
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
-        partition: 'persist:grat-preview',
+        partition: PREVIEW_PARTITION,
       },
     })
     this.preview.setVisible(false)
@@ -197,6 +184,10 @@ export class ProjectWindow {
 
   getState() {
     return this.state
+  }
+
+  setRecent(recent: RecentProject[]) {
+    this.patch({ recent })
   }
 
   getLogs() {
@@ -784,10 +775,14 @@ export class ProjectWindow {
     Menu.buildFromTemplate(template).popup({ window: this.win })
   }
 
-  showAgentMenu() {
+  showAgentMenu(openSettings: () => void) {
     const template: MenuItemConstructorOptions[] = [
-      ...agentMenuItems(agentHealth.list(), agentHealth.customError, this.state.agentId, (id) =>
-        this.setAgent(id),
+      ...agentMenuItems(
+        agentHealth.list(),
+        agentHealth.customError,
+        this.state.agentId,
+        (id) => this.setAgent(id),
+        openSettings,
       ),
       { type: 'separator' },
       { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
@@ -864,20 +859,6 @@ export class ProjectWindow {
 }
 
 /** App UI never navigates; links open in the user's browser instead. */
-function guardAppContents(wc: WebContents) {
-  const openExternal = (url: string) => {
-    if (/^https?:/.test(url)) shell.openExternal(url).catch(() => undefined)
-  }
-  wc.on('will-navigate', (event, url) => {
-    if (url === wc.getURL()) return
-    event.preventDefault()
-    openExternal(url)
-  })
-  wc.setWindowOpenHandler(({ url }) => {
-    openExternal(url)
-    return { action: 'deny' }
-  })
-}
 
 function originOf(url: string) {
   try {

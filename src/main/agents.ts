@@ -10,6 +10,7 @@ import {
   type AgentId,
   type AgentInfo,
   CUSTOM_AGENT_PREFIX,
+  type CustomAgentEntry,
 } from '../shared/types'
 import { getShellEnv } from './shell-env'
 
@@ -170,6 +171,93 @@ async function loadCustomAgents(): Promise<{ agents: AgentDefinition[]; error: s
   return { agents, error }
 }
 
+/** Custom agents as Settings edits them. */
+export async function customAgentEntries(): Promise<{
+  entries: CustomAgentEntry[]
+  error: string | null
+}> {
+  const { agents, error } = await loadCustomAgents()
+  const entries = agents.flatMap(({ name, launch }) =>
+    launch.kind === 'command'
+      ? [{ name, command: launch.command, args: launch.args, env: launch.env }]
+      : [],
+  )
+  return { entries, error }
+}
+
+/** agents.json as parsed, and the object holding the agents (Zed's wrapper or the top level). */
+async function readCustomFile() {
+  let text: string
+  try {
+    text = await readFile(customFile(), 'utf8')
+  } catch {
+    const root: Record<string, unknown> = {}
+    return { root, servers: root }
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error("agents.json isn't valid JSON. Fix it with Edit agents.json first.")
+  }
+  if (!isRecord(parsed)) {
+    throw new Error('agents.json should hold an object of agents by name. Fix it first.')
+  }
+  return { root: parsed, servers: isRecord(parsed.agent_servers) ? parsed.agent_servers : parsed }
+}
+
+async function writeCustomFile(
+  { root, servers }: Awaited<ReturnType<typeof readCustomFile>>,
+  next: Record<string, unknown>,
+) {
+  const data = servers === root ? next : { ...root, agent_servers: next }
+  await writeFile(customFile(), `${JSON.stringify(data, null, 2)}\n`)
+}
+
+/**
+ * Adds a custom agent, or replaces (and possibly renames) `originalName`. Fields the
+ * file has that Settings doesn't edit (like Zed's `type`) are kept.
+ */
+export async function saveCustomAgent(originalName: string | null, entry: CustomAgentEntry) {
+  const name = entry.name.trim()
+  const command = entry.command.trim()
+  if (!name) throw new Error('Give the agent a name.')
+  if (!command) throw new Error('Enter the command that starts the agent.')
+  if (!isStringArray(entry.args) || !isStringRecord(entry.env)) {
+    throw new Error('Arguments and environment values must be text.')
+  }
+  if (BUILT_IN.some((agent) => agent.name.toLowerCase() === name.toLowerCase())) {
+    throw new Error(`${name} is a built-in agent. Pick another name.`)
+  }
+  const file = await readCustomFile()
+  if (name !== originalName && name in file.servers) {
+    throw new Error(`There's already an agent called ${name}.`)
+  }
+  const previous =
+    originalName !== null && isRecord(file.servers[originalName]) ? file.servers[originalName] : {}
+  const value = { ...previous, command, args: entry.args, env: entry.env }
+  // Keep the agent's place in the file when it's edited or renamed.
+  const next: Record<string, unknown> = {}
+  let placed = false
+  for (const [key, existing] of Object.entries(file.servers)) {
+    if (key === originalName) {
+      next[name] = value
+      placed = true
+    } else {
+      next[key] = existing
+    }
+  }
+  if (!placed) next[name] = value
+  await writeCustomFile(file, next)
+}
+
+export async function deleteCustomAgent(name: string) {
+  const file = await readCustomFile()
+  if (!(name in file.servers)) return
+  const next = Object.fromEntries(Object.entries(file.servers).filter(([key]) => key !== name))
+  await writeCustomFile(file, next)
+}
+
 /** The agent's full definition; throws a message fit for the user when it can't be found. */
 export async function resolveAgent(id: AgentId): Promise<AgentDefinition> {
   const builtIn = BUILT_IN.find((agent) => agent.id === id)
@@ -241,6 +329,7 @@ export function agentMenuItems(
   customError: string | null,
   current: AgentId | null,
   select: (id: AgentId) => void,
+  openSettings: () => void,
 ): MenuItemConstructorOptions[] {
   const choice = (agent: AgentHealth): MenuItemConstructorOptions => ({
     label: agent.name,
@@ -256,12 +345,14 @@ export function agentMenuItems(
     checked: agent.id === current,
     click: () => select(agent.id),
   })
-  // The current agent stays listed even if it was uninstalled, so the selection is visible.
-  const listed = (agent: AgentHealth) => agent.status !== 'not-installed' || agent.id === current
+  // Agents switched off in Settings are hidden. The current agent stays listed even if
+  // it was switched off or uninstalled, so the selection is visible.
+  const listed = (agent: AgentHealth) =>
+    (agent.enabled && agent.status !== 'not-installed') || agent.id === current
   const isCustom = (agent: AgentHealth) => agent.id.startsWith(CUSTOM_AGENT_PREFIX)
   const builtIn = agents.filter((agent) => listed(agent) && !isCustom(agent))
   const custom = agents.filter((agent) => listed(agent) && isCustom(agent))
-  const missing = agents.filter((agent) => !listed(agent))
+  const missing = agents.filter((agent) => !listed(agent) && agent.status === 'not-installed')
 
   const items: MenuItemConstructorOptions[] = builtIn.map(choice)
   if (custom.length || customError) {
@@ -281,6 +372,6 @@ export function agentMenuItems(
       })),
     })
   }
-  items.push({ label: 'Custom Agents…', click: () => void openCustomAgents() })
+  items.push({ label: 'Agent Settings…', click: openSettings })
   return items
 }

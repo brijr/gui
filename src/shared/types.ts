@@ -38,6 +38,8 @@ export interface AgentHealth {
   message: string | null
   /** The CLI this agent needs on PATH; null when Grat bundles everything it needs */
   command: string | null
+  /** Switched on in Settings; disabled agents are hidden from menus and not checked */
+  enabled: boolean
   /** A sign-in flow Grat can start for this agent, when it offers one */
   signIn: { methodId: string; label: string } | null
 }
@@ -210,4 +212,37 @@ export interface Turn {
 export interface ChatSnapshot {
   meta: ChatMeta
   turns: Turn[]
+}
+
+/** An agent the user added in Settings (stored in agents.json). */
+export interface CustomAgentEntry {
+  name: string
+  command: string
+  args: string[]
+  env: Record<string, string>
+}
+
+export type StorageKind = 'chats' | 'checkpoints' | 'previewData'
+
+/** Bytes on disk per kind; null while it's being measured. */
+export type StorageUsage = Record<StorageKind, number | null>
+
+export type SettingsSection = 'agents' | 'chat' | 'projects' | 'storage'
+
+export interface SettingsState {
+  /** Every known agent, enabled or not */
+  agents: AgentHealth[]
+  /** The agent new windows start with */
+  defaultAgentId: AgentId
+  /** Whether new chats start docked to the side */
+  chatDocked: boolean
+  customAgents: CustomAgentEntry[]
+  /** Why agents.json can't be read; custom agents can't be edited in Settings while set */
+  customAgentsError: string | null
+  /** Projects whose dev script runs without asking */
+  trustedProjects: string[]
+  recentProjects: RecentProject[]
+  storage: StorageUsage
+  /** Project roots open in a window; clearing storage keeps their data */
+  openProjects: string[]
 }

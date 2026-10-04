@@ -5,6 +5,7 @@ import { app } from 'electron'
 import { AGENTS, type AgentHealth, type AgentId } from '../shared/types'
 import { AgentAuthError, AgentSession } from './agent'
 import { listAgents } from './agents'
+import { isAgentEnabled, prefsEvents } from './prefs'
 
 const CHECK_TIMEOUT_MS = 45_000
 /** Browser sign-in waits on the user. */
@@ -33,6 +34,7 @@ const unchecked = (
   installed: boolean,
 ): AgentHealth => ({
   ...agent,
+  enabled: isAgentEnabled(agent.id),
   status: installed ? 'unknown' : 'not-installed',
   message: null,
   signIn: null,
@@ -48,9 +50,15 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     AGENTS.map((agent) => [agent.id, unchecked({ ...agent, command: null }, true)]),
   )
   private running = new Map<AgentId, Promise<void>>()
-  private scanning: Promise<void> | null = null
+  /** Scans run one after another, so one asked for after a change sees that change. */
+  private scans: Promise<void> = Promise.resolve()
   /** Why agents.json couldn't be read, if it couldn't */
   customError: string | null = null
+
+  constructor() {
+    super()
+    prefsEvents.on('change', () => this.syncEnabled())
+  }
 
   list(): AgentHealth[] {
     return [...this.health.values()]
@@ -62,10 +70,8 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
 
   /** Re-reads agents.json and which CLIs are on PATH, without starting any agent. */
   rescan() {
-    this.scanning ??= this.scan().finally(() => {
-      this.scanning = null
-    })
-    return this.scanning
+    this.scans = this.scans.then(() => this.scan()).catch(() => undefined)
+    return this.scans
   }
 
   /**
@@ -76,20 +82,19 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     await this.rescan()
     await Promise.all(
       this.list()
-        .filter((agent) => agent.status !== 'not-installed')
+        .filter((agent) => agent.enabled && agent.status !== 'not-installed')
         .map((agent) => this.check(agent.id)),
     )
   }
 
-  /** On launch: the bundled agents plus the one the user picked. */
+  /** On launch: the bundled agents plus the one the user picked, when they're enabled. */
   async checkOnLaunch(preferred: AgentId) {
     await this.rescan()
-    const ids = new Set([...BUNDLED, preferred])
-    await Promise.all(
-      [...ids]
-        .filter((id) => this.health.has(id) && this.health.get(id)?.status !== 'not-installed')
-        .map((id) => this.check(id)),
-    )
+    const ids = [...new Set([...BUNDLED, preferred])].filter((id) => {
+      const agent = this.health.get(id)
+      return agent?.enabled && agent.status !== 'not-installed'
+    })
+    await Promise.all(ids.map((id) => this.check(id)))
   }
 
   check(id: AgentId) {
@@ -116,13 +121,31 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     for (const { installed, ...agent } of agents) {
       const current = this.health.get(agent.id)
       const keep = current && installed && current.status !== 'not-installed'
-      next.set(agent.id, keep ? { ...current, ...agent } : unchecked(agent, installed))
+      next.set(
+        agent.id,
+        keep
+          ? { ...current, ...agent, enabled: isAgentEnabled(agent.id) }
+          : unchecked(agent, installed),
+      )
     }
     const changed =
       customError !== this.customError ||
       JSON.stringify([...next.values()]) !== JSON.stringify(this.list())
     this.health = next
     this.customError = customError
+    if (changed) this.emit('change', this.list())
+  }
+
+  /** Applies Settings' on/off switches; a newly enabled agent gets checked right away. */
+  private syncEnabled() {
+    let changed = false
+    for (const [id, agent] of this.health) {
+      const enabled = isAgentEnabled(id)
+      if (agent.enabled === enabled) continue
+      changed = true
+      this.health.set(id, { ...agent, enabled })
+      if (enabled && agent.status === 'unknown') void this.check(id)
+    }
     if (changed) this.emit('change', this.list())
   }
 

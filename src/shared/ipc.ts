@@ -1,4 +1,16 @@
-import type { AgentId, ChatMeta, ChatSnapshot, Rect, Turn, Viewport, WindowState } from './types'
+import type {
+  AgentId,
+  ChatMeta,
+  ChatSnapshot,
+  CustomAgentEntry,
+  Rect,
+  SettingsSection,
+  SettingsState,
+  StorageKind,
+  Turn,
+  Viewport,
+  WindowState,
+} from './types'
 
 /** Renderer → main, request/response */
 export const Invoke = {
@@ -12,6 +24,12 @@ export const Invoke = {
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
   signIn: 'agents:sign-in',
+  getSettings: 'settings:get',
+  saveCustomAgent: 'settings:save-custom-agent',
+  deleteCustomAgent: 'settings:delete-custom-agent',
+  untrustProject: 'settings:untrust-project',
+  clearRecent: 'settings:clear-recent',
+  clearStorage: 'settings:clear-storage',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -42,6 +60,11 @@ export const Send = {
   toggleDock: 'chat:dock',
   dragChat: 'chat:drag',
   endDragChat: 'chat:drag-end',
+  openSettings: 'settings:open',
+  setAgentEnabled: 'settings:agent-enabled',
+  setDefaultAgent: 'settings:default-agent',
+  setChatDocked: 'settings:chat-docked',
+  openCustomAgentsFile: 'settings:open-agents-file',
 } as const
 
 /** Main → renderer */
@@ -52,6 +75,8 @@ export const Events = {
   chatTurn: 'chat:turn',
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
+  settings: 'settings',
+  settingsSection: 'settings:section',
 } as const
 
 export type Unsubscribe = () => void
@@ -105,4 +130,24 @@ export interface GratApi {
   fixProblems(): Promise<boolean>
   dragChat(dx: number, dy: number): void
   endDragChat(): void
+
+  /** Opens (or focuses) the Settings window, optionally at a section */
+  openSettings(section?: SettingsSection): void
+  getSettings(): Promise<SettingsState>
+  onSettings(cb: (settings: SettingsState) => void): Unsubscribe
+  /** Settings was asked to show a section (e.g. opened from the agent menu) */
+  onSettingsSection(cb: (section: SettingsSection) => void): Unsubscribe
+  setAgentEnabled(agentId: AgentId, enabled: boolean): void
+  setDefaultAgent(agentId: AgentId): void
+  setChatDocked(docked: boolean): void
+  /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */
+  saveCustomAgent(originalName: string | null, entry: CustomAgentEntry): Promise<void>
+  deleteCustomAgent(name: string): Promise<void>
+  /** Opens agents.json in the user's editor */
+  openCustomAgentsFile(): void
+  /** The project's dev script will ask before running again */
+  untrustProject(root: string): Promise<void>
+  clearRecent(): Promise<void>
+  /** Asks to confirm, then clears; false when the user cancelled */
+  clearStorage(kind: StorageKind): Promise<boolean>
 }

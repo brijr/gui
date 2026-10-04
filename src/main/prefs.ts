@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -6,11 +7,15 @@ import { type AgentId, DEFAULT_AGENT_ID, isAgentId } from '../shared/types'
 export interface Prefs {
   agentId: AgentId
   chatDocked: boolean
+  /** Agents switched off in Settings; everything installed is on by default */
+  disabledAgents: AgentId[]
 }
 
-const DEFAULTS: Prefs = { agentId: DEFAULT_AGENT_ID, chatDocked: false }
+const DEFAULTS: Prefs = { agentId: DEFAULT_AGENT_ID, chatDocked: false, disabledAgents: [] }
 const file = () => join(app.getPath('userData'), 'prefs.json')
 let cached: Prefs | null = null
+
+export const prefsEvents = new EventEmitter<{ change: [prefs: Prefs] }>()
 
 export function getPrefs(): Prefs {
   if (cached) return cached
@@ -19,6 +24,9 @@ export function getPrefs(): Prefs {
     cached = {
       agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
       chatDocked: parsed.chatDocked === true,
+      disabledAgents: Array.isArray(parsed.disabledAgents)
+        ? parsed.disabledAgents.filter(isAgentId)
+        : [],
     }
   } catch {
     cached = { ...DEFAULTS }
@@ -29,4 +37,9 @@ export function getPrefs(): Prefs {
 export function setPrefs(patch: Partial<Prefs>) {
   cached = { ...getPrefs(), ...patch }
   writeFileSync(file(), JSON.stringify(cached, null, 2))
+  prefsEvents.emit('change', cached)
+}
+
+export function isAgentEnabled(id: AgentId) {
+  return !getPrefs().disabledAgents.includes(id)
 }

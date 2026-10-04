@@ -201,24 +201,35 @@ function EmptyState({ state }: { state: WindowState }) {
 }
 
 function Agents({ state }: { state: WindowState }) {
-  const installed = state.agents.filter(
-    (agent) => agent.status !== 'not-installed' || agent.id === state.agentId,
+  const shown = state.agents.filter(
+    (agent) => agent.id === state.agentId || (agent.enabled && agent.status !== 'not-installed'),
   )
-  const missing = state.agents.filter((agent) => !installed.includes(agent))
+  const missing = state.agents.filter(
+    (agent) => agent.status === 'not-installed' && !shown.includes(agent),
+  )
   return (
     <div className="flex flex-col gap-1">
       <div className="flex items-baseline justify-between">
         <p className="font-medium text-[11px] text-subtle uppercase tracking-wide">Agents</p>
-        <button
-          type="button"
-          onClick={() => grat.checkAgents()}
-          className="text-[11px] text-subtle hover:text-fg"
-        >
-          Check again
-        </button>
+        <div className="flex items-baseline gap-3">
+          <button
+            type="button"
+            onClick={() => grat.checkAgents()}
+            className="text-[11px] text-subtle hover:text-fg"
+          >
+            Check again
+          </button>
+          <button
+            type="button"
+            onClick={() => grat.openSettings('agents')}
+            className="text-[11px] text-subtle hover:text-fg"
+          >
+            Settings
+          </button>
+        </div>
       </div>
       <ul className="flex flex-col divide-y divide-line rounded-lg border border-line">
-        {installed.map((health) => (
+        {shown.map((health) => (
           <AgentRow key={health.id} health={health} selected={health.id === state.agentId} />
         ))}
       </ul>

@@ -12,12 +12,34 @@ import {
   session,
 } from 'electron'
 import { Invoke, Send } from '../shared/ipc'
-import { isAgentId, type Rect, type Viewport } from '../shared/types'
+import {
+  type CustomAgentEntry,
+  isAgentId,
+  type Rect,
+  type SettingsSection,
+  type StorageKind,
+  type Viewport,
+} from '../shared/types'
 import { agentHealth } from './agent-status'
-import { agentMenuItems } from './agents'
+import { agentMenuItems, openCustomAgents } from './agents'
 import { isLoopback } from './loopback'
 import { getPrefs } from './prefs'
 import { loadRecent } from './recent'
+import {
+  clearRecent,
+  confirmAndClear,
+  deleteCustom,
+  getSettings,
+  isSettingsContents,
+  openSettings,
+  saveCustom,
+  setAgentEnabled,
+  setChatDocked,
+  setDefaultAgent,
+  untrustProject,
+  watchSettings,
+} from './settings'
+import { PREVIEW_PARTITION } from './storage'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
 app.setName('Grat')
@@ -98,6 +120,40 @@ const isString = (value: unknown): value is string => typeof value === 'string'
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 
+const SECTIONS: readonly SettingsSection[] = ['agents', 'chat', 'projects', 'storage']
+const STORAGE_KINDS: readonly StorageKind[] = ['chats', 'checkpoints', 'previewData']
+const isRecordOfStrings = (value: unknown): value is Record<string, string> =>
+  !!value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.values(value).every(isString)
+
+function isCustomAgentEntry(value: unknown): value is CustomAgentEntry {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Record<string, unknown>
+  return (
+    isString(entry.name) &&
+    isString(entry.command) &&
+    Array.isArray(entry.args) &&
+    entry.args.every(isString) &&
+    isRecordOfStrings(entry.env)
+  )
+}
+
+/** Settings may be changed from the Settings window or a project window, nothing else. */
+const fromAppUi = (event: IpcMainEvent | IpcMainInvokeEvent) =>
+  isSettingsContents(event.sender) || windowFor(event) !== undefined
+
+/** Errors cross IPC as `{ error }` so the page shows the message without Electron's prefix. */
+async function reportError(task: () => Promise<unknown>) {
+  try {
+    await task()
+    return { error: null }
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
 function isRect(value: unknown): value is Rect {
   if (!value || typeof value !== 'object') return false
   const rect = value as Record<string, unknown>
@@ -138,7 +194,7 @@ function registerIpc() {
   on(Send.devServerStop, (win) => win.stopDevServer())
   on(Send.devServerRestart, (win) => win.restartDevServer())
   on(Send.showDevServerMenu, (win) => win.showDevServerMenu())
-  on(Send.showAgentMenu, (win) => win.showAgentMenu())
+  on(Send.showAgentMenu, (win) => win.showAgentMenu(() => openSettings('agents')))
   on(Send.showProjectMenu, (win) =>
     win.showProjectMenu(
       () => void pickProject(win),
@@ -146,7 +202,53 @@ function registerIpc() {
     ),
   )
   on(Send.setAgent, (win, agentId) => isAgentId(agentId) && win.setAgent(agentId))
-  on(Send.checkAgents, () => void agentHealth.checkAll())
+
+  const handleSettings = (
+    channel: string,
+    handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
+  ) => {
+    ipcMain.handle(channel, (event, ...args: unknown[]) =>
+      fromAppUi(event) ? handler(event, ...args) : undefined,
+    )
+  }
+  const onSettings = (channel: string, handler: (...args: unknown[]) => void) => {
+    ipcMain.on(channel, (event, ...args: unknown[]) => {
+      if (fromAppUi(event)) handler(...args)
+    })
+  }
+  handleSettings(Invoke.getSettings, (event) => getSettings(event.sender))
+  handleSettings(Invoke.saveCustomAgent, (_event, originalName, entry) =>
+    reportError(async () => {
+      if ((originalName !== null && !isString(originalName)) || !isCustomAgentEntry(entry)) {
+        throw new Error('That agent entry is malformed.')
+      }
+      await saveCustom(originalName, entry)
+    }),
+  )
+  handleSettings(Invoke.deleteCustomAgent, (_event, name) =>
+    reportError(async () => {
+      if (isString(name)) await deleteCustom(name)
+    }),
+  )
+  handleSettings(Invoke.untrustProject, (_event, root) =>
+    isString(root) ? untrustProject(root) : undefined,
+  )
+  handleSettings(Invoke.clearRecent, () => clearRecent())
+  handleSettings(Invoke.clearStorage, (_event, kind) =>
+    STORAGE_KINDS.includes(kind as StorageKind) ? confirmAndClear(kind as StorageKind) : false,
+  )
+  onSettings(Send.openSettings, (section) =>
+    openSettings(
+      SECTIONS.includes(section as SettingsSection) ? (section as SettingsSection) : undefined,
+    ),
+  )
+  onSettings(Send.checkAgents, () => void agentHealth.checkAll())
+  onSettings(Send.setAgentEnabled, (agentId, enabled) => {
+    if (isAgentId(agentId) && typeof enabled === 'boolean') setAgentEnabled(agentId, enabled)
+  })
+  onSettings(Send.setDefaultAgent, (agentId) => isAgentId(agentId) && setDefaultAgent(agentId))
+  onSettings(Send.setChatDocked, (docked) => typeof docked === 'boolean' && setChatDocked(docked))
+  onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
   on(Send.navigate, (win, url) => isString(url) && win.navigate(url))
   on(Send.back, (win) => win.back())
   on(Send.forward, (win) => win.forward())
@@ -183,7 +285,7 @@ const PREVIEW_PERMISSIONS = new Set(['fullscreen', 'clipboard-sanitized-write', 
  * the user's app plus whatever third-party scripts it loads, so deny by default.
  */
 function lockDownSessions() {
-  const preview = session.fromPartition('persist:grat-preview')
+  const preview = session.fromPartition(PREVIEW_PARTITION)
   preview.setPermissionRequestHandler((_wc, permission, callback, details) => {
     callback(PREVIEW_PERMISSIONS.has(permission) && isLoopback(details.requestingUrl))
   })
@@ -218,7 +320,22 @@ function buildMenu() {
       if (win) fn(win)
     }
   const template: MenuItemConstructorOptions[] = [
-    { role: 'appMenu' },
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => openSettings() },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
     {
       label: 'File',
       submenu: [
@@ -285,8 +402,12 @@ function buildMenu() {
     {
       label: 'Agent',
       submenu: [
-        ...agentMenuItems(agentHealth.list(), agentHealth.customError, null, (id) =>
-          focusedWindow()?.setAgent(id),
+        ...agentMenuItems(
+          agentHealth.list(),
+          agentHealth.customError,
+          null,
+          (id) => focusedWindow()?.setAgent(id),
+          () => openSettings('agents'),
         ),
         { type: 'separator' },
         {
@@ -311,6 +432,7 @@ app.on('open-file', (event, path) => {
 app.whenReady().then(() => {
   lockDownSessions()
   registerIpc()
+  watchSettings()
   buildMenu()
   // The Agent menu lists what's installed and signed in.
   agentHealth.on('change', buildMenu)

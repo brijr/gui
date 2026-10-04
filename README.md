@@ -15,7 +15,7 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
   | OpenCode | `opencode acp` | `opencode auth login` |
   | Pi | `pi --mode rpc` (via `pi-acp`) | `pi`, then `/login` |
 
-  Any other [ACP](https://agentclientprotocol.com) agent can be added from **Agent → Custom Agents…**, which opens `agents.json` in Grat's app data folder. Entries use the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
+  Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Grat's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
 
   ```json
   { "Amp": { "command": "amp-acp", "args": [], "env": {} } }
@@ -41,6 +41,7 @@ Open a project folder (⌘O). Grat detects the package manager and `dev` script,
 | Reload preview | ⌘R |
 | New chat | ⇧⌘K |
 | Stop agent | ⌘. |
+| Settings | ⌘, |
 | Preview DevTools | ⌥⌘I |
 
 ## How it works
@@ -61,6 +62,7 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - **Preview tools for the agent** (`src/main/mcp-server.ts`, `preview-tools.ts`) — each window serves an MCP server on loopback (random port, bearer token) that Grat passes to every agent session that accepts HTTP MCP servers. Agents can `preview_screenshot` (an element, the full page, or at a viewport width like 390), `preview_inspect` (computed styles, box, and source file for a selector), `preview_console`, `preview_navigate`, `preview_reload`, and `dev_server_logs` — so they check their own visual changes instead of guessing.
 - **Errors** (`src/main/problems.ts`) — console errors since the last navigation and dev-server build errors since the last successful rebuild show above the composer with a **Fix** button, and ride along with every prompt as untrusted context.
 - **History** (`src/main/history.ts`) — each project's transcript, checkpoints, and agent session are saved, so after a restart the chat is still there, old turns can still be undone, and the agent resumes its session (ACP `session/load`) with its memory.
+- **Settings** (`src/main/settings.ts`, `src/renderer/src/settings/`) — a separate window (⌘,) for switching agents on and off, signing in, adding custom agents, the default agent and chat docking, revoking trusted projects, clearing recent projects, and clearing chat history, checkpoints, and preview site data. Projects open in a window keep their chat history and checkpoints when those are cleared.
 - **Checkpoints** (`src/main/checkpoints.ts`) — before and after every turn the working tree is snapshotted into a shadow git repo under the app's data folder (your `.git` is never touched). **Undo** restores the files that turn (and any later ones) changed to how they were before it; files you edited yourself are left alone. **Redo** reverses the undo.
 
 ## Scripts
