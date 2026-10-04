@@ -1,6 +1,11 @@
 import { test as base, expect } from '@playwright/test'
 import { waitFor } from './env'
-import { createFixtureCopy, type FixtureCopy, removeFixtureCopy } from './fixtures'
+import {
+  createFixtureCopy,
+  type FixtureCopy,
+  type FixtureName,
+  removeFixtureCopy,
+} from './fixtures'
 import { devServerPids, killAll, pidsInDirectory } from './processes'
 import { type GuiSession, type LaunchOptions, launchGui } from './session'
 
@@ -14,8 +19,24 @@ interface Fixtures {
    * it, and after the test quits the app and checks that no dev server outlived it.
    */
   launch: Launch
+  /**
+   * Another fixture project, for a test that opens it next to the launched one (in a tab).
+   * Checked and removed like `launch`'s, after the app has quit.
+   */
+  copyFixture: (name: FixtureName) => FixtureCopy
   /** Keep the temp directories after the test (GUI_E2E_KEEP=1) to inspect a failure. */
   keepTemp: boolean
+}
+
+/** Checks each copy's shutdown, then removes it (or keeps it, with GUI_E2E_KEEP=1). */
+async function cleanUp(copies: FixtureCopy[], keepTemp: boolean) {
+  const problems: string[] = []
+  for (const copy of copies) {
+    problems.push(...(await checkShutdown(copy)))
+    if (keepTemp) console.log(`[e2e] kept ${copy.base}`)
+    else removeFixtureCopy(copy)
+  }
+  if (problems.length > 0) throw new Error(problems.join('\n'))
 }
 
 /** Waits for the dev server to be gone after quit; reports (and kills) anything left. */
@@ -39,7 +60,18 @@ async function checkShutdown(copy: FixtureCopy): Promise<string[]> {
 export const test = base.extend<Fixtures>({
   keepTemp: [process.env.GUI_E2E_KEEP === '1', { option: true }],
 
-  launch: async ({ keepTemp }, use, testInfo) => {
+  copyFixture: async ({ keepTemp }, use) => {
+    const copies: FixtureCopy[] = []
+    await use((name) => {
+      const copy = createFixtureCopy(name)
+      copies.push(copy)
+      return copy
+    })
+    await cleanUp(copies, keepTemp)
+  },
+
+  // Depends on copyFixture so it's torn down first: the app quits before those copies' checks.
+  launch: async ({ keepTemp, copyFixture: _copyFixture }, use, testInfo) => {
     const copies: FixtureCopy[] = []
     const sessions: GuiSession[] = []
 
@@ -57,12 +89,6 @@ export const test = base.extend<Fixtures>({
       await session.close()
     }
 
-    const problems: string[] = []
-    for (const copy of copies) {
-      problems.push(...(await checkShutdown(copy)))
-      if (keepTemp) console.log(`[e2e] kept ${copy.base}`)
-      else removeFixtureCopy(copy)
-    }
-    if (problems.length > 0) throw new Error(problems.join('\n'))
+    await cleanUp(copies, keepTemp)
   },
 })

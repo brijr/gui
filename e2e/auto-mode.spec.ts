@@ -283,8 +283,9 @@ function autoModeItem(session: GuiSession) {
 const autoChip = (chat: Page) => chat.getByRole('button', { name: 'Auto mode', exact: true })
 
 /**
- * Opens a second, empty project in its own window through Open Recent, and returns that
- * window's chat page once its project is open.
+ * Opens a second, empty project through Open Recent, which puts it in a new tab, and returns
+ * that tab's chat page once its project is open. The first tab is shown again afterwards, so
+ * the test carries on in the first project's chat.
  */
 async function openSecondProject(session: GuiSession): Promise<Page> {
   const { base, userData } = session.fixture
@@ -297,18 +298,19 @@ async function openSecondProject(session: GuiSession): Promise<Page> {
     : []
   const entry = { root: second, name: 'second-project', openedAt: 2 }
   writeFileSync(recentFile, JSON.stringify([entry, ...recent]))
+  const first = (await session.state()).activeTab
   await session.chrome.evaluate((root) => window.gui.openRecent(root), second)
-  const page = (suffix: string) => () =>
+  const page = () =>
     session.app
       .context()
       .pages()
-      .find((p) => p.url().endsWith(suffix) && p !== session.chrome && p !== session.chat)
-  const chrome = await waitFor(page('/index.html'), 'the second window')
-  const chat = await waitFor(page('/chat.html'), "the second window's chat")
-  await chrome.waitForFunction(() => 'gui' in window)
+      .find((p) => p.url().endsWith('/chat.html') && p !== session.chat)
+  const chat = await waitFor(page, "the second tab's chat")
   await chat.waitForFunction(() => 'gui' in window)
-  const opened = async () => (await chrome.evaluate(() => window.gui.getState())).project?.root
+  const opened = async () => (await session.state()).project?.root
   await waitFor(async () => (await opened()) === second, 'the second project to open')
+  await session.chrome.evaluate((id) => window.gui.selectTab(id), first)
+  await waitFor(async () => (await session.state()).activeTab === first, 'the first tab again')
   return chat
 }
 

@@ -1,0 +1,412 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { Page } from '@playwright/test'
+import { type AgentId, CUSTOM_AGENT_PREFIX, type TabInfo, type Turn } from '../src/shared/types'
+import { electronExecutable, sleep, waitFor } from './helpers/env'
+import type { FixtureCopy } from './helpers/fixtures'
+import { devServerPids } from './helpers/processes'
+import type { GuiSession } from './helpers/session'
+import { expect, test } from './helpers/test'
+
+// A window holds projects as tabs, each with its own preview, chat, dev server and agent;
+// background tabs keep running. A stand-in ACP agent (like queue.spec.ts's) does the turns:
+// TABS-WORK takes WORK_MS, TABS-ASK waits on a permission card. No login or usage needed.
+
+const AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Tabs`
+const WORK_MS = 4000
+
+const AGENT_SCRIPT = String.raw`
+const { appendFileSync } = require('node:fs')
+const readline = require('node:readline')
+const log = process.argv[2]
+const write = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
+const pending = new Map()
+const running = new Map()
+let lastId = 1000
+const ask = (method, params) =>
+  new Promise((resolve) => {
+    const id = ++lastId
+    pending.set(id, resolve)
+    write({ id, method, params })
+  })
+const askToRun = async (id, sessionId) => {
+  const toolCall = { toolCallId: 'run-1', title: 'npm test', kind: 'execute', status: 'pending' }
+  write({ method: 'session/update', params: { sessionId, update: { sessionUpdate: 'tool_call', ...toolCall } } })
+  const options = [
+    { optionId: 'allow', name: 'Allow', kind: 'allow_once' },
+    { optionId: 'reject', name: 'Reject', kind: 'reject_once' },
+  ]
+  await ask('session/request_permission', { sessionId, toolCall, options })
+  write({ id, result: { stopReason: 'end_turn' } })
+}
+readline.createInterface({ input: process.stdin }).on('line', (line) => {
+  let message
+  try { message = JSON.parse(line) } catch { return }
+  const { id, method, params } = message
+  if (method === undefined) {
+    const resolve = pending.get(id)
+    pending.delete(id)
+    resolve?.(message.result)
+  } else if (method === 'initialize') {
+    write({ id, result: { protocolVersion: params.protocolVersion, agentCapabilities: {}, authMethods: [] } })
+  } else if (method === 'session/new') {
+    write({ id, result: { sessionId: 'tabs-' + process.pid } })
+  } else if (method === 'session/prompt') {
+    const text = params.prompt.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
+    appendFileSync(log, JSON.stringify(text) + '\n')
+    if (text.includes('TABS-ASK')) return void askToRun(id, params.sessionId)
+    const timer = setTimeout(() => {
+      running.delete(params.sessionId)
+      write({ id, result: { stopReason: 'end_turn' } })
+    }, ${WORK_MS})
+    running.set(params.sessionId, { id, timer })
+  } else if (method === 'session/cancel') {
+    const turn = running.get(params.sessionId)
+    if (!turn) return
+    clearTimeout(turn.timer)
+    running.delete(params.sessionId)
+    write({ id: turn.id, result: { stopReason: 'cancelled' } })
+  } else if (id !== undefined) {
+    write({ id, error: { code: -32601, message: 'Method not found: ' + method } })
+  }
+})
+`
+
+/** Makes the stand-in agent the active tab's (and new tabs'); returns the prompts it got. */
+async function useTabsAgent(session: GuiSession): Promise<() => string[]> {
+  const { base, userData } = session.fixture
+  const log = join(base, 'tabs-prompts.ndjson')
+  const script = join(base, 'tabs-agent.cjs')
+  writeFileSync(script, AGENT_SCRIPT)
+  const agents = {
+    Tabs: {
+      command: electronExecutable(),
+      args: [script, log],
+      env: { ELECTRON_RUN_AS_NODE: '1' },
+    },
+  }
+  writeFileSync(join(userData, 'agents.json'), JSON.stringify(agents))
+  await session.chrome.evaluate(() => window.gui.checkAgents())
+  const listed = async () => (await session.state()).agents.some((a) => a.id === AGENT)
+  await waitFor(listed, 'the tabs agent to be listed')
+  await session.chrome.evaluate((id) => window.gui.setAgent(id), AGENT)
+  return () => {
+    if (!existsSync(log)) return []
+    return readFileSync(log, 'utf8')
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string)
+  }
+}
+
+/**
+ * A second copy of the Vite fixture, renamed so its tab and page tell it apart, trusted and
+ * listed in recent projects like the launched one.
+ */
+function secondProject(session: GuiSession, copy: FixtureCopy) {
+  const pkg = join(copy.root, 'package.json')
+  writeFileSync(pkg, readFileSync(pkg, 'utf8').replace('"gui-e2e-vite"', '"second-vite"'))
+  const app = join(copy.root, 'src', 'App.tsx')
+  writeFileSync(app, readFileSync(app, 'utf8').replace('Gui Vite fixture', 'Second Vite fixture'))
+  const { userData, root } = session.fixture
+  writeFileSync(join(userData, 'trusted-projects.json'), JSON.stringify([root, copy.root]))
+  return copy.root
+}
+
+/** Opens a folder as Finder (or the Dock) does. */
+function openFromFinder(session: GuiSession, path: string) {
+  return session.app.evaluate(({ app }, folder) => {
+    app.emit('open-file', { preventDefault: () => undefined }, folder)
+  }, path)
+}
+
+/**
+ * Clicks a visible item of the app menu by label. Like any script it focuses no window, so the
+ * menu acts on the lone window, as it does for the user in the focused one.
+ */
+function clickMenu(session: GuiSession, label: string) {
+  return session.app.evaluate(({ Menu }, name) => {
+    type Item = Electron.MenuItem
+    const find = (items: Item[]): Item | undefined => {
+      for (const item of items) {
+        if (item.label === name && item.visible) return item
+        const inner = item.submenu && find(item.submenu.items)
+        if (inner) return inner
+      }
+      return undefined
+    }
+    const item = find(Menu.getApplicationMenu()?.items ?? [])
+    if (!item) throw new Error(`No menu item "${name}"`)
+    item.click()
+  }, label)
+}
+
+/**
+ * Runs in main: the first window's title and traffic lights, and what the views in it show:
+ * the previews' addresses and the chat panels' text.
+ */
+async function windowInfo({ BrowserWindow, WebContentsView }: typeof import('electron/main')) {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win) return null
+  const views = win.contentView.children.filter(
+    (child): child is InstanceType<typeof WebContentsView> => child instanceof WebContentsView,
+  )
+  const pages = views.map((view) => view.webContents)
+  const chats = pages.filter((wc) => wc.getURL().endsWith('/chat.html'))
+  return {
+    title: win.getTitle(),
+    lights: win.getWindowButtonPosition(),
+    previews: pages.map((wc) => wc.getURL()).filter((url) => url.startsWith('http://')),
+    chats: await Promise.all(
+      chats.map((wc): Promise<string> => wc.executeJavaScript('document.body.innerText')),
+    ),
+  }
+}
+
+/** The chat page that isn't one of `known`: a new tab's. */
+async function newChatPage(session: GuiSession, known: Page[]) {
+  const find = () =>
+    session.app
+      .context()
+      .pages()
+      .find((page) => page.url().endsWith('/chat.html') && !known.includes(page))
+  const page = await waitFor(find, "the new tab's chat")
+  await page.waitForFunction(() => 'gui' in window)
+  return page
+}
+
+const tabsOf = async (session: GuiSession) => (await session.state()).tabs
+const tabStrip = (session: GuiSession) => session.chrome.getByRole('tablist')
+const tabNamed = (session: GuiSession, name: string) =>
+  tabStrip(session).getByRole('tab', { name, exact: true })
+
+/** Drags the tab named `from` onto the one named `onto`, with the mouse. */
+async function dragTab(session: GuiSession, from: string, onto: string) {
+  const start = await tabNamed(session, from).boundingBox()
+  const end = await tabNamed(session, onto).boundingBox()
+  if (!start || !end) throw new Error('The tabs have no layout box')
+  const { mouse } = session.chrome
+  await mouse.move(start.x + start.width / 2, start.y + start.height / 2)
+  await mouse.down()
+  await mouse.move(end.x + end.width / 2, end.y + end.height / 2, { steps: 8 })
+  await mouse.up()
+}
+const turnsIn = async (chat: Page): Promise<Turn[]> =>
+  (await chat.evaluate(() => window.gui.getChat())).turns
+
+/** Waits until the tab strip shows `status` for the tab `id`. */
+function tabStatus(session: GuiSession, id: string, status: TabInfo['status']) {
+  return waitFor(async () => {
+    const tab = (await tabsOf(session)).find((t) => t.id === id)
+    return tab?.status === status ? tab : null
+  }, `tab ${id} to be ${status}`)
+}
+
+test('projects open as tabs, each with its own preview, chat and dev server', async ({
+  launch,
+  copyFixture,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  const first = await session.waitForPreview()
+  const firstRoot = session.fixture.root
+  const name = first.project?.name ?? ''
+  const recorded = await useTabsAgent(session)
+
+  // One tab: no tab strip, the window as it's always been.
+  expect(first.tabs).toEqual([{ id: first.activeTab, title: name, status: 'idle' }])
+  await expect(tabStrip(session)).toHaveCount(0)
+  expect(await session.app.evaluate(windowInfo)).toMatchObject({
+    title: name,
+    lights: { x: 16, y: 15 },
+  })
+
+  // File → New Tab: a start-screen tab, shown, and the tab row with the traffic lights in it.
+  await clickMenu(session, 'New Tab')
+  const added = await waitFor(async () => {
+    const state = await session.state()
+    return state.tabs.length === 2 ? state : null
+  }, 'a second tab')
+  const startTab = added.activeTab
+  expect(added.project).toBeNull()
+  expect(added.tabs.map((tab) => tab.title)).toEqual([name, null])
+  await expect(tabStrip(session).getByRole('tab')).toHaveText([name, 'New tab'])
+  await expect(tabStrip(session).getByRole('tab', { selected: true })).toHaveText('New tab')
+  expect(await session.app.evaluate(windowInfo)).toMatchObject({
+    title: 'Gui',
+    lights: { x: 16, y: 11 },
+  })
+  const secondChat = await newChatPage(session, [session.chat])
+  await session.shot('new-tab')
+
+  // A project opened from Finder goes into that start tab, which takes its name.
+  const secondRoot = secondProject(session, copyFixture('vite'))
+  await openFromFinder(session, secondRoot)
+  const opened = await waitFor(
+    async () => {
+      const state = await session.state()
+      const running = state.devServer.status === 'running' && state.preview.visible
+      return state.project?.root === secondRoot && running ? state : null
+    },
+    'the second project to run in the new tab',
+    { timeout: 120_000 },
+  )
+  expect(opened.activeTab).toBe(startTab)
+  expect(opened.tabs.map((tab) => tab.title)).toEqual([name, 'second-vite'])
+  expect((await session.app.evaluate(windowInfo))?.title).toBe('second-vite')
+  expect(await session.windowCount()).toBe(1)
+
+  // Each tab has its own transcript: a turn in the second leaves the first's empty.
+  const prompt = 'TABS-WORK in the second tab'
+  expect(await secondChat.evaluate((text) => window.gui.send(text), prompt)).toBe(true)
+  await waitFor(async () => (await turnsIn(secondChat))[0]?.status === 'done', 'its turn')
+  expect(await turnsIn(session.chat)).toEqual([])
+
+  // The window shows the active tab's preview and chat; the other tab's are out of it.
+  const shown = async () => (await session.app.evaluate(windowInfo)) ?? { previews: [], chats: [] }
+  const second = await shown()
+  expect(second.previews).toEqual([opened.preview.url])
+  expect(second.chats).toEqual([expect.stringContaining(prompt)])
+
+  // Show Next Tab wraps around to the first, with its own preview and chat; the second
+  // project's dev server keeps running in the background.
+  await clickMenu(session, 'Show Next Tab')
+  const back = await waitFor(async () => {
+    const state = await session.state()
+    return state.activeTab === first.activeTab ? state : null
+  }, 'the first tab')
+  expect(back.project?.root).toBe(firstRoot)
+  const firstShown = await shown()
+  expect(firstShown.previews).toEqual([first.preview.url])
+  expect(firstShown.chats).toHaveLength(1)
+  expect(firstShown.chats[0]).not.toContain(prompt)
+  expect(await turnsIn(session.chat)).toEqual([])
+  expect((await turnsIn(secondChat)).map((turn) => turn.prompt)).toEqual([prompt])
+  expect(devServerPids(secondRoot).length).toBeGreaterThan(0)
+  expect(devServerPids(firstRoot).length).toBeGreaterThan(0)
+  await session.shot('two-tabs')
+
+  // Opening a project that's already open selects its tab instead of opening it again.
+  await openFromFinder(session, secondRoot)
+  await waitFor(async () => (await session.state()).activeTab === startTab, 'its tab to be shown')
+  await sleep(1_000)
+  expect(await tabsOf(session)).toHaveLength(2)
+  expect(await session.windowCount()).toBe(1)
+  expect(devServerPids(secondRoot)).toHaveLength(1)
+  expect(recorded()).toEqual([expect.stringContaining(prompt)])
+
+  // Dragging a tab onto another reorders the strip, either way.
+  await dragTab(session, 'second-vite', name)
+  await expect(tabStrip(session).getByRole('tab')).toHaveText(['second-vite', name])
+  expect((await tabsOf(session)).map((tab) => tab.id)).toEqual([startTab, first.activeTab])
+  await dragTab(session, 'second-vite', name)
+  await expect(tabStrip(session).getByRole('tab')).toHaveText([name, 'second-vite'])
+  expect((await tabsOf(session)).map((tab) => tab.id)).toEqual([first.activeTab, startTab])
+
+  // Middle-clicking a tab closes it, which stops its dev server; one tab is left, without a strip.
+  await tabNamed(session, 'second-vite').click({ button: 'middle' })
+  const closed = await waitFor(async () => {
+    const state = await session.state()
+    return state.tabs.length === 1 ? state : null
+  }, 'one tab')
+  expect(closed.activeTab).toBe(first.activeTab)
+  expect(closed.project?.root).toBe(firstRoot)
+  await expect(tabStrip(session)).toHaveCount(0)
+  expect(await session.app.evaluate(windowInfo)).toMatchObject({
+    title: name,
+    lights: { x: 16, y: 15 },
+  })
+  await waitFor(() => devServerPids(secondRoot).length === 0, 'the closed tab’s dev server to stop')
+  expect(secondChat.isClosed()).toBe(true)
+  expect(devServerPids(firstRoot).length).toBeGreaterThan(0)
+
+  // Closing the last tab closes the window.
+  await clickMenu(session, 'Close Tab')
+  await waitFor(async () => (await session.windowCount()) === 0, 'the window to close')
+})
+
+for (const colorScheme of ['light', 'dark'] as const) {
+  test(`background tabs keep working and show it in the strip (${colorScheme})`, async ({
+    launch,
+    copyFixture,
+  }) => {
+    const session = await launch({ fixture: 'vite', colorScheme })
+    const first = await session.waitForPreview()
+    const recorded = await useTabsAgent(session)
+    await session.shot(`one-tab-${colorScheme}`)
+
+    // A second project in a new tab, and a third, empty one.
+    await session.chrome.evaluate(() => window.gui.newTab())
+    const secondChat = await newChatPage(session, [session.chat])
+    await openFromFinder(session, secondProject(session, copyFixture('vite')))
+    const second = await waitFor(
+      async () => {
+        const state = await session.state()
+        return state.preview.visible && state.tabs.length === 2 ? state : null
+      },
+      'the second project',
+      { timeout: 120_000 },
+    )
+    // Ask, not Auto, so the agent's request waits for the user.
+    await secondChat.evaluate(() => window.gui.setAutoApprove(false))
+    await session.chrome.evaluate(() => window.gui.newTab())
+    await waitFor(async () => (await tabsOf(session)).length === 3, 'a third tab')
+
+    // The first tab's agent works while another tab is shown, and the strip says so.
+    await session.chrome.evaluate((id) => window.gui.selectTab(id), first.activeTab)
+    expect(await session.chat.evaluate(() => window.gui.send('TABS-WORK first'))).toBe(true)
+    await session.chrome.evaluate((id) => window.gui.selectTab(id), second.activeTab)
+    await tabStatus(session, first.activeTab, 'working')
+    await expect(tabNamed(session, 'gui-e2e-vite, working')).toBeVisible()
+
+    // The second tab's agent asks; once another tab is shown, its tab waits on the user.
+    expect(await secondChat.evaluate(() => window.gui.send('TABS-ASK second'))).toBe(true)
+    await waitFor(async () => {
+      const turn = (await turnsIn(secondChat))[0]
+      return turn?.items.some((item) => item.kind === 'permission' && !item.resolved)
+    }, 'the permission card')
+    await session.chrome.evaluate((id) => window.gui.selectTab(id), first.activeTab)
+    await tabStatus(session, second.activeTab, 'attention')
+    await expect(tabNamed(session, 'second-vite, waiting for your answer')).toBeVisible()
+    await session.shot(`three-tabs-${colorScheme}`)
+
+    // The background turn finished on its own.
+    await session.chrome.evaluate((id) => window.gui.selectTab(id), second.activeTab)
+    await tabStatus(session, first.activeTab, 'idle')
+    expect((await turnsIn(session.chat))[0]?.status).toBe('done')
+    expect(recorded()).toEqual([
+      expect.stringContaining('TABS-WORK first'),
+      expect.stringContaining('TABS-ASK second'),
+    ])
+
+    // Answering the card in the second tab clears its mark.
+    const turn = (await turnsIn(secondChat))[0]
+    const card = turn?.items.find((item) => item.kind === 'permission')
+    if (!turn || !card) throw new Error('The permission card is gone')
+    await secondChat.evaluate(
+      ([turnId, itemId]) => window.gui.respondPermission(turnId, itemId, 'reject'),
+      [turn.id, card.id] as const,
+    )
+    await tabStatus(session, second.activeTab, 'idle')
+
+    // Window → Move Tab to New Window: the tab goes on in a window of its own.
+    await clickMenu(session, 'Move Tab to New Window')
+    await waitFor(async () => (await session.windowCount()) === 2, 'a second window')
+    const chromes = () =>
+      session.app
+        .context()
+        .pages()
+        .filter((page) => page.url().endsWith('/index.html') && page !== session.chrome)
+    const moved = await waitFor(() => chromes()[0], "the new window's chrome")
+    await moved.waitForFunction(() => 'gui' in window)
+    const own = await waitFor(async () => {
+      const state = await moved.evaluate(() => window.gui.getState())
+      return state.project ? state : null
+    }, 'the moved tab in the new window')
+    expect(own.tabs).toEqual([{ id: second.activeTab, title: 'second-vite', status: 'idle' }])
+    expect(own.devServer.status).toBe('running')
+    expect((await turnsIn(secondChat)).map((t) => t.status)).toEqual(['done'])
+    const left = await session.state()
+    expect(left.tabs.map((tab) => tab.id)).not.toContain(second.activeTab)
+    expect(left.tabs).toHaveLength(2)
+  })
+}
