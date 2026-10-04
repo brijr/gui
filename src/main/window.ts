@@ -9,6 +9,7 @@ import {
   shell,
   type WebContents,
   WebContentsView,
+  type WebFrameMain,
 } from 'electron'
 import { Events } from '../shared/ipc'
 import {
@@ -98,6 +99,12 @@ export class ProjectWindow {
   private opening: string | null = null
   /** Bumped per element pick; a slow inspection must not overwrite a newer pick. */
   private pickGeneration = 0
+  /** Pending re-highlight of the element a finished turn edited. */
+  private rehighlightTimer: NodeJS.Timeout | null = null
+  /** The current highlight is that post-turn re-highlight, not a pending selection. */
+  private rehighlightShown = false
+  /** Bumped when a turn starts or a pick lands; a re-highlight from before must not show. */
+  private rehighlightGeneration = 0
 
   constructor() {
     this.state = {
@@ -275,15 +282,21 @@ export class ProjectWindow {
         if (meta.agentId !== this.state.agentId) this.patch({ agentId: meta.agentId })
         this.layout()
       })
-      chat.on('turn', (turn) => this.sendChat(Events.chatTurn, turn))
+      chat.on('turn', (turn) => {
+        this.sendChat(Events.chatTurn, turn)
+        // The edited element's highlight would otherwise sit in the next turn's screenshots.
+        if (turn.status === 'running') this.cancelRehighlight()
+      })
       chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
       chat.on('attention', () => this.focusChat())
       chat.on('turnEnd', (turn) => {
         if (turn.status === 'done' && turn.context && turn.changes?.length) {
-          setTimeout(
-            () => void this.highlightSelector(turn.context?.selector),
-            REHIGHLIGHT_DELAY_MS,
-          )
+          const selector = turn.context.selector
+          if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+          this.rehighlightTimer = setTimeout(() => {
+            this.rehighlightTimer = null
+            void this.highlightSelector(selector)
+          }, REHIGHLIGHT_DELAY_MS)
         }
       })
       this.chat = chat
@@ -331,6 +344,7 @@ export class ProjectWindow {
   }
 
   closeProject() {
+    this.cancelRehighlight()
     this.devServer?.dispose()
     this.devServer = null
     this.chat?.dispose()
@@ -447,6 +461,7 @@ export class ProjectWindow {
       this.onNavigated(url)
     })
     wc.on('console-message', (event) => {
+      if (!this.isAppFrame(event.frame)) return
       const where = event.sourceId ? `${event.sourceId}:${event.lineNumber}` : ''
       this.problems.addConsole(event.level, event.message, where)
     })
@@ -485,6 +500,18 @@ export class ProjectWindow {
       event.preventDefault()
       callback('')
     })
+  }
+
+  /** Problems come from the local app's own document, not third-party iframes inside it. */
+  private isAppFrame(frame: WebFrameMain | null | undefined) {
+    try {
+      const main = this.preview.webContents.mainFrame
+      if (!frame || frame.frameTreeNodeId !== main.frameTreeNodeId) return false
+      return frame.origin === this.devOrigin() || isLoopback(frame.origin)
+    } catch {
+      // The frame was disposed before the message was handled.
+      return false
+    }
   }
 
   private onNavigated(url: string) {
@@ -530,9 +557,12 @@ export class ProjectWindow {
       const element = await this.inspector.inspect(nodeId, root, this.devOrigin())
       if (generation !== this.pickGeneration || chat !== this.chat) return
       chat.setSelection(element)
-      await this.inspector.highlight(nodeId)
       this.focusChat()
       this.dodge(element.rect)
+      // The pick's highlight replaces any post-turn one and belongs to the selection. It can
+      // wait behind an agent screenshot, and a node gone after hot reload doesn't undo the pick.
+      this.cancelRehighlight()
+      void this.inspector.highlight(nodeId).catch(() => undefined)
     } catch (error) {
       if (generation !== this.pickGeneration || chat !== this.chat) return
       const message = error instanceof Error ? error.message : String(error)
@@ -600,24 +630,28 @@ export class ProjectWindow {
   /** Re-finds an element after hot reload (its old node is gone) and highlights it. */
   private async highlightSelector(selector: string | undefined) {
     if (!selector || !this.state.preview.visible || this.chat?.meta.selection) return
+    const generation = this.rehighlightGeneration
+    // A turn or pick can start while this waits on the inspector; checked again under its lock.
+    const current = () => generation === this.rehighlightGeneration && !this.chat?.meta.selection
     try {
-      const { root } = await this.inspector.command<{ root: { nodeId: number } }>(
-        'DOM.getDocument',
-        { depth: 0 },
-      )
-      const { nodeId } = await this.inspector.command<{ nodeId: number }>('DOM.querySelector', {
-        nodeId: root.nodeId,
-        selector,
-      })
-      if (!nodeId) return
-      const { node } = await this.inspector.command<{ node: { backendNodeId: number } }>(
-        'DOM.describeNode',
-        { nodeId },
-      )
-      await this.inspector.highlight(node.backendNodeId)
+      const backendNodeId = await this.inspector.querySelector(selector)
+      if (!current()) return
+      // Set first so a turn starting mid-highlight clears it; a stray clear is harmless.
+      this.rehighlightShown = true
+      await this.inspector.highlight(backendNodeId, current)
     } catch {
       // The element may legitimately be gone after the edit.
     }
+  }
+
+  /** Drops the post-turn re-highlight, shown or still pending. */
+  private cancelRehighlight() {
+    this.rehighlightGeneration++
+    if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+    this.rehighlightTimer = null
+    if (!this.rehighlightShown) return
+    this.rehighlightShown = false
+    void this.inspector.clearHighlight()
   }
 
   toggleChat() {
@@ -661,7 +695,8 @@ export class ProjectWindow {
     if (this.disposed) return
     const [contentWidth, contentHeight] = this.win.getContentSize()
     const showChat = this.state.chatVisible && this.hasProject
-    const docked = showChat && (this.chat?.meta.docked ?? false)
+    // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
+    const docked = showChat && (this.chat?.meta.docked ?? getPrefs().chatDocked)
 
     // A docked panel takes a column on the right; the preview gets what's left.
     const area = docked
@@ -844,6 +879,8 @@ export class ProjectWindow {
     this.disposed = true
     windows.delete(this)
     agentHealth.off('change', this.onAgentHealth)
+    if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+    this.problems.dispose()
     this.devServer?.dispose()
     this.chat?.dispose()
     this.mcp?.close()

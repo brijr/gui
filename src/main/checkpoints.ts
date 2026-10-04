@@ -123,6 +123,42 @@ export class Checkpoints {
     })
   }
 
+  /** Of `paths`, the ones whose contents differ between checkpoints `from` and `to`. */
+  changedAmong(from: string, to: string, paths: string[]): Promise<string[]> {
+    return this.enqueue(async () => {
+      assertSha(from)
+      assertSha(to)
+      const repo = await this.ready()
+      const files = [...new Set(paths.map((path) => toRepoPath(repo.root, path)))]
+      const changed: string[] = []
+      for (const batch of chunk(files)) {
+        const args = ['diff', '--no-renames', '--name-only', '-z', from, to, '--', ...batch]
+        changed.push(...splitNul(await this.git(repo, args)))
+      }
+      return changed
+    })
+  }
+
+  /**
+   * Whether every sha is still a commit in the shadow repo; the user may have deleted
+   * its folder. Callers check before acting on old checkpoints.
+   */
+  hasCommits(shas: string[]): Promise<boolean> {
+    return this.enqueue(async () => {
+      for (const sha of shas) assertSha(sha)
+      try {
+        const repo = await this.ready()
+        for (const batch of chunk([...new Set(shas)])) {
+          const revs = batch.map((sha) => `${sha}^{commit}`)
+          await this.git(repo, ['rev-list', '--quiet', '--no-walk', ...revs, '--'], false)
+        }
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
   restore(sha: string, paths: string[]): Promise<void> {
     return this.enqueue(async () => {
       assertSha(sha)

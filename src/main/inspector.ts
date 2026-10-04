@@ -6,6 +6,7 @@ import type { WebContents } from 'electron'
 import type { ElementContext, Rect, SourceLocation } from '../shared/types'
 import { normalizeSourcePath, resolveStack } from './source-resolver'
 
+const COMMAND_TIMEOUT_MS = 15_000
 const HIGHLIGHT = {
   showInfo: true,
   showStyles: false,
@@ -187,9 +188,30 @@ interface InspectorEvents {
   cancel: []
 }
 
+/**
+ * What code running inside `Inspector.exclusive` may use. These skip the lock; the
+ * public equivalents would wait for it and deadlock.
+ */
+export interface InspectorSession {
+  /** backendNodeId of the first element matching `selector` */
+  querySelector(selector: string): Promise<number>
+  /** Hides our highlight while `fn` runs, then shows whatever highlight is current. */
+  withoutHighlight<T>(fn: () => Promise<T>): Promise<T>
+}
+
 /** Element picking and extraction over the Chrome DevTools Protocol. */
 export class Inspector extends EventEmitter<InspectorEvents> {
   private readonly dbg
+  /** Settles when the last queued exclusive section has finished. */
+  private lockTail: Promise<void> = Promise.resolve()
+  /** Node shown by `highlight`, so a screenshot can hide it and put it back. */
+  private highlighted: number | null = null
+  /** Bumped by every highlight change; a queued highlight that's been superseded is dropped. */
+  private highlightToken = 0
+  private readonly session: InspectorSession = {
+    querySelector: (selector) => this.findNode(selector),
+    withoutHighlight: (fn) => this.withoutHighlight(fn),
+  }
 
   constructor(private readonly wc: WebContents) {
     super()
@@ -212,14 +234,40 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     })
   }
 
-  async highlight(backendNodeId: number) {
-    await this.ready()
-    await this.cmd('Overlay.highlightNode', { backendNodeId, highlightConfig: HIGHLIGHT })
+  /**
+   * Locked so it can't land in the middle of an agent screenshot. `isCurrent` is checked
+   * once the lock is held, for callers whose reason to highlight can lapse meanwhile.
+   */
+  async highlight(backendNodeId: number, isCurrent: () => boolean = () => true) {
+    const token = ++this.highlightToken
+    await this.exclusive(async () => {
+      if (isCurrent()) await this.showHighlight(backendNodeId, token)
+    })
   }
 
   async clearHighlight() {
-    if (!this.dbg.isAttached()) return
-    await this.cmd('Overlay.hideHighlight').catch(() => undefined)
+    this.highlightToken++
+    this.highlighted = null
+    await this.hideOverlay()
+  }
+
+  /**
+   * Runs `fn` alone among everything that uses node ids or reads layout: `DOM.getDocument`
+   * invalidates every node id handed out before it, and an agent screenshot emulates a
+   * viewport width that a concurrent pick or inspection would otherwise read.
+   */
+  exclusive<T>(fn: (session: InspectorSession) => Promise<T>): Promise<T> {
+    const run = this.lockTail.then(() => fn(this.session))
+    this.lockTail = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  /** backendNodeId of the first element matching `selector`. */
+  querySelector(selector: string) {
+    return this.exclusive((session) => session.querySelector(selector))
   }
 
   /**
@@ -233,16 +281,24 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     options: { screenshot?: boolean } = {},
   ): Promise<ElementContext> {
     await this.ready()
-    const [described, outer, rect, viewport, styles, react] = await Promise.all([
-      this.cmd<{ node: { localName: string; attributes?: string[] } }>('DOM.describeNode', {
-        backendNodeId,
-      }),
-      this.cmd<{ outerHTML: string }>('DOM.getOuterHTML', { backendNodeId }),
-      this.boxRect(backendNodeId),
-      this.viewport(),
-      this.computedStyles(backendNodeId),
-      this.reactInfo(backendNodeId),
-    ])
+    // Page JavaScript that may wait for hydration; it holds no node ids, so it runs unlocked.
+    const pendingReact = this.reactInfo(backendNodeId)
+    const { described, outer, rect, viewport, styles, screenshot } = await this.exclusive(
+      async () => {
+        const [described, outer, rect, viewport, styles] = await Promise.all([
+          this.cmd<{ node: { localName: string; attributes?: string[] } }>('DOM.describeNode', {
+            backendNodeId,
+          }),
+          this.cmd<{ outerHTML: string }>('DOM.getOuterHTML', { backendNodeId }),
+          this.boxRect(backendNodeId),
+          this.viewport(),
+          this.computedStyles(backendNodeId),
+        ])
+        const screenshot = options.screenshot === false ? null : await this.capture(rect, viewport)
+        return { described, outer, rect, viewport, styles, screenshot }
+      },
+    )
+    const react = await pendingReact
 
     const attributes: Record<string, string> = {}
     const attrs = described.node.attributes ?? []
@@ -250,10 +306,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       attributes[attrs[i]] = attrs[i + 1].slice(0, 300)
     }
     const html = outer.outerHTML
-    const [source, screenshot] = await Promise.all([
-      locateSource(react, projectRoot, devOrigin),
-      options.screenshot === false ? null : this.capture(rect, viewport),
-    ])
+    const source = await locateSource(react, projectRoot, devOrigin)
 
     return {
       id: randomUUID(),
@@ -272,7 +325,10 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     }
   }
 
-  /** Raw CDP access for the agent's preview tools; shares this debugger session. */
+  /**
+   * Raw CDP access for the agent's preview tools; shares this debugger session. Unlocked:
+   * sequences that hold node ids or change emulation belong in `exclusive`.
+   */
   async command<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
     await this.ready()
     return this.cmd<T>(method, params)
@@ -281,6 +337,57 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   dispose() {
     this.removeAllListeners()
     if (this.dbg.isAttached()) this.dbg.detach()
+  }
+
+  /** Unlocked; callers hold the lock across the node ids it uses. */
+  private async findNode(selector: string): Promise<number> {
+    await this.ready()
+    const { root } = await this.cmd<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 })
+    const { nodeId } = await this.cmd<{ nodeId: number }>('DOM.querySelector', {
+      nodeId: root.nodeId,
+      selector,
+    }).catch((error: unknown) => {
+      // Chromium's only error for a selector that doesn't parse; anything else is real.
+      if (error instanceof Error && error.message.includes('DOM Error while querying')) {
+        throw new Error(`Invalid selector: ${selector}`)
+      }
+      throw error
+    })
+    if (!nodeId) throw new Error(`No element matches ${selector}`)
+    const { node } = await this.cmd<{ node: { backendNodeId: number } }>('DOM.describeNode', {
+      nodeId,
+    })
+    return node.backendNodeId
+  }
+
+  /** No-op once `token` is superseded, so a cleared highlight can't reappear late. */
+  private async showHighlight(backendNodeId: number, token = this.highlightToken) {
+    await this.ready()
+    if (token !== this.highlightToken) return
+    await this.cmd('Overlay.highlightNode', { backendNodeId, highlightConfig: HIGHLIGHT })
+    if (token === this.highlightToken) this.highlighted = backendNodeId
+  }
+
+  private async hideOverlay() {
+    if (!this.dbg.isAttached()) return
+    await this.cmd('Overlay.hideHighlight').catch(() => undefined)
+  }
+
+  private async withoutHighlight<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.highlighted === null) return fn()
+    await this.hideOverlay()
+    try {
+      return await fn()
+    } finally {
+      // Restore what's current now; the selection may have gone away meanwhile.
+      const node = this.highlighted
+      if (node !== null) {
+        await this.showHighlight(node).catch(() => {
+          // The node is gone, e.g. replaced by hot reload.
+          if (this.highlighted === node) this.highlighted = null
+        })
+      }
+    }
   }
 
   private async boxRect(backendNodeId: number): Promise<Rect> {
@@ -306,6 +413,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     return { width: cssLayoutViewport.clientWidth, height: cssLayoutViewport.clientHeight }
   }
 
+  /** Unlocked; `inspect` holds the lock around it. */
   private async computedStyles(backendNodeId: number) {
     await this.cmd('DOM.getDocument', { depth: 0 })
     const { nodeIds } = await this.cmd<{ nodeIds: number[] }>(
@@ -380,8 +488,15 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     await this.cmd('Overlay.enable')
   }
 
+  /** Bounded: a page stuck in a script would otherwise hold `exclusive` forever. */
   private cmd<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
-    return this.dbg.sendCommand(method, params) as Promise<T>
+    let timer: NodeJS.Timeout | undefined
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`${method} timed out`)), COMMAND_TIMEOUT_MS)
+    })
+    return Promise.race([this.dbg.sendCommand(method, params) as Promise<T>, timeout]).finally(() =>
+      clearTimeout(timer),
+    )
   }
 }
 

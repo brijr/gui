@@ -1,5 +1,6 @@
+import { mkdirSync } from 'node:fs'
 import { realpath, stat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -43,6 +44,15 @@ import { PREVIEW_PARTITION } from './storage'
 import { allWindows, findWindow, focusedWindow, ProjectWindow } from './window'
 
 app.setName('Grat')
+
+// Dev builds keep their own data: sharing the installed app's would let both work on one
+// project's history and shadow repo at once. Tests pick a folder with --user-data-dir.
+// Must run before anything reads userData, including the single-instance lock below.
+if (!app.isPackaged && !app.commandLine.hasSwitch('user-data-dir')) {
+  const devData = join(app.getPath('appData'), 'Grat Dev')
+  mkdirSync(devData, { recursive: true, mode: 0o700 })
+  app.setPath('userData', devData)
+}
 
 const VIEWPORTS: readonly Viewport[] = ['desktop', 'tablet', 'mobile']
 
@@ -423,35 +433,61 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
 }
 
-app.on('open-file', (event, path) => {
-  event.preventDefault()
-  // At cold launch no window is focused yet; reuse the empty one created on ready.
-  void app.whenReady().then(() => openSafely(focusedWindow(), path))
-})
+function focusExistingWindow() {
+  const win = focusedWindow() ?? allWindows()[0]
+  if (!win) {
+    createWindow()
+    return
+  }
+  if (win.win.isMinimized()) win.win.restore()
+  // The user just launched Grat again, so coming to the front is what they asked for.
+  if (process.platform === 'darwin') app.focus({ steal: true })
+  win.win.focus()
+}
 
-app.whenReady().then(() => {
-  lockDownSessions()
-  registerIpc()
-  watchSettings()
-  buildMenu()
-  // The Agent menu lists what's installed and signed in.
-  agentHealth.on('change', buildMenu)
-  // Pick up agents installed (or added to agents.json) while Grat was in the background.
-  app.on('browser-window-focus', () => void agentHealth.rescan())
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
-  const win = createWindow()
-  // Know up front whether the likely agents are ready or need sign-in; costs no usage.
-  void agentHealth.checkOnLaunch(getPrefs().agentId)
-  const initial = process.env.GRAT_OPEN
-  if (initial) openSafely(win, resolve(initial))
-})
-
-app.on('before-quit', () => {
+/** Stops agent processes that would otherwise outlive the app. */
+function shutdown() {
   for (const win of allWindows()) win.destroy()
-})
+  agentHealth.dispose()
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
+// One Grat per data folder: two would delete each other's live shadow-repo lock and
+// overwrite each other's history. The lock is keyed on userData, so a dev build or a
+// test with its own --user-data-dir still runs alongside.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on('second-instance', () => focusExistingWindow())
+
+  app.on('open-file', (event, path) => {
+    event.preventDefault()
+    // At cold launch no window is focused yet; reuse the empty one created on ready.
+    void app.whenReady().then(() => openSafely(focusedWindow(), path))
+  })
+
+  app.whenReady().then(() => {
+    lockDownSessions()
+    registerIpc()
+    watchSettings()
+    buildMenu()
+    // The Agent menu lists what's installed and signed in.
+    agentHealth.on('change', buildMenu)
+    // Pick up agents installed (or added to agents.json) while Grat was in the background.
+    app.on('browser-window-focus', () => void agentHealth.rescan())
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    })
+    const win = createWindow()
+    // Know up front whether the likely agents are ready or need sign-in; costs no usage.
+    void agentHealth.checkOnLaunch(getPrefs().agentId)
+    const initial = process.env.GRAT_OPEN
+    if (initial) openSafely(win, resolve(initial))
+  })
+
+  app.on('before-quit', shutdown)
+  app.on('will-quit', shutdown)
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+}

@@ -1,14 +1,39 @@
 import type { WebContents } from 'electron'
 import type { ElementContext } from '../shared/types'
-import type { Inspector } from './inspector'
+import type { Inspector, InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import type { Problems } from './problems'
 
+/**
+ * Images stay in the agent's session, and the API rejects any side over 2000 px once a
+ * request holds many of them; keep both sides under it with room for rounding.
+ */
 const MAX_IMAGE_WIDTH = 1600
+const MAX_IMAGE_HEIGHT = 1960
 const MAX_FULL_PAGE_HEIGHT = 8000
-const COMMAND_TIMEOUT_MS = 15_000
+/** First visits can compile the route on demand, which takes a while on large apps. */
+const NAVIGATION_TIMEOUT_MS = 30_000
+const RELOAD_TIMEOUT_MS = 10_000
+/** Media queries, layout, and lazy content settling after a viewport change. */
+const SETTLE_MS = 400
+/** Clearing emulation resizes the page asynchronously; how long to wait for the real width. */
+const RESIZE_WAIT_MS = 500
 const ESC = '\u001b'
 const ANSI = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^\u0007]*(?:\u0007|${ESC}\\\\)`, 'g')
+
+/**
+ * Records the scroll offsets of an element's ancestors (nested scrollers and the page)
+ * and returns a function that puts them back. Page JavaScript; its result is never read.
+ */
+const SAVE_SCROLL = `function () {
+  const saved = []
+  for (let node = this.parentElement; node; node = node.parentElement) {
+    saved.push([node, node.scrollLeft, node.scrollTop])
+  }
+  return () => {
+    for (const [node, left, top] of saved) node.scrollTo({ left, top, behavior: 'instant' })
+  }
+}`
 
 export interface Screenshot {
   data: string
@@ -16,6 +41,12 @@ export interface Screenshot {
   width: number
   height: number
   viewportWidth: number
+}
+
+export interface ScreenshotOptions {
+  selector?: string
+  width?: number
+  fullPage?: boolean
 }
 
 export interface PreviewToolsDeps {
@@ -31,15 +62,22 @@ export interface PreviewToolsDeps {
 }
 
 interface LayoutMetrics {
-  cssLayoutViewport: { clientWidth: number; clientHeight: number }
-  cssVisualViewport: { pageX: number; pageY: number }
+  cssLayoutViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number }
+  cssVisualViewport: { pageX: number; pageY: number; clientWidth: number; clientHeight: number }
   cssContentSize: { width: number; height: number }
 }
 
-function withTimeout<T>(promise: Promise<T>, label: string) {
+interface Clip {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+function withTimeout<T>(promise: Promise<T>, message: string, ms: number) {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out`)), COMMAND_TIMEOUT_MS)
+    timer = setTimeout(() => reject(new Error(message)), ms)
   })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
@@ -52,76 +90,20 @@ export class PreviewTools {
 
   /**
    * Captures the preview. `width` temporarily emulates that viewport width (the user
-   * sees it briefly) so the agent can check responsive layouts.
+   * sees it briefly) so the agent can check responsive layouts. Runs alone so parallel
+   * calls don't fight over the emulated width, and without our highlight overlay.
    */
-  async screenshot(options: {
-    selector?: string
-    width?: number
-    fullPage?: boolean
-  }): Promise<Screenshot> {
+  async screenshot(options: ScreenshotOptions): Promise<Screenshot> {
     this.assertLoaded()
-    const restore = options.width ? await this.emulateWidth(options.width) : null
-    try {
-      const metrics = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
-      const viewportWidth = metrics.cssLayoutViewport.clientWidth
-      let clip: { x: number; y: number; width: number; height: number }
-      if (options.selector) {
-        const backendNodeId = await this.find(options.selector)
-        await this.cmd('DOM.scrollIntoViewIfNeeded', { backendNodeId }).catch(() => undefined)
-        const fresh = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
-        const { model } = await this.cmd<{ model: { border: number[] } }>('DOM.getBoxModel', {
-          backendNodeId,
-        })
-        const xs = [model.border[0], model.border[2], model.border[4], model.border[6]]
-        const ys = [model.border[1], model.border[3], model.border[5], model.border[7]]
-        const pad = 16
-        clip = {
-          x: Math.max(0, Math.min(...xs) - pad + fresh.cssVisualViewport.pageX),
-          y: Math.max(0, Math.min(...ys) - pad + fresh.cssVisualViewport.pageY),
-          width: Math.max(...xs) - Math.min(...xs) + pad * 2,
-          height: Math.max(...ys) - Math.min(...ys) + pad * 2,
-        }
-      } else if (options.fullPage) {
-        clip = {
-          x: 0,
-          y: 0,
-          width: metrics.cssContentSize.width,
-          height: Math.min(metrics.cssContentSize.height, MAX_FULL_PAGE_HEIGHT),
-        }
-      } else {
-        clip = {
-          x: metrics.cssVisualViewport.pageX,
-          y: metrics.cssVisualViewport.pageY,
-          width: viewportWidth,
-          height: metrics.cssLayoutViewport.clientHeight,
-        }
-      }
-      const dpr = await this.devicePixelRatio()
-      const scale = Math.min(1, MAX_IMAGE_WIDTH / (clip.width * dpr))
-      const jpeg = options.fullPage === true
-      const { data } = await this.cmd<{ data: string }>('Page.captureScreenshot', {
-        format: jpeg ? 'jpeg' : 'png',
-        quality: jpeg ? 80 : undefined,
-        clip: { ...clip, scale },
-        captureBeyondViewport: options.fullPage === true,
-        fromSurface: true,
-      })
-      return {
-        data,
-        mimeType: jpeg ? 'image/jpeg' : 'image/png',
-        width: Math.round(clip.width * scale * dpr),
-        height: Math.round(clip.height * scale * dpr),
-        viewportWidth,
-      }
-    } finally {
-      await restore?.()
-    }
+    return this.deps.inspector.exclusive((session) =>
+      session.withoutHighlight(() => this.capture(session, options)),
+    )
   }
 
   /** Computed styles, box, and source location for the first element matching `selector`. */
   async inspect(selector: string): Promise<Omit<ElementContext, 'screenshot'>> {
     this.assertLoaded()
-    const backendNodeId = await this.find(selector)
+    const backendNodeId = await this.deps.inspector.querySelector(selector)
     const root = this.deps.projectRoot()
     if (!root) throw new Error('No project is open')
     const { screenshot: _screenshot, ...element } = await this.deps.inspector.inspect(
@@ -148,18 +130,27 @@ export class PreviewTools {
     if (url.origin !== new URL(base).origin || !/^https?:$/.test(url.protocol)) {
       throw new Error('Only paths on the dev server can be opened')
     }
-    await this.deps.navigate(url.toString())
+    await withTimeout(
+      this.deps.navigate(url.toString()),
+      `${url} didn't finish loading within ${NAVIGATION_TIMEOUT_MS / 1000}s; it may still be compiling (check dev_server_logs)`,
+      NAVIGATION_TIMEOUT_MS,
+    )
     await sleep(300)
     return this.deps.currentUrl()
   }
 
   async reload() {
     this.assertLoaded()
-    this.deps.wc.reload()
+    const { wc } = this.deps
     await new Promise<void>((resolve) => {
-      const done = () => resolve()
-      this.deps.wc.once('did-stop-loading', done)
-      setTimeout(done, 10_000)
+      const done = () => {
+        clearTimeout(timer)
+        wc.off('did-stop-loading', done)
+        resolve()
+      }
+      const timer = setTimeout(done, RELOAD_TIMEOUT_MS)
+      wc.on('did-stop-loading', done)
+      wc.reload()
     })
     return this.deps.currentUrl()
   }
@@ -176,33 +167,146 @@ export class PreviewTools {
     if (!isLoopback(url)) throw new Error('The preview is not showing the local dev server')
   }
 
-  private async find(selector: string) {
-    const { root } = await this.cmd<{ root: { nodeId: number } }>('DOM.getDocument', { depth: 0 })
-    const { nodeId } = await this.cmd<{ nodeId: number }>('DOM.querySelector', {
-      nodeId: root.nodeId,
-      selector,
-    }).catch(() => ({ nodeId: 0 }))
-    if (!nodeId) throw new Error(`No element matches ${selector}`)
-    const { node } = await this.cmd<{ node: { backendNodeId: number } }>('DOM.describeNode', {
-      nodeId,
-    })
-    return node.backendNodeId
+  /** Runs inside the inspector's lock; must only use `session` for node lookups. */
+  private async capture(
+    session: InspectorSession,
+    options: ScreenshotOptions,
+  ): Promise<Screenshot> {
+    const initial = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
+    const width = options.width ? Math.round(Math.min(Math.max(options.width, 240), 3840)) : null
+    let scrolled = false
+    let restoreScrollers: (() => Promise<void>) | null = null
+    try {
+      // Inside the try: an override that times out may still apply, and must be cleared.
+      if (width) await this.emulateWidth(width, initial.cssLayoutViewport.clientHeight)
+      const metrics = width ? await this.cmd<LayoutMetrics>('Page.getLayoutMetrics') : initial
+      const viewportWidth = metrics.cssLayoutViewport.clientWidth
+      let clip: Clip
+      let visible = visibleRect(metrics)
+      if (options.selector) {
+        const backendNodeId = await session.querySelector(options.selector)
+        restoreScrollers = await this.saveScroll(backendNodeId).catch(() => null)
+        scrolled = true
+        await this.cmd('DOM.scrollIntoViewIfNeeded', { backendNodeId }).catch(() => undefined)
+        const fresh = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
+        visible = visibleRect(fresh)
+        const { model } = await this.cmd<{ model: { border: number[] } }>('DOM.getBoxModel', {
+          backendNodeId,
+        }).catch(() => {
+          throw new Error(`${options.selector} isn't rendered (it has no layout box)`)
+        })
+        const xs = [model.border[0], model.border[2], model.border[4], model.border[6]]
+        const ys = [model.border[1], model.border[3], model.border[5], model.border[7]]
+        const pad = 16
+        clip = {
+          x: Math.max(0, Math.min(...xs) - pad + fresh.cssVisualViewport.pageX),
+          y: Math.max(0, Math.min(...ys) - pad + fresh.cssVisualViewport.pageY),
+          width: Math.max(...xs) - Math.min(...xs) + pad * 2,
+          height: Math.max(...ys) - Math.min(...ys) + pad * 2,
+        }
+      } else if (options.fullPage) {
+        clip = {
+          x: 0,
+          y: 0,
+          width: metrics.cssContentSize.width,
+          height: Math.min(metrics.cssContentSize.height, MAX_FULL_PAGE_HEIGHT),
+        }
+      } else {
+        clip = visible
+      }
+      const dpr = await this.devicePixelRatio()
+      const scale = Math.min(
+        1,
+        MAX_IMAGE_WIDTH / (clip.width * dpr),
+        MAX_IMAGE_HEIGHT / (clip.height * dpr),
+      )
+      const jpeg = options.fullPage === true && !options.selector
+      const { data } = await this.cmd<{ data: string }>('Page.captureScreenshot', {
+        format: jpeg ? 'jpeg' : 'png',
+        quality: jpeg ? 80 : undefined,
+        clip: { ...clip, scale },
+        // Off-screen parts come back blank without it, but it resizes the view for the
+        // capture, which can reflow `vh` layouts; only when the clip leaves the viewport.
+        // (An emulated width wider than the view isn't cropped: emulation resizes the surface.)
+        captureBeyondViewport: !contains(visible, clip),
+        fromSurface: true,
+      })
+      return {
+        data,
+        mimeType: jpeg ? 'image/jpeg' : 'image/png',
+        width: Math.round(clip.width * scale * dpr),
+        height: Math.round(clip.height * scale * dpr),
+        viewportWidth,
+      }
+    } finally {
+      // Nested scrollers first, in the layout their offsets were recorded in.
+      await restoreScrollers?.().catch(() => undefined)
+      if (width) {
+        await this.cmd('Emulation.clearDeviceMetricsOverride').catch(() => undefined)
+      }
+      if (width || scrolled) await this.restoreWindowScroll(initial).catch(() => undefined)
+    }
   }
 
-  private async emulateWidth(width: number) {
-    const clamped = Math.round(Math.min(Math.max(width, 240), 3840))
-    const metrics = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
+  private async emulateWidth(width: number, height: number) {
     await this.cmd('Emulation.setDeviceMetricsOverride', {
-      width: clamped,
-      height: metrics.cssLayoutViewport.clientHeight,
+      width,
+      height,
       deviceScaleFactor: 0,
-      mobile: clamped < 768,
+      mobile: width < 768,
     })
-    // Let media queries, layout, and lazy content settle.
-    await sleep(400)
-    return async () => {
-      await this.cmd('Emulation.clearDeviceMetricsOverride').catch(() => undefined)
+    await sleep(SETTLE_MS)
+  }
+
+  /** Lets the agent's capture scroll an element into view without moving the user's page. */
+  private async saveScroll(backendNodeId: number) {
+    const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
+      backendNodeId,
+    })
+    try {
+      const { result } = await this.cmd<{ result: { objectId?: string } }>(
+        'Runtime.callFunctionOn',
+        { objectId: object.objectId, functionDeclaration: SAVE_SCROLL },
+      )
+      const restore = result.objectId
+      if (!restore) return null
+      return async () => {
+        try {
+          await this.cmd('Runtime.callFunctionOn', {
+            objectId: restore,
+            functionDeclaration: 'function () { this() }',
+          })
+        } finally {
+          void this.cmd('Runtime.releaseObject', { objectId: restore }).catch(() => undefined)
+        }
+      }
+    } finally {
+      void this.cmd('Runtime.releaseObject', { objectId: object.objectId }).catch(() => undefined)
     }
+  }
+
+  /** The page scroll as it was before the capture; emulation can clamp it, scrolling moves it. */
+  private async restoreWindowScroll(before: LayoutMetrics) {
+    let now = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
+    for (
+      let waited = 0;
+      waited < RESIZE_WAIT_MS &&
+      now.cssLayoutViewport.clientWidth !== before.cssLayoutViewport.clientWidth;
+      waited += 50
+    ) {
+      await sleep(50)
+      now = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
+    }
+    const { pageX, pageY } = before.cssLayoutViewport
+    if (
+      Math.abs(now.cssLayoutViewport.pageX - pageX) < 1 &&
+      Math.abs(now.cssLayoutViewport.pageY - pageY) < 1
+    ) {
+      return
+    }
+    await this.cmd('Runtime.evaluate', {
+      expression: `scrollTo({ left: ${Number(pageX)}, top: ${Number(pageY)}, behavior: 'instant' })`,
+    })
   }
 
   private async devicePixelRatio() {
@@ -214,7 +318,23 @@ export class PreviewTools {
     return Number.isFinite(value) && value > 0 && value <= 4 ? value : 1
   }
 
+  /** Inspector bounds every CDP command. */
   private cmd<T = unknown>(method: string, params?: Record<string, unknown>) {
-    return withTimeout(this.deps.inspector.command<T>(method, params), method)
+    return this.deps.inspector.command<T>(method, params)
   }
+}
+
+/** The part of the page currently on screen, in page coordinates. */
+function visibleRect(metrics: LayoutMetrics): Clip {
+  const { pageX, pageY, clientWidth, clientHeight } = metrics.cssVisualViewport
+  return { x: pageX, y: pageY, width: clientWidth, height: clientHeight }
+}
+
+function contains(outer: Clip, inner: Clip) {
+  return (
+    inner.x >= outer.x - 1 &&
+    inner.y >= outer.y - 1 &&
+    inner.x + inner.width <= outer.x + outer.width + 1 &&
+    inner.y + inner.height <= outer.y + outer.height + 1
+  )
 }

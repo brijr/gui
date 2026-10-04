@@ -114,11 +114,18 @@ function errorDetail(error: unknown) {
   return error instanceof Error ? error.message : String(error)
 }
 
+/**
+ * Phrases agents use for a missing or expired login. Whole words only: a bare "auth"
+ * substring also matches unrelated errors (e.g. "author", "OAuth").
+ */
+const AUTH_ERROR =
+  /\b(?:auth(?:entication)? (?:is )?required|authenticat(?:e|ion)\b|unauthori[sz]ed|not (?:logged|signed) in|(?:log ?in|sign ?in) (?:is )?required|please (?:log|sign) ?in|(?:invalid|missing|expired) (?:api key|credentials?|token)|no credentials|401\b)/i
+
 function isAuthError(error: unknown) {
   const code = (error as { code?: unknown } | null)?.code
   const message = errorDetail(error)
   // -32000 is ACP's auth_required.
-  return code === -32000 || /auth|log ?in|sign ?in|credential|api key/i.test(message)
+  return code === -32000 || AUTH_ERROR.test(message)
 }
 
 /** The agent's own reason (when it says more than "auth required") plus how to sign in. */
