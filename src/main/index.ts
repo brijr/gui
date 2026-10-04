@@ -655,6 +655,8 @@ const ALLOW_ITEM = 'allow'
 const DONT_ALLOW_ITEM = 'dont-allow'
 const FOCUS_MODE_ITEM = 'focus-mode'
 
+type SyncedItem = Pick<MenuItemConstructorOptions, 'checked' | 'enabled'>
+
 /**
  * Menu items that follow the window menus act on: View → Focus Mode is checked while the
  * window's in it; Agent → Auto Mode is checked when the project it would change is in Auto
@@ -664,18 +666,25 @@ const FOCUS_MODE_ITEM = 'focus-mode'
  * Their keys reach a page first: ⌘⌫ deletes typing in a text field, and the chat panel
  * answers ⌘↩ and ⌘⌫ itself (chat-panel.tsx), so only keys nothing else took get here.
  */
+function syncedItemStates(): Record<string, SyncedItem> {
+  const tab = menuTab()
+  return {
+    [FOCUS_MODE_ITEM]: { checked: menuWindow()?.focusMode ?? false },
+    [AUTO_MODE_ITEM]: { checked: tab?.autoApprove ?? false },
+    [ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(true) },
+    [DONT_ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(false) },
+    [MOVE_TAB_ITEM]: { enabled: (menuWindow()?.tabs.length ?? 0) > 1 },
+  }
+}
+
 function syncMenuItems() {
   const menu = Menu.getApplicationMenu()
-  const tab = menuTab()
-  const set = (id: string, key: 'checked' | 'enabled', value: boolean) => {
+  for (const [id, { checked, enabled }] of Object.entries(syncedItemStates())) {
     const item = menu?.getMenuItemById(id)
-    if (item && item[key] !== value) item[key] = value
+    if (!item) continue
+    if (checked !== undefined && item.checked !== checked) item.checked = checked
+    if (enabled !== undefined && item.enabled !== enabled) item.enabled = enabled
   }
-  set(FOCUS_MODE_ITEM, 'checked', menuWindow()?.focusMode ?? false)
-  set(AUTO_MODE_ITEM, 'checked', tab?.autoApprove ?? false)
-  set(ALLOW_ITEM, 'enabled', !!tab?.permissionAnswer(true))
-  set(DONT_ALLOW_ITEM, 'enabled', !!tab?.permissionAnswer(false))
-  set(MOVE_TAB_ITEM, 'enabled', (menuWindow()?.tabs.length ?? 0) > 1)
 }
 
 /** Only from the user's own menu choice or keystroke: agents never get to turn this on. */
@@ -708,6 +717,9 @@ function closeTab() {
 }
 
 function buildMenu() {
+  // Built as `syncMenuItems` would leave them: agent checks rebuild the menu at any moment,
+  // and a new menu's defaults (enabled, unchecked) mustn't show, even for an instant.
+  const synced = syncedItemStates()
   /** For the active tab of the window menus act on (`menuTab`): the project it shows. */
   const withWindow =
     (fn: (tab: ProjectTab) => void): MenuItemConstructorOptions['click'] =>
@@ -815,6 +827,7 @@ function buildMenu() {
         ...item('focusMode', {
           id: FOCUS_MODE_ITEM,
           type: 'checkbox',
+          ...synced[FOCUS_MODE_ITEM],
           click: () => {
             const win = menuWindow()
             win?.setFocusMode(!win.focusMode)
@@ -842,13 +855,23 @@ function buildMenu() {
         ...item('newChat', { click: withWindow((w) => w.newChat()) }),
         ...item('stop', { click: withWindow((w) => w.cancelChat()) }),
         { type: 'separator' },
-        ...item('allow', { id: ALLOW_ITEM, click: withWindow((w) => w.answerPermission(true)) }),
+        ...item('allow', {
+          id: ALLOW_ITEM,
+          ...synced[ALLOW_ITEM],
+          click: withWindow((w) => w.answerPermission(true)),
+        }),
         ...item('dontAllow', {
           id: DONT_ALLOW_ITEM,
+          ...synced[DONT_ALLOW_ITEM],
           click: withWindow((w) => w.answerPermission(false)),
         }),
         { type: 'separator' },
-        ...item('autoMode', { id: AUTO_MODE_ITEM, type: 'checkbox', click: toggleAutoMode }),
+        ...item('autoMode', {
+          id: AUTO_MODE_ITEM,
+          type: 'checkbox',
+          ...synced[AUTO_MODE_ITEM],
+          click: toggleAutoMode,
+        }),
       ],
     },
     {
@@ -863,6 +886,7 @@ function buildMenu() {
         {
           id: MOVE_TAB_ITEM,
           label: 'Move Tab to New Window',
+          ...synced[MOVE_TAB_ITEM],
           click: withTabs((w) => w.moveToNewWindow(w.activeTab.id)),
         },
         { type: 'separator' },
@@ -881,7 +905,6 @@ function buildMenu() {
     },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
-  syncMenuItems()
 }
 
 function focusExistingWindow() {
