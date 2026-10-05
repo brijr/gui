@@ -4,7 +4,14 @@ import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
-import { type AgentId, type AgentSetting, agentName, type ModelSettings } from '../shared/types'
+import { parseCommands } from '../shared/commands'
+import {
+  type AgentCommand,
+  type AgentId,
+  type AgentSetting,
+  agentName,
+  type ModelSettings,
+} from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
 import {
   type AgentDefinition,
@@ -98,6 +105,8 @@ export interface AgentInfo {
   modeName: string | null
   /** The session's model and effort choices, when the agent offers them */
   models: ModelSettings | null
+  /** The slash commands the agent offers; null until it reports them (usually just after start) */
+  commands: AgentCommand[] | null
 }
 
 export interface StartOptions {
@@ -278,6 +287,8 @@ export class AgentSession {
   /** The session's settings and modes, as the agent last reported them */
   private configOptions: acp.SessionConfigOption[] = []
   private modes: acp.SessionModeState | null = null
+  /** The slash commands the agent last reported; null until it does */
+  private commands: AgentCommand[] | null = null
 
   constructor(
     readonly agentId: AgentId,
@@ -333,8 +344,14 @@ export class AgentSession {
     const app = acp
       .client({ name: 'gui' })
       .onNotification(acp.methods.client.session.update, (ctx) => {
-        if (ctx.params.sessionId !== this.sessionId) return
         const { update } = ctx.params
+        // Agents send their commands just after answering session/new or session/load,
+        // which can beat sessionId being set; `start` reports what arrived by then.
+        if (update.sessionUpdate === 'available_commands_update' && this.sessionId === null) {
+          this.commands = parseCommands(update.availableCommands)
+          return
+        }
+        if (ctx.params.sessionId !== this.sessionId) return
         if (update.sessionUpdate === 'config_option_update') this.remember(update.configOptions)
         if (update.sessionUpdate === 'current_mode_update') this.rememberMode(update.currentModeId)
         if (this.isHidden(update)) return
@@ -440,6 +457,7 @@ export class AgentSession {
       previewTools: servers.length > 0,
       modeName: this.modeName,
       models: this.models,
+      commands: this.commands,
     }
   }
 

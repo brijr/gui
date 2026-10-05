@@ -16,6 +16,7 @@ import { TechnicalDetails } from '../lib/disclosure'
 import { Card, Thumbnail } from '../lib/surface'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { AutoToggle } from './auto-toggle'
+import { useCommandMenu } from './command-menu'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
 import { ModelButton } from './model-picker'
 import { QueuedMessages } from './queue'
@@ -114,7 +115,15 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     }
   }
 
+  const commands = useCommandMenu({
+    text,
+    commands: meta.commands,
+    setText: setDraft,
+    send: () => void submit(),
+  })
+
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (commands.onKeyDown(event)) return
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       void submit()
@@ -189,6 +198,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           {notice}
         </Line>
       )}
+      {commands.element}
       <div
         className={cn(
           'rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
@@ -229,6 +239,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
+          {...commands.inputProps}
           aria-label={`Message ${meta.agentName}`}
           placeholder={
             running

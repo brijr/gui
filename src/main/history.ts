@@ -3,7 +3,9 @@ import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
+import { parseCommands } from '../shared/commands'
 import {
+  type AgentCommand,
   type AgentId,
   DEFAULT_AGENT_ID,
   isAgentId,
@@ -25,6 +27,11 @@ export interface SavedChat {
   /** Checkpoint shas per turn id, so restored turns can still be undone */
   checkpoints: Record<string, { before: string | null; after: string | null }>
   redo: { sha: string; paths: string[]; turnIds: string[] } | null
+  /**
+   * The slash commands each agent last offered in this project, so the composer can list
+   * them before the agent starts (absent in older files)
+   */
+  commands?: Record<string, AgentCommand[]>
 }
 
 const dir = () => join(app.getPath('userData'), 'chats')
@@ -54,6 +61,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
       turns: parsed.turns.map((turn) => settleTurn(turn, checkpoints[turn.id]?.before ?? null)),
       checkpoints,
       redo: parsed.redo ?? null,
+      commands: settleCommands(parsed.commands),
     }
   } catch (error) {
     // Keep what's there for recovery instead of letting the next save overwrite it.
@@ -78,6 +86,16 @@ function settleTurn(turn: Turn, before: string | null): Turn {
     // Its edits were never diffed, but its starting checkpoint can still undo them.
     ...(before && turn.changes === null ? { changesUnknown: true } : {}),
   }
+}
+
+/** Each agent's saved command list, checked like one the agent sent. */
+function settleCommands(value: unknown): Record<string, AgentCommand[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const commands: Record<string, AgentCommand[]> = {}
+  for (const [agentId, list] of Object.entries(value)) {
+    if (isAgentId(agentId)) commands[agentId] = parseCommands(list)
+  }
+  return commands
 }
 
 /** Same limits main puts on attachments when they're sent (see `isImage` in index.ts). */

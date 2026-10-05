@@ -13,12 +13,15 @@ import {
   sep,
 } from 'node:path'
 import type {
+  ContentBlock,
   McpServer,
   RequestPermissionRequest,
   SessionNotification,
 } from '@agentclientprotocol/sdk'
 import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
+import { invokedCommand, parseCommands } from '../shared/commands'
 import {
+  type AgentCommand,
   type AgentId,
   type AgentSetting,
   agentName,
@@ -76,6 +79,8 @@ export interface ChatOptions {
 
 interface TurnRecord {
   turn: Turn
+  /** The message is one of the agent's slash commands, sent to it as just that */
+  command: boolean
   before: string | null
   after: string | null
   cancelRequested: boolean
@@ -222,6 +227,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * mode the user or agent picks in between stays.
    */
   private sessionPolicy: PermissionPolicy | null = null
+  /** The slash commands each agent last offered in this project (see ChatMeta.commands) */
+  private knownCommands: Map<AgentId, AgentCommand[]>
   /**
    * What each queued message (`meta.queue`, by id) takes to the agent: the full images and
    * the picked element with its crop. The meta only carries thumbnails, to keep IPC small.
@@ -237,6 +244,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     super()
     const saved = options.saved
     const agentId = saved?.agentId ?? options.agentId
+    this.knownCommands = new Map(Object.entries(saved?.commands ?? {}))
     this.meta = {
       agentId,
       agentName: agentName(agentId),
@@ -245,6 +253,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       error: null,
       errorDetail: null,
       modeName: null,
+      commands: this.knownCommands.get(agentId) ?? [],
       selection: null,
       selectionError: null,
       selecting: false,
@@ -260,6 +269,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (saved) {
       this.records = saved.turns.map((turn) => ({
         turn,
+        command: false,
         before: saved.checkpoints[turn.id]?.before ?? null,
         after: saved.checkpoints[turn.id]?.after ?? null,
         cancelRequested: false,
@@ -285,7 +295,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
   async setAgent(agentId: AgentId) {
     if (agentId === this.meta.agentId) return
     // Switch first, so a quick second switch compares against this one and the last call wins.
-    this.patchMeta({ agentId, agentName: agentName(agentId), models: availableModels(agentId) })
+    this.patchMeta({
+      agentId,
+      agentName: agentName(agentId),
+      models: availableModels(agentId),
+      commands: this.knownCommands.get(agentId) ?? [],
+    })
     await this.reset()
   }
 
@@ -589,7 +604,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const prompt = messagePrompt(text, images)
     if (!prompt || this.lock || this.disposed) return false
 
-    const selection = queued ? queued.selection : fix ? null : this.meta.selection
+    // A command goes to the agent alone: the picked element and images aren't sent with it.
+    const command = !fix && invokedCommand(prompt, this.meta.commands) !== null
+    if (command) images = []
+    const picked = queued ? queued.selection : fix ? null : this.meta.selection
+    const selection = command ? null : picked
     const viewport = queued?.viewport ?? this.options.viewport()
     const record: TurnRecord = {
       turn: {
@@ -615,6 +634,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
           : {}),
         reverted: false,
       },
+      command,
       before: null,
       after: null,
       cancelRequested: false,
@@ -720,18 +740,22 @@ export class ChatController extends EventEmitter<ChatEvents> {
           text: `${this.meta.agentName} can't see images, so the attached ${what} sent.`,
         })
       }
-      const preamble = this.primedAgent !== agent
-      const blocks = buildPrompt({
-        text: record.turn.prompt,
-        selection,
-        viewport,
-        // Only Fix carries errors: they're usually unrelated to an ordinary request.
-        problems,
-        preamble,
-        tools: this.agentHasTools,
-        images: info.supportsImages,
-        attachments: images,
-      })
+      // Agents only run a command that starts the prompt, so it goes alone; Gui's
+      // instructions wait for the next ordinary message.
+      const preamble = !record.command && this.primedAgent !== agent
+      const blocks: ContentBlock[] = record.command
+        ? [{ type: 'text', text: record.turn.prompt }]
+        : buildPrompt({
+            text: record.turn.prompt,
+            selection,
+            viewport,
+            // Only Fix carries errors: they're usually unrelated to an ordinary request.
+            problems,
+            preamble,
+            tools: this.agentHasTools,
+            images: info.supportsImages,
+            attachments: images,
+          })
       const response = await agent.prompt(blocks)
       status = response.stopReason === 'cancelled' ? 'cancelled' : 'done'
       // Only a prompt the agent got through counts as delivering the instructions.
@@ -739,6 +763,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
         this.primedAgent = agent
         this.primed = this.agentHasTools ? 'tools' : 'plain'
         this.schedulePersist()
+      }
+      // Some commands (like Claude's /compact) finish without a word; say it ran.
+      if (record.command && status === 'done' && record.turn.items.length === 0) {
+        this.pushItem(record, {
+          kind: 'notice',
+          id: randomUUID(),
+          tone: 'info',
+          text: `Ran ${record.turn.prompt.split(/\s/, 1)[0]}.`,
+        })
       }
       if (response.stopReason === 'refusal' || response.stopReason === 'max_tokens') {
         pause = response.stopReason === 'refusal' ? 'refused' : 'limit'
@@ -883,6 +916,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
       this.schedulePersist()
       this.patchMeta({ status: 'ready', modeName: info.modeName, models: this.nextModels() })
+      if (info.commands) this.rememberCommands(agent.agentId, info.commands)
       this.hadSession = true
       return { agent, info }
     } catch (error) {
@@ -1030,6 +1064,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private onUpdate(update: SessionUpdate) {
+    if (update.sessionUpdate === 'available_commands_update') {
+      const agentId = this.agent?.agentId
+      if (agentId) this.rememberCommands(agentId, parseCommands(update.availableCommands))
+      return
+    }
     if (update.sessionUpdate === 'config_option_update') {
       // The agent changed its own settings (e.g. new effort levels for another model).
       this.sessionModels = parseModelSettings(update.configOptions)
@@ -1275,6 +1314,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /** Shows the session's mode as the agent last reported it, however it changed. */
+  /** Keeps the commands an agent offers here, for the composer now and the next launch. */
+  private rememberCommands(agentId: AgentId, commands: AgentCommand[]) {
+    const known = this.knownCommands.get(agentId)
+    if (known && JSON.stringify(known) === JSON.stringify(commands)) return
+    this.knownCommands.set(agentId, commands)
+    this.schedulePersist()
+    if (agentId === this.meta.agentId) this.patchMeta({ commands })
+  }
+
   private refreshModeName() {
     const modeName = this.agent?.modeName ?? null
     if (modeName !== this.meta.modeName) this.patchMeta({ modeName })
@@ -1349,6 +1397,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       turns: this.records.map((r) => r.turn),
       checkpoints,
       redo: this.redoPoint,
+      commands: Object.fromEntries(this.knownCommands),
     }
   }
 

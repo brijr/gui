@@ -443,6 +443,15 @@ export interface ModelSettings {
   effort: AgentSetting | null
 }
 
+/** A slash command the agent offers (ACP `available_commands_update`), e.g. `compact` */
+export interface AgentCommand {
+  /** Without the slash */
+  name: string
+  description: string
+  /** What to type after the name, when it takes input */
+  hint: string | null
+}
+
 /** A message sent while the agent was busy, waiting for its turn */
 export interface QueuedMessage {
   id: string
@@ -490,6 +499,12 @@ export interface ChatMeta {
   errorDetail: string | null
   /** The running session's own mode as the agent reports it (shown in the chat header) */
   modeName: string | null
+  /**
+   * The slash commands the agent offers in this project: its running session's, else the
+   * ones it reported last time (it only reports them once a session starts). A message
+   * that starts with one of them is sent to the agent as just that command.
+   */
+  commands: AgentCommand[]
   selection: ElementContext | null
   /** Why the last element pick failed, shown until the next pick */
   selectionError: string | null

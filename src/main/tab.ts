@@ -437,6 +437,7 @@ export class ProjectTab {
         error: null,
         errorDetail: null,
         modeName: null,
+        commands: [],
         selection: null,
         selectionError: null,
         selecting: this.state.preview.selecting,
