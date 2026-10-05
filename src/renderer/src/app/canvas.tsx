@@ -10,6 +10,7 @@ import {
 } from '../../../shared/types'
 import { AgentList } from '../agents/agent-list'
 import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
 import { Input } from '../lib/field'
 import { GuiMark } from '../lib/gui-mark'
@@ -70,7 +71,12 @@ export function Canvas({ state }: { state: WindowState }) {
         <DeviceFrame frame={preview.frame} />
       )}
       {/* Centered while it fits; scrolls from the top in a short window. */}
-      <div className="absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8">
+      <div
+        className={cn(
+          'absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8',
+          !state.project && 'pt-20',
+        )}
+      >
         <div className="m-auto flex w-full justify-center">
           <CanvasMessage state={state} />
         </div>

@@ -19,7 +19,7 @@ export function AgentIcon({ agentId, className }: { agentId: AgentId; className?
       )}
     >
       {logo ? (
-        <AgentLogo agentId={agentId} className="size-4" />
+        <AgentLogo agentId={agentId} className={agentId === 'amp' ? 'h-4 w-5' : 'size-4'} />
       ) : (
         agentName(agentId).trim().charAt(0).toUpperCase() || '?'
       )}
