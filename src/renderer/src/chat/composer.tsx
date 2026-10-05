@@ -29,10 +29,12 @@ import { useCommandMenu } from './command-menu'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
 import { ModelButton } from './model-picker'
 import { QueuedMessages } from './queue'
+import { RecordingClip } from './recording-clip'
 import {
   addAttachments,
   noteSend,
   removeAttachments,
+  removeRecordings,
   setDraft,
   setNotice,
   settleSend,
@@ -48,6 +50,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   // The draft lives in the store: docking, floating and minimizing remount this component.
   const text = useChat((s) => s.draft)
   const attachments = useChat((s) => s.attachments)
+  const recordings = useChat((s) => s.recordings)
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   /** Images still being downscaled; a ref so overlapping pastes count each other. */
@@ -64,7 +67,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     return () => clearTimeout(timer)
   }, [notice])
 
-  const canSend = (text.trim() !== '' || attachments.length > 0) && pending === 0
+  const canSend =
+    (text.trim() !== '' || attachments.length > 0 || recordings.length > 0) && pending === 0
 
   /** One at a time, in order: decoding several large images at once can spike memory. */
   const attach = async (files: Iterable<File>) => {
@@ -97,6 +101,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     event?.preventDefault()
     if (!canSend || sending.current) return
     const sent = attachments
+    const clips = recordings.map((clip) => clip.id)
     const images = sent.map(({ name, mimeType, data, thumbnail }) => ({
       name,
       mimeType,
@@ -108,15 +113,17 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     noteSend(
       text,
       sent.map((image) => image.id),
+      clips,
     )
     try {
       // Keep the draft unless main took it (started the turn or queued it). Only what went
       // out clears: an image attached while sending stays for the next message.
-      const accepted = await gui.send(text, images)
+      const accepted = await gui.send(text, images, clips)
       settleSend(
         accepted,
         text,
         sent.map((image) => image.id),
+        clips,
       )
       if (accepted) setNotice(null)
     } finally {
@@ -219,6 +226,17 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               </li>
             )}
           </ul>
+        )}
+        {recordings.length > 0 && (
+          <fieldset aria-label="Attached recordings" className="flex flex-col gap-2 px-2 pt-2">
+            {recordings.map((clip) => (
+              <RecordingClip
+                key={clip.id}
+                clip={clip}
+                onRemove={() => removeRecordings([clip.id], true)}
+              />
+            ))}
+          </fieldset>
         )}
         <textarea
           ref={input}

@@ -10,6 +10,7 @@ import {
   DEFAULT_AGENT_ID,
   isAgentId,
   type Picked,
+  type RecordingAttachment,
   type Turn,
   type TurnItem,
 } from '../shared/types'
@@ -123,12 +124,14 @@ function settleTurn(turn: Turn, before: string | null): Turn {
   const items = turn.items.map(settleItem)
   const attachments = settleAttachments(turn.attachments)
   const context = settleContext(turn.context)
-  if (turn.status !== 'running') return { ...turn, items, attachments, context }
+  const recordings = settleRecordings(turn.recordings)
+  if (turn.status !== 'running') return { ...turn, items, attachments, context, recordings }
   return {
     ...turn,
     items,
     attachments,
     context,
+    recordings,
     status: 'cancelled',
     endedAt: turn.startedAt,
     // Its edits were never diffed, but its starting checkpoint can still undo them.
@@ -178,6 +181,34 @@ function isAttachment(value: unknown): value is Attachment {
 function settleAttachments(value: unknown): Turn['attachments'] {
   if (!Array.isArray(value)) return undefined
   const valid = value.filter(isAttachment).map(({ name, thumbnail }) => ({ name, thumbnail }))
+  return valid.length ? valid : undefined
+}
+
+function settleRecordings(value: unknown): RecordingAttachment[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const valid = value
+    .filter((clip): clip is RecordingAttachment => {
+      if (!clip || typeof clip !== 'object') return false
+      const data: Record<string, unknown> = clip
+      return (
+        typeof data.id === 'string' &&
+        /^[a-f0-9-]{36}$/.test(data.id) &&
+        typeof data.url === 'string' &&
+        /^gui-recording:\/\/[a-f0-9]{32}\/[a-f0-9-]{36}\/video\.webm$/.test(data.url) &&
+        data.url.endsWith(`/${data.id}/video.webm`) &&
+        ['durationMs', 'width', 'height', 'frameCount'].every(
+          (key) =>
+            typeof data[key] === 'number' && Number.isFinite(data[key]) && Number(data[key]) > 0,
+        ) &&
+        Number(data.durationMs) <= 61000 &&
+        Number(data.width) <= 1920 &&
+        Number(data.height) <= 1920 &&
+        Number.isInteger(data.frameCount) &&
+        Number(data.frameCount) <= 1830 &&
+        isAttachment(data)
+      )
+    })
+    .slice(0, 3)
   return valid.length ? valid : undefined
 }
 

@@ -13,6 +13,7 @@ import type {
   PanelEdge,
   PickOverlayState,
   Point,
+  RecordingAttachment,
   Rect,
   SettingsSection,
   SettingsState,
@@ -45,6 +46,10 @@ export const Invoke = {
   installAgent: 'agents:install',
   shipInfo: 'ship:info',
   takeScreenshot: 'preview:screenshot',
+  startRecording: 'recording:start',
+  recordingFrame: 'recording:frame',
+  finishRecording: 'recording:finish',
+  discardRecording: 'recording:discard',
   ship: 'ship:run',
   getSettings: 'settings:get',
   saveCustomAgent: 'settings:save-custom-agent',
@@ -146,6 +151,7 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatAttach: 'chat:attach',
+  recordingAttach: 'recording:attach',
   chatFloat: 'chat:float',
   morph: 'layout:morph',
   pickState: 'pick:state',
@@ -347,7 +353,7 @@ export interface GuiApi {
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project).
    */
-  send(text: string, images?: ImageAttachment[]): Promise<boolean>
+  send(text: string, images?: ImageAttachment[], recordings?: string[]): Promise<boolean>
   /** Drops a queued message */
   removeQueued(id: string): void
   /** Runs the next queued message now (when idle), resuming a paused queue */
@@ -399,6 +405,11 @@ export interface GuiApi {
    * preview, at the pointer or with its top-left corner at `at` (CSS pixels in the calling
    * page); resolves with what was done, or null when dismissed or nothing is loaded.
    */
+  startRecording(): Promise<string>
+  saveRecordingFrame(id: string, timestampMs: number, jpeg: Uint8Array): Promise<boolean>
+  finishRecording(id: string, durationMs: number, video: Uint8Array): Promise<void>
+  discardRecording(id: string): Promise<void>
+  onRecordingAttach(cb: (recording: RecordingAttachment) => void): Unsubscribe
   takeScreenshot(at?: { x: number; y: number }): Promise<'copied' | 'saved' | 'attached' | null>
   /**
    * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged

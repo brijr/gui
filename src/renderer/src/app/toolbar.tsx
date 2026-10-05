@@ -22,6 +22,7 @@ import {
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, SegmentedControl, Toggle } from '../lib/ui'
+import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 
 const VIEWPORT_ICONS: Record<Viewport, IconComponent> = {
@@ -109,6 +110,7 @@ export function Toolbar({ state }: { state: WindowState }) {
 
           <div className="flex items-center gap-1">
             <ScreenshotButton disabled={!capturable} />
+            <RecordButton state={state} disabled={!capturable} />
             <Toggle
               pressed={preview.selecting}
               emphasis="strong"

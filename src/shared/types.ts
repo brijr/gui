@@ -527,6 +527,7 @@ export interface QueuedMessage {
   /** What was picked when it was queued */
   context: Picked[]
   attachments: { name: string; thumbnail: string }[]
+  recordings?: RecordingAttachment[]
 }
 
 /**
@@ -689,6 +690,7 @@ export interface Turn {
   changesUnknown?: boolean
   /** Reference images the user attached; thumbnails only (the full images went to the agent) */
   attachments?: { name: string; thumbnail: string }[]
+  recordings?: RecordingAttachment[]
   reverted: boolean
 }
 
@@ -697,6 +699,18 @@ export interface ChatSnapshot {
   turns: Turn[]
   /** How the floating chat is drawn; from the window, when it asks (`getChat`) */
   float?: ChatFloat
+}
+
+/** A preview clip saved locally, attached to a draft or kept with a turn. */
+export interface RecordingAttachment {
+  id: string
+  name: string
+  url: string
+  thumbnail: string
+  durationMs: number
+  width: number
+  height: number
+  frameCount: number
 }
 
 /** An image the user pasted or dropped into the composer, already downscaled */

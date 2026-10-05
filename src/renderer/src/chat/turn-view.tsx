@@ -40,6 +40,7 @@ import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
+import { RecordingClip } from './recording-clip'
 import { useChat, waitingCard } from './store'
 import { isNewRow, markSeen } from './transitions'
 
@@ -161,6 +162,9 @@ function UserMessage({ turn }: { turn: Turn }) {
           ))}
         </ul>
       )}
+      {turn.recordings?.map((clip) => (
+        <RecordingClip key={clip.id} clip={clip} />
+      ))}
       <p
         data-user-message={turn.id}
         className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-1.5 text-fg"

@@ -79,6 +79,7 @@ import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
 import type { PromptViewport } from './prompt'
 import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
+import { Recordings } from './recordings'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import {
   createEnvFile,
@@ -225,6 +226,17 @@ export class ProjectTab {
   private mcp: RunningMcpServer | null = null
   /** The current project's preview tools; also used to show how a change turned out. */
   private previewTools: PreviewTools | null = null
+  recordings: Recordings | null = null
+
+  get recordingSource() {
+    return this.preview.webContents.mainFrame
+  }
+
+  attachRecording(recording: import('../shared/types').RecordingAttachment) {
+    if (!this.chat) return
+    this.focusChat()
+    this.sendChat(Events.recordingAttach, recording)
+  }
   private readonly problems = new Problems()
   /** Picking over the preview: the overlay Gui draws it in, over the page. */
   private readonly picker: Picker
@@ -550,7 +562,11 @@ export class ProjectTab {
         restoreViewport: () => this.emulation.restore(),
       })
       this.previewTools = tools
-      const mcp = await startMcpServer(tools).catch((error: unknown) => {
+      this.recordings = new Recordings(root)
+      this.recordings.retain(
+        saved?.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []) ?? [],
+      )
+      const mcp = await startMcpServer(tools, this.recordings).catch((error: unknown) => {
         console.error('[gui] preview tools unavailable', error)
         return null
       })
@@ -566,6 +582,7 @@ export class ProjectTab {
         docked: getPrefs().chatSidebar,
         saved,
         historyFile: file,
+        recordings: this.recordings,
         mcpServers: () => (this.mcp ? [this.mcp.config] : []),
         viewport: () => this.promptViewport(),
       })
@@ -747,6 +764,8 @@ export class ProjectTab {
   }
 
   closeProject() {
+    this.recordings?.dispose()
+    this.recordings = null
     this.stopWatchingForApp()
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
@@ -1374,8 +1393,19 @@ export class ProjectTab {
 
   // Chat
 
-  sendChatMessage(text: string, images: ImageAttachment[]) {
-    return this.chat?.send(text, images) ?? false
+  async sendChatMessage(text: string, images: ImageAttachment[], ids: string[] = []) {
+    const recordings = this.recordings
+    const chat = this.chat
+    if (!chat || !recordings) return false
+    try {
+      const clips = await recordings.attachments(ids)
+      if (this.chat !== chat) return false
+      const accepted = chat.send(text, images, clips)
+      if (accepted) recordings.retain(ids)
+      return accepted
+    } catch {
+      return false
+    }
   }
 
   // Shipping (src/main/ship.ts)
@@ -2788,6 +2818,7 @@ export class ProjectTab {
     this.emulation.dispose()
     this.picker.dispose()
     this.inspector.dispose()
+    this.recordings?.dispose()
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()
   }

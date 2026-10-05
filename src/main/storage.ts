@@ -4,6 +4,7 @@ import { app, session } from 'electron'
 import type { StorageKind, StorageUsage } from '../shared/types'
 import { shadowRepoName } from './checkpoints'
 import { claimedHistoryFiles, historyFile } from './history'
+import { recordingProjectKey } from './recordings'
 
 /** Session partition the previewed apps run in; its cookies and storage persist. */
 export const PREVIEW_PARTITION = 'persist:gui-preview'
@@ -28,12 +29,13 @@ async function sizeOf(path: string): Promise<number> {
 }
 
 export async function measureStorage(): Promise<StorageUsage> {
-  const [chats, checkpoints, previewData] = await Promise.all([
+  const [chats, checkpoints, previewData, recordings] = await Promise.all([
     sizeOf(dirs.chats()),
     sizeOf(dirs.checkpoints()),
     sizeOf(dirs.previewData()),
+    sizeOf(join(app.getPath('userData'), 'recordings')),
   ])
-  return { chats, checkpoints, previewData }
+  return { chats: chats + recordings, checkpoints, previewData }
 }
 
 /** Removes everything in `dir` except the named entries. */
@@ -57,6 +59,10 @@ export async function clearStorage(kind: StorageKind, openRoots: string[]) {
     return
   }
   if (kind === 'chats') {
+    await clearDir(
+      join(app.getPath('userData'), 'recordings'),
+      new Set(openRoots.map(recordingProjectKey)),
+    )
     const keep = await Promise.all(openRoots.map(async (root) => basename(await historyFile(root))))
     await clearDir(
       dirs.chats(),

@@ -81,6 +81,11 @@ function QueuedItem({ item }: { item: QueuedMessage }) {
       <p className="min-w-0 flex-1 truncate text-small" title={item.prompt}>
         {item.prompt}
       </p>
+      {!!item.recordings?.length && (
+        <span className="shrink-0 text-caption text-subtle">
+          {item.recordings.length} {item.recordings.length === 1 ? 'clip' : 'clips'}
+        </span>
+      )}
       {item.attachments.length > 0 && (
         <span className="flex shrink-0 items-center gap-0.5 text-caption text-subtle tabular-nums">
           <ImageIcon className="size-3" aria-hidden="true" />

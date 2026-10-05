@@ -46,6 +46,7 @@ import { createProject, projectName } from './new-project'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
+import { type Recordings, registerRecordingProtocol } from './recordings'
 import {
   clearRecent,
   confirmAndClear,
@@ -356,7 +357,101 @@ function isShipRequest(value: unknown): value is ShipRequest {
   )
 }
 
+const captures = new Map<
+  number,
+  {
+    id: string
+    store: Recordings
+    tab: ReturnType<typeof tabFor>
+    source: import('electron').WebFrameMain
+    armed: boolean
+    timer: NodeJS.Timeout
+  }
+>()
+
+const captureOwners = new WeakSet<WebContents>()
+
 function registerIpc() {
+  ipcMain.handle(Invoke.startRecording, async (event) => {
+    const win = windowFor(event)
+    const tab = tabFor(event)
+    if (
+      win?.win.webContents !== event.sender ||
+      !tab?.getState().preview.visible ||
+      !tab.getState().preview.selectable ||
+      !tab.recordings ||
+      captures.has(event.sender.id)
+    )
+      throw new Error('Preview is unavailable for recording.')
+    const store = tab.recordings
+    const id = await store.start()
+    if (tab.recordings !== store) {
+      await store.discard(id)
+      throw new Error('Project closed.')
+    }
+    const owner = event.sender.id
+    const timer = setTimeout(() => {
+      captures.delete(owner)
+      void store.discard(id).catch(console.error)
+    }, 65_000)
+    captures.set(owner, { id, store, tab, source: tab.recordingSource, armed: true, timer })
+    if (!captureOwners.has(event.sender)) {
+      captureOwners.add(event.sender)
+      event.sender.once('destroyed', () => {
+        const capture = captures.get(owner)
+        if (!capture) return
+        clearTimeout(capture.timer)
+        captures.delete(owner)
+        void capture.store.discard(capture.id).catch(console.error)
+      })
+    }
+    return id
+  })
+  ipcMain.handle(Invoke.recordingFrame, (event, id: unknown, at: unknown, jpeg: unknown) => {
+    const capture = captures.get(event.sender.id)
+    if (
+      !capture ||
+      id !== capture.id ||
+      !isNumber(at) ||
+      !(jpeg instanceof Uint8Array) ||
+      capture.tab?.recordings !== capture.store ||
+      !capture.tab.getState().preview.selectable
+    )
+      return false
+    return capture.store.frame(capture.id, at, jpeg)
+  })
+  ipcMain.handle(
+    Invoke.finishRecording,
+    async (event, id: unknown, duration: unknown, video: unknown) => {
+      const capture = captures.get(event.sender.id)
+      if (!capture || id !== capture.id || !isNumber(duration) || !(video instanceof Uint8Array))
+        throw new Error('Recording is unavailable.')
+      clearTimeout(capture.timer)
+      captures.delete(event.sender.id)
+      try {
+        const clip = await capture.store.finish(capture.id, duration, video)
+        if (capture.tab?.recordings !== capture.store) {
+          await capture.store.discard(capture.id)
+          return
+        }
+        capture.tab.attachRecording(clip)
+      } catch (error) {
+        await capture.store.discard(capture.id)
+        throw error
+      }
+    },
+  )
+  ipcMain.handle(Invoke.discardRecording, async (event, id: unknown) => {
+    if (!isString(id)) return
+    const capture = captures.get(event.sender.id)
+    if (capture?.id === id) {
+      clearTimeout(capture.timer)
+      captures.delete(event.sender.id)
+      await capture.store.discard(id)
+    } else {
+      await tabFor(event)?.recordings?.discard(id)
+    }
+  })
   ipcMain.handle(Invoke.getSymbols, (event) =>
     windowFor(event) || isSettingsContents(event.sender) ? getSymbols() : {},
   )
@@ -388,13 +483,21 @@ function registerIpc() {
     if (!(await loadRecent()).some((project) => project.root === root)) return
     openSafely(windowFor(event), root)
   })
-  ipcMain.handle(Invoke.send, (event, text: unknown, images: unknown) => {
+  ipcMain.handle(Invoke.send, (event, text: unknown, images: unknown, recordings: unknown) => {
     if (!isString(text)) return false
     const attached = images === undefined ? [] : images
     if (!Array.isArray(attached) || attached.length > MAX_IMAGES || !attached.every(isImage)) {
       return false
     }
-    return tabFor(event)?.sendChatMessage(text, attached) ?? false
+    const ids = recordings ?? []
+    if (
+      !Array.isArray(ids) ||
+      ids.length > 3 ||
+      !ids.every(isString) ||
+      new Set(ids).size !== ids.length
+    )
+      return false
+    return tabFor(event)?.sendChatMessage(text, attached, ids) ?? false
   })
   ipcMain.handle(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
   ipcMain.handle(Invoke.takeScreenshot, (event, at: unknown) => {
@@ -641,11 +744,39 @@ function lockDownSessions() {
     event.preventDefault()
     callback()
   })
-  // The app's own UI never needs device or media access.
-  session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) =>
-    callback(false),
+  // Only an explicitly started preview recording may request display media from Gui's UI.
+  session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const armed = !!wc && captures.get(wc.id)?.armed === true
+    callback(
+      armed &&
+        (permission === 'display-capture' ||
+          (permission === 'media' &&
+            'mediaTypes' in details &&
+            (details.mediaTypes?.length ?? 0) === 0)),
+    )
+  })
+  session.defaultSession.setPermissionCheckHandler(
+    (wc, permission) =>
+      !!wc &&
+      captures.get(wc.id)?.armed === true &&
+      (permission === 'media' || permission === 'display-capture'),
   )
-  session.defaultSession.setPermissionCheckHandler(() => false)
+  session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+    const wc = request.frame && webContents.fromFrame(request.frame)
+    const capture = wc && captures.get(wc.id)
+    if (
+      !capture?.armed ||
+      !request.videoRequested ||
+      request.audioRequested ||
+      capture.source.detached ||
+      capture.tab?.recordings !== capture.store
+    ) {
+      callback({})
+      return
+    }
+    capture.armed = false
+    callback({ video: capture.source })
+  })
 }
 
 /** Runs in an isolated world, so a previewed page can't fake where focus is. */
@@ -1023,6 +1154,7 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     lockDownSessions()
+    registerRecordingProtocol()
     registerIpc()
     watchSettings()
     buildMenu()

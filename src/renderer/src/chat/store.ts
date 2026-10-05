@@ -5,6 +5,7 @@ import type {
   ChatSnapshot,
   ImageAttachment,
   QueuedMessage,
+  RecordingAttachment,
   Turn,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -19,6 +20,7 @@ interface ChatStore {
   draft: string
   /** Images attached to the draft, already downscaled; kept here for the same reason */
   attachments: DraftImage[]
+  recordings: RecordingAttachment[]
   /** Why an image wasn't attached; the composer shows it briefly */
   notice: string | null
   /** ⇧⌘M asked for the model picker; the composer's model button opens it and clears this */
@@ -32,6 +34,7 @@ export const useChat = create<ChatStore>(() => ({
   turns: [],
   draft: '',
   attachments: [],
+  recordings: [],
   notice: null,
   pickModel: false,
   float: { form: 'panel', corner: { x: 'right', y: 'bottom' }, seq: 0 },
@@ -75,6 +78,15 @@ export function setNotice(notice: string | null) {
 export function addAttachments(images: DraftImage[]) {
   if (images.length === 0) return
   useChat.setState(({ attachments }) => ({ attachments: [...attachments, ...images] }))
+}
+
+export function removeRecordings(ids: string[], discard = false) {
+  useChat.setState(({ recordings }) => ({
+    recordings: recordings.filter((clip) => !ids.includes(clip.id)),
+  }))
+  if (discard)
+    for (const id of ids)
+      void gui.discardRecording(id).catch(() => setNotice('Could not remove recording.'))
 }
 
 export function removeAttachments(ids: string[]) {
@@ -139,6 +151,7 @@ const permission = (itemId: string) => () =>
 interface Sent {
   prompt: string
   images: string[]
+  recordings: string[]
   at: number
   /** Main took it, but its turn (or queued message) hasn't arrived: clears the composer soon */
   fallback?: ReturnType<typeof setTimeout>
@@ -155,8 +168,8 @@ const SENT_CLEAR_MS = 300
  * The composer is sending `text` with the draft images `images` (by id): when main's turn or
  * queued message for it arrives, it rises out of the composer as the composer clears.
  */
-export function noteSend(text: string, images: string[]) {
-  sent = { prompt: text.trim(), images, at: performance.now() }
+export function noteSend(text: string, images: string[], recordings: string[] = []) {
+  sent = { prompt: text.trim(), images, recordings, at: performance.now() }
 }
 
 /**
@@ -164,7 +177,12 @@ export function noteSend(text: string, images: string[]) {
  * the clear, so the rise starts from the text), or shortly after if that doesn't come. Not
  * taken, the draft stays as it was.
  */
-export function settleSend(accepted: boolean, text: string, images: string[]) {
+export function settleSend(
+  accepted: boolean,
+  text: string,
+  images: string[],
+  recordings: string[] = [],
+) {
   const pending = sent
   if (!accepted) {
     if (pending?.fallback) clearTimeout(pending.fallback)
@@ -175,12 +193,12 @@ export function settleSend(accepted: boolean, text: string, images: string[]) {
     pending.fallback = setTimeout(() => {
       if (sent !== pending) return
       sent = null
-      applyInOrder(() => clearSent(pending.prompt, pending.images))
+      applyInOrder(() => clearSent(pending.prompt, pending.images, pending.recordings))
     }, SENT_CLEAR_MS)
     return
   }
   // Already risen (or rising, its update about to apply): this only finds it done.
-  applyInOrder(() => clearSent(text.trim(), images))
+  applyInOrder(() => clearSent(text.trim(), images, recordings))
 }
 
 /** Takes the sent message if `prompt` is it, still fresh. */
@@ -196,10 +214,11 @@ function takeSent(prompt: string) {
 }
 
 /** Empties the composer of what was sent, unless the user has typed since. */
-function clearSent(prompt: string, images: string[]) {
+function clearSent(prompt: string, images: string[], recordings: string[]) {
   const { draft } = useChat.getState()
   if (draft.trim() === prompt) setDraft('')
   removeAttachments(images)
+  removeRecordings(recordings)
 }
 
 /** Queued messages the user removed: they leave, rather than wait for a turn to move into. */
@@ -296,7 +315,7 @@ function onMeta(meta: ChatMeta) {
     transition(
       () => {
         apply()
-        clearSent(message.prompt, message.images)
+        clearSent(message.prompt, message.images, message.recordings)
       },
       moves,
       [`queue:${newest.id}`],
@@ -336,7 +355,7 @@ function onTurn(turn: Turn) {
       transition(
         () => {
           upsertTurn(turn)
-          clearSent(message.prompt, message.images)
+          clearSent(message.prompt, message.images, message.recordings)
         },
         [{ name: 'chat-message', from: composerInput, to: userMessage(turn.id) }],
         [`${turn.id}:user`],
@@ -386,6 +405,12 @@ export function connectChat() {
     gui.onChatReset(onReset),
     // Here rather than in the composer, which isn't mounted while the panel is minimized.
     gui.onChatAttach(attachFromMain),
+    gui.onRecordingAttach((clip) => {
+      if (useChat.getState().recordings.length >= 3) {
+        setNotice('Up to 3 recordings per message.')
+        void gui.discardRecording(clip.id)
+      } else useChat.setState(({ recordings }) => ({ recordings: [...recordings, clip] }))
+    }),
     gui.onChatFloat((float) => {
       floatReceived = true
       applyInOrder(() => useChat.setState({ float }))
