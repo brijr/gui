@@ -21,6 +21,7 @@ async function invokeOrThrow(channel: string, ...args: unknown[]) {
 }
 
 const api: GuiApi = {
+  getSymbols: () => ipcRenderer.invoke(Invoke.getSymbols),
   getState: () => ipcRenderer.invoke(Invoke.getState),
   onState: (cb) => subscribe(Events.state, cb),
   getLogs: () => ipcRenderer.invoke(Invoke.getLogs),

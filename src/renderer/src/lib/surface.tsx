@@ -1,6 +1,6 @@
-import { Check, X } from 'lucide-react'
 import type { ComponentProps, ReactNode } from 'react'
 import { cn } from './cn'
+import { Check, X } from './icons'
 import { PRESS } from './ui'
 
 /*

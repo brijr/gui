@@ -1,15 +1,3 @@
-import {
-  AppWindow,
-  ChevronRight,
-  FolderOpen,
-  FolderPlus,
-  Info,
-  KeyRound,
-  Package,
-  Play,
-  TriangleAlert,
-  X,
-} from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import type { StartForm } from '../../../shared/ipc'
 import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
@@ -25,6 +13,18 @@ import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { Input } from '../lib/field'
 import { GuiMark } from '../lib/gui-mark'
+import {
+  AppWindow,
+  ChevronRight,
+  FolderOpen,
+  FolderPlus,
+  Info,
+  KeyRound,
+  Package,
+  Play,
+  TriangleAlert,
+  X,
+} from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'

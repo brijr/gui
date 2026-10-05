@@ -357,7 +357,18 @@ html.transparent body {
     outline-offset: 1px;
   }
 
-  /* Lucide icons at the system's lighter stroke. */
+  .sf-symbol {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    background-color: currentColor;
+    mask-size: contain;
+    mask-position: center;
+    mask-repeat: no-repeat;
+    vertical-align: middle;
+  }
+
+  /* Fallback icons match the system's lighter stroke. */
   .lucide {
     stroke-width: 1.75;
   }

@@ -1,17 +1,4 @@
 import {
-  ChevronDown,
-  GitPullRequest,
-  Maximize2,
-  MessageSquare,
-  Minus,
-  MousePointer2,
-  PanelLeft,
-  PanelLeftClose,
-  SquareArrowOutDownLeft,
-  SquareArrowOutUpRight,
-  SquarePen,
-} from 'lucide-react'
-import {
   type CSSProperties,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
@@ -40,6 +27,19 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import {
+  ChevronDown,
+  GitPullRequest,
+  Maximize2,
+  MessageSquare,
+  Minus,
+  MousePointer2,
+  PanelLeft,
+  PanelLeftClose,
+  SquareArrowOutDownLeft,
+  SquareArrowOutUpRight,
+  SquarePen,
+} from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { Message } from '../lib/surface'
 import { Button, IconButton, Spinner } from '../lib/ui'

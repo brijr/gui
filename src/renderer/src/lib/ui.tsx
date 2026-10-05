@@ -1,4 +1,3 @@
-import type { LucideIcon } from 'lucide-react'
 import { type ComponentProps, type ReactNode, useId } from 'react'
 import {
   ariaShortcut,
@@ -7,6 +6,7 @@ import {
   withShortcut,
 } from '../../../shared/shortcuts'
 import { cn } from './cn'
+import type { IconComponent } from './icons'
 
 /*
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
@@ -55,9 +55,9 @@ interface ButtonProps extends ComponentProps<'button'> {
   variant?: ButtonVariant
   size?: ControlSize
   /** Leading icon, 14px */
-  icon?: LucideIcon
+  icon?: IconComponent
   /** Trailing glyph, 12px: a menu's chevron, an external link */
-  trailingIcon?: LucideIcon
+  trailingIcon?: IconComponent
   /** Working: a spinner replaces the icon and the button is disabled */
   loading?: boolean
   /** Its keyboard shortcut, shown as keys at the end */
@@ -110,7 +110,7 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   shortcut?: ShortcutId
   /** A tooltip other than the label, such as what it just did */
   title?: string
-  icon: LucideIcon
+  icon: IconComponent
   size?: 'sm' | 'md'
   /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
   variant?: 'ghost' | 'primary' | 'secondary'
@@ -164,7 +164,7 @@ export function IconButton({
 
 interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
   pressed: boolean
-  icon?: LucideIcon
+  icon?: IconComponent
   children: ReactNode
   /**
    * soft (default): accent-soft while on, for a setting (Auto). strong: solid accent, for a
@@ -212,7 +212,7 @@ export function Toggle({
 interface Segment<T extends string> {
   value: T
   label: string
-  icon?: LucideIcon
+  icon?: IconComponent
   /** Tooltip, when it should say more than the label */
   title?: string
   /** Its keyboard shortcut, named in the tooltip */

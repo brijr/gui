@@ -1,3 +1,4 @@
+import type { SymbolImages } from './symbols'
 import type {
   AgentId,
   ChatFloat,
@@ -27,6 +28,7 @@ import type {
 
 /** Renderer → main, request/response */
 export const Invoke = {
+  getSymbols: 'symbols:get',
   getState: 'state:get',
   getLogs: 'logs:get',
   getTerminal: 'terminal:get',
@@ -182,6 +184,7 @@ export type UiCommand = 'focusAddress' | 'screenshot' | 'chooseModel' | StartFor
 export type StartForm = 'newProject' | 'cloneRepo'
 
 export interface GuiApi {
+  getSymbols(): Promise<SymbolImages>
   getState(): Promise<WindowState>
   onState(cb: (state: WindowState) => void): Unsubscribe
   /** All main keeps of the dev server's output, to draw it from */

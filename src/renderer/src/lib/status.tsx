@@ -1,6 +1,6 @@
-import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { cn } from './cn'
+import type { IconComponent } from './icons'
 
 export type Status = 'ready' | 'busy' | 'error' | 'idle'
 
@@ -38,7 +38,7 @@ interface BadgeProps {
   /** Monospace, for code-like names */
   mono?: boolean
   /** A 12px glyph before the text */
-  icon?: LucideIcon
+  icon?: IconComponent
   title?: string
   className?: string
   children: ReactNode

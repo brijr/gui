@@ -1,4 +1,3 @@
-import { Check, ChevronDown, Search } from 'lucide-react'
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -14,6 +13,7 @@ import { ariaShortcut, withShortcut } from '../../../shared/shortcuts'
 import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Check, ChevronDown, Search } from '../lib/icons'
 import { usePresence } from '../lib/motion'
 import { GroupLabel, MenuRow, Popover } from '../lib/surface'
 import { Button, SegmentedControl } from '../lib/ui'

@@ -1,5 +1,4 @@
 import type { Terminal } from '@xterm/xterm'
-import { ChevronDown, Plus, SquareTerminal, TriangleAlert, X } from 'lucide-react'
 import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
 import { MAX_TERMINAL_INPUT } from '../../../shared/ipc'
 import { matchesShortcut } from '../../../shared/shortcuts'
@@ -11,6 +10,7 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { ChevronDown, Plus, SquareTerminal, TriangleAlert, X } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton } from '../lib/ui'
 import { useLayoutSlide } from './layout-morph'

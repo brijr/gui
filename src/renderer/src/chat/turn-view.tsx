@@ -1,3 +1,19 @@
+import { type ReactNode, useEffect, useState } from 'react'
+import type { ShortcutId } from '../../../shared/shortcuts'
+import {
+  type FileChange,
+  isRegion,
+  type PermissionChoice,
+  type Picked,
+  type PreviewFrame,
+  type SourceLocation,
+  type Turn,
+  type TurnItem,
+} from '../../../shared/types'
+import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
+import { Disclosure, TechnicalDetails } from '../lib/disclosure'
+import { readableError } from '../lib/errors'
 import {
   Brain,
   Check,
@@ -18,23 +34,7 @@ import {
   Undo2,
   Wrench,
   X,
-} from 'lucide-react'
-import { type ReactNode, useEffect, useState } from 'react'
-import type { ShortcutId } from '../../../shared/shortcuts'
-import {
-  type FileChange,
-  isRegion,
-  type PermissionChoice,
-  type Picked,
-  type PreviewFrame,
-  type SourceLocation,
-  type Turn,
-  type TurnItem,
-} from '../../../shared/types'
-import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
-import { Disclosure, TechnicalDetails } from '../lib/disclosure'
-import { readableError } from '../lib/errors'
+} from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'

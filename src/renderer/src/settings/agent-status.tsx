@@ -1,6 +1,6 @@
-import { Check } from 'lucide-react'
 import type { AgentHealth } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { Check } from '../lib/icons'
 import { Spinner } from '../lib/ui'
 
 /**

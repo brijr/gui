@@ -1,4 +1,3 @@
-import { Plus, TriangleAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import {
   type AgentHealth,
@@ -9,6 +8,7 @@ import {
 import { AgentCard } from '../agents/agent-card'
 import { gui } from '../lib/api'
 import { Disclosure } from '../lib/disclosure'
+import { Plus, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem } from '../lib/surface'
 import { Button, Code } from '../lib/ui'

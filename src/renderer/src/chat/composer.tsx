@@ -1,14 +1,4 @@
 import {
-  ArrowUp,
-  Crop,
-  ImagePlus,
-  Info,
-  MousePointer2,
-  Square,
-  TriangleAlert,
-  X,
-} from 'lucide-react'
-import {
   type ClipboardEvent,
   type DragEvent,
   type FormEvent,
@@ -22,6 +12,16 @@ import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../sha
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
+import {
+  ArrowUp,
+  Crop,
+  ImagePlus,
+  Info,
+  MousePointer2,
+  Square,
+  TriangleAlert,
+  X,
+} from '../lib/icons'
 import { Card, Thumbnail } from '../lib/surface'
 import { Button, IconButton, Spinner } from '../lib/ui'
 import { AutoToggle } from './auto-toggle'

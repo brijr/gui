@@ -1,4 +1,3 @@
-import { Check, TriangleAlert } from 'lucide-react'
 import { type ReactNode, useState } from 'react'
 import {
   type AgentBinarySource,
@@ -9,6 +8,7 @@ import {
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
+import { Check, TriangleAlert } from '../lib/icons'
 import { Card, GroupLabel } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
 

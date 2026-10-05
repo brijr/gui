@@ -61,6 +61,7 @@ import {
   watchSettings,
 } from './settings'
 import { PREVIEW_PARTITION } from './storage'
+import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
 import {
   allTabs,
@@ -356,6 +357,9 @@ function isShipRequest(value: unknown): value is ShipRequest {
 }
 
 function registerIpc() {
+  ipcMain.handle(Invoke.getSymbols, (event) =>
+    windowFor(event) || isSettingsContents(event.sender) ? getSymbols() : {},
+  )
   ipcMain.handle(Invoke.getState, (event) => windowFor(event)?.getState())
   ipcMain.handle(Invoke.getLogs, (event) => tabFor(event)?.logsOutput() ?? NO_OUTPUT)
   ipcMain.handle(Invoke.getTerminal, (event, id: unknown) => {

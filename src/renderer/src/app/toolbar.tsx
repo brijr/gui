@@ -1,3 +1,9 @@
+import { type FormEvent, useEffect, useRef, useState } from 'react'
+import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
+import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
+import { VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
+import { gui } from '../lib/api'
+import { Input } from '../lib/field'
 import {
   ArrowLeft,
   ArrowRight,
@@ -5,26 +11,20 @@ import {
   Check,
   ChevronDown,
   Folder,
+  type IconComponent,
   Laptop,
-  type LucideIcon,
   MessageSquare,
   Monitor,
   MousePointer2,
   RotateCw,
   Smartphone,
   Tablet,
-} from 'lucide-react'
-import { type FormEvent, useEffect, useRef, useState } from 'react'
-import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
-import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
-import { VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
-import { gui } from '../lib/api'
-import { Input } from '../lib/field'
+} from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, SegmentedControl, Toggle } from '../lib/ui'
 import { serverStatus } from './server-status'
 
-const VIEWPORT_ICONS: Record<Viewport, LucideIcon> = {
+const VIEWPORT_ICONS: Record<Viewport, IconComponent> = {
   desktop: Monitor,
   laptop: Laptop,
   tablet: Tablet,

@@ -1,7 +1,7 @@
-import { Shield, ShieldOff } from 'lucide-react'
 import { useId } from 'react'
 import type { ChatMeta } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { Shield, ShieldOff } from '../lib/icons'
 import { Toggle } from '../lib/ui'
 
 const HELP =

@@ -1,4 +1,3 @@
-import { ArrowLeft, Check, ExternalLink, GitBranch, Info, TriangleAlert } from 'lucide-react'
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -15,6 +14,7 @@ import { cn } from '../lib/cn'
 import { Disclosure } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { Field, Input, Textarea } from '../lib/field'
+import { ArrowLeft, Check, ExternalLink, GitBranch, Info, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Message } from '../lib/surface'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'

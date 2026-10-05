@@ -1,7 +1,7 @@
-import { Check } from 'lucide-react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Check } from '../lib/icons'
 import { GroupLabel, List } from '../lib/surface'
 import { Button, PRESS } from '../lib/ui'
 import { AgentStatusLabel } from '../settings/agent-status'

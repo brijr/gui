@@ -1,6 +1,6 @@
-import { ChevronRight } from 'lucide-react'
 import { type ComponentProps, useState } from 'react'
 import { cn } from './cn'
+import { ChevronRight } from './icons'
 
 interface DisclosureProps extends Omit<ComponentProps<'button'>, 'onToggle'> {
   open: boolean

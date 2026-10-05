@@ -1,4 +1,3 @@
-import { X } from 'lucide-react'
 import { type MouseEvent, useEffect, useId, useRef } from 'react'
 import {
   acceleratorKeys,
@@ -7,6 +6,7 @@ import {
   type Shortcut,
 } from '../../../shared/shortcuts'
 import { gui } from '../lib/api'
+import { X } from '../lib/icons'
 import { GroupLabel } from '../lib/surface'
 import { IconButton, Keys } from '../lib/ui'
 
