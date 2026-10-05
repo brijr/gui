@@ -257,6 +257,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       selection: null,
       selectionError: null,
       selecting: false,
+      canSelect: false,
       minimized: false,
       docked: options.docked,
       redoTurnIds: saved?.redo?.turnIds ?? [],
@@ -350,6 +351,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setSelecting(selecting: boolean) {
     if (selecting !== this.meta.selecting) this.patchMeta({ selecting })
+  }
+
+  setCanSelect(canSelect: boolean) {
+    if (canSelect !== this.meta.canSelect) this.patchMeta({ canSelect })
   }
 
   setMinimized(minimized: boolean) {

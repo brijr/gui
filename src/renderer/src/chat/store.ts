@@ -34,7 +34,7 @@ export const useChat = create<ChatStore>(() => ({
   attachments: [],
   notice: null,
   pickModel: false,
-  float: { form: 'panel', corner: { x: 'left', y: 'bottom' }, seq: 0 },
+  float: { form: 'panel', corner: { x: 'right', y: 'bottom' }, seq: 0 },
 }))
 
 /** The permission card waiting longest for an answer, and its turn; null when none is. */

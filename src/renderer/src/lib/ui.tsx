@@ -11,7 +11,7 @@ import { cn } from './cn'
 /*
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
- * tints, pressed or selected is accent-soft with accent text, disabled fades to 40%, focus
+ * tints, pressed or selected is accent-soft with accent text, disabled fades to 40% (a primary goes neutral), focus
  * is the global accent ring. Held down, a control dims at once (PRESS) and eases back when
  * let go. Icons inside controls are 14px; chevrons and other trailing glyphs 12px. A control
  * with a keyboard shortcut takes its id (`shortcut`, from src/shared/shortcuts.ts): its
@@ -28,7 +28,10 @@ export const PRESS = 'active:opacity-70 active:transition-none'
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ControlSize = 'sm' | 'md' | 'lg'
 
-const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] disabled:pointer-events-none disabled:opacity-40 ${PRESS}`
+const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] disabled:pointer-events-none ${PRESS}`
+
+/** Disabled, a control fades; a primary one goes neutral instead (VARIANT), as a pale accent still reads as live. */
+const FADE = 'disabled:opacity-40'
 
 const BUTTON_SIZE: Record<ControlSize, string> = {
   sm: 'h-6 gap-1 px-2 text-small',
@@ -37,10 +40,10 @@ const BUTTON_SIZE: Record<ControlSize, string> = {
 }
 
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-accent-fg hover:bg-accent-hover',
-  secondary: 'border border-line-strong bg-raised text-fg hover:tint',
-  ghost: 'text-muted hover:bg-hover hover:text-fg',
-  danger: 'bg-danger-soft text-danger hover:tint',
+  primary: 'bg-accent text-accent-fg hover:bg-accent-hover disabled:bg-fill disabled:text-subtle',
+  secondary: `border border-line-strong bg-raised text-fg hover:tint ${FADE}`,
+  ghost: `text-muted hover:bg-hover hover:text-fg ${FADE}`,
+  danger: `bg-danger-soft text-danger hover:tint ${FADE}`,
 }
 
 interface ButtonProps extends ComponentProps<'button'> {
@@ -146,7 +149,7 @@ export function IconButton({
         CONTROL,
         'shrink-0',
         size === 'sm' ? 'size-6' : 'size-7',
-        pressed ? 'bg-accent-soft text-accent-text' : VARIANT[variant],
+        pressed ? `bg-accent-soft text-accent-text ${FADE}` : VARIANT[variant],
         className,
       )}
       {...props}
@@ -194,7 +197,7 @@ export function Toggle({
         BUTTON_SIZE.md,
         'shrink-0',
         !pressed && VARIANT.ghost,
-        pressed && emphasis === 'soft' && 'bg-accent-soft text-accent-text',
+        pressed && emphasis === 'soft' && `bg-accent-soft text-accent-text ${FADE}`,
         pressed && emphasis === 'strong' && VARIANT.primary,
         className,
       )}
@@ -317,6 +320,8 @@ interface SwitchProps {
   label: ReactNode
   /** Id of an element that names what this controls; read before the label */
   labelledBy?: string
+  /** The label is for screen readers only, where the row already says what the switch is */
+  labelHidden?: boolean
   disabled?: boolean
   /** Text size and color for the label (the switch sets none of its own), and layout */
   className?: string
@@ -328,6 +333,7 @@ export function Switch({
   onCheckedChange,
   label,
   labelledBy,
+  labelHidden = false,
   disabled,
   className,
 }: SwitchProps) {
@@ -346,7 +352,9 @@ export function Switch({
         className,
       )}
     >
-      <span id={labelId}>{label}</span>
+      <span id={labelId} className={labelHidden ? 'sr-only' : undefined}>
+        {label}
+      </span>
       <span
         aria-hidden="true"
         className={cn(

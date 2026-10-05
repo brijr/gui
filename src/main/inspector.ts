@@ -15,14 +15,16 @@ const COMMAND_TIMEOUT_MS = 15_000
 export const CROP_MARGIN = 8
 /**
  * The element highlight in Gui's accent for the current appearance: the content tinted, the
- * padding lighter, the margin a neutral fill, an accent outline.
+ * padding lighter, the margin a neutral fill, an accent outline. The name-and-size label
+ * shows while picking (`info`); once picked, the composer names the element, and the label
+ * would only cover the page around it.
  */
-function highlightConfig() {
+function highlightConfig(info: boolean) {
   const dark = nativeTheme.shouldUseDarkColors
   const hex = dark ? ACCENT.dark : ACCENT.light
   const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16))
   return {
-    showInfo: true,
+    showInfo: info,
     showStyles: false,
     showAccessibilityInfo: false,
     contentColor: { r, g, b, a: 0.18 },
@@ -281,7 +283,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     await this.ready()
     await this.cmd('Overlay.setInspectMode', {
       mode: on ? 'searchForNode' : 'none',
-      highlightConfig: highlightConfig(),
+      highlightConfig: highlightConfig(true),
     })
   }
 
@@ -424,7 +426,10 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   private async showHighlight(backendNodeId: number, token = this.highlightToken) {
     await this.ready()
     if (token !== this.highlightToken) return
-    await this.cmd('Overlay.highlightNode', { backendNodeId, highlightConfig: highlightConfig() })
+    await this.cmd('Overlay.highlightNode', {
+      backendNodeId,
+      highlightConfig: highlightConfig(false),
+    })
     if (token === this.highlightToken) this.highlighted = backendNodeId
   }
 

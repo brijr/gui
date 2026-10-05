@@ -16,6 +16,8 @@ const SHADOW = 18
 const MARGIN = 12
 /** Short enough for CI's screen; the panel is made shorter still so corners differ. */
 const WINDOW = { width: 1100, height: 680 }
+/** These start from the bottom-left corner (new windows default to the bottom-right). */
+const BOTTOM_LEFT_PREFS = { chatCorner: { x: 'left', y: 'bottom' } }
 
 interface Layout {
   chat: Rect
@@ -142,7 +144,7 @@ async function throwPanel(
 test('a fast release throws the panel into the corner it heads for', async ({
   launch,
 }, testInfo) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   const start = await ready(session)
   expect(gaps(start)).toMatchObject({ left: MARGIN, bottom: MARGIN })
 
@@ -173,7 +175,7 @@ test('a fast release throws the panel into the corner it heads for', async ({
 })
 
 test('a slow drop settles in the nearest corner without overshooting', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   const start = await ready(session)
 
   // Dragged until its middle is just right of the canvas's, low down, and let go at rest.
@@ -203,7 +205,7 @@ test('a slow drop settles in the nearest corner without overshooting', async ({ 
 })
 
 test('grabbing the panel mid-flight catches it where it is', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   const start = await ready(session)
 
   await session.chat.evaluate(() => window.gui.endDragChat({ x: 3000, y: -2500 }))
@@ -256,7 +258,11 @@ test('grabbing the panel mid-flight catches it where it is', async ({ launch }) 
 })
 
 test('with Reduce motion on, the panel jumps to its corner', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
+  const session = await launch({
+    fixture: 'vite',
+    reducedMotion: 'reduce',
+    prefs: BOTTOM_LEFT_PREFS,
+  })
   await ready(session)
   const { end, samples } = await throwPanel(
     session,
@@ -330,7 +336,7 @@ async function setSelecting(session: GuiSession, on: boolean) {
 test('picking morphs the panel into its bubble and back along the same path', async ({
   launch,
 }, testInfo) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   const start = await ready(session)
   const panelWidth = start.chat.width
 
@@ -400,7 +406,7 @@ test('picking morphs the panel into its bubble and back along the same path', as
 })
 
 test('minimizing morphs the panel into its pill and back', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   const start = await ready(session)
   await session.chat.evaluate(startRecording)
   await session.chat.evaluate(() => window.gui.setMinimized(true))
@@ -425,7 +431,11 @@ test('minimizing morphs the panel into its pill and back', async ({ launch }) =>
 })
 
 test('with reduced motion the bubble cross-fades in place', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
+  const session = await launch({
+    fixture: 'vite',
+    reducedMotion: 'reduce',
+    prefs: BOTTOM_LEFT_PREFS,
+  })
   const start = await ready(session)
   await session.chat.evaluate(startRecording)
   await setSelecting(session, true)

@@ -64,6 +64,8 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
             onCheckedChange={toggle}
             label="Enabled"
             labelledBy={nameId}
+            // A row of agents each saying "Enabled" reads as noise; the track says it.
+            labelHidden
             disabled={!health}
             className="text-small text-muted hover:text-fg"
           />

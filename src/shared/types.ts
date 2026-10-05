@@ -510,6 +510,8 @@ export interface ChatMeta {
   selectionError: string | null
   /** The user is picking an element in the preview (the composer's Select is on) */
   selecting: boolean
+  /** The preview shows the local app, so there's an element to pick */
+  canSelect: boolean
   minimized: boolean
   /** Docked to the right edge of the canvas instead of floating over the preview */
   docked: boolean

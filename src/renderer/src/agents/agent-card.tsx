@@ -18,20 +18,29 @@ interface AgentCardProps {
   health: AgentHealth | null
   /** The control for picking another agent (a menu on the start screen, a select in Settings) */
   change: ReactNode
+  /**
+   * What the card says under "Your agent": the agent's name, unless `change` already shows
+   * it (Settings' select), when it says what the choice is for instead.
+   */
+  caption?: string
 }
 
 /**
  * The agent the user works with, what state it's in, and the one thing to do next:
  * install it, sign in, try again, or nothing because it's ready.
  */
-export function AgentCard({ agentId, health, change }: AgentCardProps) {
+export function AgentCard({ agentId, health, change, caption }: AgentCardProps) {
   const name = health?.name ?? agentName(agentId)
   return (
     <Card as="section" aria-label="Your agent" className="flex flex-col gap-2.5 p-3">
       <div className="flex items-center gap-3">
         <div className="min-w-0 flex-1">
           <GroupLabel>Your agent</GroupLabel>
-          <p className="truncate font-medium">{name}</p>
+          {caption ? (
+            <p className="text-pretty text-small text-muted">{caption}</p>
+          ) : (
+            <p className="truncate font-medium">{name}</p>
+          )}
         </div>
         {change}
       </div>

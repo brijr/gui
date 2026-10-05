@@ -8,6 +8,7 @@ import type { FixtureCopy, FixtureName } from './fixtures'
 
 const TRUSTED_FILE = 'trusted-projects.json'
 const RECENT_FILE = 'recent-projects.json'
+const PREFS_FILE = 'prefs.json'
 
 /**
  * GUI_AGENT_STAND_INS for a run: built-in agents to launch as other commands, so a stand-in
@@ -37,6 +38,8 @@ export interface LaunchOptions {
    * another tab's chat, keep Playwright's own default, 'no-preference'.)
    */
   reducedMotion?: 'reduce' | 'no-preference'
+  /** Preferences saved before launch (prefs.json), e.g. the floating chat's corner */
+  prefs?: Record<string, unknown>
 }
 
 export interface ConsentPrompt {
@@ -338,6 +341,9 @@ export async function launchGui(
 ): Promise<GuiSession> {
   if (options.trusted !== false) {
     writeFileSync(join(copy.userData, TRUSTED_FILE), JSON.stringify([copy.root]))
+  }
+  if (options.prefs) {
+    writeFileSync(join(copy.userData, PREFS_FILE), JSON.stringify(options.prefs))
   }
   if (options.open === 'recent') {
     const recent = [{ root: copy.root, name: copy.spec.name, openedAt: 1 }]

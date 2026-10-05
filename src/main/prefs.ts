@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { app } from 'electron'
-import { type AgentId, DEFAULT_AGENT_ID, isAgentId } from '../shared/types'
+import { type AgentId, DEFAULT_AGENT_ID, isAgentId, type PanelCorner } from '../shared/types'
 
 export interface ChatSize {
   width: number
@@ -16,6 +16,8 @@ export interface Prefs {
   chatSize: ChatSize
   /** The docked chat panel's width */
   chatDockWidth: number
+  /** The canvas corner the floating chat panel was last dropped in; new tabs start there */
+  chatCorner: PanelCorner
   /** The app each monorepo previews: project root → app dir relative to it */
   apps: Record<string, string>
   /** Agents switched off in Settings; everything installed is on by default */
@@ -31,6 +33,8 @@ const DEFAULTS: Prefs = {
   chatDocked: false,
   chatSize: { width: 400, height: 640 },
   chatDockWidth: 400,
+  // Pages tend to start top left; the panel covers the least there.
+  chatCorner: { x: 'right', y: 'bottom' },
   apps: {},
   disabledAgents: [],
   agentSettings: {},
@@ -84,6 +88,14 @@ function chatSize(value: unknown): ChatSize {
   }
 }
 
+function chatCorner(value: unknown): PanelCorner {
+  const corner = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  return {
+    x: corner.x === 'left' || corner.x === 'right' ? corner.x : DEFAULTS.chatCorner.x,
+    y: corner.y === 'top' || corner.y === 'bottom' ? corner.y : DEFAULTS.chatCorner.y,
+  }
+}
+
 export function getPrefs(): Prefs {
   if (cached) return cached
   try {
@@ -93,6 +105,7 @@ export function getPrefs(): Prefs {
       chatDocked: parsed.chatDocked === true,
       chatSize: chatSize(parsed.chatSize),
       chatDockWidth: length(parsed.chatDockWidth, DEFAULTS.chatDockWidth),
+      chatCorner: chatCorner(parsed.chatCorner),
       apps: stringRecord(parsed.apps),
       disabledAgents: Array.isArray(parsed.disabledAgents)
         ? parsed.disabledAgents.filter(isAgentId)
@@ -101,7 +114,13 @@ export function getPrefs(): Prefs {
       askRoots: roots(parsed.askRoots),
     }
   } catch {
-    cached = { ...DEFAULTS, chatSize: { ...DEFAULTS.chatSize }, apps: {}, agentSettings: {} }
+    cached = {
+      ...DEFAULTS,
+      chatSize: { ...DEFAULTS.chatSize },
+      chatCorner: { ...DEFAULTS.chatCorner },
+      apps: {},
+      agentSettings: {},
+    }
   }
   return cached
 }

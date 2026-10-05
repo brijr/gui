@@ -218,7 +218,7 @@ export class ProjectTab {
    * stays there as the window and the logs resize. Letting go of it picks a corner of the
    * canvas, at the standard margin; a drag and a resize move it freely from its corner.
    */
-  private anchor: Anchor = { x: 'left', y: 'bottom', dx: PANEL_MARGIN, dy: PANEL_MARGIN }
+  private anchor: Anchor = { ...getPrefs().chatCorner, dx: PANEL_MARGIN, dy: PANEL_MARGIN }
   /**
    * The floating panel springing to its anchor after a drop, a throw or a dodge: its anchored
    * corner's point is on a spring per axis. Null at rest.
@@ -441,6 +441,7 @@ export class ProjectTab {
         selection: null,
         selectionError: null,
         selecting: this.state.preview.selecting,
+        canSelect: this.canSelect,
         minimized: false,
         docked: getPrefs().chatDocked,
         redoTurnIds: [],
@@ -557,6 +558,7 @@ export class ProjectTab {
         }
       })
       this.chat = chat
+      chat.setCanSelect(this.canSelect)
       this.patch({ agentId: chat.meta.agentId })
       this.sendChat(Events.chatReset, chat.snapshot())
 
@@ -1503,6 +1505,8 @@ export class ProjectTab {
       dx: PANEL_MARGIN,
       dy: PANEL_MARGIN,
     }
+    // Later tabs start in the corner it was put in.
+    setPrefs({ chatCorner: { x: this.anchor.x, y: this.anchor.y } })
     this.fly(rect, velocity, speed > THROW_SPEED ? SPRINGS.thrown : SPRINGS.default)
   }
 
@@ -2225,10 +2229,16 @@ export class ProjectTab {
     this.host.tabChanged(this, true)
   }
 
+  /** The preview shows the local app, so the chat can offer to pick an element. */
+  private get canSelect() {
+    return this.state.preview.visible && this.state.preview.selectable
+  }
+
   private patchPreview(patch: Partial<PreviewState>) {
     const { visible, selecting } = this.state.preview
     this.patch({ preview: { ...this.state.preview, ...patch } })
     const preview = this.state.preview
+    this.chat?.setCanSelect(this.canSelect)
     // Picking draws the floating chat as a bubble (see `bubbled`).
     if (preview.visible !== visible || preview.selecting !== selecting) this.layout()
     if (preview.selecting === selecting) return

@@ -315,6 +315,7 @@ function savedPrefs(session: GuiSession) {
   return JSON.parse(readFileSync(file, 'utf8')) as {
     chatSize?: Size
     chatDockWidth?: number
+    chatCorner?: { x: string; y: string }
   }
 }
 
@@ -396,20 +397,20 @@ const resizedTo = (size: Size) => (layout: Layout) =>
   layout.content.height === size.height &&
   layout.preview.width === size.width
 
-test("a new window's chat panel starts at the bottom-left and stays in its corner", async ({
+test("a new window's chat panel starts at the bottom-right and stays in its corner", async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
 
-  // In the canvas's bottom-left corner, with the panel's usual margin.
+  // In the canvas's bottom-right corner, where pages tend to have least, at the usual margin.
   const start = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
-  const bottomLeft = { left: PANEL_MARGIN, bottom: PANEL_MARGIN }
-  expect(gaps(start)).toMatchObject(bottomLeft)
-  await session.shot('panel-bottom-left')
-  // Smaller, so it fits above the logs in a short window; its bottom-left corner stays.
-  expect(gaps(await resizeFrom(session, start.chat, 'top-right', -40, 240))).toMatchObject(
-    bottomLeft,
+  const bottomRight = { right: PANEL_MARGIN, bottom: PANEL_MARGIN }
+  expect(gaps(start)).toMatchObject(bottomRight)
+  await session.shot('panel-bottom-right')
+  // Smaller, so it fits above the logs in a short window; its bottom-right corner stays.
+  expect(gaps(await resizeFrom(session, start.chat, 'top-left', 40, 240))).toMatchObject(
+    bottomRight,
   )
 
   // As the window and the canvas resize, it keeps to that corner. The window's shortest
@@ -420,14 +421,14 @@ test("a new window's chat panel starts at the bottom-left and stays in its corne
   }
   await session.app.evaluate(setContentSize, smaller)
   const shrunk = await layoutWhen(session, 'the smaller window', resizedTo(smaller))
-  expect(gaps(shrunk)).toMatchObject(bottomLeft)
+  expect(gaps(shrunk)).toMatchObject(bottomRight)
   await session.chrome.evaluate(() => window.gui.showLogs())
   const logs = await layoutWhen(
     session,
     'the canvas above the logs',
     ({ preview }) => preview.height < shrunk.preview.height,
   )
-  expect(gaps(logs)).toMatchObject(bottomLeft)
+  expect(gaps(logs)).toMatchObject(bottomRight)
   await session.shot('panel-above-logs')
   await session.chrome.evaluate(() => window.gui.setDrawerOpen(false))
   const closed = await layoutWhen(
@@ -436,34 +437,35 @@ test("a new window's chat panel starts at the bottom-left and stays in its corne
     ({ preview }) => preview.height === shrunk.preview.height,
   )
 
-  // Dropped near the top-right, it springs into that corner (at the usual margin) and keeps
-  // to it from then on, and so does the pill.
+  // Dropped near the top-left, it springs into that corner (at the usual margin) and keeps
+  // to it from then on, and so does the pill; new windows start there too.
   const before = gaps(closed)
-  const topRight = { right: PANEL_MARGIN, top: PANEL_MARGIN }
+  const topLeft = { left: PANEL_MARGIN, top: PANEL_MARGIN }
   await session.chat.evaluate(
     ({ dx, dy }) => {
       window.gui.dragChat(dx, dy)
       window.gui.endDragChat()
     },
-    { dx: before.right - 40, dy: 30 - before.top },
+    { dx: 40 - before.left, dy: 30 - before.top },
   )
-  const dragged = await layoutWhen(session, 'the panel in the top-right corner', (layout) => {
-    const { right, top } = gaps(layout)
-    return right === topRight.right && top === topRight.top
+  const dragged = await layoutWhen(session, 'the panel in the top-left corner', (layout) => {
+    const { left, top } = gaps(layout)
+    return left === topLeft.left && top === topLeft.top
   })
+  expect(savedPrefs(session).chatCorner).toEqual({ x: 'left', y: 'top' })
   const larger = { width: start.content.width, height: start.content.height }
   await session.app.evaluate(setContentSize, larger)
   const grown = await layoutWhen(session, 'the larger window', resizedTo(larger))
-  expect(gaps(grown)).toMatchObject(topRight)
+  expect(gaps(grown)).toMatchObject(topLeft)
   expect(grown.chat.width).toBe(dragged.chat.width)
   await session.chat.evaluate(() => window.gui.setMinimized(true))
   const pill = await layoutWhere(session, 'the pill', (chat) => chat.height < dragged.chat.height)
-  expect(gaps(pill)).toMatchObject(topRight)
+  expect(gaps(pill)).toMatchObject(topLeft)
 
   // The bubble, while picking, is in that corner too.
   await session.chrome.evaluate(() => window.gui.toggleSelect())
   const bubble = await layoutWhere(session, 'the bubble', (chat) => chat.width < pill.chat.width)
-  expect(gaps(bubble)).toMatchObject(topRight)
+  expect(gaps(bubble)).toMatchObject(topLeft)
 })
 
 test('the chat panel resizes from its edges and corners and remembers the size', async ({

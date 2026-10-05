@@ -29,6 +29,7 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       <AgentCard
         agentId={settings.defaultAgentId}
         health={settings.agents.find((agent) => agent.id === settings.defaultAgentId) ?? null}
+        caption="New windows start with this agent."
         change={
           <DefaultAgentSelect agents={settings.agents} defaultAgentId={settings.defaultAgentId} />
         }

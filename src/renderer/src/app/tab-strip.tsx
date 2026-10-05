@@ -313,6 +313,9 @@ export function TabStrip({ state }: { state: WindowState }) {
         {ordered.map((tab, index) => {
           const active = tab.id === activeTab
           const dragged = drag?.from === index
+          // A hairline between two tabs at rest, so a row of them reads as tabs, not loose
+          // names; the active tab's own border does that on either side of it.
+          const divided = index > 0 && !active && ordered[index - 1]?.id !== activeTab && !drag
           const shift = shiftOf(drag, index)
           const name = tabName(tab)
           return (
@@ -329,6 +332,8 @@ export function TabStrip({ state }: { state: WindowState }) {
                 // The others slide aside; the dragged one follows the pointer as is.
                 drag && !dragged && 'transition-transform motion-reduce:transition-none',
                 dragged && 'z-10 shadow-popover',
+                divided &&
+                  "before:absolute before:left-[-2.5px] before:h-3.5 before:w-px before:bg-line before:content-['']",
               )}
             >
               <button
@@ -422,7 +427,6 @@ function growIn(el: HTMLElement) {
  * The tab's name says which to assistive tech.
  */
 function StatusMark({ status }: { status: TabStatus }) {
-  if (status === 'idle') return null
   return (
     <span aria-hidden="true" className="flex size-3 shrink-0 items-center justify-center">
       {status === 'working' && <Spinner className="text-muted" />}

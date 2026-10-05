@@ -7,7 +7,7 @@ import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // While the user picks an element, the floating chat panel shrinks to a bubble at its
-// anchored corner (bottom-left unless it was moved) so it doesn't cover the page, and comes
+// anchored corner (bottom-right unless it was moved) so it doesn't cover the page, and comes
 // back as it was afterwards.
 
 /** What Playwright passes to `app.evaluate` callbacks. */
@@ -58,6 +58,8 @@ function chatWhere(session: GuiSession, label: string, check: (chat: Rect) => bo
 const isBubble = (chat: Rect) => chat.width === BUBBLE_VIEW && chat.height === BUBBLE_VIEW
 
 const BOTTOM_LEFT: PanelCorner = { x: 'left', y: 'bottom' }
+/** These start from the bottom-left corner (new windows default to the bottom-right). */
+const BOTTOM_LEFT_PREFS = { chatCorner: BOTTOM_LEFT }
 
 /** The bubble's view: in the anchored corner of where the panel's view is. */
 const bubbleAt = (panel: Rect, corner = BOTTOM_LEFT): Rect => ({
@@ -103,7 +105,7 @@ async function shot(session: GuiSession, name: string) {
 }
 
 test('the floating chat is a bubble while picking and comes back as it was', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   await session.waitForPreview()
   const preview = await session.previewPage()
   await expect(preview.locator(SELECTOR)).toBeVisible({ timeout: 30_000 })
@@ -178,7 +180,7 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
 test('a minimized chat comes back minimized, the bubble ends picking, docked stays put', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   await session.waitForPreview()
   await chatWhere(session, 'the floating panel', (chat) => !isBubble(chat))
 
@@ -325,7 +327,7 @@ const send = (chat: Page, text: string) =>
 test('the bubble shows a running turn, and a permission card waits behind it', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   await session.declineConsentDialogs()
   await useStandIn(session)
   await session.waitForPreview()

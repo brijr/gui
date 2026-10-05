@@ -257,6 +257,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
             shortcut="selectElement"
             icon={MousePointer2}
             pressed={meta.selecting}
+            // Nothing to pick until the local app shows (as the toolbar's Select).
+            disabled={!meta.canSelect && !meta.selecting}
             onClick={() => gui.toggleSelect()}
           />
           <IconButton

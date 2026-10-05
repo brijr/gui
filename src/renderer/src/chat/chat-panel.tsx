@@ -525,7 +525,7 @@ function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
 }
 
 function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
-  if (turns.length === 0) return <EmptyTranscript />
+  if (turns.length === 0) return <EmptyTranscript canSelect={meta.canSelect} />
   return <Turns turns={turns} meta={meta} />
 }
 
@@ -574,7 +574,22 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   )
 }
 
-function EmptyTranscript() {
+function EmptyTranscript({ canSelect }: { canSelect: boolean }) {
+  // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
+  // still take a message, which needs no element.
+  if (!canSelect) {
+    return (
+      <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+        <Message
+          icon={<MessageSquare className="size-4" aria-hidden="true" />}
+          title="Ask about your project"
+        >
+          Once your app shows in the preview, you can point at any part of it to change. Until then,
+          your agent can still read and edit the code.
+        </Message>
+      </div>
+    )
+  }
   return (
     <div className="flex min-h-0 flex-1 items-center justify-center px-8">
       <Message
