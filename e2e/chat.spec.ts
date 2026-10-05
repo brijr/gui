@@ -1,3 +1,4 @@
+import { sleep, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
 import { expect, test } from './helpers/test'
 
@@ -48,4 +49,44 @@ test('busy chat queues sends and a cancelled start leaves no trace', async ({ la
   expect(second.turn.status).toBe('cancelled')
   expect(gitStatus(root)).toBe('')
   expect(await session.consentPrompts()).toEqual([])
+})
+
+// Hot reload that falls back to a full reload (an agent's edit, mid-turn) loads a new document
+// in the preview, which takes the keyboard from the chat's message box as it goes.
+test('a full reload of the preview leaves the keyboard in the message box', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await session.pickElement('button')
+  const keyboard = () =>
+    session.app.evaluate(({ BrowserWindow, webContents }) => ({
+      window: BrowserWindow.getAllWindows()[0]?.isFocused() ?? false,
+      chat: webContents
+        .getAllWebContents()
+        .some((wc) => wc.getURL().endsWith('chat.html') && wc.isFocused()),
+    }))
+  // The keyboard only goes anywhere in the key window; the pick gave it to the chat.
+  await session.app.evaluate(({ app, BrowserWindow }) => {
+    app.focus({ steal: true })
+    BrowserWindow.getAllWindows()[0]?.focus()
+  })
+  await waitFor(async () => (await keyboard()).window, 'the window to be focused')
+  await session.app.evaluate(({ webContents }) => {
+    webContents
+      .getAllWebContents()
+      .find((wc) => wc.getURL().endsWith('chat.html'))
+      ?.focus()
+  })
+  await waitFor(async () => (await keyboard()).chat, 'the chat to have the keyboard')
+  const box = session.chat.getByRole('textbox')
+  await expect(box).toBeFocused()
+  await session.chat.keyboard.type('Make it ')
+  expect(await keyboard()).toEqual({ window: true, chat: true })
+
+  const preview = await session.previewPage()
+  await preview.evaluate(() => location.reload())
+  await preview.waitForLoadState('load')
+  await sleep(500)
+  expect(await keyboard()).toEqual({ window: true, chat: true })
+  await session.chat.keyboard.type('red')
+  await expect(box).toHaveValue('Make it red')
 })

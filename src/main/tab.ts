@@ -270,6 +270,8 @@ export class ProjectTab {
    * dom-ready like any page, which must not take the failure back.
    */
   private loadFailed = false
+  /** The view that had the keyboard when the preview's page started loading (`keepKeyboard`). */
+  private keyboardBeforeLoad: WebContents | null = null
   /** The current highlight is that post-turn re-highlight, not a pending selection. */
   private rehighlightShown = false
   /** Bumped when a turn starts or a pick lands; a re-highlight from before must not show. */
@@ -903,17 +905,33 @@ export class ProjectTab {
   private bindPreview() {
     const wc = this.preview.webContents
     wc.on('did-start-loading', () => this.patchPreview({ loading: true }))
-    wc.on('did-stop-loading', () => this.patchPreview({ loading: false }))
+    wc.on('did-stop-loading', () => {
+      this.keepKeyboard()
+      this.keyboardBeforeLoad = null
+      this.patchPreview({ loading: false })
+    })
     // A new document is on its way: whatever failed before is behind it. (Same-document
     // navigations, such as HMR's and the router's, keep the page they're on.)
     wc.on('did-start-navigation', (event) => {
-      if (event.isMainFrame && !event.isSameDocument) this.loadFailed = false
+      if (!event.isMainFrame || event.isSameDocument) return
+      this.loadFailed = false
+      this.keyboardBeforeLoad = this.keyboardOwner()
     })
+    // Loading a new document takes the keyboard from whichever view had it (such as the
+    // chat's message box mid-sentence when hot reload falls back to a full reload), as it
+    // starts and again as it commits, so it's given straight back each time. Unless the user
+    // clicks into the page meanwhile: then it's theirs.
+    wc.on('input-event', (_event, input) => {
+      if (input.type === 'mouseDown') this.keyboardBeforeLoad = null
+    })
+    wc.on('focus', () => this.keepKeyboard())
     wc.on('dom-ready', () => {
+      this.keepKeyboard()
       if (this.loadFailed || wc.getURL() === 'about:blank') return
       this.patchPreview({ visible: true, error: null })
     })
     wc.on('did-navigate', (_event, url) => {
+      this.keepKeyboard()
       this.problems.clearConsole()
       this.onNavigated(url)
     })
@@ -1675,6 +1693,20 @@ export class ProjectTab {
     this.focusChat()
     this.sendChat(Events.chatAttach, chatImage(image, name))
     return true
+  }
+
+  /** The chat or the chrome, when one of them has the keyboard. */
+  private keyboardOwner() {
+    const views = [this.chatView.webContents, this.host.win.webContents]
+    return views.find((wc) => !wc.isDestroyed() && wc.isFocused()) ?? null
+  }
+
+  /** Gives the keyboard back to the view that had it before the preview's page loaded. */
+  private keepKeyboard() {
+    const owner = this.keyboardBeforeLoad
+    if (!owner || owner.isDestroyed() || owner.isFocused() || this.state.preview.selecting) return
+    if (!this.host.isActive(this) || !this.host.win.isFocused()) return
+    owner.focus()
   }
 
   private focusChat() {
