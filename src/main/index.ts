@@ -63,6 +63,7 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import type { ProjectTab } from './tab'
 import {
+  allTabs,
   allWindows,
   findTab,
   findWindow,
@@ -527,7 +528,9 @@ function registerIpc() {
       SECTIONS.includes(section as SettingsSection) ? (section as SettingsSection) : undefined,
     ),
   )
-  onAppUi(Send.checkAgents, () => void agentHealth.checkAll())
+  onAppUi(Send.checkAgents, (agentId) =>
+    isAgentId(agentId) ? void agentHealth.check(agentId) : void agentHealth.checkAll(),
+  )
   onAppUi(Send.setAgentEnabled, (agentId, enabled) => {
     if (isAgentId(agentId) && typeof enabled === 'boolean') setAgentEnabled(agentId, enabled)
   })
@@ -580,6 +583,7 @@ function registerIpc() {
   on(Send.clearSelection, (tab) => tab.clearSelection())
   on(Send.setMinimized, (tab, minimized) => tab.setMinimized(minimized === true))
   on(Send.expandChat, (tab) => tab.expandChat())
+  on(Send.togglePopOut, (tab) => tab.togglePopOut())
   on(Send.toggleDock, (tab) => tab.toggleDock())
   on(Send.grabChat, (tab, at) => isChatGrab(at) && tab.grabChat(at))
   on(Send.dragChat, (tab, dx, dy) => isNumber(dx) && isNumber(dy) && tab.dragChat(dx, dy))
@@ -739,6 +743,9 @@ function closeTab() {
     .getAllWebContents()
     .find((wc) => focused && wc.devToolsWebContents?.id === focused.id)
   if (inspected) return inspected.closeDevTools()
+  // A popped-out chat's window: ⌘W puts the chat back, rather than closing its tab.
+  const popped = allTabs().find((tab) => tab.popoutWindow === BrowserWindow.getFocusedWindow())
+  if (popped) return popped.togglePopOut()
   const win = menuWindow()
   if (!win) BrowserWindow.getFocusedWindow()?.close()
   else if (!win.win.isMinimized()) win.closeTab(win.activeTab.id)
@@ -870,9 +877,11 @@ function buildMenu() {
       label: 'View',
       submenu: [
         ...item('selectElement', { click: withWindow((w) => void w.toggleSelect()) }),
-        // Shows the chat and its message box; from the message box, hides it (Cursor's ⌘L).
-        ...item('toggleChat', { click: withWindow((w) => void w.toggleChatFocus()) }),
+        // ⌘B shows or hides the chat, like a sidebar; ⌘L puts the cursor in it (Cursor's ⌘L).
+        ...item('toggleChat', { click: withWindow((w) => w.toggleChat()) }),
+        ...item('focusMessageBox', { click: withWindow((w) => w.focusMessageBox()) }),
         ...item('dockChat', { click: withWindow((w) => w.toggleDock()) }),
+        ...item('popOutChat', { click: withWindow((w) => w.togglePopOut()) }),
         // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
         ...item('toggleTerminal', { click: withWindow((w) => w.toggleDrawer()) }),
         { type: 'separator' },

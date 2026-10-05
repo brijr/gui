@@ -64,9 +64,13 @@ export function focusWindow(win: BrowserWindow, { steal = false } = {}) {
   win.focus()
 }
 
+/** The focused project window, counting its tab's popped-out chat as part of it. */
 export function focusedWindow() {
   const focused = BrowserWindow.getFocusedWindow()
-  for (const win of windows) if (win.win === focused) return win
+  if (!focused) return undefined
+  for (const win of windows) {
+    if (win.win === focused || win.tabs.some((tab) => tab.popoutWindow === focused)) return win
+  }
   return undefined
 }
 
@@ -127,8 +131,16 @@ export class ProjectWindow implements TabHost {
     guardAppContents(this.win.webContents)
     this.win.on('resize', () => this.active.layout())
     // Full screen hides the traffic lights; the chrome takes back the room it kept for them.
-    this.win.on('enter-full-screen', () => this.sendState())
-    this.win.on('leave-full-screen', () => this.sendState())
+    // Full screen hides the traffic lights: the chrome and the sidebar's header take back
+    // the room they kept for them.
+    this.win.on('enter-full-screen', () => {
+      this.sendState()
+      this.active.layout()
+    })
+    this.win.on('leave-full-screen', () => {
+      this.sendState()
+      this.active.layout()
+    })
     // The title is the active tab's project, not the chrome page's own.
     this.win.on('page-title-updated', (event) => event.preventDefault())
     this.win.on('focus', () => {
@@ -386,6 +398,7 @@ export class ProjectWindow implements TabHost {
     if (this.disposed || !this.list.includes(tab)) return
     if (tab === this.active) {
       this.syncTitle()
+      this.syncTrafficLights()
       windowEvents.emit('changed')
     }
     const strip = JSON.stringify(this.tabInfos())
@@ -415,14 +428,17 @@ export class ProjectWindow implements TabHost {
     windowEvents.emit('tabs')
   }
 
-  /** In focus mode's title bar, the tab row while it shows, or the toolbar. */
+  /**
+   * In focus mode's title bar, the chat sidebar's header while it shows (as tall as the
+   * toolbar), the tab row while it shows, or the toolbar.
+   */
   private syncTrafficLights() {
     const tabbed = this.list.length > 1
     const lights = this.focus
       ? FOCUS_TRAFFIC_LIGHTS
-      : tabbed
-        ? TAB_ROW_TRAFFIC_LIGHTS
-        : TRAFFIC_LIGHTS
+      : this.active.sidebarShown || !tabbed
+        ? TRAFFIC_LIGHTS
+        : TAB_ROW_TRAFFIC_LIGHTS
     if (lights === this.lights) return
     this.lights = lights
     this.win.setWindowButtonPosition(lights)

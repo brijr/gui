@@ -314,7 +314,7 @@ function savedPrefs(session: GuiSession) {
   const file = join(session.fixture.userData, 'prefs.json')
   return JSON.parse(readFileSync(file, 'utf8')) as {
     chatSize?: Size
-    chatDockWidth?: number
+    chatSidebarWidth?: number
     chatCorner?: { x: string; y: string }
   }
 }
@@ -558,7 +558,10 @@ test('the chat panel resizes from its edges and corners and remembers the size',
   const wider = await layoutWhere(session, 'the wider docked panel', (chat) => chat.width === 500)
   expect(wider.chat.x + wider.chat.width).toBe(docked.chat.x + docked.chat.width)
   expect(wider.preview.x + wider.preview.width).toBeLessThanOrEqual(wider.chat.x)
-  await waitFor(() => savedPrefs(session).chatDockWidth === 500, 'the docked width in prefs.json')
+  await waitFor(
+    () => savedPrefs(session).chatSidebarWidth === 500,
+    'the docked width in prefs.json',
+  )
 
   // Only the left edge: the others leave the column alone (these arrive in order).
   await resize(session, 'top-left', -100, -100)

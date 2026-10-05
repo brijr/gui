@@ -102,7 +102,7 @@ async function buildState(): Promise<SettingsState> {
   return {
     agents: agentHealth.list(),
     defaultAgentId: prefs.agentId,
-    chatDocked: prefs.chatDocked,
+    chatSidebar: prefs.chatSidebar,
     customAgents: custom.entries,
     customAgentsError: custom.error,
     trustedProjects,
@@ -140,7 +140,7 @@ export function setDefaultAgent(id: AgentId) {
 }
 
 export function setChatDocked(docked: boolean) {
-  setPrefs({ chatDocked: docked })
+  setPrefs({ chatSidebar: docked })
 }
 
 export async function saveCustom(originalName: string | null, entry: CustomAgentEntry) {

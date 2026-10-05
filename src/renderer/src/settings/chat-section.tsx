@@ -15,9 +15,9 @@ export function ChatSection({ settings }: { settings: SettingsState }) {
         {/* A switch row: as tall as a ListItem with a button */}
         <li className="px-3 py-1.5">
           <Switch
-            checked={settings.chatDocked}
+            checked={settings.chatSidebar}
             onCheckedChange={(docked) => gui.setChatDocked(docked)}
-            label="Start the chat docked to the side"
+            label="Show the chat as a sidebar"
             className="w-full justify-between text-fg"
           />
         </li>

@@ -298,10 +298,11 @@ export function TabStrip({ state }: { state: WindowState }) {
     <nav
       aria-label="Tabs"
       className="drag flex shrink-0 items-center gap-1 border-b border-line bg-surface pr-2 pl-2"
-      // The traffic lights sit in this row, left of the tabs; full screen hides them.
+      // The traffic lights sit in this row, left of the tabs, unless the chat sidebar has them;
+      // full screen hides them.
       style={{
         height: TAB_ROW_HEIGHT,
-        paddingLeft: state.fullScreen ? undefined : TRAFFIC_LIGHTS_INSET,
+        paddingLeft: state.fullScreen || state.sidebarWidth > 0 ? undefined : TRAFFIC_LIGHTS_INSET,
       }}
     >
       <div

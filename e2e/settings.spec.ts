@@ -163,7 +163,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await settingsWhere(
     page,
     'the chat defaults to change',
-    (s) => s.defaultAgentId === 'codex' && s.chatDocked,
+    (s) => s.defaultAgentId === 'codex' && s.chatSidebar,
   )
   await shot(page, 'chat')
 

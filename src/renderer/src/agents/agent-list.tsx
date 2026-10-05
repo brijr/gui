@@ -36,6 +36,8 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
 }
 
 function AgentListRow({ health, current }: { health: AgentHealth; current: boolean }) {
+  // An agent that hasn't been checked yet is checked when chosen, rather than switched to.
+  const unchecked = health.status === 'unknown'
   return (
     <li className={cn(current && 'bg-accent-soft/40')}>
       <button
@@ -43,7 +45,8 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
         // Named with its status ("Codex Ready"); the one in use says so.
         aria-current={current || undefined}
         onClick={() => {
-          if (!current) gui.setAgent(health.id)
+          if (unchecked) gui.checkAgents(health.id)
+          else if (!current) gui.setAgent(health.id)
         }}
         className={cn(
           'flex w-full min-w-0 items-center gap-3 px-3 py-2 text-left transition-[background-color,opacity] focus-visible:-outline-offset-2',
@@ -53,7 +56,7 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
         <AgentIcon agentId={health.id} />
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate font-medium">{health.name}</span>
-          <AgentStatusLabel health={health} />
+          <AgentStatusLabel health={health} checkable={false} />
         </span>
         {current && (
           <span className="flex shrink-0 items-center gap-1 text-small font-medium text-accent-text">

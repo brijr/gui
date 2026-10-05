@@ -99,6 +99,7 @@ const api: GuiApi = {
   clearSelection: send(Send.clearSelection),
   setMinimized: send(Send.setMinimized),
   expandChat: send(Send.expandChat),
+  togglePopOut: send(Send.togglePopOut),
   toggleDock: send(Send.toggleDock),
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
   grabChat: send(Send.grabChat),

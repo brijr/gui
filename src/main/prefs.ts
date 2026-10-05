@@ -11,11 +11,16 @@ export interface ChatSize {
 
 export interface Prefs {
   agentId: AgentId
-  chatDocked: boolean
+  /**
+   * The chat is the window's left sidebar (the default) rather than a panel floating over the
+   * preview. A new key: the old one (chatDocked, the right side) was false in every saved
+   * file, and the sidebar is meant to be where everyone starts.
+   */
+  chatSidebar: boolean
   /** The floating chat panel's size, without its shadow margin; windows clamp it to fit */
   chatSize: ChatSize
-  /** The docked chat panel's width */
-  chatDockWidth: number
+  /** The sidebar's width */
+  chatSidebarWidth: number
   /** The canvas corner the floating chat panel was last dropped in; new tabs start there */
   chatCorner: PanelCorner
   /** The app each monorepo previews: project root → app dir relative to it */
@@ -30,9 +35,10 @@ export interface Prefs {
 
 const DEFAULTS: Prefs = {
   agentId: DEFAULT_AGENT_ID,
-  chatDocked: false,
+  // The left sidebar, unless the user floats the chat.
+  chatSidebar: true,
   chatSize: { width: 360, height: 520 },
-  chatDockWidth: 400,
+  chatSidebarWidth: 380,
   // Pages tend to start top left; the panel covers the least there.
   chatCorner: { x: 'right', y: 'bottom' },
   apps: {},
@@ -111,9 +117,9 @@ export function getPrefs(): Prefs {
     const parsed = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Prefs>
     cached = {
       agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
-      chatDocked: parsed.chatDocked === true,
+      chatSidebar: parsed.chatSidebar !== false,
       chatSize: chatSize(parsed.chatSize),
-      chatDockWidth: length(parsed.chatDockWidth, DEFAULTS.chatDockWidth),
+      chatSidebarWidth: length(parsed.chatSidebarWidth, DEFAULTS.chatSidebarWidth),
       chatCorner: chatCorner(parsed.chatCorner),
       apps: stringRecord(parsed.apps),
       disabledAgents: Array.isArray(parsed.disabledAgents)

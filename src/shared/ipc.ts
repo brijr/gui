@@ -92,6 +92,7 @@ export const Send = {
   clearSelection: 'chat:clear-selection',
   setMinimized: 'chat:minimize',
   expandChat: 'chat:expand',
+  togglePopOut: 'chat:pop-out',
   toggleDock: 'chat:dock',
   grabChat: 'chat:grab',
   dragChat: 'chat:drag',
@@ -203,7 +204,8 @@ export interface GuiApi {
   showAgentMenu(at?: { x: number; y: number }): void
   showProjectMenu(): void
   setAgent(agentId: AgentId): void
-  checkAgents(): void
+  /** Checks one agent, or every enabled one when no id is given */
+  checkAgents(agentId?: AgentId): void
   /** Runs the agent's sign-in flow (opens the browser) and re-checks it */
   signIn(agentId: AgentId): Promise<void>
   /**
@@ -343,6 +345,8 @@ export interface GuiApi {
   setMinimized(minimized: boolean): void
   /** Brings the floating panel back out of the bubble it tucked into */
   expandChat(): void
+  /** Moves the chat into a window of its own, or back into the project's window */
+  togglePopOut(): void
   toggleDock(): void
   /** Sends the current preview errors to the agent; false if busy or nothing to fix */
   fixProblems(): Promise<boolean>

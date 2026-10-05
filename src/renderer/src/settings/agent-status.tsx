@@ -1,12 +1,20 @@
 import { Check } from 'lucide-react'
 import type { AgentHealth } from '../../../shared/types'
+import { gui } from '../lib/api'
 import { Spinner } from '../lib/ui'
 
 /**
  * Same wording as the start screen's agent card. Beside the agent's name, in the regular weight
  * whatever the state; the color says which.
  */
-export function AgentStatusLabel({ health }: { health: AgentHealth }) {
+export function AgentStatusLabel({
+  health,
+  checkable = true,
+}: {
+  health: AgentHealth
+  /** False inside a control that runs the check itself, so "Check now" is only its label */
+  checkable?: boolean
+}) {
   switch (health.status) {
     case 'ready':
       return (
@@ -34,6 +42,18 @@ export function AgentStatusLabel({ health }: { health: AgentHealth }) {
       return <span className="text-small font-normal text-danger">Unavailable</span>
     case 'not-installed':
       return <span className="text-small font-normal text-subtle">Not installed</span>
+    case 'unknown':
+      return checkable ? (
+        <button
+          type="button"
+          onClick={() => gui.checkAgents(health.id)}
+          className="text-small font-normal text-accent-text"
+        >
+          Check now
+        </button>
+      ) : (
+        <span className="text-small font-normal text-accent-text">Check now</span>
+      )
     default:
       return null
   }

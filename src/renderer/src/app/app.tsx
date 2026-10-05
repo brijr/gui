@@ -48,7 +48,12 @@ export function App() {
   return (
     // Clipped, never scrolled: the drawer and the bars slide in from past the window's edges,
     // and focusing something in them on the way must not scroll the whole window to it.
-    <div className="relative flex h-dvh flex-col overflow-clip bg-canvas">
+    <div
+      className="relative flex h-dvh flex-col overflow-clip bg-canvas"
+      // The chat sidebar (its own view, from main) runs down the left: everything here starts
+      // right of it.
+      style={{ paddingLeft: state?.sidebarWidth || undefined }}
+    >
       {/* The preview's layout morphs: over the canvas, under the bars and the drawer. */}
       <div ref={morphs} aria-hidden="true" className="pointer-events-none fixed inset-0 z-10" />
       {!state ? (

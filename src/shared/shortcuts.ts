@@ -215,17 +215,31 @@ export const SHORTCUTS = {
 
   toggleChat: {
     label: 'Toggle Chat',
+    accelerator: 'CmdOrCtrl+B',
+    menu: 'view',
+    group: 'chat',
+    description: 'Show or hide the chat',
+  },
+  focusMessageBox: {
+    label: 'Focus Message Box',
     accelerator: 'CmdOrCtrl+L',
     menu: 'view',
     group: 'chat',
-    description: 'Show the chat and its message box; from there, hide it',
+    description: 'Put the cursor in the chat’s message box, showing the chat if it’s hidden',
   },
   dockChat: {
-    label: 'Dock Chat',
+    label: 'Chat as Sidebar',
     accelerator: 'Shift+CmdOrCtrl+D',
     menu: 'view',
     group: 'chat',
-    description: 'Dock the chat beside the preview, or float it',
+    description: 'Show the chat as the left sidebar, or float it over the preview',
+  },
+  popOutChat: {
+    label: 'Pop Out Chat',
+    accelerator: 'Alt+CmdOrCtrl+L',
+    menu: 'view',
+    group: 'chat',
+    description: 'Move the chat into a window of its own, or back into this one',
   },
   chooseModel: {
     label: 'Choose Model…',

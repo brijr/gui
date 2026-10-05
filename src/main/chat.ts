@@ -260,6 +260,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       canSelect: false,
       minimized: false,
       docked: options.docked,
+      trafficLights: false,
+      popped: false,
       redoTurnIds: saved?.redo?.turnIds ?? [],
       problems: [],
       queue: [],
@@ -359,6 +361,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setMinimized(minimized: boolean) {
     this.patchMeta({ minimized })
+  }
+
+  setPopped(popped: boolean) {
+    if (popped !== this.meta.popped) this.patchMeta({ popped, minimized: false })
+  }
+
+  setTrafficLights(trafficLights: boolean) {
+    if (trafficLights !== this.meta.trafficLights) this.patchMeta({ trafficLights })
   }
 
   setDocked(docked: boolean) {

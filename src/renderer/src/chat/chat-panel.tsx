@@ -5,8 +5,10 @@ import {
   MessageSquare,
   Minus,
   MousePointer2,
-  PanelRight,
-  PanelRightClose,
+  PanelLeft,
+  PanelLeftClose,
+  SquareArrowOutDownLeft,
+  SquareArrowOutUpRight,
   SquarePen,
 } from 'lucide-react'
 import {
@@ -19,7 +21,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import { BUBBLE, MINI, PANEL_SHADOW_MARGIN } from '../../../shared/layout'
+import {
+  BUBBLE,
+  MINI,
+  PANEL_SHADOW_MARGIN,
+  TOOLBAR_HEIGHT,
+  TRAFFIC_LIGHTS_INSET,
+} from '../../../shared/layout'
 import {
   CHAT_FORMS,
   type ChatFloat,
@@ -95,13 +103,17 @@ export function ChatPanel() {
 
   const running = turns.some((turn) => turn.status === 'running')
 
-  if (meta.docked) {
+  // The sidebar, or popped out into a window of its own, which it fills.
+  if (meta.docked || meta.popped) {
     return (
       <div
         data-chat-panel
-        className="relative flex h-dvh flex-col border-l border-line-strong bg-raised"
+        className={cn(
+          'relative flex h-dvh flex-col bg-raised',
+          !meta.popped && 'border-r border-line-strong',
+        )}
       >
-        <ResizeHandle edge="left" docked />
+        {!meta.popped && <ResizeHandle edge="right" docked />}
         <Header meta={meta} />
         {shipping ? (
           <ShipSheet />
@@ -349,7 +361,7 @@ const EDGE_CLASS: Record<PanelEdge, string> = {
 const CORNER_CLASS = 'size-3.5 after:size-3 after:border-accent'
 /** The docked panel's left edge is its view's, so the hit area stays inside. */
 const DOCKED_CLASS =
-  'inset-y-0 left-0 w-1.5 cursor-ew-resize after:inset-y-0 after:left-0 after:w-px'
+  'inset-y-0 right-0 w-1.5 cursor-ew-resize after:inset-y-0 after:right-0 after:w-px'
 
 /** An invisible handle that resizes the panel; main keeps the panel inside the window. */
 function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: boolean }) {
@@ -390,16 +402,26 @@ function agentStatus(meta: ChatMeta, running: boolean): Status {
  */
 function Header({ meta }: { meta: ChatMeta }) {
   const running = meta.status === 'working'
+  const titleBar = meta.docked || meta.popped
   const shipping = useShipSheet((s) => s.open)
   const shipBusy = useShipSheet((s) => s.busy)
   return (
     <div
-      onPointerDown={meta.docked ? undefined : onDragStart}
+      onPointerDown={titleBar ? undefined : onDragStart}
+      // As the sidebar (or popped out) it's the window's title bar: as tall as the toolbar,
+      // with the traffic lights at its start (outside full screen), and what the window is
+      // dragged by.
+      style={
+        titleBar
+          ? {
+              height: TOOLBAR_HEIGHT,
+              paddingLeft: meta.trafficLights ? TRAFFIC_LIGHTS_INSET : undefined,
+            }
+          : undefined
+      }
       className={cn(
-        // Floating, a little slimmer: it sits over the page.
         'flex shrink-0 items-center gap-1.5 border-b border-line pr-2 pl-3',
-        meta.docked ? 'h-10' : 'h-9',
-        !meta.docked && 'cursor-grab active:cursor-grabbing',
+        titleBar ? 'drag' : 'h-9 cursor-grab active:cursor-grabbing',
       )}
     >
       <StatusDot status={agentStatus(meta, running)} />
@@ -425,14 +447,23 @@ function Header({ meta }: { meta: ChatMeta }) {
           icon={SquarePen}
           onClick={() => gui.newSession()}
         />
+        {!meta.popped && (
+          <IconButton
+            size="sm"
+            label={meta.docked ? 'Float panel' : 'Show as sidebar'}
+            shortcut="dockChat"
+            icon={meta.docked ? PanelLeftClose : PanelLeft}
+            onClick={() => gui.toggleDock()}
+          />
+        )}
         <IconButton
           size="sm"
-          label={meta.docked ? 'Float panel' : 'Dock to the side'}
-          shortcut="dockChat"
-          icon={meta.docked ? PanelRightClose : PanelRight}
-          onClick={() => gui.toggleDock()}
+          label={meta.popped ? 'Back to window' : 'Pop out'}
+          shortcut="popOutChat"
+          icon={meta.popped ? SquareArrowOutDownLeft : SquareArrowOutUpRight}
+          onClick={() => gui.togglePopOut()}
         />
-        {!meta.docked && (
+        {!meta.docked && !meta.popped && (
           <IconButton
             size="sm"
             label="Minimize"

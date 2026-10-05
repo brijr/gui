@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises'
 import { basename, join, posix } from 'node:path'
 import {
   app,
-  type BrowserWindow,
+  BrowserWindow,
   ClipboardItem,
   clipboard,
   dialog,
@@ -13,13 +13,14 @@ import {
   type MessageBoxOptions,
   type NativeImage,
   nativeImage,
+  screen,
   shell,
   type WebContents,
   WebContentsView,
   type WebFrameMain,
 } from 'electron'
 import { Events } from '../shared/ipc'
-import { BUBBLE, MINI, PANEL_SHADOW_MARGIN } from '../shared/layout'
+import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import {
   type AgentId,
@@ -87,9 +88,11 @@ import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
 import { Terminals } from './terminals'
+import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
+import { focusWindow, showWindow } from './window'
 
 const PANEL_MIN = { width: 320, height: 360 }
 /** Below this the panel can't show its header, a line of transcript and the composer. */
@@ -128,8 +131,6 @@ const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 const REHIGHLIGHT_DELAY_MS = 900
 /** A package.json being written fires several changes; look once they've settled. */
 const APP_CHECK_DELAY_MS = 500
-/** The chat's message box has the keyboard (run in the chat view's isolated world). */
-const COMPOSER_FOCUSED = `document.activeElement?.hasAttribute('data-composer') === true`
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
@@ -239,7 +240,7 @@ export class ProjectTab {
   private dockSlide: { flight: Flight | null } | null = null
   /** The floating panel's size as the user left it; drawn smaller when the window is. */
   private panelSize: ChatSize = getPrefs().chatSize
-  private dockWidth = getPrefs().chatDockWidth
+  private dockWidth = getPrefs().chatSidebarWidth
   /** Which size the resize in progress changes, to remember it when it ends. */
   private resizing: 'floating' | 'docked' | null = null
   /** What the chat view was last told to draw (Events.chatFloat); null until it's told. */
@@ -266,6 +267,8 @@ export class ProjectTab {
    */
   private tucked = false
   private tuckTimer: NodeJS.Timeout | null = null
+  /** The chat's own window while it's popped out of this one (`togglePopOut`); null otherwise. */
+  private popout: BrowserWindow | null = null
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
   /** "Create pull request" has the chat, and ⌘↩ with it (`permissionAnswer`). */
@@ -319,6 +322,7 @@ export class ProjectTab {
       },
       agentId: getPrefs().agentId,
       chatVisible: true,
+      sidebarWidth: 0,
       drawer: closedDrawer(),
       recent: recentSoFar(),
       home: app.getPath('home'),
@@ -402,7 +406,9 @@ export class ProjectTab {
   activate() {
     const { contentView } = this.host.win
     contentView.addChildView(this.preview)
-    contentView.addChildView(this.chatView)
+    // Popped out, the chat is in its own window, which shows again with its tab.
+    if (this.popout) this.popout.showInactive()
+    else contentView.addChildView(this.chatView)
     this.layout()
     // A permission card that came up in the background is what the user switched here for
     // (in a focused window: focusing the chat would raise it).
@@ -424,7 +430,9 @@ export class ProjectTab {
     this.settleForm(this.wantedForm())
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
-    contentView.removeChildView(this.chatView)
+    // A background tab's popped-out chat hides, so the one in sight is the tab in sight's.
+    if (this.popout) this.popout.hide()
+    else contentView.removeChildView(this.chatView)
     this.syncDrawerOutput()
   }
 
@@ -467,7 +475,9 @@ export class ProjectTab {
         selecting: this.state.preview.selecting,
         canSelect: this.canSelect,
         minimized: false,
-        docked: getPrefs().chatDocked,
+        docked: getPrefs().chatSidebar,
+        trafficLights: false,
+        popped: false,
         redoTurnIds: [],
         problems: [],
         queue: [],
@@ -537,7 +547,7 @@ export class ProjectTab {
       const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env)
       const chat = new ChatController(root, checkpoints, {
         agentId: this.state.agentId,
-        docked: getPrefs().chatDocked,
+        docked: getPrefs().chatSidebar,
         saved,
         historyFile: file,
         mcpServers: () => (this.mcp ? [this.mcp.config] : []),
@@ -1430,11 +1440,12 @@ export class ProjectTab {
 
   toggleDock() {
     if (!this.chat) return
+    if (this.popout) return this.popIn()
     this.leaveFocusMode()
     this.untuck()
     this.morphLayout('dock')
     const docked = !this.chat.meta.docked
-    setPrefs({ chatDocked: docked })
+    setPrefs({ chatSidebar: docked })
     this.chat.setDocked(docked)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
     if (docked) this.holdDock()
@@ -1503,7 +1514,10 @@ export class ProjectTab {
     void this.inspector.clearHighlight()
   }
 
+  /** ⌘B and the toolbar's chat button: shows or hides the chat, in whichever form it takes. */
   toggleChat() {
+    // Popped out, it's in a window of its own: ⌘B brings that forward rather than hiding it.
+    if (this.popout) return this.focusChat()
     // In focus mode the chat is out of sight whatever its setting: bring everything back.
     if (this.host.focusMode) return this.focusChat()
     // Docked, it takes its column from the preview, or gives it back.
@@ -1513,34 +1527,17 @@ export class ProjectTab {
     this.layout()
     // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
     if (this.state.chatVisible && !this.bubbled) this.focusChat()
+    // Hidden, typing goes to the chrome, not to the panel that just left.
+    else if (!this.state.chatVisible && this.host.win.isFocused()) this.host.win.webContents.focus()
   }
 
   /**
-   * ⌘L: shows the chat and puts the cursor in its message box; from the message box, hides
-   * it again. While the user picks an element, showing it brings back the bubble instead.
+   * ⌘L: the cursor in the chat's message box, showing the chat first if it's hidden (or out of
+   * its bubble, or ending a pick). It never hides the chat: ⌘B does (`toggleChat`).
    */
-  async toggleChatFocus() {
+  focusMessageBox() {
     if (!this.hasProject) return
-    if (!this.state.chatVisible) return this.toggleChat()
-    if (!(await this.composerFocused())) return this.focusChat()
-    if (this.disposed || !this.state.chatVisible) return
-    if (this.docked) this.morphLayout('dock')
-    this.patch({ chatVisible: false })
-    this.layout()
-    // Typing goes to the chrome, not to the panel that just left.
-    if (this.host.win.isFocused()) this.host.win.webContents.focus()
-  }
-
-  private async composerFocused() {
-    const wc = this.chatView.webContents
-    if (!this.host.isActive(this) || wc.isDestroyed() || !wc.isFocused()) return false
-    try {
-      return (
-        (await wc.executeJavaScriptInIsolatedWorld(1001, [{ code: COMPOSER_FOCUSED }])) === true
-      )
-    } catch {
-      return false
-    }
+    this.focusChat()
   }
 
   setMinimized(minimized: boolean) {
@@ -1553,6 +1550,127 @@ export class ProjectTab {
   /** The tucked bubble was clicked: the panel comes back, ready to type in. */
   expandChat() {
     this.focusChat()
+  }
+
+  /** The chat's own window while popped out, so menus and ⌘W can tell it's this tab's. */
+  get popoutWindow() {
+    return this.popout
+  }
+
+  /** ⌥⌘L and the chat's header button: into a window of its own, or back into this one. */
+  togglePopOut() {
+    if (!this.hasProject || !this.chat) return
+    if (this.popout) this.popIn()
+    else this.popOut()
+  }
+
+  /**
+   * Moves the chat's view into a window of its own, beside this one: the same page, so the
+   * conversation, a draft and where it was scrolled to come along. The preview takes the
+   * sidebar's room, or the floating panel's place, until it comes back (`popIn`).
+   */
+  private popOut() {
+    this.leaveFocusMode()
+    if (this.state.preview.selecting) void this.setSelecting(false)
+    this.cancelTuck()
+    this.tucked = false
+    this.flight?.finish()
+    if (this.sidebarShown) this.morphLayout('dock')
+    const bounds = this.popoutBounds()
+    const win = new BrowserWindow({
+      ...bounds,
+      minWidth: DOCK_MIN_WIDTH,
+      minHeight: PANEL_MIN.height,
+      show: false,
+      title: `${this.title ?? 'Chat'} — Chat`,
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: TRAFFIC_LIGHTS,
+      fullscreenable: false,
+      backgroundColor: surfaceColor(),
+    })
+    followSurface(win)
+    // Its own page is never used; the chat's view covers it.
+    win.webContents.loadURL('about:blank').catch(() => undefined)
+    this.popout = win
+    if (this.host.isActive(this)) this.host.win.contentView.removeChildView(this.chatView)
+    win.contentView.addChildView(this.chatView)
+    this.chatView.setVisible(true)
+    this.layoutPopout()
+    win.on('resize', () => this.layoutPopout())
+    // Closing it (its button, ⌘W) brings the chat back rather than losing it.
+    win.on('close', (event) => {
+      if (this.popout !== win) return
+      event.preventDefault()
+      this.popIn()
+    })
+    win.on('page-title-updated', (event) => event.preventDefault())
+    this.chat?.setPopped(true)
+    if (!this.state.chatVisible) this.patch({ chatVisible: true })
+    this.layout()
+    win.once('ready-to-show', () => {
+      if (this.popout !== win || !this.host.isActive(this)) return
+      showWindow(win)
+      this.focusChat()
+    })
+  }
+
+  /** Back into this window, as the sidebar or the floating panel it was before. */
+  private popIn() {
+    if (!this.popout) return
+    this.closePopout()
+    this.chat?.setPopped(false)
+    if (this.host.isActive(this)) {
+      this.host.win.contentView.addChildView(this.chatView)
+      if (this.docked) {
+        this.morphLayout('dock')
+        this.holdDock()
+      }
+    }
+    if (!this.state.chatVisible) this.patch({ chatVisible: true })
+    this.layout()
+    focusWindow(this.host.win)
+    this.focusChat()
+  }
+
+  /** Takes the chat's view out of its window and closes the window, view untouched. */
+  private closePopout() {
+    const win = this.popout
+    if (!win) return
+    this.popout = null
+    if (!win.isDestroyed()) {
+      win.contentView.removeChildView(this.chatView)
+      win.destroy()
+    }
+  }
+
+  /** The chat fills its window; the traffic lights sit in its header, as in the sidebar. */
+  private layoutPopout() {
+    const win = this.popout
+    if (!win || win.isDestroyed()) return
+    const [width, height] = win.getContentSize()
+    this.chatView.setBounds({ x: 0, y: 0, width, height })
+    this.chat?.setTrafficLights(true)
+  }
+
+  /**
+   * Where the popped-out window opens: as tall as this window and as wide as the chat was,
+   * beside it on the right if the screen has room, else on the left, else over its edge.
+   */
+  private popoutBounds() {
+    const main = this.host.win.getBounds()
+    const { workArea } = screen.getDisplayMatching(main)
+    const width = Math.max(DOCK_MIN_WIDTH, this.docked ? this.dockedWidth() : this.panelSize.width)
+    const height = Math.min(main.height, workArea.height)
+    const gap = 8
+    const right = main.x + main.width + gap
+    const left = main.x - gap - width
+    const x =
+      right + width <= workArea.x + workArea.width
+        ? right
+        : left >= workArea.x
+          ? left
+          : Math.max(workArea.x, main.x + main.width - width)
+    return { x: Math.round(x), y: Math.max(workArea.y, main.y), width, height }
   }
 
   /** Tucks the floating panel into its bubble shortly, unless the keyboard comes back. */
@@ -1669,16 +1787,16 @@ export class ProjectTab {
 
   /**
    * Chat panel resizing by a pointer delta from one of its edges or corners: the dragged edges
-   * follow the pointer and the opposite ones stay where they are. Docked, only the left edge
-   * resizes it.
+   * follow the pointer and the opposite ones stay where they are. As the sidebar, only its
+   * right edge resizes it.
    */
   resizeChat(edge: PanelEdge, dx: number, dy: number) {
     if (!this.state.chatVisible || !this.hasProject) return
     if (this.docked) {
-      if (edge !== 'left') return
-      const width = this.dockedWidth() - dx
-      const widest = this.host.canvas.width * DOCK_MAX_SHARE
-      this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, widest))
+      if (edge !== 'right') return
+      const width = this.dockedWidth() + dx
+      const [contentWidth] = this.host.win.getContentSize()
+      this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
       this.resizing = 'docked'
     } else {
       if (this.chat?.meta.minimized || this.bubbled) return
@@ -1720,7 +1838,7 @@ export class ProjectTab {
   /** Remembers the new size for this and later tabs. */
   endResizeChat() {
     if (this.resizing === 'docked') {
-      setPrefs({ chatDockWidth: this.dockWidth })
+      setPrefs({ chatSidebarWidth: this.dockWidth })
     } else if (this.resizing === 'floating') {
       setPrefs({ chatSize: this.panelSize })
       this.settleAnchor()
@@ -1845,6 +1963,14 @@ export class ProjectTab {
     this.leaveFocusMode()
     this.cancelTuck()
     this.tucked = false
+    // Popped out: its window comes forward, with the cursor in the message box.
+    if (this.popout) {
+      if (!this.host.isActive(this)) return
+      focusWindow(this.popout)
+      this.chatView.webContents.focus()
+      this.sendChat(Events.chatFocus, null)
+      return
+    }
     // The floating panel is wanted in full, so picking over it ends first.
     if (this.state.preview.selecting && this.hasProject && !this.docked) {
       void this.setSelecting(false).then(() => {
@@ -1883,7 +2009,7 @@ export class ProjectTab {
 
   /** Docked to the side: the chat's own setting, or the saved one while a project opens. */
   private get docked() {
-    return this.chat?.meta.docked ?? getPrefs().chatDocked
+    return this.chat?.meta.docked ?? getPrefs().chatSidebar
   }
 
   /**
@@ -1965,6 +2091,8 @@ export class ProjectTab {
    */
   private layoutChat() {
     if (this.disposed || !this.host.isActive(this)) return
+    this.syncSidebarWidth()
+    if (this.popout) return
     const [contentWidth, contentHeight] = this.host.win.getContentSize()
     const showChat = this.chatShown
     // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
@@ -1980,15 +2108,16 @@ export class ProjectTab {
       this.showFloat(float)
     }
     this.chatView.setVisible(showChat && !covered)
+    this.chat?.setTrafficLights(docked && !this.host.win.isFullScreen())
     if (docked) {
       const dockWidth = this.dockedWidth()
-      // Still off to the right of its place while it slides in (`holdDock`).
+      // Still off past the window's left edge while it slides in (`holdDock`).
       const slide = this.dockSlide ? (this.dockSlide.flight?.point.x ?? dockWidth) : 0
       this.chatView.setBounds({
-        x: Math.round(this.host.canvas.x + this.host.canvas.width - dockWidth + slide),
-        y: Math.round(this.host.canvas.y),
+        x: -Math.round(slide),
+        y: 0,
         width: dockWidth,
-        height: Math.max(0, Math.round(this.host.canvas.height)),
+        height: Math.max(0, contentHeight),
       })
       return
     }
@@ -2130,9 +2259,8 @@ export class ProjectTab {
   }
 
   /**
-   * The docked panel coming into sight with a morph of the preview (docking, or showing it
-   * docked) waits off to the right of its place, at the canvas's edge, until the morph moves.
-   * Without a morph it's simply there.
+   * The sidebar coming into sight with a morph of the preview (docking, or showing it docked)
+   * waits past the window's left edge until the morph moves. Without a morph it's simply there.
    */
   private holdDock() {
     this.dockSlide?.flight?.stop()
@@ -2225,22 +2353,35 @@ export class ProjectTab {
    * The chat shows: the user hasn't hidden it, there's a project to chat about, and the window
    * isn't in focus mode.
    */
+  /** The chat shows in this window: the sidebar or the floating panel (not popped out). */
   private get chatShown() {
-    return this.state.chatVisible && this.hasProject && !this.host.focusMode
+    return this.state.chatVisible && this.hasProject && !this.host.focusMode && !this.popout
   }
 
   /** Where the preview goes: the canvas, less the column a docked panel takes on its right. */
+  /** The canvas: the chrome lays it out right of the sidebar (`sidebarWidth`) already. */
   private previewArea(): Rect {
-    const { canvas } = this.host
-    if (!this.chatShown || !this.docked) return canvas
-    return { ...canvas, width: Math.max(0, canvas.width - this.dockedWidth()) }
+    return this.host.canvas
   }
 
-  /** The docked panel's width: the remembered one, within what the canvas leaves room for. */
+  /** The sidebar's width: the remembered one, within its share of the window. */
   private dockedWidth() {
-    return Math.round(
-      clamp(this.dockWidth, DOCK_MIN_WIDTH, this.host.canvas.width * DOCK_MAX_SHARE),
-    )
+    const [contentWidth] = this.host.win.getContentSize()
+    return Math.round(clamp(this.dockWidth, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
+  }
+
+  /** The chat shows as the window's left sidebar. */
+  get sidebarShown() {
+    return this.chatShown && this.docked
+  }
+
+  /**
+   * Tells the chrome how much room to leave on the left: it lays out the tab row, toolbar,
+   * canvas and drawer right of it, and reports the canvas back (`setCanvasRect`).
+   */
+  private syncSidebarWidth() {
+    const width = this.sidebarShown ? this.dockedWidth() : 0
+    if (width !== this.state.sidebarWidth) this.patch({ sidebarWidth: width })
   }
 
   /** The floating panel's size: the remembered one, within the window and the canvas's height. */
@@ -2441,6 +2582,7 @@ export class ProjectTab {
     if (this.disposed) return
     this.disposed = true
     this.cancelTuck()
+    this.closePopout()
     agentHealth.off('change', this.onAgentHealth)
     this.flight?.stop()
     this.morph.dispose()

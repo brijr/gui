@@ -24,6 +24,7 @@ import { AgentList } from '../agents/agent-list'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { Input } from '../lib/field'
+import { GuiMark } from '../lib/gui-mark'
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'
@@ -642,6 +643,7 @@ function EmptyState({ state }: { state: WindowState }) {
     <div className="flex w-full max-w-md flex-col gap-8">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
+          <GuiMark className="mb-4" />
           <h1 className="text-title font-semibold">
             {firstRun ? 'Design your app with your own agents' : 'Open a project'}
           </h1>
