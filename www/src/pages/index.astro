@@ -13,12 +13,6 @@ const description = 'Design real interfaces with your own AI agents.'
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400&display=swap"
-    />
   </head>
   <body>
     <main>
@@ -28,11 +22,11 @@ const description = 'Design real interfaces with your own AI agents.'
         <span class="word">Gui</span>
         <span class="ipa">/ˈɡuː.i/</span>
         <span class="say">goo·ee</span>
-        <span class="pos">noun</span>
+        <span>noun</span>
       </p>
 
       <blockquote>
-        <em>Gui</em> is a browser-first Mac app for designing real interfaces with your own AI
+        Gui is a browser-first Mac app for designing real interfaces with your own AI
         agents. Point at any element in your running app, ask for a change, and the agent edits
         your actual code. Made by <a href="https://bridger.to">Bridger Tower</a>.
       </blockquote>
@@ -45,14 +39,12 @@ const description = 'Design real interfaces with your own AI agents.'
     --bg: #fafafa;
     --fg: #111;
     --muted: #666;
-    --rule: #d4d4d4;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #191919;
       --fg: #f5f5f5;
       --muted: #a3a3a3;
-      --rule: #555;
     }
   }
   * {
@@ -69,7 +61,9 @@ const description = 'Design real interfaces with your own AI agents.'
     padding: 4rem 1.5rem;
     background: var(--bg);
     color: var(--fg);
-    font-family: Inter, system-ui, sans-serif;
+    font-family: Menlo, ui-monospace, monospace;
+    font-size: 1.25rem;
+    line-height: 1.45;
     -webkit-font-smoothing: antialiased;
   }
   main {
@@ -88,38 +82,16 @@ const description = 'Design real interfaces with your own AI agents.'
     gap: 0.75rem;
     margin-bottom: 2rem;
     color: var(--muted);
-    font-size: 1.0625rem;
   }
   .entry .word {
     color: var(--fg);
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-size: 2rem;
-  }
-  .entry .pos {
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-style: italic;
-    font-size: 1.25rem;
   }
   blockquote {
-    padding-left: 1.5rem;
-    border-left: 1px solid var(--rule);
-    font-family: 'Instrument Serif', Georgia, serif;
-    font-size: clamp(1.75rem, 4.5vw, 2.75rem);
-    line-height: 1.12;
-    letter-spacing: -0.01em;
     text-wrap: pretty;
-  }
-  blockquote a,
-  blockquote em {
-    font-style: italic;
   }
   blockquote a {
     color: inherit;
-    text-underline-offset: 0.12em;
-    text-decoration-thickness: 1px;
-  }
-  blockquote em {
-    text-decoration: underline;
+    font-style: normal;
     text-underline-offset: 0.12em;
     text-decoration-thickness: 1px;
   }
