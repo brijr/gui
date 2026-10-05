@@ -21,6 +21,9 @@ copyright: Copyright © 2026 Gui
 directories:
   output: release
   buildResources: build
+  # The app is the repo root. Without this, electron-builder takes a top-level app/ or www/
+  # folder for the app's source, and www/ is the marketing site.
+  app: .
 
 # Renderer libraries are devDependencies bundled by Vite into out/; only `dependencies`
 # reach node_modules. Nothing else from the repo (src, e2e, docs, .claude…) is packaged.
