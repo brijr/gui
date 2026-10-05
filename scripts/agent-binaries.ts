@@ -14,7 +14,7 @@ export interface AgentBinary {
   devDir: string
   /** The CLI version this package contains */
   cliVersion: string
-  /** Oldest installed CLI the adapter works with; it must also share the minor version */
+  /** Oldest installed CLI to accept; Claude must also share cliVersion's minor line. */
   minCliVersion: string
 }
 

@@ -73,14 +73,20 @@ function parseVersion(text: string) {
 }
 
 /**
- * The adapters drive their CLI over an evolving protocol: accept the user's own CLI
- * only from the same minor line, at or above the version the adapter needs.
+ * Codex may use any CLI at or above the adapter's minimum; the agent health check
+ * verifies startup. Claude stays on the SDK's minor line.
  */
-function compatible(version: string, spec: AgentBinary) {
+function compatible(id: PinnedAgentId, version: string, spec: AgentBinary) {
   const have = parseVersion(version)
   const min = parseVersion(spec.minCliVersion)
   const line = parseVersion(spec.cliVersion)
   if (!have || !min || !line) return false
+  if (id === 'codex') {
+    for (let i = 0; i < 3; i++) {
+      if (have[i] !== min[i]) return (have[i] ?? 0) > (min[i] ?? 0)
+    }
+    return true
+  }
   return have[0] === line[0] && have[1] === line[1] && have[2] >= min[2]
 }
 
@@ -140,7 +146,7 @@ async function resolve(id: PinnedAgentId): Promise<BinaryStatus> {
     return { kind: 'ready', binary: { path: own, version: spec.cliVersion, source: 'gui' } }
   }
   const found = await findInstalled(id)
-  if (found && compatible(found.version, spec)) {
+  if (found && compatible(id, found.version, spec)) {
     return { kind: 'ready', binary: { ...found, source: 'yours' } }
   }
   if (!app.isPackaged) {
