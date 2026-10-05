@@ -123,8 +123,9 @@ test('dragging picks an area as a screenshot, and the agent gets every pick', as
   const area = await session.pickArea(from, to)
   expect(await selecting(session)).toBe(false)
   expect(area.screenshot).toMatch(/^data:image\/png;base64,/)
-  expect(area.rect.width).toBeCloseTo(to.x - from.x, 0)
-  expect(area.rect.height).toBeCloseTo(to.y - from.y, 0)
+  // The gesture lands on whole pixels, so the area is within a pixel of the drag.
+  expect(Math.abs(area.rect.width - (to.x - from.x))).toBeLessThanOrEqual(1)
+  expect(Math.abs(area.rect.height - (to.y - from.y))).toBeLessThanOrEqual(1)
   expect(area.container?.tag).toBe('main')
   expect(area.container?.componentStack).toEqual(['App'])
   expect(area.container?.source?.file).toBe('src/App.tsx')
