@@ -332,6 +332,11 @@ export interface Rect {
   height: number
 }
 
+export interface Point {
+  x: number
+  y: number
+}
+
 /** The floating chat panel's edges and corners, which resize it; docked, only `left` does */
 export const PANEL_EDGES = [
   'top',
@@ -404,6 +409,8 @@ export interface SourceLocation {
 }
 
 export interface ElementContext {
+  /** Missing in history saved before areas could be picked */
+  kind?: 'element'
   id: string
   url: string
   viewport: { width: number; height: number }
@@ -424,6 +431,56 @@ export interface ElementContext {
    * pixels), so a later image of the element can be framed the same way. Null without one.
    */
   crop?: { area: Rect; element: Rect } | null
+}
+
+/**
+ * An area of the page the user dragged out in the preview: a screenshot of it, and the
+ * element around all of it, to say where it is in the code.
+ */
+export interface RegionContext {
+  kind: 'region'
+  id: string
+  url: string
+  viewport: { width: number; height: number }
+  /** The area in the viewport when it was captured (CSS pixels) */
+  rect: Rect
+  /** PNG data URL of the area; stripped from turns to keep IPC payloads small */
+  screenshot: string | null
+  /** The area in page coordinates (CSS pixels), as `area` and `element` alike */
+  crop?: { area: Rect; element: Rect } | null
+  /** The smallest element that contains the whole area; null when only the page does */
+  container: {
+    tag: string
+    selector: string
+    componentStack: string[]
+    source: SourceLocation | null
+  } | null
+}
+
+/** Something the user picked in the preview to talk about: an element, or an area. */
+export type Picked = ElementContext | RegionContext
+
+export const isRegion = (picked: Picked): picked is RegionContext => picked.kind === 'region'
+
+/**
+ * The pick a turn shows before and after its change: the first one with a crop to compare
+ * against. The rest go to the agent the same way, they just aren't shown side by side.
+ */
+export const primaryPick = (selection: Picked[]) => selection.find((picked) => picked.crop)
+
+/**
+ * What the pick overlay draws over the preview while the user picks, in its own coordinates
+ * (the preview view's): the element under the pointer and what's been picked so far.
+ */
+export interface PickOverlayState {
+  hover: { rect: Rect; name: string; size: string } | null
+  picked: { id: string; rect: Rect; kind: 'element' | 'region' }[]
+  /** A pick is being read */
+  busy: boolean
+  /** How large the page is drawn: its CSS pixels times this are the overlay's */
+  scale: number
+  /** Counts the times picking started, so the overlay can greet each one */
+  run: number
 }
 
 export interface Problem {
@@ -464,8 +521,8 @@ export interface AgentCommand {
 export interface QueuedMessage {
   id: string
   prompt: string
-  /** The element that was picked when it was queued */
-  context: ElementContext | null
+  /** What was picked when it was queued */
+  context: Picked[]
   attachments: { name: string; thumbnail: string }[]
 }
 
@@ -513,7 +570,8 @@ export interface ChatMeta {
    * that starts with one of them is sent to the agent as just that command.
    */
   commands: AgentCommand[]
-  selection: ElementContext | null
+  /** What the user picked for the next message, in the order they picked it */
+  selection: Picked[]
   /** Why the last element pick failed, shown until the next pick */
   selectionError: string | null
   /** The user is picking an element in the preview (the composer's Select is on) */
@@ -603,7 +661,8 @@ export interface Turn {
   id: string
   index: number
   prompt: string
-  context: ElementContext | null
+  /** What the user picked for it, in the order they picked it */
+  context: Picked[]
   items: TurnItem[]
   status: TurnStatus
   error: string | null

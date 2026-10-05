@@ -1,4 +1,13 @@
-import { ArrowUp, ImagePlus, Info, MousePointer2, Square, TriangleAlert, X } from 'lucide-react'
+import {
+  ArrowUp,
+  Crop,
+  ImagePlus,
+  Info,
+  MousePointer2,
+  Square,
+  TriangleAlert,
+  X,
+} from 'lucide-react'
 import {
   type ClipboardEvent,
   type DragEvent,
@@ -9,7 +18,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { ChatMeta, Problem } from '../../../shared/types'
+import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
@@ -29,7 +38,7 @@ import {
   settleSend,
   useChat,
 } from './store'
-import { elementLabel } from './turn-view'
+import { pickLabel } from './turn-view'
 
 const NOTICE_MS = 5000
 
@@ -127,7 +136,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
       void submit()
-    } else if (event.key === 'Escape' && meta.selection) {
+    } else if (event.key === 'Escape' && meta.selection.length > 0) {
       gui.clearSelection()
     }
   }
@@ -175,24 +184,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
       <QueuedMessages meta={meta} />
       {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}
-      {meta.selection && (
-        <Card tone="inset" className="flex items-center gap-2 p-1.5">
-          {meta.selection.screenshot ? (
-            <Thumbnail src={meta.selection.screenshot} size="sm" fit="contain" />
-          ) : (
-            <Thumbnail size="sm">
-              <MousePointer2 className="size-3.5" aria-hidden="true" />
-            </Thumbnail>
-          )}
-          <SelectionLabel meta={meta} />
-          <IconButton
-            size="sm"
-            label="Remove selection"
-            icon={X}
-            onClick={() => gui.clearSelection()}
-          />
-        </Card>
-      )}
+      {meta.selection.length > 0 && <Selection selection={meta.selection} />}
       {notice && (
         <Line tone="info" role="status">
           {notice}
@@ -244,7 +236,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           placeholder={
             running
               ? 'Queue a message…'
-              : meta.selection || attachments.length > 0
+              : meta.selection.length > 0 || attachments.length > 0
                 ? 'Describe the change…'
                 : `Ask ${meta.agentName}…`
           }
@@ -345,22 +337,74 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
   )
 }
 
-function SelectionLabel({ meta }: { meta: ChatMeta }) {
-  const selection = meta.selection
-  if (!selection) return null
-  const { name, where } = elementLabel(selection)
+/**
+ * What's picked for the next message, in the order it was picked (numbered as the preview
+ * numbers it, when there are several). Pointing at one shows which it is in the page.
+ */
+function Selection({ selection }: { selection: Picked[] }) {
+  const several = selection.length > 1
+  return (
+    <Card tone="inset" className="max-h-36 overflow-y-auto">
+      <ul
+        aria-label={several ? `${selection.length} picked` : 'Picked'}
+        className="divide-y divide-line"
+      >
+        {selection.map((picked, i) => (
+          <li
+            key={picked.id}
+            onPointerEnter={() => gui.hoverSelection(picked.id)}
+            onPointerLeave={() => gui.hoverSelection(null)}
+            className="flex items-center gap-2 p-1.5"
+          >
+            <div className="relative shrink-0">
+              {picked.screenshot ? (
+                <Thumbnail src={picked.screenshot} size="sm" fit="contain" />
+              ) : (
+                <Thumbnail size="sm">
+                  {isRegion(picked) ? (
+                    <Crop className="size-3.5" aria-hidden="true" />
+                  ) : (
+                    <MousePointer2 className="size-3.5" aria-hidden="true" />
+                  )}
+                </Thumbnail>
+              )}
+              {several && (
+                <span className="absolute -top-1 -left-1 flex size-4 items-center justify-center rounded-full bg-accent text-caption font-medium text-accent-fg tabular-nums">
+                  {i + 1}
+                </span>
+              )}
+            </div>
+            <PickedLabel picked={picked} />
+            <IconButton
+              size="sm"
+              label={several ? `Remove ${pickLabel(picked).name}` : 'Remove selection'}
+              title="Remove"
+              icon={X}
+              onClick={() => {
+                gui.hoverSelection(null)
+                gui.removeSelection(picked.id)
+              }}
+            />
+          </li>
+        ))}
+      </ul>
+    </Card>
+  )
+}
+
+function PickedLabel({ picked }: { picked: Picked }) {
+  const { name, detail, where, title } = pickLabel(picked)
   return (
     <div className="min-w-0 flex-1">
       <p className="truncate text-small">
         <span className="font-medium">{name}</span>
-        {selection.text && <span className="text-muted"> {selection.text.slice(0, 60)}</span>}
+        {detail && <span className="text-muted"> {detail}</span>}
       </p>
-      <p
-        className="truncate font-mono text-caption text-subtle"
-        title={selection.source?.file ?? selection.selector}
-      >
-        {where ?? selection.selector}
-      </p>
+      {where && (
+        <p className="truncate font-mono text-caption text-subtle" title={title}>
+          {where}
+        </p>
+      )}
     </div>
   )
 }

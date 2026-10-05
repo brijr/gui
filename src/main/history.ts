@@ -9,6 +9,7 @@ import {
   type AgentId,
   DEFAULT_AGENT_ID,
   isAgentId,
+  type Picked,
   type Turn,
   type TurnItem,
 } from '../shared/types'
@@ -121,16 +122,24 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
 function settleTurn(turn: Turn, before: string | null): Turn {
   const items = turn.items.map(settleItem)
   const attachments = settleAttachments(turn.attachments)
-  if (turn.status !== 'running') return { ...turn, items, attachments }
+  const context = settleContext(turn.context)
+  if (turn.status !== 'running') return { ...turn, items, attachments, context }
   return {
     ...turn,
     items,
     attachments,
+    context,
     status: 'cancelled',
     endedAt: turn.startedAt,
     // Its edits were never diffed, but its starting checkpoint can still undo them.
     ...(before && turn.changes === null ? { changesUnknown: true } : {}),
   }
+}
+
+/** Turns saved before several things could be picked hold one element, or null. */
+function settleContext(value: unknown): Picked[] {
+  if (Array.isArray(value)) return value as Picked[]
+  return value && typeof value === 'object' ? [value as Picked] : []
 }
 
 /** Each agent's saved command list, checked like one the agent sent. */
@@ -196,11 +205,10 @@ function withoutQuery(url: string) {
 
 function serialize(chat: SavedChat) {
   // Before/after images are for the live session only; history stays small.
-  const turns = chat.turns.map(({ preview: _preview, ...turn }) =>
-    turn.context
-      ? { ...turn, context: { ...turn.context, url: withoutQuery(turn.context.url) } }
-      : turn,
-  )
+  const turns = chat.turns.map(({ preview: _preview, ...turn }) => ({
+    ...turn,
+    context: turn.context.map((picked) => ({ ...picked, url: withoutQuery(picked.url) })),
+  }))
   return JSON.stringify({ ...chat, turns })
 }
 

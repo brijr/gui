@@ -4,7 +4,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { nativeTheme, type WebContents } from 'electron'
 import { ACCENT, FILL } from '../shared/theme'
-import type { ElementContext, Rect, SourceLocation } from '../shared/types'
+import type { ElementContext, Point, Rect, SourceLocation } from '../shared/types'
 import { normalizeSourcePath, projectRelativePath, resolveStack } from './source-resolver'
 
 const COMMAND_TIMEOUT_MS = 15_000
@@ -13,18 +13,24 @@ const COMMAND_TIMEOUT_MS = 15_000
  * with the same margin, so the two line up.
  */
 export const CROP_MARGIN = 8
-/**
- * The element highlight in Gui's accent for the current appearance: the content tinted, the
- * padding lighter, the margin a neutral fill, an accent outline. The name-and-size label
- * shows while picking (`info`); once picked, the composer names the element, and the label
- * would only cover the page around it.
- */
-function highlightConfig(info: boolean) {
-  const dark = nativeTheme.shouldUseDarkColors
-  const hex = dark ? ACCENT.dark : ACCENT.light
+/** Gui's accent for the current appearance, as the protocol takes colors. */
+function accent() {
+  const hex = nativeTheme.shouldUseDarkColors ? ACCENT.dark : ACCENT.light
   const [r, g, b] = [1, 3, 5].map((i) => Number.parseInt(hex.slice(i, i + 2), 16))
+  return { r, g, b }
+}
+
+/**
+ * The picked element's highlight in Gui's accent for the current appearance: the content
+ * tinted, the padding lighter, the margin a neutral fill, an accent outline. No label: the
+ * composer names the element, and a label would only cover the page around it. (While the
+ * user picks, Gui's own overlay draws instead; see picker.ts.)
+ */
+function highlightConfig() {
+  const dark = nativeTheme.shouldUseDarkColors
+  const { r, g, b } = accent()
   return {
-    showInfo: info,
+    showInfo: false,
     showStyles: false,
     showAccessibilityInfo: false,
     contentColor: { r, g, b, a: 0.18 },
@@ -207,6 +213,36 @@ const REACT_INFO = `async function () {
   return { selector: path.join(' > '), componentStack, debugStack, debugSource }
 }`
 
+/**
+ * The nearest component around the element, for the label while picking: what a designer
+ * calls it. Cheap and synchronous (it runs per element hovered); untrusted, like REACT_INFO.
+ */
+const HOVER_NAME = `function () {
+  const key = Object.keys(this).find((k) => k.startsWith('__reactFiber$') || k.startsWith('__reactInternalInstance$'))
+  if (!key) return null
+  const internal = /^(Inner|Outer)?LayoutRouter$|Boundary|Router|HotReload|Root$|Segment|Provider$|Context$|^Suspense$|^StrictMode$|^Fragment$|^__next/
+  for (let f = this[key].return, steps = 0; f && steps < 40; f = f.return, steps++) {
+    const t = f.type
+    const name = typeof t === 'function' ? t.displayName || t.name : t && typeof t === 'object' ? t.displayName || (t.render && (t.render.displayName || t.render.name)) || (t.type && (t.type.displayName || t.type.name)) : null
+    if (name && !internal.test(name)) return name
+  }
+  return null
+}`
+
+/**
+ * The smallest element, from this one up, whose box holds all of the area (x, y, width,
+ * height in the viewport); null when only the body or the document does. Untrusted: it only
+ * chooses which element main then describes over the protocol.
+ */
+const CONTAINER = `function (x, y, width, height) {
+  for (let el = this; el && el.nodeType === 1; el = el.parentElement) {
+    if (el === document.body || el === document.documentElement) return null
+    const r = el.getBoundingClientRect()
+    if (r.left <= x + 1 && r.top <= y + 1 && r.right >= x + width - 1 && r.bottom >= y + height - 1) return el
+  }
+  return null
+}`
+
 interface ReactInfo {
   selector: string
   componentStack: string[]
@@ -227,8 +263,6 @@ interface LineageNode {
 }
 
 interface InspectorEvents {
-  pick: [backendNodeId: number]
-  cancel: []
   /** The debugger session closed; what it set up, such as emulation, went with it. */
   detach: []
 }
@@ -244,7 +278,7 @@ export interface InspectorSession {
   withoutHighlight<T>(fn: () => Promise<T>): Promise<T>
 }
 
-/** Element picking and extraction over the Chrome DevTools Protocol. */
+/** Finding, highlighting and reading elements over the Chrome DevTools Protocol. */
 export class Inspector extends EventEmitter<InspectorEvents> {
   private readonly dbg
   /** Settles when the last queued exclusive section has finished. */
@@ -269,22 +303,6 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     super()
     this.dbg = wc.debugger
     this.dbg.on('detach', () => this.emit('detach'))
-    this.dbg.on('message', (_event, method, params) => {
-      if (method === 'Overlay.inspectNodeRequested') {
-        void this.setInspecting(false)
-        this.emit('pick', (params as { backendNodeId: number }).backendNodeId)
-      } else if (method === 'Overlay.inspectModeCanceled') {
-        this.emit('cancel')
-      }
-    })
-  }
-
-  async setInspecting(on: boolean) {
-    await this.ready()
-    await this.cmd('Overlay.setInspectMode', {
-      mode: on ? 'searchForNode' : 'none',
-      highlightConfig: highlightConfig(true),
-    })
   }
 
   /**
@@ -295,6 +313,30 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     const token = ++this.highlightToken
     await this.exclusive(async () => {
       if (isCurrent()) await this.showHighlight(backendNodeId, token)
+    })
+  }
+
+  /**
+   * Highlights part of the page (page coordinates, CSS pixels) where it is now, for a picked
+   * area. It stays put in the viewport until something else is highlighted.
+   */
+  async highlightArea(area: Rect) {
+    const token = ++this.highlightToken
+    await this.exclusive(async () => {
+      await this.ready()
+      if (token !== this.highlightToken) return
+      const scroll = await this.scroll()
+      const { r, g, b } = accent()
+      await this.cmd('Overlay.highlightRect', {
+        x: Math.round(area.x - scroll.x),
+        y: Math.round(area.y - scroll.y),
+        width: Math.round(area.width),
+        height: Math.round(area.height),
+        color: { r, g, b, a: 0.12 },
+        outlineColor: { r, g, b, a: 1 },
+      })
+      // Not a node, so a screenshot can't put it back; it's only shown while hovered.
+      if (token === this.highlightToken) this.highlighted = null
     })
   }
 
@@ -388,6 +430,109 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   }
 
   /**
+   * backendNodeId of the element at `point` (CSS pixels in the viewport), as a click there
+   * would reach it; null over nothing. Holds no node ids, so it runs unlocked.
+   */
+  async nodeAt(point: Point): Promise<number | null> {
+    await this.ready()
+    try {
+      const { backendNodeId } = await this.cmd<{ backendNodeId?: number }>(
+        'DOM.getNodeForLocation',
+        {
+          x: Math.round(point.x),
+          y: Math.round(point.y),
+          includeUserAgentShadowDOM: false,
+          ignorePointerEventsNone: true,
+        },
+      )
+      return backendNodeId ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** The element's border box in the viewport; null when it has none (or is gone). */
+  async box(backendNodeId: number): Promise<Rect | null> {
+    const rect = await this.boxRect(backendNodeId).catch(() => null)
+    return rect && (rect.width > 0 || rect.height > 0) ? rect : null
+  }
+
+  /** How far the page is scrolled: page coordinates less these are the viewport's. */
+  async scroll(): Promise<Point> {
+    const { cssVisualViewport } = await this.cmd<{
+      cssVisualViewport: { pageX: number; pageY: number }
+    }>('Page.getLayoutMetrics')
+    return { x: cssVisualViewport.pageX, y: cssVisualViewport.pageY }
+  }
+
+  /**
+   * What the picking label calls the element: its nearest component, else its tag (with its
+   * id). Page data, checked like a component name.
+   */
+  async label(backendNodeId: number): Promise<string> {
+    const { node } = await this.cmd<{ node: { localName: string; attributes?: string[] } }>(
+      'DOM.describeNode',
+      { backendNodeId },
+    )
+    const attrs = node.attributes ?? []
+    const idAt = attrs.findIndex((name, i) => i % 2 === 0 && name === 'id')
+    const id = idAt >= 0 ? attrs[idAt + 1] : ''
+    const tag = id && COMPONENT_NAME.test(id) ? `${node.localName}#${id}` : node.localName
+    const component = await this.callOn(backendNodeId, HOVER_NAME).catch(() => null)
+    return typeof component === 'string' && COMPONENT_NAME.test(component) ? component : tag
+  }
+
+  /**
+   * A screenshot of `rect` (CSS pixels in the viewport, kept within it) for an area the user
+   * dragged out, framed exactly, with where it was.
+   */
+  async captureArea(rect: Rect) {
+    await this.ready()
+    return this.exclusive(async () => {
+      const viewport = await this.viewport()
+      const shot = await this.capture(rect, viewport, 0)
+      return { viewport, shot }
+    })
+  }
+
+  /**
+   * backendNodeId of the smallest element around all of `rect` (see CONTAINER), found from
+   * the element at its center; null when only the page is.
+   */
+  async containerOf(rect: Rect): Promise<number | null> {
+    const center = await this.nodeAt({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 })
+    if (center === null) return null
+    let objectId: string | undefined
+    let found: string | undefined
+    try {
+      const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
+        backendNodeId: center,
+      })
+      objectId = object.objectId
+      const { result } = await this.cmd<{ result: { objectId?: string; subtype?: string } }>(
+        'Runtime.callFunctionOn',
+        {
+          objectId,
+          functionDeclaration: CONTAINER,
+          arguments: [rect.x, rect.y, rect.width, rect.height].map((value) => ({ value })),
+        },
+      )
+      found = result.subtype === 'node' ? result.objectId : undefined
+      if (!found) return null
+      const { node } = await this.cmd<{ node: { backendNodeId: number } }>('DOM.describeNode', {
+        objectId: found,
+      })
+      return node.backendNodeId
+    } catch {
+      return null
+    } finally {
+      for (const id of [objectId, found]) {
+        if (id) void this.cmd('Runtime.releaseObject', { objectId: id }).catch(() => undefined)
+      }
+    }
+  }
+
+  /**
    * Raw CDP access for the agent's preview tools; shares this debugger session. Unlocked:
    * sequences that hold node ids or change emulation belong in `exclusive`.
    */
@@ -428,7 +573,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     if (token !== this.highlightToken) return
     await this.cmd('Overlay.highlightNode', {
       backendNodeId,
-      highlightConfig: highlightConfig(false),
+      highlightConfig: highlightConfig(),
     })
     if (token === this.highlightToken) this.highlighted = backendNodeId
   }
@@ -555,9 +700,12 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     }
   }
 
-  /** The element and `CROP_MARGIN` around it, within the viewport; where, in page coordinates. */
-  private async capture(rect: Rect, viewport: { width: number; height: number }) {
-    const pad = CROP_MARGIN
+  /** The element and `pad` around it, within the viewport; where, in page coordinates. */
+  private async capture(
+    rect: Rect,
+    viewport: { width: number; height: number },
+    pad = CROP_MARGIN,
+  ) {
     const x = Math.max(0, Math.floor(rect.x - pad))
     const y = Math.max(0, Math.floor(rect.y - pad))
     const width = Math.min(viewport.width, Math.ceil(rect.x + rect.width + pad)) - x
@@ -584,6 +732,26 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     return {
       dataUrl: scaled.toDataURL(),
       crop: { area: onPage({ x, y, width, height }), element: onPage(rect) },
+    }
+  }
+
+  /** Calls page JavaScript on the element, by value; bounded like REACT_INFO, untrusted. */
+  private async callOn(backendNodeId: number, functionDeclaration: string): Promise<unknown> {
+    const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
+      backendNodeId,
+    })
+    try {
+      const { result, exceptionDetails } = await this.cmd<{
+        result: { value?: unknown }
+        exceptionDetails?: unknown
+      }>('Runtime.callFunctionOn', {
+        objectId: object.objectId,
+        functionDeclaration,
+        returnByValue: true,
+      })
+      return exceptionDetails ? null : result.value
+    } finally {
+      void this.cmd('Runtime.releaseObject', { objectId: object.objectId }).catch(() => undefined)
     }
   }
 

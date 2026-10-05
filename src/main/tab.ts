@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { basename, join, posix } from 'node:path'
@@ -33,18 +34,21 @@ import {
   type DrawerState,
   type DrawerTab,
   drawerNeighbor,
-  type ElementContext,
   type ImageAttachment,
+  isRegion,
   isTerminalId,
   type MorphKind,
   type PanelCorner,
   type PanelEdge,
+  type Picked,
   type PreviewFrame,
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
+  primaryPick,
   type RecentProject,
   type Rect,
+  type RegionContext,
   type ShipInfo,
   type ShipRequest,
   type ShipResult,
@@ -67,6 +71,7 @@ import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
+import { type Outlined, Picker } from './picker'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import { PreviewMorph } from './preview-morph'
 import { PreviewTools } from './preview-tools'
@@ -129,6 +134,8 @@ const TUCK_DELAY_MS = 400
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
+/** The id a pick goes by in the overlay while it's read, before it has its own */
+const PENDING_PICK = 'pending'
 /** A package.json being written fires several changes; look once they've settled. */
 const APP_CHECK_DELAY_MS = 500
 /** Package scripts an install runs from the project's own package.json. */
@@ -219,8 +226,18 @@ export class ProjectTab {
   /** The current project's preview tools; also used to show how a change turned out. */
   private previewTools: PreviewTools | null = null
   private readonly problems = new Problems()
-  /** Selection shown in the chat last time meta changed, to clear the highlight only when it goes away. */
-  private shownSelectionId: string | null = null
+  /** Picking over the preview: the overlay Gui draws it in, over the page. */
+  private readonly picker: Picker
+  /** Each picked element's node (by pick id), to outline it; an area has none. */
+  private readonly pickedNodes = new Map<string, number>()
+  /** What's being read for a pick in progress, outlined meanwhile */
+  private pendingPick: Outlined | null = null
+  /** Picks are read one at a time, in the order the user made them. */
+  private pickTail: Promise<void> = Promise.resolve()
+  /** The pick the page highlights while the user isn't picking (`syncHighlight`) */
+  private highlightedPick: string | null = null
+  /** The pick whose chip the pointer is over in the composer */
+  private hoveredPick: string | null = null
   /**
    * Where the floating panel sits: by one of its corners, from the canvas's same corner, so it
    * stays there as the window and the logs resize. Letting go of it picks a corner of the
@@ -277,8 +294,6 @@ export class ProjectTab {
   /** Bumped per openProject; async steps of a superseded open must not touch the window. */
   private openGeneration = 0
   private opening: string | null = null
-  /** Bumped per element pick; a slow inspection must not overwrite a newer pick. */
-  private pickGeneration = 0
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
   private rehighlightTimer: NodeJS.Timeout | null = null
   /**
@@ -359,8 +374,7 @@ export class ProjectTab {
       moving: (reduced) => this.slideDock(reduced),
       ended: () => this.landDock(),
     })
-    this.inspector.on('pick', (nodeId) => void this.onPick(nodeId))
-    this.inspector.on('cancel', () => this.patchPreview({ selecting: false }))
+    this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
     this.problems.on('change', (problems) => this.chat?.setProblems(problems))
     agentHealth.on('change', this.onAgentHealth)
 
@@ -384,7 +398,7 @@ export class ProjectTab {
 
   /** The chat panel is the tab's own page; the chrome belongs to the window. */
   owns(wc: WebContents) {
-    return wc === this.chatView.webContents
+    return wc === this.chatView.webContents || this.picker.owns(wc)
   }
 
   /** The tab strip's name for it: the project's, or the folder opening; null on the start screen. */
@@ -406,6 +420,7 @@ export class ProjectTab {
   activate() {
     const { contentView } = this.host.win
     contentView.addChildView(this.preview)
+    contentView.addChildView(this.picker.view)
     // Popped out, the chat is in its own window, which shows again with its tab.
     if (this.popout) this.popout.showInactive()
     else contentView.addChildView(this.chatView)
@@ -430,6 +445,7 @@ export class ProjectTab {
     this.settleForm(this.wantedForm())
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
+    contentView.removeChildView(this.picker.view)
     // A background tab's popped-out chat hides, so the one in sight is the tab in sight's.
     if (this.popout) this.popout.hide()
     else contentView.removeChildView(this.chatView)
@@ -470,7 +486,7 @@ export class ProjectTab {
         errorDetail: null,
         modeName: null,
         commands: [],
-        selection: null,
+        selection: [],
         selectionError: null,
         selecting: this.state.preview.selecting,
         canSelect: this.canSelect,
@@ -555,10 +571,7 @@ export class ProjectTab {
       })
       chat.on('meta', (meta) => {
         this.sendChat(Events.chatMeta, meta)
-        // Clear the pick highlight only when the selection goes away (sent or removed).
-        const selectionId = meta.selection?.id ?? null
-        if (this.shownSelectionId && !selectionId) void this.inspector.clearHighlight()
-        this.shownSelectionId = selectionId
+        this.onSelection(meta.selection)
         if (meta.agentId !== this.state.agentId) this.patch({ agentId: meta.agentId })
         this.layout()
         this.host.tabChanged(this, false)
@@ -578,8 +591,9 @@ export class ProjectTab {
       chat.on('turnEnd', (turn) => {
         // The agent may have just set the project up; it's left alone while it works.
         if (this.appWatcher) void this.checkForApp()
-        if (turn.status === 'done' && turn.context && turn.changes?.length) {
-          const { selector, crop } = turn.context
+        const shown = primaryPick(turn.context)
+        if (turn.status === 'done' && shown && turn.changes?.length) {
+          const selector = isRegion(shown) ? undefined : shown.selector
           if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
           const generation = this.rehighlightGeneration
           this.rehighlightTimer = setTimeout(() => {
@@ -588,7 +602,7 @@ export class ProjectTab {
             // a pick that started meanwhile still gets this turn's "after", just no highlight,
             // unless that turn has already started on tools: the preview may show its changes.
             if (chat.activeTurnUsedTools()) return
-            void this.captureAfter(chat, turn.id, selector, crop ?? null).then(() => {
+            void this.captureAfter(chat, turn.id, shown).then(() => {
               if (generation === this.rehighlightGeneration) void this.highlightSelector(selector)
             })
           }, REHIGHLIGHT_DELAY_MS)
@@ -1103,46 +1117,213 @@ export class ProjectTab {
   }
 
   async setSelecting(on: boolean) {
-    // Only pick from the local app: element data is sent to the agent.
-    const local = isLoopback(this.preview.webContents.getURL())
-    if (on && (!this.state.preview.visible || !this.chat || !local)) return
-    // Picking is on the live page: a morph in progress lands at once.
-    if (on) this.morph.finish()
-    try {
-      // Report "selecting" only once inspect mode is live; a click before that would
-      // land on the page instead of picking.
-      await this.inspector.setInspecting(on)
-      this.patchPreview({ selecting: on })
-      if (on) this.preview.webContents.focus()
-    } catch (error) {
-      console.error('[gui] inspect mode failed', error)
+    if (on === this.picker.picking) return
+    if (!on) {
       this.patchPreview({ selecting: false })
+      return
     }
+    // Only pick from the local app: what's picked is sent to the agent.
+    const local = isLoopback(this.preview.webContents.getURL())
+    if (!this.state.preview.visible || !this.chat || !local) return
+    // Picking is on the live page: a morph in progress lands at once.
+    this.morph.finish()
+    // The overlay outlines what's picked now; the page's own highlight would double it.
+    this.cancelRehighlight()
+    this.highlightedPick = null
+    void this.inspector.clearHighlight()
+    this.syncOutlined()
+    this.picker.start(this.placement, this.cursorOverPreview())
+    this.patchPreview({ selecting: true })
   }
 
-  private async onPick(nodeId: number) {
-    this.morph.finish()
-    this.patchPreview({ selecting: false })
-    const generation = ++this.pickGeneration
+  /**
+   * A click in the overlay at `at` (its coordinates): picks the element there. On its own
+   * it replaces what was picked and ends picking, as a single pick always has; with `add`
+   * (⇧) it joins what's picked, or leaves it if it was picked already, and picking goes on.
+   */
+  pickElement(at: Point, add: boolean) {
+    if (!this.picker.picking) return
+    if (!add) void this.setSelecting(false)
+    this.queuePick(async () => {
+      const node = await this.picker.nodeAt(at)
+      if (node === null) return
+      const already = [...this.pickedNodes].find(([, picked]) => picked === node)?.[0]
+      if (add && already) {
+        this.chat?.removeFromSelection(already)
+        return
+      }
+      await this.readPick(add, { id: PENDING_PICK, kind: 'element', node }, async (project) => {
+        const element = await this.inspectElement(node, project)
+        this.pickedNodes.set(element.id, node)
+        return { ...element, kind: 'element' }
+      })
+    })
+  }
+
+  /** A drag in the overlay over `rect` (its coordinates): picks that area as a screenshot. */
+  pickArea(rect: Rect, add: boolean) {
+    if (!this.picker.picking) return
+    if (!add) void this.setSelecting(false)
+    const area = this.picker.toPageRect(rect)
+    this.queuePick(() =>
+      this.readPick(add, { id: PENDING_PICK, kind: 'region', area, fixed: true }, (project) =>
+        this.inspectArea(area, project),
+      ),
+    )
+  }
+
+  pickHover(at: Point | null) {
+    if (this.picker.picking) this.picker.hover(at)
+  }
+
+  pickWheel(at: Point, deltaX: number, deltaY: number) {
+    if (this.picker.picking) this.picker.wheel(at, deltaX, deltaY)
+  }
+
+  removeSelection(id: string) {
+    this.chat?.removeFromSelection(id)
+  }
+
+  /** The pointer is over a pick's chip in the composer: the page shows which one it is. */
+  hoverSelection(id: string | null) {
+    this.hoveredPick = id
+    this.syncHighlight()
+  }
+
+  private queuePick(read: () => Promise<void>) {
+    const run = this.pickTail.then(read)
+    this.pickTail = run.catch(() => undefined)
+  }
+
+  /**
+   * Reads a pick and puts it in the selection: in place of what's there, or after it with
+   * `add`. `pending` is outlined meanwhile. A pick that failed says why in the composer.
+   */
+  private async readPick(
+    add: boolean,
+    pending: Outlined,
+    read: (project: ProjectInfo) => Promise<Picked>,
+  ) {
     const project = this.state.project
     const chat = this.chat
     if (!project || !chat || !isLoopback(this.preview.webContents.getURL())) return
+    this.pendingPick = pending
+    this.picker.setBusy(true)
+    this.syncOutlined()
     try {
-      const element = await this.inspectElement(nodeId, project)
-      if (generation !== this.pickGeneration || chat !== this.chat) return
-      chat.setSelection(element)
-      this.focusChat()
-      this.dodge(element.rect)
-      // The pick's highlight replaces any post-turn one and belongs to the selection. It can
-      // wait behind an agent screenshot, and a node gone after hot reload doesn't undo the pick.
+      const picked = await read(project)
+      if (chat !== this.chat) return
+      // The pick's highlight replaces any post-turn one and belongs to the selection.
       this.cancelRehighlight()
-      void this.inspector.highlight(nodeId).catch(() => undefined)
+      if (add) chat.addToSelection(picked)
+      else chat.setSelection([picked])
+      if (!add) {
+        this.focusChat()
+        this.dodge(picked.rect)
+      }
     } catch (error) {
-      if (generation !== this.pickGeneration || chat !== this.chat) return
+      if (chat !== this.chat) return
       const message = error instanceof Error ? error.message : String(error)
-      chat.setSelectionError(`Couldn't read that element: ${message}`)
-      this.focusChat()
+      const what = pending.kind === 'region' ? 'area' : 'element'
+      chat.setSelectionError(`Couldn't read that ${what}: ${message}`)
+      if (!add) this.focusChat()
+    } finally {
+      this.pendingPick = null
+      this.picker.setBusy(false)
+      this.syncOutlined()
+      // Reading took the page's highlight down (for the crop); put back what belongs there.
+      this.highlightedPick = null
+      this.syncHighlight()
     }
+  }
+
+  /** A screenshot of the area (CSS pixels in the viewport) and the element around it. */
+  private async inspectArea(area: Rect, project: ProjectInfo): Promise<RegionContext> {
+    const { viewport, shot } = await this.inspector.captureArea(area)
+    if (!shot) throw new Error('it has no size on the page')
+    const node = await this.inspector.containerOf(area)
+    const element =
+      node === null
+        ? null
+        : await this.inspectElement(node, project, { screenshot: false }).catch(() => null)
+    return {
+      kind: 'region',
+      id: randomUUID(),
+      url: this.preview.webContents.getURL(),
+      viewport,
+      rect: area,
+      screenshot: shot.dataUrl,
+      crop: shot.crop,
+      container: element && {
+        tag: element.tag,
+        selector: element.selector,
+        componentStack: element.componentStack,
+        source: element.source,
+      },
+    }
+  }
+
+  /**
+   * Where the pointer is over the preview (its coordinates), so picking outlines what's under
+   * it at once, without waiting for it to move; null when it's elsewhere.
+   */
+  private cursorOverPreview(): Point | null {
+    const cursor = screen.getCursorScreenPoint()
+    const content = this.host.win.getContentBounds()
+    const { x, y, width, height } = this.placement
+    const at = { x: cursor.x - content.x - x, y: cursor.y - content.y - y }
+    return at.x >= 0 && at.y >= 0 && at.x < width && at.y < height ? at : null
+  }
+
+  /** The selection changed: its outlines, and the page's highlight, follow it. */
+  private onSelection(selection: Picked[]) {
+    const ids = new Set(selection.map((picked) => picked.id))
+    for (const id of this.pickedNodes.keys()) if (!ids.has(id)) this.pickedNodes.delete(id)
+    if (this.hoveredPick && !ids.has(this.hoveredPick)) this.hoveredPick = null
+    this.syncOutlined()
+    this.syncHighlight()
+  }
+
+  /** What the overlay outlines while the user picks: the selection, and a pick being read. */
+  private syncOutlined() {
+    const outlined = (this.chat?.meta.selection ?? []).flatMap((picked): Outlined[] => {
+      if (isRegion(picked)) {
+        return picked.crop ? [{ id: picked.id, kind: 'region', area: picked.crop.area }] : []
+      }
+      const node = this.pickedNodes.get(picked.id)
+      return node === undefined ? [] : [{ id: picked.id, kind: 'element', node }]
+    })
+    if (this.pendingPick) outlined.push(this.pendingPick)
+    this.picker.setOutlined(outlined)
+  }
+
+  /**
+   * Outside picking, the page highlights the pick the chat is about: the one whose chip the
+   * pointer is over, else the element picked last. Areas only while their chip is hovered.
+   * Nothing picked, the highlight goes (a post-turn re-highlight is left alone).
+   */
+  private syncHighlight() {
+    if (this.picker.picking) return
+    const selection = this.chat?.meta.selection ?? []
+    const target =
+      selection.find((picked) => picked.id === this.hoveredPick) ??
+      selection.findLast((picked) => !isRegion(picked) && this.pickedNodes.has(picked.id))
+    const id = target?.id ?? null
+    if (id === this.highlightedPick) return
+    const had = this.highlightedPick
+    this.highlightedPick = id
+    if (!target) {
+      if (had) void this.inspector.clearHighlight()
+      return
+    }
+    if (isRegion(target)) {
+      if (target.crop) void this.inspector.highlightArea(target.crop.area).catch(() => undefined)
+      return
+    }
+    const node = this.pickedNodes.get(target.id)
+    // It can wait behind an agent screenshot, and a node gone after hot reload doesn't undo
+    // the pick.
+    if (node !== undefined) void this.inspector.highlight(node).catch(() => undefined)
   }
 
   /**
@@ -1427,7 +1608,7 @@ export class ProjectTab {
   }
 
   clearSelection() {
-    this.chat?.setSelection(null)
+    this.chat?.setSelection([])
   }
 
   setAgent(agentId: AgentId) {
@@ -1460,18 +1641,17 @@ export class ProjectTab {
 
   /**
    * Shows the changed element in the turn, next to how it looked when it was picked: framed
-   * like the pick's crop, so the two line up (see `matchingArea`).
+   * like the pick's crop, so the two line up (see `matchingArea`). An area is the same part
+   * of the page again.
    */
-  private async captureAfter(
-    chat: ChatController,
-    turnId: string,
-    selector: string,
-    crop: ElementContext['crop'] | null,
-  ) {
+  private async captureAfter(chat: ChatController, turnId: string, shown: Picked) {
     const tools = this.previewTools
     if (!tools || chat !== this.chat || !this.state.preview.visible) return
-    const matching = crop ?? undefined
-    const shot = await tools.screenshot({ selector, matching }).catch(() => null)
+    const crop = shown.crop ?? null
+    const options = isRegion(shown)
+      ? { area: crop?.area }
+      : { selector: shown.selector, matching: crop ?? undefined }
+    const shot = await tools.screenshot(options).catch(() => null)
     if (chat !== this.chat) return
     const frame = shot && crop ? previewFrame(crop.area, shot.area) : null
     chat.setPreviewAfter(turnId, thumbnail(shot), frame)
@@ -1491,10 +1671,11 @@ export class ProjectTab {
 
   /** Re-finds an element after hot reload (its old node is gone) and highlights it. */
   private async highlightSelector(selector: string | undefined) {
-    if (!selector || !this.state.preview.visible || this.chat?.meta.selection) return
+    if (!selector || !this.state.preview.visible || this.chat?.meta.selection.length) return
     const generation = this.rehighlightGeneration
     // A turn or pick can start while this waits on the inspector; checked again under its lock.
-    const current = () => generation === this.rehighlightGeneration && !this.chat?.meta.selection
+    const current = () =>
+      generation === this.rehighlightGeneration && !this.chat?.meta.selection.length
     try {
       const backendNodeId = await this.inspector.querySelector(selector)
       if (!current()) return
@@ -2045,6 +2226,11 @@ export class ProjectTab {
     const at = this.morph.place(placed, contentHeight)
     if (at) this.preview.setBounds(at)
     this.preview.setVisible(visible)
+    // Picking needs the page on screen, where the overlay lies over it.
+    if (this.picker.picking) {
+      if (visible) this.picker.setBounds(bounds)
+      else void this.setSelecting(false)
+    }
     // Frozen, the emulation waits behind the morph's capture in the inspector's lock, and the
     // chrome's device frame stays around the view where it is, until the morph draws it.
     this.emulation.set(emulation)
@@ -2557,6 +2743,10 @@ export class ProjectTab {
     // Picking draws the floating chat as a bubble (see `bubbled`).
     if (preview.visible !== visible || preview.selecting !== selecting) this.layout()
     if (preview.selecting === selecting) return
+    if (!preview.selecting && this.picker.picking) {
+      this.picker.stop()
+      this.syncHighlight()
+    }
     this.chat?.setSelecting(preview.selecting)
     const attention = this.attentionWaiting
     this.attentionWaiting = false
@@ -2596,6 +2786,7 @@ export class ProjectTab {
     if (this.historyFile) releaseHistoryFile(this.historyFile)
     this.mcp?.close()
     this.emulation.dispose()
+    this.picker.dispose()
     this.inspector.dispose()
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()

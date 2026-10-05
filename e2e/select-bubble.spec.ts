@@ -90,9 +90,9 @@ async function startSelecting(session: GuiSession) {
   await selecting(session, true)
 }
 
-/** Esc in the preview, as the user ends picking. */
+/** Esc over the preview, as the user ends picking. */
 async function pressEscape(session: GuiSession) {
-  await (await session.previewPage()).keyboard.press('Escape')
+  await (await session.pickPage()).keyboard.press('Escape')
   await selecting(session, false)
 }
 

@@ -1,0 +1,275 @@
+import { type WebContents, WebContentsView } from 'electron'
+import { Events } from '../shared/ipc'
+import type { PickOverlayState, Point, Rect } from '../shared/types'
+import type { Inspector } from './inspector'
+import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
+
+/** How often what's outlined is measured again while nothing moves (animations, late layout). */
+const IDLE_REFRESH_MS = 250
+/** After the wheel, it's measured every frame for this long, so outlines follow the scroll. */
+const SCROLL_FOLLOW_MS = 500
+const FRAME_MS = 16
+/** Labels kept for elements hovered recently; they're page data and cheap to ask again. */
+const MAX_LABELS = 300
+
+/**
+ * Something picked that the overlay outlines: an element by its node, or an area of the page
+ * (`fixed`: of the viewport, for one still being read).
+ */
+export type Outlined =
+  | { id: string; kind: 'element'; node: number }
+  | { id: string; kind: 'region'; area: Rect; fixed?: boolean }
+
+/**
+ * Picking in the preview. A transparent view of Gui's own lies over the page while the user
+ * picks and draws there (src/renderer/src/pick): the element under the pointer, what's been
+ * picked, and a dragged-out area. Its pointer and wheel come here; the elements come from the
+ * protocol (the inspector), never from the page. Coordinates from and to the overlay are its
+ * own, the preview view's: the page's CSS pixels times `scale`.
+ */
+export class Picker {
+  readonly view: WebContentsView
+  private active = false
+  private pointer: Point | null = null
+  private outlined: Outlined[] = []
+  private busy = false
+  private refreshing = false
+  /** Something changed while a refresh ran; it runs again when that one ends. */
+  private dirty = false
+  private timer: NodeJS.Timeout | null = null
+  private followUntil = 0
+  /** The element under the pointer and its label, kept while the pointer stays on it. */
+  private hovered: { node: number; label: string | null } | null = null
+  private readonly labels = new Map<number, string>()
+  /** What the overlay was last sent, to skip sending the same again. */
+  private lastSent: string | null = null
+  private run = 0
+
+  constructor(
+    private readonly preview: WebContents,
+    private readonly inspector: Inspector,
+    private readonly scale: () => number,
+  ) {
+    this.view = new WebContentsView({
+      webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true },
+    })
+    this.view.setBackgroundColor('#00000000')
+    this.view.setVisible(false)
+    guardAppContents(this.view.webContents)
+    loadRenderer(this.view.webContents, 'pick').catch((error) =>
+      console.error('[gui] failed to load the pick overlay', error),
+    )
+    // A reloaded overlay draws from the next state; send it one now.
+    this.view.webContents.on('did-finish-load', () => {
+      this.lastSent = null
+      this.schedule()
+    })
+  }
+
+  owns(wc: WebContents) {
+    return wc === this.view.webContents
+  }
+
+  get picking() {
+    return this.active
+  }
+
+  /**
+   * Lays the overlay over the page and gives it the keyboard (Esc ends picking). `pointer` is
+   * where the pointer already is over it, if it is.
+   */
+  start(bounds: Rect, pointer: Point | null) {
+    this.active = true
+    this.run++
+    this.pointer = pointer
+    this.view.setBounds(bounds)
+    this.view.setVisible(true)
+    this.view.webContents.focus()
+    this.schedule()
+  }
+
+  stop() {
+    this.active = false
+    this.pointer = null
+    this.hovered = null
+    this.busy = false
+    this.view.setVisible(false)
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.labels.clear()
+    this.send({ hover: null, picked: [], busy: false, scale: this.scale(), run: this.run })
+  }
+
+  /** The page moved or resized under the overlay. */
+  setBounds(bounds: Rect) {
+    if (!this.active) return
+    this.view.setBounds(bounds)
+    this.schedule()
+  }
+
+  /** What's picked so far, outlined while picking. */
+  setOutlined(outlined: Outlined[]) {
+    this.outlined = outlined
+    this.schedule()
+  }
+
+  /** A pick is being read: clicks wait for it, and the overlay says so. */
+  setBusy(busy: boolean) {
+    this.busy = busy
+    this.schedule()
+  }
+
+  hover(at: Point | null) {
+    this.pointer = at
+    if (!at) this.hovered = null
+    this.schedule()
+  }
+
+  /** The element at `at`, in the overlay's coordinates, to pick. */
+  nodeAt(at: Point) {
+    return this.inspector.nodeAt(this.toPage(at))
+  }
+
+  /** The overlay's `rect` as the viewport's, in CSS pixels. */
+  toPageRect(rect: Rect): Rect {
+    const scale = this.scale()
+    return {
+      x: rect.x / scale,
+      y: rect.y / scale,
+      width: rect.width / scale,
+      height: rect.height / scale,
+    }
+  }
+
+  /**
+   * Scrolls the page under the overlay as the wheel would have. Trackpads send precise,
+   * pixel deltas; the page gets them as such, so it scrolls as smoothly as it would directly.
+   */
+  wheel(at: Point, deltaX: number, deltaY: number) {
+    // Chromium's wheel deltas point the way the content moves, the DOM's the way it scrolls.
+    this.preview.sendInputEvent({
+      type: 'mouseWheel',
+      x: Math.round(at.x),
+      y: Math.round(at.y),
+      deltaX: -deltaX,
+      deltaY: -deltaY,
+      hasPreciseScrollingDeltas: true,
+      canScroll: true,
+    })
+    this.pointer = at
+    this.followUntil = Date.now() + SCROLL_FOLLOW_MS
+    this.schedule()
+  }
+
+  dispose() {
+    this.stop()
+    if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
+  }
+
+  private toPage(at: Point): Point {
+    const scale = this.scale()
+    return { x: at.x / scale, y: at.y / scale }
+  }
+
+  private toView(rect: Rect): Rect {
+    const scale = this.scale()
+    return {
+      x: rect.x * scale,
+      y: rect.y * scale,
+      width: rect.width * scale,
+      height: rect.height * scale,
+    }
+  }
+
+  /** Measures again soon: now, unless a measure is running (then right after it). */
+  private schedule() {
+    if (!this.active) return
+    if (this.refreshing) {
+      this.dirty = true
+      return
+    }
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => void this.refresh(), 0)
+  }
+
+  private async refresh() {
+    this.timer = null
+    if (!this.active) return
+    this.refreshing = true
+    this.dirty = false
+    try {
+      const [hover, picked] = await Promise.all([this.measureHover(), this.measureOutlined()])
+      if (this.active)
+        this.send({ hover, picked, busy: this.busy, scale: this.scale(), run: this.run })
+    } catch {
+      // The page is navigating or gone; the next refresh tries again.
+    } finally {
+      this.refreshing = false
+    }
+    if (!this.active) return
+    const following = Date.now() < this.followUntil
+    const delay = this.dirty ? 0 : following ? FRAME_MS : IDLE_REFRESH_MS
+    this.timer = setTimeout(() => void this.refresh(), delay)
+  }
+
+  private async measureHover(): Promise<PickOverlayState['hover']> {
+    const pointer = this.pointer
+    if (!pointer) return null
+    const node = await this.inspector.nodeAt(this.toPage(pointer))
+    if (node === null) {
+      this.hovered = null
+      return null
+    }
+    const box = await this.inspector.box(node)
+    if (!box) return null
+    if (this.hovered?.node !== node) {
+      this.hovered = { node, label: this.labels.get(node) ?? null }
+      if (this.hovered.label === null) void this.fetchLabel(node)
+    }
+    return {
+      rect: this.toView(box),
+      name: this.hovered.label ?? '',
+      size: `${Math.round(box.width)} × ${Math.round(box.height)}`,
+    }
+  }
+
+  /** Labels arrive after the outline, so the outline never waits on page JavaScript. */
+  private async fetchLabel(node: number) {
+    const label = await this.inspector.label(node).catch(() => null)
+    if (label === null) return
+    if (this.labels.size >= MAX_LABELS) this.labels.clear()
+    this.labels.set(node, label)
+    if (this.hovered?.node === node) {
+      this.hovered.label = label
+      this.schedule()
+    }
+  }
+
+  private async measureOutlined(): Promise<PickOverlayState['picked']> {
+    if (this.outlined.length === 0) return []
+    const regions = this.outlined.some((picked) => picked.kind === 'region' && !picked.fixed)
+    const scroll = regions ? await this.inspector.scroll() : { x: 0, y: 0 }
+    const boxes = await Promise.all(
+      this.outlined.map(async (picked) => {
+        if (picked.kind === 'region') {
+          const { area } = picked
+          return picked.fixed ? area : { ...area, x: area.x - scroll.x, y: area.y - scroll.y }
+        }
+        return this.inspector.box(picked.node)
+      }),
+    )
+    return this.outlined.flatMap((picked, i) => {
+      const box = boxes[i]
+      return box ? [{ id: picked.id, kind: picked.kind, rect: this.toView(box) }] : []
+    })
+  }
+
+  private send(state: PickOverlayState) {
+    if (this.view.webContents.isDestroyed()) return
+    // The same picture again draws nothing new; most idle refreshes are that.
+    const json = JSON.stringify(state)
+    if (json === this.lastSent) return
+    this.lastSent = json
+    this.view.webContents.send(Events.pickState, state)
+  }
+}

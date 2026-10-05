@@ -4,6 +4,7 @@ import {
   Circle,
   CircleDot,
   CircleSlash,
+  Crop,
   Eye,
   FilePen,
   FileText,
@@ -20,13 +21,15 @@ import {
 } from 'lucide-react'
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ShortcutId } from '../../../shared/shortcuts'
-import type {
-  ElementContext,
-  FileChange,
-  PermissionChoice,
-  PreviewFrame,
-  Turn,
-  TurnItem,
+import {
+  type FileChange,
+  isRegion,
+  type PermissionChoice,
+  type Picked,
+  type PreviewFrame,
+  type SourceLocation,
+  type Turn,
+  type TurnItem,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -138,7 +141,15 @@ function Row({ rowKey, children }: { rowKey: string; children: ReactNode }) {
 function UserMessage({ turn }: { turn: Turn }) {
   return (
     <div className="flex flex-col items-end gap-1.5">
-      {turn.context && <ElementChip element={turn.context} />}
+      {turn.context.length > 0 && (
+        <ul aria-label="Picked" className="flex max-w-7/8 flex-wrap justify-end gap-1">
+          {turn.context.map((picked) => (
+            <li key={picked.id} className="min-w-0">
+              <PickedChip picked={picked} />
+            </li>
+          ))}
+        </ul>
+      )}
       {turn.attachments && turn.attachments.length > 0 && (
         <ul aria-label="Attached images" className="flex max-w-7/8 flex-wrap justify-end gap-1">
           {turn.attachments.map((image, i) => (
@@ -160,30 +171,53 @@ function UserMessage({ turn }: { turn: Turn }) {
   )
 }
 
-/**
- * `name` is what a designer recognizes: up to two components, innermost last ("Hero › Button"),
- * or the tag when React didn't report any. `where` is the source location, when known.
- */
-export function elementLabel(element: ElementContext) {
-  const [inner, outer] = element.componentStack
-  const name = inner ? (outer ? `${outer} › ${inner}` : inner) : `<${element.tag}>`
-  const source = element.source
-  const where = source
-    ? `${source.file.split('/').at(-1)}:${source.line}${source.approximate ? ' (approx.)' : ''}`
-    : null
-  return { name, where }
+/** What a designer calls it: up to two components, innermost last ("Hero › Button"), or the tag. */
+function componentName(componentStack: string[], tag: string) {
+  const [inner, outer] = componentStack
+  return inner ? (outer ? `${outer} › ${inner}` : inner) : `<${tag}>`
 }
 
-function ElementChip({ element }: { element: ElementContext }) {
-  const { name, where } = elementLabel(element)
+function sourceLabel(source: SourceLocation | null) {
+  if (!source) return null
+  return `${source.file.split('/').at(-1)}:${source.line}${source.approximate ? ' (approx.)' : ''}`
+}
+
+/**
+ * How a pick is named in the chat. An element: its component (`name`), its text (`detail`),
+ * and its source location (`where`). An area: its size, and the component and source of what
+ * it's in. `title` is the full path, for a tooltip.
+ */
+export function pickLabel(picked: Picked) {
+  if (isRegion(picked)) {
+    const { rect, container } = picked
+    const size = `${Math.round(rect.width)} × ${Math.round(rect.height)}`
+    const inside = container ? componentName(container.componentStack, container.tag) : null
+    const source = sourceLabel(container?.source ?? null)
+    return {
+      name: 'Area',
+      detail: size,
+      where: inside ? `in ${inside}${source ? ` · ${source}` : ''}` : null,
+      title: container?.source?.file ?? container?.selector,
+    }
+  }
+  return {
+    name: componentName(picked.componentStack, picked.tag),
+    detail: picked.text ? picked.text.slice(0, 60) : null,
+    where: sourceLabel(picked.source) ?? picked.selector,
+    title: picked.source?.file ?? picked.selector,
+  }
+}
+
+function PickedChip({ picked }: { picked: Picked }) {
+  const { name, detail, where, title } = pickLabel(picked)
+  const region = isRegion(picked)
   return (
-    <Badge
-      icon={MousePointer2}
-      title={element.source?.file ?? element.selector}
-      className="max-w-7/8"
-    >
+    <Badge icon={region ? Crop : MousePointer2} title={title} className="max-w-full">
       <span className="min-w-0 truncate text-fg">{name}</span>
-      {where && <span className="min-w-0 truncate font-mono font-normal">{where}</span>}
+      {region && detail && <span className="shrink-0 font-normal tabular-nums">{detail}</span>}
+      {!region && picked.source && where && (
+        <span className="min-w-0 truncate font-mono font-normal">{where}</span>
+      )}
     </Badge>
   )
 }

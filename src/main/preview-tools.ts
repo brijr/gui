@@ -59,6 +59,8 @@ export interface ScreenshotOptions {
    * `matchingArea`) rather than with the agent's margin.
    */
   matching?: { area: Rect; element: Rect }
+  /** Instead of a selector: this part of the page (page coordinates, CSS pixels), for Gui */
+  area?: Rect
 }
 
 /** A screenshot of part of the page, and which part (page coordinates, CSS pixels). */
@@ -224,6 +226,8 @@ export class PreviewTools {
           height: Math.max(...ys) - Math.min(...ys),
         }
         clip = options.matching ? matchingArea(options.matching, element) : around(element, 16)
+      } else if (options.area) {
+        clip = options.area
       } else if (options.fullPage) {
         const maxHeight = options.fullResolution
           ? Math.floor(MAX_CAPTURE_PIXELS / dpr)
