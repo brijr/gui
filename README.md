@@ -22,7 +22,7 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
   { "Amp": { "command": "amp-acp", "args": [], "env": {} } }
   ```
 - git (Xcode Command Line Tools) — used for per-turn checkpoints
-- Xcode 26+ to package the app (its `actool` compiles the light and dark app icon, `build/icon.icon`)
+- Xcode 26+ to package the app (its `actool` compiles the light and dark app icon, `build/icon.icon`). `install-app` uses `/Applications/Xcode.app` automatically if Command Line Tools are selected; set `DEVELOPER_DIR` for a custom Xcode location.
 
 ## Run
 

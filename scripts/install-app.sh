@@ -4,6 +4,18 @@
 set -eu
 cd "$(dirname "$0")/.."
 
+# Command Line Tools don't include actool. Use the installed Xcode for this build
+# without changing xcode-select globally or overriding an explicit DEVELOPER_DIR.
+if [ -z "${DEVELOPER_DIR:-}" ] && ! xcrun --find actool >/dev/null 2>&1; then
+  if [ -d /Applications/Xcode.app/Contents/Developer ]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  fi
+fi
+if ! xcrun actool --version >/dev/null 2>&1; then
+  echo "Packaging requires Xcode 26+ with a working actool. Set DEVELOPER_DIR to its Contents/Developer directory." >&2
+  exit 1
+fi
+
 # Without a Developer ID certificate the build gets an ad-hoc signature (electron-builder.yml).
 export CSC_IDENTITY_AUTO_DISCOVERY="${CSC_IDENTITY_AUTO_DISCOVERY:-false}"
 bun run build
