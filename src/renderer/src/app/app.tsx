@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useRef } from 'react'
-import { FOCUS_BAR_HEIGHT } from '../../../shared/layout'
+import { FOCUS_BAR_HEIGHT, TOOLBAR_HEIGHT } from '../../../shared/layout'
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -73,11 +73,18 @@ export function App() {
             <TabStrip state={state} />
             {/* Keyed by tab, so each tab's project gets its own toolbar, canvas and drawer. */}
             <Fragment key={state.activeTab}>
-              <Toolbar state={state} />
+              {state.project && <Toolbar state={state} />}
               {/* Outside the canvas, so the preview is laid out below it. Keyed so a dismissal is per project. */}
               <EnvBanner key={state.project?.root} state={state} />
             </Fragment>
           </div>
+          {!state.project && state.tabs.length === 1 && (
+            <div
+              aria-hidden="true"
+              className="drag absolute inset-x-0 top-0 z-20"
+              style={{ height: TOOLBAR_HEIGHT }}
+            />
+          )}
           <Fragment key={state.activeTab}>
             <Canvas state={state} />
             <Drawer state={state} />
