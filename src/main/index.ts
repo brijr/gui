@@ -744,7 +744,8 @@ function closeTab() {
     .find((wc) => focused && wc.devToolsWebContents?.id === focused.id)
   if (inspected) return inspected.closeDevTools()
   // A popped-out chat's window: ⌘W puts the chat back, rather than closing its tab.
-  const popped = allTabs().find((tab) => tab.popoutWindow === BrowserWindow.getFocusedWindow())
+  const focusedWin = BrowserWindow.getFocusedWindow()
+  const popped = focusedWin && allTabs().find((tab) => tab.popoutWindow === focusedWin)
   if (popped) return popped.togglePopOut()
   const win = menuWindow()
   if (!win) BrowserWindow.getFocusedWindow()?.close()

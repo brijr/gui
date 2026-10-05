@@ -203,16 +203,13 @@ test('a minimized chat comes back minimized, the bubble ends picking, docked sta
   expect(shown.chat).toEqual(pill.chat)
   expect((await session.chatSnapshot()).meta.minimized).toBe(true)
 
-  // Docked beside the preview, the panel covers nothing and stays as it is.
+  // As the sidebar beside the preview, the chat covers nothing and stays as it is.
   await session.chat.evaluate(() => window.gui.toggleDock())
-  // In its place against the canvas's right edge, once it has slid in.
-  const [contentWidth] = await session.app.evaluate(
-    ({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.getContentSize() ?? [0],
-  )
+  // In its place down the window's left side, once it has slid in.
   const docked = await chatWhere(
     session,
-    'the docked panel',
-    (chat) => chat.width === 400 && chat.x + chat.width === contentWidth,
+    'the sidebar',
+    (chat) => chat.width === 380 && chat.x === 0,
   )
   await startSelecting(session)
   await sleep(500)

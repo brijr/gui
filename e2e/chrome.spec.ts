@@ -10,7 +10,7 @@ import { expect, test } from './helpers/test'
 
 // The window's chrome around the preview: the toolbar (the project menu, then for a project
 // its navigation, the address led by the dev server's status, viewport, screenshot, Select
-// and chat), the canvas's states, the drawer's dev server output, and the chat's ⌘L.
+// and chat), the canvas's states, the drawer's dev server output, and the chat's ⌘B and ⌘L.
 
 /** What Playwright passes to `app.evaluate` callbacks. */
 type ElectronModule = typeof import('electron/main')
@@ -127,8 +127,8 @@ test('the start tab shows only the project menu; a project fills the toolbar, wi
   }
   // Each names its shortcut in its tooltip, and to assistive tech.
   const chat = bar.getByRole('button', { name: 'Toggle chat', exact: true })
-  await expect(chat).toHaveAttribute('title', 'Toggle chat (⌘L)')
-  await expect(chat).toHaveAttribute('aria-keyshortcuts', 'Meta+L')
+  await expect(chat).toHaveAttribute('title', 'Toggle chat (⌘B)')
+  await expect(chat).toHaveAttribute('aria-keyshortcuts', 'Meta+B')
   await expect(bar.getByRole('group', { name: 'Viewport' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'Select', exact: true })).toBeVisible()
   // The agent is switched from the chat's header (and the start screen), not the toolbar.
@@ -247,14 +247,12 @@ test('a preview that fails to load says why, and Try again loads it once it can'
   }
 })
 
-test('⌘L shows the chat with the cursor in its message box, and from there hides it', async ({
-  launch,
-}) => {
+test('⌘B shows and hides the chat; ⌘L puts the cursor in its message box', async ({ launch }) => {
   test.skip(takesFocus, TAKES_FOCUS)
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
 
-  // The View menu: the terminal on ⌘J, the chat on ⌘L, and no logs of their own.
+  // The View menu: the terminal on ⌘J, the chat on ⌘B, and no logs of their own.
   const toggles = await session.app.evaluate(({ Menu }) =>
     Menu.getApplicationMenu()
       ?.items.find((item) => item.label === 'View')
@@ -262,7 +260,7 @@ test('⌘L shows the chat with the cursor in its message box, and from there hid
       .map((item) => [item.label, item.accelerator]),
   )
   expect(toggles).toEqual([
-    ['Toggle Chat', 'CmdOrCtrl+L'],
+    ['Toggle Chat', 'CmdOrCtrl+B'],
     ['Toggle Terminal', 'CmdOrCtrl+J'],
   ])
 
@@ -295,7 +293,7 @@ test('⌘L shows the chat with the cursor in its message box, and from there hid
   // Hidden (with the toolbar's button): ⌘L shows it, with the cursor in the message box.
   await toolbar(session).getByRole('button', { name: 'Toggle chat', exact: true }).click()
   await waitFor(async () => !(await visible()), 'the chat to hide')
-  await clickMenu(session, 'Toggle Chat')
+  await clickMenu(session, 'Focus Message Box')
   await waitFor(visible, 'the chat to show')
   await waitFor(inMessageBox, 'the cursor in the message box')
 
@@ -305,11 +303,15 @@ test('⌘L shows the chat with the cursor in its message box, and from there hid
   )
   await address(session).focus()
   expect(await inMessageBox()).toBe(false)
-  await clickMenu(session, 'Toggle Chat')
+  await clickMenu(session, 'Focus Message Box')
   await waitFor(inMessageBox, 'the cursor back in the message box')
   expect(await visible()).toBe(true)
 
-  // From the message box, ⌘L hides the chat.
+  // From the message box ⌘L leaves it be; ⌘B hides the chat, and shows it again.
+  await clickMenu(session, 'Focus Message Box')
+  expect(await visible()).toBe(true)
   await clickMenu(session, 'Toggle Chat')
-  await waitFor(async () => !(await visible()), 'the chat to hide from the message box')
+  await waitFor(async () => !(await visible()), 'the chat to hide')
+  await clickMenu(session, 'Toggle Chat')
+  await waitFor(visible, 'the chat to show again')
 })

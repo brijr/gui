@@ -215,7 +215,7 @@ async function pageAt(session: GuiSession, size: Size, label: string) {
 }
 
 /**
- * Checks a device frame against the canvas the chrome has now (less the chat, `docked`): the
+ * Checks a device frame against the canvas the chrome has now (right of the sidebar): the
  * page at the device's CSS size, the view centered at the expected scale, the chrome's label
  * and frame state matching.
  */
@@ -232,8 +232,8 @@ async function expectFrame(
     const canvas = await canvasRect(session)
     const { preview, frame, chat } = at
     if (docked && !chat) return null
-    const area = docked && chat ? { ...canvas, width: chat.x - canvas.x } : canvas
-    const expected = expectedFrame(area, size)
+    // The chrome lays the canvas out right of the chat sidebar already.
+    const expected = expectedFrame(canvas, size)
     const placed =
       frame !== null &&
       Math.abs(frame.scale - expected.scale) < 0.0011 &&
@@ -312,7 +312,7 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
   expect(await preview.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(false)
   await session.shot('laptop-small')
 
-  // The logs drawer and a docked chat leave less room: smaller again, the same page.
+  // The logs drawer and the chat sidebar leave less room: smaller again, the same page.
   await session.chrome.evaluate(() => window.gui.showLogs())
   const logs = await expectFrame(session, 'laptop')
   expect(logs.frame.scale).toBeLessThan(small.frame.scale)
@@ -321,7 +321,8 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
   const docked = await expectFrame(session, 'laptop', { docked: true })
   const chat = docked.chat
   if (!chat) throw new Error('The docked chat is hidden')
-  expect(docked.preview.x + docked.preview.width).toBeLessThanOrEqual(chat.x - FRAME_MARGIN + 1)
+  // Clear of the sidebar down the left, by the frame's margin.
+  expect(docked.preview.x).toBeGreaterThanOrEqual(chat.x + chat.width + FRAME_MARGIN - 1)
   await session.chat.evaluate(() => window.gui.toggleDock())
   await expectFrame(session, 'laptop')
 

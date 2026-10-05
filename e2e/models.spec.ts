@@ -204,7 +204,11 @@ async function expectPlaced(session: GuiSession, dialog: Locator, button: Locato
 test('the model picker searches the models, sets the model and effort, and new sessions start with them', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({
+    fixture: 'vite',
+    // Room in the floating panel for a message beside the open picker, to click away on.
+    prefs: { chatSize: { width: 480, height: 720 } },
+  })
   await session.declineConsentDialogs()
   const runs = await addAgent(session)
   const { chat } = session

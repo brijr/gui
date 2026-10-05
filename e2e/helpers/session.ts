@@ -9,6 +9,8 @@ import type { FixtureCopy, FixtureName } from './fixtures'
 const TRUSTED_FILE = 'trusted-projects.json'
 const RECENT_FILE = 'recent-projects.json'
 const PREFS_FILE = 'prefs.json'
+/** The chat floating over the preview, as most specs expect, rather than the sidebar. */
+const FLOATING_PREFS = { chatSidebar: false }
 
 /**
  * GUI_AGENT_STAND_INS for a run: built-in agents to launch as other commands, so a stand-in
@@ -38,8 +40,12 @@ export interface LaunchOptions {
    * another tab's chat, keep Playwright's own default, 'no-preference'.)
    */
   reducedMotion?: 'reduce' | 'no-preference'
-  /** Preferences saved before launch (prefs.json), e.g. the floating chat's corner */
-  prefs?: Record<string, unknown>
+  /**
+   * Preferences saved before launch (prefs.json), e.g. the floating chat's corner. Without
+   * any, the chat floats (FLOATING_PREFS): most specs were written for the floating panel.
+   * Null saves none, for the app's own defaults (the chat as the left sidebar).
+   */
+  prefs?: Record<string, unknown> | null
 }
 
 export interface ConsentPrompt {
@@ -343,8 +349,9 @@ export async function launchGui(
   if (options.trusted !== false) {
     writeFileSync(join(copy.userData, TRUSTED_FILE), JSON.stringify([copy.root]))
   }
-  if (options.prefs) {
-    writeFileSync(join(copy.userData, PREFS_FILE), JSON.stringify(options.prefs))
+  const prefs = options.prefs === undefined ? FLOATING_PREFS : options.prefs
+  if (prefs) {
+    writeFileSync(join(copy.userData, PREFS_FILE), JSON.stringify({ ...FLOATING_PREFS, ...prefs }))
   }
   if (options.open === 'recent') {
     const recent = [{ root: copy.root, name: copy.spec.name, openedAt: 1 }]

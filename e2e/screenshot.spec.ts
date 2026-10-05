@@ -543,37 +543,36 @@ test('the chat panel resizes from its edges and corners and remembers the size',
   expect(bottomRight.chat.x).toBe(topLeft.chat.x)
   expect(bottomRight.chat.y).toBe(topLeft.chat.y)
 
-  // Docked: the left edge sets the column's width and the preview gets the rest.
+  // The sidebar: its right edge sets the column's width and the preview gets the rest.
   await session.chat.evaluate(() => window.gui.toggleDock())
-  // In its place against the canvas's right edge (once it has slid in), the preview beside it.
+  // Down the window's left side (once it has slid in), the preview beside it.
   const docked = await layoutWhen(
     session,
-    'the docked panel',
+    'the sidebar',
     ({ chat, preview, content }) =>
-      chat.width === 400 &&
-      chat.x + chat.width === content.width &&
-      preview.x + preview.width <= chat.x,
+      chat.width === 380 && chat.x === 0 && chat.height === content.height && preview.x >= 380,
   )
-  await resize(session, 'left', -100, 0)
-  const wider = await layoutWhere(session, 'the wider docked panel', (chat) => chat.width === 500)
-  expect(wider.chat.x + wider.chat.width).toBe(docked.chat.x + docked.chat.width)
-  expect(wider.preview.x + wider.preview.width).toBeLessThanOrEqual(wider.chat.x)
-  await waitFor(
-    () => savedPrefs(session).chatSidebarWidth === 500,
-    'the docked width in prefs.json',
+  await resize(session, 'right', 100, 0)
+  // The chrome makes room after it, so the preview follows a moment later.
+  const wider = await layoutWhen(
+    session,
+    'the wider sidebar',
+    ({ chat, preview }) => chat.width === 480 && preview.x >= 480,
   )
+  expect(wider.chat.x).toBe(docked.chat.x)
+  await waitFor(() => savedPrefs(session).chatSidebarWidth === 480, 'the width in prefs.json')
 
-  // Only the left edge: the others leave the column alone (these arrive in order).
+  // Only the right edge: the others leave the column alone (these arrive in order).
   await resize(session, 'top-left', -100, -100)
-  await resize(session, 'right', -30, 0)
-  await resize(session, 'left', -50, 0)
-  await layoutWhere(session, 'the docked panel resized only from its left edge', (chat) => {
-    return chat.width === 550
+  await resize(session, 'left', -30, 0)
+  await resize(session, 'right', 50, 0)
+  await layoutWhere(session, 'the sidebar resized only from its right edge', (chat) => {
+    return chat.width === 530
   })
 
-  // At most 60% of the canvas.
-  await resize(session, 'left', -5000, 0)
-  const widest = await layoutWhere(session, 'the widest docked panel', (chat) => chat.width > 550)
+  // At most 60% of the window.
+  await resize(session, 'right', 5000, 0)
+  const widest = await layoutWhere(session, 'the widest sidebar', (chat) => chat.width > 530)
   expect(widest.chat.width).toBeLessThanOrEqual(Math.ceil(widest.content.width * 0.6))
   expect(widest.preview.width).toBeGreaterThan(0)
 })

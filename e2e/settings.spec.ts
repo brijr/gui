@@ -159,7 +159,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   // Chat defaults are what new windows and chats start with.
   await page.getByLabel('Default agent').selectOption('codex')
   await page.getByRole('button', { name: 'Chat', exact: true }).click()
-  await page.getByRole('switch', { name: 'Start the chat docked to the side' }).click()
+  await page.getByRole('switch', { name: 'Show the chat as a sidebar' }).click()
   await settingsWhere(
     page,
     'the chat defaults to change',

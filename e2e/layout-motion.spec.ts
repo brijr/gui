@@ -268,7 +268,7 @@ function canvasRect(session: GuiSession): Promise<Rect> {
   })
 }
 
-/** Where main lays the preview out now: its device frame, or the canvas (less a docked chat). */
+/** Where main lays the preview out now: its device frame, or the canvas (right of a sidebar). */
 async function placement(session: GuiSession): Promise<Rect> {
   const state = await session.state()
   const canvas = await canvasRect(session)
@@ -281,19 +281,11 @@ async function placement(session: GuiSession): Promise<Rect> {
       height: frame.rect.height,
     }
   }
-  const chat = await session.app.evaluate(({ BrowserWindow, WebContentsView }) => {
-    const view = BrowserWindow.getAllWindows()[0]?.contentView.children.find(
-      (child): child is InstanceType<typeof WebContentsView> =>
-        child instanceof WebContentsView && child.webContents.getURL().endsWith('/chat.html'),
-    )
-    return view?.getVisible() ? view.getBounds() : null
-  })
-  const docked = (await session.chatSnapshot()).meta.docked && chat !== null
-  const width = docked && chat ? chat.x - Math.round(canvas.x) : Math.round(canvas.width)
+  // The chrome lays the canvas out right of the chat sidebar already.
   return {
     x: Math.round(canvas.x),
     y: Math.round(canvas.y),
-    width,
+    width: Math.round(canvas.width),
     height: Math.round(canvas.height),
   }
 }
@@ -680,7 +672,7 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
   expect(unfocus.end.expected).toEqual(desktop.bounds)
   expect(boxes(unfocus.frames).length).toBeGreaterThan(5)
 
-  // Docking the chat: the preview gives up its right side, uncovered then cross-faded.
+  // The chat as the sidebar: the preview gives up its left side, uncovered then cross-faded.
   const dock = await withEvidence(session, 'dock', () =>
     record(session, () => session.chat.evaluate(() => window.gui.toggleDock()), 'docked'),
   )
@@ -688,14 +680,12 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
   const narrowing = boxes(dock.frames)
   expect(narrowing.length).toBeGreaterThan(5)
   expect(near(narrowing.at(-1) ?? null, dock.end.expected)).toBe(true)
-  // The docked panel slid in from the canvas's right edge to cover it, rather than appearing.
+  // The sidebar slid in from past the window's left edge, rather than appearing.
   const docked = dock.samples.flatMap((sample) => (sample.chat ? [sample.chat.x] : []))
   const slid = docked.filter((x, i) => i === 0 || x !== docked[i - 1])
-  const dockedX = dock.end.expected.x + dock.end.expected.width
-  expect(
-    slid.filter((x) => x > dockedX + 20 && x < desktop.bounds.width - 20).length,
-  ).toBeGreaterThan(3)
-  expect(slid.at(-1)).toBe(dockedX)
+  const sidebarWidth = dock.end.expected.x
+  expect(slid.filter((x) => x < -20 && x > -sidebarWidth + 20).length).toBeGreaterThan(3)
+  expect(slid.at(-1)).toBe(0)
   const undock = await record(
     session,
     () => session.chat.evaluate(() => window.gui.toggleDock()),
