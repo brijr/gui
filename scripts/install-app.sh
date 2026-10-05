@@ -19,7 +19,9 @@ fi
 # Without a Developer ID certificate the build gets an ad-hoc signature (electron-builder.yml).
 export CSC_IDENTITY_AUTO_DISCOVERY="${CSC_IDENTITY_AUTO_DISCOVERY:-false}"
 bun run build
-bunx electron-builder --mac --dir
+# Ignore electron-builder's Node shebang: its ESM dependencies must not use an older
+# Node from the user's shell (for example, a Conda environment).
+bunx --bun electron-builder --mac --dir
 
 app=release/mac-arm64/Gui.app
 target=/Applications/Gui.app

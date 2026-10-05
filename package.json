@@ -16,7 +16,7 @@
     "format": "biome check --write .",
     "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
     "test:e2e": "electron-vite build && playwright test",
-    "dist": "electron-vite build && electron-builder --mac",
+    "dist": "electron-vite build && bunx --bun electron-builder --mac",
     "install-app": "sh scripts/install-app.sh"
   },
   "trustedDependencies": [
