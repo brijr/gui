@@ -16,14 +16,21 @@ export async function loadRecent(): Promise<RecentProject[]> {
   }
 }
 
+/** The last list `withChats` made: a new tab starts with it, then reads it again. */
+let lastWithChats: RecentProject[] | null = null
+
+export const recentSoFar = () => lastWithChats
+
 /** The list with each project's last message, for the start screen's recent chats. */
-export function withChats(recent: RecentProject[]): Promise<RecentProject[]> {
-  return Promise.all(
+export async function withChats(recent: RecentProject[]): Promise<RecentProject[]> {
+  lastWithChats = await Promise.all(
     recent.map(async (project) => ({ ...project, chat: await lastMessage(project.root) })),
   )
+  return lastWithChats
 }
 
 export async function clearRecent() {
+  lastWithChats = []
   await writeFile(file(), '[]\n')
   app.clearRecentDocuments()
 }

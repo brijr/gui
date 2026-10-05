@@ -649,7 +649,7 @@ function Permission({
         )}
       </div>
       {subject !== fileNames(locations) && (
-        <pre className="max-h-32 select-text overflow-y-auto whitespace-pre-wrap break-all rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
+        <pre className="max-h-32 select-text overflow-y-auto scroll-stable whitespace-pre-wrap break-all rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
           {subject}
         </pre>
       )}

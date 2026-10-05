@@ -72,7 +72,7 @@ import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
 import type { PromptViewport } from './prompt'
-import { addRecent, loadRecent, withChats } from './recent'
+import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import {
   createEnvFile,
@@ -120,6 +120,8 @@ const GRAB_SLOP = 240
  * doesn't in this long (its page isn't drawing), it shrinks anyway.
  */
 const MORPH_TIMEOUT_MS = 700
+/** How long after the keyboard leaves the floating chat it tucks into its bubble. */
+const TUCK_DELAY_MS = 400
 /** The floating forms by size: the view grows to a larger one at once. */
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
@@ -258,6 +260,12 @@ export class ProjectTab {
   private lastForm: ChatForm = 'panel'
   /** A permission card came up while the user picked over the bubble; shown when picking ends. */
   private attentionWaiting = false
+  /**
+   * The floating panel is tucked into its bubble: the user went back to the page (or the
+   * toolbar), so it gets out of the way until they want it again (`untuck`).
+   */
+  private tucked = false
+  private tuckTimer: NodeJS.Timeout | null = null
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
   /** "Create pull request" has the chat, and ⌘↩ with it (`permissionAnswer`). */
@@ -312,7 +320,7 @@ export class ProjectTab {
       agentId: getPrefs().agentId,
       chatVisible: true,
       drawer: closedDrawer(),
-      recent: [],
+      recent: recentSoFar(),
       home: app.getPath('home'),
       agents: agentHealth.list(),
       setup: null,
@@ -358,6 +366,10 @@ export class ProjectTab {
     this.chatView.webContents.on('did-start-loading', () => {
       this.floatShown = null
     })
+    // The keyboard leaving the floating panel tucks it away; coming back (a click on the
+    // bubble, ⌘L) brings it out.
+    this.chatView.webContents.on('blur', () => this.scheduleTuck())
+    this.chatView.webContents.on('focus', () => this.untuck())
     loadRenderer(this.chatView.webContents, 'chat').catch((error) =>
       console.error('[gui] failed to load chat', error),
     )
@@ -1419,6 +1431,7 @@ export class ProjectTab {
   toggleDock() {
     if (!this.chat) return
     this.leaveFocusMode()
+    this.untuck()
     this.morphLayout('dock')
     const docked = !this.chat.meta.docked
     setPrefs({ chatDocked: docked })
@@ -1531,7 +1544,59 @@ export class ProjectTab {
   }
 
   setMinimized(minimized: boolean) {
+    this.cancelTuck()
+    this.tucked = false
     this.chat?.setMinimized(minimized)
+    this.layout()
+  }
+
+  /** The tucked bubble was clicked: the panel comes back, ready to type in. */
+  expandChat() {
+    this.focusChat()
+  }
+
+  /** Tucks the floating panel into its bubble shortly, unless the keyboard comes back. */
+  private scheduleTuck() {
+    this.cancelTuck()
+    this.tuckTimer = setTimeout(() => {
+      this.tuckTimer = null
+      if (!this.shouldTuck()) return
+      this.tucked = true
+      this.layout()
+    }, TUCK_DELAY_MS)
+  }
+
+  /**
+   * Only the open floating panel tucks, and only for something else in this window (not a
+   * trip to another app). It stays out while it's being moved or resized, while the user
+   * picks (that has its own bubble), and while a permission card waits for an answer.
+   */
+  private shouldTuck() {
+    return (
+      !this.tucked &&
+      !this.disposed &&
+      this.chatShown &&
+      !this.docked &&
+      !this.chat?.meta.minimized &&
+      !this.chat?.awaitingPermission &&
+      !this.state.preview.selecting &&
+      !this.resizing &&
+      !this.flight &&
+      this.host.isActive(this) &&
+      this.host.win.isFocused() &&
+      !this.chatView.webContents.isFocused()
+    )
+  }
+
+  private cancelTuck() {
+    if (this.tuckTimer) clearTimeout(this.tuckTimer)
+    this.tuckTimer = null
+  }
+
+  private untuck() {
+    this.cancelTuck()
+    if (!this.tucked) return
+    this.tucked = false
     this.layout()
   }
 
@@ -1778,6 +1843,8 @@ export class ProjectTab {
 
   private focusChat() {
     this.leaveFocusMode()
+    this.cancelTuck()
+    this.tucked = false
     // The floating panel is wanted in full, so picking over it ends first.
     if (this.state.preview.selecting && this.hasProject && !this.docked) {
       void this.setSelecting(false).then(() => {
@@ -1938,6 +2005,7 @@ export class ProjectTab {
   /** What the floating chat should be drawn as now. */
   private wantedForm(): ChatForm {
     if (this.bubbled) return 'bubble'
+    if (this.tucked && this.chatShown && !this.docked && !this.chat?.meta.minimized) return 'bubble'
     return this.chat?.meta.minimized ? 'pill' : 'panel'
   }
 
@@ -2291,7 +2359,7 @@ export class ProjectTab {
     openClone: () => void,
     openRecent: (root: string) => void,
   ) {
-    const recent = this.state.recent.filter((p) => p.root !== this.state.project?.root)
+    const recent = (this.state.recent ?? []).filter((p) => p.root !== this.state.project?.root)
     const template: MenuItemConstructorOptions[] = [
       { label: 'Open project…', click: openPicker },
       { label: 'New project…', click: openNew },
@@ -2372,6 +2440,7 @@ export class ProjectTab {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    this.cancelTuck()
     agentHealth.off('change', this.onAgentHealth)
     this.flight?.stop()
     this.morph.dispose()

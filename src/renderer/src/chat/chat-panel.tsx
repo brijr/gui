@@ -233,7 +233,7 @@ function FloatingChat({
           className={cn('absolute', form !== 'bubble' && 'pointer-events-none')}
           style={{ ...atCorner(corner), width: BUBBLE.width, height: BUBBLE.height }}
         >
-          <ChatBubble turns={turns} running={running} />
+          <ChatBubble turns={turns} running={running} picking={meta.selecting} />
         </div>
       )}
     </div>
@@ -396,7 +396,9 @@ function Header({ meta }: { meta: ChatMeta }) {
     <div
       onPointerDown={meta.docked ? undefined : onDragStart}
       className={cn(
-        'flex h-10 shrink-0 items-center gap-1.5 border-b border-line pr-2 pl-3',
+        // Floating, a little slimmer: it sits over the page.
+        'flex shrink-0 items-center gap-1.5 border-b border-line pr-2 pl-3',
+        meta.docked ? 'h-10' : 'h-9',
         !meta.docked && 'cursor-grab active:cursor-grabbing',
       )}
     >
@@ -485,11 +487,19 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
 }
 
 /**
- * The floating panel while the user picks an element: the panel morphs into this bubble at
- * its anchored corner and main shrinks the view to it. Clicking it stops picking, which brings
- * the panel back.
+ * The floating panel out of the way: while the user picks an element, or tucked once they
+ * went back to the page. The panel morphs into this bubble at its anchored corner and main
+ * shrinks the view to it. Clicking it brings the panel back (and stops picking).
  */
-function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
+function ChatBubble({
+  turns,
+  running,
+  picking,
+}: {
+  turns: Turn[]
+  running: boolean
+  picking: boolean
+}) {
   const statusId = useId()
   // A permission card in the running turn; it shows once the panel is back.
   const waiting = waitingCard(turns) !== null
@@ -504,8 +514,8 @@ function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
         type="button"
         aria-label="Show chat"
         aria-describedby={statusId}
-        title="Show chat (stops selecting)"
-        onClick={() => gui.stopSelecting()}
+        title={picking ? 'Show chat (stops selecting)' : 'Show chat'}
+        onClick={() => (picking ? gui.stopSelecting() : gui.expandChat())}
         className="relative flex size-full items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-colors hover:text-fg"
       >
         {/* 16px: a control's 14px icon looks lost in the 44px bubble */}
@@ -518,7 +528,8 @@ function ChatBubble({ turns, running }: { turns: Turn[]; running: boolean }) {
         )}
       </button>
       <span id={statusId} hidden>
-        {status}Stops selecting.
+        {status}
+        {picking && 'Stops selecting.'}
       </span>
     </>
   )
@@ -563,7 +574,7 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
         const el = event.currentTarget
         stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
       }}
-      className="min-h-0 flex-1 select-text overflow-y-auto px-3 py-4"
+      className="min-h-0 flex-1 select-text overflow-y-auto scroll-stable px-3 py-4"
     >
       <div className="flex flex-col gap-6">
         {turns.map((turn) => (

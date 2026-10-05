@@ -56,7 +56,7 @@ export function TechnicalDetails({ text, className }: { text: string; className?
         Details
       </Disclosure>
       {open && (
-        <pre className="max-h-48 w-full select-text overflow-y-auto whitespace-pre-wrap break-words pl-4 text-left font-mono text-caption text-muted">
+        <pre className="max-h-48 w-full select-text overflow-y-auto scroll-stable whitespace-pre-wrap break-words pl-4 text-left font-mono text-caption text-muted">
           {text}
         </pre>
       )}

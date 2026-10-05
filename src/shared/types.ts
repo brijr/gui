@@ -299,7 +299,8 @@ export interface WindowState {
   agentId: AgentId
   chatVisible: boolean
   drawer: DrawerState
-  recent: RecentProject[]
+  /** Null until read, so the start screen doesn't draw without it and then jump */
+  recent: RecentProject[] | null
   /** The user's home folder, so paths can show it as ~ */
   home: string
   agents: AgentHealth[]

@@ -70,7 +70,7 @@ export function SettingsApp() {
           <h1 className="text-title font-semibold">{title}</h1>
         </header>
         {/* Keyed by section so each one opens scrolled to the top. */}
-        <div key={section} className="min-h-0 flex-1 overflow-y-auto">
+        <div key={section} className="min-h-0 flex-1 overflow-y-auto scroll-stable">
           <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-5">
             {settings && <SectionContent section={section} settings={settings} />}
           </div>

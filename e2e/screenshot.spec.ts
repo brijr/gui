@@ -409,7 +409,7 @@ test("a new window's chat panel starts at the bottom-right and stays in its corn
   expect(gaps(start)).toMatchObject(bottomRight)
   await session.shot('panel-bottom-right')
   // Smaller, so it fits above the logs in a short window; its bottom-right corner stays.
-  expect(gaps(await resizeFrom(session, start.chat, 'top-left', 40, 240))).toMatchObject(
+  expect(gaps(await resizeFrom(session, start.chat, 'top-left', 40, 120))).toMatchObject(
     bottomRight,
   )
 
@@ -475,9 +475,9 @@ test('the chat panel resizes from its edges and corners and remembers the size',
   await session.waitForPreview()
 
   const first = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
-  expect(first.chat.width - SHADOW * 2).toBe(400)
+  expect(first.chat.width - SHADOW * 2).toBe(360)
   // Smaller first, so growing has room even when the window is short (CI's display).
-  const small = (await resizeFrom(session, first.chat, 'bottom-left', 60, -240)).chat
+  const small = (await resizeFrom(session, first.chat, 'bottom-left', 20, -120)).chat
 
   // In the middle of the window, so every edge has room to move either way. Held there mid-drag:
   // letting go would spring it into a corner.

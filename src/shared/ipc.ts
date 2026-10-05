@@ -91,6 +91,7 @@ export const Send = {
   newSession: 'chat:new',
   clearSelection: 'chat:clear-selection',
   setMinimized: 'chat:minimize',
+  expandChat: 'chat:expand',
   toggleDock: 'chat:dock',
   grabChat: 'chat:grab',
   dragChat: 'chat:drag',
@@ -340,6 +341,8 @@ export interface GuiApi {
   newSession(): void
   clearSelection(): void
   setMinimized(minimized: boolean): void
+  /** Brings the floating panel back out of the bubble it tucked into */
+  expandChat(): void
   toggleDock(): void
   /** Sends the current preview errors to the agent; false if busy or nothing to fix */
   fixProblems(): Promise<boolean>

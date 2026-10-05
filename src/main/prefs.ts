@@ -31,7 +31,7 @@ export interface Prefs {
 const DEFAULTS: Prefs = {
   agentId: DEFAULT_AGENT_ID,
   chatDocked: false,
-  chatSize: { width: 400, height: 640 },
+  chatSize: { width: 360, height: 520 },
   chatDockWidth: 400,
   // Pages tend to start top left; the panel covers the least there.
   chatCorner: { x: 'right', y: 'bottom' },
@@ -80,8 +80,17 @@ function length(value: unknown, fallback: number) {
     : fallback
 }
 
+/**
+ * The floating panel's size before it shrank to today's default. Every saved prefs file has
+ * a size, whether or not the user ever resized the panel, so this one reads as the default.
+ */
+const OLD_DEFAULT_CHAT_SIZE = { width: 400, height: 640 }
+
 function chatSize(value: unknown): ChatSize {
   const size = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
+  if (size.width === OLD_DEFAULT_CHAT_SIZE.width && size.height === OLD_DEFAULT_CHAT_SIZE.height) {
+    return { ...DEFAULTS.chatSize }
+  }
   return {
     width: length(size.width, DEFAULTS.chatSize.width),
     height: length(size.height, DEFAULTS.chatSize.height),

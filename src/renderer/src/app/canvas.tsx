@@ -69,7 +69,7 @@ export function Canvas({ state }: { state: WindowState }) {
         <DeviceFrame frame={preview.frame} />
       )}
       {/* Centered while it fits; scrolls from the top in a short window. */}
-      <div className="absolute inset-0 flex flex-col overflow-y-auto p-8">
+      <div className="absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8">
         <div className="m-auto flex w-full justify-center">
           <CanvasMessage state={state} />
         </div>
@@ -629,6 +629,8 @@ function timeAgo(at: number) {
  * will do the work, and once there are any, recent chats and projects.
  */
 function EmptyState({ state }: { state: WindowState }) {
+  // Until the recent list is read: drawn without it, the screen would jump once it came.
+  if (!state.recent) return null
   // A project with a chat shows under Recent chats, by its last message; the rest by name.
   const chats = state.recent
     .flatMap((project) => (project.chat ? [{ ...project, chat: project.chat }] : []))

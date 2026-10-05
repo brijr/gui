@@ -98,6 +98,7 @@ const api: GuiApi = {
   newSession: send(Send.newSession),
   clearSelection: send(Send.clearSelection),
   setMinimized: send(Send.setMinimized),
+  expandChat: send(Send.expandChat),
   toggleDock: send(Send.toggleDock),
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
   grabChat: send(Send.grabChat),

@@ -243,7 +243,7 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
 
   return (
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable p-3">
         <Field label="Title" htmlFor={`${id}-title`}>
           <Input
             ref={titleInput}
@@ -316,7 +316,7 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
         {error && (
           <p
             role="alert"
-            className="flex max-h-40 select-text gap-1.5 overflow-y-auto px-1 text-small text-danger"
+            className="flex max-h-40 select-text gap-1.5 overflow-y-auto scroll-stable px-1 text-small text-danger"
           >
             <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 whitespace-pre-wrap break-words">

@@ -47,7 +47,7 @@ export function ShortcutsSheet() {
       onClick={onClick}
       tabIndex={-1}
       // Scrolls as a whole, under its title, within the room the window has.
-      className="no-drag m-auto w-full max-w-lg overflow-y-auto overscroll-contain rounded-xl border border-line bg-raised p-0 text-fg shadow-popover outline-none backdrop:bg-scrim"
+      className="no-drag m-auto w-full max-w-lg overflow-y-auto scroll-stable overscroll-contain rounded-xl border border-line bg-raised p-0 text-fg shadow-popover outline-none backdrop:bg-scrim"
     >
       <div className="sticky top-0 z-10 flex h-11 items-center gap-2 border-b border-line bg-raised pr-2 pl-4">
         <h2 id={titleId} className="min-w-0 flex-1 truncate font-semibold">

@@ -68,12 +68,14 @@ import {
   findWindow,
   focusedWindow,
   focusWindow,
+  keepInBackground,
   lastFocusedWindow,
   ProjectWindow,
   windowEvents,
 } from './window'
 
 app.setName('Gui')
+keepInBackground()
 
 /** What a data folder holds once it's been used; a fresh one only has Chromium's files. */
 const OWN_DATA = ['prefs.json', 'trusted-projects.json', 'recent-projects.json', 'chats', 'agents']
@@ -577,6 +579,7 @@ function registerIpc() {
   on(Send.newSession, (tab) => tab.newChat())
   on(Send.clearSelection, (tab) => tab.clearSelection())
   on(Send.setMinimized, (tab, minimized) => tab.setMinimized(minimized === true))
+  on(Send.expandChat, (tab) => tab.expandChat())
   on(Send.toggleDock, (tab) => tab.toggleDock())
   on(Send.grabChat, (tab, at) => isChatGrab(at) && tab.grabChat(at))
   on(Send.dragChat, (tab, dx, dy) => isNumber(dx) && isNumber(dy) && tab.dragChat(dx, dy))

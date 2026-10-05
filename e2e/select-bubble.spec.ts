@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type PanelCorner, type Rect } from '../src/shared/types'
-import { electronExecutable, sleep, waitFor } from './helpers/env'
+import { electronExecutable, sleep, TAKES_FOCUS, takesFocus, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -367,4 +367,42 @@ test('the bubble shows a running turn, and a permission card waits behind it', a
   await shot(session, 'bubble-card')
   await session.chat.getByRole('button', { name: "Don't allow" }).click()
   expect((await session.waitForTurn(1)).turn.status).toBe('done')
+})
+
+test('the floating chat tucks into its bubble when the page takes the keyboard', async ({
+  launch,
+}) => {
+  // Where the keyboard goes depends on Gui being the active app.
+  test.skip(takesFocus, TAKES_FOCUS)
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
+  await session.waitForPreview()
+  await session.app.evaluate(({ app, BrowserWindow }) => {
+    app.focus({ steal: true })
+    BrowserWindow.getAllWindows()[0]?.focus()
+  })
+  const panel = await chatWhere(session, 'the open panel', (chat) => !isBubble(chat))
+  await session.chat.getByRole('textbox', { name: /^Message / }).focus()
+
+  // The keyboard into the page (a click there): the panel tucks into a bubble at its corner.
+  await session.app.evaluate(({ BrowserWindow, WebContentsView }) => {
+    const views = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
+    const page = views.find(
+      (view): view is InstanceType<typeof WebContentsView> =>
+        view instanceof WebContentsView && /^https?:\/\//.test(view.webContents.getURL()),
+    )
+    page?.webContents.focus()
+  })
+  const tucked = await chatWhere(session, 'the tucked bubble', isBubble)
+  expect(tucked.chat).toEqual(bubbleAt(panel.chat))
+  expect((await session.state()).chatVisible).toBe(true)
+  await session.shot('tucked')
+
+  // The bubble brings it back as it was, with the cursor in the message box.
+  await session.chat.getByRole('button', { name: 'Show chat' }).click()
+  const back = await chatWhere(session, 'the panel back', (chat) => !isBubble(chat))
+  expect(back.chat).toEqual(panel.chat)
+  await waitFor(
+    () => session.chat.evaluate(() => document.activeElement?.matches('[data-composer]')),
+    'the cursor in the message box',
+  )
 })

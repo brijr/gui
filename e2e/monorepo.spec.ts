@@ -213,7 +213,7 @@ test('opening an app folder inside a monorepo opens the monorepo with that app',
   expect(devServerPids(join(root, 'apps', 'web')).length).toBeGreaterThan(0)
   expect(prefsOf(userData)).toMatchObject({ apps: { [root]: 'apps/web' } })
   // Recent projects list the monorepo from now on.
-  expect(state.recent[0]?.root).toBe(root)
+  expect(state.recent?.[0]?.root).toBe(root)
   await session.shot('app-folder-opened')
 
   // Another app of the same monorepo opens in a second tab, beside the first.

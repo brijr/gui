@@ -51,7 +51,11 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
           </Button>
         )}
       </div>
-      <ul data-clip aria-label="Queued messages" className="max-h-28 overflow-y-auto py-1">
+      <ul
+        data-clip
+        aria-label="Queued messages"
+        className="max-h-28 overflow-y-auto scroll-stable py-1"
+      >
         {meta.queue.map((item) => (
           <QueuedItem key={item.id} item={item} />
         ))}

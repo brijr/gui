@@ -90,7 +90,7 @@ export function useCommandMenu({
       aria-label="Commands"
       // Focus stays in the message box; clicks mustn't take it.
       onMouseDown={(event) => event.preventDefault()}
-      className="max-h-56 overflow-y-auto overscroll-contain p-1"
+      className="max-h-56 overflow-y-auto scroll-stable overscroll-contain p-1"
     >
       {shown.map((command, index) => (
         <MenuRow

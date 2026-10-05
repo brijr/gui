@@ -439,7 +439,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         aria-activedescendant={searchable ? undefined : activeId}
         onKeyDown={searchable ? undefined : onListKeyDown}
         className={cn(
-          'min-h-0 overflow-y-auto overscroll-contain outline-none',
+          'min-h-0 overflow-y-auto scroll-stable overscroll-contain outline-none',
           rows.length > 0 && 'p-1',
         )}
       >

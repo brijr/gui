@@ -11,7 +11,7 @@ import { AgentIcon } from './agent-icon'
 /**
  * Every agent the user has on, with its status: the one in use is marked, and choosing
  * another switches to it. The one in use shows its next step (install, sign in, try again)
- * under its row, unless it's ready.
+ * under its row, unless it's ready or still being checked.
  */
 export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId: AgentId }) {
   // Switched-off agents stay out, except the one in use, so the list shows what's running.
@@ -62,7 +62,9 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
           </span>
         )}
       </button>
-      {current && health.status !== 'ready' && (
+      {/* Not while checking: its row already says so, and a check that ends ready would
+          add a line only to take it away. */}
+      {current && health.status !== 'ready' && health.status !== 'checking' && (
         <div className="px-3 pb-3 pl-13">
           <AgentNextStep name={health.name} health={health} />
         </div>

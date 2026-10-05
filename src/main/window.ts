@@ -43,6 +43,14 @@ export function findTab(sender: WebContents) {
  */
 const inBackground = !app.isPackaged && process.env.GUI_E2E_BACKGROUND === '1'
 
+/**
+ * In the background, macOS isn't let bring Gui to the front at all, whatever shows a window
+ * or a sheet, and it keeps out of the Dock and ⌘Tab.
+ */
+export function keepInBackground() {
+  if (inBackground && process.platform === 'darwin') app.setActivationPolicy('prohibited')
+}
+
 /** Shows a window, in front and with the keyboard unless Gui runs in the background. */
 export function showWindow(win: BrowserWindow) {
   if (inBackground) win.showInactive()
