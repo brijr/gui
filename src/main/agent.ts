@@ -78,10 +78,11 @@ async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promis
     const command = await requireExecutable(agent, launch.command, env)
     return { command, args: launch.args, env: launch.env }
   }
-  if (launch.requires) await requireExecutable(agent, launch.requires, env)
+  const cliPath = launch.requires ? await requireExecutable(agent, launch.requires, env) : null
   const entry = pathToFileURL(join(packageDir(launch.package), 'dist/index.js')).href
   const bootstrap = `delete process.env.ELECTRON_RUN_AS_NODE; import(${JSON.stringify(entry)}).catch((error) => { console.error(error); process.exit(1) })`
   const adapterEnv: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1', ...launch.env?.() }
+  if (cliPath && launch.cliPathEnv) adapterEnv[launch.cliPathEnv] = cliPath
   const pinned = pinnedAgent(agent.id)
   if (pinned) adapterEnv[CLI_PATH_ENV[pinned]] = (await requireAgentBinary(pinned)).path
   return { command: process.execPath, args: ['-e', bootstrap], env: adapterEnv }

@@ -39,6 +39,8 @@ files:
   # install, or downloads the exact version its adapters need (src/main/agent-binaries.ts).
   - "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
   - "!**/node_modules/@openai/codex-*/**"
+  # Amp's SDK dependency installs a CLI too; the adapter uses the user's PATH install.
+  - "!**/node_modules/@ampcode/cli*/**"
 
 asar: true
 # The agent adapters are spawned as `Gui -e "import('…/app.asar.unpacked/node_modules/…')"`

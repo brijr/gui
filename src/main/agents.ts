@@ -21,6 +21,8 @@ export type AgentLaunch =
       env?: () => Record<string, string>
       /** A CLI the adapter drives, which must be on the user's PATH */
       requires?: string
+      /** Environment variable through which the adapter takes the resolved CLI path */
+      cliPathEnv?: string
     }
   /** An agent CLI the user installed, found on their login-shell PATH */
   | { kind: 'command'; command: string; args: string[]; env: Record<string, string> }
@@ -75,7 +77,7 @@ export interface AgentListing {
 
 const adapter = (
   pkg: string,
-  options: { env?: () => Record<string, string>; requires?: string } = {},
+  options: { env?: () => Record<string, string>; requires?: string; cliPathEnv?: string } = {},
 ): AgentLaunch => ({ kind: 'adapter', package: pkg, ...options })
 const cli = (command: string, ...args: string[]): AgentLaunch => ({
   kind: 'command',
@@ -85,6 +87,21 @@ const cli = (command: string, ...args: string[]): AgentLaunch => ({
 })
 
 const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
+  amp: {
+    launch: adapter('amp-acp', { requires: 'amp', cliPathEnv: 'AMP_CLI_PATH' }),
+    signIn: 'Sign in from Settings → Agents, or run `amp login` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://ampcode.com/docs/cli',
+    terminalSignIn: { command: 'amp login', hint: 'Finish signing in in your browser.' },
+    // Keep Amp's configured permissions. The adapter's Bypass option overrides them.
+  },
+  devin: {
+    launch: cli('devin', 'acp'),
+    signIn: 'Sign in from Settings → Agents, or run `devin auth login` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://docs.devin.ai/cli',
+    terminalSignIn: { command: 'devin auth login', hint: 'Finish signing in in your browser.' },
+  },
   claude: {
     launch: adapter('@agentclientprotocol/claude-agent-acp'),
     signIn: 'Run `claude` in a terminal and use /login, then try again.',
