@@ -14,7 +14,12 @@ import {
 import { agentHealth } from './agent-status'
 import { customAgentEntries, deleteCustomAgent, saveCustomAgent } from './agents'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
-import { clearRecent as clearRecentFile, loadRecent } from './recent'
+import {
+  clearRecent as clearRecentFile,
+  loadRecent,
+  removeRecent as removeRecentFile,
+  withChats,
+} from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { clearStorage as clearStorageData, measureStorage } from './storage'
 import { followSurface, surfaceColor } from './theme'
@@ -182,6 +187,12 @@ export async function untrustProject(root: string) {
 export async function clearRecent() {
   await clearRecentFile()
   for (const tab of allTabs()) tab.setRecent([])
+  await refreshSettings()
+}
+
+export async function removeRecent(root: string) {
+  const recent = await withChats(await removeRecentFile(root))
+  for (const tab of allTabs()) tab.setRecent(recent)
   await refreshSettings()
 }
 

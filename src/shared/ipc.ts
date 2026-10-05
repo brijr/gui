@@ -36,6 +36,7 @@ export const Invoke = {
   getChat: 'chat:get',
   openProject: 'project:open',
   openRecent: 'project:open-recent',
+  removeRecent: 'project:remove-recent',
   cloneProject: 'project:clone',
   newProject: 'project:new',
   send: 'chat:send',
@@ -201,6 +202,8 @@ export interface GuiApi {
 
   openProject(): Promise<void>
   openRecent(root: string): Promise<void>
+  /** Removes a startup history entry, keeping project files and saved chats. */
+  removeRecent(root: string): Promise<void>
   /**
    * Clones a GitHub repo (`owner/repo`, its address, or an SSH remote) into a folder the user
    * picks, then opens it. Rejects with a message to show; resolves if they cancel the picker.

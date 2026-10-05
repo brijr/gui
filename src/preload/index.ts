@@ -30,6 +30,7 @@ const api: GuiApi = {
 
   openProject: () => ipcRenderer.invoke(Invoke.openProject),
   openRecent: (root) => ipcRenderer.invoke(Invoke.openRecent, root),
+  removeRecent: (root) => ipcRenderer.invoke(Invoke.removeRecent, root),
   cloneProject: (repo) => invokeOrThrow(Invoke.cloneProject, repo),
   newProject: (name) => invokeOrThrow(Invoke.newProject, name),
   startDevServer: send(Send.devServerStart),

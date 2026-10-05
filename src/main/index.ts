@@ -54,6 +54,7 @@ import {
   getSettings,
   isSettingsContents,
   openSettings,
+  removeRecent,
   saveCustom,
   setAgentEnabled,
   setChatDocked,
@@ -627,6 +628,9 @@ function registerIpc() {
     isString(root) ? untrustProject(root) : undefined,
   )
   handleSettings(Invoke.clearRecent, () => clearRecent())
+  ipcMain.handle(Invoke.removeRecent, (event, root: unknown) =>
+    fromAppUi(event) && isString(root) ? removeRecent(root) : undefined,
+  )
   handleSettings(Invoke.clearStorage, (_event, kind) =>
     STORAGE_KINDS.includes(kind as StorageKind) ? confirmAndClear(kind as StorageKind) : false,
   )

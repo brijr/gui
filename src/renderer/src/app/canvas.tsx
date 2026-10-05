@@ -29,6 +29,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'
+import { useAction } from '../settings/use-action'
 import { useMorphDrawsFrame } from './layout-morph'
 import { focusAddressBar } from './toolbar'
 
@@ -668,19 +669,17 @@ function EmptyState({ state }: { state: WindowState }) {
           </GroupLabel>
           <List>
             {chats.map((project) => (
-              <li key={project.root}>
-                <ListRow
-                  flush
-                  onClick={() => void gui.openRecent(project.root)}
-                  title={project.chat.prompt}
-                  detail={
-                    <span title={project.root}>
-                      {project.name} · {timeAgo(project.chat.at)}
-                    </span>
-                  }
-                  trailing={CHEVRON}
-                />
-              </li>
+              <RecentRow
+                key={project.root}
+                root={project.root}
+                kind="chat"
+                title={project.chat.prompt}
+                detail={
+                  <span title={project.root}>
+                    {project.name} · {timeAgo(project.chat.at)}
+                  </span>
+                }
+              />
             ))}
           </List>
         </section>
@@ -693,15 +692,13 @@ function EmptyState({ state }: { state: WindowState }) {
           </GroupLabel>
           <List>
             {projects.map((project) => (
-              <li key={project.root}>
-                <ListRow
-                  flush
-                  onClick={() => void gui.openRecent(project.root)}
-                  title={project.name}
-                  detail={<PathText path={project.root} home={state.home} />}
-                  trailing={CHEVRON}
-                />
-              </li>
+              <RecentRow
+                key={project.root}
+                root={project.root}
+                kind="project"
+                title={project.name}
+                detail={<PathText path={project.root} home={state.home} />}
+              />
             ))}
           </List>
         </section>
@@ -709,5 +706,45 @@ function EmptyState({ state }: { state: WindowState }) {
 
       <AgentList agents={state.agents} agentId={state.agentId} />
     </div>
+  )
+}
+
+function RecentRow({
+  root,
+  kind,
+  title,
+  detail,
+}: {
+  root: string
+  kind: 'chat' | 'project'
+  title: string
+  detail: ReactNode
+}) {
+  const remove = useAction()
+  return (
+    <li>
+      <div className="flex items-center pr-3">
+        <ListRow
+          flush
+          onClick={() => void gui.openRecent(root)}
+          disabled={remove.pending}
+          title={title}
+          detail={detail}
+          trailing={CHEVRON}
+        />
+        <IconButton
+          label={`Remove recent ${kind}: ${title}`}
+          title="Remove from recents"
+          icon={X}
+          disabled={remove.pending}
+          onClick={() => void remove.run(() => gui.removeRecent(root))}
+        />
+      </div>
+      {remove.error && (
+        <p role="alert" className="px-3 pb-2 text-small text-danger">
+          {remove.error}
+        </p>
+      )}
+    </li>
   )
 }

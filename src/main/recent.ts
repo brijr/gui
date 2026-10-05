@@ -6,6 +6,17 @@ import { lastMessage } from './history'
 
 const MAX_RECENT = 12
 const file = () => join(app.getPath('userData'), 'recent-projects.json')
+let pendingWrite: Promise<unknown> = Promise.resolve()
+
+function updateRecent(update: (recent: RecentProject[]) => RecentProject[]) {
+  const task = pendingWrite.then(async () => {
+    const next = update(await loadRecent())
+    await writeFile(file(), JSON.stringify(next, null, 2))
+    return next
+  })
+  pendingWrite = task.catch(() => undefined)
+  return task
+}
 
 export async function loadRecent(): Promise<RecentProject[]> {
   try {
@@ -30,16 +41,25 @@ export async function withChats(recent: RecentProject[]): Promise<RecentProject[
 }
 
 export async function clearRecent() {
+  await updateRecent(() => [])
   lastWithChats = []
-  await writeFile(file(), '[]\n')
   app.clearRecentDocuments()
 }
 
+export async function removeRecent(root: string) {
+  const next = await updateRecent((recent) => recent.filter((project) => project.root !== root))
+  app.clearRecentDocuments()
+  for (const project of next.toReversed()) app.addRecentDocument(project.root)
+  return next
+}
+
 export async function addRecent(project: Omit<RecentProject, 'openedAt'>) {
-  const recent = (await loadRecent()).filter((p) => p.root !== project.root)
-  recent.unshift({ root: project.root, name: project.name, openedAt: Date.now() })
-  const next = recent.slice(0, MAX_RECENT)
-  await writeFile(file(), JSON.stringify(next, null, 2))
+  const next = await updateRecent((recent) =>
+    [
+      { root: project.root, name: project.name, openedAt: Date.now() },
+      ...recent.filter((p) => p.root !== project.root),
+    ].slice(0, MAX_RECENT),
+  )
   app.addRecentDocument(project.root)
   return next
 }
