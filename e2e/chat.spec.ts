@@ -1,4 +1,4 @@
-import { sleep, waitFor } from './helpers/env'
+import { sleep, TAKES_FOCUS, takesFocus, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
 import { expect, test } from './helpers/test'
 
@@ -54,6 +54,7 @@ test('busy chat queues sends and a cancelled start leaves no trace', async ({ la
 // Hot reload that falls back to a full reload (an agent's edit, mid-turn) loads a new document
 // in the preview, which takes the keyboard from the chat's message box as it goes.
 test('a full reload of the preview leaves the keyboard in the message box', async ({ launch }) => {
+  test.skip(takesFocus, TAKES_FOCUS)
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
   await session.pickElement('button')

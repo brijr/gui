@@ -70,6 +70,20 @@ export const SHORTCUTS = {
     group: 'app',
     description: 'Open a project folder',
   },
+  newProject: {
+    label: 'New Project…',
+    accelerator: 'Shift+CmdOrCtrl+N',
+    menu: 'file',
+    group: 'app',
+    description: 'Start a project in a new, empty folder',
+  },
+  cloneRepo: {
+    label: 'Clone from GitHub…',
+    accelerator: 'Shift+CmdOrCtrl+O',
+    menu: 'file',
+    group: 'app',
+    description: 'Clone a GitHub repo and open it',
+  },
   closeWindow: {
     label: 'Close Window',
     accelerator: 'Shift+CmdOrCtrl+W',

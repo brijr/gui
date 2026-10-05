@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { sleep, waitFor } from './helpers/env'
 import { devServerPids } from './helpers/processes'
 import { expect, test } from './helpers/test'
@@ -38,4 +41,56 @@ test('double openRecent yields one window and one dev server', async ({ launch }
   const hasServerOutput = async () => /VITE|Local:|localhost/i.test(await readTerminal())
   await waitFor(hasServerOutput, 'dev server output in the logs terminal', { timeout: 15_000 })
   await session.shot('logs')
+})
+
+// A project with a chat is listed by its last message, so you can pick up where you left off.
+test('the start screen lists recent chats by their last message', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { root, userData } = session.fixture
+  const real = realpathSync(root)
+  const file = join(
+    userData,
+    'chats',
+    `${createHash('sha1').update(real).digest('hex').slice(0, 16)}.json`,
+  )
+  mkdirSync(dirname(file), { recursive: true })
+  const turn = (index: number, prompt: string, startedAt: number) => ({
+    id: `t${index}`,
+    index,
+    prompt,
+    context: null,
+    items: [],
+    status: 'done',
+    error: null,
+    startedAt,
+    endedAt: startedAt + 1000,
+    changes: [],
+  })
+  const now = Date.now()
+  writeFileSync(
+    file,
+    JSON.stringify({
+      version: 1,
+      agentId: 'claude',
+      sessionId: null,
+      turns: [
+        turn(0, 'Make the header sticky', now - 3 * 3600_000),
+        turn(1, 'Use a softer blue for the buttons', now - 2 * 3600_000),
+      ],
+      checkpoints: {},
+      redo: null,
+    }),
+  )
+
+  // A new tab's start screen reads the recent list, and the chats with it, afresh.
+  await session.chrome.evaluate(() => window.gui.newTab())
+  const row = session.chrome.getByRole('button', { name: /Use a softer blue for the buttons/ })
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('2 hours ago')
+  await expect(session.chrome.getByRole('heading', { name: 'Recent chats' })).toBeVisible()
+  await session.shot('start-screen-chats', true)
+
+  await row.click()
+  await session.waitForPreview()
+  expect((await session.state()).project?.root).toBe(real)
 })

@@ -31,6 +31,8 @@ export const Invoke = {
   getChat: 'chat:get',
   openProject: 'project:open',
   openRecent: 'project:open-recent',
+  cloneProject: 'project:clone',
+  newProject: 'project:new',
   send: 'chat:send',
   restoreTurn: 'chat:restore',
   redo: 'chat:redo',
@@ -164,7 +166,9 @@ export interface TerminalOutput extends OutputChunk {
  * A menu command main hands to a page because the page owns what it acts on: the chrome's
  * address field and screenshot button, the chat's model picker.
  */
-export type UiCommand = 'focusAddress' | 'screenshot' | 'chooseModel'
+export type UiCommand = 'focusAddress' | 'screenshot' | 'chooseModel' | StartForm
+/** The start screen's fields that stand in for its buttons: a new project's name, a repo. */
+export type StartForm = 'newProject' | 'cloneRepo'
 
 export interface GuiApi {
   getState(): Promise<WindowState>
@@ -177,6 +181,16 @@ export interface GuiApi {
 
   openProject(): Promise<void>
   openRecent(root: string): Promise<void>
+  /**
+   * Clones a GitHub repo (`owner/repo`, its address, or an SSH remote) into a folder the user
+   * picks, then opens it. Rejects with a message to show; resolves if they cancel the picker.
+   */
+  cloneProject(repo: string): Promise<void>
+  /**
+   * Makes an empty folder named `name` (with a git repo) where the user picks, then opens it.
+   * Rejects with a message to show; resolves if they cancel the picker.
+   */
+  newProject(name: string): Promise<void>
   startDevServer(): void
   stopDevServer(): void
   restartDevServer(): void

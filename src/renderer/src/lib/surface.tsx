@@ -215,13 +215,13 @@ interface MessageProps {
   title?: ReactNode
   /** Plain explanation under the title */
   children?: ReactNode
-  /** Buttons, centered: at most one primary */
+  /** Buttons, under the text: at most one primary */
   actions?: ReactNode
   className?: string
 }
 
 /**
- * The centered layout for empty, loading, error and done states: icon, title, explanation,
+ * The layout for empty, loading, error and done states, left-aligned: icon, title, explanation,
  * actions. On the canvas it sits in a Card; in the chat panel on its own.
  */
 export function Message({
@@ -233,7 +233,7 @@ export function Message({
   className,
 }: MessageProps) {
   return (
-    <div className={cn('flex flex-col items-center gap-3 text-center', className)}>
+    <div className={cn('flex flex-col items-start gap-3 text-left', className)}>
       <span
         className={cn(
           'flex size-8 shrink-0 items-center justify-center rounded-full',
@@ -246,7 +246,7 @@ export function Message({
         {title && <p className="font-semibold">{title}</p>}
         {children && <div className="flex flex-col gap-1 text-pretty text-muted">{children}</div>}
       </div>
-      {actions && <div className="flex flex-wrap items-center justify-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
 }

@@ -36,9 +36,54 @@ export interface SavedChat {
 
 const dir = () => join(app.getPath('userData'), 'chats')
 
+/** A project's own chat file; the start screen and a project's first tab use this one. */
 export async function historyFile(root: string) {
   const real = await realpath(root).catch(() => root)
-  return join(dir(), `${createHash('sha1').update(real).digest('hex').slice(0, 16)}.json`)
+  return join(dir(), `${historyName(real)}.json`)
+}
+
+const historyName = (real: string) => createHash('sha1').update(real).digest('hex').slice(0, 16)
+
+/** Chat files a tab has open, so two tabs on one folder never write the same one. */
+const claimed = new Set<string>()
+
+/**
+ * The chat file for a new tab on `root`: the project's own, or with it in use (a monorepo
+ * open twice, say), the first free numbered one beside it. Release it when the tab's chat ends.
+ */
+export async function claimHistoryFile(root: string) {
+  const real = await realpath(root).catch(() => root)
+  // Checked and claimed with no await in between.
+  let file = join(dir(), `${historyName(real)}.json`)
+  for (let n = 2; claimed.has(file); n++) file = join(dir(), `${historyName(real)}-${n}.json`)
+  claimed.add(file)
+  return file
+}
+
+export function releaseHistoryFile(file: string) {
+  claimed.delete(file)
+}
+
+export function claimedHistoryFiles() {
+  return [...claimed]
+}
+
+/**
+ * A project's last message, for the start screen: a light read that leaves the file alone,
+ * unlike loadHistory. Null with no chat, or one it can't read.
+ */
+export async function lastMessage(root: string): Promise<{ prompt: string; at: number } | null> {
+  try {
+    const saved = JSON.parse(await readFile(await historyFile(root), 'utf8')) as Partial<SavedChat>
+    const turns = Array.isArray(saved.turns) ? saved.turns : []
+    const last = turns.at(-1)
+    if (!last || typeof last.startedAt !== 'number') return null
+    // A message of images alone has no text; the last one with some stands for the chat.
+    const text = turns.findLast((turn) => typeof turn.prompt === 'string' && turn.prompt.trim())
+    return { prompt: text?.prompt.trim() ?? 'Image', at: last.startedAt }
+  } catch {
+    return null
+  }
 }
 
 export async function loadHistory(file: string): Promise<SavedChat | null> {

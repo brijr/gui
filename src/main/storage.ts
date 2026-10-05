@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { app, session } from 'electron'
 import type { StorageKind, StorageUsage } from '../shared/types'
 import { shadowRepoName } from './checkpoints'
-import { historyFile } from './history'
+import { claimedHistoryFiles, historyFile } from './history'
 
 /** Session partition the previewed apps run in; its cookies and storage persist. */
 export const PREVIEW_PARTITION = 'persist:gui-preview'
@@ -58,7 +58,10 @@ export async function clearStorage(kind: StorageKind, openRoots: string[]) {
   }
   if (kind === 'chats') {
     const keep = await Promise.all(openRoots.map(async (root) => basename(await historyFile(root))))
-    await clearDir(dirs.chats(), new Set(keep))
+    await clearDir(
+      dirs.chats(),
+      new Set([...keep, ...claimedHistoryFiles().map((file) => basename(file))]),
+    )
     return
   }
   const keep = await Promise.all(

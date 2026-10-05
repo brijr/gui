@@ -108,6 +108,8 @@ export interface RecentProject {
   root: string
   name: string
   openedAt: number
+  /** Its chat's last message and when it was sent; absent with no chat (or in the saved list) */
+  chat?: { prompt: string; at: number } | null
 }
 
 export type DevServerStatus = 'idle' | 'starting' | 'running' | 'exited'

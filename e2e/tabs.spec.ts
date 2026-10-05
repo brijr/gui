@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type TabInfo, type Turn } from '../src/shared/types'
-import { electronExecutable, sleep, waitFor } from './helpers/env'
+import { electronExecutable, waitFor } from './helpers/env'
 import type { FixtureCopy } from './helpers/fixtures'
 import { devServerPids } from './helpers/processes'
 import type { GuiSession } from './helpers/session'
@@ -302,14 +302,33 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
   expect(devServerPids(firstRoot).length).toBeGreaterThan(0)
   await session.shot('two-tabs')
 
-  // Opening a project that's already open selects its tab instead of opening it again.
+  // Opening a project that's already open opens it again in another tab (a monorepo's
+  // second app, say), with a chat of its own.
   await openFromFinder(session, secondRoot)
-  await waitFor(async () => (await session.state()).activeTab === startTab, 'its tab to be shown')
-  await sleep(1_000)
-  expect(await tabsOf(session)).toHaveLength(2)
+  const again = await waitFor(
+    async () => {
+      const state = await session.state()
+      const running = state.devServer.status === 'running' && state.preview.visible
+      return state.tabs.length === 3 && state.project?.root === secondRoot && running ? state : null
+    },
+    'the project to open again in a third tab',
+    { timeout: 120_000 },
+  )
+  expect(again.tabs.map((tab) => tab.id).slice(0, 2)).toEqual([first.activeTab, startTab])
   expect(await session.windowCount()).toBe(1)
-  expect(devServerPids(secondRoot)).toHaveLength(1)
+  const thirdChat = await newChatPage(session, [session.chat, secondChat])
+  expect(await turnsIn(thirdChat)).toEqual([])
+  expect(devServerPids(secondRoot)).toHaveLength(2)
   expect(recorded()).toEqual([expect.stringContaining(prompt)])
+
+  // Closing it shows its neighbor, the project's first tab, with its chat as it was.
+  await clickMenu(session, 'Close Tab')
+  await waitFor(async () => {
+    const state = await session.state()
+    return state.tabs.length === 2 && state.activeTab === startTab
+  }, 'the third tab to close')
+  await waitFor(() => devServerPids(secondRoot).length === 1, 'its dev server to stop')
+  expect((await turnsIn(secondChat)).map((turn) => turn.prompt)).toEqual([prompt])
 
   // Dragging a tab onto another reorders the strip, either way.
   await dragTab(session, 'second-vite', name)

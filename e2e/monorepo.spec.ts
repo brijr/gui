@@ -14,7 +14,7 @@ import { basename, join } from 'node:path'
 import { test as base, expect } from '@playwright/test'
 import { detectProject, findWorkspaceRoot } from '../src/main/project'
 import type { WindowState } from '../src/shared/types'
-import { REPO_ROOT, sleep, waitFor } from './helpers/env'
+import { REPO_ROOT, waitFor } from './helpers/env'
 import { FIXTURES, git } from './helpers/fixtures'
 import { devServerPids, killAll, pidsInDirectory } from './helpers/processes'
 import { type GuiSession, launchGui } from './helpers/session'
@@ -216,27 +216,29 @@ test('opening an app folder inside a monorepo opens the monorepo with that app',
   expect(state.recent[0]?.root).toBe(root)
   await session.shot('app-folder-opened')
 
-  // Another app of the same monorepo switches this window rather than opening a second.
+  // Another app of the same monorepo opens in a second tab, beside the first.
   await openFromFinder(session, join(root, 'apps', 'docs'))
-  await waitFor(async () => {
-    const { project, devServer } = await session.state()
-    return project?.appDir === 'apps/docs' && devServer.status === 'running'
-  }, 'the switch to the docs app')
-  const switched = await session.previewPage()
-  await expect(switched.locator('h1')).toHaveText('Gui monorepo: docs')
+  const opened = await waitFor(async () => {
+    const state = await session.state()
+    const { project, devServer, tabs } = state
+    const running = tabs.length === 2 && devServer.status === 'running'
+    return running && project?.appDir === 'apps/docs' ? state : null
+  }, 'the docs app in a second tab')
+  // Each tab has its own preview page; this one is the docs app's.
+  const docs = await waitFor(
+    () =>
+      session.app
+        .context()
+        .pages()
+        .find((page) => page.url().startsWith(opened.preview.url ?? '-')),
+    "the docs app's preview",
+  )
+  await expect(docs.locator('h1')).toHaveText('Gui monorepo: docs')
   expect(await session.windowCount()).toBe(1)
   expect(prefsOf(userData)).toMatchObject({ apps: { [root]: 'apps/docs' } })
-
-  // The monorepo itself, already open, just comes to the front.
-  await openFromFinder(session, root)
-  await openFromFinder(session, join(root, 'apps', 'docs'))
-  // Give a second window or another app switch time to show up.
-  await sleep(2_000)
-  expect(await session.windowCount()).toBe(1)
-  const after = await session.state()
-  expect(after.project?.appDir).toBe('apps/docs')
-  expect(after.devServer.status).toBe('running')
-  await expect(switched.locator('h1')).toHaveText('Gui monorepo: docs')
+  // The web app keeps running in the first tab.
+  expect(devServerPids(join(root, 'apps', 'web')).length).toBeGreaterThan(0)
+  expect(devServerPids(join(root, 'apps', 'docs')).length).toBeGreaterThan(0)
 })
 
 test("the root's own app is offered next to the workspace apps", async ({ open }) => {

@@ -14,7 +14,7 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { Invoke, MAX_TERMINAL_INPUT, type OutputChunk, Send } from '../shared/ipc'
+import { Invoke, MAX_TERMINAL_INPUT, type OutputChunk, Send, type StartForm } from '../shared/ipc'
 import {
   SHORTCUTS,
   type ShortcutId,
@@ -40,7 +40,9 @@ import {
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { offersChoice } from './chat'
+import { cloneRepo, parseRepo } from './clone'
 import { isLoopback } from './loopback'
+import { createProject, projectName } from './new-project'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
@@ -61,15 +63,14 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import type { ProjectTab } from './tab'
 import {
-  allTabs,
   allWindows,
   findTab,
   findWindow,
   focusedWindow,
+  focusWindow,
   lastFocusedWindow,
   ProjectWindow,
   windowEvents,
-  windowOf,
 } from './window'
 
 app.setName('Gui')
@@ -145,7 +146,8 @@ const canonical = (path: string) => realpath(path).catch(() => path)
 
 /**
  * Opens in the window's active tab if it's a start screen, otherwise in a new tab there. With
- * no window given, the focused one (or the one focused last) is used.
+ * no window given, the focused one (or the one focused last) is used. A folder already open
+ * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
 async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   if (!(await isDirectory(root))) {
@@ -156,19 +158,7 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   // agent and checkpoints work from the root.
   const member = await findWorkspaceRoot(root)
   const real = member?.root ?? (await canonical(root))
-  const roots = await Promise.all(
-    allTabs().map(async (tab) => ({
-      tab,
-      root: tab.projectRoot && (await canonical(tab.projectRoot)),
-    })),
-  )
-  // Checked and claimed with no await in between.
-  const existing = roots.find((entry) => entry.root === real)?.tab
-  if (existing || opening.has(real)) {
-    if (existing && member) showApp(existing, member.appDir)
-    if (existing) showTab(existing)
-    return
-  }
+  if (opening.has(real)) return
   opening.add(real)
   try {
     // The tab reads the app to run from prefs as it opens.
@@ -185,23 +175,6 @@ function tabToOpenIn(target: ProjectWindow | undefined) {
   const live = target && allWindows().includes(target) ? target : undefined
   const win = live ?? lastFocusedWindow() ?? createWindow()
   return win.activeTab.hasProject ? win.newTab() : win.activeTab
-}
-
-/** Brings a tab to the front: its window, and the tab in it. */
-function showTab(tab: ProjectTab) {
-  const win = windowOf(tab)
-  if (!win) return
-  win.showTab(tab)
-  win.win.focus()
-}
-
-/**
- * Switches a tab that has the monorepo open to `appDir`, unless it already shows it.
- * A tab still opening keeps what it's opening.
- */
-function showApp(tab: ProjectTab, appDir: string) {
-  const { project, setup } = tab.getState()
-  if (project && (setup?.apps || project.appDir !== appDir)) tab.chooseApp(appDir)
 }
 
 /** For user-initiated opens: surface failures instead of dropping them. */
@@ -226,6 +199,42 @@ async function pickProject(target: ProjectWindow | undefined) {
     : await dialog.showOpenDialog(options)
   const root = result.filePaths[0]
   if (!result.canceled && root) openSafely(target, root)
+}
+
+/** The folder picker, for where a new or cloned project goes. Null if cancelled. */
+async function pickParent(target: ProjectWindow | undefined, title: string, buttonLabel: string) {
+  const parent = target?.win
+  const options = {
+    title,
+    buttonLabel,
+    properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[],
+  }
+  const result = parent
+    ? await dialog.showOpenDialog(parent, options)
+    : await dialog.showOpenDialog(options)
+  const folder = result.filePaths[0]
+  return result.canceled || !folder ? null : folder
+}
+
+/** Asks where to put the repo, clones it there, and opens it. Cancelling the picker is fine. */
+async function cloneProject(target: ProjectWindow | undefined, input: string) {
+  const repo = parseRepo(input)
+  if (!repo) throw new Error('Enter a GitHub repo, like owner/repo or its github.com address.')
+  const folder = await pickParent(target, `Clone ${repo.name} into…`, 'Clone Here')
+  if (folder) openSafely(target, await cloneRepo(repo, folder))
+}
+
+/** Asks where to put it, makes the empty folder there, and opens it. */
+async function newProject(target: ProjectWindow | undefined, input: string) {
+  const name = projectName(input)
+  if (!name) throw new Error('Use a name without slashes or colons, like my-app.')
+  const folder = await pickParent(target, `Create ${name} in…`, 'Create Here')
+  if (folder) openSafely(target, await createProject(name, folder))
+}
+
+/** From the menu bar: the focused window, or the last one, or a new one. */
+function startForm(form: StartForm) {
+  ;(focusedWindow() ?? lastFocusedWindow() ?? createWindow()).showStartForm(form)
 }
 
 function createWindow() {
@@ -354,6 +363,18 @@ function registerIpc() {
   })
   ipcMain.handle(Invoke.getChat, (event) => tabFor(event)?.getChat())
   ipcMain.handle(Invoke.openProject, (event) => pickProject(windowFor(event)))
+  ipcMain.handle(Invoke.cloneProject, (event, repo: unknown) =>
+    reportError(async () => {
+      if (!isString(repo) || repo.length > 500) throw new Error('Enter a GitHub repo.')
+      await cloneProject(windowFor(event), repo)
+    }),
+  )
+  ipcMain.handle(Invoke.newProject, (event, name: unknown) =>
+    reportError(async () => {
+      if (!isString(name)) throw new Error('Enter a name for the project.')
+      await newProject(windowFor(event), name)
+    }),
+  )
   ipcMain.handle(Invoke.openRecent, async (event, root: unknown) => {
     if (!isString(root)) return
     // Only paths the user opened before; anything else goes through the folder picker.
@@ -417,6 +438,8 @@ function registerIpc() {
   onWindow(Send.showProjectMenu, (win) =>
     win.activeTab.showProjectMenu(
       () => void pickProject(win),
+      () => win.showStartForm('newProject'),
+      () => win.showStartForm('cloneRepo'),
       (root) => openSafely(win, root),
     ),
   )
@@ -816,6 +839,10 @@ function buildMenu() {
         ...item('newTab', { click: newTab }),
         ...item('newWindow', { click: () => createWindow() }),
         ...item('openProject', { click: () => void pickProject(focusedWindow()) }),
+        ...item('newProject', { click: () => startForm('newProject') }),
+        ...item('cloneRepo', {
+          click: () => startForm('cloneRepo'),
+        }),
         { role: 'recentDocuments', submenu: [{ role: 'clearRecentDocuments' }] },
         { type: 'separator' },
         ...item('closeTab', { click: closeTab }),
@@ -946,8 +973,7 @@ function focusExistingWindow() {
   }
   if (win.win.isMinimized()) win.win.restore()
   // The user just launched Gui again, so coming to the front is what they asked for.
-  if (process.platform === 'darwin') app.focus({ steal: true })
-  win.win.focus()
+  focusWindow(win.win, { steal: true })
 }
 
 /** Stops agent processes that would otherwise outlive the app. */

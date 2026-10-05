@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { type FSWatcher, watch } from 'node:fs'
 import { writeFile } from 'node:fs/promises'
 import { basename, join, posix } from 'node:path'
 import {
@@ -60,7 +61,7 @@ import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve
 import { availableModels, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
-import { historyFile, loadHistory } from './history'
+import { claimHistoryFile, loadHistory, releaseHistoryFile } from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
@@ -71,7 +72,7 @@ import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
 import type { PromptViewport } from './prompt'
-import { addRecent, loadRecent } from './recent'
+import { addRecent, loadRecent, withChats } from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import {
   createEnvFile,
@@ -123,6 +124,8 @@ const MORPH_TIMEOUT_MS = 700
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
+/** A package.json being written fires several changes; look once they've settled. */
+const APP_CHECK_DELAY_MS = 500
 /** The chat's message box has the keyboard (run in the chat view's isolated world). */
 const COMPOSER_FOCUSED = `document.activeElement?.hasAttribute('data-composer') === true`
 /** Package scripts an install runs from the project's own package.json. */
@@ -207,6 +210,8 @@ export class ProjectTab {
   /** The project's terminals in the drawer; none run until the user opens one. */
   private terminals: Terminals | null = null
   private chat: ChatController | null = null
+  /** The chat file this tab's chat writes; claimed so another tab on the folder gets its own. */
+  private historyFile: string | null = null
   private mcp: RunningMcpServer | null = null
   /** The current project's preview tools; also used to show how a change turned out. */
   private previewTools: PreviewTools | null = null
@@ -282,6 +287,9 @@ export class ProjectTab {
   private settingUp: DevServer | null = null
   /** The dev server switching to a picked app; further picks wait for it. */
   private switchingApp: DevServer | null = null
+  /** On a project with nothing to start yet (a new one): watches for its package.json. */
+  private appWatcher: FSWatcher | null = null
+  private appCheckTimer: NodeJS.Timeout | null = null
 
   constructor(host: TabHost) {
     this.host = host
@@ -353,7 +361,9 @@ export class ProjectTab {
     loadRenderer(this.chatView.webContents, 'chat').catch((error) =>
       console.error('[gui] failed to load chat', error),
     )
-    void loadRecent().then((recent) => this.patch({ recent }))
+    void loadRecent()
+      .then(withChats)
+      .then((recent) => this.patch({ recent }))
   }
 
   /** The chat panel is the tab's own page; the chrome belongs to the window. */
@@ -473,8 +483,9 @@ export class ProjectTab {
     this.opening = root
     this.closeProject()
     const current = () => !this.disposed && generation === this.openGeneration
+    let file: string | null = null
     try {
-      const file = await historyFile(root)
+      file = await claimHistoryFile(root)
       const [{ project, apps, choosing }, env, saved] = await Promise.all([
         detectProject(root, getPrefs().apps[root] ?? null),
         getShellEnv(),
@@ -543,6 +554,8 @@ export class ProjectTab {
         this.host.tabChanged(this, false)
       })
       chat.on('turnEnd', (turn) => {
+        // The agent may have just set the project up; it's left alone while it works.
+        if (this.appWatcher) void this.checkForApp()
         if (turn.status === 'done' && turn.context && turn.changes?.length) {
           const { selector, crop } = turn.context
           if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
@@ -560,6 +573,7 @@ export class ProjectTab {
         }
       })
       this.chat = chat
+      this.historyFile = file
       chat.setCanSelect(this.canSelect)
       this.patch({ agentId: chat.meta.agentId })
       this.sendChat(Events.chatReset, chat.snapshot())
@@ -586,12 +600,16 @@ export class ProjectTab {
       })
       this.layout()
 
-      const recent = await addRecent({ root, name: project.name })
+      if (!project.devCommand && !choosing) this.watchForApp(project.root)
+
+      const recent = await withChats(await addRecent({ root, name: project.name }))
       if (!current()) return
       this.host.shareRecent(recent)
       void this.setUpAndStart()
     } finally {
       if (generation === this.openGeneration) this.opening = null
+      // A superseded open never handed its file to a chat.
+      if (file && file !== this.historyFile) releaseHistoryFile(file)
     }
   }
 
@@ -646,7 +664,54 @@ export class ProjectTab {
     return askToTrust(root, options, this.host.win)
   }
 
+  /**
+   * A project with no dev script yet, like a new empty one, gets one once the agent (or the
+   * user) writes its package.json. Gui starts it then, instead of waiting for a reopen.
+   */
+  private watchForApp(root: string) {
+    try {
+      this.appWatcher = watch(root, (_event, name) => {
+        if (name && name !== 'package.json') return
+        if (this.appCheckTimer) clearTimeout(this.appCheckTimer)
+        this.appCheckTimer = setTimeout(() => {
+          this.appCheckTimer = null
+          void this.checkForApp()
+        }, APP_CHECK_DELAY_MS)
+      })
+      this.appWatcher.on('error', () => this.stopWatchingForApp())
+    } catch (error) {
+      console.error('[gui] could not watch the project for a dev script', error)
+    }
+  }
+
+  private stopWatchingForApp() {
+    this.appWatcher?.close()
+    this.appWatcher = null
+    if (this.appCheckTimer) clearTimeout(this.appCheckTimer)
+    this.appCheckTimer = null
+  }
+
+  /**
+   * Looks again for something to start. Not mid-turn: the agent is likely still writing the
+   * project and installing it, and the turn's end looks again.
+   */
+  private async checkForApp() {
+    const devServer = this.devServer
+    const root = this.state.project?.root
+    if (!devServer || !root || this.chat?.turnRunning) return
+    const { project, apps, choosing } = await detectProject(root, getPrefs().apps[root] ?? null)
+    if (!project.devCommand && !choosing) return
+    const setup = await detectSetup(project, choosing ? apps : null)
+    if (devServer !== this.devServer || !this.appWatcher) return
+    this.stopWatchingForApp()
+    this.apps = apps
+    devServer.setCwd(appRoot(project))
+    this.patch({ project, setup })
+    void this.setUpAndStart()
+  }
+
   closeProject() {
+    this.stopWatchingForApp()
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.rehighlightTimer = null
@@ -657,6 +722,8 @@ export class ProjectTab {
     this.apps = []
     this.chat?.dispose()
     this.chat = null
+    if (this.historyFile) releaseHistoryFile(this.historyFile)
+    this.historyFile = null
     this.mcp?.close()
     this.mcp = null
     this.previewTools = null
@@ -2218,10 +2285,17 @@ export class ProjectTab {
     return { x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) }
   }
 
-  showProjectMenu(openPicker: () => void, openRecent: (root: string) => void) {
+  showProjectMenu(
+    openPicker: () => void,
+    openNew: () => void,
+    openClone: () => void,
+    openRecent: (root: string) => void,
+  ) {
     const recent = this.state.recent.filter((p) => p.root !== this.state.project?.root)
     const template: MenuItemConstructorOptions[] = [
       { label: 'Open project…', click: openPicker },
+      { label: 'New project…', click: openNew },
+      { label: 'Clone from GitHub…', click: openClone },
       ...(recent.length
         ? [
             { type: 'separator' } as const,
@@ -2308,6 +2382,7 @@ export class ProjectTab {
     this.devServer?.dispose()
     this.terminals?.dispose()
     this.chat?.dispose()
+    if (this.historyFile) releaseHistoryFile(this.historyFile)
     this.mcp?.close()
     this.emulation.dispose()
     this.inspector.dispose()

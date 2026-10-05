@@ -467,7 +467,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         )}
       </div>
       {rows.length === 0 && (
-        <p role="status" className="px-3 py-5 text-center text-small text-muted">
+        <p role="status" className="px-3 py-5 text-small text-muted">
           No models match
         </p>
       )}

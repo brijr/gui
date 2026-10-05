@@ -16,6 +16,14 @@ export function electronExecutable(): string {
   return path
 }
 
+/**
+ * Tests about where the keyboard goes need Gui to be the active app, so they bring it to the
+ * front. They run in CI, and locally only with GUI_E2E_FOCUS=1, so a run doesn't take over
+ * the window you're working in.
+ */
+export const takesFocus = !process.env.CI && process.env.GUI_E2E_FOCUS !== '1'
+export const TAKES_FOCUS = 'Brings Gui to the front; set GUI_E2E_FOCUS=1 to run it locally'
+
 export const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms))
 
 interface WaitOptions {

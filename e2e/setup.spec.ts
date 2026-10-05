@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   readFileSync,
   realpathSync,
+  renameSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
@@ -159,6 +160,26 @@ test('a fresh clone installs its dependencies, then starts and shows the app', a
   const preview = await session.previewPage()
   await expect(preview.locator('h1')).toHaveText('Gui fresh fixture')
   await session.shot('fresh-preview')
+})
+
+test('a project with nothing to start yet starts once its package.json appears', async ({
+  open,
+}) => {
+  // Like a new project the agent is about to set up: nothing tells Gui how to start it.
+  const session = await open('fresh', (root) =>
+    renameSync(join(root, 'package.json'), join(root, 'package.later.json')),
+  )
+  const { root } = session.fixture
+  await waitFor(async () => {
+    const state = await session.state()
+    return state.project && !state.project.devCommand ? state : null
+  }, 'the project open with no dev script')
+
+  renameSync(join(root, 'package.later.json'), join(root, 'package.json'))
+  const state = await waitForPreview(session)
+  expect(state.project?.devCommand).toBe('bun run dev')
+  const preview = await session.previewPage()
+  await expect(preview.locator('h1')).toHaveText('Gui fresh fixture')
 })
 
 test('a failed install says so in the address bar and offers its output', async ({ open }) => {

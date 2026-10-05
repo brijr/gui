@@ -68,12 +68,17 @@ export function shadowRepoName(realRoot: string) {
   return `${createHash('sha1').update(realRoot).digest('hex').slice(0, 16)}.git`
 }
 
+/**
+ * Git calls queued per project, shared by every Checkpoints on it: two tabs on one folder
+ * (a monorepo's apps, say) use the same shadow repo, and git can't run two commits at once.
+ */
+const queues = new Map<string, Promise<unknown>>()
+
 export class Checkpoints {
   private readonly projectRoot: string
   private readonly storeDir: string
   private readonly env: NodeJS.ProcessEnv
   private repo: Repo | null = null
-  private tail: Promise<unknown> = Promise.resolve()
 
   constructor(projectRoot: string, storeDir: string, env: NodeJS.ProcessEnv = process.env) {
     this.projectRoot = resolve(projectRoot)
@@ -184,8 +189,13 @@ export class Checkpoints {
   }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const result = this.tail.then(task, task)
-    this.tail = result
+    const key = this.projectRoot
+    const result = (queues.get(key) ?? Promise.resolve()).then(task, task)
+    queues.set(key, result)
+    const forget = () => {
+      if (queues.get(key) === result) queues.delete(key)
+    }
+    result.then(forget, forget)
     return result
   }
 
@@ -198,9 +208,9 @@ export class Checkpoints {
     const repo: Repo = { root, gitDir: join(this.storeDir, shadowRepoName(root)) }
 
     await mkdir(this.storeDir, { recursive: true })
-    // One window owns a project's shadow repo and serializes its git calls, so a lock
-    // left at setup is from a git process that was killed mid-commit; it would block
-    // every later snapshot.
+    // Every git call on a project's shadow repo goes through one queue, so a lock left at
+    // setup is from a git process that was killed mid-commit; it would block every later
+    // snapshot.
     await rm(join(repo.gitDir, 'index.lock'), { force: true })
     await this.git(repo, ['init', '--quiet'], false)
     const config: Array<[string, string]> = [

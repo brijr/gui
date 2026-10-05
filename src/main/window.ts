@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
-import { BrowserWindow, Menu, shell, type WebContents } from 'electron'
-import { Events } from '../shared/ipc'
+import { app, BrowserWindow, Menu, shell, type WebContents } from 'electron'
+import { Events, type StartForm } from '../shared/ipc'
 import {
   FOCUS_BAR_HEIGHT,
   FOCUS_TRAFFIC_LIGHTS,
@@ -34,6 +34,26 @@ export function findWindow(sender: WebContents) {
 /** The tab a page acts on: a chat panel's own tab, or the active tab for a window's chrome. */
 export function findTab(sender: WebContents) {
   return findWindow(sender)?.tabFor(sender)
+}
+
+/**
+ * Unpackaged builds launched with GUI_E2E_BACKGROUND=1 (the end-to-end tests) show their
+ * windows without activating Gui, so a test run doesn't take the keyboard from the app the
+ * user is working in.
+ */
+const inBackground = !app.isPackaged && process.env.GUI_E2E_BACKGROUND === '1'
+
+/** Shows a window, in front and with the keyboard unless Gui runs in the background. */
+export function showWindow(win: BrowserWindow) {
+  if (inBackground) win.showInactive()
+  else win.show()
+}
+
+/** Brings a window to the front with the keyboard, unless Gui runs in the background. */
+export function focusWindow(win: BrowserWindow, { steal = false } = {}) {
+  if (inBackground) return
+  if (steal && process.platform === 'darwin') app.focus({ steal: true })
+  win.focus()
 }
 
 export function focusedWindow() {
@@ -106,7 +126,7 @@ export class ProjectWindow implements TabHost {
     this.win.on('focus', () => {
       lastFocused = this
     })
-    this.win.once('ready-to-show', () => this.win.show())
+    this.win.once('ready-to-show', () => showWindow(this.win))
     this.win.on('closed', () => this.dispose())
     loadRenderer(this.win.webContents, 'index').catch((error) =>
       console.error('[gui] failed to load index', error),
@@ -230,6 +250,22 @@ export class ProjectWindow implements TabHost {
     if (!this.active.getState().project) return shell.beep()
     if (this.focus) void this.active.screenshotMenu()
     else this.send(Events.command, 'screenshot')
+  }
+
+  /**
+   * ⇧⌘N and ⇧⌘O: the start screen's name or repo field, in this tab if it's a start screen
+   * or a new one.
+   */
+  showStartForm(form: StartForm) {
+    if (this.active.hasProject) this.newTab()
+    this.setFocusMode(false)
+    focusWindow(this.win)
+    const { webContents } = this.win
+    webContents.focus()
+    // A window just made has no page to tell yet.
+    if (webContents.isLoading()) {
+      webContents.once('did-finish-load', () => this.send(Events.command, form))
+    } else this.send(Events.command, form)
   }
 
   // Tabs

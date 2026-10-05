@@ -3,7 +3,7 @@ import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { agentName } from '../src/shared/types'
-import { sleep, waitFor } from './helpers/env'
+import { sleep, TAKES_FOCUS, takesFocus, waitFor } from './helpers/env'
 import { devServerPids, killAll } from './helpers/processes'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
@@ -250,6 +250,7 @@ test('a preview that fails to load says why, and Try again loads it once it can'
 test('⌘L shows the chat with the cursor in its message box, and from there hides it', async ({
   launch,
 }) => {
+  test.skip(takesFocus, TAKES_FOCUS)
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
 

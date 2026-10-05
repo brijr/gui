@@ -19,7 +19,7 @@ import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { clearStorage as clearStorageData, measureStorage } from './storage'
 import { followSurface, surfaceColor } from './theme'
 import { listTrusted, untrust } from './trust'
-import { allTabs } from './window'
+import { allTabs, focusWindow, showWindow } from './window'
 
 let win: BrowserWindow | null = null
 /** Section to show once the Settings page has loaded and asked for its state. */
@@ -46,8 +46,8 @@ export function watchSettings() {
 export function openSettings(section?: SettingsSection) {
   if (live(win)) {
     if (section) win.webContents.send(Events.settingsSection, section)
-    win.show()
-    win.focus()
+    showWindow(win)
+    focusWindow(win)
     return
   }
   pendingSection = section ?? null
@@ -67,7 +67,7 @@ export function openSettings(section?: SettingsSection) {
   followSurface(window)
   win = window
   guardAppContents(window.webContents)
-  window.once('ready-to-show', () => window.show())
+  window.once('ready-to-show', () => showWindow(window))
   window.on('closed', () => {
     if (win === window) win = null
   })

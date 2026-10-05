@@ -156,6 +156,8 @@ function launchEnv(manifest: string, registry: string): Record<string, string> {
     GUI_OPEN: '',
     GUI_AGENT_MANIFEST: manifest,
     GUI_AGENT_REGISTRY: registry,
+    // Windows show without taking the keyboard from the app the user is in.
+    GUI_E2E_BACKGROUND: '1',
   }
 }
 

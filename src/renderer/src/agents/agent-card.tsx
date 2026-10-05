@@ -26,7 +26,7 @@ interface AgentCardProps {
 }
 
 /**
- * The agent the user works with, what state it's in, and the one thing to do next:
+ * The agent the user works with (Settings), what state it's in, and the one thing to do next:
  * install it, sign in, try again, or nothing because it's ready.
  */
 export function AgentCard({ agentId, health, change, caption }: AgentCardProps) {
@@ -50,7 +50,7 @@ export function AgentCard({ agentId, health, change, caption }: AgentCardProps) 
   )
 }
 
-function AgentNextStep({ name, health }: { name: string; health: AgentHealth | null }) {
+export function AgentNextStep({ name, health }: { name: string; health: AgentHealth | null }) {
   const [error, setError] = useState<string | null>(null)
 
   // Install and sign-in report their own failures through `health`; this catches IPC failures.

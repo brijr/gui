@@ -1,8 +1,8 @@
 import {
   AppWindow,
-  ChevronDown,
   ChevronRight,
   FolderOpen,
+  FolderPlus,
   Info,
   KeyRound,
   Package,
@@ -11,8 +11,8 @@ import {
   X,
 } from 'lucide-react'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
+import type { StartForm } from '../../../shared/ipc'
 import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
-import { shortcutText } from '../../../shared/shortcuts'
 import {
   frameLabel,
   type ProjectSetup,
@@ -20,12 +20,13 @@ import {
   type WindowState,
   type WorkspaceApp,
 } from '../../../shared/types'
-import { AgentCard } from '../agents/agent-card'
+import { AgentList } from '../agents/agent-list'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
+import { Input } from '../lib/field'
 import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
-import { Button, Code, IconButton, Kbd, Spinner } from '../lib/ui'
+import { Button, Code, IconButton, Spinner } from '../lib/ui'
 import { useMorphDrawsFrame } from './layout-morph'
 import { focusAddressBar } from './toolbar'
 
@@ -241,8 +242,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={INFO}
-        title="Gui doesn't know how to start this app"
-        detail="Add a “dev” script to package.json, or enter your app's address in the bar above."
+        title="Nothing to start yet"
+        detail="Ask your agent to build the app, or add a “dev” script to package.json. Gui starts it as soon as there's one. Or enter your app's address in the bar above."
         actions={
           <Button variant="ghost" onClick={() => focusAddressBar()}>
             Enter address
@@ -437,24 +438,204 @@ export function EnvBanner({ state }: { state: WindowState }) {
   )
 }
 
-const STEPS: readonly [string, ReactNode][] = [
-  ['Open a project', 'Gui starts your app and shows it here.'],
-  [
-    'Point at something',
-    <>
-      Press <Kbd>{shortcutText('selectElement')}</Kbd> and click any element in your app.
-    </>,
-  ],
-  ['Describe the change', 'Your agent edits the code, and you see the result right away.'],
+/** GitHub's mark, which lucide doesn't draw; sized like a button's icon. */
+function GitHubMark() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" className="size-3.5 shrink-0" aria-hidden="true">
+      <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z" />
+    </svg>
+  )
+}
+
+/** What each of the start screen's fields asks for, and what its button does. */
+const FORMS: Record<
+  StartForm,
+  { label: string; placeholder: string; submit: string; busy: string; mono: boolean }
+> = {
+  newProject: {
+    label: 'Project name',
+    placeholder: 'my-app',
+    submit: 'Create…',
+    busy: 'Creating…',
+    mono: false,
+  },
+  cloneRepo: {
+    label: 'GitHub repo',
+    placeholder: 'owner/repo or github.com/owner/repo',
+    submit: 'Clone…',
+    busy: 'Cloning…',
+    mono: true,
+  },
+}
+
+/**
+ * ⇧⌘N, ⇧⌘O and the menus' New Project and Clone from GitHub: main shows a start screen and
+ * asks for a field, which may not be drawn yet (a new tab or window), so the ask waits here.
+ */
+let askedForm: StartForm | null = null
+const formListeners = new Set<() => void>()
+gui.onCommand((command) => {
+  if (command !== 'newProject' && command !== 'cloneRepo') return
+  askedForm = command
+  for (const listener of formListeners) listener()
+})
+
+/**
+ * Open project, and beside it New project and Clone from GitHub, which swap the buttons for
+ * a name or repo field. Main asks where to put the folder, then opens it like any project.
+ */
+function OpenActions() {
+  const [form, setForm] = useState<StartForm | null>(null)
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  // The field showing, for the listener below, which only sees its first render's state.
+  const shown = useRef(form)
+  shown.current = form
+
+  useEffect(() => {
+    const take = () => {
+      if (!askedForm) return
+      const asked = askedForm
+      askedForm = null
+      if (shown.current !== asked) {
+        setValue('')
+        setError(null)
+      }
+      setForm(asked)
+      // Already open: focus it again, since autoFocus only applies when it's drawn.
+      input.current?.focus()
+    }
+    formListeners.add(take)
+    take()
+    return () => {
+      formListeners.delete(take)
+    }
+  }, [])
+
+  if (!form) {
+    return (
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          size="lg"
+          icon={FolderOpen}
+          onClick={() => void gui.openProject()}
+        >
+          Open project…
+        </Button>
+        <Button size="lg" icon={FolderPlus} onClick={() => setForm('newProject')}>
+          New project
+        </Button>
+        <Button size="lg" onClick={() => setForm('cloneRepo')}>
+          <GitHubMark />
+          Clone from GitHub
+        </Button>
+      </div>
+    )
+  }
+
+  const spec = FORMS[form]
+  const close = () => {
+    setForm(null)
+    setValue('')
+    setError(null)
+  }
+  const submit = async () => {
+    if (!value.trim() || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await (form === 'newProject' ? gui.newProject(value) : gui.cloneProject(value))
+      close()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form
+      className="flex flex-col gap-1.5"
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+    >
+      <div className="flex gap-2">
+        <Input
+          // Remounted per field, so autoFocus applies to each.
+          key={form}
+          ref={input}
+          autoFocus
+          mono={spec.mono}
+          className="h-8"
+          aria-label={spec.label}
+          aria-invalid={!!error || undefined}
+          aria-describedby={error ? 'start-form-error' : undefined}
+          placeholder={spec.placeholder}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          value={value}
+          disabled={busy}
+          onChange={(event) => {
+            setValue(event.target.value)
+            setError(null)
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !busy) close()
+          }}
+        />
+        <Button type="submit" variant="primary" size="lg" loading={busy} disabled={!value.trim()}>
+          {busy ? spec.busy : spec.submit}
+        </Button>
+        <Button size="lg" disabled={busy} onClick={close}>
+          Cancel
+        </Button>
+      </div>
+      {error && (
+        <p id="start-form-error" role="alert" className="text-small text-danger">
+          {error}
+        </p>
+      )}
+    </form>
+  )
+}
+
+const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+const UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 24 * 3600],
+  ['month', 30 * 24 * 3600],
+  ['week', 7 * 24 * 3600],
+  ['day', 24 * 3600],
+  ['hour', 3600],
+  ['minute', 60],
 ]
+
+/** "5 minutes ago", "yesterday": when a recent chat's last message was sent. */
+function timeAgo(at: number) {
+  const seconds = (Date.now() - at) / 1000
+  for (const [unit, size] of UNITS) {
+    if (seconds >= size) return RELATIVE.format(-Math.floor(seconds / size), unit)
+  }
+  return 'just now'
+}
 
 /**
  * The start screen: what Gui does, opening a project (or a recent one), and the agent that
- * will do the work. On the first run, the three steps instead of recent projects.
+ * will do the work, and once there are any, recent chats and projects.
  */
 function EmptyState({ state }: { state: WindowState }) {
-  const recent = state.recent.slice(0, 6)
-  const firstRun = recent.length === 0
+  // A project with a chat shows under Recent chats, by its last message; the rest by name.
+  const chats = state.recent
+    .flatMap((project) => (project.chat ? [{ ...project, chat: project.chat }] : []))
+    .sort((a, b) => b.chat.at - a.chat.at)
+    .slice(0, 5)
+  const projects = state.recent.filter((project) => !project.chat).slice(0, 5)
+  const firstRun = state.recent.length === 0
   return (
     <div className="flex w-full max-w-md flex-col gap-8">
       <div className="flex flex-col gap-5">
@@ -467,39 +648,41 @@ function EmptyState({ state }: { state: WindowState }) {
             at things.
           </p>
         </div>
-        {firstRun && (
-          <ol className="flex flex-col gap-2.5">
-            {STEPS.map(([title, detail], i) => (
-              <li key={title} className="flex gap-3">
-                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-fill text-caption font-medium tabular-nums text-muted">
-                  {i + 1}
-                </span>
-                <span>
-                  <span className="font-medium">{title}</span>
-                  <span className="text-muted"> — {detail}</span>
-                </span>
-              </li>
-            ))}
-          </ol>
-        )}
-        <Button
-          variant="primary"
-          size="lg"
-          icon={FolderOpen}
-          className="self-start"
-          onClick={() => void gui.openProject()}
-        >
-          Open project…
-        </Button>
+        <OpenActions />
       </div>
 
-      {!firstRun && (
-        <section aria-labelledby="recent-projects" className="flex flex-col gap-2">
-          <GroupLabel id="recent-projects" as="h2">
-            Recent
+      {chats.length > 0 && (
+        <section aria-labelledby="recent-chats" className="flex flex-col gap-2">
+          <GroupLabel id="recent-chats" as="h2">
+            Recent chats
           </GroupLabel>
           <List>
-            {recent.map((project) => (
+            {chats.map((project) => (
+              <li key={project.root}>
+                <ListRow
+                  flush
+                  onClick={() => void gui.openRecent(project.root)}
+                  title={project.chat.prompt}
+                  detail={
+                    <span title={project.root}>
+                      {project.name} · {timeAgo(project.chat.at)}
+                    </span>
+                  }
+                  trailing={CHEVRON}
+                />
+              </li>
+            ))}
+          </List>
+        </section>
+      )}
+
+      {projects.length > 0 && (
+        <section aria-labelledby="recent-projects" className="flex flex-col gap-2">
+          <GroupLabel id="recent-projects" as="h2">
+            {chats.length > 0 ? 'Recent projects' : 'Recent'}
+          </GroupLabel>
+          <List>
+            {projects.map((project) => (
               <li key={project.root}>
                 <ListRow
                   flush
@@ -514,25 +697,7 @@ function EmptyState({ state }: { state: WindowState }) {
         </section>
       )}
 
-      <div className="flex flex-col gap-1">
-        <AgentCard
-          agentId={state.agentId}
-          health={state.agents.find((agent) => agent.id === state.agentId) ?? null}
-          change={
-            <Button variant="ghost" trailingIcon={ChevronDown} onClick={() => gui.showAgentMenu()}>
-              Change
-            </Button>
-          }
-        />
-        <Button
-          variant="ghost"
-          size="sm"
-          className="-ml-2 self-start"
-          onClick={() => gui.openSettings('agents')}
-        >
-          All agents and settings
-        </Button>
-      </div>
+      <AgentList agents={state.agents} agentId={state.agentId} />
     </div>
   )
 }

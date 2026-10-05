@@ -318,7 +318,8 @@ function launchEnv(extra: Record<string, string>): Record<string, string> {
   }
   // Either would stop Electron from behaving like the app a user launches.
   for (const key of ['ELECTRON_RUN_AS_NODE', 'NODE_OPTIONS']) delete env[key]
-  return { ...env, NEXT_TELEMETRY_DISABLED: '1', ...extra }
+  // Windows show without taking the keyboard from the app the user is in.
+  return { ...env, NEXT_TELEMETRY_DISABLED: '1', GUI_E2E_BACKGROUND: '1', ...extra }
 }
 
 async function findPage(app: ElectronApplication, suffix: string): Promise<Page> {
