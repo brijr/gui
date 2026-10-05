@@ -1,0 +1,9 @@
+{
+  "name": "usegui",
+  "compatibility_date": "2026-10-01",
+  "assets": { "directory": "./dist" },
+  "routes": [
+    { "pattern": "usegui.com", "custom_domain": true },
+    { "pattern": "www.usegui.com", "custom_domain": true }
+  ]
+}
