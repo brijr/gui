@@ -22,8 +22,10 @@ export function AutoToggle({ meta }: { meta: ChatMeta }) {
         shortcut="autoMode"
         // Only from the user's own click (or Agent → Auto Mode): agents never get to turn this on.
         onClick={() => gui.setAutoApprove(!on)}
+        // Narrow, just the icon (Shield or ShieldOff) and the pressed fill say which.
+        className="@max-sm:w-7 @max-sm:justify-center @max-sm:px-0"
       >
-        {on ? 'Auto' : 'Ask'}
+        <span className="@max-sm:sr-only">{on ? 'Auto' : 'Ask'}</span>
       </Toggle>
       <span id={helpId} hidden>
         {HELP}

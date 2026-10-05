@@ -217,10 +217,11 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         // Looks hovered while its picker is open.
         className="min-w-0 aria-expanded:bg-hover aria-expanded:text-fg"
       >
-        {/* A long model name gives way; the effort stays readable. */}
+        {/* A long model name gives way; the effort stays readable, unless the row is too
+            narrow for both, when it's left to the tooltip so the model name has room. */}
         <span className="flex min-w-0">
           <span className="truncate">{model}</span>
-          {effort && <span className="shrink-0 whitespace-pre"> · {effort}</span>}
+          {effort && <span className="shrink-0 whitespace-pre @max-xs:hidden"> · {effort}</span>}
         </span>
       </Button>
       {shown && placement && (

@@ -239,7 +239,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           }
           className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
-        <div className="flex items-center gap-1 px-1.5 pb-1.5">
+        {/* A container: in a narrow panel, Auto and the model button get more compact. */}
+        <div className="@container flex items-center gap-1 px-1.5 pb-1.5">
           <IconButton
             label="Select element"
             shortcut="selectElement"
