@@ -98,6 +98,9 @@ export class ProjectWindow implements TabHost {
     followSurface(this.win)
     guardAppContents(this.win.webContents)
     this.win.on('resize', () => this.active.layout())
+    // Full screen hides the traffic lights; the chrome takes back the room it kept for them.
+    this.win.on('enter-full-screen', () => this.sendState())
+    this.win.on('leave-full-screen', () => this.sendState())
     // The title is the active tab's project, not the chrome page's own.
     this.win.on('page-title-updated', (event) => event.preventDefault())
     this.win.on('focus', () => {
@@ -160,6 +163,7 @@ export class ProjectWindow implements TabHost {
       activeTab: this.active.id,
       focusMode: this.focus,
       shortcutsOpen: this.sheet,
+      fullScreen: this.win.isFullScreen(),
     }
   }
 

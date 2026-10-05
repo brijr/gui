@@ -58,13 +58,14 @@ export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
   // With two or more tabs the traffic lights sit in the tab row above (tab-strip.tsx).
   const tabbed = state.tabs.length > 1
+  const lights = !tabbed && !state.fullScreen
   // Picking and screenshots only work on the local app.
   const capturable = preview.visible && preview.selectable
 
   return (
     <header
       className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface pr-2 pl-2"
-      style={{ height: TOOLBAR_HEIGHT, paddingLeft: tabbed ? undefined : TRAFFIC_LIGHTS_INSET }}
+      style={{ height: TOOLBAR_HEIGHT, paddingLeft: lights ? TRAFFIC_LIGHTS_INSET : undefined }}
     >
       <ProjectMenuButton state={state} named={!tabbed} />
 

@@ -313,6 +313,8 @@ export interface WindowState {
   focusMode: boolean
   /** Help → Keyboard Shortcuts is open over the window */
   shortcutsOpen: boolean
+  /** The window is in macOS full screen, which hides its traffic lights */
+  fullScreen: boolean
 }
 
 export interface Rect {

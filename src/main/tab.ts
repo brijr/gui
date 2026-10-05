@@ -140,7 +140,10 @@ interface Anchor extends PanelCorner {
 }
 
 /** What the window shows for its active tab, without the window's own tab strip. */
-export type TabState = Omit<WindowState, 'tabs' | 'activeTab' | 'focusMode' | 'shortcutsOpen'>
+export type TabState = Omit<
+  WindowState,
+  'tabs' | 'activeTab' | 'focusMode' | 'shortcutsOpen' | 'fullScreen'
+>
 
 /** The window a tab is in (window.ts), as the tab sees it. */
 export interface TabHost {
