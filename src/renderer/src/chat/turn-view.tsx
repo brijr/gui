@@ -695,6 +695,8 @@ function Working({ since }: { since: number }) {
  */
 function Comparison({ turn }: { turn: Turn }) {
   const [large, setLarge] = useState(false)
+  /** The after image's width over its height, when there's no frame to say it. */
+  const [loadedRatio, setLoadedRatio] = useState<number | null>(null)
   const preview = turn.preview
   // Without an after image there's nothing to compare yet (or the change wasn't on screen).
   if (!preview?.after) return null
@@ -702,6 +704,8 @@ function Comparison({ turn }: { turn: Turn }) {
     { label: 'Before', src: preview.before },
     { label: 'After', src: preview.after },
   ] as const
+  // Frames take the shot's shape, up to a cap, so a tall element isn't shrunk into a strip.
+  const ratio = preview.frame ? preview.frame.width / preview.frame.height : loadedRatio
   return (
     <div
       className={cn(
@@ -721,10 +725,14 @@ function Comparison({ turn }: { turn: Turn }) {
                 title={large ? 'Show smaller' : 'Show larger'}
                 onClick={() => setLarge(!large)}
                 // The page's own color (from the image), so a frame reads as a window onto it.
-                style={preview.fill ? { backgroundColor: preview.fill } : undefined}
+                style={{
+                  backgroundColor: preview.fill ?? undefined,
+                  aspectRatio: ratio ?? undefined,
+                }}
                 className={cn(
-                  'flex w-full items-center justify-center overflow-hidden rounded-md border border-line bg-canvas transition-colors hover:border-line-strong',
-                  large ? 'h-48' : 'h-24',
+                  'flex min-h-12 w-full items-center justify-center overflow-hidden rounded-md border border-line bg-canvas transition-colors hover:border-line-strong',
+                  !ratio && (large ? 'h-48' : 'h-24'),
+                  large ? 'max-h-[32rem]' : 'max-h-64',
                 )}
               >
                 <Shot
@@ -732,6 +740,7 @@ function Comparison({ turn }: { turn: Turn }) {
                   label={shot.label}
                   frame={preview.frame ?? null}
                   before={shot.label === 'Before'}
+                  onRatio={shot.label === 'After' ? setLoadedRatio : undefined}
                 />
               </button>
             </figure>
@@ -746,13 +755,28 @@ function Shot({
   label,
   frame,
   before,
+  onRatio,
 }: {
   src: string
   label: string
   frame: PreviewFrame | null
   before: boolean
+  /** Reports the image's width over its height once it loads */
+  onRatio?: (ratio: number) => void
 }) {
-  if (!frame) return <img src={src} alt={label} className="size-full object-contain" />
+  if (!frame) {
+    return (
+      <img
+        src={src}
+        alt={label}
+        onLoad={(event) => {
+          const { naturalWidth, naturalHeight } = event.currentTarget
+          if (naturalHeight > 0) onRatio?.(naturalWidth / naturalHeight)
+        }}
+        className="size-full object-contain"
+      />
+    )
+  }
   const area = before ? frame.before : { x: 0, y: 0, width: frame.width, height: frame.height }
   return (
     <svg
