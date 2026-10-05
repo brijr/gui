@@ -87,6 +87,17 @@ const cli = (command: string, ...args: string[]): AgentLaunch => ({
 })
 
 const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
+  cursor: {
+    // `agent` is also used by other CLIs; Cursor installs this unambiguous alias.
+    launch: cli('cursor-agent', 'acp'),
+    signIn: 'Sign in from Settings → Agents, or run `cursor-agent login` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://cursor.com/docs/cli/installation',
+    terminalSignIn: {
+      command: 'cursor-agent login',
+      hint: 'Finish signing in in your browser.',
+    },
+  },
   amp: {
     launch: adapter('amp-acp', { requires: 'amp', cliPathEnv: 'AMP_CLI_PATH' }),
     signIn: 'Sign in from Settings → Agents, or run `amp login` in a terminal.',

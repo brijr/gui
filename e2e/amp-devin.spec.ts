@@ -1,11 +1,12 @@
 import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { waitFor } from './helpers/env'
 import { expect, test } from './helpers/test'
 
 // Exercise the real launch paths and Amp's bundled adapter with local fake CLIs.
 // No credentials, network calls, or paid agent turns are used.
-for (const id of ['amp', 'devin'] as const) {
+for (const id of ['amp', 'devin', 'cursor'] as const) {
   test(`${id} is selectable and streams a CLI response`, async ({ launch }) => {
     const scratch = mkdtempSync(join(tmpdir(), 'gui-cli-'))
     const log = join(scratch, 'calls.jsonl')
@@ -16,7 +17,8 @@ for (const id of ['amp', 'devin'] as const) {
     )
     chmodSync(shell, 0o755)
     const script = id === 'amp' ? AMP_SCRIPT : DEVIN_SCRIPT
-    const cli = join(scratch, id)
+    const command = id === 'cursor' ? 'cursor-agent' : id
+    const cli = join(scratch, command)
     writeFileSync(cli, `#!${process.execPath}\n${script}`)
     chmodSync(cli, 0o755)
     try {
@@ -36,9 +38,25 @@ for (const id of ['amp', 'devin'] as const) {
       await session.chrome.evaluate((agentId) => window.gui.setAgent(agentId), id)
       expect((await session.chatSnapshot()).meta.agentId).toBe(id)
       const health = (await session.state()).agents.find((agent) => agent.id === id)
-      expect(health?.command).toBe(id)
+      expect(health?.command).toBe(command)
       expect(health?.status).not.toBe('not-installed')
       expect(await session.chat.evaluate(() => window.gui.send('Hello from Gui'))).toBe(true)
+      if (id === 'cursor') {
+        const card = await waitFor(async () => {
+          const turn = (await session.chatSnapshot()).turns[0]
+          const permission = turn?.items.find(
+            (item) => item.kind === 'permission' && item.resolved === null,
+          )
+          return turn && permission ? { turnId: turn.id, itemId: permission.id } : null
+        }, 'Cursor plan approval')
+        await expect(
+          session.chat.getByText('Review the workspace before editing.', { exact: true }),
+        ).toBeVisible()
+        await session.chat.evaluate(
+          ({ turnId, itemId }) => window.gui.respondPermission(turnId, itemId, 'accept'),
+          card,
+        )
+      }
       const { turn } = await session.waitForTurn(0)
       expect(turn.status).toBe('done')
       await expect(session.chat.getByText('Hello from the CLI', { exact: true })).toBeVisible()
@@ -61,6 +79,14 @@ for (const id of ['amp', 'devin'] as const) {
             (call) => call.method === 'session/new' && call.params.cwd === session.fixture.root,
           ),
         ).toBe(true)
+        if (id === 'cursor') {
+          expect(
+            calls.find((call) => call.response?.id === 100)?.response.result.outcome.outcome,
+          ).toBe('skipped')
+          expect(
+            calls.find((call) => call.response?.id === 101)?.response.result.outcome.outcome,
+          ).toBe('accepted')
+        }
       }
     } finally {
       rmSync(scratch, { recursive: true, force: true })
@@ -82,8 +108,15 @@ process.stdin.on('end', () => {
 
 const DEVIN_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
+const cursor = process.argv[1].endsWith('cursor-agent')
 appendFileSync(process.env.GUI_CLI_LOG, JSON.stringify({ args: process.argv.slice(2) }) + '\n')
 const write = message => console.log(JSON.stringify({ jsonrpc: '2.0', ...message }))
+let promptId
+let promptSession
+const finish = () => {
+  write({ method: 'session/update', params: { sessionId: promptSession, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hello from the CLI' } } } })
+  write({ id: promptId, result: { stopReason: 'end_turn' } })
+}
 let buffer = ''
 process.stdin.setEncoding('utf8')
 process.stdin.on('data', chunk => {
@@ -92,14 +125,23 @@ process.stdin.on('data', chunk => {
     const line = buffer.slice(0, end)
     buffer = buffer.slice(end + 1)
     if (!line.trim()) continue
-    const { id, method, params } = JSON.parse(line)
+    const response = JSON.parse(line)
+    const { id, method, params } = response
     if (id === undefined) continue
+    if (method === undefined) {
+      appendFileSync(process.env.GUI_CLI_LOG, JSON.stringify({ response }) + '\n')
+      if (id === 100) write({ id: 101, method: 'cursor/create_plan', params: { toolCallId: 'plan-1', name: 'Workspace review', plan: 'Review the workspace before editing.', todos: [] } })
+      else if (id === 101) finish()
+      continue
+    }
     appendFileSync(process.env.GUI_CLI_LOG, JSON.stringify({ method, params }) + '\n')
     if (method === 'initialize') write({ id, result: { protocolVersion: 1, agentCapabilities: { mcpCapabilities: { http: true } }, authMethods: [] } })
     else if (method === 'session/new') write({ id, result: { sessionId: 'session-1' } })
     else if (method === 'session/prompt') {
-      write({ method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hello from the CLI' } } } })
-      write({ id, result: { stopReason: 'end_turn' } })
+      promptId = id
+      promptSession = params.sessionId
+      if (cursor) write({ id: 100, method: 'cursor/ask_question', params: { toolCallId: 'question-1', questions: [] } })
+      else finish()
     } else write({ id, error: { code: -32601, message: 'Method not found' } })
   }
 })

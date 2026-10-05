@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
 import { pathToFileURL } from 'node:url'
 import * as acp from '@agentclientprotocol/sdk'
+import { z } from 'zod'
 import { parseCommands } from '../shared/commands'
 import {
   type AgentCommand,
@@ -25,6 +26,12 @@ import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
+
+const cursorPlan = z.object({
+  toolCallId: z.string(),
+  name: z.string().optional(),
+  plan: z.string(),
+})
 
 interface SpawnSpec {
   command: string
@@ -367,6 +374,46 @@ export class AgentSession {
           )
         })
       })
+    if (definition.id === 'cursor') {
+      app.onRequest('cursor/ask_question', z.unknown().parse, () => ({
+        outcome: { outcome: 'skipped', reason: 'Ask the user in normal chat instead.' },
+      }))
+      app.onRequest('cursor/create_plan', cursorPlan.parse, ({ params }) => {
+        const sessionId = this.sessionId
+        if (sessionId === null || this.disposed) return { outcome: { outcome: 'cancelled' } }
+        this.handlers.onUpdate({
+          sessionUpdate: 'agent_message_chunk',
+          content: { type: 'text', text: `\n\n${params.plan}\n\n` },
+        })
+        return new Promise<{ outcome: { outcome: string } }>((resolve) => {
+          this.handlers.onPermission(
+            {
+              sessionId,
+              toolCall: {
+                toolCallId: params.toolCallId,
+                title: params.name ? `Approve plan: ${params.name}` : 'Approve plan',
+                kind: 'switch_mode',
+              },
+              options: [
+                { optionId: 'reject', name: 'Reject plan', kind: 'reject_once' },
+                { optionId: 'accept', name: 'Approve plan', kind: 'allow_once' },
+              ],
+            },
+            (optionId) =>
+              resolve({
+                outcome: {
+                  outcome:
+                    optionId === 'accept'
+                      ? 'accepted'
+                      : optionId === 'reject'
+                        ? 'rejected'
+                        : 'cancelled',
+                },
+              }),
+          )
+        })
+      })
+    }
     this.connection = app.connect(stream)
     const agent = this.connection.agent
 
