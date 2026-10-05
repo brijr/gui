@@ -5,6 +5,7 @@ import {
   type AgentId,
   CUSTOM_AGENT_PREFIX,
   type ElementContext,
+  isRegion,
   type Rect,
   VIEWPORTS,
   viewportSpec,
@@ -72,16 +73,6 @@ async function pageSize({ webContents }: ElectronModule): Promise<Size | null> {
   const preview = webContents.getAllWebContents().find((wc) => /^https?:\/\//.test(wc.getURL()))
   if (!preview || preview.isCrashed()) return null
   return preview.executeJavaScript('({ width: innerWidth, height: innerHeight })')
-}
-
-/** Runs in main: a click at `point` in the preview view, through the input pipeline. */
-function clickPreview({ webContents }: ElectronModule, point: Point) {
-  const preview = webContents.getAllWebContents().find((wc) => /^https?:\/\//.test(wc.getURL()))
-  const x = Math.round(point.x)
-  const y = Math.round(point.y)
-  preview?.sendInputEvent({ type: 'mouseMove', x, y })
-  preview?.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
-  preview?.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
 }
 
 /** Runs in main: the pointer to `point` in the preview view. */
@@ -371,25 +362,9 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
 
 /** Picks what's at `point` (view coordinates) with real input, as the user's click would. */
 async function pickAt(session: GuiSession, point: Point): Promise<ElementContext> {
-  const before = (await session.chatSnapshot()).meta.selection?.id ?? null
-  await session.chrome.evaluate(() => window.gui.toggleSelect())
-  await waitFor(async () => (await session.state()).preview.selecting, 'selection mode')
-  // `selecting` flips before inspect mode is armed: a click too early presses the page.
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    await sleep(500)
-    await session.app.evaluate(clickPreview, point)
-    const picked = await waitFor(
-      async () => {
-        const { meta } = await session.chatSnapshot()
-        if (meta.selectionError) throw new Error(meta.selectionError)
-        return meta.selection && meta.selection.id !== before ? meta.selection : null
-      },
-      'a selection',
-      { timeout: 8_000, interval: 200 },
-    ).catch(() => null)
-    if (picked) return picked
-  }
-  throw new Error('Clicking in selection mode never produced a selection')
+  const picked = await session.pickAt(point)
+  if (isRegion(picked)) throw new Error('The click picked an area')
+  return picked
 }
 
 test('picking in a scaled frame finds, highlights and frames the right element', async ({

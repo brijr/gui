@@ -10,6 +10,8 @@ import type {
   ImageAttachment,
   MorphEvent,
   PanelEdge,
+  PickOverlayState,
+  Point,
   Rect,
   SettingsSection,
   SettingsState,
@@ -68,6 +70,10 @@ export const Send = {
   zoomPreview: 'preview:zoom',
   toggleSelect: 'preview:select',
   stopSelecting: 'preview:select-stop',
+  pickHover: 'pick:hover',
+  pickElement: 'pick:element',
+  pickArea: 'pick:area',
+  pickWheel: 'pick:wheel',
   setCanvasRect: 'layout:canvas',
   morphShown: 'layout:morph-shown',
   morphLanded: 'layout:morph-landed',
@@ -90,6 +96,8 @@ export const Send = {
   respondPermission: 'chat:permission',
   newSession: 'chat:new',
   clearSelection: 'chat:clear-selection',
+  removeSelection: 'chat:remove-selection',
+  hoverSelection: 'chat:hover-selection',
   setMinimized: 'chat:minimize',
   expandChat: 'chat:expand',
   togglePopOut: 'chat:pop-out',
@@ -138,6 +146,7 @@ export const Events = {
   chatAttach: 'chat:attach',
   chatFloat: 'chat:float',
   morph: 'layout:morph',
+  pickState: 'pick:state',
   settings: 'settings',
   settingsSection: 'settings:section',
 } as const
@@ -243,8 +252,24 @@ export interface GuiApi {
   /** Zooms the viewport shown in (`step` 1), out (-1), or back to 100% or fitting (0) */
   zoomPreview(step: 1 | -1 | 0): void
   toggleSelect(): void
-  /** Ends element picking (the chat bubble's click) */
+  /** Ends element picking (the chat bubble's click, Esc over the preview) */
   stopSelecting(): void
+  /**
+   * The pick overlay, in its own coordinates (the preview view's, CSS pixels): the pointer
+   * is over `at` (null: it left), so main finds the element there to outline.
+   */
+  pickHover(at: Point | null): void
+  /**
+   * A click at `at` picks the element there: on its own, in place of what was picked, which
+   * ends picking; with `add` (⇧), along with it, or out of it if it was already picked.
+   */
+  pickElement(at: Point, add: boolean): void
+  /** A drag picks the area `rect` as a screenshot; `add` as for `pickElement` */
+  pickArea(rect: Rect, add: boolean): void
+  /** The wheel over the overlay scrolls the page under it */
+  pickWheel(at: Point, deltaX: number, deltaY: number): void
+  /** What the overlay draws (see `PickOverlayState`) */
+  onPickState(cb: (state: PickOverlayState) => void): Unsubscribe
   setCanvasRect(rect: Rect): void
   /**
    * The preview's layout morphs (`MorphEvent`): the chrome draws its snapshot moving from where
@@ -342,6 +367,10 @@ export interface GuiApi {
   redo(): Promise<void>
   newSession(): void
   clearSelection(): void
+  /** Drops one picked element or area from the selection */
+  removeSelection(id: string): void
+  /** The pointer is over a picked element's chip (null: it left), so the page outlines it */
+  hoverSelection(id: string | null): void
   setMinimized(minimized: boolean): void
   /** Brings the floating panel back out of the bubble it tucked into */
   expandChat(): void

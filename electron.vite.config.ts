@@ -42,6 +42,7 @@ export default defineConfig({
           index: resolve('src/renderer/index.html'),
           chat: resolve('src/renderer/chat.html'),
           settings: resolve('src/renderer/settings.html'),
+          pick: resolve('src/renderer/pick.html'),
         },
       },
     },

@@ -2,7 +2,14 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { ElectronApplication, Page, TestInfo } from '@playwright/test'
 import { _electron as electron } from 'playwright'
-import type { ChatMeta, ElementContext, WindowState } from '../../src/shared/types'
+import {
+  type ElementContext,
+  isRegion,
+  type Picked,
+  type Point,
+  type RegionContext,
+  type WindowState,
+} from '../../src/shared/types'
 import { electronExecutable, REPO_ROOT, sleep, waitFor } from './env'
 import type { FixtureCopy, FixtureName } from './fixtures'
 
@@ -87,6 +94,53 @@ async function captureLayers(api: ElectronModule): Promise<Layers | null> {
     out.push({ x: bounds.x, y: bounds.y, url: image.toDataURL() })
   }
   return { width, height, out }
+}
+
+/** What to do in the pick overlay: click at `from`, or drag from it to `to`, holding ⇧ to add. */
+interface OverlayGesture {
+  from: Point
+  to: Point | null
+  add: boolean
+}
+
+/**
+ * Runs in main: real input to the pick overlay that lies over the preview while picking, at
+ * points in its coordinates (the preview view's), as the user's pointer would give it.
+ */
+function overlayGesture({ webContents }: ElectronModule, { from, to, add }: OverlayGesture) {
+  const overlay = webContents.getAllWebContents().find((wc) => wc.getURL().endsWith('/pick.html'))
+  if (!overlay) throw new Error('The pick overlay is missing')
+  const modifiers: ('shift' | 'leftbuttondown')[] = add ? ['shift'] : []
+  const at = ({ x, y }: Point) => ({ x: Math.round(x), y: Math.round(y) })
+  overlay.sendInputEvent({ type: 'mouseMove', ...at(from), modifiers })
+  overlay.sendInputEvent({
+    type: 'mouseDown',
+    ...at(from),
+    button: 'left',
+    clickCount: 1,
+    modifiers,
+  })
+  if (to) {
+    const steps = 8
+    for (let i = 1; i <= steps; i++) {
+      const point = {
+        x: from.x + ((to.x - from.x) * i) / steps,
+        y: from.y + ((to.y - from.y) * i) / steps,
+      }
+      overlay.sendInputEvent({
+        type: 'mouseMove',
+        ...at(point),
+        modifiers: [...modifiers, 'leftbuttondown'],
+      })
+    }
+  }
+  overlay.sendInputEvent({
+    type: 'mouseUp',
+    ...at(to ?? from),
+    button: 'left',
+    clickCount: 1,
+    modifiers,
+  })
 }
 
 /** Runs in the app chrome page: stacks the layers on a canvas in z-order. */
@@ -206,42 +260,95 @@ export class GuiSession {
     return preview.locator(selector).evaluate((el, prop) => getComputedStyle(el)[prop], property)
   }
 
-  /** Picks an element through the real inspect-mode flow: toggle, hover, click. */
-  async pickElement(selector: string): Promise<ElementContext> {
-    const preview = await this.previewPage()
-    await preview.waitForSelector(selector, { timeout: 60_000 })
-    await this.chrome.evaluate(() => window.gui.toggleSelect())
-    await waitFor(async () => (await this.state()).preview.selecting, 'selection mode')
-
-    // `selecting` flips before the inspector has finished arming, so an early click can
-    // land on the page instead. That only presses the button; click again once armed.
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      await sleep(500)
-      const box = await preview.locator(selector).boundingBox()
-      if (!box) throw new Error(`"${selector}" has no layout box to click`)
-      const x = box.x + box.width / 2
-      const y = box.y + box.height / 2
-      await preview.mouse.move(x, y)
-      await sleep(300)
-      await preview.mouse.click(x, y)
-      const meta = await this.pollSelection(8_000)
-      if (meta?.selectionError) throw new Error(`Picking failed: ${meta.selectionError}`)
-      if (meta?.selection) return meta.selection
-    }
-    throw new Error(`Clicking "${selector}" in selection mode never produced a selection`)
+  /** The overlay Gui lays over the preview while the user picks. */
+  async pickPage(): Promise<Page> {
+    const find = () =>
+      this.app
+        .context()
+        .pages()
+        .find((page) => page.url().endsWith('/pick.html'))
+    return waitFor(find, 'the pick overlay', { timeout: 30_000 })
   }
 
-  private async pollSelection(timeout: number): Promise<ChatMeta | null> {
-    const check = async () => {
+  /** A click (or with `to`, a drag) in the pick overlay, without waiting for what it does. */
+  async overlayGesture(at: Point, options: { to?: Point; add?: boolean } = {}) {
+    const gesture: OverlayGesture = { from: at, to: options.to ?? null, add: options.add ?? false }
+    await this.app.evaluate(overlayGesture, gesture)
+  }
+
+  /** The pointer moves to `at` in the pick overlay, or the wheel turns there by `deltaY`. */
+  async overlayPointer(at: Point, deltaY = 0) {
+    await this.app.evaluate(
+      ({ webContents }, { at, deltaY }) => {
+        const overlay = webContents
+          .getAllWebContents()
+          .find((wc) => wc.getURL().endsWith('/pick.html'))
+        const x = Math.round(at.x)
+        const y = Math.round(at.y)
+        overlay?.sendInputEvent({ type: 'mouseMove', x, y })
+        // Chromium's wheel deltas point the way the content moves: negative scrolls down.
+        if (deltaY) overlay?.sendInputEvent({ type: 'mouseWheel', x, y, deltaY: -deltaY })
+      },
+      { at, deltaY },
+    )
+  }
+
+  /** Turns picking on, unless it is already. */
+  async startPicking() {
+    if ((await this.state()).preview.selecting) return
+    await this.chrome.evaluate(() => window.gui.toggleSelect())
+    await waitFor(async () => (await this.state()).preview.selecting, 'picking')
+  }
+
+  /**
+   * Picks with real input in the overlay, at `at` (the preview view's coordinates): a click,
+   * or with `to` a drag for an area; `add` holds ⇧. Resolves with what joined the selection.
+   */
+  async pickAt(at: Point, options: { to?: Point; add?: boolean } = {}): Promise<Picked> {
+    const before = new Set((await this.chatSnapshot()).meta.selection.map((picked) => picked.id))
+    await this.startPicking()
+    await this.overlayGesture(at, options)
+    const settled = async () => {
       const { meta } = await this.chatSnapshot()
-      const settled = meta.selection !== null || meta.selectionError !== null
-      return settled ? meta : null
+      if (meta.selectionError) return { error: meta.selectionError }
+      const added = meta.selection.find((picked) => !before.has(picked.id))
+      return added ? { added } : null
     }
-    try {
-      return await waitFor(check, 'an element selection', { timeout, interval: 200 })
-    } catch {
-      return null
+    const result = await waitFor(settled, 'a pick', { timeout: 20_000, interval: 100 })
+    if ('error' in result) throw new Error(`Picking failed: ${result.error}`)
+    return result.added
+  }
+
+  /** Where an element of the page is drawn, in the preview view: its box at the view's scale. */
+  async viewBox(selector: string) {
+    const preview = await this.previewPage()
+    await preview.waitForSelector(selector, { timeout: 60_000 })
+    const box = await preview.locator(selector).boundingBox()
+    if (!box) throw new Error(`"${selector}" has no layout box`)
+    const { frame, zoom } = (await this.state()).preview
+    const scale = frame?.scale ?? zoom
+    return {
+      x: box.x * scale,
+      y: box.y * scale,
+      width: box.width * scale,
+      height: box.height * scale,
     }
+  }
+
+  /** Picks an element as the user does: picking on, then a click on it (⇧-click with `add`). */
+  async pickElement(selector: string, options: { add?: boolean } = {}): Promise<ElementContext> {
+    const box = await this.viewBox(selector)
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    const picked = await this.pickAt(center, options)
+    if (isRegion(picked)) throw new Error(`Clicking "${selector}" picked an area`)
+    return picked
+  }
+
+  /** Drags out an area from `from` to `to` (the preview view's coordinates). */
+  async pickArea(from: Point, to: Point, options: { add?: boolean } = {}): Promise<RegionContext> {
+    const picked = await this.pickAt(from, { ...options, to })
+    if (!isRegion(picked)) throw new Error('The drag picked an element, not an area')
+    return picked
   }
 
   /**

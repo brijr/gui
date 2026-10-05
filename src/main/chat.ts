@@ -27,11 +27,12 @@ import {
   agentName,
   type ChatMeta,
   type ChatSnapshot,
-  type ElementContext,
   type ImageAttachment,
   type ModelSettings,
+  type Picked,
   type PreviewFrame,
   type Problem,
+  primaryPick,
   type QueuedMessage,
   type QueuePauseReason,
   type ToolStatus,
@@ -89,7 +90,7 @@ interface TurnRecord {
 
 interface QueuedPayload {
   images: ImageAttachment[]
-  selection: ElementContext | null
+  selection: Picked[]
   /** The viewport the message was written in */
   viewport: PromptViewport
 }
@@ -231,7 +232,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private knownCommands: Map<AgentId, AgentCommand[]>
   /**
    * What each queued message (`meta.queue`, by id) takes to the agent: the full images and
-   * the picked element with its crop. The meta only carries thumbnails, to keep IPC small.
+   * what was picked, with its crops. The meta only carries thumbnails, to keep IPC small.
    */
   private queued = new Map<string, QueuedPayload>()
   private readonly history: HistoryWriter
@@ -254,7 +255,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       errorDetail: null,
       modeName: null,
       commands: this.knownCommands.get(agentId) ?? [],
-      selection: null,
+      selection: [],
       selectionError: null,
       selecting: false,
       canSelect: false,
@@ -343,8 +344,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.drainQueue()
   }
 
-  setSelection(selection: ElementContext | null) {
+  setSelection(selection: Picked[]) {
     this.patchMeta({ selection, selectionError: null })
+  }
+
+  /** Adds a pick to the selection, after what's already picked. */
+  addToSelection(picked: Picked) {
+    this.setSelection([...this.meta.selection, picked])
+  }
+
+  removeFromSelection(id: string) {
+    const selection = this.meta.selection.filter((picked) => picked.id !== id)
+    if (selection.length !== this.meta.selection.length) this.setSelection(selection)
   }
 
   setSelectionError(message: string) {
@@ -622,20 +633,21 @@ export class ChatController extends EventEmitter<ChatEvents> {
     // A command goes to the agent alone: the picked element and images aren't sent with it.
     const command = !fix && invokedCommand(prompt, this.meta.commands) !== null
     if (command) images = []
-    const picked = queued ? queued.selection : fix ? null : this.meta.selection
-    const selection = command ? null : picked
+    const picked = queued ? queued.selection : fix ? [] : this.meta.selection
+    const selection = command ? [] : picked
+    const shown = primaryPick(selection)
     const viewport = queued?.viewport ?? this.options.viewport()
     const record: TurnRecord = {
       turn: {
         id: randomUUID(),
         index: this.records.length,
         prompt,
-        context: selection ? { ...selection, screenshot: null } : null,
+        context: withoutScreenshots(selection),
         // The after image is added by the window once the change has hot-reloaded. A queued
         // pick's crop predates the turns that ran before it, so it can't stand for "before".
         preview:
-          selection?.screenshot && !queued
-            ? { before: thumbnail(selection.screenshot), after: null }
+          shown?.screenshot && !queued
+            ? { before: thumbnail(shown.screenshot), after: null }
             : null,
         items: [],
         status: 'running',
@@ -658,7 +670,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.records.push(record)
     this.active = record
     this.lock = record
-    if (!fix && !queued) this.patchMeta({ selection: null })
+    if (!fix && !queued) this.patchMeta({ selection: [] })
     this.flushTurn(record)
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
     const problems = fix ? this.meta.problems : []
@@ -674,11 +686,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const item: QueuedMessage = {
       id: randomUUID(),
       prompt,
-      context: selection ? { ...selection, screenshot: null } : null,
+      context: withoutScreenshots(selection),
       attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })),
     }
     this.queued.set(item.id, { images, selection, viewport: this.options.viewport() })
-    this.patchMeta({ queue: [...this.meta.queue, item], selection: null })
+    this.patchMeta({ queue: [...this.meta.queue, item], selection: [] })
     return true
   }
 
@@ -704,7 +716,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   private async runTurn(
     record: TurnRecord,
-    selection: ElementContext | null,
+    selection: Picked[],
     viewport: PromptViewport,
     problems: Problem[],
     images: ImageAttachment[],
@@ -1550,4 +1562,9 @@ function lastRecorded(turns: TurnRecord[]): Baseline | null {
     complete = false
   }
   return null
+}
+
+/** Picks as turns and queued messages keep them: the crops went to the agent. */
+function withoutScreenshots(selection: Picked[]): Picked[] {
+  return selection.map((picked) => ({ ...picked, screenshot: null }))
 }

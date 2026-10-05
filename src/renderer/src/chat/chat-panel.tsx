@@ -643,8 +643,8 @@ function EmptyTranscript({ canSelect }: { canSelect: boolean }) {
           </Button>
         }
       >
-        Pick an element in your app, then describe the change. Your agent edits the code and the
-        preview updates live.
+        Click elements in your app (⇧ for several) or drag out an area, then describe the change.
+        Your agent edits the code and the preview updates live.
       </Message>
     </div>
   )

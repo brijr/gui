@@ -547,6 +547,12 @@ function registerIpc() {
   })
   on(Send.toggleSelect, (tab) => void tab.toggleSelect())
   on(Send.stopSelecting, (tab) => void tab.setSelecting(false))
+  on(Send.pickHover, (tab, at) => (at === null || isPoint(at)) && tab.pickHover(at))
+  on(Send.pickElement, (tab, at, add) => isPoint(at) && tab.pickElement(at, add === true))
+  on(Send.pickArea, (tab, rect, add) => isRect(rect) && tab.pickArea(rect, add === true))
+  on(Send.pickWheel, (tab, at, dx, dy) => {
+    if (isPoint(at) && isNumber(dx) && isNumber(dy)) tab.pickWheel(at, dx, dy)
+  })
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   onWindow(Send.morphShown, (win, id, canvas) => {
     if (isNumber(id) && isRect(canvas)) win.morphShown(id, canvas)
@@ -581,6 +587,8 @@ function registerIpc() {
   })
   on(Send.newSession, (tab) => tab.newChat())
   on(Send.clearSelection, (tab) => tab.clearSelection())
+  on(Send.removeSelection, (tab, id) => isString(id) && tab.removeSelection(id))
+  on(Send.hoverSelection, (tab, id) => (id === null || isString(id)) && tab.hoverSelection(id))
   on(Send.setMinimized, (tab, minimized) => tab.setMinimized(minimized === true))
   on(Send.expandChat, (tab) => tab.expandChat())
   on(Send.togglePopOut, (tab) => tab.togglePopOut())
