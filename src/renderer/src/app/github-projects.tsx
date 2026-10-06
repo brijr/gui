@@ -4,7 +4,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Input } from '../lib/field'
 import { ArrowLeft } from '../lib/icons'
-import { GroupLabel } from '../lib/surface'
+import { GroupLabel, List, ListItem } from '../lib/surface'
 import { Button, Code } from '../lib/ui'
 
 export function GitHubProjects({
@@ -273,30 +273,34 @@ export function GitHubProjects({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
               />
-              <ul className="flex max-h-64 flex-col gap-1 overflow-y-auto">
-                {repos.map((repo) => (
-                  <li
-                    key={repo.id}
-                    className="flex items-center justify-between gap-3 rounded-md border border-line p-2"
-                  >
-                    <span className="min-w-0 truncate text-small">
-                      {repo.fullName}
-                      {repo.private && ' · Private'}
-                    </span>
-                    <Button
-                      disabled={busy}
-                      onClick={() =>
-                        void run(async () => {
-                          await gui.cloneGitHub(repo.id)
-                          onOpened?.()
-                        })
+              {repos.length > 0 && (
+                <List className="max-h-64 overflow-y-auto">
+                  {repos.map((repo) => (
+                    <ListItem
+                      key={repo.id}
+                      title={
+                        <span className="truncate">
+                          {`${repo.fullName}${repo.private ? ' · Private' : ''}`}
+                        </span>
                       }
-                    >
-                      Clone & open
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+                      trailing={
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() =>
+                            void run(async () => {
+                              await gui.cloneGitHub(repo.id)
+                              onOpened?.()
+                            })
+                          }
+                        >
+                          Clone & open
+                        </Button>
+                      }
+                    />
+                  ))}
+                </List>
+              )}
               {repos.length === 0 && (
                 <p className="text-small text-muted">No repositories match your search.</p>
               )}
