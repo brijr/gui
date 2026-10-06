@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { GitHubLogin, GitHubState } from '../../../shared/github'
 import { gui } from '../lib/api'
 import { Input } from '../lib/field'
+import { ArrowLeft } from '../lib/icons'
 import { Button, Code } from '../lib/ui'
 
 export function GitHubProjects({
@@ -94,8 +95,25 @@ export function GitHubProjects({
     state?.repositories.filter((repo) =>
       repo.fullName.toLowerCase().includes(search.toLowerCase()),
     ) ?? []
+  const close = () => {
+    void run(async () => {
+      if (signingIn.current) await cancel()
+      onClose?.()
+    })
+  }
   return (
     <section aria-label="GitHub projects" className="flex w-full max-w-lg flex-col gap-3">
+      {onClose && (
+        <Button
+          variant="ghost"
+          icon={ArrowLeft}
+          disabled={busy}
+          className="self-start"
+          onClick={close}
+        >
+          Back
+        </Button>
+      )}
       <h2 className="text-body font-semibold">GitHub projects</h2>
       <p className="text-small text-muted">
         Connect GitHub to create projects or open your repositories in Gui. You can always open
@@ -279,19 +297,6 @@ export function GitHubProjects({
       {error && !state && (
         <Button disabled={busy} onClick={() => void run(refresh)}>
           Try again
-        </Button>
-      )}
-      {onClose && (
-        <Button
-          disabled={busy}
-          onClick={() => {
-            void run(async () => {
-              if (signingIn.current) await cancel()
-              onClose()
-            })
-          }}
-        >
-          Back
         </Button>
       )}
     </section>

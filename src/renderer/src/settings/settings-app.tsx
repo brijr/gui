@@ -5,6 +5,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Bot, FolderOpen, HardDrive, MessageSquare } from '../lib/icons'
 import { GroupLabel } from '../lib/surface'
+import { PRESS } from '../lib/ui'
 import { AgentsSection } from './agents-section'
 import { ChatSection } from './chat-section'
 import { ProjectsSection } from './projects-section'
@@ -48,7 +49,8 @@ export function SettingsApp() {
                 onClick={() => setSection(id)}
                 className={cn(
                   'no-drag flex h-8 w-full items-center gap-2 rounded-md px-2 text-left',
-                  'font-medium transition-colors',
+                  'font-medium transition-[color,background-color,opacity]',
+                  PRESS,
                   section === id
                     ? 'bg-accent-soft text-accent-text'
                     : 'text-muted hover:bg-hover hover:text-fg',
@@ -71,7 +73,7 @@ export function SettingsApp() {
         </header>
         {/* Keyed by section so each one opens scrolled to the top. */}
         <div key={section} className="min-h-0 flex-1 overflow-y-auto scroll-stable">
-          <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 py-5">
+          <div className="mx-auto flex max-w-xl animate-row-fade flex-col gap-6 px-6 py-5">
             {settings && <SectionContent section={section} settings={settings} />}
           </div>
         </div>
