@@ -254,9 +254,14 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="Nothing to start yet"
         detail="Ask your agent to build the app, or add a “dev” script to package.json. Gui starts it as soon as there's one. Or enter your app's address in the bar above."
         actions={
-          <Button variant="ghost" onClick={() => focusAddressBar()}>
-            Enter address
-          </Button>
+          <>
+            <Button variant="primary" onClick={() => gui.expandChat()}>
+              Open chat
+            </Button>
+            <Button variant="ghost" onClick={() => focusAddressBar()}>
+              Enter address
+            </Button>
+          </>
         }
       />
     )
@@ -459,11 +464,12 @@ function GitHubMark() {
 /** What each of the start screen's fields asks for, and what its button does. */
 const FORMS: Record<
   StartForm,
-  { label: string; placeholder: string; submit: string; busy: string; mono: boolean }
+  { label: string; placeholder: string; hint: string; submit: string; busy: string; mono: boolean }
 > = {
   newProject: {
     label: 'Project name',
     placeholder: 'my-app',
+    hint: 'Create a local folder, then ask your agent to build your app. You choose where to save it next.',
     submit: 'Create…',
     busy: 'Creating…',
     mono: false,
@@ -471,6 +477,7 @@ const FORMS: Record<
   cloneRepo: {
     label: 'GitHub repo',
     placeholder: 'owner/repo or github.com/owner/repo',
+    hint: 'Copy a GitHub repository to your Mac. You choose where to save it next.',
     submit: 'Clone…',
     busy: 'Cloning…',
     mono: true,
@@ -580,17 +587,21 @@ function OpenActions() {
         void submit()
       }}
     >
+      <label htmlFor="start-project-value" className="text-small font-medium text-muted">
+        {spec.label}
+      </label>
       <div className="flex gap-2">
         <Input
           // Remounted per field, so autoFocus applies to each.
           key={form}
+          id="start-project-value"
           ref={input}
           autoFocus
           mono={spec.mono}
           className="h-8"
           aria-label={spec.label}
           aria-invalid={!!error || undefined}
-          aria-describedby={error ? 'start-form-error' : undefined}
+          aria-describedby={error ? 'start-form-hint start-form-error' : 'start-form-hint'}
           placeholder={spec.placeholder}
           spellCheck={false}
           autoCapitalize="off"
@@ -612,6 +623,9 @@ function OpenActions() {
           Cancel
         </Button>
       </div>
+      <p id="start-form-hint" className="text-pretty text-small text-muted">
+        {spec.hint}
+      </p>
       {error && (
         <p id="start-form-error" role="alert" className="text-small text-danger">
           {error}
