@@ -440,7 +440,10 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   const overflow = await sheet.evaluate((dialog) => ({
     fits: dialog.getBoundingClientRect().bottom <= window.innerHeight,
     scrolls: [...dialog.children].some((child) => child.scrollHeight > child.clientHeight),
-    focused: document.activeElement === dialog,
+    // Its scrolling body has the keyboard, so the arrow keys scroll it.
+    focused: [...dialog.children].some(
+      (child) => child === document.activeElement && child.scrollHeight > child.clientHeight,
+    ),
   }))
   expect(overflow).toEqual({ fits: true, scrolls: true, focused: true })
   // The arrow keys scroll it, under its title.

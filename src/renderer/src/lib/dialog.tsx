@@ -8,6 +8,11 @@ interface DialogProps {
   open: boolean
   /** Esc, the close button or a click on the backdrop; set `open` false to close it */
   onClose: () => void
+  /**
+   * Once it has closed and the page is no longer inert: the moment focus can move back to
+   * something other than what opened it
+   */
+  onClosed?: () => void
   /** Named in the header; also the dialog's accessible name */
   title: ReactNode
   /** More actions in the header, before Close */
@@ -36,6 +41,7 @@ interface DialogProps {
 export function Dialog({
   open,
   onClose,
+  onClosed,
   title,
   actions,
   size = 'md',
@@ -76,6 +82,7 @@ export function Dialog({
         onClose()
       }}
       onClick={onClick}
+      onClose={onClosed}
       className={cn(
         'no-drag m-auto flex w-full flex-col overflow-hidden rounded-xl border border-line bg-raised p-0 text-fg shadow-sheet outline-none not-open:hidden backdrop:bg-scrim',
         size === 'md' ? 'max-w-lg' : 'max-w-2xl',

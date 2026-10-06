@@ -30,7 +30,6 @@ export function RecordingClip({
     const close = () => {
       video.current?.pause()
       setPreviewing(false)
-      onPreviewClose?.()
     }
     return (
       <div className="flex items-center gap-2 rounded-md border border-line bg-surface p-1">
@@ -57,6 +56,8 @@ export function RecordingClip({
         <Dialog
           open={previewing}
           onClose={close}
+          // While the modal is open the composer is inert and can't take focus back.
+          onClosed={onPreviewClose}
           size="lg"
           title={
             <>
