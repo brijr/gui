@@ -50,4 +50,16 @@ fi
 rm -rf "$target"
 ditto "$app" "$target"
 echo "Installed $target"
+
+# The `gui` command opens a folder in Gui from the terminal. /usr/local/bin is on every
+# Mac's PATH; when it needs an administrator, Gui's app menu installs it instead.
+link=/usr/local/bin/gui
+cli="$target/Contents/Resources/bin/gui"
+if [ "$(readlink "$link" 2>/dev/null)" != "$cli" ]; then
+  if mkdir -p "$(dirname "$link")" 2>/dev/null && ln -sf "$cli" "$link" 2>/dev/null; then
+    echo "Installed the gui command: run gui in a project folder to open it in Gui"
+  else
+    echo "To open folders from the terminal with gui, choose Gui > Install 'gui' Command…"
+  fi
+fi
 if [ "$reopen" = true ]; then open "$target"; fi

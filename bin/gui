@@ -1,0 +1,24 @@
+#!/bin/sh
+# Opens a folder in Gui, which starts its dev server: `gui` for the current folder,
+# `gui path/to/app` for another. A folder already open in Gui shows its tab.
+# Install it from Gui's app menu (Install 'gui' Command), or with `bun run install-app`.
+set -eu
+
+case "${1:-}" in
+  -h | --help)
+    echo "usage: gui [folder]   open a folder in Gui (default: the current one)"
+    exit 0
+    ;;
+esac
+
+dir="${1:-.}"
+if [ ! -d "$dir" ]; then
+  echo "gui: $dir is not a folder" >&2
+  exit 1
+fi
+dir=$(cd "$dir" && pwd -P)
+
+if ! open -b dev.gui.app "$dir" 2>/dev/null; then
+  echo "gui: Gui isn't installed. From its repo, run: bun run install-app" >&2
+  exit 1
+fi
