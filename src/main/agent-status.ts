@@ -463,23 +463,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
       })
     } catch (error) {
       if (error instanceof AgentAuthError) {
-        const method =
-          error.methods.find((m) => SIGN_IN_METHODS.includes(m.id.toLowerCase())) ??
-          error.methods.find((m) => !/api.?key/i.test(m.id))
-        if (method) this.methods.set(id, method)
-        else this.methods.delete(id)
-        const signIn = method
-          ? { methodId: method.id, label: `Sign in with ${method.name}` }
-          : this.terminalSignIns.has(id)
-            ? { methodId: TERMINAL_SIGN_IN, label: 'Sign in' }
-            : null
-        this.set(id, {
-          status: 'signed-out',
-          message: error.message,
-          detail: null,
-          signIn,
-          models: null,
-        })
+        this.signedOut(id, error)
       } else {
         const { message, detail } = describeError(error)
         this.set(id, {
@@ -494,6 +478,30 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
       this.sessions.delete(session)
       session.dispose()
     }
+  }
+
+  /**
+   * The agent needs the user to sign in: found by a check, or by a chat whose login expired
+   * mid-session. Remembers how to sign in, so `signIn` can run it.
+   */
+  signedOut(id: AgentId, error: AgentAuthError) {
+    const method =
+      error.methods.find((m) => SIGN_IN_METHODS.includes(m.id.toLowerCase())) ??
+      error.methods.find((m) => !/api.?key/i.test(m.id))
+    if (method) this.methods.set(id, method)
+    else this.methods.delete(id)
+    const signIn = method
+      ? { methodId: method.id, label: `Sign in with ${method.name}` }
+      : this.terminalSignIns.has(id)
+        ? { methodId: TERMINAL_SIGN_IN, label: 'Sign in' }
+        : null
+    this.set(id, {
+      status: 'signed-out',
+      message: error.message,
+      detail: null,
+      signIn,
+      models: null,
+    })
   }
 
   private setProgress(id: AgentId, progress: InstallProgress) {

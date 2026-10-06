@@ -41,7 +41,13 @@ import {
   type TurnItem,
   type TurnStatus,
 } from '../shared/types'
-import { type AgentInfo, AgentSession, type PermissionResolver, parseModelSettings } from './agent'
+import {
+  AgentAuthError,
+  type AgentInfo,
+  AgentSession,
+  type PermissionResolver,
+  parseModelSettings,
+} from './agent'
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
 import type { PermissionPolicy } from './agents'
@@ -415,6 +421,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * Asks the agent to fix what's currently broken; the errors ride along in the prompt.
    * A pending element selection is left for the user's next message.
    */
+  /**
+   * The agent's login expired mid-chat: runs its sign-in, and once it's signed in, ends the
+   * session that still holds the old login, so the next message starts one that has it.
+   */
+  async signInAgain() {
+    const id = this.meta.agentId
+    await agentHealth.signIn(id)
+    const signedIn = agentHealth.list().find((agent) => agent.id === id)?.status === 'ready'
+    if (signedIn && !this.active) this.stopAgent()
+    return signedIn
+  }
+
   fixProblems() {
     if (this.meta.problems.length === 0) return false
     return this.startTurn(FIX_PROMPT, true)
@@ -872,9 +890,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (stopped()) status = 'cancelled'
       else {
         status = 'error'
-        const { message, detail } = describeError(error)
-        record.turn.error = message
-        record.turn.errorDetail = detail
+        if (error instanceof AgentAuthError) {
+          // Every surface (start screen, Settings) now shows it signed out, with its sign-in.
+          agentHealth.signedOut(this.meta.agentId, error)
+          record.turn.error = error.message
+          record.turn.signIn = true
+        } else {
+          const { message, detail } = describeError(error)
+          record.turn.error = message
+          record.turn.errorDetail = detail
+        }
       }
     } finally {
       this.resolvePendingPermissions(record)

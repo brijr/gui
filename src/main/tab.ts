@@ -1664,6 +1664,10 @@ export class ProjectTab {
     this.layout()
   }
 
+  signInAgain() {
+    return this.chat?.signInAgain() ?? Promise.resolve(false)
+  }
+
   fixProblems() {
     const sent = this.chat?.fixProblems() ?? false
     if (sent) this.focusChat()

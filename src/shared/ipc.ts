@@ -53,6 +53,7 @@ export const Invoke = {
   restoreTurn: 'chat:restore',
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
+  chatSignIn: 'chat:sign-in',
   signIn: 'agents:sign-in',
   installAgent: 'agents:install',
   shipInfo: 'ship:info',
@@ -410,6 +411,8 @@ export interface GuiApi {
   toggleDock(): void
   /** Sends the current preview errors to the agent; false if busy or nothing to fix */
   fixProblems(): Promise<boolean>
+  /** Runs the chat's agent's sign-in after its login expired; true once it's signed in */
+  signInAgain(): Promise<boolean>
   /**
    * The pointer pressed the floating panel's header or the pill, to drag it. A panel still
    * landing from a throw stops where it was under the pointer, and the drag goes on from there.

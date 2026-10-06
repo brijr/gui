@@ -216,13 +216,16 @@ function isAuthError(error: unknown) {
   return code === -32000 || AUTH_ERROR.test(message)
 }
 
-/** The agent's own reason (when it says more than "auth required") plus how to sign in. */
-function signInMessage(agent: AgentDefinition, error: unknown) {
+/**
+ * The agent's own reason (when it says more than "auth required") plus how to sign in, unless
+ * Gui can run the sign-in itself (`inApp`), when its Sign in button is the how.
+ */
+function signInMessage(agent: AgentDefinition, error: unknown, inApp: boolean) {
   const detail = errorDetail(error)
     .replace(/^Authentication required:?\s*/i, '')
     .trim()
   const lead = detail ? detail.replace(/[.\s]*$/, '.') : `${agent.name} is not signed in.`
-  return agent.signIn ? `${lead} ${agent.signIn}` : lead
+  return agent.signIn && !inApp ? `${lead} ${agent.signIn}` : lead
 }
 
 /**
@@ -297,6 +300,8 @@ export class AgentSession {
   private modes: acp.SessionModeState | null = null
   /** The slash commands the agent last reported; null until it does */
   private commands: AgentCommand[] | null = null
+  /** Builds the sign-in error for a login that expires mid-session (see prompt) */
+  private signInError: ((error: unknown) => AgentAuthError) | null = null
 
   constructor(
     readonly agentId: AgentId,
@@ -430,6 +435,21 @@ export class AgentSession {
       }),
     )
 
+    // Only offer sign-in flows Gui knows open a browser; others are run in a terminal.
+    const methods = definition.inAppSignIn
+      ? (init.authMethods ?? []).map(
+          (method): AuthMethod => ({
+            id: method.id,
+            name: method.name,
+            description: method.description ?? null,
+            terminalArgs:
+              'type' in method && method.type === 'terminal' ? (method.args ?? []) : null,
+          }),
+        )
+      : []
+    this.signInError = (error) =>
+      new AgentAuthError(signInMessage(definition, error, methods.length > 0), methods)
+
     // ACP clients may only pass HTTP MCP servers to agents that advertise support.
     const httpMcp = init.agentCapabilities?.mcpCapabilities?.http === true
     const servers = mcpServers.filter(
@@ -476,19 +496,7 @@ export class AgentSession {
       }),
     ).catch((error: unknown) => {
       if (!isAuthError(error)) throw new Error(errorDetail(error))
-      // Only offer sign-in flows Gui knows open a browser; others are run in a terminal.
-      const methods = definition.inAppSignIn
-        ? (init.authMethods ?? []).map(
-            (method): AuthMethod => ({
-              id: method.id,
-              name: method.name,
-              description: method.description ?? null,
-              terminalArgs:
-                'type' in method && method.type === 'terminal' ? (method.args ?? []) : null,
-            }),
-          )
-        : []
-      throw new AgentAuthError(signInMessage(definition, error), methods)
+      throw this.signInError?.(error) ?? error
     })
     // The session starts in the mode the user's own agent config picks. Gui then sets the
     // agent's own controls to the project's Ask or Auto (`applyPermissions`; Grok's went in
@@ -576,7 +584,12 @@ export class AgentSession {
     if (!connection || !sessionId) throw new Error('Agent is not running')
     return this.untilExit(
       connection.agent.request(acp.methods.agent.session.prompt, { sessionId, prompt: blocks }),
-    )
+    ).catch((error: unknown) => {
+      // A login can expire mid-session (an OAuth refresh that fails): say so, with how to
+      // sign in, rather than the agent's bare "Authentication required".
+      if (isAuthError(error) && this.signInError) throw this.signInError(error)
+      throw error
+    })
   }
 
   /** Changes one of the session's settings; returns its model settings as they now stand. */

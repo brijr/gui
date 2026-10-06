@@ -672,6 +672,8 @@ export interface Turn {
   error: string | null
   /** Technical detail behind `error`, shown on request */
   errorDetail?: string | null
+  /** The error was the agent's login expiring: the chat offers to sign in again */
+  signIn?: boolean
   /**
    * Small JPEG data URLs of the picked element before the turn and after hot reload.
    * Kept in memory only (not in saved history); either may be missing.

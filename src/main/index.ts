@@ -559,6 +559,7 @@ function registerIpc() {
   })
   ipcMain.handle(Invoke.redo, (event) => tabFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
+  ipcMain.handle(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
   ipcMain.handle(Invoke.signIn, async (event, agentId: unknown) => {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.signIn(agentId)
   })

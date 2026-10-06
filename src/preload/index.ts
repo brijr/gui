@@ -120,6 +120,7 @@ const api: GuiApi = {
   togglePopOut: send(Send.togglePopOut),
   toggleDock: send(Send.toggleDock),
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
+  signInAgain: () => ipcRenderer.invoke(Invoke.chatSignIn),
   grabChat: send(Send.grabChat),
   dragChat: send(Send.dragChat),
   endDragChat: send(Send.endDragChat),
