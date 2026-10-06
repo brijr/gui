@@ -218,10 +218,11 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         className="min-w-0 aria-expanded:bg-hover aria-expanded:text-fg"
       >
         {/* A long model name gives way; the effort stays readable, unless the row is too
-            narrow for both, when it's left to the tooltip so the model name has room. */}
+            narrow for both (the floating chat's default width), when it's left to the
+            tooltip and the picker so the model name reads whole rather than "Sonne…". */}
         <span className="flex min-w-0">
           <span className="truncate">{model}</span>
-          {effort && <span className="shrink-0 whitespace-pre @max-xs:hidden"> · {effort}</span>}
+          {effort && <span className="shrink-0 whitespace-pre @max-sm:hidden"> · {effort}</span>}
         </span>
       </Button>
       {shown && placement && (

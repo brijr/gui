@@ -12,7 +12,7 @@ export function AgentStatusLabel({
   checkable = true,
 }: {
   health: AgentHealth
-  /** False inside a control that runs the check itself, so "Check now" is only its label */
+  /** False inside a control that chooses the agent (which checks it), so it just says it's installed */
   checkable?: boolean
 }) {
   switch (health.status) {
@@ -52,7 +52,7 @@ export function AgentStatusLabel({
           Check now
         </button>
       ) : (
-        <span className="text-small font-normal text-accent-text">Check now</span>
+        <span className="text-small font-normal text-subtle">Installed</span>
       )
     default:
       return null

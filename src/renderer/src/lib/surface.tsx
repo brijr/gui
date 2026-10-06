@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react'
+import { type ComponentProps, type ReactNode, useState } from 'react'
 import { cn } from './cn'
 import { Check, X } from './icons'
 import { PRESS } from './ui'
@@ -258,8 +258,12 @@ interface ThumbnailProps {
   title?: string
   /** sm: 36px (the picked element). md: 56px (attached images). */
   size?: 'sm' | 'md'
-  /** cover crops to fill; contain shows all of it (element crops) */
-  fit?: 'cover' | 'contain'
+  /**
+   * cover crops to fill; contain shows all of it. element (picked crops): all of it, unless
+   * it's a long strip (a heading, a nav bar) that would shrink to a line, when it fills from
+   * its start so its first words show.
+   */
+  fit?: 'cover' | 'contain' | 'element'
   /** Shows a remove button on the corner */
   onRemove?: () => void
   /** The remove button's accessible name, e.g. "Remove hero.png" */
@@ -278,6 +282,8 @@ export function Thumbnail({
   removeLabel,
   children,
 }: ThumbnailProps) {
+  const [strip, setStrip] = useState(false)
+  const contain = fit === 'contain' || (fit === 'element' && !strip)
   return (
     <div className="relative shrink-0">
       <div
@@ -291,7 +297,15 @@ export function Thumbnail({
           <img
             src={src}
             alt={alt}
-            className={cn('size-full', fit === 'cover' ? 'object-cover' : 'object-contain')}
+            onLoad={(event) => {
+              const { naturalWidth: width, naturalHeight: height } = event.currentTarget
+              setStrip(width > height * 3 || height > width * 3)
+            }}
+            className={cn(
+              'size-full',
+              contain ? 'object-contain' : 'object-cover',
+              fit === 'element' && 'object-left-top',
+            )}
           />
         ) : (
           children

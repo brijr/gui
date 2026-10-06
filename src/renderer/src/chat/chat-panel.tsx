@@ -567,7 +567,9 @@ function ChatBubble({
 }
 
 function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
-  if (turns.length === 0) return <EmptyTranscript canSelect={meta.canSelect} />
+  if (turns.length === 0) {
+    return <EmptyTranscript canSelect={meta.canSelect} picked={meta.selection.length} />
+  }
   return <Turns turns={turns} meta={meta} />
 }
 
@@ -616,7 +618,7 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   )
 }
 
-function EmptyTranscript({ canSelect }: { canSelect: boolean }) {
+function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: number }) {
   // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
   // still take a message, which needs no element.
   if (!canSelect) {
@@ -629,6 +631,21 @@ function EmptyTranscript({ canSelect }: { canSelect: boolean }) {
         >
           Once your app shows in the preview, you can point at any part of it to change. Until then,
           your agent can still read and edit the code.
+        </Message>
+      </div>
+    )
+  }
+  // Something's picked: the next step is the message, not picking again.
+  if (picked > 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+        <Message
+          className="m-auto shrink-0"
+          icon={<MessageSquare className="size-4" aria-hidden="true" />}
+          title="Describe the change"
+        >
+          Say what {picked === 1 ? 'it' : 'they'} should look like or do, and send. Your agent edits
+          the code and the preview updates live.
         </Message>
       </div>
     )
