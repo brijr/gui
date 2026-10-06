@@ -1,3 +1,4 @@
+import type { GitHubLogin, GitHubPoll, GitHubRepository, GitHubState } from './github'
 import type { SymbolImages } from './symbols'
 import type {
   AgentId,
@@ -38,6 +39,15 @@ export const Invoke = {
   openRecent: 'project:open-recent',
   removeRecent: 'project:remove-recent',
   cloneProject: 'project:clone',
+  githubState: 'github:state',
+  githubStart: 'github:start',
+  githubPoll: 'github:poll',
+  githubCancel: 'github:cancel',
+  githubDisconnect: 'github:disconnect',
+  githubManage: 'github:manage',
+  githubUpdates: 'github:updates',
+  githubClone: 'github:clone',
+  githubCreate: 'github:create',
   newProject: 'project:new',
   send: 'chat:send',
   restoreTurn: 'chat:restore',
@@ -209,6 +219,15 @@ export interface GuiApi {
    * picks, then opens it. Rejects with a message to show; resolves if they cancel the picker.
    */
   cloneProject(repo: string): Promise<void>
+  getGitHub(): Promise<GitHubState>
+  startGitHub(): Promise<GitHubLogin>
+  pollGitHub(): Promise<GitHubPoll>
+  cancelGitHub(): Promise<void>
+  disconnectGitHub(): Promise<void>
+  manageGitHub(): Promise<void>
+  gitHubUpdates(updates: boolean): Promise<void>
+  cloneGitHub(id: number): Promise<void>
+  createGitHub(name: string): Promise<GitHubRepository>
   /**
    * Makes an empty folder named `name` (with a git repo) where the user picks, then opens it.
    * Rejects with a message to show; resolves if they cancel the picker.

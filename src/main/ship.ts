@@ -3,6 +3,7 @@ import { constants, type Dirent } from 'node:fs'
 import { access, type FileHandle, lstat, open, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../shared/types'
+import { connectedGitHub, pullGitHub, pushGitHub } from './github'
 import { getShellEnv } from './shell-env'
 
 /**
@@ -174,6 +175,22 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
   }
   if (repo.problem) throw new Error(repo.problem)
 
+  const connected =
+    repo.remote?.host === 'github' && repo.remote.web === 'github.com'
+      ? await connectedGitHub(repo.remote.repo)
+      : null
+  // Beginners can commit without global git setup. Existing identity always wins.
+  if (connected) {
+    if (!(await gitOrNull(repo, ['var', 'GIT_AUTHOR_IDENT']))) {
+      repo.env.GIT_AUTHOR_NAME = connected.profile.name ?? connected.profile.login
+      repo.env.GIT_AUTHOR_EMAIL = `${connected.profile.login}@users.noreply.github.com`
+    }
+    if (!(await gitOrNull(repo, ['var', 'GIT_COMMITTER_IDENT']))) {
+      repo.env.GIT_COMMITTER_NAME = connected.profile.name ?? connected.profile.login
+      repo.env.GIT_COMMITTER_EMAIL = `${connected.profile.login}@users.noreply.github.com`
+    }
+  }
+
   const title = request.title.replace(/\s+/g, ' ').trim()
   const body = request.body.trim()
   const branch = request.branch.trim()
@@ -227,7 +244,16 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
 
   let pushOutput: string
   try {
-    pushOutput = await push(repo, remote, branch)
+    if (connected) {
+      await pushGitHub(connected.repository.id, remote.repo, repo.top, branch)
+      await gitAsUser(repo, [
+        'update-ref',
+        `refs/remotes/${remote.name}/${branch}`,
+        `refs/heads/${branch}`,
+      ])
+      await gitAsUser(repo, ['branch', `--set-upstream-to=${remote.name}/${branch}`, '--', branch])
+      pushOutput = ''
+    } else pushOutput = await push(repo, remote, branch)
   } catch (error) {
     throw new Error(await pushError(repo, remote, branch, error))
   }
@@ -238,6 +264,12 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
 
   // gh signs in to whatever host it's pointed at, so it's only ever pointed at github.com.
   if (remote.host === 'github' && remote.web === 'github.com') {
+    if (connected && base) {
+      const url = await pullGitHub(connected.repository.id, branch, base, title, body).catch(
+        () => null,
+      )
+      if (url) return { branch, commit, outcome: 'created', url }
+    }
     const url = await createWithGh(repo, remote, branch, base, title, body)
     if (url) return { branch, commit, outcome: 'created', url }
   }

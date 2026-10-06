@@ -87,6 +87,12 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | Show the previous tab | ⌃⇧⇥ or ⇧⌘[ |
 | Show the next tab | ⌃⇥ or ⇧⌘] |
 
+## GitHub project connections
+
+**Connect GitHub projects** on the start screen, or **Settings → Projects**, lets users authorize GitHub, choose repositories for the Gui GitHub App, create private projects, and clone a connected repository. The shipping sheet uses the connection to push and open pull requests. Local projects and cloning by URL remain available without a Gui account. The account service stores the GitHub profile and verified primary email, with an optional product-update preference.
+
+This requires configuring and deploying the separate account service, registering a GitHub App, and building Gui with its service URL. See [account service setup](accounts/README.md). Builds without a configured service retain local project access and explain that GitHub connections are unavailable.
+
 ## How it works
 
 ```

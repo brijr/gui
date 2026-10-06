@@ -41,6 +41,17 @@ import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
+import {
+  cancelGitHub,
+  cloneGitHub,
+  createGitHub,
+  disconnectGitHub,
+  getGitHub,
+  gitHubUpdates,
+  manageGitHub,
+  pollGitHub,
+  startGitHub,
+} from './github'
 import { isLoopback } from './loopback'
 import { createProject, projectName } from './new-project'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
@@ -466,6 +477,38 @@ function registerIpc() {
   })
   ipcMain.handle(Invoke.getChat, (event) => tabFor(event)?.getChat())
   ipcMain.handle(Invoke.openProject, (event) => pickProject(windowFor(event)))
+  const githubHandle = (
+    channel: string,
+    handler: (event: IpcMainInvokeEvent, value: unknown) => unknown,
+  ) => {
+    ipcMain.handle(channel, (event, value: unknown) => {
+      if (!fromAppUi(event))
+        throw new Error('GitHub connections are available only from Gui project UI.')
+      return handler(event, value)
+    })
+  }
+  githubHandle(Invoke.githubState, () => getGitHub())
+  githubHandle(Invoke.githubStart, () => startGitHub())
+  githubHandle(Invoke.githubPoll, () => pollGitHub())
+  githubHandle(Invoke.githubCancel, () => cancelGitHub())
+  githubHandle(Invoke.githubDisconnect, () => disconnectGitHub())
+  githubHandle(Invoke.githubManage, () => manageGitHub())
+  githubHandle(Invoke.githubUpdates, (_event, value) => {
+    if (typeof value !== 'boolean') throw new Error('Invalid email preference.')
+    return gitHubUpdates(value)
+  })
+  githubHandle(Invoke.githubClone, async (event, value) => {
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)
+      throw new Error('Choose a GitHub repository.')
+    const target = windowFor(event)
+    const folder = await pickParent(target, 'Clone GitHub project', 'Clone here')
+    if (folder) openSafely(target, await cloneGitHub(value, folder))
+  })
+  githubHandle(Invoke.githubCreate, (_event, value) => {
+    if (typeof value !== 'string' || !/^[\w-][\w.-]{0,99}$/.test(value))
+      throw new Error('Enter a valid GitHub project name.')
+    return createGitHub(value)
+  })
   ipcMain.handle(Invoke.cloneProject, (event, repo: unknown) =>
     reportError(async () => {
       if (!isString(repo) || repo.length > 500) throw new Error('Enter a GitHub repo.')

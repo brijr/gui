@@ -26,7 +26,10 @@ export default defineConfig({
   main: {
     build: { externalizeDeps: true },
     // Agent CLIs aren't bundled; this pins the versions (and hashes) Gui downloads.
-    define: { __GUI_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))) },
+    define: {
+      __GUI_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))),
+      __GUI_ACCOUNTS_URL__: JSON.stringify(process.env.GUI_ACCOUNTS_URL ?? ''),
+    },
   },
   preload: {
     // Sandboxed preloads must be CommonJS.

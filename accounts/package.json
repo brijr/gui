@@ -1,0 +1,14 @@
+{
+  "name": "gui-accounts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "dev": "wrangler dev",
+    "migrate:local": "wrangler d1 migrations apply gui-accounts --local"
+  },
+  "devDependencies": {
+    "wrangler": "^4.147.0"
+  }
+}

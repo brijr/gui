@@ -30,6 +30,7 @@ import { PathText } from '../lib/path-text'
 import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'
 import { useAction } from '../settings/use-action'
+import { GitHubProjects } from './github-projects'
 import { useMorphDrawsFrame } from './layout-morph'
 import { focusAddressBar } from './toolbar'
 
@@ -494,6 +495,7 @@ gui.onCommand((command) => {
  */
 function OpenActions() {
   const [form, setForm] = useState<StartForm | null>(null)
+  const [github, setGithub] = useState(false)
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -522,6 +524,9 @@ function OpenActions() {
     }
   }, [])
 
+  if (github)
+    return <GitHubProjects onClose={() => setGithub(false)} onOpened={() => setGithub(false)} />
+
   if (!form) {
     return (
       <div className="flex flex-wrap gap-2">
@@ -536,9 +541,12 @@ function OpenActions() {
         <Button size="lg" icon={FolderPlus} onClick={() => setForm('newProject')}>
           New project
         </Button>
-        <Button size="lg" onClick={() => setForm('cloneRepo')}>
+        <Button size="lg" onClick={() => setGithub(true)}>
           <GitHubMark />
-          Clone from GitHub
+          Connect GitHub projects
+        </Button>
+        <Button size="lg" onClick={() => setForm('cloneRepo')}>
+          Clone by URL
         </Button>
       </div>
     )

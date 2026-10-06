@@ -17,3 +17,7 @@ playwright-report/
 e2e/fixtures/*/node_modules/
 e2e/fixtures/*/.next/
 e2e/fixtures/*/next-env.d.ts
+
+# Account service local secrets and Wrangler state
+.dev.vars*
+.wrangler/
