@@ -130,7 +130,7 @@ test('preview video plays, sends overview images, and exposes exact frames and b
     .poll(() => video.evaluate((node: HTMLVideoElement) => node.currentTime))
     .toBeGreaterThan(0)
   await session.shot('preview-recording-attached')
-  await session.chat.getByRole('button', { name: 'Close recording preview' }).click()
+  await session.chat.getByRole('button', { name: 'Close', exact: true }).click()
   await session.chat.locator('[data-composer]').fill('Inspect the animation easing.')
   await session.chat.getByRole('button', { name: 'Send', exact: true }).click()
   const { turn } = await session.waitForTurn(0)

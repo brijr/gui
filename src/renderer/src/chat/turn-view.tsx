@@ -14,6 +14,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Disclosure, TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
+import { InlineError } from '../lib/field'
 import {
   Brain,
   Check,
@@ -38,7 +39,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
-import { Button, Spinner } from '../lib/ui'
+import { Button, PRESS, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
 import { useChat, waitingCard } from './store'
@@ -216,14 +217,21 @@ export function pickLabel(picked: Picked) {
 function PickedChip({ picked }: { picked: Picked }) {
   const { name, detail, where, title } = pickLabel(picked)
   const region = isRegion(picked)
+  const Icon = region ? Crop : MousePointer2
   return (
-    <Badge icon={region ? Crop : MousePointer2} title={title} className="max-w-full">
-      <span className="min-w-0 truncate text-fg">{name}</span>
-      {region && detail && <span className="shrink-0 font-normal tabular-nums">{detail}</span>}
+    // A neutral badge's look, but only the name takes the label weight: the size and the
+    // source after it are detail, at body weight.
+    <span
+      title={title}
+      className="inline-flex h-5 max-w-full min-w-0 items-center gap-1 rounded-sm bg-fill px-1.5 text-caption text-muted"
+    >
+      <Icon className="size-3 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 truncate font-medium text-fg">{name}</span>
+      {region && detail && <span className="shrink-0 tabular-nums">{detail}</span>}
       {!region && picked.source && where && (
-        <span className="min-w-0 truncate font-mono font-normal">{where}</span>
+        <span className="min-w-0 truncate font-mono">{where}</span>
       )}
-    </Badge>
+    </span>
   )
 }
 
@@ -254,7 +262,8 @@ function BlockView({
     }
     case 'plan':
       return (
-        <Card tone="inset" className="px-3 py-2">
+        // A compact card: a short list, not a block of prose.
+        <Card tone="inset" className="py-2 pr-2 pl-3">
           <ul aria-label="Plan" className="flex flex-col gap-1">
             {withKeys(block.entries).map(({ key, entry }) => (
               <li key={key} className="flex items-start gap-2 text-small">
@@ -297,6 +306,12 @@ function withKeys<T extends { content: string }>(entries: T[]) {
   })
 }
 
+/**
+ * What sits under a note's text lines up with the text, past its 14px icon and 6px gap. The
+ * composer's problems use the same inset.
+ */
+export const NOTE_INSET = 'pl-5'
+
 /** A line from Gui or the agent beside the conversation: information, or what went wrong. */
 function Note({
   tone,
@@ -314,7 +329,7 @@ function Note({
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 select-text break-words">{children}</span>
       </p>
-      {detail && <TechnicalDetails text={detail} className="pl-5" />}
+      {detail && <TechnicalDetails text={detail} className={NOTE_INSET} />}
     </div>
   )
 }
@@ -324,14 +339,14 @@ function SignInAgain() {
   const [state, setState] = useState<'idle' | 'pending' | 'done' | 'failed'>('idle')
   if (state === 'done') {
     return (
-      <p className="flex gap-1.5 pl-5 text-small text-success">
+      <p className={cn('flex gap-1.5 text-small text-success', NOTE_INSET)}>
         <Check className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         Signed in. Send your message again.
       </p>
     )
   }
   return (
-    <div className="flex flex-col items-start gap-1.5 pl-5">
+    <div className={cn('flex flex-col items-start gap-1.5', NOTE_INSET)}>
       <Button
         variant="primary"
         loading={state === 'pending'}
@@ -349,9 +364,7 @@ function SignInAgain() {
         <p className="text-small text-muted">Finish signing in in your browser.</p>
       )}
       {state === 'failed' && (
-        <p role="alert" className="text-small text-danger">
-          Not signed in yet. Try again, or sign in from Settings → Agents.
-        </p>
+        <InlineError>Not signed in yet. Try again, or sign in from Settings → Agents.</InlineError>
       )}
     </div>
   )
@@ -501,7 +514,9 @@ function StepGroup({
     )
   }
   const failed = tools.filter((tool) => tool.status === 'failed').length
-  const failedNote = failed > 0 && <span className="text-danger"> · {failed} failed</span>
+  const failedNote = failed > 0 && (
+    <span className="text-danger tabular-nums"> · {failed} failed</span>
+  )
   const list = open && <StepList steps={steps} live={live} />
   // Earlier groups of a running turn fold once the agent has moved on.
   const active = live && (last || tools.some(isInFlight))
@@ -542,8 +557,8 @@ function StepGroup({
   return (
     <div className="flex flex-col items-start gap-1.5">
       <Disclosure open={open} onOpenChange={setOpen}>
-        {plural(tools.length, 'step')}
-        {duration && <span> · {duration}</span>}
+        <span className="tabular-nums">{plural(tools.length, 'step')}</span>
+        {duration && <span className="tabular-nums"> · {duration}</span>}
         {failedNote}
       </Disclosure>
       {list}
@@ -705,6 +720,7 @@ function Permission({
   if (item.resolved !== null || !live) return <PermissionOutcome item={item} subject={subject} />
 
   const question = permissionQuestion(toolKind, locations)
+  const options = [...item.options].sort(byOptionOrder)
   const many = locations.length > 1
   const why = many
     ? 'These files control how the project builds or runs.'
@@ -731,18 +747,24 @@ function Permission({
         </pre>
       )}
       {item.sensitive && <p className="sr-only">{why}</p>}
-      <div className="flex flex-wrap justify-end gap-2">
-        {[...item.options].sort(byOptionOrder).map((option) => (
-          <Button
-            key={option.optionId}
-            variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
-            title={option.name}
-            shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
-            onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
-          >
-            {optionLabel(option)}
-          </Button>
-        ))}
+      {/* One row, the default last, where the card is wide enough. Narrower, two columns that
+          share the width, so the default never ends up alone on a line under the others: with
+          an odd count, the first one takes a line of its own instead. */}
+      <div className="@container">
+        <div className="grid grid-cols-2 gap-2 @sm:flex @sm:justify-end">
+          {options.map((option, index) => (
+            <Button
+              key={option.optionId}
+              variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
+              title={option.name}
+              shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
+              onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
+              className={cn(index === 0 && options.length % 2 === 1 && 'col-span-2')}
+            >
+              {optionLabel(option)}
+            </Button>
+          ))}
+        </div>
       </div>
     </Card>
   )
@@ -809,10 +831,12 @@ function Comparison({ turn }: { turn: Turn }) {
                   backgroundColor: preview.fill ?? undefined,
                   aspectRatio: ratio ?? undefined,
                 }}
+                // A window onto the page, so no hover fill over it: the border strengthens.
                 className={cn(
-                  'flex min-h-12 w-full items-center justify-center overflow-hidden rounded-md border border-line bg-canvas transition-colors hover:border-line-strong',
+                  'flex min-h-12 w-full items-center justify-center overflow-hidden rounded-md border border-line bg-canvas transition-[border-color,opacity] hover:border-line-strong',
+                  PRESS,
                   !ratio && (large ? 'h-48' : 'h-24'),
-                  large ? 'max-h-[32rem]' : 'max-h-64',
+                  large ? 'max-h-128' : 'max-h-64',
                 )}
               >
                 <Shot
@@ -985,11 +1009,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
         </span>
       </div>
       {open && <ChangedFiles changes={changes} />}
-      {error && (
-        <p role="alert" className="select-text text-small text-danger">
-          {error}
-        </p>
-      )}
+      {error && <InlineError>{error}</InlineError>}
     </Card>
   )
 }

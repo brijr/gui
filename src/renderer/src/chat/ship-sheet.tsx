@@ -13,11 +13,11 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Disclosure } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
-import { Field, Input, Textarea } from '../lib/field'
+import { Field, InlineError, Input, Textarea } from '../lib/field'
 import { ArrowLeft, Check, ExternalLink, GitBranch, Info, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
-import { Message } from '../lib/surface'
-import { Button, Code, IconButton, Spinner } from '../lib/ui'
+import { Message, PanelHeader } from '../lib/surface'
+import { Button, Code, IconButton, Skeleton } from '../lib/ui'
 
 type Loaded =
   | { kind: 'loading' }
@@ -184,21 +184,27 @@ export function ShipSheet() {
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-9 shrink-0 items-center gap-1.5 border-b border-line px-2">
-        <IconButton
-          size="sm"
-          label="Back to chat"
-          icon={ArrowLeft}
-          disabled={busy}
-          onClick={closeShipSheet}
-        />
-        <h2 className="truncate font-semibold">{heading}</h2>
-      </div>
+      <PanelHeader
+        title={heading}
+        leading={
+          <IconButton
+            size="sm"
+            label="Back to chat"
+            icon={ArrowLeft}
+            disabled={busy}
+            onClick={closeShipSheet}
+          />
+        }
+      />
       {done ? (
         <Done result={done.result} info={done.info} />
       ) : loaded.kind === 'loading' ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center text-muted">
-          <Spinner size="md" />
+        // The form's shape while it loads (a second or so for git), in place of a spinner.
+        <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+          <span role="status" className="sr-only">
+            Loading
+          </span>
+          <ShipFormSkeleton />
         </div>
       ) : loaded.kind === 'blocked' ? (
         <div className="flex min-h-0 flex-1 items-center justify-center px-8">
@@ -222,8 +228,14 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
   const titleInput = useRef<HTMLInputElement>(null)
   const [expanded, setExpanded] = useState(false)
 
+  // Focused with the caret at the start, so a long suggested title shows its beginning rather
+  // than being scrolled to its end.
   useEffect(() => {
-    titleInput.current?.focus()
+    const input = titleInput.current
+    if (!input) return
+    input.focus()
+    input.setSelectionRange(0, 0)
+    input.scrollLeft = 0
   }, [])
 
   const branch = draft.branch.trim()
@@ -243,7 +255,7 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
 
   return (
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable scroll-fade p-3">
         <Field label="Title" htmlFor={`${id}-title`}>
           <Input
             ref={titleInput}
@@ -314,21 +326,35 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
 
       <div className="flex shrink-0 flex-col gap-2 border-t border-line p-2">
         {error && (
-          <p
-            role="alert"
-            className="flex max-h-40 select-text gap-1.5 overflow-y-auto scroll-stable px-1 text-small text-danger"
-          >
+          <InlineError className="flex max-h-40 gap-1.5 overflow-y-auto scroll-stable px-1">
             <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
             <span className="min-w-0 whitespace-pre-wrap break-words">
               <WithCode text={error} />
             </span>
-          </p>
+          </InlineError>
         )}
         <Button type="submit" variant="primary" disabled={!ready} loading={busy} className="w-full">
           {busy ? action.running : action.label}
         </Button>
       </div>
     </form>
+  )
+}
+
+/** The form's fields as placeholders: Title, Description, the branch line. */
+function ShipFormSkeleton() {
+  return (
+    <>
+      <div className="flex flex-col gap-1">
+        <Skeleton className="h-4 w-12" />
+        <Skeleton className="h-7 w-full" />
+      </div>
+      <div className="flex flex-col gap-1">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-24 w-full" />
+      </div>
+      <Skeleton className="h-4 w-40" />
+    </>
   )
 }
 
@@ -347,7 +373,7 @@ function BranchSummary({ info, branch }: { info: ShipInfo; branch: string }) {
     <span className="flex min-w-0 items-center gap-1">
       <span className="shrink-0">{before}</span>
       <PathText path={branch || '…'} className="text-fg" />
-      <span className="shrink-0">{after}</span>
+      <span className="shrink-0 tabular-nums">{after}</span>
     </span>
   )
 }
@@ -375,7 +401,7 @@ function FileList({ files }: { files: ShipFile[] }) {
           <PathText path={file.path} className="flex-1" />
         </li>
       ))}
-      {more > 0 && <li className="pl-5 text-subtle">and {more} more</li>}
+      {more > 0 && <li className="pl-5 text-subtle tabular-nums">and {more} more</li>}
     </ul>
   )
 }
@@ -391,7 +417,13 @@ function PathList({ paths }: { paths: string[] }) {
       </code>,
     )
   }
-  if (paths.length > shown.length) nodes.push(` and ${paths.length - shown.length} more`)
+  if (paths.length > shown.length) {
+    nodes.push(
+      <span key="more" className="tabular-nums">
+        {` and ${paths.length - shown.length} more`}
+      </span>,
+    )
+  }
   return <>{nodes}</>
 }
 
