@@ -119,9 +119,9 @@ export function GitHubProjects({
           Back
         </Button>
       )}
-      {/* Its own page from the start screen; a group among the others in Settings. */}
+      {/* Under the start screen's title, or a group among the others in Settings. */}
       {onClose ? (
-        <h2 className="text-title font-semibold">GitHub projects</h2>
+        <h2 className="text-body font-semibold">GitHub projects</h2>
       ) : (
         <GroupLabel as="h2">GitHub projects</GroupLabel>
       )}
