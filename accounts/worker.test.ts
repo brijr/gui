@@ -66,7 +66,7 @@ beforeEach(async () => {
   creationDenied = false
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
-    const params = init?.body as URLSearchParams
+    const params = new URLSearchParams(String(init?.body ?? ''))
     if (url.pathname === '/login/device/code')
       return Response.json({
         device_code: 'device-secret',

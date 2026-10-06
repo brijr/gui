@@ -80,10 +80,14 @@ async function decrypt(env: Env, value: string) {
 async function provider(path: string, values: Record<string, string>) {
   const res = await fetch(`https://github.com/${path}`, {
     method: 'POST',
-    headers: { Accept: 'application/json' },
-    body: new URLSearchParams(values),
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'Gui',
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body: new URLSearchParams(values).toString(),
     signal: AbortSignal.timeout(15_000),
-    redirect: 'error',
+    redirect: 'manual',
   })
   if (!res.ok) throw new HttpError(502, 'GitHub could not complete sign-in. Try again.')
   return res.json() as Promise<
@@ -101,7 +105,7 @@ async function github<T>(token: string, path: string, body?: unknown): Promise<T
       'X-GitHub-Api-Version': '2026-03-10',
     },
     signal: AbortSignal.timeout(15_000),
-    redirect: 'error',
+    redirect: 'manual',
   })
   if (res.status === 401) throw new HttpError(401, 'GitHub access expired. Reconnect GitHub.')
   if (res.status === 422)
