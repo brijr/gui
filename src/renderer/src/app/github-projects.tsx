@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import type { GitHubLogin, GitHubState } from '../../../shared/github'
 import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
 import { Input } from '../lib/field'
 import { ArrowLeft } from '../lib/icons'
+import { GroupLabel } from '../lib/surface'
 import { Button, Code } from '../lib/ui'
 
 export function GitHubProjects({
@@ -102,7 +104,10 @@ export function GitHubProjects({
     })
   }
   return (
-    <section aria-label="GitHub projects" className="flex w-full max-w-lg flex-col gap-3">
+    <section
+      aria-label="GitHub projects"
+      className={cn('flex w-full max-w-lg flex-col', onClose ? 'gap-3' : 'gap-2')}
+    >
       {onClose && (
         <Button
           variant="ghost"
@@ -114,7 +119,12 @@ export function GitHubProjects({
           Back
         </Button>
       )}
-      <h2 className="text-body font-semibold">GitHub projects</h2>
+      {/* Its own page from the start screen; a group among the others in Settings. */}
+      {onClose ? (
+        <h2 className="text-title font-semibold">GitHub projects</h2>
+      ) : (
+        <GroupLabel as="h2">GitHub projects</GroupLabel>
+      )}
       <p className="text-small text-muted">
         Connect GitHub to create projects or open your repositories in Gui. You can always open
         local projects without signing in.
@@ -127,7 +137,12 @@ export function GitHubProjects({
         </p>
       )}
       {state?.configured && !profile && !login && (
-        <Button variant="primary" disabled={busy} onClick={() => void run(start)}>
+        <Button
+          variant="primary"
+          disabled={busy}
+          className="self-start"
+          onClick={() => void run(start)}
+        >
           Connect GitHub
         </Button>
       )}
@@ -138,7 +153,7 @@ export function GitHubProjects({
           <p className="text-small text-muted">
             Waiting for GitHub authorization. This code expires in a few minutes.
           </p>
-          <Button disabled={busy} onClick={() => void run(cancel)}>
+          <Button disabled={busy} className="self-start" onClick={() => void run(cancel)}>
             Cancel sign-in
           </Button>
         </div>
@@ -236,7 +251,7 @@ export function GitHubProjects({
               Creates a private repository under @{profile.login} with a README. Install Gui on your
               personal GitHub account using “Choose repositories on GitHub” first.
             </p>
-            <Button type="submit" disabled={busy || !projectName.trim()}>
+            <Button type="submit" disabled={busy || !projectName.trim()} className="self-start">
               Create private project
             </Button>
             {created && (
@@ -295,7 +310,7 @@ export function GitHubProjects({
         </p>
       )}
       {error && !state && (
-        <Button disabled={busy} onClick={() => void run(refresh)}>
+        <Button disabled={busy} className="self-start" onClick={() => void run(refresh)}>
           Try again
         </Button>
       )}

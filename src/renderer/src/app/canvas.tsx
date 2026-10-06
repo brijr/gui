@@ -486,7 +486,7 @@ const FORMS: Record<
 }
 
 /**
- * ⇧⌘N, ⇧⌘O and the menus' New Project and Clone from GitHub: main shows a start screen and
+ * ⇧⌘N, ⇧⌘O and the menus' New Project and Clone by URL: main shows a start screen and
  * asks for a field, which may not be drawn yet (a new tab or window), so the ask waits here.
  */
 let askedForm: StartForm | null = null
@@ -498,7 +498,7 @@ gui.onCommand((command) => {
 })
 
 /**
- * Open project, and beside it New project and Clone from GitHub, which swap the buttons for
+ * Open project, and beside it New project and Clone by URL, which swap the buttons for
  * a name or repo field. Main asks where to put the folder, then opens it like any project.
  */
 function OpenActions() {

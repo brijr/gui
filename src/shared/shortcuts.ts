@@ -78,7 +78,7 @@ export const SHORTCUTS = {
     description: 'Start a project in a new, empty folder',
   },
   cloneRepo: {
-    label: 'Clone from GitHub…',
+    label: 'Clone by URL…',
     accelerator: 'Shift+CmdOrCtrl+O',
     menu: 'file',
     group: 'app',

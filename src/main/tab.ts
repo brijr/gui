@@ -2724,9 +2724,9 @@ export class ProjectTab {
   ) {
     const recent = (this.state.recent ?? []).filter((p) => p.root !== this.state.project?.root)
     const template: MenuItemConstructorOptions[] = [
-      { label: 'Open project…', click: openPicker },
-      { label: 'New project…', click: openNew },
-      { label: 'Clone from GitHub…', click: openClone },
+      { label: 'Open Project…', click: openPicker },
+      { label: 'New Project…', click: openNew },
+      { label: 'Clone by URL…', click: openClone },
       ...(recent.length
         ? [
             { type: 'separator' } as const,
@@ -2743,7 +2743,7 @@ export class ProjectTab {
       ...(this.apps.length > 1
         ? [
             {
-              label: 'Switch app…',
+              label: 'Switch App…',
               enabled: !this.state.setup?.apps && this.state.setup?.dependencies !== 'installing',
               click: () => this.showAppChooser(),
             },
