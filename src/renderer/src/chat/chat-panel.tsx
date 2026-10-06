@@ -621,8 +621,9 @@ function EmptyTranscript({ canSelect }: { canSelect: boolean }) {
   // still take a message, which needs no element.
   if (!canSelect) {
     return (
-      <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
         <Message
+          className="m-auto shrink-0"
           icon={<MessageSquare className="size-4" aria-hidden="true" />}
           title="Ask about your project"
         >
@@ -633,8 +634,9 @@ function EmptyTranscript({ canSelect }: { canSelect: boolean }) {
     )
   }
   return (
-    <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
       <Message
+        className="m-auto shrink-0"
         icon={<MousePointer2 className="size-4" aria-hidden="true" />}
         title="Point at something to change"
         actions={

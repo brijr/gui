@@ -102,6 +102,8 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
           const blob = await fixWebmDuration(new Blob(chunks, { type: mimeType }), durationMs, {
             logger: false,
           })
+          // Release the capture before main gives the keyboard to the chat.
+          video.srcObject = null
           await gui.finishRecording(
             recordingId,
             durationMs,

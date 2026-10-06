@@ -234,8 +234,9 @@ export class ProjectTab {
 
   attachRecording(recording: import('../shared/types').RecordingAttachment) {
     if (!this.chat) return
-    this.focusChat()
     this.sendChat(Events.recordingAttach, recording)
+    focusWindow(this.popout ?? this.host.win)
+    this.focusChat()
   }
   private readonly problems = new Problems()
   /** Picking over the preview: the overlay Gui draws it in, over the page. */

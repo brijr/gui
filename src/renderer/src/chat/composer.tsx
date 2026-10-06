@@ -61,6 +61,12 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   const notice = useChat((s) => s.notice)
 
   useEffect(() => gui.onChatFocus(() => input.current?.focus()), [])
+  const previousRecordings = useRef(recordings.length)
+  useEffect(() => {
+    if (recordings.length > previousRecordings.current)
+      input.current?.focus({ preventScroll: true })
+    previousRecordings.current = recordings.length
+  }, [recordings.length])
   useEffect(() => {
     if (!notice) return
     const timer = setTimeout(() => setNotice(null), NOTICE_MS)
@@ -185,7 +191,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="flex shrink-0 flex-col gap-2 border-t border-line p-2"
+      className="flex max-h-3/5 min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t border-line p-2"
     >
       <AgentStatus meta={meta} />
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
@@ -228,12 +234,20 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           </ul>
         )}
         {recordings.length > 0 && (
-          <fieldset aria-label="Attached recordings" className="flex flex-col gap-2 px-2 pt-2">
+          <fieldset
+            aria-label="Attached recordings"
+            className="flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2"
+          >
             {recordings.map((clip) => (
               <RecordingClip
                 key={clip.id}
                 clip={clip}
-                onRemove={() => removeRecordings([clip.id], true)}
+                compact
+                onPreviewClose={() => input.current?.focus({ preventScroll: true })}
+                onRemove={() => {
+                  removeRecordings([clip.id], true)
+                  input.current?.focus({ preventScroll: true })
+                }}
               />
             ))}
           </fieldset>
@@ -254,7 +268,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           placeholder={
             running
               ? 'Queue a message…'
-              : meta.selection.length > 0 || attachments.length > 0
+              : meta.selection.length > 0 || attachments.length > 0 || recordings.length > 0
                 ? 'Describe the change…'
                 : `Ask ${meta.agentName}…`
           }
