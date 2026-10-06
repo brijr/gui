@@ -1,9 +1,24 @@
 import type { WindowState } from '../../../shared/types'
 import type { Status } from '../lib/status'
 
-/** The dev server quit on its own with an error, or never started; a clean exit isn't a crash. */
-export function crashed({ devServer }: WindowState) {
-  return devServer.status === 'exited' && devServer.exitCode !== 0
+/**
+ * Interrupted or terminated (SIGINT, SIGTERM: 128 + the signal, as shells and package managers
+ * report it): something outside Gui stopped the app (Ctrl-C in another terminal, `kill`).
+ */
+const STOPPED_OUTSIDE = [130, 143]
+
+/** The dev server was stopped from outside Gui: not a crash, but the preview won't update. */
+export function stoppedOutside({ devServer }: WindowState) {
+  return devServer.status === 'exited' && STOPPED_OUTSIDE.includes(devServer.exitCode ?? -1)
+}
+
+/**
+ * The dev server quit on its own with an error, or never started; a clean exit isn't a crash,
+ * and nor is being stopped from outside.
+ */
+export function crashed(state: WindowState) {
+  const { devServer } = state
+  return devServer.status === 'exited' && devServer.exitCode !== 0 && !stoppedOutside(state)
 }
 
 /**

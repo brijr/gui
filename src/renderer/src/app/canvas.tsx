@@ -32,6 +32,7 @@ import { Button, Code, IconButton, Spinner } from '../lib/ui'
 import { useAction } from '../settings/use-action'
 import { GitHubProjects } from './github-projects'
 import { useMorphDrawsFrame } from './layout-morph'
+import { crashed, stoppedOutside } from './server-status'
 import { focusAddressBar } from './toolbar'
 
 /**
@@ -175,13 +176,19 @@ function CanvasMessage({ state }: { state: WindowState }) {
 
   // Ahead of a load error: with its server gone the page can't load, and starting it is the fix.
   if (devServer.status === 'exited') {
-    const failed = devServer.exitCode !== 0
+    const failed = crashed(state)
     return (
       <SetupCard
         icon={failed ? ALERT : INFO}
         tone={failed ? 'danger' : 'neutral'}
         title="Your app stopped"
-        detail={failed ? 'It quit with an error. The logs show what happened.' : undefined}
+        detail={
+          failed
+            ? 'It quit with an error. The logs show what happened.'
+            : stoppedOutside(state)
+              ? 'Something outside Gui stopped it.'
+              : undefined
+        }
         note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
         actions={
           <>

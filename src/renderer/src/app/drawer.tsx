@@ -10,11 +10,11 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { ChevronDown, Plus, SquareTerminal, TriangleAlert, X } from '../lib/icons'
+import { ChevronDown, Info, Plus, SquareTerminal, TriangleAlert, X } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton } from '../lib/ui'
 import { useLayoutSlide } from './layout-morph'
-import { crashed, serverStatus } from './server-status'
+import { crashed, serverStatus, stoppedOutside } from './server-status'
 import { drawOutput, mountXterm } from './xterm'
 
 const tabId = (tab: DrawerTab) => `drawer-tab-${tab}`
@@ -53,6 +53,7 @@ export function Drawer({ state }: { state: WindowState }) {
   const { terminals } = drawer
   const shown = drawer.tab ?? 'server'
   const failed = crashed(state)
+  const stopped = stoppedOutside(state)
   const exited = terminals.find((terminal) => terminal.id === shown)?.exited ?? false
 
   const tabs: TabEntry[] = [
@@ -114,7 +115,9 @@ export function Drawer({ state }: { state: WindowState }) {
 
   return (
     <>
-      {!drawn && !state.focusMode && failed && state.preview.visible && <CrashBar />}
+      {!drawn && !state.focusMode && (failed || stopped) && state.preview.visible && (
+        <StoppedBar crashed={failed} />
+      )}
       {/* Kept mounted while closed, so the terminals keep their scrollback and place. */}
       <section
         ref={section}
@@ -283,20 +286,33 @@ function Panel({ tab, shown, children }: { tab: DrawerTab; shown: boolean; child
 }
 
 /** The dev server crashed while its last page is still on screen. */
-function CrashBar() {
+/**
+ * Under a preview whose app is gone: it crashed (an alert, with the logs to see why), or
+ * something outside Gui stopped it (said calmly, with a way to start it again).
+ */
+function StoppedBar({ crashed }: { crashed: boolean }) {
   return (
     // Its tint over the window's surface, as the rest of the chrome's bars.
-    <div role="alert" className="relative z-20 shrink-0 border-t border-line bg-surface">
-      <div className="flex h-9 items-center gap-2 bg-danger-soft pr-1.5 pl-3">
-        <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
+    <div
+      role={crashed ? 'alert' : 'status'}
+      className="relative z-20 shrink-0 border-t border-line bg-surface"
+    >
+      <div className={cn('flex h-9 items-center gap-2 pr-1.5 pl-3', crashed && 'bg-danger-soft')}>
+        {crashed ? (
+          <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
+        ) : (
+          <Info className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
+        )}
         <p className="min-w-0 flex-1 truncate text-small">
-          Your app stopped with an error, so the preview won't update.
+          {crashed
+            ? "Your app stopped with an error, so the preview won't update."
+            : "Your app was stopped outside Gui, so the preview won't update."}
         </p>
         <Button variant="ghost" size="sm" onClick={() => gui.showLogs()}>
           Show logs
         </Button>
         <Button size="sm" onClick={() => gui.restartDevServer()}>
-          Restart
+          {crashed ? 'Restart' : 'Start'}
         </Button>
       </div>
     </div>

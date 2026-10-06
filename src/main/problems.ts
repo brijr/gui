@@ -11,7 +11,8 @@ const CHANGE_THROTTLE_MS = 200
 /** Dev server output that means compilation or a request failed. */
 const SERVER_ERROR =
   /\b(error|failed to (compile|resolve|load)|cannot find module|unexpected token|syntaxerror|typeerror|referenceerror)\b|⨯|✘/i
-const NOT_AN_ERROR = /\b0 errors?\b|\bno errors?\b|error_reporting|errorBoundary/i
+const NOT_AN_ERROR =
+  /\b0 errors?\b|\bno errors?\b|error_reporting|errorBoundary|\bexited with (?:exit )?code \d+|\bcommand failed with exit code \d+|\bELIFECYCLE\b/i
 /** `at fn (file:line)` lines belong to the error above them, not a new error. */
 const STACK_FRAME = /^\s*at\s+\S/
 /** Output that means the dev server recovered (a successful rebuild or hot update). */
