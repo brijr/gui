@@ -21,7 +21,7 @@ import {
   Tablet,
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
-import { Button, IconButton, SegmentedControl, Toggle } from '../lib/ui'
+import { Button, IconButton, PRESS, SegmentedControl, Toggle } from '../lib/ui'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 
@@ -238,7 +238,7 @@ function ZoomButton({ zoom }: { zoom: number }) {
       title={withShortcut('Reset zoom', 'actualSize')}
       aria-keyshortcuts={ariaShortcut('actualSize')}
       onClick={() => gui.zoomPreview(0)}
-      className="flex h-full shrink-0 items-center rounded-r-md pr-2.5 pl-2 text-caption font-medium text-muted tabular-nums transition-colors hover:bg-hover hover:text-fg focus-visible:-outline-offset-2"
+      className={`flex h-full shrink-0 items-center rounded-r-md pr-2.5 pl-2 text-caption font-medium text-muted tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg focus-visible:-outline-offset-2 ${PRESS}`}
     >
       {percent}%
     </button>
@@ -319,7 +319,7 @@ function AddressBar({ state }: { state: WindowState }) {
             aria-haspopup="menu"
             title={tooltip}
             onClick={() => gui.showDevServerMenu()}
-            className="flex h-full shrink-0 items-center rounded-l-md pr-2 pl-2.5 transition-colors hover:bg-hover focus-visible:-outline-offset-2"
+            className={`flex h-full shrink-0 items-center rounded-l-md pr-2 pl-2.5 transition-[background-color,opacity] hover:bg-hover focus-visible:-outline-offset-2 ${PRESS}`}
           >
             <StatusDot status={status} />
           </button>

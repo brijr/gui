@@ -8,10 +8,11 @@ import {
 import { AgentCard } from '../agents/agent-card'
 import { gui } from '../lib/api'
 import { Disclosure } from '../lib/disclosure'
+import { InlineError } from '../lib/field'
 import { Plus, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
-import { Card, GroupLabel, List, ListItem } from '../lib/surface'
-import { Button, Code } from '../lib/ui'
+import { Card, GroupLabel, List, ListItem, SectionHeader } from '../lib/surface'
+import { Button, Code, TextButton } from '../lib/ui'
 import { AgentRow } from './agent-row'
 import { CustomAgentForm } from './custom-agent-form'
 import { DefaultAgentSelect } from './default-agent-select'
@@ -36,14 +37,16 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       />
 
       <section aria-labelledby={foundId} className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <GroupLabel as="h2" id={foundId}>
-            Installed agents
-          </GroupLabel>
-          <Button variant="ghost" size="sm" onClick={() => gui.checkAgents()}>
-            Check again
-          </Button>
-        </div>
+        <SectionHeader
+          id={foundId}
+          action={
+            <TextButton className="text-small font-medium" onClick={() => gui.checkAgents()}>
+              Check again
+            </TextButton>
+          }
+        >
+          Installed agents
+        </SectionHeader>
         {found.length > 0 ? (
           <List>
             {found.map((agent) => (
@@ -61,7 +64,9 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
             ))}
           </List>
         ) : (
-          <p className="text-muted">None of Gui's agents are installed yet.</p>
+          <p className="text-pretty text-small text-muted">
+            None of Gui's agents are installed yet.
+          </p>
         )}
       </section>
 
@@ -151,34 +156,38 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
   // For people bringing their own ACP agent; open when there's something in it.
   const [open, setOpen] = useState(customAgents.length > 0 || locked)
 
-  const heading = (
-    <GroupLabel as="h2" id={headingId}>
-      <Disclosure tone="label" open={open} onOpenChange={setOpen}>
-        Custom agents
-      </Disclosure>
-    </GroupLabel>
+  const disclosure = (
+    <Disclosure tone="label" open={open} onOpenChange={setOpen}>
+      Custom agents
+    </Disclosure>
   )
 
   if (!open) {
     return (
       <section aria-labelledby={headingId} className="flex flex-col gap-2">
-        {heading}
+        <GroupLabel as="h2" id={headingId}>
+          {disclosure}
+        </GroupLabel>
       </section>
     )
   }
 
   return (
     <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        {heading}
-        <Button variant="ghost" size="sm" onClick={() => gui.openCustomAgentsFile()}>
-          Edit agents.json
-        </Button>
-      </div>
+      <SectionHeader
+        id={headingId}
+        action={
+          <TextButton className="text-small font-medium" onClick={() => gui.openCustomAgentsFile()}>
+            Edit agents.json
+          </TextButton>
+        }
+      >
+        {disclosure}
+      </SectionHeader>
 
       {customAgentsError && <AgentsFileError message={customAgentsError} />}
       {customAgents.length > 0 && <List>{customAgents.map(renderEntry)}</List>}
-      {empty && <p className="text-muted">No custom agents yet.</p>}
+      {empty && <p className="text-pretty text-small text-muted">No custom agents yet.</p>}
 
       {adding ? (
         <Card className="p-3">
@@ -199,16 +208,18 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
 
 function AgentsFileError({ message }: { message: string }) {
   return (
-    <Card className="flex items-start gap-2.5 px-3 py-2.5">
+    <Card className="flex items-start gap-2 p-3">
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="font-medium">agents.json can't be read</p>
-        <p className="select-text text-pretty text-small text-muted">{message}</p>
+        <InlineError>{message}</InlineError>
         <p className="text-pretty text-small text-muted">
           Custom agents can't be changed here until it's fixed.
         </p>
       </div>
-      <Button onClick={() => gui.openCustomAgentsFile()}>Open agents.json</Button>
+      <Button className="-my-0.5" onClick={() => gui.openCustomAgentsFile()}>
+        Open agents.json
+      </Button>
     </Card>
   )
 }

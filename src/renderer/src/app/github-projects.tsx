@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import type { GitHubLogin, GitHubState } from '../../../shared/github'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Input } from '../lib/field'
-import { ArrowLeft } from '../lib/icons'
-import { GroupLabel, List, ListItem } from '../lib/surface'
-import { Button, Code } from '../lib/ui'
+import { Field, InlineError, Input } from '../lib/field'
+import { ArrowLeft, GitBranch, Search } from '../lib/icons'
+import { Badge } from '../lib/status'
+import { Card, GroupLabel, List, ListItem, Message } from '../lib/surface'
+import { Button, Checkbox, Code, Spinner } from '../lib/ui'
 
 export function GitHubProjects({
   onClose,
@@ -113,23 +114,31 @@ export function GitHubProjects({
           variant="ghost"
           icon={ArrowLeft}
           disabled={busy}
-          className="self-start"
+          // Its arrow lines up with the text below it, as a ghost button in running content.
+          className="-ml-2.5 self-start"
           onClick={close}
         >
           Back
         </Button>
       )}
-      {/* Under the start screen's title, or a group among the others in Settings. */}
-      {onClose ? (
-        <h2 className="text-body font-semibold">GitHub projects</h2>
-      ) : (
-        <GroupLabel as="h2">GitHub projects</GroupLabel>
+      {/* Under the start screen's title, a semibold title over its explanation as the start
+          screen has; in Settings, a group among the others. */}
+      <div className="flex flex-col gap-1">
+        {onClose ? (
+          <h2 className="font-semibold">GitHub projects</h2>
+        ) : (
+          <GroupLabel as="h2">GitHub projects</GroupLabel>
+        )}
+        <p className={cn('text-pretty text-muted', !onClose && 'text-small')}>
+          Connect GitHub to create projects or open your repositories in Gui. You can always open
+          local projects without signing in.
+        </p>
+      </div>
+      {!state && !error && (
+        <div role="status">
+          <Message icon={<Spinner size="md" />}>Checking GitHub connection…</Message>
+        </div>
       )}
-      <p className="text-small text-muted">
-        Connect GitHub to create projects or open your repositories in Gui. You can always open
-        local projects without signing in.
-      </p>
-      {!state && !error && <p role="status">Checking GitHub connection…</p>}
       {state && !state.configured && (
         <p className="text-small text-muted">
           GitHub connection is not available in this build yet. You can still clone by URL using
@@ -160,36 +169,35 @@ export function GitHubProjects({
       )}
       {profile && (
         <>
-          <p className="text-small">
-            Connected as <strong>{profile.name ?? profile.login}</strong> · @{profile.login}
+          <p className="text-small text-muted">
+            Connected as{' '}
+            <span className="font-medium text-fg">{profile.name ?? profile.login}</span> · @
+            {profile.login}
           </p>
-          <label className="flex items-start gap-2 text-small">
-            <input
-              type="checkbox"
-              checked={profile.updates}
-              disabled={busy || !profile.email}
-              onChange={(event) => {
-                const checked = event.target.checked
-                const previous = state
-                if (state) setState({ ...state, profile: { ...profile, updates: checked } })
-                void run(async () => {
-                  try {
-                    await gui.gitHubUpdates(checked)
-                    await refresh()
-                  } catch (err) {
-                    setState(previous)
-                    throw err
-                  }
-                })
-              }}
-            />
-            <span>
-              Email me Gui product updates
-              {profile.email
+          <Checkbox
+            className="text-small"
+            label={`Email me Gui product updates${
+              profile.email
                 ? ` at ${profile.email}`
-                : '. Add a verified primary email in GitHub to subscribe.'}
-            </span>
-          </label>
+                : '. Add a verified primary email in GitHub to subscribe.'
+            }`}
+            checked={profile.updates}
+            disabled={busy || !profile.email}
+            onChange={(event) => {
+              const checked = event.target.checked
+              const previous = state
+              if (state) setState({ ...state, profile: { ...profile, updates: checked } })
+              void run(async () => {
+                try {
+                  await gui.gitHubUpdates(checked)
+                  await refresh()
+                } catch (err) {
+                  setState(previous)
+                  throw err
+                }
+              })
+            }}
+          />
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"
@@ -213,58 +221,60 @@ export function GitHubProjects({
               Disconnect
             </Button>
           </div>
-          <form
-            className="flex flex-col gap-2 rounded-md border border-line p-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              if (busy || !projectName.trim()) return
-              void run(async () => {
-                const repository = await gui.createGitHub(projectName.trim())
-                setState(
-                  (current) =>
-                    current && {
-                      ...current,
-                      repositories: [
-                        ...current.repositories.filter((repo) => repo.id !== repository.id),
-                        repository,
-                      ],
-                    },
-                )
-                setCreated(repository.fullName)
-                setProjectName('')
-                setSearch('')
-              })
-            }}
-          >
-            <label className="text-small" htmlFor="github-project-name">
-              New GitHub project
-            </label>
-            <Input
-              id="github-project-name"
-              placeholder="my-design-project"
-              value={projectName}
-              maxLength={100}
-              disabled={busy}
-              onChange={(event) => setProjectName(event.target.value)}
-            />
-            <p className="text-small text-muted">
-              Creates a private repository under @{profile.login} with a README. Install Gui on your
-              personal GitHub account using “Choose repositories on GitHub” first.
-            </p>
-            <Button type="submit" disabled={busy || !projectName.trim()} className="self-start">
-              Create private project
-            </Button>
-            {created && (
-              <p role="status" className="text-small">
-                Created {created}. Choose “Clone &amp; open” below to start designing.
-              </p>
-            )}
-          </form>
+          <Card>
+            <form
+              className="flex flex-col gap-2 p-3"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (busy || !projectName.trim()) return
+                void run(async () => {
+                  const repository = await gui.createGitHub(projectName.trim())
+                  setState(
+                    (current) =>
+                      current && {
+                        ...current,
+                        repositories: [
+                          ...current.repositories.filter((repo) => repo.id !== repository.id),
+                          repository,
+                        ],
+                      },
+                  )
+                  setCreated(repository.fullName)
+                  setProjectName('')
+                  setSearch('')
+                })
+              }}
+            >
+              <Field
+                label="New GitHub project"
+                htmlFor="github-project-name"
+                hint={`Creates a private repository under @${profile.login} with a README. Install Gui on your personal GitHub account using “Choose repositories on GitHub” first.`}
+              >
+                <Input
+                  id="github-project-name"
+                  aria-describedby="github-project-name-hint"
+                  placeholder="my-design-project"
+                  value={projectName}
+                  maxLength={100}
+                  disabled={busy}
+                  onChange={(event) => setProjectName(event.target.value)}
+                />
+              </Field>
+              <Button type="submit" disabled={busy || !projectName.trim()} className="self-start">
+                Create private project
+              </Button>
+              {created && (
+                <p role="status" className="text-small text-muted">
+                  Created {created}. Choose “Clone &amp; open” below to start designing.
+                </p>
+              )}
+            </form>
+          </Card>
           {state && state.repositories.length === 0 ? (
-            <p className="text-small text-muted">
+            <Message icon={<GitBranch className="size-4" aria-hidden="true" />}>
               Choose repositories on GitHub, then refresh here. An organization may need to approve
               Gui before its repositories appear.
-            </p>
+            </Message>
           ) : (
             <>
               <Input
@@ -279,9 +289,10 @@ export function GitHubProjects({
                     <ListItem
                       key={repo.id}
                       title={
-                        <span className="truncate">
-                          {`${repo.fullName}${repo.private ? ' · Private' : ''}`}
-                        </span>
+                        <>
+                          <span className="truncate">{repo.fullName}</span>
+                          {repo.private && <Badge className="shrink-0">Private</Badge>}
+                        </>
                       }
                       trailing={
                         <Button
@@ -302,17 +313,15 @@ export function GitHubProjects({
                 </List>
               )}
               {repos.length === 0 && (
-                <p className="text-small text-muted">No repositories match your search.</p>
+                <Message icon={<Search className="size-4" aria-hidden="true" />}>
+                  No repositories match your search.
+                </Message>
               )}
             </>
           )}
         </>
       )}
-      {error && (
-        <p role="alert" className="select-text text-small text-danger">
-          {error}
-        </p>
-      )}
+      {error && <InlineError>{error}</InlineError>}
       {error && !state && (
         <Button disabled={busy} className="self-start" onClick={() => void run(refresh)}>
           Try again

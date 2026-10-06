@@ -3,8 +3,9 @@ import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
+import { InlineError } from '../lib/field'
 import { ListItem } from '../lib/surface'
-import { Button, Switch } from '../lib/ui'
+import { Button, Switch, TextButton } from '../lib/ui'
 import { AgentStatusLabel } from './agent-status'
 
 interface AgentRowProps {
@@ -49,6 +50,15 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
         <>
           <span id={nameId}>{name}</span>
           {live && <AgentStatusLabel health={live} />}
+          {live?.status === 'unknown' && (
+            <TextButton
+              tone="muted"
+              className="text-small font-medium"
+              onClick={() => gui.checkAgents(live.id)}
+            >
+              Check now
+            </TextButton>
+          )}
         </>
       }
       trailing={
@@ -67,23 +77,25 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
             // A row of agents each saying "Enabled" reads as noise; the track says it.
             labelHidden
             disabled={!health}
-            className="text-small text-muted hover:text-fg"
+            className="text-small text-muted"
           />
         </>
       }
     >
       {detail}
-      {live && live.status !== 'ready' && (live.message || signInError) && (
-        <p className="select-text text-pretty text-small text-muted">
-          {signInError ?? live.message}
-        </p>
+      {/* An error says what went wrong in the danger color; other states explain themselves quietly. */}
+      {live?.status === 'error' ? (
+        <InlineError>{live.message ?? `${name} isn't working right now.`}</InlineError>
+      ) : (
+        live &&
+        live.status !== 'ready' &&
+        live.message && (
+          <p className="select-text text-pretty text-small text-muted">{live.message}</p>
+        )
       )}
       {live?.status === 'error' && live.detail && <TechnicalDetails text={live.detail} />}
-      {error && (
-        <p role="alert" className="select-text text-pretty text-small text-danger">
-          {error}
-        </p>
-      )}
+      {signInError && <InlineError>{signInError}</InlineError>}
+      {error && <InlineError>{error}</InlineError>}
     </ListItem>
   )
 }

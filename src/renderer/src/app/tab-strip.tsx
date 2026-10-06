@@ -5,9 +5,9 @@ import type { TabInfo, TabStatus, WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Plus, X } from '../lib/icons'
-import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
+import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { StatusDot } from '../lib/status'
-import { IconButton, Spinner } from '../lib/ui'
+import { IconButton, PRESS, Spinner } from '../lib/ui'
 
 /** How far a pressed tab moves before it's dragged rather than clicked. */
 const DRAG_THRESHOLD = 4
@@ -327,14 +327,21 @@ export function TabStrip({ state }: { state: WindowState }) {
               style={shift ? { transform: `translateX(${shift}px)` } : undefined}
               className={cn(
                 'no-drag group relative flex h-7 w-56 min-w-20 shrink items-center rounded-md border',
+                // Like a browser's tabs, the shown one is a raised page with an edge rather
+                // than the accent-soft of other selections; the rest fill as the pointer
+                // passes. Opacity is left out: a new tab's grow-in draws it from script.
                 active
                   ? 'border-line bg-raised text-fg shadow-raised'
                   : 'border-transparent text-muted hover:bg-hover hover:text-fg',
                 // The others slide aside; the dragged one follows the pointer as is.
-                drag && !dragged && 'transition-transform motion-reduce:transition-none',
-                dragged && 'z-10 shadow-popover',
+                drag && !dragged
+                  ? 'transition-[color,background-color,transform] motion-reduce:transition-[color,background-color]'
+                  : 'transition-[color,background-color]',
+                // Lifted off the row while it's carried, above the tabs it passes.
+                dragged && 'z-popover shadow-popover',
+                // The hairline sits in the 4px gap before the tab, just outside its border.
                 divided &&
-                  "before:absolute before:left-[-2.5px] before:h-3.5 before:w-px before:bg-line before:content-['']",
+                  "before:absolute before:-left-0.75 before:h-3.5 before:w-px before:bg-line before:content-['']",
               )}
             >
               <button
@@ -368,9 +375,13 @@ export function TabStrip({ state }: { state: WindowState }) {
                   gui.showTabMenu(tab.id)
                 }}
                 onKeyDown={(event) => onKeyDown(event, index)}
-                className="flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pr-7 pl-2.5 text-left text-small font-medium"
+                className={cn(
+                  'flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pr-7 pl-2.5 text-left text-small font-medium transition-opacity',
+                  // Carried, it stays solid rather than dimmed as pressed.
+                  !dragged && PRESS,
+                )}
               >
-                <StatusMark status={tab.status} />
+                {tab.status !== 'idle' && <StatusMark status={tab.status} />}
                 <span className="truncate">{name}</span>
               </button>
               {/* The pointer's way to close; the keyboard's is Delete on the tab, or ⌘W. */}
@@ -383,9 +394,13 @@ export function TabStrip({ state }: { state: WindowState }) {
                 // Keeps focus where it was rather than on a button hidden from assistive tech.
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => gui.closeTab(tab.id)}
+                // On a tab that isn't shown it fades in with the pointer, and while the tab
+                // has focus.
                 className={cn(
-                  'absolute right-0.5',
-                  active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                  'absolute right-0.5 duration-(--motion-fade)',
+                  active
+                    ? 'opacity-100'
+                    : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100',
                 )}
               />
             </div>
@@ -418,14 +433,16 @@ function growIn(el: HTMLElement) {
     el.style.scale = ''
   }
   draw(0)
-  if (prefersReducedMotion()) animateFade(0, 1, 150, { update: draw, rest: done })
+  if (prefersReducedMotion())
+    animateFade(0, 1, motionMs('--motion-fade'), { update: draw, rest: done })
   else animateSpring(new Spring(0, { target: 1 }), { precision: 0.002, update: draw, rest: done })
 }
 
 /**
  * The agent working, a permission card waiting for an answer (an accent dot, the size of a
  * StatusDot), or something that failed, in one 12px slot so names line up whichever it is.
- * The tab's name says which to assistive tech.
+ * An idle tab has none, so its name starts at the tab's inset rather than after an empty
+ * slot. The tab's name says which to assistive tech.
  */
 function StatusMark({ status }: { status: TabStatus }) {
   return (

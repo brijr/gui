@@ -12,9 +12,9 @@ export function AgentIcon({ agentId, className }: { agentId: AgentId; className?
     <span
       aria-hidden="true"
       className={cn(
-        // Black and white whatever the theme (which has no such tokens); a hairline keeps
-        // the tile's edge on a dark page.
-        'flex size-7 shrink-0 items-center justify-center rounded-md bg-[#000] text-small font-semibold text-[#fff] ring-1 ring-[#ffffff1a] ring-inset',
+        // Black and white whatever the theme; the edge is a hairline that's stronger in the
+        // dark, so the tile doesn't sink into a dark row.
+        'flex size-7 shrink-0 items-center justify-center rounded-md bg-tile text-small font-medium text-tile-fg ring-1 ring-tile-edge ring-inset',
         className,
       )}
     >

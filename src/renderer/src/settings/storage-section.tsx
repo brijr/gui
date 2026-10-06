@@ -1,6 +1,7 @@
 import { useId } from 'react'
 import type { SettingsState, StorageKind } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { InlineError } from '../lib/field'
 import { GroupLabel, List, ListItem } from '../lib/surface'
 import { Button } from '../lib/ui'
 import { useAction } from './use-action'
@@ -91,11 +92,7 @@ function StorageRow({ row, bytes }: { row: StorageInfo; bytes: number | null }) 
         </>
       }
     >
-      {clear.error && (
-        <p role="alert" className="select-text text-pretty text-small text-danger">
-          {clear.error}
-        </p>
-      )}
+      {clear.error && <InlineError>{clear.error}</InlineError>}
     </ListItem>
   )
 }

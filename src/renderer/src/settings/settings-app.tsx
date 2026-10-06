@@ -35,7 +35,8 @@ export function SettingsApp() {
     <div className="flex h-dvh">
       <nav
         aria-label="Settings"
-        className="flex w-45 shrink-0 flex-col border-r border-line bg-surface"
+        // Transparent so the macOS sidebar material shows through.
+        className="flex w-45 shrink-0 flex-col border-r border-line"
       >
         {/* Room for the traffic lights, which sit at the toolbar's height */}
         <div className="drag shrink-0" style={{ height: TOOLBAR_HEIGHT }} />
@@ -48,7 +49,7 @@ export function SettingsApp() {
                 aria-current={section === id ? 'page' : undefined}
                 onClick={() => setSection(id)}
                 className={cn(
-                  'no-drag flex h-8 w-full items-center gap-2 rounded-md px-2 text-left',
+                  'no-drag flex h-7 w-full items-center gap-2 rounded-md px-2 text-left',
                   'font-medium transition-[color,background-color,opacity]',
                   PRESS,
                   section === id
@@ -65,15 +66,16 @@ export function SettingsApp() {
       </nav>
 
       <main className="flex min-w-0 flex-1 flex-col bg-canvas">
-        <header
-          className="drag flex shrink-0 items-center border-b border-line px-6"
-          style={{ height: TOOLBAR_HEIGHT }}
-        >
-          <h1 className="text-title font-semibold">{title}</h1>
+        {/* On the content's own color with no rule under it, lined up with the column below;
+            the content fades out under it as it scrolls. */}
+        <header className="drag flex shrink-0 items-center" style={{ height: TOOLBAR_HEIGHT }}>
+          <div className="mx-auto w-full max-w-xl px-6">
+            <h1 className="text-title font-semibold">{title}</h1>
+          </div>
         </header>
         {/* Keyed by section so each one opens scrolled to the top. */}
-        <div key={section} className="min-h-0 flex-1 overflow-y-auto scroll-stable">
-          <div className="mx-auto flex max-w-xl animate-row-fade flex-col gap-6 px-6 py-5">
+        <div key={section} className="min-h-0 flex-1 overflow-y-auto scroll-stable scroll-fade">
+          <div className="mx-auto flex max-w-xl animate-row-fade flex-col gap-6 px-6 pt-2 pb-5">
             {settings && <SectionContent section={section} settings={settings} />}
           </div>
         </div>

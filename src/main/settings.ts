@@ -56,6 +56,10 @@ export function openSettings(section?: SettingsSection) {
     return
   }
   pendingSection = section ?? null
+  // On macOS the sidebar is the system's sidebar material, which only shows through a clear
+  // window background; the content pane paints its own canvas over it. Elsewhere vibrancy
+  // does nothing, so the window keeps --surface behind the page.
+  const vibrant = process.platform === 'darwin'
   const window = new BrowserWindow({
     width: 760,
     height: 560,
@@ -66,10 +70,12 @@ export function openSettings(section?: SettingsSection) {
     fullscreenable: false,
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: TRAFFIC_LIGHTS,
-    backgroundColor: surfaceColor(),
+    ...(vibrant
+      ? { vibrancy: 'sidebar', visualEffectState: 'followWindow', backgroundColor: '#00000000' }
+      : { backgroundColor: surfaceColor() }),
     webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true },
   })
-  followSurface(window)
+  if (!vibrant) followSurface(window)
   win = window
   guardAppContents(window.webContents)
   window.once('ready-to-show', () => showWindow(window))

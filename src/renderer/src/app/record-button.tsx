@@ -2,7 +2,7 @@ import { fixWebmDuration } from '@fix-webm-duration/fix'
 import { useEffect, useRef, useState } from 'react'
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { CircleDot, Square } from '../lib/icons'
+import { CircleDot, Square, X } from '../lib/icons'
 import { Button } from '../lib/ui'
 
 const MAX_DURATION = 60_000
@@ -14,12 +14,26 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
   const [error, setError] = useState<string | null>(null)
   const stop = useRef<(() => void) | null>(null)
   const busy = useRef(false)
+  const root = useRef<HTMLDivElement>(null)
 
   useEffect(() => () => stop.current?.(), [])
   useEffect(() => {
     if (!error) return
     const timer = setTimeout(() => setError(null), 8000)
-    return () => clearTimeout(timer)
+    // Like a notice, it goes with Esc or a click anywhere else.
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setError(null)
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (!root.current?.contains(event.target as Node)) setError(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('pointerdown', onPointerDown)
+    return () => {
+      clearTimeout(timer)
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('pointerdown', onPointerDown)
+    }
   }, [error])
 
   const start = async () => {
@@ -192,7 +206,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
 
   const recording = phase === 'recording'
   return (
-    <div className="relative no-drag flex items-center">
+    <div ref={root} className="relative no-drag flex items-center">
       <Button
         variant="ghost"
         icon={recording ? Square : CircleDot}
@@ -200,7 +214,8 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         onClick={() => (recording ? stop.current?.() : void start())}
         title={recording ? 'Stop preview recording' : 'Record preview'}
         aria-label={recording ? 'Stop preview recording' : 'Record preview'}
-        className={recording ? 'text-danger' : undefined}
+        // The seconds count up in place rather than shifting the button's width.
+        className={recording ? 'text-danger tabular-nums' : undefined}
       >
         {recording
           ? `${Math.floor(elapsed / 1000)}s`
@@ -210,13 +225,24 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
               ? 'Starting…'
               : null}
       </Button>
+      {/* In the toolbar itself: anything hanging below it would sit under the preview, a
+          native view drawn over this page. The reason is announced and in the tooltip. */}
       {error && (
-        <div
-          role="alert"
-          className="absolute top-full right-0 z-50 mt-2 w-64 rounded-lg border border-line bg-raised p-3 text-small text-danger shadow-popover"
-        >
-          {error}
-        </div>
+        <>
+          <span role="alert" className="sr-only">
+            Couldn't record: {error}
+          </span>
+          <Button
+            variant="danger"
+            size="sm"
+            trailingIcon={X}
+            title={`${error} Click to dismiss.`}
+            onClick={() => setError(null)}
+            className="ml-1"
+          >
+            Couldn't record
+          </Button>
+        </>
       )}
     </div>
   )

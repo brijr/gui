@@ -2,6 +2,7 @@ import { useId } from 'react'
 import type { SettingsState } from '../../../shared/types'
 import { GitHubProjects } from '../app/github-projects'
 import { gui } from '../lib/api'
+import { InlineError } from '../lib/field'
 import { PathText } from '../lib/path-text'
 import { GroupLabel, List, ListItem } from '../lib/surface'
 import { Button } from '../lib/ui'
@@ -38,7 +39,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
             ))}
           </List>
         ) : (
-          <p className="text-muted">No trusted projects.</p>
+          <p className="text-pretty text-small text-muted">No trusted projects.</p>
         )}
       </section>
 
@@ -59,11 +60,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
             }
           />
         </List>
-        {clear.error && (
-          <p role="alert" className="select-text text-pretty text-small text-danger">
-            {clear.error}
-          </p>
-        )}
+        {clear.error && <InlineError>{clear.error}</InlineError>}
       </section>
     </>
   )
@@ -86,11 +83,7 @@ function TrustedRow({ root, home }: { root: string; home: string }) {
         </Button>
       }
     >
-      {revoke.error && (
-        <p role="alert" className="select-text text-pretty text-small text-danger">
-          {revoke.error}
-        </p>
-      )}
+      {revoke.error && <InlineError>{revoke.error}</InlineError>}
     </ListItem>
   )
 }

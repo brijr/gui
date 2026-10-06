@@ -12,7 +12,7 @@ import { AgentList } from '../agents/agent-list'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
-import { Input } from '../lib/field'
+import { Field, InlineError, Input } from '../lib/field'
 import { GuiMark } from '../lib/gui-mark'
 import {
   AppWindow,
@@ -27,7 +27,7 @@ import {
   X,
 } from '../lib/icons'
 import { PathText } from '../lib/path-text'
-import { Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
+import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'
 import { useAction } from '../settings/use-action'
 import { GitHubProjects } from './github-projects'
@@ -97,9 +97,11 @@ function DeviceFrame({ frame }: { frame: ViewportFrame }) {
   const { rect } = frame
   return (
     <>
+      {/* The device sits on the canvas like a card rather than floating over it, so it takes
+          the raised shadow; its strong edge is what sets the screen apart. */}
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute border border-line-strong shadow-popover"
+        className="pointer-events-none absolute border border-line-strong shadow-raised"
         style={{
           left: rect.x - 1,
           top: rect.y - 1,
@@ -441,22 +443,27 @@ export function EnvBanner({ state }: { state: WindowState }) {
   const env = state.setup?.env
   if (!env || dismissed || !state.preview.visible) return null
   return (
-    <div className="flex h-9 shrink-0 items-center gap-2 border-b border-line bg-surface pr-1.5 pl-3">
-      <KeyRound className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-      <p className="min-w-0 flex-1 truncate text-small text-muted">
+    <Banner
+      icon={KeyRound}
+      actions={
+        <>
+          <EnvButton env={env} size="sm" />
+          <IconButton
+            label="Dismiss"
+            icon={X}
+            size="sm"
+            onClick={() => {
+              dismissedEnv.add(root)
+              setDismissed(true)
+            }}
+          />
+        </>
+      }
+    >
+      <span className="truncate">
         This project uses environment variables. <EnvText env={env} />
-      </p>
-      <EnvButton env={env} size="sm" />
-      <IconButton
-        label="Dismiss"
-        icon={X}
-        size="sm"
-        onClick={() => {
-          dismissedEnv.add(root)
-          setDismissed(true)
-        }}
-      />
-    </div>
+      </span>
+    </Banner>
   )
 }
 
@@ -468,6 +475,9 @@ function GitHubMark() {
     </svg>
   )
 }
+
+/** The start screen's one field, whichever it's asking for. */
+const FORM_FIELD = 'start-project-value'
 
 /** What each of the start screen's fields asks for, and what its button does. */
 const FORMS: Record<
@@ -589,56 +599,44 @@ function OpenActions() {
 
   return (
     <form
-      className="flex flex-col gap-1.5"
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
       }}
     >
-      <label htmlFor="start-project-value" className="text-small font-medium text-muted">
-        {spec.label}
-      </label>
-      <div className="flex gap-2">
-        <Input
-          // Remounted per field, so autoFocus applies to each.
-          key={form}
-          id="start-project-value"
-          ref={input}
-          autoFocus
-          mono={spec.mono}
-          className="h-8"
-          aria-label={spec.label}
-          aria-invalid={!!error || undefined}
-          aria-describedby={error ? 'start-form-hint start-form-error' : 'start-form-hint'}
-          placeholder={spec.placeholder}
-          spellCheck={false}
-          autoCapitalize="off"
-          autoCorrect="off"
-          value={value}
-          disabled={busy}
-          onChange={(event) => {
-            setValue(event.target.value)
-            setError(null)
-          }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape' && !busy) close()
-          }}
-        />
-        <Button type="submit" variant="primary" size="lg" loading={busy} disabled={!value.trim()}>
-          {busy ? spec.busy : spec.submit}
-        </Button>
-        <Button size="lg" disabled={busy} onClick={close}>
-          Cancel
-        </Button>
-      </div>
-      <p id="start-form-hint" className="text-pretty text-small text-muted">
-        {spec.hint}
-      </p>
-      {error && (
-        <p id="start-form-error" role="alert" className="text-small text-danger">
-          {error}
-        </p>
-      )}
+      <Field label={spec.label} htmlFor={FORM_FIELD} hint={spec.hint} error={error}>
+        <div className="flex gap-2">
+          <Input
+            // Remounted per field, so autoFocus applies to each.
+            key={form}
+            id={FORM_FIELD}
+            ref={input}
+            autoFocus
+            mono={spec.mono}
+            aria-invalid={!!error || undefined}
+            aria-describedby={error ? `${FORM_FIELD}-error` : `${FORM_FIELD}-hint`}
+            placeholder={spec.placeholder}
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            value={value}
+            disabled={busy}
+            onChange={(event) => {
+              setValue(event.target.value)
+              setError(null)
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Escape' && !busy) close()
+            }}
+          />
+          <Button type="submit" variant="primary" loading={busy} disabled={!value.trim()}>
+            {busy ? spec.busy : spec.submit}
+          </Button>
+          <Button disabled={busy} onClick={close}>
+            Cancel
+          </Button>
+        </div>
+      </Field>
     </form>
   )
 }
@@ -753,28 +751,32 @@ function RecentRow({
   const remove = useAction()
   return (
     <li>
-      <div className="flex items-center pr-3">
+      {/* One action per row, opening it: removing it shows only under the pointer or the
+          keyboard, in place of the chevron, so the row's fill runs under both. */}
+      <div className="group relative">
         <ListRow
           flush
           onClick={() => void gui.openRecent(root)}
           disabled={remove.pending}
           title={title}
           detail={detail}
-          trailing={CHEVRON}
+          trailing={
+            <span className="transition-opacity duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
+              {CHEVRON}
+            </span>
+          }
         />
         <IconButton
           label={`Remove recent ${kind}: ${title}`}
           title="Remove from recents"
           icon={X}
+          size="sm"
           disabled={remove.pending}
           onClick={() => void remove.run(() => gui.removeRecent(root))}
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>
-      {remove.error && (
-        <p role="alert" className="px-3 pb-2 text-small text-danger">
-          {remove.error}
-        </p>
-      )}
+      {remove.error && <InlineError className="px-3 pb-2">{remove.error}</InlineError>}
     </li>
   )
 }

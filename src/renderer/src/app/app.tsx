@@ -54,8 +54,10 @@ export function App() {
       // right of it.
       style={{ paddingLeft: state?.sidebarWidth || undefined }}
     >
-      {/* The preview's layout morphs: over the canvas, under the bars and the drawer. */}
-      <div ref={morphs} aria-hidden="true" className="pointer-events-none fixed inset-0 z-10" />
+      {/* The preview's layout morphs: over the canvas, under the bars and the drawer. It's the
+          canvas's own content moving, not chrome, so it takes the layer below chrome's: the
+          bars and the drawer slide over the snapshot as they would over the preview. */}
+      <div ref={morphs} aria-hidden="true" className="pointer-events-none fixed inset-0 z-sticky" />
       {!state ? (
         <div className="drag h-dvh bg-surface" />
       ) : (
@@ -65,7 +67,7 @@ export function App() {
           <div
             ref={bars}
             className={cn(
-              'z-20 shrink-0',
+              'z-chrome shrink-0',
               focusMode && leaving ? 'absolute inset-x-0 top-0' : 'relative',
               focusMode && !leaving && 'hidden',
             )}
@@ -81,7 +83,7 @@ export function App() {
           {!state.project && state.tabs.length === 1 && (
             <div
               aria-hidden="true"
-              className="drag absolute inset-x-0 top-0 z-20"
+              className="drag absolute inset-x-0 top-0 z-chrome"
               style={{ height: TOOLBAR_HEIGHT }}
             />
           )}
@@ -103,10 +105,11 @@ export function App() {
 function FocusBar({ state }: { state: WindowState }) {
   return (
     <header
-      className="drag relative z-20 flex shrink-0 items-center justify-end border-b border-line bg-surface pr-2"
+      className="drag relative z-chrome flex shrink-0 items-center gap-2 border-b border-line bg-surface pr-2 pl-20"
       style={{ height: FOCUS_BAR_HEIGHT }}
     >
-      <p className="pointer-events-none absolute inset-x-40 truncate text-center text-caption font-medium text-subtle">
+      {/* After the traffic lights, left-aligned like every other title in Gui */}
+      <p className="pointer-events-none min-w-0 flex-1 truncate text-caption font-medium text-subtle">
         {state.project?.name}
       </p>
       <Button
