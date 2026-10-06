@@ -1,6 +1,6 @@
 # GitHub projects and accounts
 
-GitHub sign-in applies to connected GitHub projects. Local projects remain available without an account. The GitHub App and D1 database are created. Worker code, database binding, rate limiter, and public GitHub identifiers are deployed at `https://gui-accounts.brijr.workers.dev`. Gui defaults to this service. Server secrets and live GitHub verification remain pending.
+GitHub sign-in applies to connected GitHub projects. Local projects remain available without an account. The GitHub App and D1 database are created. Worker code, database binding, rate limiter, public GitHub identifiers, and encrypted server secrets are deployed at `https://gui-accounts.brijr.workers.dev`. Gui defaults to this service. Live device authorization, attempt storage, cancellation, sign-in from the installed Gui app, and connected repository listing have been verified. Live repository creation, cloning, and shipping remain unverified.
 
 ## Journey
 
