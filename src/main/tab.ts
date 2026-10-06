@@ -498,6 +498,7 @@ export class ProjectTab {
         error: null,
         errorDetail: null,
         modeName: null,
+        modeFollowsPolicy: false,
         commands: [],
         selection: [],
         selectionError: null,

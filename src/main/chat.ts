@@ -267,6 +267,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       error: null,
       errorDetail: null,
       modeName: null,
+      modeFollowsPolicy: false,
       commands: this.knownCommands.get(agentId) ?? [],
       selection: [],
       selectionError: null,
@@ -351,6 +352,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       error: null,
       errorDetail: null,
       modeName: null,
+      modeFollowsPolicy: false,
       redoTurnIds: [],
     })
     if (!this.disposed) this.emit('reset', this.snapshot())
@@ -1023,7 +1025,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
         }
       }
       this.schedulePersist()
-      this.patchMeta({ status: 'ready', modeName: info.modeName, models: this.nextModels() })
+      this.patchMeta({
+        status: 'ready',
+        modeName: info.modeName,
+        modeFollowsPolicy: agent.modeFollowsPolicy,
+        models: this.nextModels(),
+      })
       if (info.commands) this.rememberCommands(agent.agentId, info.commands)
       this.hadSession = true
       return { agent, info }
@@ -1433,7 +1440,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   private refreshModeName() {
     const modeName = this.agent?.modeName ?? null
-    if (modeName !== this.meta.modeName) this.patchMeta({ modeName })
+    const modeFollowsPolicy = this.agent?.modeFollowsPolicy ?? false
+    if (modeName !== this.meta.modeName || modeFollowsPolicy !== this.meta.modeFollowsPolicy) {
+      this.patchMeta({ modeName, modeFollowsPolicy })
+    }
   }
 
   private async trySnapshot(record: TurnRecord, message: string) {

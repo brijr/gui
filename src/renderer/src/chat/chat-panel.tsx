@@ -426,7 +426,7 @@ function Header({ meta }: { meta: ChatMeta }) {
     >
       <StatusDot status={agentStatus(meta, running)} />
       <AgentSwitcher name={meta.agentName} />
-      {meta.modeName && (
+      {meta.modeName && !meta.modeFollowsPolicy && (
         <Badge title="The agent's mode">
           <span className="truncate">{meta.modeName}</span>
         </Badge>

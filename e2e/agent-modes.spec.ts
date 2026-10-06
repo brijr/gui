@@ -202,11 +202,16 @@ async function autoModeIs(session: GuiSession, on: boolean) {
   await waitFor(async () => (await autoApprove()) === on, `Auto mode to be ${on ? 'on' : 'off'}`)
 }
 
-/** Waits for the chat header's mode to read `name`. */
+/**
+ * Waits for the session's mode to be `name`. The chat header names it only when it's not the
+ * one Gui set for Ask or Auto (a mode the agent picked, like Plan): the Auto chip says that.
+ */
 async function modeIs(session: GuiSession, name: string) {
   const modeName = async () => (await session.chatSnapshot()).meta.modeName
   await waitFor(async () => (await modeName()) === name, `the mode to be ${name}`)
-  await expect(session.chat.getByText(name, { exact: true })).toBeVisible()
+  const badge = session.chat.getByText(name, { exact: true })
+  if ((await session.chatSnapshot()).meta.modeFollowsPolicy) await expect(badge).toBeHidden()
+  else await expect(badge).toBeVisible()
 }
 
 /** Sends a message and waits for its turn, the `index`th, to finish well. */

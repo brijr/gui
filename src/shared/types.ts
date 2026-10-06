@@ -569,6 +569,11 @@ export interface ChatMeta {
   /** The running session's own mode as the agent reports it (shown in the chat header) */
   modeName: string | null
   /**
+   * The mode is the one Gui set for Ask or Auto, which the composer's chip already says, so
+   * the header leaves it out ("Auto review" beside "Auto" says it twice)
+   */
+  modeFollowsPolicy: boolean
+  /**
    * The slash commands the agent offers in this project: its running session's, else the
    * ones it reported last time (it only reports them once a session starts). A message
    * that starts with one of them is sent to the agent as just that command.

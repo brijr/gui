@@ -517,6 +517,18 @@ export class AgentSession {
     }
   }
 
+  /**
+   * Whether the session's mode is one Gui sets for Ask or Auto, rather than one the agent
+   * (or the user, through it) picked, like Plan.
+   */
+  get modeFollowsPolicy(): boolean {
+    const wanted = this.controls?.mode
+    if (!wanted) return false
+    const option = selectSetting(this.configOptions, 'mode')
+    const current = option ? option.value : this.modes?.currentModeId
+    return current !== undefined && [...wanted.ask, ...wanted.auto].includes(current)
+  }
+
   /** The session's mode, by name: its `mode` config option's, else its ACP session mode's. */
   get modeName(): string | null {
     const option = selectSetting(this.configOptions, 'mode')
