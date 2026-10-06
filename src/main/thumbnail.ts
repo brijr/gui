@@ -2,6 +2,10 @@ import { nativeImage } from 'electron'
 
 const MAX_WIDTH = 320
 const MAX_HEIGHT = 240
+/** A long strip (a heading, a nav bar) keeps at least this much of its short side, to read */
+const MIN_SHORT_SIDE = 96
+/** …within the pixels a 320 × 240 thumbnail has, at 2× */
+const MAX_PIXELS = MAX_WIDTH * MAX_HEIGHT * 4
 
 /** A small JPEG data URL for showing a change at a glance; null when the image can't be read. */
 export function thumbnail(image: string | { data: string; mimeType: string } | null) {
@@ -10,7 +14,9 @@ export function thumbnail(image: string | { data: string; mimeType: string } | n
   const source = nativeImage.createFromDataURL(dataUrl)
   if (source.isEmpty()) return null
   const { width, height } = source.getSize()
-  const scale = Math.min(1, MAX_WIDTH / width, MAX_HEIGHT / height)
+  const fit = Math.min(MAX_WIDTH / width, MAX_HEIGHT / height)
+  const legible = MIN_SHORT_SIDE / Math.min(width, height)
+  const scale = Math.min(1, Math.max(fit, legible), Math.sqrt(MAX_PIXELS / (width * height)))
   const small =
     scale < 1
       ? source.resize({

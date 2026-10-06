@@ -783,6 +783,9 @@ function Comparison({ turn }: { turn: Turn }) {
   ] as const
   // Frames take the shot's shape, up to a cap, so a tall element isn't shrunk into a strip.
   const ratio = preview.frame ? preview.frame.width / preview.frame.height : loadedRatio
+  // A long strip (a heading, a nav bar) fit whole would be a hairline: it fills the frame's
+  // height (or width) instead, from its start, so its first words read.
+  const strip = !ratio ? null : ratio > 4 ? 'wide' : ratio < 1 / 4 ? 'tall' : null
   return (
     <div
       className={cn(
@@ -817,6 +820,7 @@ function Comparison({ turn }: { turn: Turn }) {
                   label={shot.label}
                   frame={preview.frame ?? null}
                   before={shot.label === 'Before'}
+                  strip={strip}
                   onRatio={shot.label === 'After' ? setLoadedRatio : undefined}
                 />
               </button>
@@ -832,12 +836,15 @@ function Shot({
   label,
   frame,
   before,
+  strip,
   onRatio,
 }: {
   src: string
   label: string
   frame: PreviewFrame | null
   before: boolean
+  /** A long strip, cropped to fill rather than shrunk to fit (see Comparison) */
+  strip: 'wide' | 'tall' | null
   /** Reports the image's width over its height once it loads */
   onRatio?: (ratio: number) => void
 }) {
@@ -850,7 +857,14 @@ function Shot({
           const { naturalWidth, naturalHeight } = event.currentTarget
           if (naturalHeight > 0) onRatio?.(naturalWidth / naturalHeight)
         }}
-        className="size-full object-contain"
+        className={cn(
+          'size-full',
+          strip === 'wide'
+            ? 'object-cover object-left'
+            : strip === 'tall'
+              ? 'object-cover object-top'
+              : 'object-contain',
+        )}
       />
     )
   }
@@ -861,6 +875,9 @@ function Shot({
       role="img"
       aria-label={label}
       className="size-full"
+      preserveAspectRatio={
+        strip === 'wide' ? 'xMinYMid slice' : strip === 'tall' ? 'xMidYMin slice' : undefined
+      }
     >
       <image
         href={src}
