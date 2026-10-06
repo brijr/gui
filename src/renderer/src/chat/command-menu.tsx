@@ -1,7 +1,7 @@
 import { type KeyboardEvent, type ReactNode, useEffect, useId, useState } from 'react'
 import { filterCommands } from '../../../shared/commands'
 import type { AgentCommand } from '../../../shared/types'
-import { Card, MenuRow } from '../lib/surface'
+import { MenuRow, Popover } from '../lib/surface'
 
 /** `/` and the start of a name, nothing after: the menu's query. Null when it shouldn't open. */
 function menuQuery(text: string) {
@@ -83,34 +83,39 @@ export function useCommandMenu({
 
   const hinted = open ? null : awaitingInput(text, commands)
   const element = open ? (
-    <Card
-      tone="raised"
-      id={listId}
-      role="listbox"
-      aria-label="Commands"
+    // In the composer's stack, right above the message box: it grows up out of the box.
+    <Popover
       // Focus stays in the message box; clicks mustn't take it.
       onMouseDown={(event) => event.preventDefault()}
-      className="max-h-56 overflow-y-auto scroll-stable overscroll-contain p-1"
+      style={{ transformOrigin: '0 100%' }}
+      className="max-h-56 shrink-0"
     >
-      {shown.map((command, index) => (
-        <MenuRow
-          key={command.name}
-          id={optionId(index)}
-          role="option"
-          aria-selected={index === activeIndex}
-          title={command.description || undefined}
-          highlighted={index === activeIndex}
-          selected={false}
-          onPointerMove={() => {
-            if (index !== activeIndex) setActive(index)
-          }}
-          onClick={() => choose(command)}
-        >
-          <span className="font-mono">/{command.name}</span>
-          {command.description && <span className="text-muted"> {command.description}</span>}
-        </MenuRow>
-      ))}
-    </Card>
+      <div
+        id={listId}
+        role="listbox"
+        aria-label="Commands"
+        className="min-h-0 overflow-y-auto scroll-stable overscroll-contain p-1"
+      >
+        {shown.map((command, index) => (
+          <MenuRow
+            key={command.name}
+            id={optionId(index)}
+            role="option"
+            aria-selected={index === activeIndex}
+            title={command.description || undefined}
+            highlighted={index === activeIndex}
+            selected={false}
+            onPointerMove={() => {
+              if (index !== activeIndex) setActive(index)
+            }}
+            onClick={() => choose(command)}
+          >
+            <span className="font-mono">/{command.name}</span>
+            {command.description && <span className="text-muted"> {command.description}</span>}
+          </MenuRow>
+        ))}
+      </div>
+    </Popover>
   ) : hinted ? (
     <p className="truncate px-1 text-small text-muted">
       <span className="font-mono">/{hinted.name}</span> <span>{hinted.hint}</span>

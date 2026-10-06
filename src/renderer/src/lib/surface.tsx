@@ -1,6 +1,6 @@
 import { type ComponentProps, type ReactNode, useState } from 'react'
 import { cn } from './cn'
-import { Check, X } from './icons'
+import { Check, type IconComponent, X } from './icons'
 import { PRESS } from './ui'
 
 /*
@@ -69,7 +69,11 @@ interface MenuRowProps extends ComponentProps<'div'> {
   selected: boolean
 }
 
-/** An option in a popover menu or listbox, 28px tall. Give it role="option" and its handlers. */
+/**
+ * An option in a popover menu or listbox, 28px tall. Give it role="option" and its handlers.
+ * Highlighted (under the pointer or the arrow keys) is the hover fill; selected (the current
+ * choice) is accent text and a check, so the two read apart when they're on different rows.
+ */
 export function MenuRow({ highlighted, selected, className, children, ...props }: MenuRowProps) {
   return (
     <div
@@ -77,6 +81,7 @@ export function MenuRow({ highlighted, selected, className, children, ...props }
         'flex h-7 items-center gap-2 rounded-md px-2 text-small transition-opacity',
         PRESS,
         highlighted && 'bg-hover',
+        selected && 'text-accent-text',
         className,
       )}
       {...props}
@@ -87,7 +92,7 @@ export function MenuRow({ highlighted, selected, className, children, ...props }
   )
 }
 
-interface GroupLabelProps {
+export interface GroupLabelProps {
   children: ReactNode
   id?: string
   as?: 'h2' | 'h3' | 'p' | 'div' | 'span' | 'figcaption'
@@ -100,6 +105,129 @@ export function GroupLabel({ children, id, as: Tag = 'p', className }: GroupLabe
     <Tag id={id} className={cn('text-caption font-medium text-subtle', className)}>
       {children}
     </Tag>
+  )
+}
+
+interface SectionHeaderProps {
+  /** The GroupLabel's text */
+  children: ReactNode
+  id?: string
+  as?: GroupLabelProps['as']
+  /** A small action at the end: a ghost sm Button, a TextButton */
+  action?: ReactNode
+  className?: string
+}
+
+/** A GroupLabel with an action at the end of its line: "Agents ... Settings". */
+export function SectionHeader({ children, id, as = 'h2', action, className }: SectionHeaderProps) {
+  return (
+    <div className={cn('flex min-h-6 items-center justify-between gap-2', className)}>
+      <GroupLabel id={id} as={as}>
+        {children}
+      </GroupLabel>
+      {action && <div className="-my-1 flex shrink-0 items-center gap-1">{action}</div>}
+    </div>
+  )
+}
+
+interface PanelHeaderProps extends Omit<ComponentProps<'header'>, 'title'> {
+  /** The panel's name; body size, semibold, left-aligned and truncated. Or your own node. */
+  title?: ReactNode
+  titleId?: string
+  /** Before the title: a status dot, a back button */
+  leading?: ReactNode
+  /** IconButtons (sm) and other actions at the end */
+  actions?: ReactNode
+  /** Leaves out the hairline under it, for a header over content of the same color */
+  borderless?: boolean
+}
+
+/**
+ * The one header for panels, sheets and dialogs: 36px, title at the start, actions at the end
+ * (header recipe in styles.css). Children go between the two, for a header that needs more.
+ */
+export function PanelHeader({
+  title,
+  titleId,
+  leading,
+  actions,
+  borderless = false,
+  className,
+  children,
+  ...props
+}: PanelHeaderProps) {
+  return (
+    <header
+      className={cn(
+        'flex h-9 shrink-0 items-center gap-1.5 pr-1.5 pl-3',
+        !borderless && 'border-b border-line',
+        className,
+      )}
+      {...props}
+    >
+      {leading}
+      {title !== undefined &&
+        (typeof title === 'string' ? (
+          <h2 id={titleId} className="min-w-0 flex-1 truncate font-semibold">
+            {title}
+          </h2>
+        ) : (
+          <div id={titleId} className="flex min-w-0 flex-1 items-center">
+            {title}
+          </div>
+        ))}
+      {children}
+      {actions && <div className="flex shrink-0 items-center gap-0.5">{actions}</div>}
+    </header>
+  )
+}
+
+const BANNER_TONE = {
+  neutral: 'bg-surface text-muted',
+  warning: 'bg-warning-soft text-warning',
+  danger: 'bg-danger-soft text-danger',
+} as const
+
+interface BannerProps {
+  /** A 14px icon at the start */
+  icon?: IconComponent
+  tone?: keyof typeof BANNER_TONE
+  /** Buttons at the end (sm) */
+  actions?: ReactNode
+  /** top: a hairline under it, for a bar above content; bottom: over it */
+  edge?: 'top' | 'bottom'
+  role?: 'status' | 'alert'
+  className?: string
+  children: ReactNode
+}
+
+/**
+ * A bar across the top or bottom of a panel about the whole of it: the env file in use, the
+ * dev server stopped. 36px, one line that truncates, actions at the end (bar recipe).
+ */
+export function Banner({
+  icon: Icon,
+  tone = 'neutral',
+  actions,
+  edge = 'top',
+  role,
+  className,
+  children,
+}: BannerProps) {
+  return (
+    <div
+      role={role}
+      className={cn(
+        'flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3 text-small',
+        edge === 'top' ? 'border-b border-line' : 'border-t border-line',
+        BANNER_TONE[tone],
+        className,
+      )}
+    >
+      {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{children}</div>
+      {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+    </div>
   )
 }
 
@@ -317,7 +445,7 @@ export function Thumbnail({
           aria-label={removeLabel ?? 'Remove'}
           title="Remove"
           onClick={onRemove}
-          className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted transition-colors hover:text-fg hover:tint"
+          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] hover:text-fg hover:tint ${PRESS}`}
         >
           <X className="size-3" aria-hidden="true" />
         </button>

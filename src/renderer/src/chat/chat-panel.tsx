@@ -41,8 +41,8 @@ import {
   SquarePen,
 } from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
-import { Message } from '../lib/surface'
-import { Button, IconButton, Spinner } from '../lib/ui'
+import { Message, PanelHeader } from '../lib/surface'
+import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
 import { Composer } from './composer'
 import { Morph } from './morph'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
@@ -129,6 +129,8 @@ export function ChatPanel() {
 
   return (
     <FloatingChat float={float} meta={meta} turns={turns} running={running}>
+      {/* The strong hairline is deliberate: the panel floats over whatever page is in the
+          preview, often white on white, where the regular one disappears. */}
       <div
         data-chat-panel
         className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
@@ -380,7 +382,7 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
       aria-hidden="true"
       onPointerDown={onPointerDown}
       className={cn(
-        'absolute z-10 after:absolute after:opacity-0 after:transition-opacity hover:after:opacity-70',
+        'absolute z-sticky after:absolute after:opacity-0 after:transition-opacity hover:after:opacity-70',
         docked ? DOCKED_CLASS : EDGE_CLASS[edge],
         edge.includes('-') ? CORNER_CLASS : 'after:bg-accent',
       )}
@@ -406,11 +408,11 @@ function Header({ meta }: { meta: ChatMeta }) {
   const shipping = useShipSheet((s) => s.open)
   const shipBusy = useShipSheet((s) => s.busy)
   return (
-    <div
+    <PanelHeader
       onPointerDown={titleBar ? undefined : onDragStart}
       // As the sidebar (or popped out) it's the window's title bar: as tall as the toolbar,
       // with the traffic lights at its start (outside full screen), and what the window is
-      // dragged by.
+      // dragged by. The name still starts the line, after them.
       style={
         titleBar
           ? {
@@ -419,60 +421,61 @@ function Header({ meta }: { meta: ChatMeta }) {
             }
           : undefined
       }
-      className={cn(
-        'flex shrink-0 items-center gap-1.5 border-b border-line pr-2 pl-3',
-        titleBar ? 'drag' : 'h-9 cursor-grab active:cursor-grabbing',
-      )}
+      className={titleBar ? 'drag' : 'cursor-grab active:cursor-grabbing'}
+      leading={<StatusDot status={agentStatus(meta, running)} />}
+      actions={
+        <>
+          <IconButton
+            size="sm"
+            label="Create pull request"
+            icon={GitPullRequest}
+            pressed={shipping}
+            disabled={shipBusy}
+            onClick={toggleShipSheet}
+          />
+          <IconButton
+            size="sm"
+            label="New chat"
+            shortcut="newChat"
+            icon={SquarePen}
+            onClick={() => gui.newSession()}
+          />
+          {!meta.popped && (
+            <IconButton
+              size="sm"
+              label={meta.docked ? 'Float panel' : 'Show as sidebar'}
+              shortcut="dockChat"
+              icon={meta.docked ? PanelLeftClose : PanelLeft}
+              onClick={() => gui.toggleDock()}
+            />
+          )}
+          <IconButton
+            size="sm"
+            label={meta.popped ? 'Back to window' : 'Pop out'}
+            shortcut="popOutChat"
+            icon={meta.popped ? SquareArrowOutDownLeft : SquareArrowOutUpRight}
+            onClick={() => gui.togglePopOut()}
+          />
+          {!meta.docked && !meta.popped && (
+            <IconButton
+              size="sm"
+              label="Minimize"
+              icon={Minus}
+              onClick={() => gui.setMinimized(true)}
+            />
+          )}
+        </>
+      }
     >
-      <StatusDot status={agentStatus(meta, running)} />
-      <AgentSwitcher name={meta.agentName} />
-      {meta.modeName && !meta.modeFollowsPolicy && (
-        <Badge title="The agent's mode">
-          <span className="truncate">{meta.modeName}</span>
-        </Badge>
-      )}
-      <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        <IconButton
-          size="sm"
-          label="Create pull request"
-          icon={GitPullRequest}
-          pressed={shipping}
-          disabled={shipBusy}
-          onClick={toggleShipSheet}
-        />
-        <IconButton
-          size="sm"
-          label="New chat"
-          shortcut="newChat"
-          icon={SquarePen}
-          onClick={() => gui.newSession()}
-        />
-        {!meta.popped && (
-          <IconButton
-            size="sm"
-            label={meta.docked ? 'Float panel' : 'Show as sidebar'}
-            shortcut="dockChat"
-            icon={meta.docked ? PanelLeftClose : PanelLeft}
-            onClick={() => gui.toggleDock()}
-          />
-        )}
-        <IconButton
-          size="sm"
-          label={meta.popped ? 'Back to window' : 'Pop out'}
-          shortcut="popOutChat"
-          icon={meta.popped ? SquareArrowOutDownLeft : SquareArrowOutUpRight}
-          onClick={() => gui.togglePopOut()}
-        />
-        {!meta.docked && !meta.popped && (
-          <IconButton
-            size="sm"
-            label="Minimize"
-            icon={Minus}
-            onClick={() => gui.setMinimized(true)}
-          />
+      <div className="flex min-w-0 flex-1 items-center gap-1.5">
+        <AgentSwitcher name={meta.agentName} />
+        {meta.modeName && !meta.modeFollowsPolicy && (
+          <Badge title="The agent's mode">
+            <span className="truncate">{meta.modeName}</span>
+          </Badge>
         )}
       </div>
-    </div>
+    </PanelHeader>
   )
 }
 
@@ -490,7 +493,12 @@ function AgentSwitcher({ name }: { name: string }) {
         const box = event.currentTarget.getBoundingClientRect()
         gui.showAgentMenu({ x: box.left, y: box.bottom + 4 })
       }}
-      className="no-drag -ml-1 flex h-6 min-w-0 items-center gap-1 rounded-md px-1 font-medium text-fg transition-colors hover:bg-hover"
+      // A ghost button with its chevron, pulled into the header's inset so the name lines up
+      // with the panel's text.
+      className={cn(
+        'no-drag -ml-1 flex h-6 min-w-0 items-center gap-1 rounded-md px-1 font-medium text-fg transition-[color,background-color,opacity] hover:bg-hover',
+        PRESS,
+      )}
     >
       <span className="truncate">{name}</span>
       <ChevronDown className="size-3 shrink-0 text-subtle" aria-hidden="true" />
@@ -547,14 +555,19 @@ function ChatBubble({
         aria-describedby={statusId}
         title={picking ? 'Show chat (stops selecting)' : 'Show chat'}
         onClick={() => (picking ? gui.stopSelecting() : gui.expandChat())}
-        className="relative flex size-full items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-colors hover:text-fg"
+        // Floats over the page like the panel, so the same strong hairline and shadow.
+        className={cn(
+          'relative flex size-full items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-[color,opacity] hover:text-fg hover:tint',
+          PRESS,
+        )}
       >
         {/* 16px: a control's 14px icon looks lost in the 44px bubble */}
         {running ? <Spinner size="md" /> : <MessageSquare className="size-4" aria-hidden="true" />}
+        {/* Larger than a status dot, with a ring of the bubble's color, so it reads on the edge */}
         {waiting && (
-          <span
-            aria-hidden="true"
-            className="absolute top-0.5 right-0.5 size-2.5 rounded-full bg-accent ring-2 ring-raised"
+          <StatusDot
+            status="attention"
+            className="absolute top-0.5 right-0.5 size-2.5 ring-2 ring-raised"
           />
         )}
       </button>
@@ -573,28 +586,53 @@ function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   return <Turns turns={turns} meta={meta} />
 }
 
+function toEnd(el: HTMLElement | null) {
+  if (el) el.scrollTop = el.scrollHeight
+}
+
+/** Within this many pixels of the end counts as at the end. */
+const STICK_SLOP = 48
+/** How long after a disclosure is toggled its change in height is the user's, not new content. */
+const TOGGLE_WINDOW = 150
+
 /**
- * Stays pinned to the newest line unless the user scrolled up: as turns stream in, and as
- * the composer's stack (queue, problems, the picked element) grows or shrinks under it.
+ * Stays pinned to the newest line unless the user scrolled up: as turns stream in, as what's
+ * in them grows (a permission card, an image loading), and as the composer's stack (queue,
+ * problems, the picked element) grows or shrinks under it. A new turn is the user's own
+ * message, so it always comes into view and the transcript follows from there, wherever they
+ * had scrolled to.
  */
 function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   const scroller = useRef<HTMLDivElement>(null)
+  const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
+  /** When the user last opened or closed a disclosure in the transcript. */
+  const toggledAt = useRef(Number.NEGATIVE_INFINITY)
+  const newest = turns.at(-1)?.id
 
   // Before paint, so a message moving into the transcript lands where it ends up.
   useLayoutEffect(() => {
-    const el = scroller.current
-    if (el && stick.current && turns.length) el.scrollTop = el.scrollHeight
+    if (newest === undefined) return
+    stick.current = true
+    toEnd(scroller.current)
+  }, [newest])
+  useLayoutEffect(() => {
+    if (stick.current && turns.length) toEnd(scroller.current)
   }, [turns])
 
-  // The composer growing shrinks the transcript without scrolling it.
+  // The transcript's own height (the composer growing) and its content's (anything that grows
+  // after it renders) both change without a scroll.
   useEffect(() => {
     const el = scroller.current
-    if (!el) return
+    const inner = content.current
+    if (!el || !inner) return
     const observer = new ResizeObserver(() => {
-      if (stick.current) el.scrollTop = el.scrollHeight
+      // Opening "3 steps" near the end is the user reading there: it opens in place.
+      if (performance.now() - toggledAt.current < TOGGLE_WINDOW) return
+      if (stick.current) toEnd(el)
     })
     observer.observe(el)
+    observer.observe(inner)
     return () => observer.disconnect()
   }, [])
 
@@ -605,11 +643,16 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
       data-clip
       onScroll={(event) => {
         const el = event.currentTarget
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP
       }}
-      className="min-h-0 flex-1 select-text overflow-y-auto scroll-stable px-3 py-4"
+      onClickCapture={(event) => {
+        if ((event.target as Element).closest('[aria-expanded]')) {
+          toggledAt.current = performance.now()
+        }
+      }}
+      className="min-h-0 flex-1 select-text overflow-y-auto scroll-stable scroll-fade px-3 py-4"
     >
-      <div className="flex flex-col gap-6">
+      <div ref={content} className="flex flex-col gap-6">
         {turns.map((turn) => (
           <TurnView key={turn.id} turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
         ))}

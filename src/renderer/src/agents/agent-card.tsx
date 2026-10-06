@@ -8,9 +8,10 @@ import {
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
+import { InlineError } from '../lib/field'
 import { Check, TriangleAlert } from '../lib/icons'
 import { Card, GroupLabel } from '../lib/surface'
-import { Button, Spinner } from '../lib/ui'
+import { Button, Progress, Spinner } from '../lib/ui'
 
 interface AgentCardProps {
   agentId: AgentId
@@ -154,7 +155,7 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
       )
     default:
       return (
-        <Step text={`${name} hasn't been checked yet.`}>
+        <Step text={`${name} is installed but hasn't been checked yet.`}>
           <Button onClick={() => gui.checkAgents()}>Check</Button>
         </Step>
       )
@@ -204,28 +205,8 @@ function InstallProgress({ name, progress }: { name: string; progress: AgentHeal
 
   return (
     <div className="flex flex-col gap-1">
-      <div
-        role="progressbar"
-        aria-label={`Installing ${name}`}
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={fraction === null ? undefined : Math.round(fraction * 100)}
-        aria-valuetext={text}
-        className="h-1 overflow-hidden rounded-full bg-fill"
-      >
-        {fraction === null ? (
-          <div className="size-full animate-pulse bg-accent" />
-        ) : (
-          <div
-            className="size-full origin-left bg-accent transition-transform motion-reduce:transition-none"
-            style={{ transform: `scaleX(${fraction})` }}
-          />
-        )}
-      </div>
-      {/* Read through the progress bar's value text */}
-      <p aria-hidden="true" className="text-caption text-subtle tabular-nums">
-        {text}
-      </p>
+      <Progress label={`Installing ${name}`} value={fraction ?? undefined} />
+      <p className="text-caption text-subtle tabular-nums">{text}</p>
     </div>
   )
 }
@@ -269,11 +250,7 @@ function Step({ text, note, tone, error, children }: StepProps) {
         {note && <p className="select-text text-pretty text-caption text-subtle">{note}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">{children}</div>
-      {error && (
-        <p role="alert" className="select-text text-pretty text-small text-danger">
-          {error}
-        </p>
-      )}
+      {error && <InlineError>{error}</InlineError>}
     </div>
   )
 }

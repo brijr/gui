@@ -23,7 +23,7 @@ import {
   X,
 } from '../lib/icons'
 import { Card, Thumbnail } from '../lib/surface'
-import { Button, IconButton, Spinner } from '../lib/ui'
+import { Button, Counter, IconButton, Spinner } from '../lib/ui'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
@@ -40,7 +40,7 @@ import {
   settleSend,
   useChat,
 } from './store'
-import { pickLabel } from './turn-view'
+import { NOTE_INSET, pickLabel } from './turn-view'
 
 const NOTICE_MS = 5000
 
@@ -204,7 +204,10 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         </Line>
       )}
       {commands.element}
+      {/* The field's focus look on a frame of several controls, which takes a card's radius.
+          Popovers from the controls in it open off its edge (data-popover-anchor), not over it. */}
       <div
+        data-popover-anchor=""
         className={cn(
           'rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
           dropping && 'border-accent bg-accent-soft',
@@ -347,7 +350,8 @@ function problemsTitle(problems: Problem[]) {
 function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const latest = meta.problems.at(-1)
   return (
-    <Card tone="inset" className="flex items-center gap-2 py-1.5 pr-1.5 pl-2.5">
+    // A compact card: a line (two, with the latest error) and a button.
+    <Card tone="inset" className="flex items-center gap-2 py-2 pr-2 pl-3">
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="text-small font-medium">{problemsTitle(meta.problems)}</p>
@@ -400,11 +404,7 @@ function Selection({ selection }: { selection: Picked[] }) {
                   )}
                 </Thumbnail>
               )}
-              {several && (
-                <span className="absolute -top-1 -left-1 flex size-4 items-center justify-center rounded-full bg-accent text-caption font-medium text-accent-fg tabular-nums">
-                  {i + 1}
-                </span>
-              )}
+              {several && <Counter className="absolute -top-1 -left-1">{i + 1}</Counter>}
             </div>
             <PickedLabel picked={picked} />
             <IconButton
@@ -481,7 +481,12 @@ function AgentStatus({ meta }: { meta: ChatMeta }) {
         <Line tone="error">
           {meta.error} <span className="text-muted">Send a message to retry.</span>
         </Line>
-        {meta.errorDetail && <TechnicalDetails text={meta.errorDetail} className="pl-6" />}
+        {/* Under the line's text, as under a note's in the transcript */}
+        {meta.errorDetail && (
+          <div className="px-1">
+            <TechnicalDetails text={meta.errorDetail} className={NOTE_INSET} />
+          </div>
+        )}
       </div>
     )
   }

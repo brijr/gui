@@ -1,24 +1,22 @@
 import type { AgentHealth } from '../../../shared/types'
-import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
 import { Check } from '../lib/icons'
 import { Spinner } from '../lib/ui'
 
+const LABEL = 'flex shrink-0 items-center gap-1 text-small font-medium'
+
 /**
- * Same wording as the start screen's agent card. Beside the agent's name, in the regular weight
- * whatever the state; the color says which.
+ * An agent's status in a word or two, beside its name, the same on the start screen and in
+ * Settings: one weight whatever the state, and the color says which. An agent that hasn't
+ * been checked yet was found on PATH, so it reads as installed; Settings puts a "Check now"
+ * after it. An error's message is the tooltip here, and said in full where the agent is
+ * shown on its own (its next step, its Settings row).
  */
-export function AgentStatusLabel({
-  health,
-  checkable = true,
-}: {
-  health: AgentHealth
-  /** False inside a control that chooses the agent (which checks it), so it just says it's installed */
-  checkable?: boolean
-}) {
+export function AgentStatusLabel({ health }: { health: AgentHealth }) {
   switch (health.status) {
     case 'ready':
       return (
-        <span className="flex items-center gap-1 text-small font-normal text-success">
+        <span className={cn(LABEL, 'text-success')}>
           <Check className="size-3" aria-hidden="true" />
           Ready
         </span>
@@ -27,7 +25,7 @@ export function AgentStatusLabel({
     case 'installing':
     case 'signing-in':
       return (
-        <span className="flex items-center gap-1.5 text-small font-normal text-subtle">
+        <span className={cn(LABEL, 'gap-1.5 text-subtle')}>
           <Spinner />
           {health.status === 'checking'
             ? 'Checking'
@@ -37,23 +35,17 @@ export function AgentStatusLabel({
         </span>
       )
     case 'signed-out':
-      return <span className="text-small font-normal text-warning">Not signed in</span>
+      return <span className={cn(LABEL, 'text-warning')}>Not signed in</span>
     case 'error':
-      return <span className="text-small font-normal text-danger">Unavailable</span>
-    case 'not-installed':
-      return <span className="text-small font-normal text-subtle">Not installed</span>
-    case 'unknown':
-      return checkable ? (
-        <button
-          type="button"
-          onClick={() => gui.checkAgents(health.id)}
-          className="text-small font-normal text-accent-text"
-        >
-          Check now
-        </button>
-      ) : (
-        <span className="text-small font-normal text-subtle">Installed</span>
+      return (
+        <span className={cn(LABEL, 'text-danger')} title={health.message ?? undefined}>
+          Unavailable
+        </span>
       )
+    case 'not-installed':
+      return <span className={cn(LABEL, 'text-subtle')}>Not installed</span>
+    case 'unknown':
+      return <span className={cn(LABEL, 'text-subtle')}>Installed</span>
     default:
       return null
   }

@@ -107,7 +107,7 @@ test('the chat starts as the left sidebar, top to bottom, and ⌘B hides and sho
   const meta = (await session.chatSnapshot()).meta
   expect(meta).toMatchObject({ docked: true, trafficLights: true, popped: false })
   // The header is the window's title bar beside the toolbar: as tall, and leaving the lights room.
-  const header = session.chat.locator('[data-chat-panel] > div.drag')
+  const header = session.chat.locator('[data-chat-panel] > header.drag')
   await expect(header).toHaveCSS('height', `${TOOLBAR_HEIGHT}px`)
   await session.shot('sidebar')
 

@@ -170,8 +170,8 @@ async function expectActive(owner: Locator, option: Locator) {
 }
 
 /**
- * Just above the button and inside the chat panel, against the button's right edge unless
- * that would cross the panel's left edge.
+ * Just above the composer's frame (or the button, outside one) and inside the chat panel,
+ * against the button's right edge unless that would cross the panel's left edge.
  */
 async function expectPlaced(session: GuiSession, dialog: Locator, button: Locator) {
   // Once it has opened: it grows into place from 97% of its size.
@@ -189,12 +189,16 @@ async function expectPlaced(session: GuiSession, dialog: Locator, button: Locato
   const panel = await session.chat.locator('[data-chat-panel]').boundingBox()
   const box = await dialog.boundingBox()
   const anchor = await button.boundingBox()
-  if (!panel || !box || !anchor) throw new Error('The picker, its button or the panel has no box')
+  // It opens over the frame's edge rather than covering it.
+  const frame = button.locator('xpath=ancestor::*[@data-popover-anchor][1]')
+  const above = (await frame.count()) ? await frame.boundingBox() : anchor
+  if (!panel || !box || !anchor || !above)
+    throw new Error('The picker, its button or the panel has no box')
   expect(box.x).toBeGreaterThanOrEqual(panel.x)
   expect(box.y).toBeGreaterThanOrEqual(panel.y)
   expect(box.x + box.width).toBeLessThanOrEqual(panel.x + panel.width)
-  expect(box.y + box.height).toBeLessThanOrEqual(anchor.y)
-  expect(anchor.y - (box.y + box.height)).toBeLessThanOrEqual(8)
+  expect(box.y + box.height).toBeLessThanOrEqual(above.y)
+  expect(above.y - (box.y + box.height)).toBeLessThanOrEqual(8)
   const right = anchor.x + anchor.width
   if (right - box.width >= panel.x + 8) expect(Math.abs(box.x + box.width - right)).toBeLessThan(1)
   else expect(Math.abs(box.x - (panel.x + 8))).toBeLessThan(1)

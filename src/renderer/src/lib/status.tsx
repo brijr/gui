@@ -2,11 +2,12 @@ import type { ReactNode } from 'react'
 import { cn } from './cn'
 import type { IconComponent } from './icons'
 
-export type Status = 'ready' | 'busy' | 'error' | 'idle'
+export type Status = 'ready' | 'busy' | 'error' | 'idle' | 'attention'
 
 /**
  * The one status indicator, 6px: green when ready or running, pulsing amber while busy
- * (starting, installing, working), red on an error, a hollow ring when idle. Pair it with
+ * (starting, installing, working), red on an error, a hollow ring when idle, accent when
+ * something there wants the user (a finished turn in a hidden chat). Pair it with
  * text or a tooltip; it's hidden from assistive tech.
  */
 export function StatusDot({ status, className }: { status: Status; className?: string }) {
@@ -19,6 +20,7 @@ export function StatusDot({ status, className }: { status: Status; className?: s
         status === 'busy' && 'animate-pulse bg-warning',
         status === 'error' && 'bg-danger',
         status === 'idle' && 'border border-line-strong bg-fill',
+        status === 'attention' && 'bg-accent',
         className,
       )}
     />

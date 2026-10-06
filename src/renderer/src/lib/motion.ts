@@ -136,3 +136,13 @@ export function usePresence(open: boolean, exitMs: number) {
   }, [closing, exitMs])
   return open || closing
 }
+
+/**
+ * A motion duration from styles.css (`--motion-exit`, `--motion-fade`…) in ms, for script that
+ * has to wait for a CSS transition or run its own, so the two can't drift apart.
+ */
+export function motionMs(name: `--motion-${string}`): number {
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  const ms = Number.parseFloat(value)
+  return value.endsWith('s') && !value.endsWith('ms') ? ms * 1000 : ms
+}

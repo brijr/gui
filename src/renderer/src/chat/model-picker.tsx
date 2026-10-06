@@ -14,9 +14,9 @@ import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Check, ChevronDown, Search } from '../lib/icons'
-import { usePresence } from '../lib/motion'
+import { motionMs, usePresence } from '../lib/motion'
 import { GroupLabel, MenuRow, Popover } from '../lib/surface'
-import { Button, SegmentedControl } from '../lib/ui'
+import { Button, PRESS, SegmentedControl } from '../lib/ui'
 import { useChat } from './store'
 
 type Choice = AgentSetting['options'][number]
@@ -37,8 +37,6 @@ const SEGMENTS_MAX = 6
  * stop resizing, and the panel to finish growing out of the pill or the bubble.
  */
 const SETTLE_FRAMES = 60
-/** How long the picker takes to close (styles.css --motion-exit). */
-const EXIT_MS = 100
 
 /** Where the picker goes, in the chat view's CSS pixels. */
 interface Placement {
@@ -56,11 +54,21 @@ interface Placement {
 /**
  * Against the button's right edge, above it unless there's more room below. The chat is
  * its own view and can't draw outside it, so the picker stays inside the panel and takes
- * the height there is.
+ * the height there is. Inside the composer it opens off the composer's frame rather than the
+ * button, so it doesn't cover the frame's edge.
  */
 function place(button: HTMLElement): Placement {
   const panel = (button.closest('[data-chat-panel]') ?? document.body).getBoundingClientRect()
-  const at = button.getBoundingClientRect()
+  const box = button.getBoundingClientRect()
+  const frame = button.closest('[data-popover-anchor]')?.getBoundingClientRect() ?? box
+  // Across from the button; above or below the frame.
+  const at = {
+    left: box.left,
+    right: box.right,
+    width: box.width,
+    top: frame.top,
+    bottom: frame.bottom,
+  }
   const width = Math.min(WIDTH, panel.width - EDGE * 2)
   const left = Math.max(panel.left + EDGE, Math.min(at.right - width, panel.right - EDGE - width))
   const above = at.top - GAP - panel.top - EDGE
@@ -173,7 +181,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   const [open, setOpen] = useState(false)
   // Kept while it closes, which it does where it was.
   const [placement, setPlacement] = useState<Placement | null>(null)
-  const shown = usePresence(open, EXIT_MS)
+  const shown = usePresence(open, motionMs('--motion-exit'))
   const button = useRef<HTMLButtonElement>(null)
   const pickerId = useId()
   const fullName = choiceName(models.model) ?? models.model.value
@@ -214,8 +222,8 @@ export function ModelButton({ models }: { models: ModelSettings }) {
           setPlacement(place(event.currentTarget))
           setOpen(true)
         }}
-        // Looks hovered while its picker is open.
-        className="min-w-0 aria-expanded:bg-hover aria-expanded:text-fg"
+        // Pressed while its picker is open, as a pressed IconButton.
+        className="min-w-0 aria-expanded:bg-accent-soft aria-expanded:text-accent-text"
       >
         {/* A long model name gives way; the effort stays readable, unless the row is too
             narrow for both (the floating chat's default width), when it's left to the
@@ -378,6 +386,12 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         title={choice.name}
         highlighted={index === activeIndex}
         selected={selected}
+        // With the keyboard in the list, the row the arrows are on is ringed, so it reads
+        // apart from a row the pointer only passes over.
+        className={cn(
+          index === activeIndex &&
+            'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-accent',
+        )}
         onPointerMove={() => {
           if (index !== activeIndex) setActive(choice.value)
         }}
@@ -406,7 +420,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         bottom: placement.bottom ?? undefined,
         transformOrigin: placement.origin,
       }}
-      className="fixed z-50"
+      className="fixed z-popover"
     >
       {searchable && (
         <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
@@ -426,6 +440,8 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
             value={query}
             onChange={(event) => onSearch(event.target.value)}
             onKeyDown={onListKeyDown}
+            // Unframed in the popover's top edge: the caret shows focus, the placeholder a
+            // field's color.
             className="h-9 min-w-0 flex-1 bg-transparent text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
           />
         </div>
@@ -439,8 +455,9 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         tabIndex={searchable ? -1 : 0}
         aria-activedescendant={searchable ? undefined : activeId}
         onKeyDown={searchable ? undefined : onListKeyDown}
+        // The list's own focus ring would wrap the whole popover: the highlighted row shows it.
         className={cn(
-          'min-h-0 overflow-y-auto scroll-stable overscroll-contain outline-none',
+          'group/list min-h-0 overflow-y-auto scroll-stable overscroll-contain outline-none',
           rows.length > 0 && 'p-1',
         )}
       >
@@ -500,7 +517,12 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
                     type="button"
                     aria-pressed={on}
                     onClick={() => gui.setAgentSetting(effort.id, choice.value)}
-                    className="flex h-7 items-center gap-2 rounded-md px-2 text-left text-small transition-colors hover:bg-hover"
+                    // A MenuRow's look, as a button: these apply and leave the picker open.
+                    className={cn(
+                      'flex h-7 items-center gap-2 rounded-md px-2 text-left text-small transition-[background-color,opacity] hover:bg-hover',
+                      PRESS,
+                      on && 'text-accent-text',
+                    )}
                   >
                     <span className="min-w-0 flex-1 truncate">{effortLabel(choice)}</span>
                     {on && (

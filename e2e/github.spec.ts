@@ -131,7 +131,12 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click()
     await expect(page.getByText('TEST-CODE')).toBeVisible()
     await expect(page.getByText('Connected as')).toBeVisible()
-    await expect(page.getByText('gui-tester/private-project · Private')).toBeVisible()
+    await expect(
+      page
+        .getByRole('listitem')
+        .filter({ hasText: 'gui-tester/private-project' })
+        .getByText('Private', { exact: true }),
+    ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Clone & open' })).toBeVisible()
     const preference = page.getByRole('checkbox', {
       name: 'Email me Gui product updates at tester@example.com',
@@ -143,7 +148,12 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     await page.getByRole('button', { name: 'Create private project', exact: true }).click()
     await expect.poll(() => createdName).toBe('design-project')
     await expect(page.getByText('Created gui-tester/design-project.')).toBeVisible()
-    await expect(page.getByText('gui-tester/design-project · Private')).toBeVisible()
+    await expect(
+      page
+        .getByRole('listitem')
+        .filter({ hasText: 'gui-tester/design-project' })
+        .getByText('Private', { exact: true }),
+    ).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('github-connected.png') })
     const userData = await session.app.evaluate(({ app }) => app.getPath('userData'))
     expect(readFileSync(join(userData, 'github-session')).toString()).toContain('test-encrypted:')

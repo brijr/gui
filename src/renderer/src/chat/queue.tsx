@@ -82,7 +82,7 @@ function QueuedItem({ item }: { item: QueuedMessage }) {
         {item.prompt}
       </p>
       {!!item.recordings?.length && (
-        <span className="shrink-0 text-caption text-subtle">
+        <span className="shrink-0 text-caption text-subtle tabular-nums">
           {item.recordings.length} {item.recordings.length === 1 ? 'clip' : 'clips'}
         </span>
       )}

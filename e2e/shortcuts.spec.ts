@@ -436,16 +436,22 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
     }
   }
   await session.shot('shortcuts-light')
-  // It scrolls when the window's too short for it.
+  // Its body scrolls, under its header, when the window's too short for it.
   const overflow = await sheet.evaluate((dialog) => ({
     fits: dialog.getBoundingClientRect().bottom <= window.innerHeight,
-    scrolls: dialog.scrollHeight > dialog.clientHeight,
-    focused: document.activeElement === dialog,
+    scrolls: [...dialog.children].some((child) => child.scrollHeight > child.clientHeight),
+    // Its scrolling body has the keyboard, so the arrow keys scroll it.
+    focused: [...dialog.children].some(
+      (child) => child === document.activeElement && child.scrollHeight > child.clientHeight,
+    ),
   }))
   expect(overflow).toEqual({ fits: true, scrolls: true, focused: true })
   // The arrow keys scroll it, under its title.
   await session.chrome.keyboard.press('End')
-  await waitFor(() => sheet.evaluate((dialog) => dialog.scrollTop > 0), 'the sheet to scroll')
+  await waitFor(
+    () => sheet.evaluate((dialog) => [...dialog.children].some((child) => child.scrollTop > 0)),
+    'the sheet to scroll',
+  )
   await expect(sheet.getByRole('heading', { name: 'Keyboard shortcuts' })).toBeInViewport()
   await expect(sheet.getByText(shortcut('nextTab').description, { exact: true })).toBeInViewport()
   await session.shot('shortcuts-light-scrolled')

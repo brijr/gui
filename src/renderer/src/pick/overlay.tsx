@@ -8,6 +8,7 @@ import {
 import type { PickOverlayState, Point, Rect } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Counter, Kbd } from '../lib/ui'
 
 /** A press that moves less than this is a click; further, a drag for an area. */
 const DRAG_THRESHOLD = 4
@@ -15,8 +16,10 @@ const DRAG_THRESHOLD = 4
 const MIN_AREA = 8
 /** How long the hint stays when picking starts */
 const HINT_MS = 4000
-/** Room the label needs above an outline to sit over it rather than inside it */
+/** The label's height (h-5) */
 const LABEL_HEIGHT = 20
+/** Between the label and the outline, so the label doesn't sit on what's above the element */
+const LABEL_GAP = 4
 /** Labels this close to the right edge hang from the outline's right end instead */
 const LABEL_ROOM = 180
 
@@ -166,11 +169,7 @@ export function PickOverlay() {
     >
       {state.picked.map((picked, i) => (
         <Outline key={picked.id} rect={picked.rect} kind="picked">
-          {several && (
-            <span className="absolute -top-2 -left-2 flex size-4 items-center justify-center rounded-full bg-accent text-caption font-medium text-accent-fg tabular-nums shadow-raised">
-              {i + 1}
-            </span>
-          )}
+          {several && <Counter className="absolute -top-2 -left-2 shadow-raised">{i + 1}</Counter>}
         </Outline>
       ))}
       {state.hover && !area && (
@@ -236,10 +235,10 @@ function Label({
 }) {
   const nearRight = rect.x > window.innerWidth - LABEL_ROOM
   const top = below
-    ? Math.min(rect.y + rect.height + 4, window.innerHeight - LABEL_HEIGHT)
-    : rect.y >= LABEL_HEIGHT + 2
-      ? rect.y - LABEL_HEIGHT - 2
-      : Math.max(rect.y + 2, 2)
+    ? Math.min(rect.y + rect.height + LABEL_GAP, window.innerHeight - LABEL_HEIGHT)
+    : rect.y >= LABEL_HEIGHT + LABEL_GAP
+      ? rect.y - LABEL_HEIGHT - LABEL_GAP
+      : Math.max(rect.y + LABEL_GAP, 2)
   const horizontal = nearRight
     ? { right: Math.max(2, window.innerWidth - rect.x - rect.width) }
     : { left: Math.max(2, rect.x) }
@@ -259,21 +258,22 @@ function Hint({ shown }: { shown: boolean }) {
     <div
       aria-live="polite"
       className={cn(
-        'pointer-events-none absolute top-2 left-2 flex items-center gap-3 rounded-md bg-raised px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel)',
+        'pointer-events-none absolute top-2 left-2 flex items-center gap-3 rounded-lg border border-line bg-raised px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel)',
         shown ? 'opacity-100' : 'opacity-0',
       )}
     >
+      {/* Gestures in words, keys as keycaps */}
       <span>
         <span className="font-medium text-fg">Click</span> an element
       </span>
       <span>
         <span className="font-medium text-fg">Drag</span> for a screenshot
       </span>
-      <span>
-        <span className="font-medium text-fg">⇧</span> to pick more
+      <span className="flex items-center gap-1">
+        <Kbd>⇧</Kbd> to pick more
       </span>
-      <span>
-        <span className="font-medium text-fg">Esc</span> when done
+      <span className="flex items-center gap-1">
+        <Kbd>Esc</Kbd> when done
       </span>
     </div>
   )

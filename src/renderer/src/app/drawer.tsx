@@ -12,7 +12,8 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { ChevronDown, Info, Plus, SquareTerminal, TriangleAlert, X } from '../lib/icons'
 import { StatusDot } from '../lib/status'
-import { Button, IconButton } from '../lib/ui'
+import { Banner, PanelHeader } from '../lib/surface'
+import { Button, IconButton, PRESS } from '../lib/ui'
 import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus, stoppedOutside } from './server-status'
 import { drawOutput, mountXterm } from './xterm'
@@ -124,13 +125,29 @@ export function Drawer({ state }: { state: WindowState }) {
         aria-label="Terminal"
         inert={!open}
         className={cn(
-          'z-20 shrink-0 bg-surface',
+          // Chrome over the canvas while it slides away on top of it.
+          'z-chrome shrink-0 bg-surface',
           leaving ? 'absolute inset-x-0 bottom-0' : 'relative',
           drawn && 'border-t border-line',
         )}
       >
         {drawn && (
-          <div className="flex h-9 items-center gap-1 pr-1.5 pl-1.5">
+          // The header recipe, but its tabs carry their own inset, so the first label lands
+          // near the 12px the recipe gives a title. Over the terminal's darker canvas, no
+          // hairline is needed.
+          <PanelHeader
+            borderless
+            className="pl-1.5"
+            actions={
+              <IconButton
+                label="Hide terminal"
+                shortcut="toggleTerminal"
+                icon={ChevronDown}
+                size="sm"
+                onClick={() => gui.setDrawerOpen(false)}
+              />
+            }
+          >
             {/*
              * Tabs only, as in the tab strip. A terminal's × is for the pointer and hidden from
              * assistive tech; from the keyboard, Delete on its tab ends it.
@@ -148,7 +165,7 @@ export function Drawer({ state }: { state: WindowState }) {
                     key={entry.tab}
                     role="presentation"
                     className={cn(
-                      'relative flex h-7 min-w-0 shrink items-center rounded-md',
+                      'relative flex h-7 min-w-0 shrink items-center rounded-md transition-[color,background-color]',
                       selected
                         ? 'bg-accent-soft text-accent-text'
                         : 'text-muted hover:bg-hover hover:text-fg',
@@ -174,7 +191,8 @@ export function Drawer({ state }: { state: WindowState }) {
                       }}
                       onKeyDown={(event) => onKeyDown(event, index)}
                       className={cn(
-                        'flex h-full min-w-0 items-center gap-1.5 rounded-md pl-2 text-small font-medium',
+                        'flex h-full min-w-0 items-center gap-1.5 rounded-md pl-2 text-small font-medium transition-opacity',
+                        PRESS,
                         terminal ? 'pr-7' : 'pr-2.5',
                       )}
                     >
@@ -237,14 +255,7 @@ export function Drawer({ state }: { state: WindowState }) {
                 )
               )}
             </div>
-            <IconButton
-              label="Hide terminal"
-              shortcut="toggleTerminal"
-              icon={ChevronDown}
-              size="sm"
-              onClick={() => gui.setDrawerOpen(false)}
-            />
-          </div>
+          </PanelHeader>
         )}
         <div className={cn('relative overflow-hidden bg-canvas', drawn ? 'h-56' : 'h-0')}>
           {/* First, so it's the drawer's first terminal on the page. Keyed by project, so each
@@ -285,36 +296,36 @@ function Panel({ tab, shown, children }: { tab: DrawerTab; shown: boolean; child
   )
 }
 
-/** The dev server crashed while its last page is still on screen. */
 /**
  * Under a preview whose app is gone: it crashed (an alert, with the logs to see why), or
  * something outside Gui stopped it (said calmly, with a way to start it again).
  */
 function StoppedBar({ crashed }: { crashed: boolean }) {
   return (
-    // Its tint over the window's surface, as the rest of the chrome's bars.
-    <div
-      role={crashed ? 'alert' : 'status'}
-      className="relative z-20 shrink-0 border-t border-line bg-surface"
-    >
-      <div className={cn('flex h-9 items-center gap-2 pr-1.5 pl-3', crashed && 'bg-danger-soft')}>
-        {crashed ? (
-          <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
-        ) : (
-          <Info className="size-3.5 shrink-0 text-muted" aria-hidden="true" />
-        )}
-        <p className="min-w-0 flex-1 truncate text-small">
+    // The banner's soft tint goes over the window's surface, as the rest of the chrome's bars.
+    <div className="relative z-chrome shrink-0 bg-surface">
+      <Banner
+        edge="bottom"
+        tone={crashed ? 'danger' : 'neutral'}
+        icon={crashed ? TriangleAlert : Info}
+        role={crashed ? 'alert' : 'status'}
+        actions={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => gui.showLogs()}>
+              Show logs
+            </Button>
+            <Button size="sm" onClick={() => gui.restartDevServer()}>
+              {crashed ? 'Restart' : 'Start'}
+            </Button>
+          </>
+        }
+      >
+        <span className="truncate">
           {crashed
             ? "Your app stopped with an error, so the preview won't update."
             : "Your app was stopped outside Gui, so the preview won't update."}
-        </p>
-        <Button variant="ghost" size="sm" onClick={() => gui.showLogs()}>
-          Show logs
-        </Button>
-        <Button size="sm" onClick={() => gui.restartDevServer()}>
-          {crashed ? 'Restart' : 'Start'}
-        </Button>
-      </div>
+        </span>
+      </Banner>
     </div>
   )
 }

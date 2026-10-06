@@ -2,8 +2,8 @@ import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Check } from '../lib/icons'
-import { GroupLabel, List } from '../lib/surface'
-import { Button, PRESS } from '../lib/ui'
+import { List, SectionHeader } from '../lib/surface'
+import { PRESS, TextButton } from '../lib/ui'
 import { AgentStatusLabel } from '../settings/agent-status'
 import { AgentNextStep } from './agent-card'
 import { AgentIcon } from './agent-icon'
@@ -18,14 +18,16 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
   const shown = agents.filter((agent) => agent.enabled || agent.id === agentId)
   return (
     <section aria-labelledby="agents-heading" className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <GroupLabel id="agents-heading" as="h2">
-          Agents
-        </GroupLabel>
-        <Button variant="ghost" size="sm" onClick={() => gui.openSettings('agents')}>
-          Settings
-        </Button>
-      </div>
+      <SectionHeader
+        id="agents-heading"
+        action={
+          <TextButton className="text-small font-medium" onClick={() => gui.openSettings('agents')}>
+            Settings
+          </TextButton>
+        }
+      >
+        Agents
+      </SectionHeader>
       <List aria-labelledby="agents-heading">
         {shown.map((agent) => (
           <AgentListRow key={agent.id} health={agent} current={agent.id === agentId} />
@@ -37,7 +39,9 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
 
 function AgentListRow({ health, current }: { health: AgentHealth; current: boolean }) {
   return (
-    <li className={cn(current && 'bg-accent-soft/40')}>
+    // The one in use has the selected look (accent-soft, its marker in accent text); the
+    // others are rows like ListRow's flush ones.
+    <li className={cn(current && 'bg-accent-soft')}>
       <button
         type="button"
         // Named with its status ("Codex Ready"); the one in use says so.
@@ -54,7 +58,7 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
         <AgentIcon agentId={health.id} />
         <span className="flex min-w-0 flex-1 items-center gap-2">
           <span className="truncate font-medium">{health.name}</span>
-          <AgentStatusLabel health={health} checkable={false} />
+          <AgentStatusLabel health={health} />
         </span>
         {current && (
           <span className="flex shrink-0 items-center gap-1 text-small font-medium text-accent-text">

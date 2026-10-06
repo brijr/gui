@@ -1,4 +1,4 @@
-import { type MouseEvent, useEffect, useId, useRef } from 'react'
+import { useId } from 'react'
 import {
   acceleratorKeys,
   allShortcuts,
@@ -6,65 +6,36 @@ import {
   type Shortcut,
 } from '../../../shared/shortcuts'
 import { gui } from '../lib/api'
-import { X } from '../lib/icons'
+import { Dialog } from '../lib/dialog'
 import { GroupLabel } from '../lib/surface'
-import { IconButton, Keys } from '../lib/ui'
+import { Keys } from '../lib/ui'
 
 /**
  * Help → Keyboard Shortcuts (⌘/): every shortcut in the registry, by group, as keycaps. A
- * modal sheet over the window: main hides the preview and the chat while it's open, since
- * they're views on top of this page. Esc, ⌘/ again, the close button or a click outside it
- * closes it.
+ * modal sheet over the window, open while it's mounted: main hides the preview and the chat
+ * while it's open, since they're views on top of this page. Esc, ⌘/ again, the close button
+ * or a click outside it closes it, through main's state.
  */
 export function ShortcutsSheet() {
-  const dialog = useRef<HTMLDialogElement>(null)
-  const titleId = useId()
   const shortcuts = allShortcuts()
-
-  // The sheet itself has the keyboard, so the arrow keys scroll it, rather than its close
-  // button showing a focus ring from the start.
-  useEffect(() => {
-    dialog.current?.showModal()
-    dialog.current?.focus()
-  }, [])
-
-  const close = () => gui.setShortcutsOpen(false)
-  // The backdrop is the dialog's own box, outside its content.
-  const onClick = (event: MouseEvent<HTMLDialogElement>) => {
-    if (event.target === event.currentTarget) close()
-  }
-
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: Esc closes it (onCancel); this is a click on the backdrop
-    <dialog
-      ref={dialog}
-      aria-labelledby={titleId}
-      onCancel={(event) => {
-        // Closed by main's state, like ⌘/ does.
-        event.preventDefault()
-        close()
-      }}
-      onClick={onClick}
-      tabIndex={-1}
-      // Scrolls as a whole, under its title, within the room the window has.
-      className="no-drag m-auto w-full max-w-lg overflow-y-auto scroll-stable overscroll-contain rounded-xl border border-line bg-raised p-0 text-fg shadow-popover outline-none backdrop:bg-scrim"
+    <Dialog
+      open
+      onClose={() => gui.setShortcutsOpen(false)}
+      title="Keyboard shortcuts"
+      // Only read: the sheet itself has the keyboard, so the arrow keys scroll it, rather than
+      // its close button showing a focus ring from the start.
+      focusSelf
+      className="flex flex-col gap-5 px-4 pt-3 pb-5"
     >
-      <div className="sticky top-0 z-10 flex h-11 items-center gap-2 border-b border-line bg-raised pr-2 pl-4">
-        <h2 id={titleId} className="min-w-0 flex-1 truncate font-semibold">
-          Keyboard shortcuts
-        </h2>
-        <IconButton label="Close" title="Close (Esc)" icon={X} onClick={close} />
-      </div>
-      <div className="flex flex-col gap-5 px-4 pt-3 pb-5">
-        {SHORTCUT_GROUPS.map((group) => (
-          <ShortcutGroup
-            key={group.id}
-            name={group.name}
-            shortcuts={shortcuts.filter((shortcut) => shortcut.group === group.id)}
-          />
-        ))}
-      </div>
-    </dialog>
+      {SHORTCUT_GROUPS.map((group) => (
+        <ShortcutGroup
+          key={group.id}
+          name={group.name}
+          shortcuts={shortcuts.filter((shortcut) => shortcut.group === group.id)}
+        />
+      ))}
+    </Dialog>
   )
 }
 
