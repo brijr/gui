@@ -1,6 +1,8 @@
+import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
-import { realpath, stat } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import { mkdir, realpath, rm, stat, symlink } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
+import { promisify } from 'node:util'
 import {
   app,
   BrowserWindow,
@@ -247,6 +249,61 @@ async function newProject(target: ProjectWindow | undefined, input: string) {
   if (!name) throw new Error('Use a name without slashes or colons, like my-app.')
   const folder = await pickParent(target, `Create ${name} in…`, 'Create Here')
   if (folder) openSafely(target, await createProject(name, folder))
+}
+
+/**
+ * For folders handed to Gui from outside (the `gui` command, the Dock, Open Recent): a
+ * folder already open shows its tab instead of starting a second dev server.
+ */
+async function openOrShow(root: string) {
+  const member = await findWorkspaceRoot(root)
+  const real = member?.root ?? (await canonical(root))
+  const tab = allTabs().find((tab) => {
+    if (tab.projectRoot !== real) return false
+    const appDir = tab.getState().project?.appDir ?? null
+    return !member || appDir === member.appDir
+  })
+  const win = tab && allWindows().find((win) => win.tabs.includes(tab))
+  if (!tab || !win) return openSafely(focusedWindow(), root)
+  win.showTab(tab)
+  if (win.win.isMinimized()) win.win.restore()
+  focusWindow(win.win, { steal: true })
+}
+
+/** Where the `gui` command lives: on PATH for zsh and bash on every Mac. */
+const CLI_LINK = '/usr/local/bin/gui'
+const execFileAsync = promisify(execFile)
+
+/** Links `gui` into /usr/local/bin, asking for an administrator password if it must. */
+async function installCli() {
+  const script = app.isPackaged
+    ? join(process.resourcesPath, 'bin', 'gui')
+    : join(app.getAppPath(), 'bin', 'gui')
+  try {
+    try {
+      await mkdir(dirname(CLI_LINK), { recursive: true })
+      await rm(CLI_LINK, { force: true })
+      await symlink(script, CLI_LINK)
+    } catch {
+      const quote = (text: string) => `'${text.replaceAll("'", "'\\''")}'`
+      const command = `mkdir -p ${quote(dirname(CLI_LINK))} && ln -sf ${quote(script)} ${quote(CLI_LINK)}`
+      const appleScript = `do shell script "${command.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}" with administrator privileges`
+      await execFileAsync('/usr/bin/osascript', ['-e', appleScript])
+    }
+  } catch (error) {
+    // Cancelling the password prompt is the user's choice, not a failure.
+    if (error instanceof Error && error.message.includes('User canceled')) return
+    dialog.showErrorBox(
+      "Couldn't install the gui command",
+      error instanceof Error ? error.message : String(error),
+    )
+    return
+  }
+  await dialog.showMessageBox({
+    message: "Installed the 'gui' command",
+    detail:
+      'In a new terminal window, run gui in a project folder to open it here and start its dev server.',
+  })
 }
 
 /** From the menu bar: the focused window, or the last one, or a new one. */
@@ -1025,6 +1082,7 @@ function buildMenu() {
         { role: 'about' },
         { type: 'separator' },
         ...item('settings', { click: () => openSettings() }),
+        { label: "Install 'gui' Command…", click: () => void installCli() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
@@ -1197,7 +1255,7 @@ if (!app.requestSingleInstanceLock()) {
   app.on('open-file', (event, path) => {
     event.preventDefault()
     // At cold launch no window is focused yet; reuse the empty one created on ready.
-    void app.whenReady().then(() => openSafely(focusedWindow(), path))
+    void app.whenReady().then(() => openOrShow(path))
   })
 
   app.whenReady().then(() => {

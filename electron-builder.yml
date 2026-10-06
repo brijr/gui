@@ -42,6 +42,11 @@ files:
   # Amp's SDK dependency installs a CLI too; the adapter uses the user's PATH install.
   - "!**/node_modules/@ampcode/cli*/**"
 
+# The `gui` command (bin/gui), linked into /usr/local/bin by Gui → Install 'gui' Command.
+extraResources:
+  - from: bin/gui
+    to: bin/gui
+
 asar: true
 # The agent adapters are spawned as `Gui -e "import('…/app.asar.unpacked/node_modules/…')"`
 # with ELECTRON_RUN_AS_NODE (src/main/agent.ts), and Node resolves their imports by walking
@@ -76,6 +81,14 @@ mac:
     # Agents run arbitrary commands (osascript etc.); macOS attributes their Apple Events
     # to Gui and denies them unless Gui declares why it sends them.
     NSAppleEventsUsageDescription: Commands run by your coding agent may control other apps.
+    # Folders open in Gui (the `gui` command, a folder dropped on the Dock icon) without
+    # Gui becoming the default app for folders.
+    CFBundleDocumentTypes:
+      - CFBundleTypeName: Folder
+        CFBundleTypeRole: Viewer
+        LSHandlerRank: None
+        LSItemContentTypes:
+          - public.folder
 
 electronFuses:
   # The agent adapters run on Electron's bundled Node via ELECTRON_RUN_AS_NODE.
