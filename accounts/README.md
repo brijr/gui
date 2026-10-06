@@ -20,9 +20,9 @@ The registered app must allow installation by the intended users. A user authori
 
 ## Production activation
 
-The `Gui Projects` GitHub App is registered under `brijr`, and the `gui-accounts` D1 database and schema exist in the WIP Cloudflare account. `wrangler.jsonc` contains their public identifiers. Before activation, configure the server secrets and publish the Worker. Configure the Worker hostname and rate-limit namespace for the intended account. Keep deployment and remote migration authorization separate from local implementation.
+The `Gui Projects` GitHub App is registered under `brijr`, and the `gui-accounts` D1 database and schema exist in the WIP Cloudflare account. `wrangler.jsonc` contains their public identifiers. The Worker code, DB binding, login rate limiter, and public app identifiers are deployed at `https://gui-accounts.brijr.workers.dev`. Server secrets and live GitHub verification remain pending. Configure the Worker hostname and rate-limit namespace for the intended account. Keep deployment and remote migration authorization separate from local implementation.
 
-Build the desktop with `GUI_ACCOUNTS_URL=https://YOUR-ACCOUNT-SERVICE bun run build`. The production service origin is embedded at build time; a packaged app does not accept a runtime override. Builds without an origin show that GitHub connections are unavailable and retain cloning by URL.
+The desktop defaults to `https://gui-accounts.brijr.workers.dev`. To use a different service, build with `GUI_ACCOUNTS_URL=https://YOUR-ACCOUNT-SERVICE bun run build`. The production service origin is embedded at build time; a packaged app does not accept a runtime override. Builds without an origin show that GitHub connections are unavailable and retain cloning by URL.
 
 Validate live sign-in, private-repository cloning, revoked access, and token refresh with an authorized test account before shipping. Automated checks use provider and keychain stand-ins. They do not prove live GitHub credentials, macOS keychain access, or production behavior.
 

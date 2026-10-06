@@ -203,28 +203,33 @@ async function repositories(token: string): Promise<GitHubRepository[]> {
     a.fullName.localeCompare(b.fullName),
   )
 }
-async function route(request: Request, env: Env): Promise<Response> {
+async function route(request: Request, env: Env, diagnostic: { stage: string }): Promise<Response> {
   const url = new URL(request.url)
   const path = url.pathname
   if (request.method === 'POST' && path === '/github/start') {
+    diagnostic.stage = 'sign-in configuration'
     if (!env.GITHUB_CLIENT_ID || !env.GITHUB_APP_SLUG || !env.GITHUB_CLIENT_SECRET)
       throw new HttpError(503, 'GitHub connection is not configured yet.')
     await key(env)
+    diagnostic.stage = 'sign-in rate limit'
     const allowed = await env.LOGIN_LIMITER.limit({
       key: request.headers.get('CF-Connecting-IP') ?? 'local',
     })
     if (!allowed.success)
       throw new HttpError(429, 'Too many sign-in attempts. Try again in a minute.')
     // Bounded cleanup also keeps abandoned sign-ins and expired sessions out of storage.
+    diagnostic.stage = 'sign-in cleanup'
     await env.DB.batch([
       env.DB.prepare('DELETE FROM login_attempts WHERE expires_at <= ?').bind(now()),
       env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now()),
     ])
+    diagnostic.stage = 'GitHub device authorization'
     const data = await provider('login/device/code', { client_id: env.GITHUB_CLIENT_ID })
     if (!data.device_code || !data.user_code)
       throw new HttpError(502, 'GitHub could not start sign-in.')
     const attempt = random()
     const expiresAt = now() + data.expires_in
+    diagnostic.stage = 'sign-in attempt storage'
     await env.DB.prepare('INSERT INTO login_attempts VALUES (?, ?, ?, ?, ?)')
       .bind(
         await hash(attempt),
@@ -425,9 +430,16 @@ async function route(request: Request, env: Env): Promise<Response> {
 }
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const diagnostic = { stage: 'account request' }
     try {
-      return await route(request, env)
+      return await route(request, env, diagnostic)
     } catch (error) {
+      if (!(error instanceof HttpError))
+        console.error({
+          event: 'account_request_failed',
+          stage: diagnostic.stage,
+          errorKind: error instanceof Error ? error.name : 'unknown',
+        })
       // Never return provider responses, credentials, SQL errors, or stacks to clients.
       return error instanceof HttpError
         ? json({ error: error.message }, error.status)
