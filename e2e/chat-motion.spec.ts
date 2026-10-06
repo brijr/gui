@@ -367,7 +367,7 @@ test('the model picker opens out of its button and closes back into it; a press 
   // Measured once it's at full size: the origin is in its own, unscaled box.
   await sleep(600)
   const placed = await picker.evaluate((el) => {
-    const trigger = document.querySelector('[aria-haspopup="dialog"]')?.getBoundingClientRect()
+    const trigger = document.querySelector('[aria-label^="Model:"]')?.getBoundingClientRect()
     const box = el.getBoundingClientRect()
     const middle = trigger ? trigger.left + trigger.width / 2 - box.left : -1
     return { origin: el.style.transformOrigin, middle }

@@ -13,6 +13,7 @@ import {
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { customAgentEntries, deleteCustomAgent, saveCustomAgent } from './agents'
+import { archiveStoredChat, historyFile } from './history'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import {
   clearRecent as clearRecentFile,
@@ -202,10 +203,27 @@ export async function removeRecent(root: string) {
   await refreshSettings()
 }
 
+/**
+ * Archives a project's own chat from the start screen: through the tab that has it open,
+ * whose chat is live, or else from its file.
+ */
+export async function archiveRecentChat(root: string) {
+  const file = await historyFile(root)
+  const tab = allTabs().find((each) => each.chatFile === file)
+  if (tab) {
+    if (!(await tab.archiveChat())) throw new Error("This chat couldn't be archived.")
+  } else if (!(await archiveStoredChat(root))) {
+    throw new Error('This chat is open in another tab.')
+  }
+  const recent = await withChats(await loadRecent())
+  for (const each of allTabs()) each.setRecent(recent)
+  await refreshSettings()
+}
+
 const CLEAR_PROMPTS: Record<StorageKind, { message: string; detail: string }> = {
   chats: {
     message: 'Clear chat history?',
-    detail: 'Saved transcripts and resumable agent sessions are deleted.',
+    detail: 'Saved transcripts, archived chats, and resumable agent sessions are deleted.',
   },
   checkpoints: {
     message: 'Clear checkpoints?',

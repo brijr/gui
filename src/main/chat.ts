@@ -54,7 +54,7 @@ import type { PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
-import { HistoryWriter, type SavedChat } from './history'
+import { archiveChat, HistoryWriter, loadArchived, removeArchived, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
 import { buildPrompt, type PromptViewport } from './prompt'
@@ -132,6 +132,8 @@ const START_TIMEOUT_MS = 60_000
 /** A model or effort change the agent doesn't answer counts as refused. */
 const SETTING_TIMEOUT_MS = 10_000
 const PERSIST_DELAY_MS = 400
+/** While a turn streams: often enough that a crash loses little, without rewriting the file constantly. */
+const PERSIST_RUNNING_MS = 1500
 const RESET_SETTLE_MS = 5000
 /** Paths listed in the overwrite warning before it summarizes the rest. */
 const OVERWRITE_LIST_MAX = 8
@@ -227,6 +229,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Saved session to resume; kept until an agent actually starts. */
   private resumeSessionId: string | null = null
   private persistTimer: NodeJS.Timeout | null = null
+  /** This transcript's id, kept when it's archived and reopened (see SavedChat) */
+  private chatId: string = randomUUID()
+  private createdAt = Date.now()
+  private title: string | null = null
+  /**
+   * The agent this transcript's turns ran with, which it's archived under. Switching agents
+   * changes `meta.agentId` before the transcript is archived.
+   */
+  private transcriptAgent: AgentId | null = null
   /** Resolved on the first request the agent asks about, then kept. */
   private editScope: Promise<EditScope> | null = null
   /** The running session's model and effort, as the agent last reported them. */
@@ -278,27 +289,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
       trafficLights: false,
       popped: false,
       redoTurnIds: saved?.redo?.turnIds ?? [],
+      archived: null,
       problems: [],
       queue: [],
       queuePaused: false,
       queuePauseReason: null,
       autoApprove: isAutoApprove(root),
     }
-    if (saved) {
-      this.records = saved.turns.map((turn) => ({
-        turn,
-        command: false,
-        before: saved.checkpoints[turn.id]?.before ?? null,
-        after: saved.checkpoints[turn.id]?.after ?? null,
-        cancelRequested: false,
-        settled: Promise.resolve(),
-      }))
-      this.redoPoint = saved.redo
-      this.resumeSessionId = saved.sessionId
-      this.sessionId = saved.sessionId
-      this.primed = saved.primed ? (saved.primedWithTools ? 'tools' : 'plain') : null
-      this.hadSession = this.records.length > 0
-    }
+    this.load(saved)
     this.history = new HistoryWriter(options.historyFile, () => this.savedChat())
     // A health check may list the agent's models, and another window may change the choice.
     agentHealth.on('change', this.refreshModels)
@@ -322,8 +320,40 @@ export class ChatController extends EventEmitter<ChatEvents> {
     await this.reset()
   }
 
-  /** Drops the agent process and transcript; the next message starts a fresh session. */
-  async reset() {
+  /**
+   * Archives this chat and starts an empty one: the agent process goes, and the next message
+   * starts a fresh session. False when the chat couldn't be archived, and so was kept.
+   */
+  reset() {
+    return this.replace(null)
+  }
+
+  /** Brings back an archived chat in place of this one, which is archived in turn. */
+  async openArchived(id: string) {
+    if (this.lock) throw new Error('Wait for the agent to finish first.')
+    // A copy of the open chat (left by a crash between archiving and saving): it's open already.
+    if (id === this.chatId) return removeArchived(this.root, id)
+    const saved = await loadArchived(this.root, id)
+    if (!saved) throw new Error('That chat is no longer in the archive.')
+    if (this.lock) throw new Error('Wait for the agent to finish first.')
+    if (!(await this.replace(saved)))
+      throw new Error("This chat couldn't be archived, so it's still open.")
+    // Now the live chat; the live file keeps it.
+    await removeArchived(this.root, id).catch((error: unknown) => {
+      console.error('[gui] failed to remove a reopened chat from the archive', error)
+    })
+  }
+
+  /** The archive copy of this chat, for the archive itself and the "archived" notice. */
+  private archiveCopy(): SavedChat {
+    return { ...this.savedChat(), agentId: this.transcriptAgent ?? this.meta.agentId }
+  }
+
+  /**
+   * Stops whatever is running, archives the transcript (when it has turns), and puts `next`
+   * (or an empty chat) in its place. An archive that fails keeps the transcript where it is.
+   */
+  private async replace(next: SavedChat | null) {
     const token = {}
     this.lock = token
     this.epoch++
@@ -339,24 +369,88 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
     this.stopAgent()
     this.active = null
-    this.records = []
-    this.redoPoint = null
-    this.hadSession = false
-    this.sessionId = null
-    this.primed = null
-    this.resumeSessionId = null
+    const leaving = this.archiveCopy()
+    let archived: SavedChat | null = null
+    try {
+      if (leaving.turns.length > 0 && (await archiveChat(this.root, leaving))) archived = leaving
+    } catch (error) {
+      console.error('[gui] failed to archive chat', error)
+      if (this.lock === token) this.lock = null
+      if (!this.disposed) {
+        // An agent switch is undone with it: the kept transcript's session is its agent's.
+        const agentId = this.transcriptAgent ?? this.meta.agentId
+        this.patchMeta({
+          ...(agentId !== this.meta.agentId
+            ? {
+                agentId,
+                agentName: agentName(agentId),
+                models: availableModels(agentId),
+                commands: this.knownCommands.get(agentId) ?? [],
+              }
+            : {}),
+          status: 'idle',
+          error: "This chat couldn't be archived, so it's still here.",
+          errorDetail: error instanceof Error ? error.message : String(error),
+        })
+      }
+      this.drainQueue()
+      return false
+    }
+    if (this.disposed) return false
+    this.load(next)
     this.schedulePersist()
     if (this.lock === token) this.lock = null
+    const agentId = next?.agentId ?? this.meta.agentId
     this.patchMeta({
+      ...(agentId !== this.meta.agentId
+        ? {
+            agentId,
+            agentName: agentName(agentId),
+            models: availableModels(agentId),
+            commands: this.knownCommands.get(agentId) ?? [],
+          }
+        : {}),
       status: 'idle',
       error: null,
       errorDetail: null,
       modeName: null,
       modeFollowsPolicy: false,
-      redoTurnIds: [],
+      redoTurnIds: next?.redo?.turnIds ?? [],
+      // Offered back only from an empty chat; one brought back was opened from the list.
+      archived:
+        archived && !next ? { id: archived.id, agentName: agentName(archived.agentId) } : null,
     })
-    if (!this.disposed) this.emit('reset', this.snapshot())
+    this.emit('reset', this.snapshot())
     this.drainQueue()
+    return true
+  }
+
+  /** Takes on a saved transcript, or with none, an empty one. */
+  private load(saved: SavedChat | null) {
+    this.records =
+      saved?.turns.map((turn) => ({
+        turn,
+        command: false,
+        before: saved.checkpoints[turn.id]?.before ?? null,
+        after: saved.checkpoints[turn.id]?.after ?? null,
+        cancelRequested: false,
+        settled: Promise.resolve(),
+      })) ?? []
+    this.redoPoint = saved?.redo ?? null
+    this.sessionId = saved?.sessionId ?? null
+    this.resumeSessionId = this.sessionId
+    this.primed = saved?.primed ? (saved.primedWithTools ? 'tools' : 'plain') : null
+    this.hadSession = this.records.length > 0
+    this.chatId = saved?.id ?? randomUUID()
+    this.createdAt = saved?.createdAt ?? Date.now()
+    this.title = saved?.title ?? null
+    this.transcriptAgent = saved && saved.turns.length > 0 ? saved.agentId : null
+    // Its clips are the chat's again, so closing the tab doesn't discard them.
+    if (saved) {
+      this.options.recordings.retain(
+        saved.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []),
+      )
+    }
   }
 
   setSelection(selection: Picked[]) {
@@ -710,6 +804,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.records.push(record)
     this.active = record
     this.lock = record
+    this.transcriptAgent ??= this.meta.agentId
+    if (this.meta.archived) this.patchMeta({ archived: null })
     if (!fix && !queued) this.patchMeta({ selection: [] })
     this.flushTurn(record)
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
@@ -1497,10 +1593,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   private schedulePersist() {
     if (this.disposed) return
-    this.persistTimer ??= setTimeout(() => {
-      this.persistTimer = null
-      this.history.save()
-    }, PERSIST_DELAY_MS)
+    this.persistTimer ??= setTimeout(
+      () => {
+        this.persistTimer = null
+        this.history.save()
+      },
+      this.active ? PERSIST_RUNNING_MS : PERSIST_DELAY_MS,
+    )
   }
 
   private savedChat(): SavedChat {
@@ -1508,6 +1607,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     for (const { turn, before, after } of this.records) checkpoints[turn.id] = { before, after }
     return {
       version: 1,
+      id: this.chatId,
+      createdAt: this.createdAt,
+      ...(this.title ? { title: this.title } : {}),
       agentId: this.meta.agentId,
       sessionId: this.sessionId,
       primed: this.primed !== null,

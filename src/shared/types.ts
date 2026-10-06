@@ -115,6 +115,20 @@ export interface RecentProject {
   chat?: { prompt: string; at: number } | null
 }
 
+/** An archived chat, as a project's list of them shows it */
+export interface ChatSummary {
+  id: string
+  /** The user's name for it; null shows `prompt` */
+  title: string | null
+  /** Its first message, on one line and cut short ("Image" for images alone) */
+  prompt: string
+  agentId: AgentId
+  turns: number
+  startedAt: number
+  /** When its last turn ended */
+  lastAt: number
+}
+
 export type DevServerStatus = 'idle' | 'starting' | 'running' | 'exited'
 
 export interface DevServerState {
@@ -596,6 +610,11 @@ export interface ChatMeta {
   popped: boolean
   /** Turns the pending redo would bring back; empty when there's nothing to redo */
   redoTurnIds: string[]
+  /**
+   * The chat a new chat just took the place of, archived, so the empty chat can offer it
+   * back; null once a message is sent, or when nothing was archived
+   */
+  archived: { id: string; agentName: string } | null
   /** Current errors in the preview and dev server */
   problems: Problem[]
 }

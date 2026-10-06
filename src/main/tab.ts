@@ -66,7 +66,15 @@ import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve
 import { availableModels, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
-import { claimHistoryFile, loadHistory, releaseHistoryFile } from './history'
+import {
+  claimHistoryFile,
+  listArchived,
+  loadHistory,
+  releaseHistoryFile,
+  removeArchived,
+  renameArchived,
+  retireHistoryFile,
+} from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
@@ -223,6 +231,8 @@ export class ProjectTab {
   private chat: ChatController | null = null
   /** The chat file this tab's chat writes; claimed so another tab on the folder gets its own. */
   private historyFile: string | null = null
+  /** The project `historyFile` is for, which its chat is archived under */
+  private historyRoot: string | null = null
   private mcp: RunningMcpServer | null = null
   /** The current project's preview tools; also used to show how a change turned out. */
   private previewTools: PreviewTools | null = null
@@ -509,6 +519,7 @@ export class ProjectTab {
         trafficLights: false,
         popped: false,
         redoTurnIds: [],
+        archived: null,
         problems: [],
         queue: [],
         queuePaused: false,
@@ -629,6 +640,7 @@ export class ProjectTab {
       })
       this.chat = chat
       this.historyFile = file
+      this.historyRoot = root
       chat.setCanSelect(this.canSelect)
       this.patch({ agentId: chat.meta.agentId })
       this.sendChat(Events.chatReset, chat.snapshot())
@@ -779,8 +791,7 @@ export class ProjectTab {
     this.apps = []
     this.chat?.dispose()
     this.chat = null
-    if (this.historyFile) releaseHistoryFile(this.historyFile)
-    this.historyFile = null
+    this.retireHistoryFile()
     this.mcp?.close()
     this.mcp = null
     this.previewTools = null
@@ -1637,6 +1648,47 @@ export class ProjectTab {
 
   newChat() {
     void this.chat?.reset()
+  }
+
+  /** Archives the open chat, as New chat does; false when it couldn't be. */
+  archiveChat() {
+    return this.chat?.reset() ?? Promise.resolve(true)
+  }
+
+  /** The chat file this tab's chat writes, if one is open. */
+  get chatFile() {
+    return this.historyFile
+  }
+
+  /** Once its chat has saved for the last time: a second tab's numbered file is archived. */
+  private retireHistoryFile() {
+    const file = this.historyFile
+    const root = this.historyRoot
+    this.historyFile = null
+    this.historyRoot = null
+    if (!file) return
+    if (root) void retireHistoryFile(root, file)
+    else releaseHistoryFile(file)
+  }
+
+  /** The project's archived chats, newest first; none without a project. */
+  listChats() {
+    const root = this.historyRoot
+    return root ? listArchived(root) : Promise.resolve([])
+  }
+
+  async openChat(id: string) {
+    if (!this.chat) throw new Error('No project is open.')
+    await this.chat.openArchived(id)
+    this.focusChat()
+  }
+
+  async renameChat(id: string, title: string) {
+    if (this.historyRoot) await renameArchived(this.historyRoot, id, title)
+  }
+
+  async deleteChat(id: string) {
+    if (this.historyRoot) await removeArchived(this.historyRoot, id)
   }
 
   clearSelection() {
@@ -2819,7 +2871,7 @@ export class ProjectTab {
     this.devServer?.dispose()
     this.terminals?.dispose()
     this.chat?.dispose()
-    if (this.historyFile) releaseHistoryFile(this.historyFile)
+    this.retireHistoryFile()
     this.mcp?.close()
     this.emulation.dispose()
     this.picker.dispose()

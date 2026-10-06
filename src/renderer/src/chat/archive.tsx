@@ -1,0 +1,395 @@
+import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import { agentName, type ChatSummary } from '../../../shared/types'
+import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
+import { readableError } from '../lib/errors'
+import { InlineError, Input } from '../lib/field'
+import { History, Pencil, Search, Trash2 } from '../lib/icons'
+import { usePresence } from '../lib/motion'
+import { GroupLabel, Popover } from '../lib/surface'
+import { timeAgo } from '../lib/time'
+import { Button, IconButton, Spinner } from '../lib/ui'
+import { type Placement, place } from './model-picker'
+
+/** Lists longer than this get a filter field. */
+const FILTER_AFTER = 8
+/** How long the list takes to close (styles.css --motion-exit). */
+const EXIT_MS = 100
+
+/** The header button that lists the project's archived chats, to reopen, rename or delete. */
+export function ArchiveButton() {
+  const [open, setOpen] = useState(false)
+  const [placement, setPlacement] = useState<Placement | null>(null)
+  const shown = usePresence(open, EXIT_MS)
+  const button = useRef<HTMLButtonElement>(null)
+  const listId = useId()
+
+  const close = (refocus: boolean) => {
+    setOpen(false)
+    if (refocus) button.current?.focus()
+  }
+
+  return (
+    <>
+      <IconButton
+        ref={button}
+        size="sm"
+        label="Archived chats"
+        icon={History}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-controls={open ? listId : undefined}
+        onClick={(event) => {
+          if (open) return close(false)
+          setPlacement(place(event.currentTarget))
+          setOpen(true)
+        }}
+        className="aria-expanded:bg-hover aria-expanded:text-fg"
+      />
+      {shown && placement && (
+        <ArchiveList
+          key={`${placement.left},${placement.top},${placement.bottom}`}
+          id={listId}
+          open={open}
+          placement={placement}
+          button={button}
+          onClose={close}
+        />
+      )}
+    </>
+  )
+}
+
+/** Every typed word appears in the chat's title or first message, ignoring case. */
+function matches(chat: ChatSummary, words: string[]) {
+  const text = `${chat.title ?? ''} ${chat.prompt}`.toLowerCase()
+  return words.every((word) => text.includes(word))
+}
+
+interface ArchiveListProps {
+  id: string
+  open: boolean
+  placement: Placement
+  button: React.RefObject<HTMLButtonElement | null>
+  onClose: (refocus: boolean) => void
+}
+
+function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps) {
+  const root = useRef<HTMLDivElement>(null)
+  const [chats, setChats] = useState<ChatSummary[] | null>(null)
+  const [query, setQuery] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  /** The chat being opened, renamed, or asked about deleting; one at a time. */
+  const [busy, setBusy] = useState<string | null>(null)
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+
+  const reload = () =>
+    gui.listChats().then(setChats, (err: unknown) => {
+      setChats([])
+      setError(readableError(err))
+    })
+
+  // On each opening: reopened while still closing, it's the same list, which may be stale.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: read when it opens
+  useEffect(() => {
+    if (open) void reload()
+  }, [open])
+
+  // On opening, and again once the list is in: its filter field, or its first chat.
+  const loaded = chats !== null
+  useEffect(() => {
+    if (open && loaded)
+      root.current?.querySelector<HTMLElement>('ul input, input, ul button')?.focus()
+  }, [open, loaded])
+
+  // A click elsewhere in the chat, or anywhere outside it (the view loses focus), closes it;
+  // so does a resize, which moves the button.
+  useEffect(() => {
+    if (!open) return
+    const outside = (event: PointerEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (root.current?.contains(target) || button.current?.contains(target)) return
+      onClose(false)
+    }
+    const dismiss = () => onClose(false)
+    document.addEventListener('pointerdown', outside, true)
+    window.addEventListener('blur', dismiss)
+    window.addEventListener('resize', dismiss)
+    return () => {
+      document.removeEventListener('pointerdown', outside, true)
+      window.removeEventListener('blur', dismiss)
+      window.removeEventListener('resize', dismiss)
+    }
+  }, [open, button, onClose])
+
+  const act = async (chatId: string, action: () => Promise<void>) => {
+    setBusy(chatId)
+    setError(null)
+    try {
+      await action()
+      return true
+    } catch (err) {
+      setError(readableError(err))
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const reopen = async (chat: ChatSummary) => {
+    if (await act(chat.id, () => gui.openChat(chat.id))) onClose(false)
+  }
+
+  const rename = async (chat: ChatSummary, title: string) => {
+    setRenaming(null)
+    // Left as it was shown: nothing to save.
+    if (title.replace(/\s+/g, ' ').trim() === (chat.title ?? chat.prompt)) return
+    if (await act(chat.id, () => gui.renameChat(chat.id, title))) await reload()
+  }
+
+  const remove = async (chat: ChatSummary) => {
+    setDeleting(null)
+    if (await act(chat.id, () => gui.deleteChat(chat.id))) await reload()
+  }
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Escape' || event.nativeEvent.isComposing) return
+    event.preventDefault()
+    // Esc backs out of a rename or a delete first.
+    if (renaming || deleting) {
+      setRenaming(null)
+      setDeleting(null)
+      return
+    }
+    onClose(true)
+  }
+
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
+  const shown = chats?.filter((chat) => matches(chat, words)) ?? []
+  const filterable = (chats?.length ?? 0) > FILTER_AFTER
+
+  return createPortal(
+    <Popover
+      ref={root}
+      id={id}
+      open={open}
+      role="dialog"
+      aria-label="Archived chats"
+      onKeyDown={onKeyDown}
+      style={{
+        left: placement.left,
+        width: placement.width,
+        maxHeight: placement.maxHeight,
+        top: placement.top ?? undefined,
+        bottom: placement.bottom ?? undefined,
+        transformOrigin: placement.origin,
+      }}
+      className="fixed z-50"
+    >
+      <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 pt-2.5 pb-2">
+        <GroupLabel as="h2">Archived chats</GroupLabel>
+        <p className="text-caption text-subtle">New chat archives the open one here.</p>
+      </div>
+      {filterable && (
+        <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
+          <Search className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+          <input
+            type="text"
+            aria-label="Filter archived chats"
+            placeholder="Filter chats…"
+            autoComplete="off"
+            spellCheck={false}
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="h-9 min-w-0 flex-1 bg-transparent text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
+          />
+        </div>
+      )}
+      {chats === null ? (
+        <div className="flex items-center gap-2 px-3 py-4 text-small text-muted">
+          <Spinner /> Loading…
+        </div>
+      ) : chats.length === 0 ? (
+        <p className="px-3 py-4 text-small text-muted">No archived chats yet.</p>
+      ) : shown.length === 0 ? (
+        <p role="status" className="px-3 py-4 text-small text-muted">
+          No chats match
+        </p>
+      ) : (
+        <ul className="min-h-0 overflow-y-auto scroll-stable overscroll-contain p-1">
+          {shown.map((chat) => (
+            <ArchivedRow
+              key={chat.id}
+              chat={chat}
+              busy={busy === chat.id}
+              disabled={busy !== null}
+              renaming={renaming === chat.id}
+              deleting={deleting === chat.id}
+              onOpen={() => void reopen(chat)}
+              onStartRename={() => {
+                setDeleting(null)
+                setRenaming(chat.id)
+              }}
+              onRename={(title) => void rename(chat, title)}
+              onCancelRename={() => setRenaming(null)}
+              onStartDelete={() => {
+                setRenaming(null)
+                setDeleting(chat.id)
+              }}
+              onDelete={() => void remove(chat)}
+              onCancelDelete={() => setDeleting(null)}
+            />
+          ))}
+        </ul>
+      )}
+      {error && (
+        <InlineError className="shrink-0 border-t border-line px-3 py-2">{error}</InlineError>
+      )}
+    </Popover>,
+    document.body,
+  )
+}
+
+interface ArchivedRowProps {
+  chat: ChatSummary
+  busy: boolean
+  disabled: boolean
+  renaming: boolean
+  deleting: boolean
+  onOpen: () => void
+  onStartRename: () => void
+  onRename: (title: string) => void
+  onCancelRename: () => void
+  onStartDelete: () => void
+  onDelete: () => void
+  onCancelDelete: () => void
+}
+
+function ArchivedRow({
+  chat,
+  busy,
+  disabled,
+  renaming,
+  deleting,
+  onOpen,
+  onStartRename,
+  onRename,
+  onCancelRename,
+  onStartDelete,
+  onDelete,
+  onCancelDelete,
+}: ArchivedRowProps) {
+  const name = chat.title ?? chat.prompt
+  const detail = `${agentName(chat.agentId)} · ${chat.turns === 1 ? '1 message' : `${chat.turns} messages`} · ${timeAgo(chat.lastAt)}`
+
+  if (renaming) {
+    return (
+      <li className="px-1 py-1">
+        <RenameField
+          name={name}
+          initial={chat.title ?? chat.prompt}
+          onDone={onRename}
+          onCancel={onCancelRename}
+        />
+      </li>
+    )
+  }
+
+  if (deleting) {
+    return (
+      <li className="flex items-center gap-2 rounded-md bg-hover px-2 py-1.5">
+        <span className="min-w-0 flex-1 text-small text-fg">Delete this chat for good?</span>
+        <Button size="sm" variant="ghost" onClick={onCancelDelete}>
+          Cancel
+        </Button>
+        <Button size="sm" variant="danger" onClick={onDelete}>
+          Delete
+        </Button>
+      </li>
+    )
+  }
+
+  return (
+    <li className="group flex items-center gap-0.5 rounded-md pr-1 transition-colors hover:bg-hover focus-within:bg-hover">
+      <button
+        type="button"
+        title={`Open “${name}”`}
+        disabled={disabled}
+        onClick={onOpen}
+        className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left outline-none disabled:opacity-60"
+      >
+        <span className="w-full truncate text-small text-fg">{name}</span>
+        <span className="w-full truncate text-caption text-subtle">{detail}</span>
+      </button>
+      {busy ? (
+        <Spinner className="mx-1.5 text-muted" />
+      ) : (
+        <div
+          className={cn(
+            'flex shrink-0 items-center opacity-0 transition-opacity',
+            'group-hover:opacity-100 group-focus-within:opacity-100',
+          )}
+        >
+          <IconButton
+            size="sm"
+            label={`Rename ${name}`}
+            title="Rename"
+            icon={Pencil}
+            disabled={disabled}
+            onClick={onStartRename}
+          />
+          <IconButton
+            size="sm"
+            label={`Delete ${name}`}
+            title="Delete"
+            icon={Trash2}
+            disabled={disabled}
+            onClick={onStartDelete}
+          />
+        </div>
+      )}
+    </li>
+  )
+}
+
+/** Enter or leaving the field saves; Esc cancels. Either happens once. */
+function RenameField({
+  name,
+  initial,
+  onDone,
+  onCancel,
+}: {
+  name: string
+  initial: string
+  onDone: (title: string) => void
+  onCancel: () => void
+}) {
+  const finished = useRef(false)
+  const finish = (save: boolean, title: string) => {
+    if (finished.current) return
+    finished.current = true
+    if (save) onDone(title)
+    else onCancel()
+  }
+  return (
+    <Input
+      autoFocus
+      aria-label={`Name for ${name}`}
+      defaultValue={initial}
+      maxLength={120}
+      onFocus={(event) => event.currentTarget.select()}
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === 'Enter') finish(true, event.currentTarget.value)
+        if (event.key === 'Escape') {
+          event.stopPropagation()
+          finish(false, '')
+        }
+      }}
+      onBlur={(event) => finish(true, event.currentTarget.value)}
+    />
+  )
+}

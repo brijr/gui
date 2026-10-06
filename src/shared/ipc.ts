@@ -7,6 +7,7 @@ import type {
   ChatGrab,
   ChatMeta,
   ChatSnapshot,
+  ChatSummary,
   CustomAgentEntry,
   DrawerTab,
   ImageAttachment,
@@ -38,6 +39,7 @@ export const Invoke = {
   openProject: 'project:open',
   openRecent: 'project:open-recent',
   removeRecent: 'project:remove-recent',
+  archiveRecentChat: 'project:archive-chat',
   cloneProject: 'project:clone',
   githubState: 'github:state',
   githubStart: 'github:start',
@@ -54,6 +56,10 @@ export const Invoke = {
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
   chatSignIn: 'chat:sign-in',
+  listChats: 'chat:list',
+  openChat: 'chat:open',
+  renameChat: 'chat:rename',
+  deleteChat: 'chat:delete',
   signIn: 'agents:sign-in',
   installAgent: 'agents:install',
   shipInfo: 'ship:info',
@@ -215,6 +221,8 @@ export interface GuiApi {
   openRecent(root: string): Promise<void>
   /** Removes a startup history entry, keeping project files and saved chats. */
   removeRecent(root: string): Promise<void>
+  /** Archives a recent chat, so its project shows under recent projects; it can be reopened. */
+  archiveRecentChat(root: string): Promise<void>
   /**
    * Clones a GitHub repo (`owner/repo`, its address, or an SSH remote) into a folder the user
    * picks, then opens it. Rejects with a message to show; resolves if they cancel the picker.
@@ -397,7 +405,16 @@ export interface GuiApi {
   setShipSheetOpen(open: boolean): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
+  /** Archives this chat and starts an empty one (`ChatMeta.archived` offers it back) */
   newSession(): void
+  /** The project's archived chats, newest first */
+  listChats(): Promise<ChatSummary[]>
+  /** Reopens an archived chat, archiving this one; rejects with a message to show */
+  openChat(id: string): Promise<void>
+  /** Names an archived chat; an empty title goes back to its first message */
+  renameChat(id: string, title: string): Promise<void>
+  /** Deletes an archived chat for good */
+  deleteChat(id: string): Promise<void>
   clearSelection(): void
   /** Drops one picked element or area from the selection */
   removeSelection(id: string): void

@@ -15,6 +15,7 @@ import {
   TOOLBAR_HEIGHT,
   TRAFFIC_LIGHTS_INSET,
 } from '../../../shared/layout'
+import { withShortcut } from '../../../shared/shortcuts'
 import {
   CHAT_FORMS,
   type ChatFloat,
@@ -27,7 +28,10 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { readableError } from '../lib/errors'
+import { InlineError } from '../lib/field'
 import {
+  Archive,
   ChevronDown,
   GitPullRequest,
   Maximize2,
@@ -43,6 +47,7 @@ import {
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
 import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
+import { ArchiveButton } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
@@ -433,9 +438,11 @@ function Header({ meta }: { meta: ChatMeta }) {
             disabled={shipBusy}
             onClick={toggleShipSheet}
           />
+          <ArchiveButton />
           <IconButton
             size="sm"
             label="New chat"
+            title={withShortcut('New chat (archives this one)', 'newChat')}
             shortcut="newChat"
             icon={SquarePen}
             onClick={() => gui.newSession()}
@@ -581,7 +588,12 @@ function ChatBubble({
 
 function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   if (turns.length === 0) {
-    return <EmptyTranscript canSelect={meta.canSelect} picked={meta.selection.length} />
+    return (
+      <div className="flex min-h-0 flex-1 flex-col">
+        <EmptyTranscript canSelect={meta.canSelect} picked={meta.selection.length} />
+        {meta.archived && <ArchivedNotice archived={meta.archived} />}
+      </div>
+    )
   }
   return <Turns turns={turns} meta={meta} />
 }
@@ -594,6 +606,47 @@ function toEnd(el: HTMLElement | null) {
 const STICK_SLOP = 48
 /** How long after a disclosure is toggled its change in height is the user's, not new content. */
 const TOGGLE_WINDOW = 150
+
+/** After New chat: the chat it replaced is in the archive, and can come straight back. */
+function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived']> }) {
+  const [error, setError] = useState<string | null>(null)
+  return (
+    <div className="flex shrink-0 flex-col gap-1 border-t border-line px-3 py-2">
+      <div className="flex items-center gap-2">
+        <Archive className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+        <p className="min-w-0 flex-1 truncate text-small text-muted">
+          Your chat with {archived.agentName} is archived.
+        </p>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() =>
+            void gui.openChat(archived.id).catch((err: unknown) => setError(readableError(err)))
+          }
+        >
+          Reopen
+        </Button>
+      </div>
+      {error && <InlineError>{error}</InlineError>}
+    </div>
+  )
+}
+
+/** Past this many messages, the transcript suggests starting over (agents lose the thread). */
+const LONG_CHAT = 150
+
+function LongChatHint() {
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-line px-3 py-2">
+      <p className="min-w-0 flex-1 text-small text-muted">
+        This chat is long. Agents stay sharper in a fresh one; this one stays in the archive.
+      </p>
+      <Button size="sm" icon={SquarePen} onClick={() => gui.newSession()}>
+        New chat
+      </Button>
+    </div>
+  )
+}
 
 /**
  * Stays pinned to the newest line unless the user scrolled up: as turns stream in, as what's
@@ -656,6 +709,7 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
         {turns.map((turn) => (
           <TurnView key={turn.id} turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
         ))}
+        {turns.length >= LONG_CHAT && turns.at(-1)?.status !== 'running' && <LongChatHint />}
       </div>
     </div>
   )

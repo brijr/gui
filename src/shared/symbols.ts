@@ -1,6 +1,7 @@
 /** App icons and their system SF Symbol names. Only this catalog is loaded by main. */
 export const SYMBOLS = {
   AppWindow: 'macwindow',
+  Archive: 'archivebox',
   ArrowLeft: 'arrow.left',
   ArrowRight: 'arrow.right',
   ArrowUp: 'arrow.up',
@@ -25,6 +26,7 @@ export const SYMBOLS = {
   GitBranch: 'arrow.triangle.branch',
   GitPullRequest: 'arrow.triangle.pull',
   Globe: 'globe',
+  History: 'clock.arrow.circlepath',
   HardDrive: 'externaldrive',
   ImageIcon: 'photo',
   ImagePlus: 'photo.badge.plus',
@@ -37,6 +39,7 @@ export const SYMBOLS = {
   Monitor: 'display',
   MousePointer2: 'cursorarrow',
   Package: 'shippingbox',
+  Pencil: 'pencil',
   PanelLeft: 'sidebar.left',
   PanelLeftClose: 'sidebar.left',
   Play: 'play.fill',
@@ -53,6 +56,7 @@ export const SYMBOLS = {
   SquarePen: 'square.and.pencil',
   SquareTerminal: 'terminal',
   Tablet: 'ipad',
+  Trash2: 'trash',
   TriangleAlert: 'exclamationmark.triangle',
   Undo2: 'arrow.uturn.backward',
   Wrench: 'wrench',

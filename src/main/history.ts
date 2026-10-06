@@ -1,12 +1,13 @@
-import { createHash, randomBytes } from 'node:crypto'
+import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import { parseCommands } from '../shared/commands'
 import {
   type AgentCommand,
   type AgentId,
+  type ChatSummary,
   DEFAULT_AGENT_ID,
   isAgentId,
   type Picked,
@@ -18,6 +19,12 @@ import {
 /** Everything needed to reopen a project's chat where it left off, including undo. */
 export interface SavedChat {
   version: 1
+  /** Stays with the chat when it's archived and reopened (given one on load in older files) */
+  id: string
+  /** When the chat began (its first turn's start in older files) */
+  createdAt: number
+  /** The user's name for it; its first message stands for it otherwise */
+  title?: string
   agentId: AgentId
   /** Agent session to resume, if the agent supports it */
   sessionId: string | null
@@ -101,6 +108,14 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
     const checkpoints = parsed.checkpoints ?? {}
     return {
       version: 1,
+      id: typeof parsed.id === 'string' && CHAT_ID.test(parsed.id) ? parsed.id : randomUUID(),
+      createdAt:
+        typeof parsed.createdAt === 'number'
+          ? parsed.createdAt
+          : (parsed.turns[0]?.startedAt ?? Date.now()),
+      ...(typeof parsed.title === 'string' && parsed.title.trim()
+        ? { title: cleanTitle(parsed.title) }
+        : {}),
       agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
       sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : null,
       primed: parsed.primed === true,
@@ -305,5 +320,210 @@ export class HistoryWriter {
       }
     }
     this.writing = false
+  }
+}
+
+// Archived chats: each project's live chat file stays where it is (`historyFile`), and the
+// chats it replaced sit in a folder beside it named the same, one file per chat, with an
+// index of what the list shows so it never reads whole transcripts.
+
+const CHAT_ID = /^[a-f0-9-]{36}$/
+const INDEX = 'index.json'
+const MAX_TITLE = 120
+const MAX_PROMPT = 200
+
+/** A title as the user typed it, on one line and cut short. */
+export function cleanTitle(title: string) {
+  return title.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE)
+}
+
+async function archiveDir(root: string) {
+  const real = await realpath(root).catch(() => root)
+  return join(dir(), historyName(real))
+}
+
+const archivedFile = (folder: string, id: string) => join(folder, `${id}.json`)
+
+/** What the list shows for a chat; null for one with no turns, which isn't worth keeping. */
+function summarize(saved: SavedChat): ChatSummary | null {
+  const first = saved.turns[0]
+  const last = saved.turns.at(-1)
+  if (!first || !last) return null
+  const text = saved.turns.find((turn) => typeof turn.prompt === 'string' && turn.prompt.trim())
+  return {
+    id: saved.id,
+    title: saved.title ?? null,
+    prompt: text ? text.prompt.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT) : 'Image',
+    agentId: saved.agentId,
+    turns: saved.turns.length,
+    startedAt: saved.createdAt,
+    lastAt: last.endedAt ?? last.startedAt,
+  }
+}
+
+function isSummary(value: unknown): value is ChatSummary {
+  if (!value || typeof value !== 'object') return false
+  const entry = value as Record<string, unknown>
+  return (
+    typeof entry.id === 'string' &&
+    CHAT_ID.test(entry.id) &&
+    (entry.title === null || typeof entry.title === 'string') &&
+    typeof entry.prompt === 'string' &&
+    isAgentId(entry.agentId) &&
+    typeof entry.turns === 'number' &&
+    typeof entry.startedAt === 'number' &&
+    typeof entry.lastAt === 'number'
+  )
+}
+
+/** Written whole to a temp file first, so a crash leaves the old file or the new one. */
+async function writeAtomic(file: string, text: string) {
+  const tmp = tempFile(file)
+  try {
+    await mkdir(dirname(file), { recursive: true, mode: 0o700 })
+    await writeFile(tmp, text, { mode: 0o600, flag: 'wx' })
+    await rename(tmp, file)
+  } catch (error) {
+    await rm(tmp, { force: true }).catch(() => undefined)
+    throw error
+  }
+}
+
+/** The index as the files are: read when the index is missing or unreadable. */
+async function rebuildIndex(folder: string): Promise<ChatSummary[]> {
+  const names = await readdir(folder).catch(() => [] as string[])
+  const summaries = await Promise.all(
+    names
+      .filter((name) => CHAT_ID.test(name.replace(/\.json$/, '')) && name.endsWith('.json'))
+      .map(async (name) => {
+        const saved = await loadHistory(join(folder, name))
+        if (!saved) return null
+        // The file's name is the chat's id, whatever an edited file says.
+        return summarize({ ...saved, id: name.replace(/\.json$/, '') })
+      }),
+  )
+  return summaries.filter((summary) => summary !== null)
+}
+
+/** The index; `stored` is false when it had to be rebuilt, so it's written out again. */
+async function readIndex(folder: string): Promise<{ list: ChatSummary[]; stored: boolean }> {
+  let text: string
+  try {
+    text = await readFile(join(folder, INDEX), 'utf8')
+  } catch {
+    const list = await rebuildIndex(folder)
+    // Nothing archived yet: no folder to make.
+    return { list, stored: list.length === 0 }
+  }
+  try {
+    const parsed: unknown = JSON.parse(text)
+    if (Array.isArray(parsed) && parsed.every(isSummary)) return { list: parsed, stored: true }
+  } catch {
+    // Rebuilt below.
+  }
+  console.error(`[gui] unreadable chat archive index in ${folder}, rebuilding it`)
+  return { list: await rebuildIndex(folder), stored: false }
+}
+
+/** Index changes per folder, one at a time, so two never read the same list and drop one's change. */
+const indexQueue = new Map<string, Promise<unknown>>()
+
+function updateIndex(folder: string, update: (list: ChatSummary[]) => ChatSummary[]) {
+  const task = (indexQueue.get(folder) ?? Promise.resolve()).then(async () => {
+    const { list, stored } = await readIndex(folder)
+    const next = update(list).sort((a, b) => b.lastAt - a.lastAt)
+    if (next !== list || !stored) await writeAtomic(join(folder, INDEX), JSON.stringify(next))
+    return next
+  })
+  indexQueue.set(
+    folder,
+    task.catch(() => undefined),
+  )
+  return task
+}
+
+/** Puts a chat in its project's archive; null when it had no turns and so wasn't kept. */
+export async function archiveChat(root: string, saved: SavedChat): Promise<ChatSummary | null> {
+  const summary = summarize(saved)
+  if (!summary) return null
+  const folder = await archiveDir(root)
+  await writeAtomic(archivedFile(folder, saved.id), serialize(saved))
+  await updateIndex(folder, (list) => [summary, ...list.filter((entry) => entry.id !== saved.id)])
+  return summary
+}
+
+/** The project's archived chats, newest first. */
+export async function listArchived(root: string): Promise<ChatSummary[]> {
+  await archiveStrays(root)
+  return updateIndex(await archiveDir(root), (list) => list)
+}
+
+export async function loadArchived(root: string, id: string): Promise<SavedChat | null> {
+  if (!CHAT_ID.test(id)) return null
+  const saved = await loadHistory(archivedFile(await archiveDir(root), id))
+  return saved && { ...saved, id }
+}
+
+export async function removeArchived(root: string, id: string) {
+  if (!CHAT_ID.test(id)) return
+  const folder = await archiveDir(root)
+  await rm(archivedFile(folder, id), { force: true })
+  await updateIndex(folder, (list) => list.filter((entry) => entry.id !== id))
+}
+
+/** Names an archived chat; an empty title goes back to its first message. */
+export async function renameArchived(root: string, id: string, title: string) {
+  const saved = await loadArchived(root, id)
+  if (!saved) throw new Error('That chat is no longer in the archive.')
+  const { title: _old, ...rest } = saved
+  const named = cleanTitle(title)
+  await archiveChat(root, named ? { ...rest, title: named } : rest)
+}
+
+/**
+ * Archives a project's own chat from its file, for the start screen. False when a tab has
+ * the file open: its chat is live, and archives itself (`ChatController.reset`).
+ */
+export async function archiveStoredChat(root: string) {
+  const file = await historyFile(root)
+  if (claimed.has(file)) return false
+  const saved = await loadHistory(file)
+  if (saved) await archiveChat(root, saved)
+  await rm(file, { force: true })
+  return true
+}
+
+/**
+ * Releases a tab's chat file once the tab is done with it. A numbered one (a second tab on the
+ * folder) would otherwise sit unused until the folder is open twice again: its chat goes to
+ * the archive instead.
+ */
+export async function retireHistoryFile(root: string, file: string) {
+  try {
+    if (file !== (await historyFile(root))) await archiveFile(root, file)
+  } catch (error) {
+    console.error('[gui] failed to archive a tab’s chat', error)
+  } finally {
+    releaseHistoryFile(file)
+  }
+}
+
+async function archiveFile(root: string, file: string) {
+  const saved = await loadHistory(file)
+  if (saved) await archiveChat(root, saved)
+  await rm(file, { force: true })
+}
+
+/** Numbered chat files no tab holds, left by a quit before their tab could archive them. */
+async function archiveStrays(root: string) {
+  const real = await realpath(root).catch(() => root)
+  const stray = new RegExp(`^${historyName(real)}-\\d+\\.json$`)
+  const names = await readdir(dir()).catch(() => [] as string[])
+  for (const name of names) {
+    const file = join(dir(), name)
+    if (!stray.test(name) || claimed.has(file)) continue
+    await archiveFile(root, file).catch((error: unknown) => {
+      console.error('[gui] failed to archive a leftover chat', error)
+    })
   }
 }

@@ -39,7 +39,7 @@ const SEGMENTS_MAX = 6
 const SETTLE_FRAMES = 60
 
 /** Where the picker goes, in the chat view's CSS pixels. */
-interface Placement {
+export interface Placement {
   left: number
   width: number
   maxHeight: number
@@ -57,7 +57,7 @@ interface Placement {
  * the height there is. Inside the composer it opens off the composer's frame rather than the
  * button, so it doesn't cover the frame's edge.
  */
-function place(button: HTMLElement): Placement {
+export function place(button: HTMLElement): Placement {
   const panel = (button.closest('[data-chat-panel]') ?? document.body).getBoundingClientRect()
   const box = button.getBoundingClientRect()
   const frame = button.closest('[data-popover-anchor]')?.getBoundingClientRect() ?? box

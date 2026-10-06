@@ -16,6 +16,7 @@ import { Field, InlineError, Input } from '../lib/field'
 import { GuiMark } from '../lib/gui-mark'
 import {
   AppWindow,
+  Archive,
   ChevronRight,
   FolderOpen,
   FolderPlus,
@@ -28,6 +29,7 @@ import {
 } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
+import { timeAgo } from '../lib/time'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'
 import { useAction } from '../settings/use-action'
 import { GitHubProjects } from './github-projects'
@@ -641,25 +643,6 @@ function OpenActions() {
   )
 }
 
-const RELATIVE = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
-const UNITS: readonly [Intl.RelativeTimeFormatUnit, number][] = [
-  ['year', 365 * 24 * 3600],
-  ['month', 30 * 24 * 3600],
-  ['week', 7 * 24 * 3600],
-  ['day', 24 * 3600],
-  ['hour', 3600],
-  ['minute', 60],
-]
-
-/** "5 minutes ago", "yesterday": when a recent chat's last message was sent. */
-function timeAgo(at: number) {
-  const seconds = (Date.now() - at) / 1000
-  for (const [unit, size] of UNITS) {
-    if (seconds >= size) return RELATIVE.format(-Math.floor(seconds / size), unit)
-  }
-  return 'just now'
-}
-
 /**
  * The start screen: what Gui does, opening a project (or a recent one), and the agent that
  * will do the work, and once there are any, recent chats and projects.
@@ -766,13 +749,23 @@ function RecentRow({
             </span>
           }
         />
+        {/* A chat goes to its project's archive, and the project shows under recent ones. */}
         <IconButton
-          label={`Remove recent ${kind}: ${title}`}
-          title="Remove from recents"
-          icon={X}
+          {...(kind === 'chat'
+            ? {
+                label: `Archive chat: ${title}`,
+                title: 'Archive chat',
+                icon: Archive,
+                onClick: () => void remove.run(() => gui.archiveRecentChat(root)),
+              }
+            : {
+                label: `Remove recent project: ${title}`,
+                title: 'Remove from recents',
+                icon: X,
+                onClick: () => void remove.run(() => gui.removeRecent(root)),
+              })}
           size="sm"
           disabled={remove.pending}
-          onClick={() => void remove.run(() => gui.removeRecent(root))}
           className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>
