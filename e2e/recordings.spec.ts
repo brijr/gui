@@ -232,7 +232,11 @@ test('switching tabs stops capture and attaches the clip to its original project
   expect(clip.frameCount).toBeGreaterThan(0)
   expect(clip.durationMs).toBeLessThan(10_000)
   await session.chrome.evaluate((id) => window.gui.selectTab(id), original)
-  await expect(session.chat.getByLabel('Attached recordings').locator('video')).toBeVisible()
+  await expect(
+    session.chat
+      .getByLabel('Attached recordings')
+      .getByRole('button', { name: 'Play Preview recording' }),
+  ).toBeVisible()
   await expect(
     session.chrome.getByRole('button', { name: 'Record preview', exact: true }),
   ).toBeEnabled()

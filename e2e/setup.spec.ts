@@ -175,6 +175,11 @@ test('a project with nothing to start yet starts once its package.json appears',
     return state.project && !state.project.devCommand ? state : null
   }, 'the project open with no dev script')
 
+  await session.chrome.getByRole('button', { name: 'Toggle chat', exact: true }).click()
+  await waitFor(async () => !(await session.state()).chatVisible, 'chat hidden')
+  await session.chrome.getByRole('button', { name: 'Open chat', exact: true }).click()
+  await waitFor(async () => (await session.state()).chatVisible, 'chat opened from the setup card')
+
   renameSync(join(root, 'package.later.json'), join(root, 'package.json'))
   const state = await waitForPreview(session)
   expect(state.project?.devCommand).toBe('bun run dev')

@@ -251,8 +251,9 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={INFO}
-        title="Nothing to start yet"
-        detail="Ask your agent to build the app, or add a “dev” script to package.json. Gui starts it as soon as there's one. Or enter your app's address in the bar above."
+        title="Start building your app"
+        detail="Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
+        note="Add a “dev” script to package.json to let Gui start your app automatically."
         actions={
           <>
             <Button variant="primary" onClick={() => gui.expandChat()}>
