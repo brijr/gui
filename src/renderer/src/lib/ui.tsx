@@ -41,7 +41,7 @@ const BUTTON_SIZE: Record<ControlSize, string> = {
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary: 'bg-accent text-accent-fg hover:bg-accent-hover disabled:bg-fill disabled:text-subtle',
-  secondary: `border border-line-strong bg-raised text-fg hover:tint ${FADE}`,
+  secondary: `border border-line-strong bg-raised text-fg shadow-control hover:tint ${FADE}`,
   ghost: `text-muted hover:bg-hover hover:text-fg ${FADE}`,
   danger: `bg-danger-soft text-danger hover:tint ${FADE}`,
 }
@@ -361,7 +361,7 @@ export function Switch({
         aria-hidden="true"
         className={cn(
           'flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors',
-          checked ? 'bg-accent' : 'bg-fill ring-1 ring-line-strong ring-inset',
+          checked ? 'bg-accent' : 'bg-track',
         )}
       >
         <span
@@ -404,5 +404,136 @@ export function Keys({ keys }: { keys: readonly string[] }) {
         <Kbd key={key}>{key}</Kbd>
       ))}
     </kbd>
+  )
+}
+
+interface TextButtonProps extends ComponentProps<'button'> {
+  /** accent (default): an action in running text. muted: a quieter one beside a label. */
+  tone?: 'accent' | 'muted'
+}
+
+/**
+ * An action that reads as text: "Check now" beside a status, a link-like step inside a
+ * sentence. It takes the size of the text around it; hover underlines it.
+ */
+export function TextButton({ tone = 'accent', className, ...props }: TextButtonProps) {
+  return (
+    <button
+      type="button"
+      className={cn(
+        'no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40',
+        PRESS,
+        tone === 'accent' ? 'text-accent-text' : 'text-muted hover:text-fg',
+        className,
+      )}
+      {...props}
+    />
+  )
+}
+
+interface CheckboxProps extends Omit<ComponentProps<'input'>, 'type' | 'children'> {
+  /** Visible text after the box; part of its name */
+  label: ReactNode
+  /** Text size and color for the label, and layout */
+  className?: string
+}
+
+/**
+ * A choice that's saved with a form rather than applied at once (use Switch for that). 14px,
+ * accent when checked, with its label after it.
+ */
+export function Checkbox({ label, className, disabled, ...props }: CheckboxProps) {
+  return (
+    <label
+      className={cn(
+        'flex min-h-7 items-center gap-2',
+        disabled && 'pointer-events-none opacity-40',
+        className,
+      )}
+    >
+      <span className="relative flex size-3.5 shrink-0">
+        <input
+          type="checkbox"
+          disabled={disabled}
+          className="peer size-3.5 appearance-none rounded-sm border border-line-strong bg-raised shadow-control transition-colors checked:border-accent checked:bg-accent focus-visible:outline-offset-1"
+          {...props}
+        />
+        <svg
+          viewBox="0 0 14 14"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 size-3.5 text-accent-fg opacity-0 peer-checked:opacity-100"
+        >
+          <path
+            d="M3.5 7.25 6 9.5l4.5-5"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </span>
+      <span className="min-w-0">{label}</span>
+    </label>
+  )
+}
+
+interface ProgressProps {
+  /** 0 to 1; leave it out while there's no telling how far along it is */
+  value?: number
+  /** What's progressing, for assistive tech */
+  label: string
+  className?: string
+}
+
+/** How far along something is: a 4px accent bar on a fill track. */
+export function Progress({ value, label, className }: ProgressProps) {
+  const known = value !== undefined
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={known ? 0 : undefined}
+      aria-valuemax={known ? 100 : undefined}
+      aria-valuenow={known ? Math.round(value * 100) : undefined}
+      className={cn('h-1 w-full overflow-hidden rounded-full bg-fill', className)}
+    >
+      <div
+        className={cn(
+          'h-full rounded-full bg-accent transition-[width] duration-(--motion-panel) motion-reduce:transition-none',
+          !known && 'w-1/3 animate-pulse',
+        )}
+        style={known ? { width: `${Math.max(0, Math.min(1, value)) * 100}%` } : undefined}
+      />
+    </div>
+  )
+}
+
+/**
+ * Where content is on its way: a pulsing fill at the size of what it stands in for. Give it
+ * the width and height (h-4 for a line of text, h-9 for a row).
+ */
+export function Skeleton({ className }: { className?: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn('block animate-pulse rounded-md bg-fill motion-reduce:animate-none', className)}
+    />
+  )
+}
+
+/**
+ * A count or an order on the corner of something: the number of a picked element. 16px, accent.
+ */
+export function Counter({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <span
+      className={cn(
+        'flex size-4 shrink-0 items-center justify-center rounded-full bg-accent text-caption font-medium text-accent-fg tabular-nums',
+        className,
+      )}
+    >
+      {children}
+    </span>
   )
 }

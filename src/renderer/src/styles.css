@@ -10,7 +10,19 @@
  * actions), 28px h-7 (md: default buttons, fields, toolbar and composer controls), 32px h-8
  * (lg: the canvas's primary call to action only). Icons: 14px (size-3.5) in every control,
  * 12px (size-3) for chevrons, disclosure and check glyphs inside rows, 16px (size-4) only
- * for canvas message icons. Spacing follows the 4px grid; stacks use gap, not margins.
+ * for canvas message icons. Spacing follows the 4px grid; stacks use gap, not margins. The
+ * one half-step is 6px (gap-1.5, px-2.5): between an icon and its label, and a control's
+ * inset where 8px would crowd it.
+ *
+ * Container recipes, so the same kind of thing has the same insets everywhere:
+ *   header   h-9, pl-3 pr-1.5, gap-1.5: panel, sheet and dialog headers (PanelHeader)
+ *   bar      h-9, pl-3 pr-1.5, gap-2: a banner across a panel (Banner)
+ *   popover  p-1 around MenuRows; p-3 around prose
+ *   card     p-3; a compact card (one line and a button) py-2 pl-3 pr-2
+ *   row      px-3 py-2 (ListRow, ListItem); 28px rows in menus and dense lists
+ *
+ * Layers, lowest first (z-* utilities below): sticky headers inside a scroller, chrome that
+ * sits over its page (bars, drag regions), popovers and menus, modal sheets, then toasts.
  */
 
 /* Colors switch with the appearance, so utilities read them through the raw variables below. */
@@ -38,12 +50,18 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-knob: var(--knob);
+  --color-track: var(--track);
+  --color-tile: var(--tile);
+  --color-tile-fg: var(--tile-fg);
+  --color-tile-edge: var(--tile-edge);
   --color-scrim: var(--scrim);
 
   --shadow-*: initial;
   --shadow-raised: var(--elevation-raised);
   --shadow-popover: var(--elevation-popover);
   --shadow-panel: var(--elevation-panel);
+  --shadow-sheet: var(--elevation-sheet);
+  --shadow-control: var(--elevation-control);
 }
 
 @theme {
@@ -180,12 +198,25 @@
   --warning-soft: rgb(168 77 8 / 0.1);
   --danger: #b83d0b;
   --danger-soft: rgb(184 61 11 / 0.1);
-  /* A switch's thumb */
+  /* A switch's thumb, and its track while off (stronger than --fill so it reads on raised) */
   --knob: #ffffff;
+  --track: rgb(0 0 0 / 0.13);
+  /* Agent icons: a dark tile in either appearance, with an edge that holds on dark rows */
+  --tile: #000000;
+  --tile-fg: #ffffff;
+  --tile-edge: rgb(0 0 0 / 0.08);
   /* Behind a modal sheet */
   --scrim: rgb(0 0 0 / 0.24);
+  /* Selected text */
+  --selection: rgb(0 102 255 / 0.2);
+  /* Cards on the canvas */
   --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
+  /* Bordered controls (secondary buttons, fields' neighbours): a lift and a lit top edge */
+  --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
+  /* Menus and pickers */
   --elevation-popover: 0 8px 24px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
+  /* Modal sheets and dialogs, a step above popovers */
+  --elevation-sheet: 0 24px 64px rgb(0 0 0 / 0.2), 0 2px 8px rgb(0 0 0 / 0.08);
   /* Stays within the floating chat view's transparent margin (PANEL_SHADOW_MARGIN, 18px). */
   --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.06);
 
@@ -236,8 +267,18 @@
     --danger: #fb923c;
     --danger-soft: rgb(251 146 60 / 0.16);
     --knob: #f2f2f4;
+    --track: rgb(255 255 255 / 0.16);
+    --tile: #000000;
+    --tile-fg: #ffffff;
+    --tile-edge: rgb(255 255 255 / 0.16);
     --scrim: rgb(0 0 0 / 0.5);
-    --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4);
+    --selection: rgb(92 157 255 / 0.3);
+    /* A lit top edge so cards separate from the canvas, which a shadow alone can't do here */
+    --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.04);
+    --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.06);
+    --elevation-sheet:
+      0 24px 64px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(0 0 0 / 0.5),
+      inset 0 1px 0 rgb(255 255 255 / 0.07);
     --elevation-popover:
       0 8px 24px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
     /* Stronger, with a dark outline and an inner highlight, so it holds over dark previews. */
@@ -269,6 +310,71 @@
    transparent one, on any background. */
 @utility tint {
   background-image: linear-gradient(var(--hover), var(--hover));
+}
+
+/* Layers (see the top of this file) */
+@utility z-sticky {
+  z-index: 10;
+}
+@utility z-chrome {
+  z-index: 20;
+}
+@utility z-popover {
+  z-index: 50;
+}
+@utility z-sheet {
+  z-index: 60;
+}
+@utility z-toast {
+  z-index: 70;
+}
+
+/*
+ * A scroller whose content runs under its edges: the edge it can scroll toward fades out over
+ * 16px, so a row cut off by a header or a composer reads as more to come. Driven by its own
+ * scroll position; when it can't scroll, nothing fades.
+ */
+@property --fade-top {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-bottom {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes fade-top {
+  from {
+    --fade-top: 0px;
+  }
+  to {
+    --fade-top: 16px;
+  }
+}
+@keyframes fade-bottom {
+  from {
+    --fade-bottom: 16px;
+  }
+  to {
+    --fade-bottom: 0px;
+  }
+}
+@utility scroll-fade {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent
+  );
+  animation:
+    fade-top linear both,
+    fade-bottom linear both;
+  animation-timeline: scroll(self), scroll(self);
+  animation-range:
+    0 24px,
+    calc(100% - 24px) 100%;
 }
 
 /* Code inside running text (commands, file names): a step smaller than the text around it.
@@ -348,6 +454,10 @@ html.transparent body {
 
 .no-drag {
   app-region: no-drag;
+}
+
+::selection {
+  background: var(--selection);
 }
 
 @layer base {

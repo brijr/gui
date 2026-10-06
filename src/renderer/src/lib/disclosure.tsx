@@ -1,6 +1,7 @@
 import { type ComponentProps, useState } from 'react'
 import { cn } from './cn'
 import { ChevronRight } from './icons'
+import { PRESS } from './ui'
 
 interface DisclosureProps extends Omit<ComponentProps<'button'>, 'onToggle'> {
   open: boolean
@@ -29,7 +30,8 @@ export function Disclosure({
       aria-expanded={open}
       onClick={() => onOpenChange(!open)}
       className={cn(
-        '-ml-1 flex h-6 min-w-0 max-w-full items-center gap-1 rounded-sm px-1 text-left transition-colors hover:bg-hover hover:text-fg',
+        '-ml-1 flex h-6 min-w-0 max-w-full items-center gap-1 rounded-sm px-1 text-left transition-[color,background-color,opacity] hover:bg-hover hover:text-fg',
+        PRESS,
         tone === 'default' ? 'text-small text-muted' : 'text-caption font-medium text-subtle',
         className,
       )}

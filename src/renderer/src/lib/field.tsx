@@ -75,22 +75,50 @@ interface FieldProps {
   htmlFor: string
   /** A line of help under the control; the control should point at `${htmlFor}-hint` */
   hint?: string
+  /** What's wrong with the value, in place of the hint; point the control at `${htmlFor}-error` */
+  error?: ReactNode
   children: ReactNode
 }
 
-/** A labelled control with an optional hint: label above, hint below. */
-export function Field({ label, htmlFor, hint, children }: FieldProps) {
+/** A labelled control with an optional hint or error: label above, the line below. */
+export function Field({ label, htmlFor, hint, error, children }: FieldProps) {
   return (
     <div className="flex flex-col gap-1">
       <label htmlFor={htmlFor} className="text-small font-medium text-muted">
         {label}
       </label>
       {children}
-      {hint && (
-        <p id={`${htmlFor}-hint`} className="text-caption text-subtle">
-          {hint}
-        </p>
+      {error ? (
+        <InlineError id={`${htmlFor}-error`}>{error}</InlineError>
+      ) : (
+        hint && (
+          <p id={`${htmlFor}-hint`} className="text-caption text-subtle">
+            {hint}
+          </p>
+        )
       )}
     </div>
+  )
+}
+
+interface InlineErrorProps {
+  id?: string
+  className?: string
+  children: ReactNode
+}
+
+/**
+ * Something that went wrong, said where it happened: under a field, a row, a form. Small,
+ * danger, selectable so it can be copied, and announced as it appears.
+ */
+export function InlineError({ id, className, children }: InlineErrorProps) {
+  return (
+    <p
+      id={id}
+      role="alert"
+      className={cn('select-text text-pretty text-small text-danger', className)}
+    >
+      {children}
+    </p>
   )
 }
