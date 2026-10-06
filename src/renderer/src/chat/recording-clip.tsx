@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import type { RecordingAttachment } from '../../../shared/types'
 import { Play, X } from '../lib/icons'
-import { IconButton } from '../lib/ui'
+import { IconButton, PRESS } from '../lib/ui'
 
 export function RecordingClip({
   clip,
@@ -25,11 +25,11 @@ export function RecordingClip({
           type="button"
           aria-label={`Play ${clip.name}`}
           onClick={() => dialog.current?.showModal()}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left hover:text-accent"
+          className={`flex min-w-0 flex-1 items-center gap-2 rounded-sm text-left transition-[color,opacity] hover:text-accent-text ${PRESS}`}
         >
           <span className="relative flex h-10 w-16 shrink-0 items-center justify-center overflow-hidden rounded bg-canvas">
             <img src={clip.thumbnail} alt="" className="size-full object-cover" />
-            <span className="absolute flex size-5 items-center justify-center rounded-full bg-scrim text-white">
+            <span className="absolute flex size-5 items-center justify-center rounded-full bg-accent text-accent-fg">
               <Play className="size-3" aria-hidden="true" />
             </span>
           </span>
@@ -69,7 +69,7 @@ export function RecordingClip({
               poster={clip.thumbnail}
               src={clip.url}
               aria-label={clip.name}
-              className="block max-h-[70dvh] w-full bg-black"
+              className="block max-h-[70dvh] w-full bg-canvas"
               onError={() => setFailed(true)}
             />
           )}
@@ -80,7 +80,7 @@ export function RecordingClip({
   return (
     <div className="w-full max-w-80 overflow-hidden rounded-lg border border-line bg-surface">
       {failed ? (
-        <p className="p-2 text-xs text-muted">Recording is unavailable.</p>
+        <p className="p-2 text-small text-muted">Recording is unavailable.</p>
       ) : (
         // biome-ignore lint/a11y/useMediaCaption: Preview recordings contain no audio.
         <video
@@ -93,7 +93,7 @@ export function RecordingClip({
           onError={() => setFailed(true)}
         />
       )}
-      <div className="flex items-center justify-between gap-2 px-2 py-1 text-xs text-muted">
+      <div className="flex items-center justify-between gap-2 px-2 py-1 text-caption text-muted">
         <span>
           {clip.name} · {duration}
         </span>

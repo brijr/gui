@@ -95,7 +95,11 @@ async function record(session: GuiSession): Promise<RecordingAttachment> {
   ).toBeVisible()
   await session.chrome.waitForTimeout(1800)
   await session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }).click()
-  await expect(session.chat.getByLabel('Attached recordings').locator('video')).toBeVisible({
+  await expect(
+    session.chat
+      .getByLabel('Attached recordings')
+      .getByRole('button', { name: 'Play Preview recording' }),
+  ).toBeVisible({
     timeout: 15000,
   })
   return attached
@@ -112,19 +116,21 @@ test('preview video plays, sends overview images, and exposes exact frames and b
   expect(clip.frameCount).toBeGreaterThan(20)
   expect(clip.durationMs).toBeGreaterThan(1000)
   expect(clip.width).toBeLessThanOrEqual(1568)
+  await session.chat.getByRole('button', { name: 'Play Preview recording' }).click()
   const video = session.chat.getByLabel('Attached recordings').locator('video')
   await expect(video).toBeVisible()
+  await video.evaluate((node: HTMLVideoElement) => node.play())
   await expect
     .poll(() => video.evaluate((node: HTMLVideoElement) => node.readyState))
     .toBeGreaterThanOrEqual(1)
   await expect
     .poll(() => video.evaluate((node: HTMLVideoElement) => Number.isFinite(node.duration)))
     .toBe(true)
-  await video.evaluate((node: HTMLVideoElement) => node.play())
   await expect
     .poll(() => video.evaluate((node: HTMLVideoElement) => node.currentTime))
     .toBeGreaterThan(0)
   await session.shot('preview-recording-attached')
+  await session.chat.getByRole('button', { name: 'Close recording preview' }).click()
   await session.chat.locator('[data-composer]').fill('Inspect the animation easing.')
   await session.chat.getByRole('button', { name: 'Send', exact: true }).click()
   const { turn } = await session.waitForTurn(0)

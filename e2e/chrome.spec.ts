@@ -95,7 +95,7 @@ const logsOpen = async (session: GuiSession) => {
 }
 const drawerOpen = async (session: GuiSession) => (await session.state()).drawer.open
 
-test('the start tab shows only the project menu; a project fills the toolbar, without the agent menu', async ({
+test('the start tab offers project actions; a project fills the toolbar, without the agent menu', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite', open: 'recent' })
@@ -104,8 +104,11 @@ test('the start tab shows only the project menu; a project fills the toolbar, wi
   const pkg = join(root, 'package.json')
   writeFileSync(pkg, readFileSync(pkg, 'utf8').replace('"dev": "vite"', '"dev": "sleep 4 && vite"'))
 
-  // No project: only the project menu, nothing that would act on one.
-  await expect(toolbar(session).getByRole('button')).toHaveText(['Gui'])
+  // Before opening a project, its actions live on the start screen.
+  await expect(toolbar(session)).toHaveCount(0)
+  await expect(
+    session.chrome.getByRole('button', { name: 'Open project…', exact: true }),
+  ).toBeVisible()
   await expect(address(session)).toHaveCount(0)
   await expect(toolbar(session).getByRole('group', { name: 'Viewport' })).toHaveCount(0)
   await session.shot('start-tab')

@@ -213,7 +213,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       {error && (
         <div
           role="alert"
-          className="absolute top-full right-0 z-50 mt-2 w-64 rounded-lg border border-line bg-surface p-3 text-xs shadow-lg"
+          className="absolute top-full right-0 z-50 mt-2 w-64 rounded-lg border border-line bg-raised p-3 text-small text-danger shadow-popover"
         >
           {error}
         </div>
