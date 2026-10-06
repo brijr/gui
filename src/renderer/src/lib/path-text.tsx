@@ -6,6 +6,9 @@ export function displayPath(path: string, home?: string | null) {
   return path
 }
 
+/** Heads up to this long stay whole ("~/x", "gui", "src") */
+const SHORT_HEAD = 8
+
 interface PathTextProps {
   path: string
   /** The user's home folder (from main's state), shown as ~ */
@@ -28,19 +31,26 @@ export function PathText({ path, home, title, className }: PathTextProps) {
   const cut = shown.lastIndexOf('/', shown.length - 2)
   const head = cut > 0 ? shown.slice(0, cut) : ''
   const tail = cut > 0 ? shown.slice(cut) : shown
+  // A short head ("gui" in gui/new-branch) cut to "g…" saves nothing and loses what it was:
+  // it stays whole, and the tail truncates instead.
+  const shortHead = head.length <= SHORT_HEAD
   return (
     <span title={title ?? path} className={cn('flex min-w-0 font-mono', className)}>
       {/* Read as one string; the two halves are only there to truncate in the middle. */}
       <span className="sr-only">{shown}</span>
       {head && (
-        <span aria-hidden="true" className="min-w-0 truncate">
+        <span aria-hidden="true" className={shortHead ? 'shrink-0' : 'min-w-0 truncate'}>
           {head}
         </span>
       )}
-      {/* Whole unless it alone is too long; it leaves the head room for an ellipsis. */}
+      {/* Whole unless it alone is too long; it leaves a long head room for an ellipsis. */}
       <span
         aria-hidden="true"
-        className={cn('shrink-0 truncate', head ? 'max-w-11/12' : 'max-w-full')}
+        className={cn(
+          'truncate',
+          shortHead ? 'min-w-0' : 'shrink-0',
+          head && !shortHead ? 'max-w-11/12' : 'max-w-full',
+        )}
       >
         {tail}
       </span>
