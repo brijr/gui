@@ -40,3 +40,22 @@ Reviewed October 5, 2026 in the running Electron app with `bun dev`, using the A
 - Four obsolete assertions failed in the first broad run. The corrected start-screen and recording tests passed in the rerun.
 
 Live GitHub sign-in, repository creation, agent installation, and publishing from Gui were not performed during this review. GitHub and shipping mutations were verified against isolated test services and repositories. The walkthrough used one live read-only agent turn. CI is a separate check triggered by pushing main.
+
+## Second pass
+
+Walked through again on October 5, 2026 in `bun dev`, as a user with a fresh Vite project: start screen, trust prompt, starting the app, picking, a live Codex turn, Undo, viewports, drawer, Settings, a second tab, GitHub projects, cloning, shortcuts, focus mode, docked chat, the pull-request sheet and the dev server stopping.
+
+- Start screen agents: installed but unchecked agents read "Installed" rather than a column of "Check now" links, and choosing one switches to it (checking it on the way).
+- An agent whose login expires mid-chat no longer ends the turn at a bare "Authentication required". The turn offers Sign in, the agent shows signed out everywhere, and the message drops terminal instructions when Gui can sign in itself.
+- After picking, the empty chat asks for the change instead of offering to pick again.
+- Long, thin picks (headings, nav bars) read in their thumbnail and in Before/After instead of shrinking to a hairline.
+- The model chip drops the effort before cutting the model name ("Sonne…").
+- The chat header names the agent's mode only when Gui didn't set it from Ask or Auto, so "Auto review" no longer sits beside "Auto".
+- A dev server stopped from outside Gui (SIGINT, SIGTERM) shows a calm bar with Start, not a crash, and its package manager's "exited with code" line isn't offered to the agent as an error to fix.
+- Branch and path labels keep a short prefix whole ("gui/make-this…", not "g… /make-this…").
+- Settings → Projects matches its sibling sections; GitHub buttons size to their labels and repositories use the shared list.
+- Menus call cloning "Clone by URL…", as the start screen does, and the project menu uses title case.
+
+Verification: typecheck, lint and the production build passed. The full UI suite ran 113 tests: 107 passed, 5 were skipped by default (agent turns and focus-dependent checks), and one stale assertion failed. Its row lookup also matched the row's Remove button. With that fixed, the recent-chat, GitHub and Settings specs passed on a rebuild after the last changes.
+
+Not exercised live: GitHub sign-in and repository creation, finishing an agent's browser sign-in, and publishing a pull request.

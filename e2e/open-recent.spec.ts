@@ -84,7 +84,7 @@ test('the start screen lists recent chats by their last message', async ({ launc
 
   // A new tab's start screen reads the recent list, and the chats with it, afresh.
   await session.chrome.evaluate(() => window.gui.newTab())
-  const row = session.chrome.getByRole('button', { name: /Use a softer blue for the buttons/ })
+  const row = session.chrome.getByRole('button', { name: /^Use a softer blue for the buttons/ })
   await expect(row).toBeVisible()
   await expect(row).toContainText('2 hours ago')
   await expect(session.chrome.getByRole('heading', { name: 'Recent chats' })).toBeVisible()
