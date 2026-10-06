@@ -45,9 +45,11 @@ function serviceUrl() {
   return url.origin
 }
 async function savedSession(): Promise<string | null> {
-  if (!safeStorage.isEncryptionAvailable()) return null
   try {
-    return safeStorage.decryptString(await readFile(sessionFile()))
+    // Opening Projects should not ask for Keychain access before the user has signed in.
+    const encrypted = await readFile(sessionFile())
+    if (!safeStorage.isEncryptionAvailable()) return null
+    return safeStorage.decryptString(encrypted)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
     throw new Error('Could not unlock your GitHub connection. Disconnect and try again.')

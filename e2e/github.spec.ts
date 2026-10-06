@@ -4,6 +4,34 @@ import { join } from 'node:path'
 import { git } from './helpers/fixtures'
 import { expect, test } from './helpers/test'
 
+test('signed-out Projects opens without accessing Keychain', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await session.app.evaluate(({ safeStorage }) => {
+    safeStorage.isEncryptionAvailable = () => {
+      throw new Error('Projects must not access Keychain without a saved session')
+    }
+  })
+  await session.chrome.evaluate(() => window.gui.openSettings('projects'))
+  await expect
+    .poll(() =>
+      session.app
+        .context()
+        .pages()
+        .some((page) => page.url().endsWith('/settings.html')),
+    )
+    .toBe(true)
+  const page = session.app
+    .context()
+    .pages()
+    .find((page) => page.url().endsWith('/settings.html'))
+  if (!page) throw new Error('Settings did not open')
+  await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
+  await expect(page.getByRole('alert')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Chat', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible()
+})
+
 test('GitHub project connection signs in, lists repositories, saves opt-in, and disconnects', async ({
   launch,
 }) => {
