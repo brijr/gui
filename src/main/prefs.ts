@@ -11,11 +11,7 @@ export interface ChatSize {
 
 export interface Prefs {
   agentId: AgentId
-  /**
-   * The chat is the window's left sidebar (the default) rather than a panel floating over the
-   * preview. A new key: the old one (chatDocked, the right side) was false in every saved
-   * file, and the sidebar is meant to be where everyone starts.
-   */
+  /** The chat is the window's left sidebar rather than a floating panel. */
   chatSidebar: boolean
   /** The floating chat panel's size, without its shadow margin; windows clamp it to fit */
   chatSize: ChatSize
@@ -35,12 +31,10 @@ export interface Prefs {
 
 const DEFAULTS: Prefs = {
   agentId: DEFAULT_AGENT_ID,
-  // The left sidebar, unless the user floats the chat.
-  chatSidebar: true,
+  chatSidebar: false,
   chatSize: { width: 360, height: 520 },
   chatSidebarWidth: 380,
-  // Pages tend to start top left; the panel covers the least there.
-  chatCorner: { x: 'right', y: 'bottom' },
+  chatCorner: { x: 'left', y: 'bottom' },
   apps: {},
   disabledAgents: [],
   agentSettings: {},
@@ -117,7 +111,8 @@ export function getPrefs(): Prefs {
     const parsed = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Prefs>
     cached = {
       agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
-      chatSidebar: parsed.chatSidebar !== false,
+      chatSidebar:
+        typeof parsed.chatSidebar === 'boolean' ? parsed.chatSidebar : DEFAULTS.chatSidebar,
       chatSize: chatSize(parsed.chatSize),
       chatSidebarWidth: length(parsed.chatSidebarWidth, DEFAULTS.chatSidebarWidth),
       chatCorner: chatCorner(parsed.chatCorner),

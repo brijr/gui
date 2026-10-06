@@ -85,7 +85,7 @@ const SIDEBAR_WIDTH = 380
 test('the chat starts as the left sidebar, top to bottom, and ⌘B hides and shows it', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite', prefs: null })
+  const session = await launch({ fixture: 'vite', prefs: { chatSidebar: true } })
   await session.waitForPreview()
 
   // Down the window's left side, the traffic lights in its header; the chrome starts after it.
@@ -169,7 +169,7 @@ test('the chat starts as the left sidebar, top to bottom, and ⌘B hides and sho
 test('the chat pops out into a window of its own and comes back when that closes', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite', prefs: null })
+  const session = await launch({ fixture: 'vite', prefs: { chatSidebar: true } })
   await session.waitForPreview()
   await layoutWhen(session, 'the sidebar', ({ chat }) => chat?.visible === true)
   await session.chat.getByRole('textbox', { name: /^Message / }).fill('Keep this draft')

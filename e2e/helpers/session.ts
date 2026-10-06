@@ -17,7 +17,7 @@ const TRUSTED_FILE = 'trusted-projects.json'
 const RECENT_FILE = 'recent-projects.json'
 const PREFS_FILE = 'prefs.json'
 /** The chat floating over the preview, as most specs expect, rather than the sidebar. */
-const FLOATING_PREFS = { chatSidebar: false }
+const FLOATING_PREFS = { chatSidebar: false, chatCorner: { x: 'right', y: 'bottom' } }
 
 /**
  * GUI_AGENT_STAND_INS for a run: built-in agents to launch as other commands, so a stand-in
@@ -50,7 +50,7 @@ export interface LaunchOptions {
   /**
    * Preferences saved before launch (prefs.json), e.g. the floating chat's corner. Without
    * any, the chat floats (FLOATING_PREFS): most specs were written for the floating panel.
-   * Null saves none, for the app's own defaults (the chat as the left sidebar).
+   * Null saves none, for the app's own defaults (floating chat at the bottom left).
    */
   prefs?: Record<string, unknown> | null
 }
