@@ -149,6 +149,36 @@
       opacity: 0;
     }
   }
+
+  /* The mark assembling on the start screen (GuiMark animated): each tile slides out from under
+     the one before it into its slot (--from, set per tile); one that has to go round a corner
+     goes by way of --via. Hidden until it starts. With reduced motion the mark fades in
+     instead. */
+  --animate-mark-tile: mark-tile 150ms var(--ease-out) both;
+  --animate-mark-turn: mark-turn 150ms var(--ease-out) both;
+
+  @keyframes mark-tile {
+    0% {
+      opacity: 0;
+      transform: var(--from);
+    }
+    1% {
+      opacity: 1;
+    }
+  }
+
+  @keyframes mark-turn {
+    0% {
+      opacity: 0;
+      transform: var(--from);
+    }
+    1% {
+      opacity: 1;
+    }
+    50% {
+      transform: var(--via);
+    }
+  }
 }
 
 /*
