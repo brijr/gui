@@ -24,7 +24,10 @@ const csp: Plugin = {
 
 export default defineConfig({
   main: {
-    build: { externalizeDeps: true },
+    // Minified (electron-vite leaves it off), keeping function and class names so stack
+    // traces in crash reports still say where they came from.
+    build: { externalizeDeps: true, minify: 'esbuild' },
+    esbuild: { keepNames: true },
     // Agent CLIs aren't bundled; this pins the versions (and hashes) Gui downloads.
     define: {
       __GUI_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))),
@@ -42,6 +45,8 @@ export default defineConfig({
     server: { port: 5737, strictPort: true },
     plugins: [react({ babel: { plugins: ['babel-plugin-react-compiler'] } }), tailwindcss(), csp],
     build: {
+      // electron-vite leaves it off; every tab's chat view parses this code again.
+      minify: 'esbuild',
       rollupOptions: {
         input: {
           index: resolve('src/renderer/index.html'),
