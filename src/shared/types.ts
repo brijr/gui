@@ -804,7 +804,7 @@ export type StorageKind = 'chats' | 'checkpoints' | 'previewData'
 /** Bytes on disk per kind; null while it's being measured. */
 export type StorageUsage = Record<StorageKind, number | null>
 
-export type SettingsSection = 'agents' | 'chat' | 'projects' | 'github' | 'storage'
+export type SettingsSection = 'agents' | 'chat' | 'projects' | 'github' | 'storage' | 'advanced'
 
 export interface SettingsState {
   /** Every known agent, enabled or not */

@@ -114,6 +114,7 @@ export const RotateCw = icon(SYMBOLS.RotateCw, Lucide.RotateCw)
 export const Search = icon(SYMBOLS.Search, Lucide.Search)
 export const Shield = icon(SYMBOLS.Shield, Lucide.Shield)
 export const ShieldOff = icon(SYMBOLS.ShieldOff, Lucide.ShieldOff)
+export const SlidersHorizontal = icon(SYMBOLS.SlidersHorizontal, Lucide.SlidersHorizontal)
 export const Smartphone = icon(SYMBOLS.Smartphone, Lucide.Smartphone)
 export const Square = icon(SYMBOLS.Square, Lucide.Square)
 export const SquareArrowOutDownLeft = icon(

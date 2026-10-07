@@ -4,9 +4,9 @@ import type { SettingsSection, SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { GitHubMark } from '../lib/github-mark'
-import { Bot, FolderOpen, HardDrive, MessageSquare } from '../lib/icons'
-import { GroupLabel } from '../lib/surface'
+import { Bot, FolderOpen, HardDrive, MessageSquare, SlidersHorizontal } from '../lib/icons'
 import { PRESS } from '../lib/ui'
+import { AdvancedSection } from './advanced-section'
 import { AgentsSection } from './agents-section'
 import { ChatSection } from './chat-section'
 import { GitHubSection } from './github-section'
@@ -26,6 +26,7 @@ const SECTIONS: readonly SectionInfo[] = [
   { id: 'projects', label: 'Projects', icon: FolderOpen },
   { id: 'github', label: 'GitHub', icon: GitHubMark },
   { id: 'storage', label: 'Storage', icon: HardDrive },
+  { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
 ]
 
 export function SettingsApp() {
@@ -46,7 +47,6 @@ export function SettingsApp() {
         <ul className="flex flex-col gap-0.5 px-2">
           {SECTIONS.map(({ id, label, icon: Icon }) => (
             <li key={id}>
-              {id === 'storage' && <GroupLabel className="px-2 pt-3 pb-1">Advanced</GroupLabel>}
               <button
                 type="button"
                 aria-current={section === id ? 'page' : undefined}
@@ -104,5 +104,7 @@ function SectionContent({ section, settings }: SectionContentProps) {
       return <GitHubSection />
     case 'storage':
       return <StorageSection settings={settings} />
+    case 'advanced':
+      return <AdvancedSection />
   }
 }

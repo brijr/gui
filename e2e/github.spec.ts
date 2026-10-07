@@ -35,7 +35,8 @@ test('signed-out Projects opens without accessing Keychain', async ({ launch }) 
 test('GitHub project connection signs in, lists repositories, saves opt-in, and disconnects', async ({
   launch,
 }) => {
-  let updates = false
+  // As the account service does: a new account with an email starts subscribed.
+  let updates = true
   let revoked = false
   let createdName = ''
   const server = createServer((request, response) => {
@@ -139,12 +140,16 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
         .getByText('Private', { exact: true }),
     ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Clone & open' })).toBeVisible()
+    // Product updates are in Advanced: on from the start, and the user can opt out there.
+    await page.getByRole('button', { name: 'Advanced', exact: true }).click()
     const preference = page.getByRole('checkbox', {
       name: 'Email me Gui product updates at tester@example.com',
     })
-    await preference.check()
-    await expect.poll(() => updates).toBe(true)
     await expect(preference).toBeChecked()
+    await preference.uncheck()
+    await expect.poll(() => updates).toBe(false)
+    await expect(preference).not.toBeChecked()
+    await page.getByRole('button', { name: 'GitHub', exact: true }).click()
     await page.getByLabel('Repository name', { exact: true }).fill('design-project')
     await page.getByRole('button', { name: 'Create private repository', exact: true }).click()
     await expect.poll(() => createdName).toBe('design-project')

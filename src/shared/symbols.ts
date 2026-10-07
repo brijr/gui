@@ -50,6 +50,7 @@ export const SYMBOLS = {
   RotateCw: 'arrow.clockwise',
   Search: 'magnifyingglass',
   Shield: 'shield',
+  SlidersHorizontal: 'slider.horizontal.3',
   ShieldOff: 'shield.slash',
   Smartphone: 'iphone',
   Square: 'stop.fill',

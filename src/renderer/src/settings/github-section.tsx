@@ -6,12 +6,12 @@ import { GitHubMark } from '../lib/github-mark'
 import { Check, Copy, GitBranch, RotateCw, Search } from '../lib/icons'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, List, ListItem, Message } from '../lib/surface'
-import { Button, Checkbox, Spinner } from '../lib/ui'
+import { Button, Spinner } from '../lib/ui'
 
 /**
  * Settings → GitHub: connect an account (GitHub's device flow: a code to enter on
  * github.com), then open its repositories in Gui or create a new one. Local projects never
- * need it.
+ * need it. Its product-update emails are in Settings → Advanced.
  */
 export function GitHubSection() {
   const [state, setState] = useState<GitHubState | null>(null)
@@ -173,32 +173,7 @@ export function GitHubSection() {
             Disconnect
           </Button>
         }
-      >
-        <Checkbox
-          className="text-small"
-          label={`Email me Gui product updates${
-            profile.email
-              ? ` at ${profile.email}`
-              : '. Add a verified primary email in GitHub to subscribe.'
-          }`}
-          checked={profile.updates}
-          disabled={busy || !profile.email}
-          onChange={(event) => {
-            const checked = event.target.checked
-            const previous = state
-            setState({ ...state, profile: { ...profile, updates: checked } })
-            void run(async () => {
-              try {
-                await gui.gitHubUpdates(checked)
-                await refresh()
-              } catch (err) {
-                setState(previous)
-                throw err
-              }
-            })
-          }}
-        />
-      </AccountCard>
+      />
       {failed}
       <Repositories state={state} busy={busy} run={run} refresh={refresh} />
       <NewProject
