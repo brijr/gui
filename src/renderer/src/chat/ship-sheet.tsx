@@ -77,8 +77,20 @@ async function loadShipInfo() {
   if (current !== generation) return
   useShipSheet.setState(({ draft }) => ({
     loaded,
-    draft: draft ?? (loaded.kind === 'ready' ? loaded.info.suggestion : null),
+    draft: draft ?? (loaded.kind === 'ready' ? suggestionFor(loaded.info) : null),
   }))
+}
+
+/**
+ * Only pushing to a pull request that's already open (after bringing in the latest, say):
+ * nothing gets committed, so its own title is the one to show.
+ */
+function suggestionFor(info: ShipInfo): ShipRequest {
+  const pull = useProposal.getState().proposal?.pull
+  const open = pull && (pull.state === 'open' || pull.state === 'draft')
+  if (!open || info.files.length > 0 || info.suggestion.branch !== info.branch)
+    return info.suggestion
+  return { ...info.suggestion, title: pull.title, body: '' }
 }
 
 function setShipDraft(patch: Partial<ShipRequest>) {
@@ -185,8 +197,15 @@ export function ShipSheet() {
   }, [])
 
   const info = loaded.kind === 'ready' ? loaded.info : null
+  // Kept from before shipping, so the finished sheet still says what it did.
+  const pull = useProposal((s) => s.proposal?.pull)
+  const updating = pull?.state === 'open' || pull?.state === 'draft'
   const heading =
-    done || !info || !draft ? 'Create pull request' : actionFor(info, draft.branch.trim()).label
+    done || !info || !draft
+      ? updating && done?.result.outcome === 'created'
+        ? 'Update pull request'
+        : 'Create pull request'
+      : actionFor(info, draft.branch.trim()).label
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">

@@ -37,8 +37,9 @@ export async function readProposal(root: string, refresh = false): Promise<Propo
   })
   const connected = await connectedFor(repo)
   if (refresh) await fetchDefault(repo, connected).catch(() => undefined)
-  const [behind, merge, pull] = await Promise.all([
+  const [behind, ahead, merge, pull] = await Promise.all([
     behindLatest(repo),
+    aheadOfShared(repo),
     mergeState(repo),
     repo.branch && repo.branch !== repo.defaultBranch
       ? findPull(repo, connected, repo.branch).catch(() => null)
@@ -49,6 +50,7 @@ export async function readProposal(root: string, refresh = false): Promise<Propo
     defaultBranch: repo.defaultBranch,
     onDefaultBranch: repo.branch !== null && repo.branch === repo.defaultBranch,
     changes: repo.changes.length,
+    ahead,
     behind,
     merge,
     pull,
@@ -148,10 +150,13 @@ export async function cancelMerge(root: string): Promise<void> {
   }
 }
 
+/** How Gui's own conflict message starts, so it never becomes a commit or PR title. */
+export const CONFLICT_PROMPT_START = 'I brought in the latest changes from'
+
 /** What the agent is asked when bringing in the latest stopped on conflicts. */
 export function conflictPrompt(merge: NonNullable<Proposal['merge']>, main: string): string {
   const files = merge.files.map((file) => `- ${file}`).join('\n')
-  return `I brought in the latest changes from ${main}, and some files conflict with the work here:
+  return `${CONFLICT_PROMPT_START} ${main}, and some files conflict with the work here:
 
 ${files}
 
@@ -198,6 +203,14 @@ async function behindLatest(repo: Repo): Promise<number | null> {
   const tracking = `refs/remotes/${repo.remote.name}/${repo.defaultBranch}`
   const count = await gitOrNull(repo, ['rev-list', '--count', `HEAD..${tracking}`, '--'])
   return count === null ? null : Number(count)
+}
+
+async function aheadOfShared(repo: Repo): Promise<number> {
+  if (!repo.remote || !repo.branch || !repo.hasHead) return 0
+  const tracking = `refs/remotes/${repo.remote.name}/${repo.branch}`
+  if (!repo.refs.has(tracking)) return 0
+  const count = await gitOrNull(repo, ['rev-list', '--count', `${tracking}..HEAD`, '--'])
+  return Number(count) || 0
 }
 
 async function mergeState(repo: Repo): Promise<Proposal['merge']> {
@@ -268,9 +281,9 @@ async function findPull(
     read<ApiComment[]>(`/pulls/${n}/comments?per_page=100`),
     read<ApiComment[]>(`/issues/${n}/comments?per_page=100`),
   ])
-  const author = pull.user?.login
+  // People only: preview deploy and CI bots post status, not feedback.
   const byReviewer = (user: ApiUser | null) =>
-    !!user && user.login !== author && user.type !== 'Bot' && !user.login.endsWith('[bot]')
+    !!user && user.type !== 'Bot' && !user.login.endsWith('[bot]')
 
   // Each reviewer's latest approving or blocking review is their verdict.
   const verdicts = new Map<string, string>()

@@ -90,6 +90,7 @@ import { detectProject, readPackageJson } from './project'
 import type { PromptViewport } from './prompt'
 import {
   bringInLatest,
+  CONFLICT_PROMPT_START,
   cancelMerge,
   conflictPrompt,
   finishMerge,
@@ -1446,6 +1447,7 @@ export class ProjectTab {
       .snapshot()
       .turns.filter((turn) => turn.status === 'done' && !turn.reverted)
       .map((turn) => turn.prompt)
+      .filter((prompt) => !prompt.startsWith(CONFLICT_PROMPT_START))
     const info = await shipInfo(root, prompts)
     if (chat.busy && !info.blocked)
       return { ...info, blocked: 'Wait for the agent to finish first.' }

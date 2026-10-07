@@ -803,6 +803,8 @@ export interface Proposal {
   onDefaultBranch: boolean
   /** Changed files not committed yet (secret-looking files aside) */
   changes: number
+  /** Commits here that the remote's copy of this branch doesn't have yet (e.g. a merge) */
+  ahead: number
   /** Commits on the remote's default branch that this one doesn't have; null without a remote */
   behind: number | null
   /** Bringing in the latest stopped on conflicts: every conflicted file, and those still marked */
@@ -818,7 +820,7 @@ export interface ProposalPull {
   state: 'open' | 'draft' | 'merged' | 'closed'
   /** The reviewers' latest verdict */
   review: 'approved' | 'changes' | null
-  /** What reviewers wrote, oldest first; the author's own and bots' left out */
+  /** What people wrote on it, oldest first; bots' status posts left out */
   comments: ReviewComment[]
 }
 

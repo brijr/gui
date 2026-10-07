@@ -2,6 +2,7 @@ import { type ReactNode, useEffect } from 'react'
 import { create } from 'zustand'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import {
   ArrowLeft,
@@ -9,6 +10,7 @@ import {
   CircleDot,
   ExternalLink,
   GitPullRequest,
+  type IconComponent,
   MessageSquare,
   RotateCw,
   SquarePen,
@@ -120,6 +122,9 @@ export function useProposalUpdates() {
     const onFocus = () => void refreshProposal(true)
     window.addEventListener('focus', onFocus)
     const offTurns = useChat.subscribe((chat, before) => {
+      // The first read can come before the project is open, which reads as none: read again
+      // as the chat changes, until there's something to show.
+      if (chat.meta !== before.meta && !useProposal.getState().proposal) void refreshProposal()
       const running = chat.turns.some((turn) => turn.status === 'running')
       const was = before.turns.some((turn) => turn.status === 'running')
       if (was && !running) void refreshProposal()
@@ -148,11 +153,23 @@ const STATE_BADGE: Record<
 
 function pullBadge(pull: ProposalPull) {
   if (pull.state === 'open' && pull.review === 'changes')
-    return <Badge tone="warning">Changes requested</Badge>
+    return (
+      <Badge tone="warning" className="shrink-0">
+        Changes requested
+      </Badge>
+    )
   if (pull.state === 'open' && pull.review === 'approved')
-    return <Badge tone="success">Approved</Badge>
+    return (
+      <Badge tone="success" className="shrink-0">
+        Approved
+      </Badge>
+    )
   const { label, tone } = STATE_BADGE[pull.state]
-  return <Badge tone={tone}>{label}</Badge>
+  return (
+    <Badge tone={tone} className="shrink-0">
+      {label}
+    </Badge>
+  )
 }
 
 function plural(count: number, one: string, many = `${one}s`) {
@@ -164,7 +181,7 @@ function openExternal(url: string) {
   if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener')
 }
 
-/** One line over the transcript; absent when there's nothing to say (no repo, nothing changed). */
+/** Over the transcript; absent when there's nothing to say (no repo, nothing changed). */
 export function ProposalBar() {
   const proposal = useProposal((s) => s.proposal)
   const busy = useProposal((s) => s.busy)
@@ -210,7 +227,7 @@ function barFor(
   if (merge) {
     const left = merge.marked.length
     return (
-      <Banner
+      <Strip
         tone="warning"
         icon={TriangleAlert}
         role="status"
@@ -254,14 +271,14 @@ function barFor(
             ? `${plural(left, 'file')} conflict with the latest ${latest}`
             : 'Conflicts fixed. Finish bringing in the latest.'}
         </span>
-      </Banner>
+      </Strip>
     )
   }
 
   // Done with this one: the next idea starts from the latest, in a new chat.
   if (pull && (pull.state === 'merged' || pull.state === 'closed')) {
     return (
-      <Banner
+      <Strip
         icon={pull.state === 'merged' ? Check : GitPullRequest}
         role="status"
         actions={
@@ -279,7 +296,7 @@ function barFor(
       >
         <PullTitle pull={pull} />
         {pullBadge(pull)}
-      </Banner>
+      </Strip>
     )
   }
 
@@ -300,13 +317,13 @@ function barFor(
   if (pull) {
     const changes = proposal.changes
     return (
-      <Banner
+      <Strip
         icon={GitPullRequest}
         role="status"
         actions={
           <>
             {behind > 0 && bringIn('Bring in latest')}
-            {openComments > 0 ? (
+            {openComments > 0 && (
               <Button
                 size="sm"
                 variant="primary"
@@ -315,31 +332,31 @@ function barFor(
               >
                 {plural(openComments, 'comment')}
               </Button>
-            ) : (
-              changes > 0 && (
-                <Button
-                  size="sm"
-                  variant="primary"
-                  disabled={useShipSheet.getState().busy}
-                  onClick={toggleShipSheet}
-                >
-                  Update
-                </Button>
-              )
+            )}
+            {/* Work here the pull request doesn't have yet; the comments come first when both. */}
+            {(changes > 0 || proposal.ahead > 0) && (
+              <Button
+                size="sm"
+                variant={openComments > 0 ? 'secondary' : 'primary'}
+                disabled={useShipSheet.getState().busy}
+                onClick={toggleShipSheet}
+              >
+                Update
+              </Button>
             )}
           </>
         }
       >
         <PullTitle pull={pull} />
         {pullBadge(pull)}
-      </Banner>
+      </Strip>
     )
   }
 
   // Not shared yet.
   if (proposal.changes > 0) {
     return (
-      <Banner
+      <Strip
         icon={CircleDot}
         role="status"
         actions={
@@ -352,21 +369,55 @@ function barFor(
         }
       >
         <span className="truncate">{plural(proposal.changes, 'change')} not shared yet</span>
-      </Banner>
+      </Strip>
     )
   }
 
   // Nothing of its own: the only news is that the latest moved on.
   if (behind > 0) {
     return (
-      <Banner icon={RotateCw} role="status" actions={bringIn('Get latest')}>
+      <Strip icon={RotateCw} role="status" actions={bringIn('Get latest')}>
         <span className="truncate">
           {plural(behind, 'new update')} on {latest}
         </span>
-      </Banner>
+      </Strip>
     )
   }
   return null
+}
+
+/**
+ * The bar's layout: what's going on (icon, words, a state badge) on the first line, and the
+ * next moves under it, so a narrow sidebar never cuts the title or the buttons short.
+ */
+function Strip({
+  icon: Icon,
+  tone = 'neutral',
+  role,
+  actions,
+  children,
+}: {
+  icon: IconComponent
+  tone?: 'neutral' | 'warning'
+  role?: 'status'
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <div
+      role={role}
+      className={cn(
+        'flex shrink-0 flex-col gap-2 border-b border-line px-3 py-2 text-small',
+        tone === 'warning' ? 'bg-warning-soft text-warning' : 'bg-surface text-muted',
+      )}
+    >
+      <div className="flex min-w-0 items-center gap-1.5">
+        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        {children}
+      </div>
+      {actions && <div className="flex flex-wrap items-center gap-1">{actions}</div>}
+    </div>
+  )
 }
 
 function PullTitle({ pull }: { pull: ProposalPull }) {
@@ -375,7 +426,7 @@ function PullTitle({ pull }: { pull: ProposalPull }) {
       type="button"
       title={`Open #${pull.number} on GitHub`}
       onClick={() => openExternal(pull.url)}
-      className="no-drag min-w-0 truncate text-fg hover:underline"
+      className="no-drag min-w-0 truncate font-medium text-fg hover:underline"
     >
       {pull.title}
     </button>
@@ -493,7 +544,7 @@ export function ReviewSheet() {
             ))}
           </ul>
           {comments.length > 1 && (
-            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-line p-2">
+            <div className="flex shrink-0 items-center gap-2 border-t border-line p-2">
               <Button variant="primary" disabled={agentBusy} onClick={() => void fix(comments)}>
                 Fix all {comments.length}
               </Button>
