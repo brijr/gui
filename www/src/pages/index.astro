@@ -309,7 +309,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     display: block;
     width: 100%;
     height: auto;
-    filter: drop-shadow(0 1px 2px var(--shot-shadow)) drop-shadow(0 12px 32px var(--shot-shadow));
   }
   .narrow {
     max-width: 38rem;
@@ -335,9 +334,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     width: 100%;
     height: auto;
     border-radius: 0.5rem;
-    box-shadow:
-      0 0 0 1px var(--rule),
-      0 8px 24px var(--shot-shadow);
+    border: 1px solid var(--rule);
   }
   .steps h3 {
     margin-top: var(--s-3);

@@ -56,9 +56,7 @@ const { light, dark, stillLight, stillDark, alt, sizes } = Astro.props
     /* The macOS window's corner radius, 35 px on a 2880 × 1800 capture. */
     border-radius: 1.215% / 1.944%;
     overflow: hidden;
-    box-shadow:
-      0 1px 2px var(--shot-shadow),
-      0 12px 32px var(--shot-shadow);
+    border: 1px solid var(--rule);
   }
   .hero-video :global(img) {
     display: block;
