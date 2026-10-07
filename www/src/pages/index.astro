@@ -1,97 +1,305 @@
 ---
-const title = 'Gui'
-const description = 'Design real interfaces with your own AI agents.'
+import agentsDark from '../assets/agents-dark.png'
+import agents from '../assets/agents.png'
+import mobileDark from '../assets/mobile-dark.png'
+import mobile from '../assets/mobile.png'
+import pickAndChangeDark from '../assets/pick-and-change-dark.png'
+import pickAndChange from '../assets/pick-and-change.png'
+import Shot from '../components/Shot.astro'
+import Base from '../layouts/Base.astro'
+
+// The copy on this page is written in ASD-STE100 Simplified Technical English.
+const site = 'https://usegui.com'
+const title = 'Gui — Web design and UI design with your AI agent, on Mac'
+const description =
+  'Gui is a Mac app for web design and UI design. Select an element in your real app and tell your AI agent what to change. The agent changes the code.'
+
+const agentNames = [
+  'Claude Code',
+  'Codex',
+  'Cursor',
+  'Amp',
+  'OpenCode',
+  'Grok Build',
+  'Kiro',
+  'Devin',
+  'Pi',
+  'Muse Code',
+]
+
+const tools = [
+  'Select an element, or drag around an area of the page.',
+  'Paste or drag a reference image into the chat. The agent sees it.',
+  'Compare each change before and after.',
+  'Undo a change, or redo it.',
+  'Examine the page at desktop, laptop, tablet, and phone sizes.',
+  'Record the page and send the clip to the agent.',
+]
+
+const questions = [
+  {
+    q: 'Do I have to write code?',
+    a: 'No. You select the element and write the change in your words. The agent finds the correct file and writes the code.',
+  },
+  {
+    q: 'Which AI model does Gui use?',
+    a: 'Gui does not include an AI model. It uses the agent that you select, with the model that you select.',
+  },
+  {
+    q: 'Which apps can I change?',
+    a: 'Gui shows each web app that runs on a local dev server. It finds the source file of each element for React apps (Vite and Next.js) and Astro sites.',
+  },
+  {
+    q: 'Can I undo a change?',
+    a: 'Yes. Before and after each change, Gui keeps a copy of your project files. Undo puts the files back. Gui does not change your git history.',
+  },
+  {
+    q: 'How do I give the changes to my team?',
+    a: 'Gui puts the changes on a new branch and opens a pull request. A developer can then examine the changes. Gui does not commit env files or keys.',
+  },
+  {
+    q: 'Which computer do I need?',
+    a: 'A Mac. Gui is a macOS app.',
+  },
+]
+
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebSite',
+      '@id': `${site}/#website`,
+      name: 'Gui',
+      url: `${site}/`,
+      publisher: { '@id': `${site}/#wip` },
+    },
+    {
+      '@type': 'Organization',
+      '@id': `${site}/#wip`,
+      name: 'WIP',
+      url: 'https://wip.is',
+    },
+    {
+      '@type': 'SoftwareApplication',
+      name: 'Gui',
+      url: `${site}/`,
+      description,
+      applicationCategory: 'DesignApplication',
+      operatingSystem: 'macOS',
+      image: `${site}/og.jpg`,
+      publisher: { '@id': `${site}/#wip` },
+    },
+    {
+      '@type': 'FAQPage',
+      mainEntity: questions.map(({ q, a }) => ({
+        '@type': 'Question',
+        name: q,
+        acceptedAnswer: { '@type': 'Answer', text: a },
+      })),
+    },
+  ],
+}
+
+const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 ---
 
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{title}</title>
-    <meta name="description" content={description} />
-    <meta property="og:title" content={title} />
-    <meta property="og:description" content={description} />
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-  </head>
-  <body>
-    <main>
-      <img class="mark" src="/mark-animated.svg" alt="Gui" width="40" height="40" />
+<Base title={title} description={description} path="/" structuredData={structuredData}>
+  <img class="mark" src="/mark-animated.svg" alt="" width="40" height="40" />
 
-      <p class="entry">
-        <span class="word">Gui</span>
-        <span class="ipa">/ˈɡuː.i/</span>
-        <span class="say">goo·ee</span>
-        <span>noun</span>
-      </p>
+  <h1 class="entry">
+    <span class="word">Gui</span>
+    <span class="ipa">/ˈɡuː.i/</span>
+    <span>noun</span>
+  </h1>
 
-      <blockquote>
-        Gui is a Mac app for designing the interface you already have running. Point at an
-        element, tell your own AI agent what to change, and it edits the code. Made by <a href="https://wip.is" target="_blank" rel="noopener noreferrer">WIP</a>.
-      </blockquote>
-    </main>
-  </body>
-</html>
+  <p class="lede">A Mac app for web design and UI design. Design on your real app, not on a mockup.</p>
+  <p class="sub">Select an element, then tell your AI agent what to change. The agent changes the code.</p>
 
-<style is:global>
-  :root {
-    --bg: #fafafa;
-    --fg: #111;
-    --muted: #666;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #191919;
-      --fg: #f5f5f5;
-      --muted: #a3a3a3;
-    }
-  }
-  * {
-    box-sizing: border-box;
-    margin: 0;
-  }
-  html {
-    color-scheme: light dark;
-  }
-  body {
-    min-height: 100svh;
-    display: grid;
-    align-items: center;
-    padding: 4rem 1.5rem;
-    background: var(--bg);
-    color: var(--fg);
-    font-family: Menlo, ui-monospace, monospace;
-    font-size: 1.125rem;
-    line-height: 1.45;
-    -webkit-font-smoothing: antialiased;
-  }
-  main {
-    width: 100%;
-    max-width: 42rem;
-    margin: 0 auto;
-  }
+  <figure class="wide">
+    <Shot
+      light={pickAndChange}
+      dark={pickAndChangeDark}
+      widths={[960, 1440, 2880]}
+      sizes={wide}
+      eager
+      alt="Gui shows a website and the chat. The user selected two words in the headline. Claude Code changed the yellow highlight to an underline. The chat shows the text before and after the change."
+    />
+    <figcaption>Select an element and write the change. The preview shows the result immediately.</figcaption>
+  </figure>
+
+  <section>
+    <h2>For designers</h2>
+    <p>
+      You know how the interface must look. Gui lets you make that change in the product, not
+      in a handoff file. You do not have to write code.
+    </p>
+    <ul class="list">
+      {tools.map((tool) => <li>{tool}</li>)}
+    </ul>
+  </section>
+
+  <section>
+    <h2>Bring your own agent</h2>
+    <p>
+      Gui does not include an AI model. Gui uses the coding agent that is on your computer. The
+      agent uses your login, your plan, and your configuration.
+    </p>
+    <ul class="agents">
+      {agentNames.map((name) => <li>{name}</li>)}
+    </ul>
+    <p class="note">
+      You can also use a different agent that uses <a
+        href="https://agentclientprotocol.com"
+        target="_blank"
+        rel="noopener"><abbr title="Agent Client Protocol">ACP</abbr></a
+      >. To change the agent, select a different agent in the chat header.
+    </p>
+  </section>
+
+  <figure class="narrow">
+    <Shot
+      light={agents}
+      dark={agentsDark}
+      widths={[760, 1520]}
+      sizes="(min-width: 42rem) 38rem, calc(100vw - 3rem)"
+      alt="The Agents settings in Gui. Claude Code, Codex, Grok Build, OpenCode, Pi, and Muse Code show the status Ready. Kiro, Amp, and Devin are not installed."
+    />
+    <figcaption>Gui finds each agent on your computer and shows its status.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Your real app</h2>
+    <p>
+      Gui starts the dev server of your project and shows the real page, with real data and real
+      states. The agent writes each change in your code. When the design is satisfactory, Gui
+      opens a pull request for your team.
+    </p>
+  </section>
+
+  <figure class="wide">
+    <Shot
+      light={mobile}
+      dark={mobileDark}
+      widths={[960, 1440, 2880]}
+      sizes={wide}
+      alt="The same website in the Mobile frame of Gui, at 390 × 844 pixels. The chat is open next to the frame."
+    />
+    <figcaption>Examine the page at the size of a phone. The chat stays open.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Questions</h2>
+    <dl class="faq">
+      {
+        questions.map(({ q, a }) => (
+          <div>
+            <dt>{q}</dt>
+            <dd>{a}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+
+  <footer>
+    <a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.
+  </footer>
+</Base>
+
+<style>
   .mark {
     display: block;
-    margin-bottom: 4rem;
+    margin-bottom: 4.5rem;
   }
   .entry {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
-    gap: 0.75rem;
-    margin-bottom: 2rem;
+    gap: 0.6rem;
+    margin-bottom: 1.25rem;
     color: var(--muted);
   }
   .entry .word {
     color: var(--fg);
+    font-weight: 400;
   }
-  blockquote {
-    text-wrap: pretty;
+  .lede {
+    font-size: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    font-weight: 250;
+    max-width: 34rem;
   }
-  blockquote a {
-    color: inherit;
-    font-style: normal;
-    text-underline-offset: 0.12em;
-    text-decoration-thickness: 1px;
+  .sub {
+    margin-top: 1.25rem;
+    color: var(--muted);
+  }
+  figure {
+    margin-top: 5rem;
+  }
+  figure :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    filter: drop-shadow(0 1px 2px var(--shot-shadow)) drop-shadow(0 12px 32px var(--shot-shadow));
+  }
+  .narrow {
+    max-width: 38rem;
+  }
+  figcaption {
+    margin-top: 1.1rem;
+    color: var(--muted);
+    font-size: 0.875rem;
+    letter-spacing: -0.005em;
+  }
+  section {
+    margin-top: 6rem;
+  }
+  h2 {
+    font-size: 1.5rem;
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    font-weight: 400;
+    margin-bottom: 1rem;
+  }
+  section p + *,
+  section ul + * {
+    margin-top: 1.25rem;
+  }
+  .list,
+  .agents {
+    list-style: none;
+    padding: 0;
+  }
+  .list li {
+    padding: 0.55rem 0;
+    border-top: 1px solid var(--rule);
+  }
+  .list li:last-child {
+    border-bottom: 1px solid var(--rule);
+  }
+  .agents {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: 0.15rem 1.5rem;
+  }
+  .note {
+    color: var(--muted);
+  }
+  .faq {
+    display: grid;
+    gap: 1.5rem;
+  }
+  .faq dt {
+    font-weight: 400;
+  }
+  .faq dd {
+    margin-top: 0.2rem;
+    color: var(--muted);
+  }
+  footer {
+    margin-top: 6rem;
+    color: var(--muted);
+    font-size: 0.875rem;
   }
 </style>

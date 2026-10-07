@@ -1,7 +1,14 @@
 {
   "name": "usegui",
   "compatibility_date": "2026-10-01",
-  "assets": { "directory": "./dist" },
+  "main": "./worker.js",
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    // The worker runs first so it can send www to the apex domain.
+    "run_worker_first": true,
+    "not_found_handling": "404-page"
+  },
   "routes": [
     { "pattern": "usegui.com", "custom_domain": true },
     { "pattern": "www.usegui.com", "custom_domain": true }
