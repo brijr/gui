@@ -267,19 +267,14 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
     expect(revoked).toBe(true)
     await page.screenshot({ path: test.info().outputPath('github-disconnected.png') })
+    // The start screen's GitHub projects opens them in Settings, beside Clone by URL.
     await session.chrome.evaluate(() => window.gui.newTab())
-    await session.chrome.getByRole('button', { name: 'Connect GitHub projects' }).click()
-    await expect(
-      session.chrome.getByRole('button', { name: 'Connect GitHub', exact: true }),
-    ).toBeVisible()
-    await session.chrome.screenshot({ path: test.info().outputPath('github-start-screen.png') })
-    await session.chrome.getByRole('button', { name: 'Back', exact: true }).click()
-    await expect(
-      session.chrome.getByRole('button', { name: 'Open project…', exact: true }),
-    ).toBeVisible()
     await expect(
       session.chrome.getByRole('button', { name: 'Clone by URL', exact: true }),
     ).toBeVisible()
+    await session.chrome.screenshot({ path: test.info().outputPath('github-start-screen.png') })
+    await session.chrome.getByRole('button', { name: 'Connect GitHub', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
   } finally {
     if (previous === undefined) delete process.env.GUI_ACCOUNTS_URL
     else process.env.GUI_ACCOUNTS_URL = previous

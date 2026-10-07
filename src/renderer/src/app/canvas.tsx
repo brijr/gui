@@ -22,6 +22,7 @@ import {
   FolderPlus,
   Info,
   KeyRound,
+  Link,
   Package,
   Play,
   TriangleAlert,
@@ -32,7 +33,6 @@ import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../l
 import { timeAgo } from '../lib/time'
 import { Button, Code, IconButton, Spinner } from '../lib/ui'
 import { useAction } from '../settings/use-action'
-import { GitHubProjects } from './github-projects'
 import { useMorphDrawsFrame } from './layout-morph'
 import { crashed, stoppedOutside } from './server-status'
 import { focusAddressBar } from './toolbar'
@@ -517,12 +517,39 @@ gui.onCommand((command) => {
 })
 
 /**
- * Open project, and beside it New project and Clone by URL, which swap the buttons for
- * a name or repo field. Main asks where to put the folder, then opens it like any project.
+ * Whether GitHub is connected, for the start screen's GitHub button. Asked again whenever the
+ * window comes back into focus, as from Settings, where the user connects or disconnects.
+ */
+function useGitHubConnected() {
+  const [connected, setConnected] = useState(false)
+  useEffect(() => {
+    let live = true
+    const check = () =>
+      void gui
+        .getGitHub()
+        .then((state) => {
+          if (live) setConnected(state.profile !== null)
+        })
+        .catch(() => undefined)
+    check()
+    window.addEventListener('focus', check)
+    return () => {
+      live = false
+      window.removeEventListener('focus', check)
+    }
+  }, [])
+  return connected
+}
+
+/**
+ * The ways in, as an even two-by-two grid: Open project, New project, GitHub (Connect GitHub,
+ * then Select project; both in Settings, where it's connected and the projects are listed) and Clone by URL. New project
+ * and Clone by URL swap the grid for a name or repo field; main asks where to put the
+ * folder, then opens it like any project.
  */
 function OpenActions() {
   const [form, setForm] = useState<StartForm | null>(null)
-  const [github, setGithub] = useState(false)
+  const githubConnected = useGitHubConnected()
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -551,28 +578,28 @@ function OpenActions() {
     }
   }, [])
 
-  if (github)
-    return <GitHubProjects onClose={() => setGithub(false)} onOpened={() => setGithub(false)} />
-
   if (!form) {
+    // Equal cells, their labels at the start, so the four read as one set.
+    const cell = 'w-full justify-start'
     return (
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <Button
           variant="primary"
           size="lg"
           icon={FolderOpen}
+          className={cell}
           onClick={() => void gui.openProject()}
         >
           Open project…
         </Button>
-        <Button size="lg" icon={FolderPlus} onClick={() => setForm('newProject')}>
+        <Button size="lg" icon={FolderPlus} className={cell} onClick={() => setForm('newProject')}>
           New project
         </Button>
-        <Button size="lg" onClick={() => setGithub(true)}>
+        <Button size="lg" className={cell} onClick={() => gui.openSettings('projects')}>
           <GitHubMark />
-          Connect GitHub projects
+          {githubConnected ? 'Select project…' : 'Connect GitHub'}
         </Button>
-        <Button size="lg" onClick={() => setForm('cloneRepo')}>
+        <Button size="lg" icon={Link} className={cell} onClick={() => setForm('cloneRepo')}>
           Clone by URL
         </Button>
       </div>

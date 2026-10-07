@@ -33,6 +33,7 @@ export const SYMBOLS = {
   Info: 'info.circle',
   KeyRound: 'key',
   Laptop: 'laptopcomputer',
+  Link: 'link',
   Maximize2: 'arrow.up.left.and.arrow.down.right',
   MessageSquare: 'bubble',
   Minus: 'minus',
