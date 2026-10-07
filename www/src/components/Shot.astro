@@ -1,6 +1,6 @@
 ---
-import type { ImageMetadata } from 'astro'
 import { getImage } from 'astro:assets'
+import type { ImageMetadata } from 'astro'
 
 // A screenshot of Gui, with a dark-mode version for visitors in dark mode.
 interface Props {
@@ -26,7 +26,11 @@ const sources = await Promise.all(
     srcset(light, format).then((set) => ({ set, format, media: undefined })),
   ]),
 )
-const fallback = await getImage({ src: light, width: widths[widths.length - 2] ?? widths[0], format: 'png' })
+const fallback = await getImage({
+  src: light,
+  width: widths[widths.length - 2] ?? widths[0],
+  format: 'png',
+})
 ---
 
 <picture>
