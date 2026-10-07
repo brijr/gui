@@ -15,7 +15,7 @@ const DRAG_THRESHOLD = 4
 /** The pointer's velocity as a dragged tab is dropped is measured over this much of its path (ms). */
 const VELOCITY_WINDOW = 100
 /** A new tab grows in from this scale, out of its left edge. */
-const NEW_TAB_SCALE = 0.9
+const NEW_TAB_SCALE = 0.96
 
 /** How a tab's status reads after its name. */
 const STATUS_LABEL: Record<TabStatus, string> = {

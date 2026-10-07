@@ -149,8 +149,32 @@ const GRAB_SLOP = 240
  * doesn't in this long (its page isn't drawing), it shrinks anyway.
  */
 const MORPH_TIMEOUT_MS = 700
-/** How long after the keyboard leaves the floating chat it tucks into its bubble. */
-const TUCK_DELAY_MS = 400
+/**
+ * How long after the keyboard leaves the floating chat it tucks into its bubble: long enough
+ * that a quick look at the page doesn't set the panel moving, so it reads as getting out of
+ * the way once the user has moved on.
+ */
+const TUCK_DELAY_MS = 2500
+/** A window appearing fades in over this long (--motion-fade), unless motion is reduced. */
+const WINDOW_FADE_MS = 150
+
+/**
+ * Fades a window in as it's shown (a popped-out chat), so it arrives rather than blinks on.
+ * Opacity only, which macOS draws for any window; with reduced motion it's simply there.
+ */
+function fadeIn(win: BrowserWindow) {
+  if (prefersReducedMotion()) return
+  win.setOpacity(0)
+  const start = Date.now()
+  const timer = setInterval(() => {
+    if (win.isDestroyed()) return clearInterval(timer)
+    const t = Math.min(1, (Date.now() - start) / WINDOW_FADE_MS)
+    // Eases out, as every arrival does (--ease-out).
+    win.setOpacity(1 - (1 - t) ** 3)
+    if (t === 1) clearInterval(timer)
+  }, 16)
+}
+
 /** The floating forms by size: the view grows to a larger one at once. */
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
@@ -1946,6 +1970,7 @@ export class ProjectTab {
     this.layout()
     win.once('ready-to-show', () => {
       if (this.popout !== win || !this.host.isActive(this)) return
+      fadeIn(win)
       showWindow(win)
       this.focusChat()
     })

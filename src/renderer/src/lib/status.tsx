@@ -17,7 +17,8 @@ export function StatusDot({ status, className }: { status: Status; className?: s
       className={cn(
         'size-1.5 shrink-0 rounded-full',
         status === 'ready' && 'bg-success',
-        status === 'busy' && 'animate-pulse bg-warning',
+        // Solid: a spinner beside it (tab, Working, bubble) already says it's moving.
+        status === 'busy' && 'bg-warning',
         status === 'error' && 'bg-danger',
         status === 'idle' && 'border border-line-strong bg-fill',
         status === 'attention' && 'bg-accent',

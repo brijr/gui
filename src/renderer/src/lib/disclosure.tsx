@@ -11,6 +11,12 @@ interface DisclosureProps extends Omit<ComponentProps<'button'>, 'onToggle'> {
 }
 
 /**
+ * What a Disclosure shows, coming in as its chevron turns: a 4px rise and fade (a transcript
+ * row's), or the fade alone with reduced motion. Closing is instant.
+ */
+export const REVEAL = 'motion-safe:animate-row-in motion-reduce:animate-row-fade'
+
+/**
  * The one show/hide toggle: a chevron on the left that turns down when open, then the label.
  * Steps, changed files, technical details, the branch summary, collapsible groups. The
  * chevron hangs into the left margin so the label lines up with the text around it; only the
@@ -58,7 +64,12 @@ export function TechnicalDetails({ text, className }: { text: string; className?
         Details
       </Disclosure>
       {open && (
-        <pre className="max-h-48 w-full select-text overflow-y-auto scroll-stable whitespace-pre-wrap break-words pl-4 text-left font-mono text-caption text-muted">
+        <pre
+          className={cn(
+            REVEAL,
+            'max-h-48 w-full select-text overflow-y-auto scroll-stable whitespace-pre-wrap break-words pl-4 text-left font-mono text-caption text-muted',
+          )}
+        >
           {text}
         </pre>
       )}

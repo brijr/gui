@@ -522,7 +522,8 @@ export function Progress({ value, label, className }: ProgressProps) {
       <div
         className={cn(
           'h-full rounded-full bg-accent transition-[width] duration-(--motion-panel) motion-reduce:transition-none',
-          !known && 'w-1/3 animate-pulse',
+          // Unknown: a third of the bar sweeps across; with reduced motion it sits still.
+          !known && 'w-1/3 animate-sweep motion-reduce:animate-none',
         )}
         style={known ? { width: `${Math.max(0, Math.min(1, value)) * 100}%` } : undefined}
       />

@@ -216,7 +216,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         {(attachments.length > 0 || pending > 0) && (
           <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-2 pt-2">
             {attachments.map((image) => (
-              <li key={image.id}>
+              <li key={image.id} className={PLACE}>
                 <Thumbnail
                   src={image.thumbnail}
                   alt={image.name}
@@ -338,11 +338,16 @@ function problemsTitle(problems: Problem[]) {
   return `${errors} in the preview and dev server`
 }
 
+/** What arrives above the message box (a notice, the problems, the picks) rises in as a transcript row does. */
+const ARRIVE = 'motion-safe:animate-row-in motion-reduce:animate-row-fade'
+/** An image placed among the attachments settles in from slightly smaller. */
+const PLACE = 'motion-safe:animate-place-in motion-reduce:animate-row-fade'
+
 function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const latest = meta.problems.at(-1)
   return (
     // A compact card: a line (two, with the latest error) and a button.
-    <Card tone="inset" className="flex items-center gap-2 py-2 pr-2 pl-3">
+    <Card tone="inset" className={cn(ARRIVE, 'flex items-center gap-2 py-2 pr-2 pl-3')}>
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="text-small font-medium">{problemsTitle(meta.problems)}</p>
@@ -371,7 +376,7 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
 function Selection({ selection }: { selection: Picked[] }) {
   const several = selection.length > 1
   return (
-    <Card tone="inset" className="max-h-36 overflow-y-auto">
+    <Card tone="inset" className={cn(ARRIVE, 'max-h-36 overflow-y-auto')}>
       <ul
         aria-label={several ? `${selection.length} picked` : 'Picked'}
         className="divide-y divide-line"
@@ -446,6 +451,7 @@ function Line({
     <p
       role={role}
       className={cn(
+        ARRIVE,
         'flex gap-1.5 px-1 text-small',
         tone === 'error' ? 'text-danger' : 'text-muted',
       )}

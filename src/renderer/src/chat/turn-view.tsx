@@ -12,7 +12,7 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Disclosure, TechnicalDetails } from '../lib/disclosure'
+import { Disclosure, REVEAL, TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import {
@@ -377,7 +377,9 @@ function Thought({ text }: { text: string }) {
       <Disclosure open={open} onOpenChange={setOpen}>
         Thinking
       </Disclosure>
-      {open && <p className="whitespace-pre-wrap pl-4 text-small text-muted">{text}</p>}
+      {open && (
+        <p className={cn(REVEAL, 'whitespace-pre-wrap pl-4 text-small text-muted')}>{text}</p>
+      )}
     </div>
   )
 }
@@ -568,7 +570,7 @@ function StepGroup({
 
 function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
   return (
-    <Card tone="inset" className="w-full py-1">
+    <Card tone="inset" className={cn(REVEAL, 'w-full py-1')}>
       <ul aria-label="Steps" className="flex flex-col">
         {steps.map((step) => {
           if (step.kind === 'thought') {
@@ -923,7 +925,10 @@ const CHANGE_TONE: Record<FileChange['status'], string> = {
 
 function ChangedFiles({ changes }: { changes: FileChange[] }) {
   return (
-    <ul aria-label="Changed files" className="flex flex-col gap-1 font-mono text-caption">
+    <ul
+      aria-label="Changed files"
+      className={cn(REVEAL, 'flex flex-col gap-1 font-mono text-caption')}
+    >
       {changes.map((change) => (
         <li key={change.path} className="flex min-w-0 items-center gap-2">
           <span className={cn('w-3 shrink-0', CHANGE_TONE[change.status])} title={change.status}>

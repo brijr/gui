@@ -11,7 +11,7 @@ import { create } from 'zustand'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Disclosure } from '../lib/disclosure'
+import { Disclosure, REVEAL } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { Field, InlineError, Input, Textarea } from '../lib/field'
 import { ArrowLeft, Check, ExternalLink, GitBranch, Info, TriangleAlert } from '../lib/icons'
@@ -315,7 +315,7 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
             <BranchSummary info={info} branch={branch} />
           </Disclosure>
           {showBranch && (
-            <div className="flex flex-col gap-2 pl-4">
+            <div className={cn(REVEAL, 'flex flex-col gap-2 pl-4')}>
               <Field label="Branch" htmlFor={`${id}-branch`}>
                 <Input
                   id={`${id}-branch`}

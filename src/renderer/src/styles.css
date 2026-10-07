@@ -150,6 +150,29 @@
     }
   }
 
+  /* Something placed among its peers (an attached image): it settles from slightly smaller as
+     it fades in. With reduced motion, the fade alone (animate-row-fade). */
+  --animate-place-in: place-in var(--motion-pop) var(--ease-out);
+
+  @keyframes place-in {
+    from {
+      opacity: 0;
+      transform: scale(0.96);
+    }
+  }
+
+  /* Progress of unknown length: a third of the bar crossing its track, again and again. */
+  --animate-sweep: sweep 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+
+  @keyframes sweep {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(300%);
+    }
+  }
+
   /* The mark assembling on the start screen (GuiMark animated): each tile slides out from under
      the one before it into its slot (--from, set per tile); one that has to go round a corner
      goes by way of --via. Hidden until it starts. With reduced motion the mark fades in
