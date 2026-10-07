@@ -5,7 +5,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError, Input } from '../lib/field'
-import { History, Pencil, Search, Trash2 } from '../lib/icons'
+import { Pencil, Search, Trash2 } from '../lib/icons'
 import { usePresence } from '../lib/motion'
 import { GroupLabel, Popover } from '../lib/surface'
 import { timeAgo } from '../lib/time'
@@ -17,47 +17,36 @@ const FILTER_AFTER = 8
 /** How long the list takes to close (styles.css --motion-exit). */
 const EXIT_MS = 100
 
-/** The header button that lists the project's archived chats, to reopen, rename or delete. */
-export function ArchiveButton() {
-  const [open, setOpen] = useState(false)
+/**
+ * The project's archived chats, to reopen, rename or delete: a popover under `anchor` (the
+ * header's More button, whose menu opens it).
+ */
+export function ArchivePopover({
+  open,
+  anchor,
+  onClose,
+}: {
+  open: boolean
+  anchor: React.RefObject<HTMLButtonElement | null>
+  onClose: (refocus: boolean) => void
+}) {
   const [placement, setPlacement] = useState<Placement | null>(null)
   const shown = usePresence(open, EXIT_MS)
-  const button = useRef<HTMLButtonElement>(null)
   const listId = useId()
-
-  const close = (refocus: boolean) => {
-    setOpen(false)
-    if (refocus) button.current?.focus()
-  }
-
+  // Placed under the button each time it opens.
+  useEffect(() => {
+    if (open && anchor.current) setPlacement(place(anchor.current))
+  }, [open, anchor])
+  if (!shown || !placement) return null
   return (
-    <>
-      <IconButton
-        ref={button}
-        size="sm"
-        label="Archived chats"
-        icon={History}
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-controls={open ? listId : undefined}
-        onClick={(event) => {
-          if (open) return close(false)
-          setPlacement(place(event.currentTarget))
-          setOpen(true)
-        }}
-        className="aria-expanded:bg-hover aria-expanded:text-fg"
-      />
-      {shown && placement && (
-        <ArchiveList
-          key={`${placement.left},${placement.top},${placement.bottom}`}
-          id={listId}
-          open={open}
-          placement={placement}
-          button={button}
-          onClose={close}
-        />
-      )}
-    </>
+    <ArchiveList
+      key={`${placement.left},${placement.top},${placement.bottom}`}
+      id={listId}
+      open={open}
+      placement={placement}
+      button={anchor}
+      onClose={onClose}
+    />
   )
 }
 

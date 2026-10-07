@@ -341,7 +341,7 @@ function Repositories({
             disabled={busy}
             onClick={() => void run(() => gui.manageGitHub())}
           >
-            Choose on GitHub…
+            Choose on GitHub
           </Button>
         </div>
       </div>

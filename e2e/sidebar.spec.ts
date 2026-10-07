@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS } from '../src/shared/layout'
 import type { Rect } from '../src/shared/types'
 import { waitFor } from './helpers/env'
+import { chooseFromChatMenu } from './helpers/menus'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -175,7 +176,7 @@ test('the chat pops out into a window of its own and comes back when that closes
   await session.chat.getByRole('textbox', { name: /^Message / }).fill('Keep this draft')
 
   // Out: its own window, which it fills; the preview takes the sidebar's room.
-  await session.chat.getByRole('button', { name: 'Pop out', exact: true }).click()
+  await chooseFromChatMenu(session.app, session.chat, 'Pop Out Chat')
   const out = await layoutWhen(
     session,
     'the chat in its own window',

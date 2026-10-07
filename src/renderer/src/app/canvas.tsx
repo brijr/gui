@@ -589,7 +589,7 @@ function OpenActions() {
         </Button>
         <Button size="lg" className={cell} onClick={() => gui.openSettings('github')}>
           <GitHubMark />
-          {githubConnected ? 'Select project…' : 'Connect GitHub'}
+          {githubConnected ? 'Select project' : 'Connect GitHub'}
         </Button>
         <Button size="lg" icon={Link} className={cell} onClick={() => setForm('cloneRepo')}>
           Clone by URL

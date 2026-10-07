@@ -1,0 +1,55 @@
+import type { ElectronApplication, Page } from '@playwright/test'
+import { waitFor } from './env'
+
+/** State the main-process stub below keeps on `globalThis`. */
+interface ChatMenuStore {
+  /** Label of the chat menu item to choose next */
+  guiChatMenuChoice?: string | null
+  guiChatMenuStubbed?: boolean
+  /** The items the chat's More menu offered last time */
+  guiChatMenuItems?: string[]
+}
+
+/**
+ * Chooses `label` from the chat header's More menu, as the user would: a native menu no test
+ * can click, so main's next menu offering `label` clicks it instead of showing. Returns what
+ * the menu offered.
+ */
+export async function chooseFromChatMenu(
+  app: ElectronApplication,
+  chat: Page,
+  label: string,
+): Promise<string[]> {
+  await app.evaluate(({ Menu }, choice) => {
+    const store = globalThis as unknown as ChatMenuStore
+    store.guiChatMenuChoice = choice
+    if (store.guiChatMenuStubbed) return
+    store.guiChatMenuStubbed = true
+    const build = Menu.buildFromTemplate.bind(Menu)
+    Menu.buildFromTemplate = (template) => {
+      const menu = build(template)
+      const wanted = store.guiChatMenuChoice
+      if (!wanted || !menu.items.some((item) => item.label === wanted)) return menu
+      menu.popup = (options) => {
+        store.guiChatMenuChoice = null
+        store.guiChatMenuItems = menu.items
+          .filter((item) => item.type !== 'separator')
+          .map((item) => item.label)
+        menu.items.find((item) => item.label === wanted && item.enabled)?.click()
+        options?.callback?.()
+      }
+      return menu
+    }
+  }, label)
+  // dispatchEvent: the chat view can be hidden or offscreen; only its page matters here.
+  await chat.getByRole('button', { name: 'More', exact: true }).dispatchEvent('click')
+  // Answered once main has built and "shown" it.
+  return waitFor(
+    () =>
+      app.evaluate(() => {
+        const store = globalThis as unknown as ChatMenuStore
+        return store.guiChatMenuChoice === null ? (store.guiChatMenuItems ?? []) : null
+      }),
+    `the chat menu to offer ${label}`,
+  )
+}

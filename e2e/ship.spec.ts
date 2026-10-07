@@ -1,9 +1,10 @@
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Page } from '@playwright/test'
+import type { ElectronApplication, Page } from '@playwright/test'
 import type { ShipInfo, ShipRequest } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import { git } from './helpers/fixtures'
+import { chooseFromChatMenu } from './helpers/menus'
 import { expect, test } from './helpers/test'
 
 const MARKER = '// Shipped from Gui e2e'
@@ -69,7 +70,7 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
   expect(info.suggestion.branch).toMatch(/^gui\/[a-z0-9-]+$/)
   expect(info.suggestion.title).not.toBe('')
 
-  await checkSheet(session.chat, info)
+  await checkSheet(session.app, session.chat, info)
 
   // Pushed: committed on a new branch that now exists on the remote too.
   const request: ShipRequest = { ...info.suggestion, title: 'Mark the fixture as shipped' }
@@ -114,15 +115,11 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
 })
 
 /**
- * The chat header's button opens the sheet, prefilled from the same suggestion. Soft: the
+ * The chat header's More menu opens the sheet, prefilled from the same suggestion. Soft: the
  * git assertions above and below are what this test is for.
  */
-async function checkSheet(chat: Page, info: ShipInfo) {
-  const open = chat.getByRole('button', { name: 'Create pull request' })
-  await expect.soft(open).toHaveCount(1)
-  if ((await open.count()) !== 1) return
-  // dispatchEvent: the chat view can be hidden or offscreen, and only the DOM matters here.
-  await open.dispatchEvent('click')
+async function checkSheet(app: ElectronApplication, chat: Page, info: ShipInfo) {
+  await chooseFromChatMenu(app, chat, 'Create Pull Request…')
   await expect.soft(chat.getByRole('textbox', { name: 'Title' })).toHaveValue(info.suggestion.title)
   // A remote Gui can't link: no pull request page, so the action is a plain push.
   await expect.soft(chat.getByRole('button', { name: 'Commit and push' })).toHaveCount(1)

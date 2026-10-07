@@ -280,15 +280,6 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         {/* A container: in a narrow panel, Auto and the model button get more compact. */}
         <div className="@container flex items-center gap-1 px-1.5 pb-1.5">
           <IconButton
-            label="Select element"
-            shortcut="selectElement"
-            icon={MousePointer2}
-            pressed={meta.selecting}
-            // Nothing to pick until the local app shows (as the toolbar's Select).
-            disabled={!meta.canSelect && !meta.selecting}
-            onClick={() => gui.toggleSelect()}
-          />
-          <IconButton
             label="Attach images"
             icon={Paperclip}
             disabled={attachments.length + pending >= MAX_IMAGES}

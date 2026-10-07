@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { chooseFromChatMenu } from './helpers/menus'
 import { expect, test } from './helpers/test'
 
 /** Writes a project's own chat, as Gui saves it, with a turn for each prompt. */
@@ -54,15 +55,15 @@ test('new chat and agent switches archive the chat, which can be reopened', asyn
   expect(archived).toMatchObject({ prompt: 'Make the header sticky', turns: 2, agentId: 'claude' })
   await expect(session.chat.getByText('Your chat with Claude Code is archived.')).toBeVisible()
 
-  // The list in the header: rename, then reopen it from there.
-  await session.chat.getByRole('button', { name: 'Archived chats' }).click()
+  // The list from the header's More menu: rename, then reopen it from there.
+  await chooseFromChatMenu(session.app, session.chat, 'Archived Chats')
   const dialog = session.chat.getByRole('dialog', { name: 'Archived chats' })
   await expect(dialog.getByText('Make the header sticky')).toBeVisible()
   await session.shot('chat-archive-list', true)
   await session.chat.evaluate((id) => window.gui.renameChat(id, 'Header work'), archived.id)
   expect((await list())[0]?.title).toBe('Header work')
   await session.chat.keyboard.press('Escape')
-  await session.chat.getByRole('button', { name: 'Archived chats' }).click()
+  await chooseFromChatMenu(session.app, session.chat, 'Archived Chats')
   await dialog.getByRole('button', { name: /^Header work/ }).click()
   await expect.poll(async () => (await session.chatSnapshot()).turns.length).toBe(2)
   // It's the open chat again, and the empty one wasn't worth archiving.

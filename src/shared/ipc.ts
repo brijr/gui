@@ -92,6 +92,7 @@ export const Send = {
   devServerRestart: 'devserver:restart',
   showDevServerMenu: 'menu:devserver',
   showAgentMenu: 'menu:agent',
+  showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
@@ -166,6 +167,9 @@ export const Send = {
 export const MAX_TERMINAL_INPUT = 64 * 1024
 
 /** Main → renderer */
+/** What the chat's More menu hands back to the chat page to do. */
+export type ChatMenuChoice = 'pullRequest' | 'archive'
+
 export const Events = {
   state: 'state',
   command: 'command',
@@ -176,6 +180,7 @@ export const Events = {
   chatTurn: 'chat:turn',
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
+  chatMenuChoice: 'chat:menu-choice',
   chatAttach: 'chat:attach',
   recordingAttach: 'recording:attach',
   chatFloat: 'chat:float',
@@ -259,6 +264,11 @@ export interface GuiApi {
    * calling page) to open under the control that asked for it.
    */
   showAgentMenu(at?: { x: number; y: number }): void
+  /**
+   * The chat header's More menu, under the button: Create Pull Request, Archived Chats, Pop
+   * Out. Main does Pop Out itself; the rest come back as `onChatMenuChoice`.
+   */
+  showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void
   showProjectMenu(): void
   setAgent(agentId: AgentId): void
   /** Checks one agent, or every enabled one when no id is given */
@@ -377,6 +387,8 @@ export interface GuiApi {
   onChatTurn(cb: (turn: Turn) => void): Unsubscribe
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
+  /** A choice from the More menu that the chat page carries out */
+  onChatMenuChoice(cb: (choice: ChatMenuChoice) => void): Unsubscribe
   /**
    * What the floating chat is drawn as, and the corner it's anchored by: the panel, the pill
    * while minimized, or the bubble while the user picks an element. The view grows to a larger

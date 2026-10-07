@@ -33,21 +33,20 @@ import { InlineError } from '../lib/field'
 import {
   Archive,
   ChevronDown,
-  GitPullRequest,
+  Ellipsis,
   Maximize2,
   MessageSquare,
   Minus,
   MousePointer2,
   PanelLeft,
-  PanelLeftClose,
+  PictureInPicture2,
   SquareArrowOutDownLeft,
-  SquareArrowOutUpRight,
   SquarePen,
 } from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
 import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
-import { ArchiveButton } from './archive'
+import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
 import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
@@ -113,8 +112,10 @@ export function ChatPanel() {
     return (
       <div
         data-chat-panel
+        // No fill of its own: the window's sidebar material shows through (main's
+        // sidebarMaterial), or --surface where there's none.
         className={cn(
-          'relative flex h-dvh flex-col bg-raised',
+          'relative flex h-dvh flex-col',
           !meta.popped && 'border-r border-line-strong',
         )}
       >
@@ -436,15 +437,6 @@ function Header({ meta }: { meta: ChatMeta }) {
         <>
           <IconButton
             size="sm"
-            label="Create pull request"
-            icon={GitPullRequest}
-            pressed={shipping}
-            disabled={shipBusy}
-            onClick={toggleShipSheet}
-          />
-          <ArchiveButton />
-          <IconButton
-            size="sm"
             label="New chat"
             title={withShortcut('New chat (archives this one)', 'newChat')}
             shortcut="newChat"
@@ -456,17 +448,22 @@ function Header({ meta }: { meta: ChatMeta }) {
               size="sm"
               label={meta.docked ? 'Float panel' : 'Show as sidebar'}
               shortcut="dockChat"
-              icon={meta.docked ? PanelLeftClose : PanelLeft}
+              // What it turns the chat into: a floating panel, or the sidebar.
+              icon={meta.docked ? PictureInPicture2 : PanelLeft}
               onClick={() => gui.toggleDock()}
             />
           )}
-          <IconButton
-            size="sm"
-            label={meta.popped ? 'Back to window' : 'Pop out'}
-            shortcut="popOutChat"
-            icon={meta.popped ? SquareArrowOutDownLeft : SquareArrowOutUpRight}
-            onClick={() => gui.togglePopOut()}
-          />
+          {/* Back to the window, from its own: the one action a popped-out chat needs at hand. */}
+          {meta.popped && (
+            <IconButton
+              size="sm"
+              label="Back to window"
+              shortcut="popOutChat"
+              icon={SquareArrowOutDownLeft}
+              onClick={() => gui.togglePopOut()}
+            />
+          )}
+          <MoreButton shipping={shipping} shipBusy={shipBusy} />
           {!meta.docked && !meta.popped && (
             <IconButton
               size="sm"
@@ -487,6 +484,50 @@ function Header({ meta }: { meta: ChatMeta }) {
         )}
       </div>
     </PanelHeader>
+  )
+}
+
+/**
+ * The header's less-used actions in one native menu (main's `showChatMenu`): Create Pull
+ * Request, Archived Chats, Pop Out. The pull request sheet and the archived chats are this
+ * page's, so main says which was chosen; the archived chats open under this button.
+ */
+function MoreButton({ shipping, shipBusy }: { shipping: boolean; shipBusy: boolean }) {
+  const button = useRef<HTMLButtonElement>(null)
+  const [archive, setArchive] = useState(false)
+  useEffect(
+    () =>
+      gui.onChatMenuChoice((choice) => {
+        if (choice === 'pullRequest') toggleShipSheet()
+        else setArchive(true)
+      }),
+    [],
+  )
+  return (
+    <>
+      <IconButton
+        ref={button}
+        size="sm"
+        label="More"
+        icon={Ellipsis}
+        aria-haspopup="menu"
+        onClick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect()
+          gui.showChatMenu(
+            { x: Math.round(box.left), y: Math.round(box.bottom + 4) },
+            { open: shipping, busy: shipBusy },
+          )
+        }}
+      />
+      <ArchivePopover
+        open={archive}
+        anchor={button}
+        onClose={(refocus) => {
+          setArchive(false)
+          if (refocus) button.current?.focus()
+        }}
+      />
+    </>
   )
 }
 

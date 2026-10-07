@@ -20,9 +20,10 @@ import {
   WebContentsView,
   type WebFrameMain,
 } from 'electron'
-import { Events } from '../shared/ipc'
+import { type ChatMenuChoice, Events } from '../shared/ipc'
 import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
+import { SHORTCUTS } from '../shared/shortcuts'
 import {
   type AgentId,
   agentName,
@@ -111,7 +112,7 @@ import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
 import { Terminals } from './terminals'
-import { followSurface, surfaceColor } from './theme'
+import { followSurface, sidebarMaterial } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
@@ -1918,9 +1919,10 @@ export class ProjectTab {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: TRAFFIC_LIGHTS,
       fullscreenable: false,
-      backgroundColor: surfaceColor(),
+      // The chat fills it and shows the material through, as the sidebar does.
+      ...sidebarMaterial(),
     })
-    followSurface(win)
+    if (process.platform !== 'darwin') followSurface(win)
     // Its own page is never used; the chat's view covers it.
     win.webContents.loadURL('about:blank').catch(() => undefined)
     this.popout = win
@@ -2821,13 +2823,47 @@ export class ProjectTab {
       { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
     ]
     const menu = Menu.buildFromTemplate(template)
-    const window = this.host.win
+    // From a popped-out chat, in its window.
+    const window = sender === this.chatView.webContents && this.popout ? this.popout : this.host.win
     menu.popup({ window, ...(at && this.inWindow(sender, at)) })
   }
 
-  /** `at` in `sender`'s page, in window coordinates: the chat is a view inside the window. */
+  /**
+   * The chat header's More menu: its less-used actions. Pop Out happens here; the pull
+   * request sheet and the archived chats are the chat page's, so it's told which was chosen.
+   */
+  showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }) {
+    if (!this.hasProject) return
+    const choose = (choice: ChatMenuChoice) => this.sendChat(Events.chatMenuChoice, choice)
+    const template: MenuItemConstructorOptions[] = [
+      {
+        label: ship.open ? 'Close Pull Request' : 'Create Pull Request…',
+        enabled: !ship.busy,
+        click: () => choose('pullRequest'),
+      },
+      { label: 'Archived Chats', click: () => choose('archive') },
+      { type: 'separator' },
+      {
+        label: this.popout ? 'Back to Window' : 'Pop Out Chat',
+        accelerator: SHORTCUTS.popOutChat.accelerator,
+        registerAccelerator: false,
+        click: () => this.togglePopOut(),
+      },
+    ]
+    const window = this.popout ?? this.host.win
+    Menu.buildFromTemplate(template).popup({
+      window,
+      ...this.inWindow(this.chatView.webContents, at),
+    })
+  }
+
+  /**
+   * `at` in `sender`'s page, in its window's coordinates: the chat is a view inside the window,
+   * or fills its own when popped out.
+   */
   private inWindow(sender: WebContents | null, at: { x: number; y: number }) {
-    const view = sender === this.chatView.webContents ? this.chatView.getBounds() : { x: 0, y: 0 }
+    const inChat = sender === this.chatView.webContents && !this.popout
+    const view = inChat ? this.chatView.getBounds() : { x: 0, y: 0 }
     return { x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) }
   }
 

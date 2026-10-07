@@ -692,6 +692,11 @@ function registerIpc() {
     const point = isPoint(at) ? at : null
     tabFor(event)?.showAgentMenu(() => openSettings('agents'), event.sender, point)
   })
+  ipcMain.on(Send.showChatMenu, (event, at: unknown, ship: unknown) => {
+    if (!isPoint(at)) return
+    const flags = ship && typeof ship === 'object' ? (ship as Record<string, unknown>) : {}
+    tabFor(event)?.showChatMenu(at, { open: flags.open === true, busy: flags.busy === true })
+  })
   onWindow(Send.showProjectMenu, (win) =>
     win.activeTab.showProjectMenu(
       () => void pickProject(win),
