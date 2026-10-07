@@ -52,6 +52,8 @@ const api: GuiApi = {
   showProjectMenu: send(Send.showProjectMenu),
   setAgent: send(Send.setAgent),
   checkAgents: send(Send.checkAgents),
+  installNode: send(Send.installNode),
+  installDeveloperTools: send(Send.installDeveloperTools),
   signIn: (agentId) => ipcRenderer.invoke(Invoke.signIn, agentId),
   installAgent: (agentId) => ipcRenderer.invoke(Invoke.installAgent, agentId),
   connectAgent: (agentId) => ipcRenderer.invoke(Invoke.connectAgent, agentId),

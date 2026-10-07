@@ -12,6 +12,7 @@ import type {
   GitHubState,
 } from '../shared/github'
 import { parseRepo } from './clone'
+import { developerTools } from './developer-tools'
 import { getShellEnv } from './shell-env'
 
 declare const __GUI_ACCOUNTS_URL__: string
@@ -273,6 +274,7 @@ async function credential(id: number) {
   return result
 }
 async function authenticatedGit(args: string[], env: NodeJS.ProcessEnv, cwd?: string) {
+  await developerTools.requireGit()
   await new Promise<void>((resolve, reject) => {
     execFile(
       'git',

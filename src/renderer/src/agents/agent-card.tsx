@@ -213,7 +213,14 @@ function progressText(received: number, total: number | null) {
   return `Downloading ${megabytes(received)} of ${megabytes(total)} MB`
 }
 
-function InstallProgress({ name, progress }: { name: string; progress: AgentHealth['progress'] }) {
+/** A download's bar and "Downloading 12 of 30 MB": an agent's, or Gui's Node.js. */
+export function InstallProgress({
+  name,
+  progress,
+}: {
+  name: string
+  progress: AgentHealth['progress']
+}) {
   const received = progress?.received ?? 0
   const total = progress?.total ?? null
   // Indeterminate until bytes arrive, and throughout when the server didn't send a size.

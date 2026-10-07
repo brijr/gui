@@ -1,21 +1,19 @@
 import { execFile } from 'node:child_process'
-import { createHash, randomBytes } from 'node:crypto'
-import { constants, createWriteStream } from 'node:fs'
+import { randomBytes } from 'node:crypto'
+import { constants } from 'node:fs'
 import { access, mkdir, readdir, readFile, rename, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { Readable, Transform } from 'node:stream'
-import { pipeline } from 'node:stream/promises'
 import { app } from 'electron'
 import type { AgentBinaries, AgentBinary } from '../../scripts/agent-binaries'
 import { type AgentBinarySource, type AgentId, agentName } from '../shared/types'
+import { type DownloadProgress, download } from './download'
 import { getShellEnv } from './shell-env'
 
 declare const __GUI_AGENT_BINARIES__: AgentBinaries
 
 const REGISTRY = 'https://registry.npmjs.org'
 const VERSION_TIMEOUT_MS = 10_000
-const DOWNLOAD_STALL_MS = 60_000
 /** Where installers put the CLIs, for when the login shell's PATH doesn't cover them. */
 const COMMON_BIN_DIRS = ['.local/bin', '.claude/local', '.npm-global/bin', '.bun/bin']
 const SYSTEM_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
@@ -193,11 +191,7 @@ export function missingMessage(
   return `Gui needs its own copy of ${name}: yours (${status.found.version}) is ${age} than it supports. Yours stays as it is.`
 }
 
-export interface InstallProgress {
-  received: number
-  /** null when the server doesn't say */
-  total: number | null
-}
+export type InstallProgress = DownloadProgress
 
 /**
  * Downloads the exact CLI Gui's adapter was built against from npm, checks it against
@@ -222,46 +216,14 @@ export async function installAgentBinary(
   try {
     const name = spec.package.split('/').at(-1) ?? spec.package
     const url = `${registry()}/${spec.package}/-/${name}-${spec.version}.tgz`
-    const response = await fetch(url, { signal })
-    if (!response.ok || !response.body) {
-      throw new Error(`Couldn't download ${agentName(id)} (${response.status}).`)
-    }
-    const length = Number(response.headers.get('content-length'))
-    const total = Number.isFinite(length) && length > 0 ? length : null
-    const hash = createHash('sha512')
-    let received = 0
-    let stall: NodeJS.Timeout | undefined
-    const stalled = new AbortController()
-    const resetStall = () => {
-      clearTimeout(stall)
-      stall = setTimeout(() => stalled.abort(), DOWNLOAD_STALL_MS)
-    }
-    const meter = new Transform({
-      transform(chunk: Buffer, _encoding, callback) {
-        hash.update(chunk)
-        received += chunk.length
-        resetStall()
-        onProgress({ received, total })
-        callback(null, chunk)
-      },
+    const digest = await download(url, archive, {
+      what: agentName(id),
+      algorithm: 'sha512',
+      encoding: 'base64',
+      onProgress,
+      signal,
     })
-    resetStall()
-    try {
-      await pipeline(
-        Readable.fromWeb(response.body as import('node:stream/web').ReadableStream<Uint8Array>),
-        meter,
-        createWriteStream(archive, { mode: 0o600 }),
-        { signal: AbortSignal.any([signal, stalled.signal]) },
-      )
-    } catch (error) {
-      if (stalled.signal.aborted && !signal.aborted) {
-        throw new Error('The download stopped responding. Check your connection and try again.')
-      }
-      throw error
-    } finally {
-      clearTimeout(stall)
-    }
-    if (`sha512-${hash.digest('base64')}` !== spec.integrity) {
+    if (`sha512-${digest}` !== spec.integrity) {
       throw new Error(
         `The ${agentName(id)} download didn't match its expected checksum, so Gui didn't install it.`,
       )

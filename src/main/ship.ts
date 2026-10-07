@@ -4,6 +4,7 @@ import { access, type FileHandle, lstat, open, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import type { GitHubProfile } from '../shared/github'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../shared/types'
+import { developerTools, GIT_TOOLS_MISSING } from './developer-tools'
 import { connectedGitHub, pullGitHub, pushGitHub } from './github'
 import { getShellEnv } from './shell-env'
 
@@ -54,8 +55,7 @@ export interface Repo {
 
 const NOTHING_TO_SHIP = 'No changes to share yet.'
 const NOT_A_REPO = 'This project isn’t a Git repository yet, so there’s nothing to commit to.'
-const GIT_MISSING =
-  'Git isn’t set up on this Mac yet. Install Apple’s Command Line Tools (macOS offers them the first time Git runs), then try again.'
+const GIT_MISSING = GIT_TOOLS_MISSING
 
 const QUICK_TIMEOUT = 30_000
 /** Commit and push run the project's git hooks, which may lint or test for a while. */
@@ -1369,15 +1369,15 @@ const SAFE_READ = [
   'log.showSignature=false',
 ]
 
-function runGit(
+async function runGit(
   cwd: string,
   env: NodeJS.ProcessEnv,
   args: string[],
   options?: Partial<RunOptions>,
 ) {
-  return run('git', ['--literal-pathspecs', ...args], { cwd, env, ...options }).then(
-    (result) => result.stdout,
-  )
+  await developerTools.requireGit()
+  const result = await run('git', ['--literal-pathspecs', ...args], { cwd, env, ...options })
+  return result.stdout
 }
 
 /** Reads, and writes that run no hooks; see SAFE_READ. */

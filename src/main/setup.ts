@@ -14,7 +14,7 @@ const MISSING_TOOL: Record<PackageManager, string> = {
   bun: "bun isn't installed on this Mac. Install it from bun.sh, then try again.",
   pnpm: "pnpm isn't installed on this Mac. Install it from pnpm.io (or run `corepack enable pnpm`), then try again.",
   yarn: "Yarn isn't installed on this Mac. Install it from yarnpkg.com (or run `corepack enable yarn`), then try again.",
-  npm: "Node.js isn't installed on this Mac. Install it from nodejs.org, then try again.",
+  npm: "Node.js isn't set up on this Mac yet. Set it up from the card above, then try again.",
 }
 
 export const installCommand = (pm: PackageManager) => `${pm} install`
@@ -33,7 +33,7 @@ export async function detectSetup(
 
 /** Null once there's nothing left to do or show. */
 export function settleSetup(setup: ProjectSetup): ProjectSetup | null {
-  return setup.apps || setup.dependencies !== 'ok' || setup.env ? setup : null
+  return setup.apps || setup.dependencies !== 'ok' || setup.env || setup.node ? setup : null
 }
 
 function declaresDependencies(pkg: PackageJson) {

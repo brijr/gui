@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdir, realpath, rm, rmdir, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { developerTools } from './developer-tools'
 
 export interface FileChange {
   path: string // POSIX path relative to project root
@@ -207,6 +208,7 @@ export class Checkpoints {
     const root = await realpath(this.projectRoot)
     const repo: Repo = { root, gitDir: join(this.storeDir, shadowRepoName(root)) }
 
+    await developerTools.requireGit()
     await mkdir(this.storeDir, { recursive: true })
     // Every git call on a project's shadow repo goes through one queue, so a lock left at
     // setup is from a git process that was killed mid-commit; it would block every later

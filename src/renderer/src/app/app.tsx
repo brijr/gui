@@ -5,7 +5,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Button } from '../lib/ui'
 import { useWindowState } from '../lib/use-window-state'
-import { Canvas, EnvBanner } from './canvas'
+import { Canvas, DeveloperToolsBanner, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
 import { useLayoutMorphs, useLayoutSlide } from './layout-morph'
 import { ShortcutsSheet } from './shortcuts-sheet'
@@ -77,6 +77,7 @@ export function App() {
             <Fragment key={state.activeTab}>
               {state.project && <Toolbar state={state} />}
               {/* Outside the canvas, so the preview is laid out below it. Keyed so a dismissal is per project. */}
+              <DeveloperToolsBanner state={state} />
               <EnvBanner key={state.project?.root} state={state} />
             </Fragment>
           </div>

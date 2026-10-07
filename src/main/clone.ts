@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
+import { developerTools } from './developer-tools'
 import { getShellEnv } from './shell-env'
 
 export interface RepoRef {
@@ -44,6 +45,7 @@ function ref(owner: string, repo: string, remote?: string): RepoRef | null {
 export async function cloneRepo(repo: RepoRef, parent: string): Promise<string> {
   const dest = join(parent, repo.name)
   if (existsSync(dest)) throw new Error(`${dest} already exists.`)
+  await developerTools.requireGit()
   // No prompt for credentials: there's no terminal to answer it, so a private repo fails
   // fast instead of hanging. The user's git credential helper still applies.
   const env = { ...(await getShellEnv()), GIT_TERMINAL_PROMPT: '0' }

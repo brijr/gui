@@ -10,6 +10,7 @@ import {
   type WindowState,
   type WorkspaceApp,
 } from '../../../shared/types'
+import { InstallProgress } from '../agents/agent-card'
 import { AgentList } from '../agents/agent-list'
 import { ConnectAgent, checkingAgents } from '../agents/connect-agent'
 import { gui } from '../lib/api'
@@ -30,6 +31,7 @@ import {
   Package,
   Play,
   TriangleAlert,
+  Wrench,
   X,
 } from '../lib/icons'
 import { PathText } from '../lib/path-text'
@@ -145,6 +147,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (!project) return <EmptyState state={state} />
 
   if (setup?.apps) return <AppChooser apps={setup.apps} />
+
+  if (setup?.node) return <NodeCard node={setup.node} />
 
   // Offered alongside whatever else the card says; the app may run without it.
   const env = setup?.env ?? null
@@ -320,6 +324,52 @@ function CanvasMessage({ state }: { state: WindowState }) {
   return null
 }
 
+/**
+ * The project needs Node.js and the Mac has none: Gui downloads its own, then installs and
+ * starts the project as usual. Nothing outside Gui changes.
+ */
+function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
+  if (node.status === 'installing' || node.status === 'ready') {
+    return (
+      <SetupCard
+        icon={LOADING}
+        title="Setting up Node.js…"
+        detail="Your app starts as soon as it's ready."
+      >
+        <InstallProgress name="Node.js" progress={node.progress} />
+      </SetupCard>
+    )
+  }
+  if (node.status === 'failed') {
+    return (
+      <SetupCard
+        icon={ALERT}
+        tone="danger"
+        title="Couldn't set up Node.js"
+        detail={node.error ?? 'The download stopped with an error.'}
+        note="You can also install Node.js yourself from nodejs.org. Gui uses yours when it finds it."
+        actions={
+          <Button variant="primary" onClick={() => gui.installNode()}>
+            Try again
+          </Button>
+        }
+      />
+    )
+  }
+  return (
+    <SetupCard
+      icon={<Package className="size-4" aria-hidden="true" />}
+      title="Your app needs Node.js"
+      detail="Gui runs your app with Node.js, and your agent uses it to build. Gui can set it up for you: a one-time download of about 30 MB that stays inside Gui."
+      actions={
+        <Button variant="primary" onClick={() => gui.installNode()}>
+          Set up Node.js
+        </Button>
+      }
+    />
+  )
+}
+
 interface SetupCardProps {
   icon: ReactNode
   tone?: 'neutral' | 'danger'
@@ -433,6 +483,46 @@ function EnvItem({ env }: { env: EnvSetup }) {
       detail={<EnvText env={env} />}
       trailing={<EnvButton env={env} />}
     />
+  )
+}
+
+/**
+ * Git can't run here until Apple's developer tools are installed, and undo and sharing need
+ * it. Gui offers macOS's own installer and picks the tools up when the user comes back.
+ */
+export function DeveloperToolsBanner({ state }: { state: WindowState }) {
+  if (!state.project || !state.developerTools) return null
+  if (state.developerTools === 'installing') {
+    return (
+      <Banner
+        icon={Wrench}
+        actions={
+          <Button size="sm" variant="ghost" onClick={() => gui.installDeveloperTools()}>
+            Open installer
+          </Button>
+        }
+      >
+        <span className="truncate">
+          Finish installing Apple’s developer tools in the window macOS opened. Gui picks them up
+          when you come back.
+        </span>
+      </Banner>
+    )
+  }
+  return (
+    <Banner
+      icon={Wrench}
+      tone="warning"
+      actions={
+        <Button size="sm" onClick={() => gui.installDeveloperTools()}>
+          Install
+        </Button>
+      }
+    >
+      <span className="truncate">
+        Undo and sharing need Apple’s developer tools. It’s a free install from Apple.
+      </span>
+    </Banner>
   )
 }
 

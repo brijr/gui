@@ -125,9 +125,22 @@ export interface WorkspaceApp {
  * What a project needs before its dev server can run, shown in the canvas until the
  * preview is up. Null when there's nothing to do.
  */
+/**
+ * Node.js that Gui sets up for a Mac without it (`installNode`): needed before the project
+ * can install or run, offered with its download's progress, or why it failed
+ */
+export interface NodeSetup {
+  status: 'missing' | 'installing' | 'failed' | 'ready'
+  /** Bytes so far and total (null when unknown) while downloading */
+  progress: { received: number; total: number | null } | null
+  error: string | null
+}
+
 export interface ProjectSetup {
   /** Set when a monorepo has several apps and none is chosen yet (see `chooseApp`) */
   apps: WorkspaceApp[] | null
+  /** The project needs Node.js and this Mac has none yet; null when it has (or needs none) */
+  node?: NodeSetup | null
   /** `installing` streams into the logs; `failed` offers a retry */
   dependencies: 'ok' | 'missing' | 'installing' | 'failed'
   /**
@@ -357,6 +370,11 @@ export interface WindowState {
   home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
+  /**
+   * Git can't run until Apple's developer tools are installed ('missing'), or the user is
+   * installing them; null when it can (or hasn't been needed yet). Undo and sharing need git.
+   */
+  developerTools: 'missing' | 'installing' | null
   /** The window's tabs, in order; the strip shows once there are two or more */
   tabs: TabInfo[]
   /** Id of the tab this state is for, the one the window shows */

@@ -45,6 +45,7 @@ import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
+import { developerTools } from './developer-tools'
 import {
   cancelGitHub,
   cloneGitHub,
@@ -58,6 +59,7 @@ import {
 } from './github'
 import { isLoopback } from './loopback'
 import { createProject, projectName } from './new-project'
+import { nodeRuntime } from './node-runtime'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
@@ -805,6 +807,8 @@ function registerIpc() {
       SECTIONS.includes(section as SettingsSection) ? (section as SettingsSection) : undefined,
     ),
   )
+  onAppUi(Send.installNode, () => void nodeRuntime.install())
+  onAppUi(Send.installDeveloperTools, () => developerTools.install())
   onAppUi(Send.checkAgents, (agentId) =>
     isAgentId(agentId) ? void agentHealth.check(agentId) : void agentHealth.checkAll(),
   )
@@ -1308,6 +1312,7 @@ function focusExistingWindow() {
 function shutdown() {
   for (const win of allWindows()) win.destroy()
   agentHealth.dispose()
+  nodeRuntime.dispose()
 }
 
 // One Gui per data folder: two would delete each other's live shadow-repo lock and
@@ -1334,6 +1339,7 @@ if (!app.requestSingleInstanceLock()) {
     agentHealth.on('change', onAgentHealth)
     // Pick up agents installed (or added to agents.json) while Gui was in the background.
     app.on('browser-window-focus', () => void agentHealth.onAppFocus())
+    app.on('browser-window-focus', () => void developerTools.recheck())
     // Auto Mode and Move Tab follow the window and project the menu acts on.
     app.on('browser-window-focus', syncMenuItems)
     app.on('browser-window-blur', syncMenuItems)

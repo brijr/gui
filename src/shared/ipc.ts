@@ -99,6 +99,8 @@ export const Send = {
   showProjectMenu: 'menu:project',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
+  installNode: 'node:install',
+  installDeveloperTools: 'developer-tools:install',
   navigate: 'preview:navigate',
   back: 'preview:back',
   forward: 'preview:forward',
@@ -284,6 +286,13 @@ export interface GuiApi {
    * `WindowState.agents`). Other agents: opens their official install page.
    */
   installAgent(agentId: AgentId): Promise<void>
+  /**
+   * Downloads Gui's own Node.js for a Mac without it (`ProjectSetup.node` follows it). Every
+   * project waiting on it goes on to install and start once it's in.
+   */
+  installNode(): void
+  /** Opens macOS's installer for Apple's developer tools, which git needs (`WindowState.developerTools`) */
+  installDeveloperTools(): void
   /**
    * Gets the agent working in one step: downloads it if Gui can (or opens its install
    * page), then runs its sign-in. Progress and the outcome arrive through `WindowState.agents`.

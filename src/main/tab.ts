@@ -40,6 +40,7 @@ import {
   isRegion,
   isTerminalId,
   type MorphKind,
+  type NodeSetup,
   type PanelCorner,
   type PanelEdge,
   type Picked,
@@ -69,6 +70,7 @@ import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve
 import { availableModels, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
+import { type DeveloperToolsStatus, developerTools } from './developer-tools'
 import {
   claimHistoryFile,
   listArchived,
@@ -81,6 +83,7 @@ import {
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
+import { nodeRuntime } from './node-runtime'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
@@ -405,6 +408,7 @@ export class ProjectTab {
       home: app.getPath('home'),
       agents: agentHealth.list(),
       setup: null,
+      developerTools: shownTools(developerTools.state),
     }
 
     this.preview = new WebContentsView({
@@ -439,6 +443,8 @@ export class ProjectTab {
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
     this.problems.on('change', (problems) => this.chat?.setProblems(problems))
     agentHealth.on('change', this.onAgentHealth)
+    nodeRuntime.on('change', this.onNodeRuntime)
+    developerTools.on('change', this.onDeveloperTools)
 
     this.bindPreview()
     guardAppContents(this.chatView.webContents)
@@ -1588,7 +1594,18 @@ export class ProjectTab {
   private async setUpAndStart() {
     const { project, setup } = this.state
     const devServer = this.devServer
-    if (!project?.devCommand || !devServer || setup?.apps) return
+    if (!project || !devServer || setup?.apps) return
+    // Undo needs git from the first turn: find out now whether it runs, so a missing install
+    // shows as a banner rather than macOS's own prompt mid-turn.
+    void developerTools.gitAvailable()
+    // Nothing can install or run without Node.js, nor can the agent build an app with it:
+    // offer Gui's own first. Once it's set up, this runs again (onNodeRuntime).
+    if (await nodeRuntime.missingFor(project.packageManager)) {
+      if (devServer === this.devServer) this.patchSetup({ node: nodeRuntime.state })
+      return
+    }
+    if (this.state.setup?.node) this.patchSetup({ node: null })
+    if (!project.devCommand) return
     if (this.settingUp === devServer || setup?.dependencies === 'installing') return
     this.settingUp = devServer
     try {
@@ -1647,6 +1664,14 @@ export class ProjectTab {
     this.preview.webContents.loadURL('about:blank').catch(() => undefined)
     this.patchPreview({ url: null, error: null, visible: false, selecting: false })
     this.patchSetup({ apps: this.apps })
+  }
+
+  /** Gui's Node.js download moved on: follow it while waiting on it, and go on once it's in. */
+  private onNodeRuntime = (node: NodeSetup) => {
+    if (!this.state.setup?.node) return
+    if (node.status !== 'ready') return this.patchSetup({ node })
+    this.patchSetup({ node: null })
+    void this.setUpAndStart()
   }
 
   private patchSetup(patch: Partial<ProjectSetup>) {
@@ -2984,6 +3009,9 @@ export class ProjectTab {
 
   private onAgentHealth = (agents: TabState['agents']) => this.patch({ agents })
 
+  private onDeveloperTools = (status: DeveloperToolsStatus) =>
+    this.patch({ developerTools: shownTools(status) })
+
   /**
    * Stops the tab's dev server, terminals and agent and closes its pages; it's out of its
    * window.
@@ -2994,6 +3022,8 @@ export class ProjectTab {
     this.cancelTuck()
     this.closePopout()
     agentHealth.off('change', this.onAgentHealth)
+    nodeRuntime.off('change', this.onNodeRuntime)
+    developerTools.off('change', this.onDeveloperTools)
     this.flight?.stop()
     this.morph.dispose()
     this.dockSlide?.flight?.stop()
@@ -3149,4 +3179,9 @@ function fitImage(image: NativeImage, edge: number) {
     height: Math.max(1, Math.round(height * scale)),
     quality: 'best',
   })
+}
+
+/** What the window says about Apple's developer tools: nothing until they're found missing. */
+function shownTools(status: DeveloperToolsStatus): WindowState['developerTools'] {
+  return status === 'missing' || status === 'installing' ? status : null
 }
