@@ -24,6 +24,7 @@ import {
 } from '../lib/icons'
 import { Card, Thumbnail } from '../lib/surface'
 import { Button, Counter, IconButton, Spinner } from '../lib/ui'
+import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
 import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
@@ -193,7 +194,12 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       onDrop={onDrop}
       className="flex max-h-3/5 min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t border-line p-2"
     >
-      <AgentStatus meta={meta} />
+      {/* Setting the agent up is the next step; it stands in for an error saying it isn't */}
+      {shouldShowAgentSetup(meta) ? (
+        <AgentSetup meta={meta} className={ARRIVE} />
+      ) : (
+        <AgentStatus meta={meta} />
+      )}
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
       <QueuedMessages meta={meta} />
       {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}

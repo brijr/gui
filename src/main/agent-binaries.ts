@@ -190,7 +190,7 @@ export function missingMessage(
   const name = agentName(id)
   if (!status.found) return `${name} isn't installed yet. Gui can set it up for you.`
   const age = status.mismatch === 'newer' ? 'newer' : 'older'
-  return `Your ${name} (${status.found.version}) is ${age} than Gui supports. Gui can install its own copy; yours stays as it is.`
+  return `Gui needs its own copy of ${name}: yours (${status.found.version}) is ${age} than it supports. Yours stays as it is.`
 }
 
 export interface InstallProgress {

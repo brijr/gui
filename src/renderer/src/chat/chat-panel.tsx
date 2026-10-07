@@ -51,7 +51,7 @@ import { Composer } from './composer'
 import { Morph } from './morph'
 import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
-import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
+import { connectChat, keyedAnswer, setDraft, useChat, waitingCard } from './store'
 import { TurnView } from './turn-view'
 
 /** Fields ⌘⌫ deletes typing in. */
@@ -758,6 +758,46 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
   )
 }
 
+/** Something to start from in an empty chat: building an app from nothing, or changing one. */
+const STARTERS = {
+  build: [
+    'Build a landing page for a coffee shop',
+    'Build a portfolio site with a project gallery',
+    'Build a sign-up form with friendly validation',
+  ],
+  change: [
+    'Make it feel more modern and polished',
+    'Add a dark mode that follows the system setting',
+    'Make it work well on phones',
+  ],
+}
+
+/**
+ * A few things to ask for, under the empty chat's message. Choosing one puts it in the
+ * message box to edit or send, rather than sending it.
+ */
+function StarterPrompts({ prompts }: { prompts: readonly string[] }) {
+  return (
+    <ul aria-label="Ideas to start with" className="flex flex-col items-start gap-1.5">
+      {prompts.map((prompt) => (
+        <li key={prompt}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-auto py-1 text-left whitespace-normal"
+            onClick={() => {
+              setDraft(prompt)
+              document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
+            }}
+          >
+            {prompt}
+          </Button>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: number }) {
   // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
   // still take a message, which needs no element.
@@ -772,6 +812,9 @@ function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: nu
           Once your app shows in the preview, you can point at any part of it to change. Until then,
           your agent can still read and edit the code.
         </Message>
+        <div className="mx-auto mb-auto w-full max-w-sm pt-4">
+          <StarterPrompts prompts={STARTERS.build} />
+        </div>
       </div>
     )
   }
@@ -805,6 +848,9 @@ function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: nu
         Click elements in your app (⇧ for several) or drag out an area, then describe the change.
         Your agent edits the code and the preview updates live.
       </Message>
+      <div className="mx-auto mb-auto w-full max-w-sm pt-4">
+        <StarterPrompts prompts={STARTERS.change} />
+      </div>
     </div>
   )
 }

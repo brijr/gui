@@ -3,12 +3,15 @@ import type { StartForm } from '../../../shared/ipc'
 import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
 import {
   frameLabel,
+  PROJECT_TEMPLATES,
   type ProjectSetup,
+  type ProjectTemplate,
   type ViewportFrame,
   type WindowState,
   type WorkspaceApp,
 } from '../../../shared/types'
 import { AgentList } from '../agents/agent-list'
+import { ConnectAgent, checkingAgents } from '../agents/connect-agent'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
@@ -32,7 +35,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { timeAgo } from '../lib/time'
-import { Button, Code, IconButton, Spinner } from '../lib/ui'
+import { Button, Code, IconButton, SegmentedControl, Spinner } from '../lib/ui'
 import { useAction } from '../settings/use-action'
 import { useMorphDrawsFrame } from './layout-morph'
 import { crashed, stoppedOutside } from './server-status'
@@ -481,7 +484,8 @@ const FORMS: Record<
   newProject: {
     label: 'Project name',
     placeholder: 'my-app',
-    hint: 'Create a local folder, then ask your agent to build your app. You choose where to save it next.',
+    // Said per template instead (TEMPLATE_HINTS)
+    hint: '',
     submit: 'Create…',
     busy: 'Creating…',
     mono: false,
@@ -495,6 +499,17 @@ const FORMS: Record<
     mono: true,
   },
 }
+
+/** What a new project starts as, under its name field. */
+const TEMPLATE_HINTS: Record<ProjectTemplate, string> = {
+  website:
+    'Starts as a simple landing page, ready to make your own. You choose where to save it next.',
+  dashboard: 'Starts as an app dashboard with sample data. You choose where to save it next.',
+  blank:
+    'An empty folder: ask your agent to build your app from scratch. You choose where to save it next.',
+}
+
+const TEMPLATE_SEGMENTS = PROJECT_TEMPLATES.map(({ id, name }) => ({ value: id, label: name }))
 
 /**
  * ⇧⌘N, ⇧⌘O and the menus' New Project and Clone by URL: main shows a start screen and
@@ -542,6 +557,7 @@ function useGitHubConnected() {
 function OpenActions() {
   const [form, setForm] = useState<StartForm | null>(null)
   const githubConnected = useGitHubConnected()
+  const [template, setTemplate] = useState<ProjectTemplate>('website')
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -609,7 +625,7 @@ function OpenActions() {
     setBusy(true)
     setError(null)
     try {
-      await (form === 'newProject' ? gui.newProject(value) : gui.cloneProject(value))
+      await (form === 'newProject' ? gui.newProject(value, template) : gui.cloneProject(value))
       close()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -620,12 +636,32 @@ function OpenActions() {
 
   return (
     <form
+      className="flex flex-col gap-3"
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
       }}
     >
-      <Field label={spec.label} htmlFor={FORM_FIELD} hint={spec.hint} error={error}>
+      {form === 'newProject' && (
+        <div className="flex flex-col gap-1">
+          <p id="start-template-label" className="text-small font-medium text-muted">
+            Start from
+          </p>
+          <SegmentedControl
+            segments={TEMPLATE_SEGMENTS}
+            value={template}
+            onChange={setTemplate}
+            labelledBy="start-template-label"
+            stretch
+          />
+        </div>
+      )}
+      <Field
+        label={spec.label}
+        htmlFor={FORM_FIELD}
+        hint={form === 'newProject' ? TEMPLATE_HINTS[template] : spec.hint}
+        error={error}
+      >
         <div className="flex gap-2">
           <Input
             // Remounted per field, so autoFocus applies to each.
@@ -667,6 +703,15 @@ function OpenActions() {
  * will do the work, and once there are any, recent chats and projects.
  */
 function EmptyState({ state }: { state: WindowState }) {
+  const [otherAgents, setOtherAgents] = useState(false)
+  // Once offered, connecting stays up through its own checks until an agent works.
+  const [connecting, setConnecting] = useState(false)
+  const anyReady = state.agents.some((agent) => agent.enabled && agent.status === 'ready')
+  const connect =
+    !anyReady && (connecting || !checkingAgents(state.agents, state.agentId)) && !otherAgents
+  useEffect(() => {
+    if (connect) setConnecting(true)
+  }, [connect])
   // Until the recent list is read: drawn without it, the screen would jump once it came.
   if (!state.recent) return null
   // A project with a chat shows under Recent chats, by its last message; the rest by name.
@@ -689,6 +734,14 @@ function EmptyState({ state }: { state: WindowState }) {
             at things.
           </p>
         </div>
+        {/* Nothing works without an agent, so setting one up comes before opening a project */}
+        {connect && (
+          <ConnectAgent
+            agents={state.agents}
+            agentId={state.agentId}
+            onOtherAgents={() => setOtherAgents(true)}
+          />
+        )}
         <OpenActions />
       </div>
 
@@ -734,7 +787,8 @@ function EmptyState({ state }: { state: WindowState }) {
         </section>
       )}
 
-      <AgentList agents={state.agents} agentId={state.agentId} />
+      {/* While connecting is offered, it's the one way to set an agent up */}
+      {!connect && <AgentList agents={state.agents} agentId={state.agentId} />}
     </div>
   )
 }

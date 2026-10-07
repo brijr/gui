@@ -51,7 +51,17 @@ export function AgentCard({ agentId, health, change, caption }: AgentCardProps) 
   )
 }
 
-export function AgentNextStep({ name, health }: { name: string; health: AgentHealth | null }) {
+interface AgentNextStepProps {
+  name: string
+  health: AgentHealth | null
+  /**
+   * Does whatever the agent needs next in place of each button's own action: the chat sets
+   * up only its own agent, through `setUpChatAgent`
+   */
+  onSetUp?: () => Promise<void>
+}
+
+export function AgentNextStep({ name, health, onSetUp }: AgentNextStepProps) {
   const [error, setError] = useState<string | null>(null)
 
   // Install and sign-in report their own failures through `health`; this catches IPC failures.
@@ -80,10 +90,12 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
     )
   }
 
+  const setUp = onSetUp && (() => void perform(onSetUp))
   // Claude Code and Codex: Gui downloads the CLI. Other agents: opens their install page.
-  const install = () => void perform(() => gui.installAgent(health.id))
+  const install = setUp ?? (() => void perform(() => gui.installAgent(health.id)))
+  const check = setUp ?? (() => gui.checkAgents())
   const checkAgain = (
-    <Button variant="ghost" onClick={() => gui.checkAgents()}>
+    <Button variant="ghost" onClick={check}>
       Check again
     </Button>
   )
@@ -102,7 +114,7 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
         return (
           <Step text={health.message ?? `${name} isn't installed yet.`} error={error}>
             <Button variant="primary" onClick={install}>
-              {health.install === 'update' ? "Install Gui's copy" : 'Install'}
+              Install {name}
             </Button>
           </Step>
         )
@@ -110,7 +122,9 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
       return (
         <Step
           text={`${name} isn't installed yet. Install it, then come back. Gui picks it up on its own.`}
-          note={health.command ? `Needs the ${health.command} command on your PATH.` : undefined}
+          details={
+            health.command ? `Gui looks for the ${health.command} command on your PATH.` : undefined
+          }
           error={error}
         >
           {health.installUrl ? (
@@ -131,7 +145,10 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
           error={error}
         >
           {health.signIn ? (
-            <Button variant="primary" onClick={() => void perform(() => gui.signIn(health.id))}>
+            <Button
+              variant="primary"
+              onClick={setUp ?? (() => void perform(() => gui.signIn(health.id)))}
+            >
               {health.signIn.label}
             </Button>
           ) : (
@@ -147,7 +164,7 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
           error={error}
         >
           {/* `install` stays set after a failed download, so the same button retries it */}
-          <Button variant="primary" onClick={health.install ? install : () => gui.checkAgents()}>
+          <Button variant="primary" onClick={health.install ? install : check}>
             Try again
           </Button>
           {health.detail && <TechnicalDetails text={health.detail} className="w-full" />}
@@ -156,7 +173,7 @@ export function AgentNextStep({ name, health }: { name: string; health: AgentHea
     default:
       return (
         <Step text={`${name} is installed but hasn't been checked yet.`}>
-          <Button onClick={() => gui.checkAgents()}>Check</Button>
+          <Button onClick={check}>Check</Button>
         </Step>
       )
   }
@@ -222,15 +239,17 @@ function Waiting({ text }: { text: string }) {
 
 interface StepProps {
   text: string
-  /** Secondary detail for people who want the specifics (commands, paths) */
+  /** More about why, in plain words (the agent's own sign-in message) */
   note?: string
+  /** Specifics only some people want (commands, paths), behind a Details toggle */
+  details?: string
   tone?: 'warning' | 'danger'
   /** A failed action, shown under its button */
   error?: string | null
   children: ReactNode
 }
 
-function Step({ text, note, tone, error, children }: StepProps) {
+function Step({ text, note, details, tone, error, children }: StepProps) {
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-col gap-0.5">
@@ -250,6 +269,7 @@ function Step({ text, note, tone, error, children }: StepProps) {
         {note && <p className="select-text text-pretty text-caption text-subtle">{note}</p>}
       </div>
       <div className="flex flex-wrap items-center gap-1.5">{children}</div>
+      {details && <TechnicalDetails text={details} className="w-full" />}
       {error && <InlineError>{error}</InlineError>}
     </div>
   )

@@ -15,6 +15,7 @@ const PAUSED: Record<QueuePauseReason, string> = {
   refused: 'Paused: the agent declined',
   limit: 'Paused: the agent hit its output limit',
   untrusted: "Paused: this project isn't trusted",
+  setup: 'Sends once your agent is set up',
 }
 
 /** Enough of a queued message to tell its remove button from the others. */
@@ -47,7 +48,7 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
         </p>
         {paused && (
           <Button size="sm" className="shrink-0" onClick={() => gui.sendQueuedNow()}>
-            Send next
+            {meta.queuePauseReason === 'setup' ? 'Send anyway' : 'Send next'}
           </Button>
         )}
       </div>

@@ -71,6 +71,36 @@ export interface AgentHealth {
   models: ModelSettings | null
 }
 
+/**
+ * The agent can't take a message until the user sets it up: it isn't installed or signed in,
+ * or it's being installed or signed in to right now. A chat holds messages until it's ready.
+ */
+export function needsSetup(health: AgentHealth | null) {
+  const status = health?.status
+  return (
+    status === 'not-installed' ||
+    status === 'installing' ||
+    status === 'signed-out' ||
+    status === 'signing-in'
+  )
+}
+
+/**
+ * What a new project starts from: an empty folder, or a small app that already runs (Vite,
+ * React and Tailwind) so the preview shows something to point at right away.
+ */
+export type ProjectTemplate = 'blank' | 'website' | 'dashboard'
+
+export const PROJECT_TEMPLATES: readonly { id: ProjectTemplate; name: string }[] = [
+  { id: 'website', name: 'Website' },
+  { id: 'dashboard', name: 'Dashboard' },
+  { id: 'blank', name: 'Blank' },
+]
+
+export function isProjectTemplate(value: unknown): value is ProjectTemplate {
+  return PROJECT_TEMPLATES.some((template) => template.id === value)
+}
+
 export type PackageManager = 'bun' | 'pnpm' | 'yarn' | 'npm'
 
 export interface ProjectInfo {
@@ -546,9 +576,9 @@ export interface QueuedMessage {
 
 /**
  * What paused the queue: Stop, an error, the agent declining or hitting its output limit,
- * or the user not trusting the project
+ * the user not trusting the project, or the agent waiting to be set up (installed, signed in)
  */
-export type QueuePauseReason = 'stopped' | 'error' | 'refused' | 'limit' | 'untrusted'
+export type QueuePauseReason = 'stopped' | 'error' | 'refused' | 'limit' | 'untrusted' | 'setup'
 
 export interface ChatMeta {
   agentId: AgentId
@@ -580,6 +610,11 @@ export interface ChatMeta {
   error: string | null
   /** Technical detail behind `error` (exit code, stderr), shown on request */
   errorDetail: string | null
+  /**
+   * The agent's install and sign-in state, so the chat can set it up in place: while it
+   * `needsSetup`, messages wait in the queue (paused for 'setup') and go out once it's ready
+   */
+  agent: AgentHealth | null
   /** The running session's own mode as the agent reports it (shown in the chat header) */
   modeName: string | null
   /**

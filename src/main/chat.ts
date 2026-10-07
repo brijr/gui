@@ -29,6 +29,7 @@ import {
   type ChatSnapshot,
   type ImageAttachment,
   type ModelSettings,
+  needsSetup,
   type Picked,
   type PreviewFrame,
   type Problem,
@@ -288,15 +289,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const agentId = saved?.agentId ?? options.agentId
     this.knownCommands = new Map(Object.entries(saved?.commands ?? {}))
     this.meta = {
-      agentId,
-      agentName: agentName(agentId),
-      models: availableModels(agentId),
+      ...this.agentFields(agentId),
       status: 'idle',
       error: null,
       errorDetail: null,
       modeName: null,
       modeFollowsPolicy: false,
-      commands: this.knownCommands.get(agentId) ?? [],
       selection: [],
       selectionError: null,
       selecting: false,
@@ -317,6 +315,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.history = new HistoryWriter(options.historyFile, () => this.savedChat())
     // A health check may list the agent's models, and another window may change the choice.
     agentHealth.on('change', this.refreshModels)
+    agentHealth.on('change', this.refreshAgent)
     prefsEvents.on('change', this.refreshModels)
     prefsEvents.on('change', this.refreshAutoApprove)
   }
@@ -328,13 +327,21 @@ export class ChatController extends EventEmitter<ChatEvents> {
   async setAgent(agentId: AgentId) {
     if (agentId === this.meta.agentId) return
     // Switch first, so a quick second switch compares against this one and the last call wins.
-    this.patchMeta({
+    this.patchMeta(this.agentFields(agentId))
+    await this.reset()
+    // Messages held for the last agent's setup can go now if this one is ready.
+    this.refreshAgent()
+  }
+
+  /** What the meta says about the chat's agent, for a chat that switches to `agentId`. */
+  private agentFields(agentId: AgentId) {
+    return {
       agentId,
       agentName: agentName(agentId),
       models: availableModels(agentId),
       commands: this.knownCommands.get(agentId) ?? [],
-    })
-    await this.reset()
+      agent: agentHealth.list().find((agent) => agent.id === agentId) ?? null,
+    }
   }
 
   /**
@@ -397,14 +404,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         // An agent switch is undone with it: the kept transcript's session is its agent's.
         const agentId = this.transcriptAgent ?? this.meta.agentId
         this.patchMeta({
-          ...(agentId !== this.meta.agentId
-            ? {
-                agentId,
-                agentName: agentName(agentId),
-                models: availableModels(agentId),
-                commands: this.knownCommands.get(agentId) ?? [],
-              }
-            : {}),
+          ...(agentId !== this.meta.agentId ? this.agentFields(agentId) : {}),
           status: 'idle',
           error: "This chat couldn't be archived, so it's still here.",
           errorDetail: error instanceof Error ? error.message : String(error),
@@ -419,14 +419,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.lock === token) this.lock = null
     const agentId = next?.agentId ?? this.meta.agentId
     this.patchMeta({
-      ...(agentId !== this.meta.agentId
-        ? {
-            agentId,
-            agentName: agentName(agentId),
-            models: availableModels(agentId),
-            commands: this.knownCommands.get(agentId) ?? [],
-          }
-        : {}),
+      ...(agentId !== this.meta.agentId ? this.agentFields(agentId) : {}),
       status: 'idle',
       error: null,
       errorDetail: null,
@@ -588,7 +581,22 @@ export class ChatController extends EventEmitter<ChatEvents> {
     recordings: RecordingAttachment[] = [],
   ): boolean {
     if (this.lock && !this.disposed) return this.enqueue(text, images, recordings)
+    // An agent that isn't installed or signed in can't take it yet: it waits, with the setup
+    // step above it, and goes out once the agent is ready (refreshAgent).
+    if (needsSetup(this.meta.agent)) {
+      if (!this.enqueue(text, images, recordings)) return false
+      this.patchMeta({ queuePaused: true, queuePauseReason: 'setup' })
+      return true
+    }
     return this.startTurn(text, false, images, null, recordings)
+  }
+
+  /**
+   * Sets up the chat's agent from the chat: downloads it if Gui can, signs in, or checks it
+   * again (`agentHealth.connect`). Messages held for it go out once it's ready.
+   */
+  setUpAgent() {
+    return agentHealth.connect(this.meta.agentId)
   }
 
   removeQueued(id: string) {
@@ -745,6 +753,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.epoch++
     this.disposed = true
     agentHealth.off('change', this.refreshModels)
+    agentHealth.off('change', this.refreshAgent)
     prefsEvents.off('change', this.refreshModels)
     prefsEvents.off('change', this.refreshAutoApprove)
     // Settle open prompts before the final save, so it records them as cancelled
@@ -1229,10 +1238,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
         // Started early, it fails quietly: the first message tries again and says why.
         if (!record) throw error
         const { message, detail } = describeError(error)
-        // Settings → Agents is where Gui installs a missing agent.
-        const hint =
-          error instanceof AgentMissingError ? ' Set it up in Settings → Agents (⌘,).' : ''
-        this.patchMeta({ status: 'error', error: `${message}${hint}`, errorDetail: detail })
+        this.patchMeta({ status: 'error', error: message, errorDetail: detail })
+        // Gui thought the agent was there. Look again, so the chat's setup step (install,
+        // sign in) shows in place of this error from now on.
+        if (error instanceof AgentMissingError) void agentHealth.check(this.meta.agentId)
+        else void agentHealth.rescan()
       } else {
         agent.dispose()
       }
@@ -1351,6 +1361,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const live = this.agentInfo !== null && this.agent?.agentId === agentId
     if (!live) return availableModels(agentId)
     return this.sessionModels && withChoices(this.sessionModels, agentId, this.refused)
+  }
+
+  /** Follows the agent's install and sign-in state; once it's ready, held messages go out. */
+  private refreshAgent = () => {
+    const agent = agentHealth.list().find((health) => health.id === this.meta.agentId) ?? null
+    if (JSON.stringify(agent) !== JSON.stringify(this.meta.agent)) this.patchMeta({ agent })
+    if (this.meta.queuePauseReason === 'setup' && agent?.status === 'ready') this.sendQueuedNow()
   }
 
   private refreshModels = () => {

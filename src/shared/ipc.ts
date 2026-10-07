@@ -15,6 +15,7 @@ import type {
   PanelEdge,
   PickOverlayState,
   Point,
+  ProjectTemplate,
   Proposal,
   RecordingAttachment,
   Rect,
@@ -57,6 +58,7 @@ export const Invoke = {
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
   chatSignIn: 'chat:sign-in',
+  chatSetUpAgent: 'chat:set-up-agent',
   loadCommands: 'chat:load-commands',
   listChats: 'chat:list',
   openChat: 'chat:open',
@@ -64,6 +66,7 @@ export const Invoke = {
   deleteChat: 'chat:delete',
   signIn: 'agents:sign-in',
   installAgent: 'agents:install',
+  connectAgent: 'agents:connect',
   shipInfo: 'ship:info',
   takeScreenshot: 'preview:screenshot',
   startRecording: 'recording:start',
@@ -251,10 +254,11 @@ export interface GuiApi {
   cloneGitHub(id: number): Promise<void>
   createGitHub(name: string): Promise<GitHubRepository>
   /**
-   * Makes an empty folder named `name` (with a git repo) where the user picks, then opens it.
-   * Rejects with a message to show; resolves if they cancel the picker.
+   * Makes a folder named `name` (with a git repo) where the user picks, with `template`'s
+   * files in it, then opens it. Rejects with a message to show; resolves if they cancel the
+   * picker.
    */
-  newProject(name: string): Promise<void>
+  newProject(name: string, template: ProjectTemplate): Promise<void>
   startDevServer(): void
   stopDevServer(): void
   restartDevServer(): void
@@ -280,6 +284,11 @@ export interface GuiApi {
    * `WindowState.agents`). Other agents: opens their official install page.
    */
   installAgent(agentId: AgentId): Promise<void>
+  /**
+   * Gets the agent working in one step: downloads it if Gui can (or opens its install
+   * page), then runs its sign-in. Progress and the outcome arrive through `WindowState.agents`.
+   */
+  connectAgent(agentId: AgentId): Promise<void>
 
   /**
    * Opens a start-screen tab in this window and shows it. Each tab (`WindowState.tabs`) is a
@@ -456,6 +465,11 @@ export interface GuiApi {
   fixProblems(): Promise<boolean>
   /** Runs the chat's agent's sign-in after its login expired; true once it's signed in */
   signInAgain(): Promise<boolean>
+  /**
+   * Sets up the chat's own agent (`ChatMeta.agent`): downloads it, signs in, or checks it
+   * again, whichever it needs next. Held messages go out once it's ready.
+   */
+  setUpChatAgent(): Promise<void>
   /**
    * The pointer pressed the floating panel's header or the pill, to drag it. A panel still
    * landing from a throw stops where it was under the pointer, and the drag goes on from there.

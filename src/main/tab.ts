@@ -546,6 +546,7 @@ export class ProjectTab {
         status: 'idle',
         error: null,
         errorDetail: null,
+        agent: agentHealth.list().find((agent) => agent.id === this.state.agentId) ?? null,
         modeName: null,
         modeFollowsPolicy: false,
         commands: [],
@@ -1811,6 +1812,10 @@ export class ProjectTab {
 
   signInAgain() {
     return this.chat?.signInAgain() ?? Promise.resolve(false)
+  }
+
+  setUpAgent() {
+    return this.chat?.setUpAgent() ?? Promise.resolve()
   }
 
   fixProblems() {

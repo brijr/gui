@@ -83,8 +83,8 @@ const unchecked = (
 /**
  * Every agent Gui knows (built in and from agents.json), whether it's installed, and
  * whether it can start a session, checked by actually starting one in an empty folder.
- * No prompt is sent, so checking costs no usage. Also sets agents up: downloads Claude
- * Code or Codex when missing, and runs sign-in.
+ * No prompt is sent, so checking costs no usage. Also sets agents up when the user asks:
+ * downloads Claude Code or Codex, and runs sign-in.
  */
 class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }> {
   /** Every agent by id, once first used; see `health`. */
@@ -225,6 +225,27 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
       this.set(id, { progress: null })
       await this.probe(id, undefined)
     })
+  }
+
+  /**
+   * Everything it takes to get the agent working, as one step: checks it if it hasn't been,
+   * downloads it if Gui can (other agents: opens their install page), then runs its sign-in.
+   * Stops at the first step that needs the user elsewhere or fails; its health says which.
+   */
+  async connect(id: AgentId) {
+    const status = () => this.health.get(id)
+    if (this.disposed || !status()?.enabled) return
+    // Joins a check already running (on launch, say) rather than starting another.
+    if (status()?.status === 'unknown' || status()?.status === 'checking') await this.check(id)
+    const agent = status()
+    if (!agent) return
+    if (agent.status === 'not-installed' || (agent.status === 'error' && agent.install)) {
+      await this.install(id)
+    } else if (agent.status === 'error' || (agent.status === 'signed-out' && !agent.signIn)) {
+      await this.check(id)
+    }
+    const next = status()
+    if (next?.status === 'signed-out' && next.signIn) await this.signIn(id)
   }
 
   /** Runs the agent's own sign-in flow (usually opens the browser), then re-checks. */

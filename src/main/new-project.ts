@@ -1,7 +1,9 @@
 import { execFile } from 'node:child_process'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { ProjectTemplate } from '../shared/types'
 import { getShellEnv } from './shell-env'
+import { writeTemplate } from './templates'
 import { trust } from './trust'
 
 /** A folder name to make: one path segment, and nothing the Finder or git would trip on. */
@@ -13,17 +15,28 @@ export function projectName(input: string): string | null {
 }
 
 /**
- * An empty folder, `parent/<name>`, with a git repo so checkpoints work from the first
- * change. Gui made it, so its scripts don't ask: there's nothing in it but what the agent
- * writes. Fails if the folder is already there.
+ * A folder, `parent/<name>`, with the template's files (none for Blank) and a git repo so
+ * checkpoints work from the first change. Gui made it, so its scripts don't ask: there's
+ * nothing in it but Gui's template and what the agent writes. Fails if the folder is
+ * already there.
  */
-export async function createProject(name: string, parent: string): Promise<string> {
+export async function createProject(
+  name: string,
+  parent: string,
+  template: ProjectTemplate,
+): Promise<string> {
   const dest = join(parent, name)
   try {
     await mkdir(dest)
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code
     throw new Error(code === 'EEXIST' ? `${dest} already exists.` : `Couldn't create ${dest}.`)
+  }
+  try {
+    await writeTemplate(dest, template, name)
+  } catch (error) {
+    console.error('[gui] failed to write the project template', error)
+    throw new Error(`Couldn't set up ${dest}. It may be partly created.`)
   }
   const env = await getShellEnv()
   // Without git (or with it failing) the project still works, just without a repo.

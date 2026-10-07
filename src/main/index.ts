@@ -31,8 +31,10 @@ import {
   isChatGrab,
   isDrawerTab,
   isPanelEdge,
+  isProjectTemplate,
   isTerminalId,
   isViewport,
+  type ProjectTemplate,
   type Rect,
   type SettingsSection,
   type ShipRequest,
@@ -244,12 +246,16 @@ async function cloneProject(target: ProjectWindow | undefined, input: string) {
   if (folder) openSafely(target, await cloneRepo(repo, folder))
 }
 
-/** Asks where to put it, makes the empty folder there, and opens it. */
-async function newProject(target: ProjectWindow | undefined, input: string) {
+/** Asks where to put it, makes the folder there (with the template's files), and opens it. */
+async function newProject(
+  target: ProjectWindow | undefined,
+  input: string,
+  template: ProjectTemplate,
+) {
   const name = projectName(input)
   if (!name) throw new Error('Use a name without slashes or colons, like my-app.')
   const folder = await pickParent(target, `Create ${name} in…`, 'Create Here')
-  if (folder) openSafely(target, await createProject(name, folder))
+  if (folder) openSafely(target, await createProject(name, folder, template))
 }
 
 /**
@@ -580,10 +586,10 @@ function registerIpc() {
       await cloneProject(windowFor(event), repo)
     }),
   )
-  ipcMain.handle(Invoke.newProject, (event, name: unknown) =>
+  ipcMain.handle(Invoke.newProject, (event, name: unknown, template: unknown) =>
     reportError(async () => {
       if (!isString(name)) throw new Error('Enter a name for the project.')
-      await newProject(windowFor(event), name)
+      await newProject(windowFor(event), name, isProjectTemplate(template) ? template : 'blank')
     }),
   )
   ipcMain.handle(Invoke.openRecent, async (event, root: unknown) => {
@@ -645,6 +651,7 @@ function registerIpc() {
   ipcMain.handle(Invoke.redo, (event) => tabFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
   ipcMain.handle(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
+  ipcMain.handle(Invoke.chatSetUpAgent, (event) => tabFor(event)?.setUpAgent())
   ipcMain.handle(Invoke.loadCommands, (event) => tabFor(event)?.loadCommands())
   ipcMain.handle(Invoke.listChats, (event) => tabFor(event)?.listChats() ?? [])
   ipcMain.handle(Invoke.openChat, (event, id: unknown) =>
@@ -667,6 +674,9 @@ function registerIpc() {
   })
   ipcMain.handle(Invoke.installAgent, async (event, agentId: unknown) => {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.install(agentId)
+  })
+  ipcMain.handle(Invoke.connectAgent, async (event, agentId: unknown) => {
+    if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.connect(agentId)
   })
 
   /** For the tab the sender acts on (`tabFor`). */
