@@ -9,9 +9,14 @@ import { electronExecutable, REPO_ROOT, waitFor } from './helpers/env'
 const test = base.extend<{ app: ElectronApplication; chrome: Page }>({
   app: async ({ colorScheme }, use) => {
     const profile = mkdtempSync(join(tmpdir(), 'gui-symbols-'))
-    const env = { ...process.env, GUI_OPEN: '', GUI_AGENT_STAND_INS: '', GUI_E2E_BACKGROUND: '1' }
-    delete env.ELECTRON_RUN_AS_NODE
-    delete env.NODE_OPTIONS
+    // The shell's environment, less what would run Electron as plain Node.
+    const env: Record<string, string> = {}
+    for (const [key, value] of Object.entries(process.env)) {
+      if (value !== undefined && key !== 'ELECTRON_RUN_AS_NODE' && key !== 'NODE_OPTIONS') {
+        env[key] = value
+      }
+    }
+    Object.assign(env, { GUI_OPEN: '', GUI_AGENT_STAND_INS: '', GUI_E2E_BACKGROUND: '1' })
     const app = await electron.launch({
       executablePath: electronExecutable(),
       args: [REPO_ROOT, `--user-data-dir=${profile}`],

@@ -316,7 +316,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               type="submit"
               variant="primary"
               label={running ? 'Queue message' : 'Send'}
-              title={running ? 'Queue (↵)' : 'Send (↵)'}
+              shortcut="send"
               icon={ArrowUp}
               disabled={!canSend}
             />

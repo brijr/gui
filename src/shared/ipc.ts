@@ -57,6 +57,7 @@ export const Invoke = {
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
   chatSignIn: 'chat:sign-in',
+  loadCommands: 'chat:load-commands',
   listChats: 'chat:list',
   openChat: 'chat:open',
   renameChat: 'chat:rename',
@@ -403,6 +404,12 @@ export interface GuiApi {
    * Ignored unless `value` is one of that setting's current options.
    */
   setAgentSetting(settingId: string, value: string): void
+  /**
+   * Starts the agent without sending anything, so `ChatMeta.commands` fills in before the
+   * first message. Resolves once they're there, or there are none to wait for (the agent
+   * couldn't start, or offers none); never rejects. Repeated calls start nothing more.
+   */
+  loadCommands(): Promise<void>
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
   /**

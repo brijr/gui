@@ -135,6 +135,11 @@ const PERSIST_DELAY_MS = 400
 /** While a turn streams: often enough that a crash loses little, without rewriting the file constantly. */
 const PERSIST_RUNNING_MS = 1500
 const RESET_SETTLE_MS = 5000
+/**
+ * How long the command menu waits, once an agent started early for it, for the commands
+ * to arrive: agents report them just after the session starts, not with it.
+ */
+const COMMANDS_WAIT_MS = 2000
 /** Paths listed in the overwrite warning before it summarizes the rest. */
 const OVERWRITE_LIST_MAX = 8
 
@@ -254,6 +259,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private sessionPolicy: PermissionPolicy | null = null
   /** The slash commands each agent last offered in this project (see ChatMeta.commands) */
   private knownCommands: Map<AgentId, AgentCommand[]>
+  /**
+   * An agent starting before any message, so the command menu can list what it offers (see
+   * loadCommands). Resolves true once it's running; never rejects. The first turn waits on it.
+   */
+  private warming: Promise<boolean> | null = null
+  /** loadCommands' wait: the early start, then the commands it brings. */
+  private commandsLoading: Promise<void> | null = null
+  /**
+   * An agent started early began a new session in a chat that had one: the first turn
+   * says so, as it would had it started the agent itself.
+   */
+  private newSessionNotice = false
   /**
    * What each queued message (`meta.queue`, by id) takes to the agent: the full images and
    * what was picked, with its crops. The meta only carries thumbnails, to keep IPC small.
@@ -441,6 +458,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.resumeSessionId = this.sessionId
     this.primed = saved?.primed ? (saved.primedWithTools ? 'tools' : 'plain') : null
     this.hadSession = this.records.length > 0
+    // Its agent was stopped with the chat it was started for.
+    this.warming = null
+    this.commandsLoading = null
+    this.newSessionNotice = false
     this.chatId = saved?.id ?? randomUUID()
     this.createdAt = saved?.createdAt ?? Date.now()
     this.title = saved?.title ?? null
@@ -1070,7 +1091,83 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.patchMeta({ status: 'idle' })
   }
 
-  private async ensureAgent(record: TurnRecord): Promise<{ agent: AgentSession; info: AgentInfo }> {
+  /**
+   * Starts the agent for this chat's first message without sending one, so the command menu
+   * can list the agent's slash commands (they arrive through onUpdate). Resolves once they're
+   * known, or the agent couldn't start, or it started and reported none for a moment; an
+   * agent already running that offers none has nothing more to wait for. One load at a time,
+   * so typing `/` again starts nothing more. Failing quietly leaves the first message to say why.
+   */
+  loadCommands(): Promise<void> {
+    if (this.disposed || this.meta.commands.length > 0) return Promise.resolve()
+    if (this.commandsLoading) return this.commandsLoading
+    if (this.agent && this.agentInfo) return Promise.resolve()
+    const load = this.warmUp().then((started) => (started ? this.commandsArrive() : undefined))
+    this.commandsLoading = load
+    void load.then(() => {
+      if (this.commandsLoading === load) this.commandsLoading = null
+    })
+    return load
+  }
+
+  /** Once the running agent reports its commands, or COMMANDS_WAIT_MS passes without them. */
+  private commandsArrive() {
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        this.off('meta', onMeta)
+        resolve()
+      }
+      const onMeta = (meta: ChatMeta) => {
+        if (meta.commands.length > 0) done()
+      }
+      const timer = setTimeout(done, COMMANDS_WAIT_MS)
+      if (this.meta.commands.length > 0) return done()
+      this.on('meta', onMeta)
+    })
+  }
+
+  /** The early start behind loadCommands; one at a time, so typing `/` again starts nothing. */
+  private warmUp(): Promise<boolean> {
+    if (this.warming) return this.warming
+    if (this.agent && this.agentInfo) return Promise.resolve(true)
+    // A turn, restore or reset under way, an agent already starting, or an error the user
+    // hasn't retried yet: the next message deals with the agent, as it would anyway.
+    const busy = this.disposed || this.lock || this.agent || this.meta.status !== 'idle'
+    if (busy) return Promise.resolve(false)
+    const epoch = this.epoch
+    const run = (async () => {
+      if (!(await isTrusted(this.root))) return false
+      if (this.epoch !== epoch || this.lock || this.agent) return false
+      await this.ensureAgent(null)
+      return true
+    })().catch(() => false)
+    this.warming = run
+    void run.then(() => {
+      if (this.warming === run) this.warming = null
+    })
+    return run
+  }
+
+  /**
+   * The running agent, starting it when there isn't one. `record` is the turn it's for; null
+   * for an early start (warmUp), which changes nothing the user sees unless it succeeds.
+   */
+  private async ensureAgent(
+    record: TurnRecord | null,
+  ): Promise<{ agent: AgentSession; info: AgentInfo }> {
+    if (record && this.warming) {
+      // Started early for the command menu: this turn takes that agent once it's up.
+      this.patchMeta({ status: 'starting', error: null, errorDetail: null })
+      await this.warming
+      if (this.agent && this.agentInfo && this.meta.status === 'starting') {
+        this.patchMeta({ status: 'ready' })
+      }
+    }
+    if (record && this.newSessionNotice) {
+      this.newSessionNotice = false
+      this.pushNewSessionNotice(record)
+    }
     if (this.agent && this.agentInfo) {
       if (!this.agent.restartsFor(this.policy())) return { agent: this.agent, info: this.agentInfo }
       // The agent only takes Ask or Auto as a session starts: pick the conversation back
@@ -1079,7 +1176,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
     this.stopAgent()
     const name = this.meta.agentName
-    this.patchMeta({ status: 'starting', error: null, errorDetail: null })
+    if (record) this.patchMeta({ status: 'starting', error: null, errorDetail: null })
     const agent = new AgentSession(this.meta.agentId, this.root, {
       onUpdate: (update) => this.onUpdate(update),
       onPermission: (request, resolve) => this.onPermission(request, resolve),
@@ -1112,12 +1209,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       } else {
         this.primed = null
         if (this.hadSession) {
-          this.pushItem(record, {
-            kind: 'notice',
-            id: randomUUID(),
-            tone: 'info',
-            text: `Started a new ${name} session. It doesn't remember earlier turns.`,
-          })
+          if (record) this.pushNewSessionNotice(record)
+          else this.newSessionNotice = true
         }
       }
       this.schedulePersist()
@@ -1133,6 +1226,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     } catch (error) {
       if (this.agent === agent) {
         this.stopAgent()
+        // Started early, it fails quietly: the first message tries again and says why.
+        if (!record) throw error
         const { message, detail } = describeError(error)
         // Settings → Agents is where Gui installs a missing agent.
         const hint =
@@ -1143,6 +1238,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
       throw error
     }
+  }
+
+  private pushNewSessionNotice(record: TurnRecord) {
+    this.pushItem(record, {
+      kind: 'notice',
+      id: randomUUID(),
+      tone: 'info',
+      text: `Started a new ${this.meta.agentName} session. It doesn't remember earlier turns.`,
+    })
   }
 
   private stopAgent() {

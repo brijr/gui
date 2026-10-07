@@ -7,20 +7,31 @@ import {
 } from '../../../shared/shortcuts'
 import { gui } from '../lib/api'
 import { Dialog } from '../lib/dialog'
+import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
 import { GroupLabel } from '../lib/surface'
 import { Keys } from '../lib/ui'
 
 /**
  * Help → Keyboard Shortcuts (⌘/): every shortcut in the registry, by group, as keycaps. A
- * modal sheet over the window, open while it's mounted: main hides the preview and the chat
- * while it's open, since they're views on top of this page. Esc, ⌘/ again, the close button
- * or a click outside it closes it, through main's state.
+ * modal sheet over the window, open with main's state: main hides the preview and the chat
+ * while it's open, since they're views on top of this page, and until it has faded out. Esc,
+ * ⌘/ again, the close button or a click outside it closes it, through main's state.
  */
-export function ShortcutsSheet() {
+export function ShortcutsSheet({ open }: { open: boolean }) {
+  // Mounted on through the Dialog's fade out: --motion-panel, or --motion-fade when reduced.
+  const shown = usePresence(
+    open,
+    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-panel'),
+  )
+  if (!shown) return null
+  return <Sheet open={open} />
+}
+
+function Sheet({ open }: { open: boolean }) {
   const shortcuts = allShortcuts()
   return (
     <Dialog
-      open
+      open={open}
       onClose={() => gui.setShortcutsOpen(false)}
       title="Keyboard shortcuts"
       // Only read: the sheet itself has the keyboard, so the arrow keys scroll it, rather than

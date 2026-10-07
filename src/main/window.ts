@@ -10,6 +10,7 @@ import {
   TRAFFIC_LIGHTS,
 } from '../shared/layout'
 import type { RecentProject, Rect, TabInfo, WindowState } from '../shared/types'
+import { prefersReducedMotion } from './panel-flight'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
 import { followSurface, surfaceColor } from './theme'
@@ -17,6 +18,13 @@ import { followSurface, surfaceColor } from './theme'
 const windows = new Set<ProjectWindow>()
 /** The window focused last, for opening a project while Gui is in the background. */
 let lastFocused: ProjectWindow | null = null
+
+/**
+ * How long the shortcuts sheet takes to fade out (lib/dialog.tsx): --motion-panel, or
+ * --motion-fade with reduced motion, in styles.css. The tab's views wait it out.
+ */
+const SHEET_EXIT_MS = 220
+const SHEET_FADE_MS = 150
 
 /**
  * A window showed another tab, so menus that act on the active tab may now mean another; or
@@ -111,6 +119,8 @@ export class ProjectWindow implements TabHost {
   private focus = false
   /** The Keyboard Shortcuts sheet is open (WindowState.shortcutsOpen). */
   private sheet = false
+  /** The sheet has closed and is still fading out, with the tab's views kept hidden till then. */
+  private sheetLeaving: NodeJS.Timeout | null = null
   private disposed = false
 
   /** Opens with a start-screen tab, or with `tab`, moved here from another window. */
@@ -191,6 +201,10 @@ export class ProjectWindow implements TabHost {
     return this.sheet
   }
 
+  get sheetShown() {
+    return this.sheet || this.sheetLeaving !== null
+  }
+
   isActive(tab: ProjectTab) {
     return tab === this.active && !this.disposed
   }
@@ -247,9 +261,23 @@ export class ProjectWindow implements TabHost {
   setShortcutsOpen(open: boolean) {
     if (open === this.sheet) return
     this.sheet = open
-    this.active.layout()
     this.sendState()
-    if (open) this.win.webContents.focus()
+    if (open) {
+      // Opened again while it fades out: the views are still hidden.
+      if (this.sheetLeaving) clearTimeout(this.sheetLeaving)
+      this.sheetLeaving = null
+      this.active.layout()
+      this.win.webContents.focus()
+      return
+    }
+    // The views come back once the sheet has faded out, rather than over it as it goes.
+    this.sheetLeaving = setTimeout(
+      () => {
+        this.sheetLeaving = null
+        if (!this.disposed) this.active.layout()
+      },
+      prefersReducedMotion() ? SHEET_FADE_MS : SHEET_EXIT_MS,
+    )
   }
 
   // Shortcuts for the chrome's own controls (UiCommand)
@@ -481,6 +509,7 @@ export class ProjectWindow implements TabHost {
   private dispose() {
     if (this.disposed) return
     this.disposed = true
+    if (this.sheetLeaving) clearTimeout(this.sheetLeaving)
     windows.delete(this)
     for (const tab of this.list) tab.dispose()
   }

@@ -91,7 +91,7 @@ export function App() {
             <Canvas state={state} />
             <Drawer state={state} />
           </Fragment>
-          {sheet && <ShortcutsSheet />}
+          <ShortcutsSheet open={sheet} />
         </>
       )}
     </div>
