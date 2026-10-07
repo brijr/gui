@@ -39,8 +39,7 @@ export function SettingsApp() {
     <div className="flex h-dvh">
       <nav
         aria-label="Settings"
-        // Transparent so the macOS sidebar material shows through.
-        className="flex w-45 shrink-0 flex-col border-r border-line"
+        className="flex w-45 shrink-0 flex-col border-r border-line bg-surface"
       >
         {/* Room for the traffic lights, which sit at the toolbar's height */}
         <div className="drag shrink-0" style={{ height: TOOLBAR_HEIGHT }} />
