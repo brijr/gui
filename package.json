@@ -60,5 +60,8 @@
     "typescript": "^7.0.2",
     "vite": "7",
     "zustand": "^5.0.15"
+  },
+  "overrides": {
+    "zod": "4.6.5"
   }
 }

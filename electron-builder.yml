@@ -32,6 +32,8 @@ files:
   - package.json
   - "!**/*.map"
   - "!**/node_modules/**/*.{d.ts,d.mts,d.cts,md,markdown}"
+  # TypeScript sources some packages ship next to their JS (zod's src/ alone is ~4 MB).
+  - "!**/node_modules/**/*.{ts,mts,cts,tsx}"
   # node-pty: only its JS and the darwin-arm64 prebuild are used at runtime.
   - "!**/node_modules/node-pty/{src,deps,third_party,scripts,typings,binding.gyp}"
   - "!**/node_modules/node-pty/prebuilds/{win32-*,darwin-x64}"
