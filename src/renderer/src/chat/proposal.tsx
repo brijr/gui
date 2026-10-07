@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from 'react'
 import { create } from 'zustand'
+import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -554,26 +555,4 @@ export function ReviewSheet() {
       )}
     </div>
   )
-}
-
-/** The message the agent gets for one or more reviewer comments. Exported for tests. */
-export function fixPrompt(pull: ProposalPull, comments: ReviewComment[]): string {
-  const quoted = comments
-    .map((comment) => {
-      const where = comment.path
-        ? ` on ${comment.path}${comment.line ? ` line ${comment.line}` : ''}`
-        : ''
-      const body = comment.body
-        .split('\n')
-        .map((line) => `> ${line}`)
-        .join('\n')
-      return `@${comment.author}${where}:\n${body}`
-    })
-    .join('\n\n')
-  const what = comments.length === 1 ? 'this review comment' : 'these review comments'
-  return `Address ${what} on the pull request “${pull.title}”:
-
-${quoted}
-
-Make the changes asked for. If a comment is a question rather than a request, answer it here instead of changing code.`
 }

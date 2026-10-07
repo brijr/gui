@@ -23,6 +23,7 @@ import {
 import { type ChatMenuChoice, Events } from '../shared/ipc'
 import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
+import { reviewTitle } from '../shared/review'
 import { SHORTCUTS } from '../shared/shortcuts'
 import {
   type AgentId,
@@ -1448,6 +1449,7 @@ export class ProjectTab {
       .turns.filter((turn) => turn.status === 'done' && !turn.reverted)
       .map((turn) => turn.prompt)
       .filter((prompt) => !prompt.startsWith(CONFLICT_PROMPT_START))
+      .map((prompt) => reviewTitle(prompt) ?? prompt)
     const info = await shipInfo(root, prompts)
     if (chat.busy && !info.blocked)
       return { ...info, blocked: 'Wait for the agent to finish first.' }
