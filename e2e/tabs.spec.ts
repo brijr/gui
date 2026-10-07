@@ -302,33 +302,19 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
   expect(devServerPids(firstRoot).length).toBeGreaterThan(0)
   await session.shot('two-tabs')
 
-  // Opening a project that's already open opens it again in another tab (a monorepo's
-  // second app, say), with a chat of its own.
+  // Opening a project that's already open (from Finder, or `gui` in a terminal) shows its
+  // tab rather than opening it again, with its chat and dev server as they were.
   await openFromFinder(session, secondRoot)
-  const again = await waitFor(
-    async () => {
-      const state = await session.state()
-      const running = state.devServer.status === 'running' && state.preview.visible
-      return state.tabs.length === 3 && state.project?.root === secondRoot && running ? state : null
-    },
-    'the project to open again in a third tab',
-    { timeout: 120_000 },
-  )
-  expect(again.tabs.map((tab) => tab.id).slice(0, 2)).toEqual([first.activeTab, startTab])
-  expect(await session.windowCount()).toBe(1)
-  const thirdChat = await newChatPage(session, [session.chat, secondChat])
-  expect(await turnsIn(thirdChat)).toEqual([])
-  expect(devServerPids(secondRoot)).toHaveLength(2)
-  expect(recorded()).toEqual([expect.stringContaining(prompt)])
-
-  // Closing it shows its neighbor, the project's first tab, with its chat as it was.
-  await clickMenu(session, 'Close Tab')
-  await waitFor(async () => {
+  const shownAgain = await waitFor(async () => {
     const state = await session.state()
-    return state.tabs.length === 2 && state.activeTab === startTab
-  }, 'the third tab to close')
-  await waitFor(() => devServerPids(secondRoot).length === 1, 'its dev server to stop')
+    return state.activeTab === startTab ? state : null
+  }, 'the project’s tab to show')
+  expect(shownAgain.tabs).toHaveLength(2)
+  expect(shownAgain.project?.root).toBe(secondRoot)
+  expect(await session.windowCount()).toBe(1)
+  expect(devServerPids(secondRoot)).toHaveLength(1)
   expect((await turnsIn(secondChat)).map((turn) => turn.prompt)).toEqual([prompt])
+  expect(recorded()).toEqual([expect.stringContaining(prompt)])
 
   // Dragging a tab onto another reorders the strip, either way.
   await dragTab(session, 'second-vite', name)
