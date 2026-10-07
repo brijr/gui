@@ -51,12 +51,9 @@ const { light, dark, stillLight, stillDark, alt, sizes } = Astro.props
 </script>
 
 <style>
+  /* The video carries the window's own shape and edge; its corners are the page's color. */
   .hero-video {
     position: relative;
-    /* The macOS window's corner radius, 35 px on a 2880 × 1800 capture. */
-    border-radius: 1.215% / 1.944%;
-    overflow: hidden;
-    border: 1px solid var(--rule);
   }
   .hero-video :global(img) {
     display: block;
