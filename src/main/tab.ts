@@ -114,7 +114,7 @@ import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
 import { PREVIEW_PARTITION } from './storage'
 import { Terminals } from './terminals'
-import { followSurface, sidebarMaterial } from './theme'
+import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
@@ -1923,10 +1923,9 @@ export class ProjectTab {
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: TRAFFIC_LIGHTS,
       fullscreenable: false,
-      // The chat fills it and shows the material through, as the sidebar does.
-      ...sidebarMaterial(),
+      backgroundColor: surfaceColor(),
     })
-    if (process.platform !== 'darwin') followSurface(win)
+    followSurface(win)
     // Its own page is never used; the chat's view covers it.
     win.webContents.loadURL('about:blank').catch(() => undefined)
     this.popout = win

@@ -112,10 +112,8 @@ export function ChatPanel() {
     return (
       <div
         data-chat-panel
-        // No fill of its own: the window's sidebar material shows through (main's
-        // sidebarMaterial), or --surface where there's none.
         className={cn(
-          'relative flex h-dvh flex-col',
+          'relative flex h-dvh flex-col bg-raised',
           !meta.popped && 'border-r border-line-strong',
         )}
       >

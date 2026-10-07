@@ -13,7 +13,7 @@ import type { RecentProject, Rect, TabInfo, WindowState } from '../shared/types'
 import { prefersReducedMotion } from './panel-flight'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
-import { followSurface, sidebarMaterial } from './theme'
+import { followSurface, surfaceColor } from './theme'
 
 const windows = new Set<ProjectWindow>()
 /** The window focused last, for opening a project while Gui is in the background. */
@@ -134,11 +134,10 @@ export class ProjectWindow implements TabHost {
       title: 'Gui',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: TRAFFIC_LIGHTS,
-      // The chat sidebar shows the material through; the chrome page paints the rest.
-      ...sidebarMaterial(),
+      backgroundColor: surfaceColor(),
       webPreferences: { preload: PRELOAD, sandbox: true, contextIsolation: true },
     })
-    if (process.platform !== 'darwin') followSurface(this.win)
+    followSurface(this.win)
     guardAppContents(this.win.webContents)
     this.win.on('resize', () => this.active.layout())
     // Full screen hides the traffic lights; the chrome takes back the room it kept for them.
