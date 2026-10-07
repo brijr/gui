@@ -157,7 +157,8 @@ test('login stores verified identity, encrypts provider credentials, and prevent
   const signedIn = await login()
   const response = await call('/account', signedIn.session)
   expect(await response.json()).toMatchObject({
-    profile: { login: 'tester', email: 'test@example.com', updates: false },
+    // Subscribed from the start, with an email to send to.
+    profile: { login: 'tester', email: 'test@example.com', updates: true },
   })
   const user = db.query('SELECT * FROM users').get() as {
     github_token: string
@@ -213,20 +214,23 @@ test('pull requests only target repositories connected to the signed-in user', a
 test('email is optional, and only verified primary email can subscribe', async () => {
   emailVerified = false
   const { session } = await login()
-  expect(await (await call('/account', session)).json()).toMatchObject({ profile: { email: null } })
+  expect(await (await call('/account', session)).json()).toMatchObject({
+    profile: { email: null, updates: false },
+  })
   expect((await call('/account/updates', session, 'POST', { updates: true })).status).toBe(400)
   expect((await call('/repositories', session)).status).toBe(200)
 })
 
 test('preferences survive repeat login by immutable GitHub identity; logout invalidates only its session', async () => {
   const first = await login()
-  expect((await call('/account/updates', first.session, 'POST', { updates: true })).status).toBe(
+  // Opting out of the default sticks: signing in again doesn't subscribe them back.
+  expect((await call('/account/updates', first.session, 'POST', { updates: false })).status).toBe(
     200,
   )
   const second = await login()
   expect(db.query('SELECT count(*) AS n FROM users').get()).toEqual({ n: 1 })
   expect(await (await call('/account', second.session)).json()).toMatchObject({
-    profile: { updates: true },
+    profile: { updates: false },
   })
   await call('/logout', first.session, 'POST')
   expect((await call('/account', first.session)).status).toBe(401)

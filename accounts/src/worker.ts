@@ -306,14 +306,18 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     if (!consumed.meta.changes) throw new HttpError(401, 'Sign-in cancelled or expired.')
     const sessionToken = random()
     await env.DB.batch([
-      env.DB.prepare(`INSERT INTO users (github_id, login, name, email, created_at, last_login_at, github_token, refresh_token, token_expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      // A new account starts subscribed to product updates when GitHub gives an email (the
+      // terms say so); the user can opt out in Settings → Advanced. Signing in again leaves
+      // the choice alone.
+      env.DB.prepare(`INSERT INTO users (github_id, login, name, email, updates, created_at, last_login_at, github_token, refresh_token, token_expires_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(github_id) DO UPDATE SET login=excluded.login, name=excluded.name, email=excluded.email,
         last_login_at=excluded.last_login_at, github_token=excluded.github_token, refresh_token=excluded.refresh_token, token_expires_at=excluded.token_expires_at`).bind(
         user.id,
         user.login,
         user.name,
         email,
+        email ? 1 : 0,
         now(),
         now(),
         await encrypt(env, data.access_token),
