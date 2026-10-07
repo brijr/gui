@@ -271,6 +271,17 @@ function findSetting(
   return null
 }
 
+/**
+ * The banner pi's adapter sends as an agent message just after session/new (its version,
+ * commands, and any update notice). The chat starts the session inside the first turn, so
+ * it would open that turn's reply; the adapter reports its exact text in `_meta`.
+ */
+function sessionGreeting(meta: Record<string, unknown> | null | undefined) {
+  const piAcp = meta?.piAcp
+  const text = isRecord(piAcp) ? piAcp.startupInfo : null
+  return typeof text === 'string' && text ? text : null
+}
+
 const settingValues = (setting: AgentSetting) => setting.options.map(({ value }) => value)
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -295,6 +306,8 @@ export class AgentSession {
   /** Bookkeeping calls this agent reports (AgentDefinition.hiddenTools), and those seen so far */
   private hiddenTools: RegExp | undefined
   private hiddenCalls = new Set<string>()
+  /** A greeting the agent sends unprompted once the session starts (see sessionGreeting) */
+  private greeting: string | null = null
   /** The session's settings and modes, as the agent last reported them */
   private configOptions: acp.SessionConfigOption[] = []
   private modes: acp.SessionModeState | null = null
@@ -468,6 +481,7 @@ export class AgentSession {
       sessionId: string
       modes?: acp.SessionModeState | null
       configOptions?: acp.SessionConfigOption[] | null
+      _meta?: Record<string, unknown> | null
     } | null = null
     let resumed = false
     if (resumeSessionId && init.agentCapabilities?.loadSession) {
@@ -504,6 +518,7 @@ export class AgentSession {
     // keep their mode. Gui's rules (ChatController.onPermission) answer what still asks.
     this.modes = session.modes ?? null
     this.remember(session.configOptions)
+    this.greeting = resumed ? null : sessionGreeting(session._meta)
     this.sessionId = session.sessionId
 
     return {
@@ -656,6 +671,15 @@ export class AgentSession {
 
   /** A bookkeeping call the definition hides (AgentDefinition.hiddenTools), or an update to one. */
   private isHidden(update: acp.SessionNotification['update']) {
+    if (
+      this.greeting !== null &&
+      update.sessionUpdate === 'agent_message_chunk' &&
+      update.content.type === 'text' &&
+      update.content.text === this.greeting
+    ) {
+      this.greeting = null
+      return true
+    }
     if (update.sessionUpdate === 'tool_call_update') return this.hiddenCalls.has(update.toolCallId)
     if (update.sessionUpdate !== 'tool_call' || !this.hiddenTools) return false
     const hidden = (update.kind ?? 'other') === 'other' && this.hiddenTools.test(update.title)
