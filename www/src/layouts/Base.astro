@@ -13,17 +13,29 @@ interface Props {
 const { title, description, path, structuredData } = Astro.props
 const site = 'https://usegui.com'
 // Only the Latin subset of Inter Tight: anything outside it (the pronunciation's IPA) is set in
-// the system font, so no second font file loads.
+// the system font, so no second font file loads. `optional`: the font is preloaded and small, so
+// it is nearly always there for the first paint; when it isn't, the page keeps the fallback
+// for that visit rather than swapping mid-read (and the next visit has it from the cache).
 const fontFace = `@font-face {
   font-family: 'Inter Tight Variable';
   font-style: normal;
-  font-display: swap;
+  font-display: optional;
   font-weight: 100 900;
   src: url(${interTight}) format('woff2-variations');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
-/* Arial resized to Inter Tight's metrics at weight 300, so text doesn't move when the font
-   arrives. Measured from the font files: average English letter width and vertical metrics. */
+/* Fallbacks resized to Inter Tight's metrics at weight 300, so nothing moves if the font comes
+   in late. Measured from the font files: average English letter width and vertical metrics.
+   Helvetica Neue Light (Macs) matches the thin weight; Arial (no light weight) elsewhere. */
+@font-face {
+  font-family: 'Inter Tight Fallback Light';
+  src: local('HelveticaNeue-Light'), local('Helvetica Neue Light');
+  font-weight: 100 500;
+  size-adjust: 101.54%;
+  ascent-override: 95.41%;
+  descent-override: 23.76%;
+  line-gap-override: 0%;
+}
 @font-face {
   font-family: 'Inter Tight Fallback';
   src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('LiberationSans');
@@ -119,7 +131,7 @@ const url = path === undefined ? undefined : `${site}${path}`
     padding: var(--s-6) var(--s-4);
     background: var(--bg);
     color: var(--fg);
-    font-family: 'Inter Tight Variable', 'Inter Tight Fallback', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
     font-weight: 300;
     font-size: 1.125rem;
     line-height: 1.45;
