@@ -21,6 +21,16 @@ const fontFace = `@font-face {
   font-weight: 100 900;
   src: url(${interTight}) format('woff2-variations');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* Arial resized to Inter Tight's metrics at weight 300, so text doesn't move when the font
+   arrives. Measured from the font files: average English letter width and vertical metrics. */
+@font-face {
+  font-family: 'Inter Tight Fallback';
+  src: local('Arial'), local('ArialMT');
+  size-adjust: 98.72%;
+  ascent-override: 98.13%;
+  descent-override: 24.43%;
+  line-gap-override: 0%;
 }`
 const url = path === undefined ? undefined : `${site}${path}`
 ---
@@ -109,7 +119,7 @@ const url = path === undefined ? undefined : `${site}${path}`
     padding: var(--s-6) var(--s-4);
     background: var(--bg);
     color: var(--fg);
-    font-family: 'Inter Tight Variable', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
     font-weight: 300;
     font-size: 1.125rem;
     line-height: 1.45;

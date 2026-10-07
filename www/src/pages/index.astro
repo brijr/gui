@@ -106,13 +106,13 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 <Base title={title} description={description} path="/" structuredData={structuredData}>
   <img class="mark" src="/mark-animated.svg" alt="" width="40" height="40" />
 
-  <h1 class="entry">
+  <p class="entry">
     <span class="word">Gui</span>
     <span class="ipa">/ˈɡuː.i/</span>
     <span>noun</span>
-  </h1>
+  </p>
 
-  <p class="lede">A Mac app for web design and UI design. Design on your real app, not on a mockup.</p>
+  <h1 class="lede">A Mac app for web design and UI design. Design on your real app, not on a mockup.</h1>
   <p class="sub">Select an element, then tell your AI agent what to change. The agent changes the code.</p>
 
   <figure class="wide">
@@ -275,7 +275,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     margin-bottom: var(--s-3);
   }
   h2::before {
-    content: '§ ';
+    content: '§\2009';
     color: var(--muted);
     font-weight: 300;
   }
@@ -297,7 +297,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   }
   .list li::before,
   .agents li::before {
-    content: '+ ';
+    content: '+\2009';
     color: var(--muted);
   }
   .agents {
