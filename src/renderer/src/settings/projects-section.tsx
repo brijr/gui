@@ -1,6 +1,5 @@
 import { useId } from 'react'
 import type { SettingsState } from '../../../shared/types'
-import { GitHubProjects } from '../app/github-projects'
 import { gui } from '../lib/api'
 import { InlineError } from '../lib/field'
 import { PathText } from '../lib/path-text'
@@ -23,7 +22,6 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
 
   return (
     <>
-      <GitHubProjects />
       <section aria-labelledby={trustedId} className="flex flex-col gap-2">
         <GroupLabel as="h2" id={trustedId}>
           Trusted projects

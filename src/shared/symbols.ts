@@ -15,6 +15,7 @@ export const SYMBOLS = {
   CircleDot: 'circle.inset.filled',
   CircleSlash: 'nosign',
   Clock: 'clock',
+  Copy: 'doc.on.doc',
   Crop: 'crop',
   ExternalLink: 'arrow.up.right',
   Eye: 'eye',

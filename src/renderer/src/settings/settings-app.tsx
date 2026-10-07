@@ -3,11 +3,13 @@ import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import type { SettingsSection, SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { GitHubMark } from '../lib/github-mark'
 import { Bot, FolderOpen, HardDrive, MessageSquare } from '../lib/icons'
 import { GroupLabel } from '../lib/surface'
 import { PRESS } from '../lib/ui'
 import { AgentsSection } from './agents-section'
 import { ChatSection } from './chat-section'
+import { GitHubSection } from './github-section'
 import { ProjectsSection } from './projects-section'
 import { StorageSection } from './storage-section'
 import { useSettings } from './use-settings'
@@ -22,6 +24,7 @@ const SECTIONS: readonly SectionInfo[] = [
   { id: 'agents', label: 'Agents', icon: Bot },
   { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'projects', label: 'Projects', icon: FolderOpen },
+  { id: 'github', label: 'GitHub', icon: GitHubMark },
   { id: 'storage', label: 'Storage', icon: HardDrive },
 ]
 
@@ -97,6 +100,8 @@ function SectionContent({ section, settings }: SectionContentProps) {
       return <ChatSection settings={settings} />
     case 'projects':
       return <ProjectsSection settings={settings} />
+    case 'github':
+      return <GitHubSection />
     case 'storage':
       return <StorageSection settings={settings} />
   }

@@ -12,7 +12,7 @@ test('signed-out Projects opens without accessing Keychain', async ({ launch }) 
       throw new Error('Projects must not access Keychain without a saved session')
     }
   })
-  await session.chrome.evaluate(() => window.gui.openSettings('projects'))
+  await session.chrome.evaluate(() => window.gui.openSettings('github'))
   await expect
     .poll(() =>
       session.app
@@ -113,7 +113,7 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
       safeStorage.encryptString = (value) => Buffer.from(`test-encrypted:${value}`)
       safeStorage.decryptString = (value) => value.toString().replace(/^test-encrypted:/, '')
     })
-    await session.chrome.evaluate(() => window.gui.openSettings('projects'))
+    await session.chrome.evaluate(() => window.gui.openSettings('github'))
     let page = session.app
       .context()
       .pages()
@@ -130,7 +130,8 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     if (!page) throw new Error('Settings did not open')
     await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click()
     await expect(page.getByText('TEST-CODE')).toBeVisible()
-    await expect(page.getByText('Connected as')).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('github-code.png') })
+    await expect(page.getByText('@gui-tester', { exact: true })).toBeVisible()
     await expect(
       page
         .getByRole('listitem')
@@ -144,8 +145,8 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     await preference.check()
     await expect.poll(() => updates).toBe(true)
     await expect(preference).toBeChecked()
-    await page.getByLabel('New GitHub project', { exact: true }).fill('design-project')
-    await page.getByRole('button', { name: 'Create private project', exact: true }).click()
+    await page.getByLabel('Repository name', { exact: true }).fill('design-project')
+    await page.getByRole('button', { name: 'Create private repository', exact: true }).click()
     await expect.poll(() => createdName).toBe('design-project')
     await expect(page.getByText('Created gui-tester/design-project.')).toBeVisible()
     await expect(
