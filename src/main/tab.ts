@@ -185,8 +185,11 @@ export interface TabHost {
   readonly chromeHeight: number
   /** Focus mode: the preview alone, without the chat (WindowState.focusMode). */
   readonly focusMode: boolean
-  /** The chrome's shortcuts sheet is open over the window, where the tab's views would hide it. */
-  readonly shortcutsOpen: boolean
+  /**
+   * The chrome's shortcuts sheet is over the window, open or still fading out, where the tab's
+   * views would hide it.
+   */
+  readonly sheetShown: boolean
   setFocusMode(on: boolean): void
   /** The tab whose views are in the window; only it lays out and talks to the chrome. */
   isActive(tab: ProjectTab): boolean
@@ -1657,6 +1660,11 @@ export class ProjectTab {
     this.chat?.setAgentSetting(settingId, value)
   }
 
+  /** Starts the chat's agent early so the command menu can list its commands. */
+  loadCommands() {
+    return this.chat?.loadCommands()
+  }
+
   /** ⇧⌘M: shows the chat and opens the composer's model picker, searching. */
   chooseModel() {
     if (!this.chat?.meta.models) return shell.beep()
@@ -2357,7 +2365,7 @@ export class ProjectTab {
     const { viewport } = preview
     const { bounds, emulation } = placePreview(viewport, area, this.zooms[viewport])
     this.placement = bounds
-    const covered = this.host.shortcutsOpen
+    const covered = this.host.sheetShown
     const visible = preview.visible && area.width > 0 && !covered
     // Nothing on screen to morph into: the new layout is simply there.
     if (!visible) this.morph.finish(false)
@@ -2395,7 +2403,7 @@ export class ProjectTab {
       this.host.isActive(this) &&
       this.state.preview.visible &&
       !this.state.preview.selecting &&
-      !this.host.shortcutsOpen &&
+      !this.host.sheetShown &&
       win.isVisible() &&
       !win.isMinimized()
     this.morph.request(kind, eligible)
@@ -2426,7 +2434,7 @@ export class ProjectTab {
     const showChat = this.chatShown
     // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
     const docked = showChat && this.docked
-    const covered = this.host.shortcutsOpen
+    const covered = this.host.sheetShown
     const float = this.float()
     const { form } = float
     // Hidden or docked, a panel still landing is simply there, already in its new form; the

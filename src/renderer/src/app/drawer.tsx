@@ -1,5 +1,5 @@
 import type { Terminal } from '@xterm/xterm'
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { MAX_TERMINAL_INPUT } from '../../../shared/ipc'
 import { matchesShortcut } from '../../../shared/shortcuts'
 import {
@@ -10,9 +10,10 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { ChevronDown, Info, Plus, SquareTerminal, TriangleAlert, X } from '../lib/icons'
+import { ChevronDown, Info, Plus, SquareTerminal, TriangleAlert } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Banner, PanelHeader } from '../lib/surface'
+import { rovingTabKeyDown, TAB_LABEL, TabCloseButton, tabClass } from '../lib/tabs'
 import { Button, IconButton, PRESS } from '../lib/ui'
 import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus, stoppedOutside } from './server-status'
@@ -88,32 +89,6 @@ export function Drawer({ state }: { state: WindowState }) {
     gui.closeTerminal(id)
   }
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const entry = tabs[index]
-    if (!entry) return
-    if ((event.key === 'Delete' || event.key === 'Backspace') && entry.tab !== 'server') {
-      event.preventDefault()
-      // Main shows the neighbor; the keyboard stays in the tabs, on it.
-      const neighbor = tabs[index + 1] ?? tabs[index - 1]
-      if (neighbor) document.getElementById(tabId(neighbor.tab))?.focus()
-      gui.closeTerminal(entry.tab)
-      return
-    }
-    const count = tabs.length
-    const targets: Record<string, number> = {
-      ArrowRight: (index + 1) % count,
-      ArrowLeft: (index - 1 + count) % count,
-      Home: 0,
-      End: count - 1,
-    }
-    const target = targets[event.key]
-    const next = target === undefined ? undefined : tabs[target]
-    if (!next) return
-    event.preventDefault()
-    select(next.tab, false)
-    document.getElementById(tabId(next.tab))?.focus()
-  }
-
   return (
     <>
       {!drawn && !state.focusMode && (failed || stopped) && state.preview.visible && (
@@ -165,10 +140,8 @@ export function Drawer({ state }: { state: WindowState }) {
                     key={entry.tab}
                     role="presentation"
                     className={cn(
-                      'relative flex h-7 min-w-0 shrink items-center rounded-md transition-[color,background-color]',
-                      selected
-                        ? 'bg-accent-soft text-accent-text'
-                        : 'text-muted hover:bg-hover hover:text-fg',
+                      tabClass('segment', selected),
+                      'transition-[color,background-color]',
                     )}
                   >
                     <button
@@ -189,32 +162,30 @@ export function Drawer({ state }: { state: WindowState }) {
                       onAuxClick={(event) => {
                         if (event.button === 1 && terminal) close(terminal)
                       }}
-                      onKeyDown={(event) => onKeyDown(event, index)}
-                      className={cn(
-                        'flex h-full min-w-0 items-center gap-1.5 rounded-md pl-2 text-small font-medium transition-opacity',
-                        PRESS,
-                        terminal ? 'pr-7' : 'pr-2.5',
-                      )}
+                      onKeyDown={(event) =>
+                        rovingTabKeyDown(event, {
+                          index,
+                          count: tabs.length,
+                          select: (target) => {
+                            const next = tabs[target]
+                            if (next) select(next.tab, false)
+                          },
+                          // Main shows the neighbor, which has the keyboard. The dev server's
+                          // output can't be closed.
+                          close: terminal ? () => gui.closeTerminal(terminal) : undefined,
+                        })
+                      }
+                      className={cn(TAB_LABEL, 'pl-2', PRESS, terminal ? 'pr-7' : 'pr-2.5')}
                     >
                       {entry.icon}
                       <span className={cn('truncate', entry.note && 'text-subtle')}>
                         {entry.label}
                       </span>
                     </button>
+                    {/* Always there: tabs here are as wide as their names, so a hidden one
+                        would leave a gap. */}
                     {terminal && (
-                      <IconButton
-                        label={`Close ${entry.label}`}
-                        icon={X}
-                        size="sm"
-                        aria-hidden="true"
-                        tabIndex={-1}
-                        // Keeps focus where it was rather than on a button hidden from assistive tech.
-                        onMouseDown={(event) => event.preventDefault()}
-                        onClick={() => close(terminal)}
-                        // Always there: tabs here are as wide as their names, so a hidden one
-                        // would leave a gap.
-                        className="absolute right-0.5"
-                      />
+                      <TabCloseButton name={entry.label} onClose={() => close(terminal)} />
                     )}
                   </div>
                 )

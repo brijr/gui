@@ -645,6 +645,7 @@ function registerIpc() {
   ipcMain.handle(Invoke.redo, (event) => tabFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
   ipcMain.handle(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
+  ipcMain.handle(Invoke.loadCommands, (event) => tabFor(event)?.loadCommands())
   ipcMain.handle(Invoke.listChats, (event) => tabFor(event)?.listChats() ?? [])
   ipcMain.handle(Invoke.openChat, (event, id: unknown) =>
     reportError(async () => {

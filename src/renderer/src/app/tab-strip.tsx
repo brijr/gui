@@ -1,12 +1,13 @@
-import { type KeyboardEvent, type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
+import { type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
 import { TAB_ROW_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
 import { Spring } from '../../../shared/motion'
 import type { TabInfo, TabStatus, WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Plus, X } from '../lib/icons'
+import { Plus } from '../lib/icons'
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { StatusDot } from '../lib/status'
+import { rovingTabKeyDown, TAB_LABEL, TabCloseButton, tabClass } from '../lib/tabs'
 import { IconButton, PRESS, Spinner } from '../lib/ui'
 
 /** How far a pressed tab moves before it's dragged rather than clicked. */
@@ -265,35 +266,6 @@ export function TabStrip({ state }: { state: WindowState }) {
     gui.moveTab(current.id, index)
   }
 
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const count = ordered.length
-    if (event.key === 'Delete' || event.key === 'Backspace') {
-      const tab = ordered[index]
-      if (!tab) return
-      event.preventDefault()
-      // Main shows the next tab (or the previous one); keep the keyboard on it.
-      const neighbor = ordered[index + 1] ?? ordered[index - 1]
-      if (neighbor) focusTab(neighbor.id)
-      gui.closeTab(tab.id)
-      return
-    }
-    const targets: Record<string, number> = {
-      ArrowRight: (index + 1) % count,
-      ArrowLeft: (index - 1 + count) % count,
-      Home: 0,
-      End: count - 1,
-    }
-    const target = targets[event.key]
-    const next = target === undefined ? undefined : ordered[target]
-    if (!next) return
-    event.preventDefault()
-    select(next.id)
-    focusTab(next.id)
-  }
-
-  const focusTab = (id: string) =>
-    list.current?.querySelector<HTMLElement>(`[data-tab="${id}"] [role="tab"]`)?.focus()
-
   return (
     <nav
       aria-label="Tabs"
@@ -326,13 +298,11 @@ export function TabStrip({ state }: { state: WindowState }) {
               data-tab={tab.id}
               style={shift ? { transform: `translateX(${shift}px)` } : undefined}
               className={cn(
-                'no-drag group relative flex h-7 w-56 min-w-20 shrink items-center rounded-md border',
-                // Like a browser's tabs, the shown one is a raised page with an edge rather
-                // than the accent-soft of other selections; the rest fill as the pointer
-                // passes. Opacity is left out: a new tab's grow-in draws it from script.
-                active
-                  ? 'border-line bg-raised text-fg shadow-raised'
-                  : 'border-transparent text-muted hover:bg-hover hover:text-fg',
+                // Like a browser's tabs, the shown one is a raised page with an edge (the
+                // document look). Its transitions leave opacity out: a new tab's grow-in
+                // draws it from script.
+                tabClass('document', active),
+                'no-drag w-56 min-w-20',
                 // The others slide aside; the dragged one follows the pointer as is.
                 drag && !dragged
                   ? 'transition-[color,background-color,transform] motion-reduce:transition-[color,background-color]'
@@ -374,9 +344,21 @@ export function TabStrip({ state }: { state: WindowState }) {
                   event.preventDefault()
                   gui.showTabMenu(tab.id)
                 }}
-                onKeyDown={(event) => onKeyDown(event, index)}
+                onKeyDown={(event) =>
+                  rovingTabKeyDown(event, {
+                    index,
+                    count: ordered.length,
+                    select: (target) => {
+                      const next = ordered[target]
+                      if (next) select(next.id)
+                    },
+                    // Main shows the next tab (or the previous one), which has the keyboard.
+                    close: () => gui.closeTab(tab.id),
+                  })
+                }
                 className={cn(
-                  'flex h-full min-w-0 flex-1 items-center gap-1.5 rounded-md pr-7 pl-2.5 text-left text-small font-medium transition-opacity',
+                  TAB_LABEL,
+                  'flex-1 pr-7 pl-2.5',
                   // Carried, it stays solid rather than dimmed as pressed.
                   !dragged && PRESS,
                 )}
@@ -384,24 +366,12 @@ export function TabStrip({ state }: { state: WindowState }) {
                 {tab.status !== 'idle' && <StatusMark status={tab.status} />}
                 <span className="truncate">{name}</span>
               </button>
-              {/* The pointer's way to close; the keyboard's is Delete on the tab, or ⌘W. */}
-              <IconButton
-                label={`Close ${name}`}
-                icon={X}
-                size="sm"
-                aria-hidden="true"
-                tabIndex={-1}
-                // Keeps focus where it was rather than on a button hidden from assistive tech.
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => gui.closeTab(tab.id)}
-                // On a tab that isn't shown it fades in with the pointer, and while the tab
-                // has focus.
-                className={cn(
-                  'absolute right-0.5 duration-(--motion-fade)',
-                  active
-                    ? 'opacity-100'
-                    : 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100',
-                )}
+              {/* The pointer's way to close; the keyboard's is Delete on the tab, or ⌘W. On a
+                  tab that isn't shown it fades in with the pointer, and while the tab has focus. */}
+              <TabCloseButton
+                name={name}
+                onClose={() => gui.closeTab(tab.id)}
+                reveal={active ? 'always' : 'hover'}
               />
             </div>
           )

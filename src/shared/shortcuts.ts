@@ -234,6 +234,20 @@ export const SHORTCUTS = {
     group: 'chat',
     description: 'Put the cursor in the chat’s message box, showing the chat if it’s hidden',
   },
+  send: {
+    label: 'Send',
+    accelerator: 'Enter',
+    menu: null,
+    group: 'chat',
+    description: 'Send the message, or queue it while the agent works (in the message box)',
+  },
+  newLine: {
+    label: 'New Line',
+    accelerator: 'Shift+Enter',
+    menu: null,
+    group: 'chat',
+    description: 'Start a new line in the message (in the message box)',
+  },
   dockChat: {
     label: 'Chat as Sidebar',
     accelerator: 'Shift+CmdOrCtrl+D',

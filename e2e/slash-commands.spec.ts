@@ -6,7 +6,7 @@ import { expect, test } from './helpers/test'
 
 // The agent's slash commands: a stand-in ACP agent (a small Node script, in place of Pi
 // through GUI_AGENT_STAND_INS) reports two commands just after its session starts, as
-// Claude Code's adapter does, and records every prompt it gets.
+// Claude Code's adapter does, and records every prompt it gets and where each session starts.
 
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
@@ -24,6 +24,7 @@ const handle = ({ id, method, params }) => {
     return write({ id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
   }
   if (method === 'session/new') {
+    appendFileSync(log + '.sessions', params.cwd + '\n')
     write({ id, result: { sessionId: 'session-1' } })
     setTimeout(() => notify('session-1', { sessionUpdate: 'available_commands_update', availableCommands: COMMANDS }), 0)
     return
@@ -45,7 +46,10 @@ process.stdin.on('data', (chunk) => {
 
 type Block = { type: string; text?: string }
 
-/** Stands the script in for Pi and makes it the chat's agent; returns the prompts it gets. */
+/**
+ * Stands the script in for Pi and makes it the chat's agent; returns the prompts it gets and
+ * a count of the sessions it started.
+ */
 async function useStandIn(session: GuiSession) {
   const { base } = session.fixture
   const log = join(base, 'prompts.ndjson')
@@ -60,13 +64,13 @@ async function useStandIn(session: GuiSession) {
   await waitFor(async () => (await session.state()).project !== null, 'the project to open')
   await session.chrome.evaluate(() => window.gui.setAgent('pi'))
   await waitFor(async () => (await session.chatSnapshot()).meta.agentId === 'pi', 'Pi')
-  return (): Block[][] =>
-    existsSync(log)
-      ? readFileSync(log, 'utf8')
-          .split('\n')
-          .filter(Boolean)
-          .map((line) => JSON.parse(line) as Block[])
-      : []
+  const lines = (file: string) =>
+    existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []
+  return {
+    prompts: (): Block[][] => lines(log).map((line) => JSON.parse(line) as Block[]),
+    // The chat's sessions; Gui's agent check starts its own in a folder of its own.
+    sessions: () => lines(`${log}.sessions`).filter((cwd) => !cwd.includes('agent-check')).length,
+  }
 }
 
 test('the composer lists the agent’s slash commands and sends one on its own', async ({
@@ -74,15 +78,12 @@ test('the composer lists the agent’s slash commands and sends one on its own',
 }) => {
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
-  const prompts = await useStandIn(session)
+  const { prompts } = await useStandIn(session)
   const { chat } = session
   const box = chat.getByRole('textbox', { name: /^Message / })
   const menu = chat.getByRole('listbox', { name: 'Commands' })
 
-  // Nothing to list until the agent has started and said what it offers.
   expect((await session.chatSnapshot()).meta.commands).toEqual([])
-  await box.fill('/')
-  await expect(menu).toBeHidden()
   await box.fill('Hello')
   await box.press('Enter')
   expect((await session.waitForTurn(0)).turn.status).toBe('done')
@@ -140,4 +141,41 @@ test('the composer lists the agent’s slash commands and sends one on its own',
   await box.fill('/')
   await expect(menu).toBeVisible()
   await session.shot('slash-commands')
+})
+
+test('a new chat’s `/` starts the agent for its commands without sending anything', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  const { prompts, sessions } = await useStandIn(session)
+  const { chat } = session
+  const box = chat.getByRole('textbox', { name: /^Message / })
+  const menu = chat.getByRole('listbox', { name: 'Commands' })
+
+  // Nothing known yet: `/` starts the agent, and the menu lists what it then reports.
+  expect((await session.chatSnapshot()).meta.commands).toEqual([])
+  await box.fill('/')
+  await expect(menu.getByRole('option')).toHaveText([
+    '/compact Summarize the conversation',
+    '/review Review changes',
+  ])
+
+  // Typing `/` again starts nothing more; no turn, nothing sent.
+  await box.fill('')
+  await expect(menu).toBeHidden()
+  await box.fill('/')
+  await expect(menu).toBeVisible()
+  expect(sessions()).toBe(1)
+  expect((await session.chatSnapshot()).turns).toEqual([])
+  expect(prompts()).toEqual([])
+
+  // The first message takes that session, and goes as any first message does.
+  await box.fill('Hello')
+  await box.press('Enter')
+  expect((await session.waitForTurn(0)).turn.status).toBe('done')
+  expect(sessions()).toBe(1)
+  const first = prompts()[0] ?? []
+  expect(first.length).toBeGreaterThan(1)
+  expect(first.at(-1)).toEqual({ type: 'text', text: 'Hello' })
 })

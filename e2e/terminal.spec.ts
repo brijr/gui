@@ -235,6 +235,22 @@ test('a second terminal, closing one, exit and restart, other tabs, and ⌘W', a
   expect([alive(secondShell), alive(secondJob)]).toEqual([true, true])
   await session.shot('two-terminals')
 
+  // From the keyboard the tabs are one stop: the arrows, Home and End move along them and
+  // show the tab they land on.
+  const tabNamed = (name: string) => tabs(session).getByRole('tab', { name, exact: true })
+  await tabNamed('Terminal 2').focus()
+  for (const [key, name] of [
+    ['ArrowLeft', 'Terminal'],
+    ['Home', 'Dev server'],
+    ['ArrowLeft', 'Terminal 2'],
+    ['End', 'Terminal 2'],
+  ] as const) {
+    await session.chrome.keyboard.press(key)
+    await expect(tabNamed(name)).toBeFocused()
+    await expect(tabNamed(name)).toHaveAttribute('aria-selected', 'true')
+  }
+  expect((await session.state()).drawer.tab).toBe(second)
+
   // Its × ends its shell and the job the shell started; the drawer shows the first again.
   await session.chrome.getByTitle('Close Terminal 2').click()
   const one = await drawerWith(session, 1)

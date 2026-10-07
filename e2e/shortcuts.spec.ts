@@ -497,6 +497,10 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   )
   const newChat = session.chat.getByRole('button', { name: 'New chat', exact: true })
   await expect(newChat).toHaveAttribute('aria-keyshortcuts', 'Shift+Meta+K')
+  // Send is the message box's own ↩ (a page key, so no menu item), named on its button.
+  const send = session.chat.getByRole('button', { name: 'Send', exact: true })
+  await expect(send).toHaveAttribute('title', `Send (${shortcutText('send')})`)
+  await expect(send).toHaveAttribute('aria-keyshortcuts', 'Enter')
 
   // Select Element is ⌘D, shown in the menu and tooltips; ⇧⌘C still works, as a hidden item.
   const select = entries.filter((entry) => entry.label === 'Select Element')

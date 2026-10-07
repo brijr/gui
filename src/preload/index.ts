@@ -133,6 +133,7 @@ const api: GuiApi = {
   sendQueuedNow: send(Send.sendQueuedNow),
   setAutoApprove: send(Send.setAutoApprove),
   setAgentSetting: send(Send.setAgentSetting),
+  loadCommands: () => ipcRenderer.invoke(Invoke.loadCommands),
   startRecording: () => ipcRenderer.invoke(Invoke.startRecording),
   saveRecordingFrame: (id, at, jpeg) => ipcRenderer.invoke(Invoke.recordingFrame, id, at, jpeg),
   finishRecording: (id, duration, video) =>
