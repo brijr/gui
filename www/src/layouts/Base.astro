@@ -1,5 +1,4 @@
 ---
-import '@fontsource-variable/inter-tight'
 import interTight from '@fontsource-variable/inter-tight/files/inter-tight-latin-wght-normal.woff2?url'
 
 interface Props {
@@ -13,6 +12,16 @@ interface Props {
 
 const { title, description, path, structuredData } = Astro.props
 const site = 'https://usegui.com'
+// Only the Latin subset of Inter Tight: anything outside it (the pronunciation's IPA) is set in
+// the system font, so no second font file loads.
+const fontFace = `@font-face {
+  font-family: 'Inter Tight Variable';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url(${interTight}) format('woff2-variations');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}`
 const url = path === undefined ? undefined : `${site}${path}`
 ---
 
@@ -27,6 +36,7 @@ const url = path === undefined ? undefined : `${site}${path}`
     <meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#161616" media="(prefers-color-scheme: dark)" />
     <link rel="preload" href={interTight} as="font" type="font/woff2" crossorigin />
+    <style is:inline set:html={fontFace} />
 
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -62,6 +72,13 @@ const url = path === undefined ? undefined : `${site}${path}`
 
 <style is:global>
   :root {
+    /* Spacing scale: every margin, padding and gap on the site is one of these. */
+    --s-1: 0.25rem;
+    --s-2: 0.5rem;
+    --s-3: 1rem;
+    --s-4: 1.5rem;
+    --s-5: 3rem;
+    --s-6: 6rem;
     --bg: #fafafa;
     --fg: #111;
     --muted: #6b6b6b;
@@ -76,6 +93,10 @@ const url = path === undefined ? undefined : `${site}${path}`
       --rule: rgba(255, 255, 255, 0.12);
       --shot-shadow: rgba(0, 0, 0, 0.55);
     }
+    /* Light text on dark reads heavier without it; dark text on light gets too thin with it. */
+    body {
+      -webkit-font-smoothing: antialiased;
+    }
   }
   * {
     box-sizing: border-box;
@@ -85,17 +106,19 @@ const url = path === undefined ? undefined : `${site}${path}`
     color-scheme: light dark;
   }
   body {
-    padding: 6rem 1.5rem 8rem;
+    padding: var(--s-6) var(--s-4);
     background: var(--bg);
     color: var(--fg);
     font-family: 'Inter Tight Variable', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
     font-weight: 300;
     font-size: 1.125rem;
-    line-height: 1.38;
-    letter-spacing: -0.012em;
-    font-feature-settings: 'ss01', 'cv11';
-    -webkit-font-smoothing: antialiased;
+    line-height: 1.45;
     text-rendering: optimizeLegibility;
+  }
+  @media (max-width: 30rem) {
+    body {
+      font-size: 1.0625rem;
+    }
   }
   main {
     width: 100%;
