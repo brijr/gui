@@ -791,6 +791,49 @@ export interface ShipResult {
   url: string | null
 }
 
+/**
+ * Where the project's work stands on its way into the shared codebase: the bar over the
+ * chat. Said without Git's words where it can: "the latest" is the default branch.
+ */
+export interface Proposal {
+  /** Current branch; null when detached */
+  branch: string | null
+  /** e.g. `main`; null when Gui can't tell */
+  defaultBranch: string | null
+  onDefaultBranch: boolean
+  /** Changed files not committed yet (secret-looking files aside) */
+  changes: number
+  /** Commits on the remote's default branch that this one doesn't have; null without a remote */
+  behind: number | null
+  /** Bringing in the latest stopped on conflicts: every conflicted file, and those still marked */
+  merge: { files: string[]; marked: string[] } | null
+  /** This branch's newest pull request; null when there isn't one or Gui can't read the host */
+  pull: ProposalPull | null
+}
+
+export interface ProposalPull {
+  number: number
+  title: string
+  url: string
+  state: 'open' | 'draft' | 'merged' | 'closed'
+  /** The reviewers' latest verdict */
+  review: 'approved' | 'changes' | null
+  /** What reviewers wrote, oldest first; the author's own and bots' left out */
+  comments: ReviewComment[]
+}
+
+export interface ReviewComment {
+  /** Unique across kinds, e.g. `review-123` */
+  id: string
+  author: string
+  body: string
+  /** The file and line it's on, for a comment on the code */
+  path: string | null
+  line: number | null
+  url: string
+  createdAt: string
+}
+
 /** An agent the user added in Settings (stored in agents.json). */
 export interface CustomAgentEntry {
   name: string

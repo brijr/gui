@@ -41,6 +41,7 @@ export const SYMBOLS = {
   Monitor: 'display',
   MousePointer2: 'cursorarrow',
   Package: 'shippingbox',
+  Paperclip: 'paperclip',
   Pencil: 'pencil',
   PanelLeft: 'sidebar.left',
   PanelLeftClose: 'sidebar.left',

@@ -18,6 +18,7 @@ import { ArrowLeft, Check, ExternalLink, GitBranch, Info, TriangleAlert } from '
 import { PathText } from '../lib/path-text'
 import { Message, PanelHeader } from '../lib/surface'
 import { Button, Code, IconButton, Skeleton } from '../lib/ui'
+import { useProposal } from './proposal'
 
 type Loaded =
   | { kind: 'loading' }
@@ -152,6 +153,11 @@ function actionFor(info: ShipInfo, branch: string) {
   if (!info.remote) return { label: 'Commit', running: 'Committing…' }
   // Committing straight onto the default branch leaves nothing to review.
   const direct = info.onDefaultBranch && branch === info.branch
+  // More work for a pull request that's already open: it goes into that one.
+  const pull = useProposal.getState().proposal?.pull
+  const open = pull && (pull.state === 'open' || pull.state === 'draft')
+  if (open && !direct && branch === info.branch && hostName(info))
+    return { label: 'Update pull request', running: 'Updating…' }
   if (hostName(info) && !direct) return { label: 'Create pull request', running: 'Creating…' }
   return info.files.length > 0
     ? { label: 'Commit and push', running: 'Pushing…' }
@@ -441,6 +447,9 @@ function WithCode({ text }: { text: string }) {
 }
 
 function Done({ result, info }: { result: ShipResult; info: ShipInfo }) {
+  // The bar knew of an open pull request for this branch before shipping.
+  const pull = useProposal.getState().proposal?.pull
+  const updated = pull?.state === 'open' || pull?.state === 'draft'
   const host = hostName(info)
   const target = linkTarget(result.url)
   const branch = <Code>{result.branch}</Code>
@@ -451,7 +460,7 @@ function Done({ result, info }: { result: ShipResult; info: ShipInfo }) {
   let link: string | null = null
   switch (result.outcome) {
     case 'created':
-      heading = 'Pull request created'
+      heading = updated ? 'Pull request updated' : 'Pull request created'
       detail = <>Your changes are on {branch}, ready for review.</>
       link = 'View pull request'
       break

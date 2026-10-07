@@ -120,6 +120,13 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   spinning?: boolean
   /** Fills the icon's shape (Stop's square) */
   filled?: boolean
+  /** Shows its shortcut's keys after the icon (the toolbar's tools), rather than only in the tooltip */
+  keys?: boolean
+  /**
+   * While pressed: soft (default) is accent-soft, for a setting; strong is solid accent, for a
+   * mode the whole window is in (Select).
+   */
+  emphasis?: 'soft' | 'strong'
 }
 
 /** An action shown as an icon alone. Toolbars, panel headers, remove buttons in rows. */
@@ -132,12 +139,16 @@ export function IconButton({
   pressed,
   spinning = false,
   filled = false,
+  keys = false,
+  emphasis = 'soft',
   title,
   className,
   ...props
 }: IconButtonProps) {
   // A `title` of its own (what it just did) stands in for the label and keys for a moment.
   const tooltip = title ?? (shortcut ? withShortcut(label, shortcut) : label)
+  const showKeys = keys && shortcut
+  const strong = pressed && emphasis === 'strong'
   return (
     <button
       type="button"
@@ -148,8 +159,12 @@ export function IconButton({
       className={cn(
         CONTROL,
         'shrink-0',
-        size === 'sm' ? 'size-6' : 'size-7',
-        pressed ? `bg-accent-soft text-accent-text ${FADE}` : VARIANT[variant],
+        showKeys ? 'h-7 gap-1.5 pr-1.5 pl-2' : size === 'sm' ? 'size-6' : 'size-7',
+        strong
+          ? VARIANT.primary
+          : pressed
+            ? `bg-accent-soft text-accent-text ${FADE}`
+            : VARIANT[variant],
         className,
       )}
       {...props}
@@ -158,6 +173,12 @@ export function IconButton({
         className={cn('size-3.5', spinning && 'animate-spin', filled && 'fill-current')}
         aria-hidden="true"
       />
+      {showKeys && (
+        // Out of the button's name: aria-keyshortcuts says them.
+        <Kbd aria-hidden="true" tone={strong ? 'inherit' : 'muted'}>
+          {shortcutText(shortcut)}
+        </Kbd>
+      )}
     </button>
   )
 }

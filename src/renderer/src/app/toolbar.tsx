@@ -21,7 +21,7 @@ import {
   Tablet,
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
-import { Button, IconButton, PRESS, SegmentedControl, Toggle } from '../lib/ui'
+import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 
@@ -111,22 +111,22 @@ export function Toolbar({ state }: { state: WindowState }) {
           <div className="flex items-center gap-1">
             <ScreenshotButton disabled={!capturable} />
             <RecordButton state={state} disabled={!capturable} />
-            <Toggle
+            <IconButton
+              label="Select element"
+              shortcut="selectElement"
+              keys
+              icon={MousePointer2}
               pressed={preview.selecting}
               emphasis="strong"
-              icon={MousePointer2}
               disabled={!capturable}
               onClick={() => gui.toggleSelect()}
-              title="Select element"
-              shortcut="selectElement"
-            >
-              Select
-            </Toggle>
+            />
           </div>
 
           <IconButton
             label="Toggle chat"
             shortcut="toggleChat"
+            keys
             icon={MessageSquare}
             pressed={state.chatVisible}
             onClick={() => gui.toggleChat()}
@@ -210,6 +210,7 @@ function ScreenshotButton({ disabled }: { disabled: boolean }) {
         ref={button}
         label="Screenshot"
         shortcut="screenshot"
+        keys
         // The tooltip says what it did, for a moment.
         title={done?.label}
         icon={done ? Check : Camera}

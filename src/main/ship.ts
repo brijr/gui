@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { constants, type Dirent } from 'node:fs'
 import { access, type FileHandle, lstat, open, readdir } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import type { GitHubProfile } from '../shared/github'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../shared/types'
 import { connectedGitHub, pullGitHub, pushGitHub } from './github'
 import { getShellEnv } from './shell-env'
@@ -14,7 +15,7 @@ import { getShellEnv } from './shell-env'
 
 type Host = NonNullable<ShipInfo['remote']>['host']
 
-interface Remote {
+export interface Remote {
   /** Git's name for it, usually `origin` */
   name: string
   host: Host
@@ -31,7 +32,7 @@ interface Change {
   untracked: boolean
 }
 
-interface Repo {
+export interface Repo {
   /** Root of the work tree; may be above the project root in a monorepo */
   top: string
   env: NodeJS.ProcessEnv
@@ -58,8 +59,8 @@ const GIT_MISSING =
 
 const QUICK_TIMEOUT = 30_000
 /** Commit and push run the project's git hooks, which may lint or test for a while. */
-const HOOK_TIMEOUT = 3 * 60_000
-const GH_TIMEOUT = 60_000
+export const HOOK_TIMEOUT = 3 * 60_000
+export const GH_TIMEOUT = 60_000
 const MAX_BUFFER = 32 * 1024 * 1024
 
 /**
@@ -179,17 +180,7 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
     repo.remote?.host === 'github' && repo.remote.web === 'github.com'
       ? await connectedGitHub(repo.remote.repo)
       : null
-  // Beginners can commit without global git setup. Existing identity always wins.
-  if (connected) {
-    if (!(await gitOrNull(repo, ['var', 'GIT_AUTHOR_IDENT']))) {
-      repo.env.GIT_AUTHOR_NAME = connected.profile.name ?? connected.profile.login
-      repo.env.GIT_AUTHOR_EMAIL = `${connected.profile.login}@users.noreply.github.com`
-    }
-    if (!(await gitOrNull(repo, ['var', 'GIT_COMMITTER_IDENT']))) {
-      repo.env.GIT_COMMITTER_NAME = connected.profile.name ?? connected.profile.login
-      repo.env.GIT_COMMITTER_EMAIL = `${connected.profile.login}@users.noreply.github.com`
-    }
-  }
+  if (connected) await applyConnectedIdentity(repo, connected.profile)
 
   const title = request.title.replace(/\s+/g, ' ').trim()
   const body = request.body.trim()
@@ -279,9 +270,23 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
     : { branch, commit, outcome: 'pushed', url: null }
 }
 
+/** Beginners can commit without global git setup. Existing identity always wins. */
+export async function applyConnectedIdentity(repo: At, profile: GitHubProfile) {
+  const name = profile.name ?? profile.login
+  const email = `${profile.login}@users.noreply.github.com`
+  if (!(await gitOrNull(repo, ['var', 'GIT_AUTHOR_IDENT']))) {
+    repo.env.GIT_AUTHOR_NAME = name
+    repo.env.GIT_AUTHOR_EMAIL = email
+  }
+  if (!(await gitOrNull(repo, ['var', 'GIT_COMMITTER_IDENT']))) {
+    repo.env.GIT_COMMITTER_NAME = name
+    repo.env.GIT_COMMITTER_EMAIL = email
+  }
+}
+
 // Reading the repository
 
-async function openRepo(root: string): Promise<Repo> {
+export async function openRepo(root: string): Promise<Repo> {
   const env = await commandEnv()
   const top = (await git({ top: root, env }, ['rev-parse', '--show-toplevel'])).trim()
   const at = { top, env }
@@ -296,7 +301,7 @@ async function openRepo(root: string): Promise<Repo> {
   const refSet = new Set(refs.split('\n').filter(Boolean))
   const defaultBranch = await findDefaultBranch(at, remote, refSet, branch)
   const problem = busy
-    ? 'Git is in the middle of a merge or rebase. Finish it in your Git app first.'
+    ? 'Git is in the middle of a merge or rebase. Finish or cancel it from the bar above the chat first.'
     : status.conflicts
       ? 'Some files have merge conflicts. Resolve them first.'
       : null
@@ -315,7 +320,7 @@ async function openRepo(root: string): Promise<Repo> {
   }
 }
 
-interface At {
+export interface At {
   top: string
   env: NodeJS.ProcessEnv
 }
@@ -353,7 +358,7 @@ async function findDefaultBranch(
   return null
 }
 
-async function readChanges(at: At) {
+export async function readChanges(at: At) {
   const out = await git(at, [
     'status',
     '--porcelain=v1',
@@ -503,7 +508,7 @@ function classifyHost(hostname: string, web: string): { host: Host; web: string 
  * Names Gui hands git as a remote or branch argument: nothing it could read as an
  * option (`-x`, `--upload-pack=…`) or a revision expression (`@{-1}`, `a..b`, `x^`).
  */
-function isSafeName(name: string): boolean {
+export function isSafeName(name: string): boolean {
   return /^[\p{L}\p{N}_][\p{L}\p{N}_./+-]*$/u.test(name) && !/\.\.|\/\/|\/$|\.$|\.lock$/.test(name)
 }
 
@@ -1173,7 +1178,7 @@ function lastUrl(text: string): string | null {
 
 // Errors in plain language
 
-function readError(error: unknown): string {
+export function readError(error: unknown): string {
   if (!(error instanceof CommandError))
     return error instanceof Error ? error.message : String(error)
   if (error.missing || /xcrun: error|xcode-select/i.test(error.output)) return GIT_MISSING
@@ -1184,7 +1189,7 @@ function readError(error: unknown): string {
   return `Couldn’t read the project’s Git status: ${tail(error.output, 3)}`
 }
 
-async function commitError(repo: Repo, error: unknown): Promise<string> {
+export async function commitError(repo: Repo, error: unknown): Promise<string> {
   if (!(error instanceof CommandError))
     return error instanceof Error ? error.message : String(error)
   const output = error.output
@@ -1288,7 +1293,7 @@ async function hasHook(repo: Repo, names: string[]): Promise<boolean> {
 }
 
 /** The end of git's output, without hints and with any credentials in URLs removed. */
-function tail(output: string, lines = 12): string {
+export function tail(output: string, lines = 12): string {
   const kept = output
     .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, '$1')
     .split('\n')
@@ -1300,7 +1305,7 @@ function tail(output: string, lines = 12): string {
 
 // Running commands
 
-class CommandError extends Error {
+export class CommandError extends Error {
   /** stderr then stdout: git and hooks print to either */
   readonly output: string
   /** The program isn't installed */
@@ -1323,7 +1328,7 @@ interface RunOptions {
   input?: string
 }
 
-function run(file: string, args: string[], options: RunOptions) {
+export function run(file: string, args: string[], options: RunOptions) {
   return new Promise<{ stdout: string; stderr: string }>((done, fail) => {
     const child = execFile(
       file,
@@ -1376,17 +1381,17 @@ function runGit(
 }
 
 /** Reads, and writes that run no hooks; see SAFE_READ. */
-function git(at: At, args: string[], options?: Partial<RunOptions>): Promise<string> {
+export function git(at: At, args: string[], options?: Partial<RunOptions>): Promise<string> {
   return runGit(at.top, at.env, [...SAFE_READ, ...args], options)
 }
 
 /** What the user asked for runs as it would in Terminal: hooks, fsmonitor and all. */
-function gitAsUser(at: At, args: string[], options?: Partial<RunOptions>): Promise<string> {
+export function gitAsUser(at: At, args: string[], options?: Partial<RunOptions>): Promise<string> {
   return runGit(at.top, at.env, args, options)
 }
 
 /** Trimmed stdout, or null when the command fails (e.g. `symbolic-ref` on a detached HEAD). */
-async function gitOrNull(at: At, args: string[]): Promise<string | null> {
+export async function gitOrNull(at: At, args: string[]): Promise<string | null> {
   try {
     return (await git(at, args)).trim()
   } catch {

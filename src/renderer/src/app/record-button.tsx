@@ -1,7 +1,9 @@
 import { fixWebmDuration } from '@fix-webm-duration/fix'
 import { useEffect, useRef, useState } from 'react'
+import { withShortcut } from '../../../shared/shortcuts'
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { cn } from '../lib/cn'
 import { CircleDot, Square, X } from '../lib/icons'
 import { Button } from '../lib/ui'
 
@@ -204,6 +206,18 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
     }
   }
 
+  // ⌥⌘R, from main as a user gesture (window.ts `recordPreview`): the same as a click.
+  const toggle = useRef(() => {})
+  toggle.current = () => {
+    if (phase === 'recording') stop.current?.()
+    else if (phase === 'idle' && !disabled) void start()
+  }
+  useEffect(() => {
+    const onRecord = () => toggle.current()
+    window.addEventListener('gui:record', onRecord)
+    return () => window.removeEventListener('gui:record', onRecord)
+  }, [])
+
   const recording = phase === 'recording'
   return (
     <div ref={root} className="relative no-drag flex items-center">
@@ -212,10 +226,16 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         icon={recording ? Square : CircleDot}
         disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
         onClick={() => (recording ? stop.current?.() : void start())}
-        title={recording ? 'Stop preview recording' : 'Record preview'}
+        title={withShortcut(
+          recording ? 'Stop preview recording' : 'Record preview',
+          'recordPreview',
+        )}
         aria-label={recording ? 'Stop preview recording' : 'Record preview'}
+        // Its keys after the icon, like the toolbar's other tools.
+        shortcut="recordPreview"
         // The seconds count up in place rather than shifting the button's width.
-        className={recording ? 'text-danger tabular-nums' : undefined}
+        // Spaced like the toolbar's other tools: the icon, then its keys.
+        className={cn('pr-1.5 pl-2', recording && 'text-danger tabular-nums')}
       >
         {recording
           ? `${Math.floor(elapsed / 1000)}s`

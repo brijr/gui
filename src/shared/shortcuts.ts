@@ -198,6 +198,13 @@ export const SHORTCUTS = {
     group: 'preview',
     description: 'Copy, save or attach a screenshot',
   },
+  recordPreview: {
+    label: 'Record Preview',
+    accelerator: 'Alt+CmdOrCtrl+R',
+    menu: 'view',
+    group: 'preview',
+    description: 'Start or stop a video of the preview, to attach to a message',
+  },
   focusMode: {
     label: 'Focus Mode',
     accelerator: 'CmdOrCtrl+\\',

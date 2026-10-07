@@ -355,3 +355,63 @@ export async function pullGitHub(
     throw new Error('Invalid GitHub pull request address.')
   return url.href
 }
+
+/**
+ * The connected repository's token, kept for a few minutes: the bar over the chat reads
+ * pull request status every minute, and each credential costs the service a repository list.
+ */
+const CREDENTIAL_TTL = 5 * 60_000
+const credentials = new Map<number, { token: string; fullName: string; until: number }>()
+async function recentCredential(id: number) {
+  const kept = credentials.get(id)
+  if (kept && kept.until > Date.now()) return kept
+  const fresh = { ...(await credential(id)), until: Date.now() + CREDENTIAL_TTL }
+  credentials.set(id, fresh)
+  return fresh
+}
+
+/** A GET on api.github.com as the connected user, for a repository they connected. */
+export async function readGitHub<T>(id: number, fullName: string, path: string): Promise<T> {
+  const access = await recentCredential(id)
+  if (access.fullName.toLowerCase() !== fullName.toLowerCase())
+    throw new Error('The connected GitHub repository changed. Refresh projects and try again.')
+  const response = await fetch(`https://api.github.com/repos/${access.fullName}${path}`, {
+    redirect: 'error',
+    signal: AbortSignal.timeout(15_000),
+    headers: {
+      Authorization: `Bearer ${access.token}`,
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'Gui',
+      'X-GitHub-Api-Version': '2026-03-10',
+    },
+  })
+  if (response.status === 401) credentials.delete(id)
+  if (!response.ok) throw new Error('Could not read the pull request from GitHub.')
+  return (await response.json()) as T
+}
+
+/** Updates the remote-tracking ref for `branch` from the connected repository. */
+export async function fetchGitHub(
+  id: number,
+  fullName: string,
+  root: string,
+  remote: string,
+  branch: string,
+) {
+  const access = await recentCredential(id)
+  if (access.fullName.toLowerCase() !== fullName.toLowerCase())
+    throw new Error('The connected GitHub repository changed. Refresh projects and try again.')
+  await withGitHubToken(access.token, (env) =>
+    authenticatedGit(
+      [
+        'fetch',
+        '--no-tags',
+        '--',
+        `https://github.com/${access.fullName}.git`,
+        `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`,
+      ],
+      env,
+      root,
+    ),
+  )
+}

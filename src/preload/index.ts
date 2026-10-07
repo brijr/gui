@@ -145,6 +145,12 @@ const api: GuiApi = {
   onChatAttach: (cb) => subscribe(Events.chatAttach, cb),
   getShipInfo: () => ipcRenderer.invoke(Invoke.shipInfo),
   ship: (request) => ipcRenderer.invoke(Invoke.ship, request),
+  getProposal: (refresh) => ipcRenderer.invoke(Invoke.getProposal, refresh === true),
+  startFresh: () => invokeOrThrow(Invoke.startFresh),
+  bringInLatest: () => invokeOrThrow(Invoke.bringInLatest),
+  finishMerge: () => invokeOrThrow(Invoke.finishMerge),
+  cancelMerge: () => invokeOrThrow(Invoke.cancelMerge),
+  resolveConflicts: () => invokeOrThrow(Invoke.resolveConflicts),
 
   openSettings: send(Send.openSettings),
   getSettings: () => ipcRenderer.invoke(Invoke.getSettings),

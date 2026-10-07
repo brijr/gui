@@ -45,6 +45,7 @@ import {
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
+  type Proposal,
   primaryPick,
   type RecentProject,
   type Rect,
@@ -86,6 +87,14 @@ import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
 import type { PromptViewport } from './prompt'
+import {
+  bringInLatest,
+  cancelMerge,
+  conflictPrompt,
+  finishMerge,
+  readProposal,
+  startFresh,
+} from './proposal'
 import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
 import { Recordings } from './recordings'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
@@ -1446,6 +1455,52 @@ export class ProjectTab {
     if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
     if (this.state.project?.root !== root) throw new Error('No project is open.')
     return ship(root, request)
+  }
+
+  // The pull request's progress (src/main/proposal.ts)
+
+  /** Null without a project, or before the user lets Gui run Git here (never asks). */
+  async getProposal(refresh: boolean): Promise<Proposal | null> {
+    const root = this.state.project?.root
+    if (!root || !(await isTrusted(root))) return null
+    return readProposal(root, refresh)
+  }
+
+  async startFresh() {
+    const root = await this.gitRootForAction()
+    await startFresh(root)
+    // The finished idea's chat goes to the archive; the next one starts empty.
+    if (this.state.project?.root === root) this.newChat()
+  }
+
+  async bringInLatest() {
+    await bringInLatest(await this.gitRootForAction())
+  }
+
+  async finishMerge() {
+    await finishMerge(await this.gitRootForAction())
+  }
+
+  async cancelMerge() {
+    await cancelMerge(await this.gitRootForAction())
+  }
+
+  /** Hands the conflicts to the agent as a message the user sees in the chat. */
+  async resolveConflicts() {
+    const root = await this.gitRootForAction()
+    const proposal = await readProposal(root)
+    if (!proposal.merge) return
+    const prompt = conflictPrompt(proposal.merge, proposal.defaultBranch ?? 'main')
+    if (!(await this.sendChatMessage(prompt, []))) throw new Error('The agent couldn’t take this.')
+  }
+
+  private async gitRootForAction() {
+    const root = this.state.project?.root
+    if (!root) throw new Error('No project is open.')
+    if (this.chat?.busy) throw new Error('Wait for the agent to finish first.')
+    if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
+    if (this.state.project?.root !== root) throw new Error('No project is open.')
+    return root
   }
 
   // Project setup (WindowState.setup)

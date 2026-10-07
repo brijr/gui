@@ -619,6 +619,26 @@ function registerIpc() {
     if (!tab) throw new Error('No project is open.')
     return tab.ship(request)
   })
+  ipcMain.handle(Invoke.getProposal, async (event, refresh: unknown) => {
+    try {
+      return (await tabFor(event)?.getProposal(refresh === true)) ?? null
+    } catch {
+      return null // Not a repository, or git missing: the bar just isn't shown.
+    }
+  })
+  ipcMain.handle(Invoke.startFresh, (event) => reportError(async () => tabFor(event)?.startFresh()))
+  ipcMain.handle(Invoke.bringInLatest, (event) =>
+    reportError(async () => tabFor(event)?.bringInLatest()),
+  )
+  ipcMain.handle(Invoke.finishMerge, (event) =>
+    reportError(async () => tabFor(event)?.finishMerge()),
+  )
+  ipcMain.handle(Invoke.cancelMerge, (event) =>
+    reportError(async () => tabFor(event)?.cancelMerge()),
+  )
+  ipcMain.handle(Invoke.resolveConflicts, (event) =>
+    reportError(async () => tabFor(event)?.resolveConflicts()),
+  )
   ipcMain.handle(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (isString(turnId)) return tabFor(event)?.restoreTurn(turnId)
   })
@@ -1179,6 +1199,7 @@ function buildMenu() {
         ...item('actualSize', { click: withWindow((w) => w.zoom(0)) }),
         { type: 'separator' },
         ...item('screenshot', { click: withTabs((w) => w.screenshot()) }),
+        ...item('recordPreview', { click: withTabs((w) => w.recordPreview()) }),
         ...item('focusMode', {
           id: FOCUS_MODE_ITEM,
           type: 'checkbox',

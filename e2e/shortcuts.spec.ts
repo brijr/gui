@@ -504,7 +504,7 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
     { accelerator: 'CmdOrCtrl+D', visible: true },
     { accelerator: 'Shift+CmdOrCtrl+C', visible: false },
   ])
-  const selectToggle = toolbar.getByRole('button', { name: 'Select', exact: true })
+  const selectToggle = toolbar.getByRole('button', { name: 'Select element', exact: true })
   await expect(selectToggle).toHaveAttribute('title', 'Select element (⌘D)')
   await expect(selectToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+D Shift+Meta+C')
   // ⌘D is the app's even in a text field: nothing there uses it, so it goes on to the menu

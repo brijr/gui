@@ -15,6 +15,7 @@ import type {
   PanelEdge,
   PickOverlayState,
   Point,
+  Proposal,
   RecordingAttachment,
   Rect,
   SettingsSection,
@@ -69,6 +70,12 @@ export const Invoke = {
   finishRecording: 'recording:finish',
   discardRecording: 'recording:discard',
   ship: 'ship:run',
+  getProposal: 'proposal:get',
+  startFresh: 'proposal:start-fresh',
+  bringInLatest: 'proposal:bring-in-latest',
+  finishMerge: 'proposal:finish-merge',
+  cancelMerge: 'proposal:cancel-merge',
+  resolveConflicts: 'proposal:resolve-conflicts',
   getSettings: 'settings:get',
   saveCustomAgent: 'settings:save-custom-agent',
   deleteCustomAgent: 'settings:delete-custom-agent',
@@ -466,6 +473,20 @@ export interface GuiApi {
   getShipInfo(): Promise<ShipInfo | null>
   /** Commits, pushes and opens the PR; rejects with a readable message */
   ship(request: ShipRequest): Promise<ShipResult>
+  /**
+   * Where the work stands as a pull request; null without a project or before Gui may run
+   * Git there. `refresh` also gets the latest from the remote (at most every few minutes).
+   */
+  getProposal(refresh?: boolean): Promise<Proposal | null>
+  /** Archives this chat and starts the next idea from the latest; rejects with a message */
+  startFresh(): Promise<void>
+  /** Merges the latest in; stopping on conflicts resolves, with `Proposal.merge` set */
+  bringInLatest(): Promise<void>
+  /** Commits the merge once the conflicts are resolved */
+  finishMerge(): Promise<void>
+  cancelMerge(): Promise<void>
+  /** Sends the agent a message to resolve the conflicts */
+  resolveConflicts(): Promise<void>
   /** Opens (or focuses) the Settings window, optionally at a section */
   openSettings(section?: SettingsSection): void
   getSettings(): Promise<SettingsState>

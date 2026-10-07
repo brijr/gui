@@ -50,6 +50,7 @@ import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
 import { ArchiveButton } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
+import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
 import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
 import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
 import { TurnView } from './turn-view'
@@ -99,10 +100,9 @@ export function ChatPanel() {
       }),
     [],
   )
+  useProposalUpdates()
   const meta = useChat((s) => s.meta)
   const turns = useChat((s) => s.turns)
-  // "Create pull request" takes over the transcript and composer until it's closed.
-  const shipping = useShipSheet((s) => s.open)
   const float = useChat((s) => s.float)
   if (!meta) return null
 
@@ -120,14 +120,7 @@ export function ChatPanel() {
       >
         {!meta.popped && <ResizeHandle edge="right" docked />}
         <Header meta={meta} />
-        {shipping ? (
-          <ShipSheet />
-        ) : (
-          <>
-            <Transcript turns={turns} meta={meta} />
-            <Composer meta={meta} running={running} />
-          </>
-        )}
+        <Body meta={meta} turns={turns} running={running} />
       </div>
     )
   }
@@ -141,20 +134,31 @@ export function ChatPanel() {
         className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
       >
         <Header meta={meta} />
-        {shipping ? (
-          <ShipSheet />
-        ) : (
-          <>
-            <Transcript turns={turns} meta={meta} />
-            <Composer meta={meta} running={running} />
-          </>
-        )}
+        <Body meta={meta} turns={turns} running={running} />
       </div>
       {/* Every edge and corner resizes the panel; the opposite ones stay put. */}
       {PANEL_EDGES.map((edge) => (
         <ResizeHandle key={edge} edge={edge} />
       ))}
     </FloatingChat>
+  )
+}
+
+/**
+ * Under the header: "Create pull request" or the review comments take over the transcript and
+ * composer until closed; otherwise the pull request's bar sits over the transcript.
+ */
+function Body({ meta, turns, running }: { meta: ChatMeta; turns: Turn[]; running: boolean }) {
+  const shipping = useShipSheet((s) => s.open)
+  const reviewing = useProposal((s) => s.reviewing)
+  if (shipping) return <ShipSheet />
+  if (reviewing) return <ReviewSheet />
+  return (
+    <>
+      <ProposalBar />
+      <Transcript turns={turns} meta={meta} />
+      <Composer meta={meta} running={running} />
+    </>
   )
 }
 

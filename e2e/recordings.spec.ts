@@ -206,6 +206,40 @@ test('removing an unsent recording deletes its files and does not send a turn', 
   expect((await session.chatSnapshot()).turns).toHaveLength(0)
 })
 
+test('⌥⌘R starts and stops a recording, as the toolbar button does', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await animate(session)
+  const recordMenu = () =>
+    session.app.evaluate(({ Menu }) => {
+      const find = (items: Electron.MenuItem[]): Electron.MenuItem | undefined => {
+        for (const item of items) {
+          if (item.label === 'Record Preview') return item
+          const inner = item.submenu && find(item.submenu.items)
+          if (inner) return inner
+        }
+        return undefined
+      }
+      const item = find(Menu.getApplicationMenu()?.items ?? [])
+      if (!item) throw new Error('No Record Preview item')
+      item.click()
+      return item.accelerator
+    })
+  // The button shows its keys, as the toolbar's other tools do.
+  const button = session.chrome.getByRole('button', { name: 'Record preview', exact: true })
+  await expect(button).toContainText('⌥⌘R')
+  expect(await recordMenu()).toBe('Alt+CmdOrCtrl+R')
+  const stop = session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true })
+  await expect(stop).toBeVisible()
+  await session.chrome.waitForTimeout(1200)
+  await recordMenu()
+  await expect(
+    session.chat
+      .getByLabel('Attached recordings')
+      .getByRole('button', { name: 'Play Preview recording' }),
+  ).toBeVisible({ timeout: 15000 })
+})
+
 test('switching tabs stops capture and attaches the clip to its original project', async ({
   launch,
 }) => {

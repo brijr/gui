@@ -15,9 +15,9 @@ import { TechnicalDetails } from '../lib/disclosure'
 import {
   ArrowUp,
   Crop,
-  ImagePlus,
   Info,
   MousePointer2,
+  Paperclip,
   Square,
   TriangleAlert,
   X,
@@ -290,7 +290,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           />
           <IconButton
             label="Attach images"
-            icon={ImagePlus}
+            icon={Paperclip}
             disabled={attachments.length + pending >= MAX_IMAGES}
             onClick={() => picker.current?.click()}
           />

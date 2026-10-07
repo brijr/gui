@@ -273,6 +273,18 @@ export class ProjectWindow implements TabHost {
   }
 
   /**
+   * ⌥⌘R: the toolbar's Record button, starting or stopping. Run as a user gesture, as a
+   * click is: screen capture only starts from one.
+   */
+  recordPreview() {
+    const { project, preview } = this.active.getState()
+    if (!project || !preview.visible || !preview.selectable || this.focus) return shell.beep()
+    this.win.webContents
+      .executeJavaScript(`window.dispatchEvent(new Event('gui:record'))`, true)
+      .catch(() => undefined)
+  }
+
+  /**
    * ⇧⌘N and ⇧⌘O: the start screen's name or repo field, in this tab if it's a start screen
    * or a new one.
    */
