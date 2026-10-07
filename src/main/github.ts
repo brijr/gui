@@ -114,8 +114,16 @@ export async function getGitHub(): Promise<GitHubState> {
 export async function startGitHub(): Promise<GitHubLogin> {
   if (!safeStorage.isEncryptionAvailable())
     throw new Error('Secure storage is unavailable. GitHub sign-in needs the macOS keychain.')
-  if (loginStarting || attempt)
-    throw new Error('GitHub sign-in is already in progress. Cancel it before starting again.')
+  if (loginStarting) throw new Error('GitHub sign-in is starting. Try again in a moment.')
+  // A sign-in whose page went away without cancelling it (Settings closed or reloaded midway)
+  // is picked up again while its code is good, and replaced once it has expired.
+  if (attempt) {
+    if (Date.now() < attempt.code.expiresAt) {
+      await shell.openExternal('https://github.com/login/device')
+      return attempt.code
+    }
+    await cancelGitHub().catch(() => undefined)
+  }
   loginStarting = true
   const current = ++generation
   try {
