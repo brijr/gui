@@ -262,6 +262,11 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     font-weight: 400;
     margin-bottom: 1rem;
   }
+  h2::before {
+    content: '§ ';
+    color: var(--muted);
+    font-weight: 300;
+  }
   section p + *,
   section ul + * {
     margin-top: 1.25rem;
@@ -277,6 +282,11 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   }
   .list li:last-child {
     border-bottom: 1px solid var(--rule);
+  }
+  .list li::before,
+  .agents li::before {
+    content: '+ ';
+    color: var(--muted);
   }
   .agents {
     display: grid;
