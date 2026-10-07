@@ -3,8 +3,17 @@ import agents from '../assets/agents.png'
 import agentsDark from '../assets/agents-dark.png'
 import mobile from '../assets/mobile.png'
 import mobileDark from '../assets/mobile-dark.png'
-import pickAndChange from '../assets/pick-and-change.png'
-import pickAndChangeDark from '../assets/pick-and-change-dark.png'
+import heroStillDark from '../assets/hero-start-dark.png'
+import heroStillLight from '../assets/hero-start-light.png'
+import compareDark from '../assets/steps/compare-dark.png'
+import compareLight from '../assets/steps/compare-light.png'
+import describeDark from '../assets/steps/describe-dark.png'
+import describeLight from '../assets/steps/describe-light.png'
+import selectDark from '../assets/steps/select-dark.png'
+import selectLight from '../assets/steps/select-light.png'
+import watchDark from '../assets/steps/watch-dark.png'
+import watchLight from '../assets/steps/watch-light.png'
+import HeroVideo from '../components/HeroVideo.astro'
 import Shot from '../components/Shot.astro'
 import Base from '../layouts/Base.astro'
 
@@ -34,6 +43,38 @@ const tools = [
   'Undo a change, or redo it.',
   'Examine the page at desktop, laptop, tablet, and phone sizes.',
   'Record the page and send the clip to the agent.',
+]
+
+// Frames from the same session as the hero video.
+const steps = [
+  {
+    name: 'Select',
+    text: 'Select the element that you want to change. Gui shows its tag and its size.',
+    light: selectLight,
+    dark: selectDark,
+    alt: 'Gui outlines two words in the headline and shows the label span, 227 × 50.',
+  },
+  {
+    name: 'Describe',
+    text: 'Write the change in the chat, in your words. The selected element goes with it.',
+    light: describeLight,
+    dark: describeDark,
+    alt: 'The chat shows the selected span and the message: turn this highlight into a hand-drawn marker underline, same yellow.',
+  },
+  {
+    name: 'Watch',
+    text: 'The agent finds the file and changes the code. The chat shows each step.',
+    light: watchLight,
+    dark: watchDark,
+    alt: 'The chat shows the agent at work: a completed step and a timer.',
+  },
+  {
+    name: 'Compare',
+    text: 'The page shows the change. Compare it before and after, then keep it or undo it.',
+    light: compareLight,
+    dark: compareDark,
+    alt: 'The headline now has an underline. The chat shows the text before and after the change, and an Undo button.',
+  },
 ]
 
 const questions = [
@@ -116,16 +157,37 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   <p class="sub">Select an element, then tell your AI agent what to change. The agent changes the code.</p>
 
   <figure class="wide">
-    <Shot
-      light={pickAndChange}
-      dark={pickAndChangeDark}
-      widths={[960, 1440, 2880]}
+    <HeroVideo
+      light="/video/hero-light.mp4"
+      dark="/video/hero-dark.mp4"
+      stillLight={heroStillLight}
+      stillDark={heroStillDark}
       sizes={wide}
-      eager
       alt="Gui shows a website and the chat. The user selected two words in the headline. Claude Code changed the yellow highlight to an underline. The chat shows the text before and after the change."
     />
-    <figcaption>Select an element and write the change. The preview shows the result immediately.</figcaption>
+    <figcaption>A real session with Claude Code. The video shows the agent's work faster than real time.</figcaption>
   </figure>
+
+  <section class="wide">
+    <h2>How it works</h2>
+    <ol class="steps">
+      {
+        steps.map((step) => (
+          <li>
+            <Shot
+              light={step.light}
+              dark={step.dark}
+              widths={[600, 1200]}
+              sizes="(min-width: 72rem) 33.25rem, (min-width: 40rem) calc(50vw - 2.25rem), calc(100vw - 3rem)"
+              alt={step.alt}
+            />
+            <h3>{step.name}</h3>
+            <p>{step.text}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </section>
 
   <section>
     <h2>For designers</h2>
@@ -251,6 +313,45 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   }
   .narrow {
     max-width: 38rem;
+  }
+  .steps {
+    list-style: none;
+    padding: 0;
+    margin-top: var(--s-4);
+    display: grid;
+    gap: var(--s-5) var(--s-4);
+    counter-reset: step;
+  }
+  @media (min-width: 40rem) {
+    .steps {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+  .steps li {
+    counter-increment: step;
+  }
+  .steps :global(img) {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 0.5rem;
+    box-shadow:
+      0 0 0 1px var(--rule),
+      0 8px 24px var(--shot-shadow);
+  }
+  .steps h3 {
+    margin-top: var(--s-3);
+    font-weight: 400;
+  }
+  .steps h3::before {
+    content: counter(step) '\2009';
+    color: var(--muted);
+    font-weight: 300;
+    font-variant-numeric: tabular-nums;
+  }
+  .steps p {
+    color: var(--muted);
+    max-width: 30rem;
   }
   /* Small text: a heavier weight and slightly open tracking, so thin grey strokes still read. */
   figcaption,
