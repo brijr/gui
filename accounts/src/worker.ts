@@ -30,6 +30,9 @@ export interface Env {
   GITHUB_CLIENT_ID: string
   GITHUB_APP_SLUG: string
   GITHUB_CLIENT_SECRET: string
+  /** The GitHub App's ID and private key, which mint the per-repository tokens Gui pushes with. */
+  GITHUB_APP_ID?: string
+  GITHUB_APP_PRIVATE_KEY?: string
   TOKEN_ENCRYPTION_KEY: string
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
@@ -247,8 +250,13 @@ async function accessToken(env: Env, user: User) {
       .run()
   }
 }
-async function repositories(token: string): Promise<GitHubRepository[]> {
-  const output: GitHubRepository[] = []
+/** A repository, with the app installation that reaches it. */
+interface ConnectedRepository extends GitHubRepository {
+  installationId: number
+}
+
+async function repositories(token: string): Promise<ConnectedRepository[]> {
+  const output: ConnectedRepository[] = []
   for (let page = 1; ; page++) {
     const { installations } = await github<{ installations: { id: number }[] }>(
       token,
@@ -267,6 +275,7 @@ async function repositories(token: string): Promise<GitHubRepository[]> {
             id: repo.id,
             fullName: repo.full_name,
             private: repo.private,
+            installationId: installation.id,
           })),
         )
         if (result.repositories.length < 100) break
@@ -277,6 +286,70 @@ async function repositories(token: string): Promise<GitHubRepository[]> {
   return [...new Map(output.map((repo) => [repo.id, repo])).values()].sort((a, b) =>
     a.fullName.localeCompare(b.fullName),
   )
+}
+
+/**
+ * A token for one repository that can only read and write its contents and read its pull
+ * requests, valid for an hour: what Gui clones, pushes, and follows a pull request with. Never the user's own token, which reaches every connected
+ * repository with every permission the app has (administration among them), and which git
+ * hooks in the project could read from the push's environment.
+ */
+async function repositoryToken(env: Env, repo: ConnectedRepository) {
+  if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY)
+    throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
+  const jwt = await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY)
+  const { token } = await github<{ token: string }>(
+    jwt,
+    `/app/installations/${repo.installationId}/access_tokens`,
+    { repository_ids: [repo.id], permissions: { contents: 'write', pull_requests: 'read' } },
+  ).catch((error: unknown) => {
+    // The app's own credentials were refused: that's the service's setup, not the user's.
+    if (error instanceof HttpError && error.status === 401)
+      throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
+    throw error
+  })
+  return token
+}
+
+/** The GitHub App's JWT (RS256), for minting installation tokens. */
+async function appJwt(appId: string, privateKey: string) {
+  const pkcs1 = privateKey.includes('BEGIN RSA PRIVATE KEY')
+  const der = Uint8Array.from(atob(privateKey.replace(/-----[^-]+-----|\s/g, '')), (c) =>
+    c.charCodeAt(0),
+  )
+  const signer = await crypto.subtle.importKey(
+    'pkcs8',
+    pkcs1 ? pkcs1ToPkcs8(der) : der,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  )
+  // Backdated a minute for clock drift; GitHub allows ten minutes at most.
+  const input = `${encodeJson({ alg: 'RS256', typ: 'JWT' })}.${encodeJson({
+    iss: appId,
+    iat: now() - 60,
+    exp: now() + 540,
+  })}`
+  const signature = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    signer,
+    new TextEncoder().encode(input),
+  )
+  return `${input}.${base64url(new Uint8Array(signature))}`
+}
+
+/** GitHub hands out PKCS#1 keys; WebCrypto only imports PKCS#8, which wraps one. */
+function pkcs1ToPkcs8(pkcs1: Uint8Array) {
+  const length = (n: number) => {
+    if (n < 0x80) return [n]
+    const bytes: number[] = []
+    for (; n > 0; n >>= 8) bytes.unshift(n & 0xff)
+    return [0x80 | bytes.length, ...bytes]
+  }
+  // version 0, then AlgorithmIdentifier { rsaEncryption, NULL }
+  const rsa = [0x02, 0x01, 0x00, 0x30, 0x0d, 0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d]
+  const body = [...rsa, 0x01, 0x01, 0x01, 0x05, 0x00, 0x04, ...length(pkcs1.length)]
+  return new Uint8Array([0x30, ...length(body.length + pkcs1.length), ...body, ...pkcs1])
 }
 
 /**
@@ -1055,8 +1128,16 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     return json({ ok: true })
   }
   const user = await connection(env, account)
-  if (path === '/repositories' && request.method === 'GET')
-    return json({ repositories: await repositories(await accessToken(env, user)) })
+  if (path === '/repositories' && request.method === 'GET') {
+    const list = await repositories(await accessToken(env, user))
+    return json({
+      repositories: list.map(({ id, fullName, private: isPrivate }) => ({
+        id,
+        fullName,
+        private: isPrivate,
+      })),
+    })
+  }
   if (path === '/repositories' && request.method === 'POST') {
     const body = (await request.json()) as { name?: unknown }
     if (typeof body.name !== 'string' || !/^[\w-][\w.-]{0,99}$/.test(body.name))
@@ -1076,11 +1157,12 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
   }
   const clone = /^\/repositories\/(\d+)\/credential$/.exec(path)
   if (clone && request.method === 'POST') {
-    const token = await accessToken(env, user)
-    const repo = (await repositories(token)).find((item) => item.id === Number(clone[1]))
+    const repo = (await repositories(await accessToken(env, user))).find(
+      (item) => item.id === Number(clone[1]),
+    )
     if (!repo)
       throw new HttpError(403, 'This repository is no longer connected to your GitHub account.')
-    return json({ token, fullName: repo.fullName })
+    return json({ token: await repositoryToken(env, repo), fullName: repo.fullName })
   }
   const pull = /^\/repositories\/(\d+)\/pulls$/.exec(path)
   if (pull && request.method === 'POST') {

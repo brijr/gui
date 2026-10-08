@@ -16,6 +16,8 @@ let creationDenied: boolean
 let sentEmails: EmailMessage[]
 let googleUser: { sub: string; email: string; email_verified: boolean; name: string }
 let appleSubject: string
+let appKey: CryptoKeyPair
+let tokenRequests: { installation: string; body: unknown }[]
 
 const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
 const idToken = (claims: Record<string, unknown>) =>
@@ -76,6 +78,8 @@ beforeEach(async () => {
     APPLE_TEAM_ID: 'TEAM',
     APPLE_KEY_ID: 'KEY',
     APPLE_PRIVATE_KEY: await applePrivateKey(),
+    GITHUB_APP_ID: '12345',
+    GITHUB_APP_PRIVATE_KEY: await appPrivateKey(),
     EMAIL: {
       async send(message) {
         sentEmails.push(message)
@@ -94,6 +98,7 @@ beforeEach(async () => {
   createdBody = null
   pullBody = null
   creationDenied = false
+  tokenRequests = []
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const params = new URLSearchParams(String(init?.body ?? ''))
@@ -155,6 +160,25 @@ beforeEach(async () => {
       pullBody = JSON.parse(String(init.body))
       return Response.json({ html_url: 'https://github.com/tester/repo-1/pull/1' })
     }
+    const minting = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(url.pathname)
+    if (minting) {
+      // Signed by the app's key, as the app: never with the user's token.
+      const jwt = new Headers(init?.headers).get('Authorization')?.replace(/^Bearer /, '') ?? ''
+      const [header, claims, signature] = jwt.split('.')
+      expect(
+        await crypto.subtle.verify(
+          'RSASSA-PKCS1-v1_5',
+          appKey.publicKey,
+          Buffer.from(signature, 'base64url'),
+          new TextEncoder().encode(`${header}.${claims}`),
+        ),
+      ).toBe(true)
+      expect(JSON.parse(Buffer.from(claims, 'base64url').toString())).toMatchObject({
+        iss: '12345',
+      })
+      tokenRequests.push({ installation: minting[1], body: JSON.parse(String(init?.body)) })
+      return Response.json({ token: `repository-token-${minting[1]}` }, { status: 201 })
+    }
     if (url.pathname === '/user/installations') {
       installationPages.push(Number(url.searchParams.get('page')))
       return Response.json({ installations: [{ id: secondAccount ? 22 : 11 }] })
@@ -195,6 +219,22 @@ async function call(path: string, token?: string, method = 'GET', body?: unknown
     }),
     env,
   )
+}
+/** The GitHub App's key, as GitHub hands it out: PKCS#1 PEM. */
+async function appPrivateKey() {
+  appKey = await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify'],
+  )
+  // A 2048-bit key's PKCS#8 wrapping is 26 bytes ahead of the PKCS#1 key inside it.
+  const der = Buffer.from(await crypto.subtle.exportKey('pkcs8', appKey.privateKey)).subarray(26)
+  return `-----BEGIN RSA PRIVATE KEY-----\n${der.toString('base64')}\n-----END RSA PRIVATE KEY-----`
 }
 async function applePrivateKey() {
   const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
@@ -311,14 +351,32 @@ test('repository listing paginates and private clone denies repositories belongi
   }
   expect(repos.repositories).toHaveLength(101)
   expect(installationPages).toEqual([1])
+  // A token for that one repository's contents, from the installation that reaches it.
   expect(await (await call('/repositories/101/credential', first.session, 'POST')).json()).toEqual({
-    token: 'provider-secret',
+    token: 'repository-token-11',
     fullName: 'tester/last',
   })
+  expect(tokenRequests).toEqual([
+    {
+      installation: '11',
+      body: {
+        repository_ids: [101],
+        permissions: { contents: 'write', pull_requests: 'read' },
+      },
+    },
+  ])
   secondAccount = true
   const second = await login()
   expect((await call('/repositories/101/credential', second.session, 'POST')).status).toBe(403)
   expect((await call('/repositories/999/credential', second.session, 'POST')).status).toBe(200)
+})
+
+test('without the app key, credentials are unavailable rather than the user token', async () => {
+  env.GITHUB_APP_PRIVATE_KEY = undefined
+  const { session } = await login()
+  const response = await call('/repositories/101/credential', session, 'POST')
+  expect(response.status).toBe(503)
+  expect(await response.text()).not.toContain('provider-secret')
 })
 
 test('cancelled, denied, expired, and prematurely polled sign-ins do not create sessions', async () => {

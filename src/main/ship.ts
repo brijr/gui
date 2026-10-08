@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path'
 import type { GitHubProfile } from '../shared/github'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../shared/types'
 import { developerTools, GIT_TOOLS_MISSING } from './developer-tools'
-import { connectedGitHub, pullGitHub, pushGitHub } from './github'
+import { CredentialUnavailable, connectedGitHub, pullGitHub, pushGitHub } from './github'
 import { getShellEnv } from './shell-env'
 
 /**
@@ -178,7 +178,11 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
 
   const connected =
     repo.remote?.host === 'github' && repo.remote.web === 'github.com'
-      ? await connectedGitHub(repo.remote.repo)
+      ? // Gui accounts being down mustn't stop a push the user's own git or gh can make.
+        await connectedGitHub(repo.remote.repo).catch((error: unknown) => {
+          console.error('[gui] GitHub connection unavailable; pushing without it', error)
+          return null
+        })
       : null
   if (connected) await applyConnectedIdentity(repo, connected.profile)
 
@@ -235,8 +239,16 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
 
   let pushOutput: string
   try {
-    if (connected) {
-      await pushGitHub(connected.repository.id, remote.repo, repo.top, branch)
+    const pushedConnected =
+      connected &&
+      (await pushGitHub(connected.repository.id, remote.repo, repo.top, branch).then(
+        () => true,
+        (error: unknown) => {
+          if (error instanceof CredentialUnavailable) return false
+          throw error
+        },
+      ))
+    if (pushedConnected) {
       await gitAsUser(repo, [
         'update-ref',
         `refs/remotes/${remote.name}/${branch}`,

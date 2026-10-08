@@ -122,7 +122,10 @@ export async function request<T>(
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
-  const result = (await response.json()) as T & { error?: string }
+  // A proxy or Cloudflare error page isn't JSON; it still fails as the status says.
+  const result = (
+    response.ok ? await response.json() : await response.json().catch(() => ({}))
+  ) as T & { error?: string }
   if (!response.ok) {
     // Sign-in calls carry the attempt's token, not the session.
     if (response.status === 401 && token && !path.startsWith('/auth/')) await forgetSession()
