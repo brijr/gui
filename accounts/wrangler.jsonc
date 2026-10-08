@@ -3,6 +3,11 @@
   "account_id": "4976e8a5df6887f41b287a83e6b5c18f",
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
+  // accounts.usegui.com is where providers send the browser back. Installed Gui versions use
+  // the workers.dev address, so it stays on.
+  "routes": [{ "pattern": "accounts.usegui.com", "custom_domain": true }],
+  "workers_dev": true,
+  "preview_urls": false,
   "ratelimits": [
     { "name": "LOGIN_LIMITER", "namespace_id": "5204419", "simple": { "limit": 10, "period": 60 } },
     // Sign-in emails to one address.

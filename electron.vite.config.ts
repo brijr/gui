@@ -32,7 +32,7 @@ export default defineConfig({
     define: {
       __GUI_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))),
       __GUI_ACCOUNTS_URL__: JSON.stringify(
-        process.env.GUI_ACCOUNTS_URL ?? 'https://gui-accounts.brijr.workers.dev',
+        process.env.GUI_ACCOUNTS_URL ?? 'https://accounts.usegui.com',
       ),
     },
   },

@@ -1,6 +1,6 @@
 # GitHub projects and accounts
 
-Gui requires a Gui account, made with Google, Apple, GitHub, or email (see [the account service](../accounts/README.md)). GitHub is also a connection on that account for GitHub projects. Local projects need an account but not GitHub. The GitHub App and D1 database are created. Worker code, database binding, rate limiter, public GitHub identifiers, and encrypted server secrets are deployed at `https://gui-accounts.brijr.workers.dev`. Gui defaults to this service. Live device authorization, attempt storage, cancellation, sign-in from the installed Gui app, and connected repository listing have been verified. Live repository creation, cloning, and shipping remain unverified.
+Gui requires a Gui account, made with Google, Apple, GitHub, or email (see [the account service](../accounts/README.md)). GitHub is also a connection on that account for GitHub projects. Local projects need an account but not GitHub. The GitHub App and D1 database are created. Worker code, database binding, rate limiter, public GitHub identifiers, and encrypted server secrets are deployed at `https://accounts.usegui.com` (and `https://gui-accounts.brijr.workers.dev` for earlier builds). Gui defaults to `accounts.usegui.com`. Live device authorization, attempt storage, cancellation, sign-in from the installed Gui app, and connected repository listing have been verified. Live repository creation, cloning, and shipping remain unverified.
 
 ## Journey
 

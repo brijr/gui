@@ -1,0 +1,74 @@
+---
+import Legal from '../components/Legal.astro'
+---
+
+<Legal
+  title="Privacy"
+  description="What Gui collects, why, and how to remove it."
+  path="/privacy"
+  updated="October 8, 2026"
+>
+  <p>
+    WIP makes Gui. This page tells you what Gui collects about you, why, and how to remove it. If
+    you have a question, send an email to <a href="mailto:CONTACT_EMAIL">CONTACT_EMAIL</a>.
+  </p>
+
+  <h2>Your projects stay on your Mac</h2>
+  <p>
+    Gui runs your app and your agent on your Mac. Gui does not send your code, your files, your
+    chats, or your screenshots to us. Gui does not collect analytics or usage data.
+  </p>
+  <p>
+    Your agent (for example Claude Code or Codex) sends your prompts and code to the company that
+    makes it, under that company's terms. You sign in to the agent with your own account. Gui does
+    not see or keep your agent's credentials.
+  </p>
+
+  <h2>Your Gui account</h2>
+  <p>To use Gui, you sign in with Google, Apple, GitHub, or an email link. We keep:</p>
+  <ul>
+    <li>Your email address and your name, as the sign-in service gives them to us.</li>
+    <li>An ID from each sign-in service that you use, so that we know it is you next time.</li>
+    <li>When you made the account and when you last signed in.</li>
+    <li>Whether you want emails about new Gui features. This is off until you turn it on.</li>
+    <li>
+      A record of each Mac that is signed in. We keep only a hash of its sign-in token, not the
+      token.
+    </li>
+  </ul>
+  <p>
+    If you sign in with Apple and hide your email, we get an Apple relay address, not your real
+    address.
+  </p>
+
+  <h2>GitHub</h2>
+  <p>
+    If you connect GitHub, we keep your GitHub user name and the access tokens that let Gui clone
+    and push the repositories that you choose and open pull requests. We encrypt the tokens. Gui
+    gets access only to the repositories that you select on GitHub. You can disconnect GitHub in
+    Gui, under Settings → GitHub, and revoke Gui's access on GitHub.
+  </p>
+
+  <h2>Email</h2>
+  <p>
+    We send sign-in emails when you ask for them. We send emails about new features only if you
+    turn them on, at sign-in or in Settings → Account. You can turn them off at any time.
+  </p>
+
+  <h2>Who processes your data</h2>
+  <p>
+    The Gui account service runs on Cloudflare, which stores the data above and sends our email.
+    Google, Apple, and GitHub process your sign-in under their own privacy policies. We do not
+    sell your data, and we do not share it for advertising.
+  </p>
+
+  <h2>Remove your data</h2>
+  <p>
+    To delete your Gui account and all the data above, send an email to
+    <a href="mailto:CONTACT_EMAIL">CONTACT_EMAIL</a> from the address on your account. Signing
+    out in Gui removes the sign-in from that Mac only.
+  </p>
+
+  <h2>Changes</h2>
+  <p>If we change this page, we change the date at the top.</p>
+</Legal>
