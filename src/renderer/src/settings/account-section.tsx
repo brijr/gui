@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from 'react'
-import type { AccountProfile, IdentityProvider } from '../../../shared/account'
+import type { AccountProfile } from '../../../shared/account'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
@@ -7,15 +7,8 @@ import { Card, GroupLabel, List, Message } from '../lib/surface'
 import { Button, Checkbox, Spinner } from '../lib/ui'
 import { useAccount } from '../lib/use-account'
 
-const PROVIDER_NAMES: Record<IdentityProvider, string> = {
-  google: 'Google',
-  apple: 'Apple',
-  github: 'GitHub',
-  email: 'Email',
-}
-
 /**
- * Settings → Account: who's signed in and how, the product-update emails (off until chosen),
+ * Settings → Account: who's signed in, the product-update emails (off until chosen),
  * and signing out, after which the start screen asks to sign in again.
  */
 export function AccountSection() {
@@ -89,15 +82,14 @@ export function AccountSection() {
       </>
     )
 
-  const methods = profile.providers.map((provider) => PROVIDER_NAMES[provider]).join(', ')
   return (
     <>
       <Card className="flex items-center gap-3 p-4">
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">{profile.name ?? profile.email ?? 'Gui account'}</p>
-          <p className="text-pretty text-small text-muted">
-            {profile.name && profile.email ? `${profile.email} · ` : ''}Signs in with {methods}
-          </p>
+          {profile.name && profile.email && (
+            <p className="truncate text-small text-muted">{profile.email}</p>
+          )}
         </div>
         <Button variant="ghost" disabled={busy} onClick={signOut}>
           Sign out

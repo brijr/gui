@@ -5,13 +5,12 @@ import { expect, test } from './helpers/test'
 
 const SESSION = 's'.repeat(72)
 
-/** The account service as Gui sees it: sign-in attempts, an emailed code, and an account. */
+/** The account service as Gui sees it: sign-in attempts and an account. */
 function accountService() {
   const service = {
     port: 0,
     loopback: 0,
     starts: 0,
-    emails: [] as string[],
     updates: false,
     signedOut: false,
   }
@@ -35,15 +34,10 @@ function accountService() {
         service.loopback = Number(body.port)
         return reply({ attempt: 'a'.repeat(72), id: 'public', expiresAt: Date.now() + 60_000 })
       }
-      if (request.url === '/auth/token') return reply({ session: SESSION })
-      if (request.url === '/auth/email') {
-        service.emails.push(String(body.email))
-        return reply({ ok: true })
-      }
-      if (request.url === '/auth/email/code')
-        return body.code === '123456'
+      if (request.url === '/auth/token')
+        return body.code === 'one-time'
           ? reply({ session: SESSION })
-          : reply({ error: 'That code doesn’t match. Check the email and try again.' }, 400)
+          : reply({ error: 'Sign-in did not finish. Try again.' }, 401)
       if (request.url === '/auth/cancel') return reply({ ok: true })
       if (request.url === '/account/updates') {
         service.updates = body.updates === true
@@ -59,7 +53,6 @@ function accountService() {
             email: 'designer@example.com',
             name: 'Designer',
             updates: service.updates,
-            providers: ['google'],
           },
           profile: null,
         })
@@ -109,12 +102,12 @@ test('a new user signs in before Gui opens a project, then the project opens', a
     const updates = chrome.getByRole('checkbox', { name: 'Email me about new Gui features' })
     await expect(updates).not.toBeChecked()
     await updates.check()
-    await chrome.getByRole('button', { name: 'Continue with Google' }).click()
+    await chrome.getByRole('button', { name: 'Sign in or create an account' }).click()
     await expect(chrome.getByText('Finish signing in in your browser…')).toBeVisible()
     const opened = await session.app.evaluate(
       () => (globalThis as unknown as { opened: string[] }).opened,
     )
-    expect(opened).toEqual([`${url}/signin/google?a=public`])
+    expect(opened).toEqual([`${url}/signin/workos?a=public`])
 
     // The browser comes back to Gui's loopback with a one-time code.
     const landing = await fetch(`http://127.0.0.1:${fake.service.loopback}/callback?code=one-time`)
@@ -128,9 +121,7 @@ test('a new user signs in before Gui opens a project, then the project opens', a
   }
 })
 
-test('the emailed code signs in; a wrong code says so; signing out asks again', async ({
-  launch,
-}) => {
+test('a sign-in that fails says so; cancelling and signing out ask again', async ({ launch }) => {
   const fake = accountService()
   const url = await fake.listen()
   try {
@@ -146,18 +137,23 @@ test('the emailed code signs in; a wrong code says so; signing out asks again', 
       safeStorage.decryptString = (value) => value.toString().replace(/^test-encrypted:/, '')
     })
     const chrome = session.chrome
-    await chrome.getByLabel('Or use your email').fill('designer@example.com')
-    await chrome.getByRole('button', { name: 'Email me a sign-in link' }).click()
-    await expect(chrome.getByText('Check your email')).toBeVisible()
-    expect(fake.service.emails).toEqual(['designer@example.com'])
-    await chrome.screenshot({ path: test.info().outputPath('email-code.png') })
+    const signIn = chrome.getByRole('button', { name: 'Sign in or create an account' })
 
-    const code = chrome.getByLabel('Code from the email')
-    await code.fill('000000')
-    await chrome.getByRole('button', { name: 'Sign in', exact: true }).click()
-    await expect(chrome.getByRole('alert')).toContainText('doesn’t match')
-    await code.fill('123456')
-    await chrome.getByRole('button', { name: 'Sign in', exact: true }).click()
+    // Cancelling goes back without an error.
+    await signIn.click()
+    await chrome.getByRole('button', { name: 'Cancel' }).click()
+    await expect(signIn).toBeVisible()
+    await expect(chrome.getByRole('alert')).toHaveCount(0)
+
+    // A code the service refuses ends the attempt with its message.
+    await signIn.click()
+    await expect(chrome.getByText('Finish signing in in your browser…')).toBeVisible()
+    const refused = await fetch(`http://127.0.0.1:${fake.service.loopback}/callback?code=stale`)
+    expect(await refused.text()).toContain('Sign-in didn’t finish')
+    await expect(chrome.getByRole('alert')).toContainText('Sign-in did not finish')
+
+    await signIn.click()
+    await fetch(`http://127.0.0.1:${fake.service.loopback}/callback?code=one-time`)
     await expect(chrome.getByRole('button', { name: 'Open project…' })).toBeVisible()
     // Nobody asked for updates, so none were turned on.
     expect(fake.service.updates).toBe(false)
@@ -177,7 +173,7 @@ test('the emailed code signs in; a wrong code says so; signing out asks again', 
       .pages()
       .find((page) => page.url().endsWith('/settings.html'))
     if (!settings) throw new Error('Settings did not open')
-    await expect(settings.getByText('designer@example.com · Signs in with Google')).toBeVisible()
+    await expect(settings.getByText('designer@example.com')).toBeVisible()
     await settings.getByRole('button', { name: 'Sign out' }).click()
     await expect.poll(() => fake.service.signedOut).toBe(true)
     await expect(chrome.getByRole('heading', { name: 'Sign in to Gui' })).toBeVisible()

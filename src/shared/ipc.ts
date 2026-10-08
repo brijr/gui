@@ -1,4 +1,4 @@
-import type { AccountProfile, AccountState, SignInProvider } from './account'
+import type { AccountProfile, AccountState } from './account'
 import type { GitHubRepository, GitHubState } from './github'
 import type { SymbolImages } from './symbols'
 import type {
@@ -47,9 +47,6 @@ export const Invoke = {
   accountState: 'account:state',
   accountProfile: 'account:profile',
   accountSignIn: 'account:sign-in',
-  accountEmail: 'account:email',
-  accountCode: 'account:code',
-  accountWait: 'account:wait',
   accountCancel: 'account:cancel',
   accountSignOut: 'account:sign-out',
   accountUpdates: 'account:updates',
@@ -260,15 +257,11 @@ export interface GuiApi {
   /** The signed-in account from the service; null when signed out. */
   getAccountProfile(): Promise<AccountProfile | null>
   /**
-   * Opens the provider in the browser and resolves once Gui is signed in. Rejects with a
-   * message to show, or "Sign-in was cancelled." after cancelAccountSignIn.
+   * Opens sign-in (WorkOS AuthKit: Google, Apple, GitHub, or email) in the browser and
+   * resolves once Gui is signed in. Rejects with a message to show, or "Sign-in was
+   * cancelled." after cancelAccountSignIn.
    */
-  accountSignIn(provider: SignInProvider): Promise<void>
-  /** Emails a sign-in link and code; resolves once sent. waitForAccount resolves on the link. */
-  accountEmail(email: string): Promise<void>
-  /** Signs in with the code from the email. */
-  accountCode(code: string): Promise<void>
-  waitForAccount(): Promise<void>
+  accountSignIn(): Promise<void>
   cancelAccountSignIn(): Promise<void>
   signOutAccount(): Promise<void>
   setAccountUpdates(updates: boolean): Promise<void>

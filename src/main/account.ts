@@ -5,7 +5,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { app, safeStorage, shell } from 'electron'
-import type { AccountProfile, AccountState, SignInProvider } from '../shared/account'
+import type { AccountProfile, AccountState } from '../shared/account'
 
 declare const __GUI_ACCOUNTS_URL__: string
 
@@ -165,10 +165,10 @@ export async function signOut() {
 
 // ── Signing in ──────────────────────────────────────────────────────────────────────────
 //
-// Gui listens on a loopback port and opens the browser on the service; the provider (or the
-// emailed link) sends the browser back to that port with a one-time code, which Gui trades,
-// with the attempt's own token, for a session. A link forwarded to someone else can't sign
-// this Gui in: their browser comes back to their own computer.
+// Gui listens on a loopback port and opens the browser on the service; WorkOS AuthKit (or
+// GitHub, to connect it) sends the browser back to that port with a one-time code, which Gui
+// trades, with the attempt's own token, for a session. A sign-in link opened by someone else
+// can't sign this Gui in: their browser comes back to their own computer.
 
 interface Attempt {
   token: string
@@ -236,7 +236,7 @@ async function onLoopback(attempt: Attempt, req: IncomingMessage, res: ServerRes
   }
 }
 
-/** The sign-in under way, or a new one. Choosing another provider keeps the same one. */
+/** The sign-in under way, or a new one. Opening the browser again keeps the same one. */
 async function begin(link: boolean): Promise<Attempt> {
   if (current?.link === link) return current
   if (starting) await starting.catch(() => undefined)
@@ -260,7 +260,7 @@ async function begin(link: boolean): Promise<Attempt> {
       const done = new Promise<void>((resolve, reject) => {
         settle = (error) => (error ? reject(error) : resolve())
       })
-      // Nothing may be waiting on it yet (an email sent, its link not clicked).
+      // Nothing may be waiting on it yet.
       done.catch(() => undefined)
       const attempt: Attempt = { token: result.attempt, id: result.id, link, server, done, settle }
       const expiry = setTimeout(
@@ -288,10 +288,10 @@ async function begin(link: boolean): Promise<Attempt> {
   }
 }
 
-/** Opens the provider in the browser; resolves once Gui is signed in. */
-export async function signIn(provider: SignInProvider) {
+/** Opens AuthKit in the browser; resolves once Gui is signed in. */
+export async function signIn() {
   const attempt = await begin(false)
-  await shell.openExternal(`${serviceUrl()}/signin/${provider}?a=${attempt.id}`)
+  await shell.openExternal(`${serviceUrl()}/signin/workos?a=${attempt.id}`)
   return attempt.done
 }
 
@@ -300,32 +300,6 @@ export async function connectGitHub() {
   const attempt = await begin(true)
   await shell.openExternal(`${serviceUrl()}/signin/github?a=${attempt.id}`)
   return attempt.done
-}
-
-export async function emailSignIn(email: string) {
-  const attempt = await begin(false)
-  await request('/auth/email', attempt.token, 'POST', { email })
-}
-
-export async function emailCode(code: string) {
-  const attempt = current
-  if (!attempt || attempt.link) throw new Error('Ask for a new email, then enter its code.')
-  const { session } = await request<{ session: string }>(
-    '/auth/email/code',
-    attempt.token,
-    'POST',
-    {
-      code,
-    },
-  )
-  await saveSession(session)
-  attempt.settle()
-}
-
-/** Resolves when the sign-in under way finishes, as when the emailed link is opened. */
-export function waitForSignIn() {
-  if (!current) return Promise.reject(new Error('Start signing in again.'))
-  return current.done
 }
 
 export async function cancelSignIn() {

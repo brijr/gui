@@ -68,7 +68,6 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
           email: 'tester@example.com',
           name: 'Gui Tester',
           updates: false,
-          providers: ['google'],
         },
         profile: connected
           ? { login: 'gui-tester', name: 'Gui Tester', email: 'tester@example.com', updates: false }

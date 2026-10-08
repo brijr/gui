@@ -1,18 +1,7 @@
-/** Ways to sign in through the browser. Email is the fourth, through a link or code. */
-export type SignInProvider = 'google' | 'apple' | 'github'
-export type IdentityProvider = SignInProvider | 'email'
-
-export const SIGN_IN_PROVIDERS: readonly SignInProvider[] = ['google', 'apple', 'github']
-
-export const isSignInProvider = (value: unknown): value is SignInProvider =>
-  SIGN_IN_PROVIDERS.includes(value as SignInProvider)
-
 export interface AccountProfile {
   email: string | null
   name: string | null
   updates: boolean
-  /** The ways this account signs in */
-  providers: IdentityProvider[]
 }
 
 /**

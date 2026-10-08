@@ -3,25 +3,22 @@
   "account_id": "4976e8a5df6887f41b287a83e6b5c18f",
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
-  // accounts.usegui.com is where providers send the browser back. Installed Gui versions use
-  // the workers.dev address, so it stays on.
+  // accounts.usegui.com is where WorkOS and GitHub send the browser back. Installed Gui
+  // versions use the workers.dev address, so it stays on.
   "routes": [{ "pattern": "accounts.usegui.com", "custom_domain": true }],
   "workers_dev": true,
   "preview_urls": false,
   "ratelimits": [
-    { "name": "LOGIN_LIMITER", "namespace_id": "5204419", "simple": { "limit": 10, "period": 60 } },
-    // Sign-in emails to one address.
-    { "name": "EMAIL_LIMITER", "namespace_id": "5204420", "simple": { "limit": 2, "period": 60 } }
+    { "name": "LOGIN_LIMITER", "namespace_id": "5204419", "simple": { "limit": 10, "period": 60 } }
   ],
-  // Google and Apple client IDs go here once registered; their secrets (GOOGLE_CLIENT_SECRET,
-  // APPLE_PRIVATE_KEY) are Worker secrets. A provider without its settings shows as unavailable.
+  // WorkOS AuthKit signs people in: its client ID goes here, its API key (WORKOS_API_KEY) is a
+  // Worker secret. Until both are set, signing in says it isn't available yet.
   "vars": {
     "GITHUB_CLIENT_ID": "Iv23liakas1b7Im4gK8a",
     "GITHUB_APP_SLUG": "gui-projects",
-    "EMAIL_FROM": "signin@usegui.com"
+    // WorkOS Staging, for testing; switch to Production's client ID and key before launch.
+    "WORKOS_CLIENT_ID": "client_01M4E6ZGP4NBGP6X2FT787Y9V5"
   },
-  // Cloudflare Email Service, for sign-in links. usegui.com must be onboarded for sending.
-  "send_email": [{ "name": "EMAIL" }],
   "d1_databases": [
     {
       "binding": "DB",

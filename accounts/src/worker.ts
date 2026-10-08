@@ -1,4 +1,3 @@
-import type { IdentityProvider, SignInProvider } from '../../src/shared/account'
 import type { GitHubProfile, GitHubRepository } from '../../src/shared/github'
 
 // Only the D1 operations this service uses. Bun's SQLite test adapter implements the same contract.
@@ -12,21 +11,12 @@ export interface Database {
   prepare(sql: string): Statement
   batch(statements: Statement[]): Promise<unknown>
 }
-export interface EmailMessage {
-  to: string
-  from: string
-  subject: string
-  html: string
-  text: string
-}
 export interface Env {
   DB: Database
   LOGIN_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> }
-  /** Sign-in emails per address, so the service can't be used to flood someone's inbox. */
-  EMAIL_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> }
-  /** Cloudflare Email Service's send_email binding. */
-  EMAIL?: { send(message: EmailMessage): Promise<unknown> }
-  EMAIL_FROM?: string
+  /** WorkOS AuthKit, which signs people in with Google, Apple, GitHub, or email. */
+  WORKOS_CLIENT_ID?: string
+  WORKOS_API_KEY?: string
   GITHUB_CLIENT_ID: string
   GITHUB_APP_SLUG: string
   GITHUB_CLIENT_SECRET: string
@@ -34,13 +24,6 @@ export interface Env {
   GITHUB_APP_ID?: string
   GITHUB_APP_PRIVATE_KEY?: string
   TOKEN_ENCRYPTION_KEY: string
-  GOOGLE_CLIENT_ID?: string
-  GOOGLE_CLIENT_SECRET?: string
-  /** Sign in with Apple: the Services ID, team, and the .p8 key that signs the client secret. */
-  APPLE_CLIENT_ID?: string
-  APPLE_TEAM_ID?: string
-  APPLE_KEY_ID?: string
-  APPLE_PRIVATE_KEY?: string
 }
 interface Account {
   id: string
@@ -65,17 +48,16 @@ interface Attempt {
   port: number
   link_account_id: string | null
   provider: string | null
-  email: string | null
-  email_code_hash: string | null
-  email_tries: number
-  emails_sent: number
   account_id: string | null
   exchange_hash: string | null
   expires_at: number
 }
-/** Who signed in, as the provider vouches for them. `email` is only ever a verified one. */
+/**
+ * Who signed in, as WorkOS (or GitHub, for Gui's device flow and connecting GitHub) vouches
+ * for them. `email` is only ever a verified one.
+ */
 interface Identity {
-  provider: IdentityProvider
+  provider: 'workos' | 'github'
   subject: string
   email: string | null
   name: string | null
@@ -102,8 +84,6 @@ const hash = async (value: string) =>
   hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))
 const SESSION_SECONDS = 180 * 86400
 const ATTEMPT_SECONDS = 15 * 60
-const EMAIL_TRIES = 5
-const EMAILS_PER_ATTEMPT = 3
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -354,7 +334,7 @@ function pkcs1ToPkcs8(pkcs1: Uint8Array) {
 
 /**
  * The account an identity signs in to: the one it's already part of, else the account with
- * the same verified email (so Google and an emailed link reach one account), else a new one.
+ * the same verified email (so a GitHub user from before WorkOS keeps their account), else a new one.
  * With `linkTo`, the identity joins that account, unless another account already has it.
  */
 async function accountFor(env: Env, identity: Identity, linkTo?: string | null): Promise<string> {
@@ -472,7 +452,7 @@ const escapeHtml = (text: string) =>
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
   )
 
-/** A small page in the browser, for what happens there: errors, and the emailed link. */
+/** A small page in the browser, for when sign-in can't send it back to Gui. */
 function page(title: string, body: string, status = 200) {
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>${escapeHtml(title)} · Gui</title><style>body{font:16px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:28rem;margin:15vh auto;padding:0 1.5rem}h1{font-size:1.375rem;margin:0 0 .5rem}p{margin:0 0 1rem;color:color-mix(in srgb,currentColor 70%,transparent)}button{font:inherit;font-weight:600;padding:.6rem 1rem;border-radius:.5rem;border:0;background:#2563eb;color:#fff;cursor:pointer}</style></head><body><h1>${escapeHtml(title)}</h1>${body}</body></html>`,
@@ -482,7 +462,7 @@ function page(title: string, body: string, status = 200) {
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
         'Content-Security-Policy':
-          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'none'; frame-ancestors 'none'",
         'Referrer-Policy': 'no-referrer',
       },
     },
@@ -514,13 +494,15 @@ async function finish(env: Env, attempt: Attempt, accountId: string) {
   })
 }
 
-function configured(env: Env, provider: SignInProvider) {
+/** WorkOS signs people in. GitHub, through the browser, only connects a signed-in account. */
+type BrowserProvider = 'workos' | 'github'
+
+function configured(env: Env, provider: BrowserProvider) {
   if (provider === 'github') return !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET)
-  if (provider === 'google') return !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)
-  return !!(env.APPLE_CLIENT_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY)
+  return !!(env.WORKOS_CLIENT_ID && env.WORKOS_API_KEY)
 }
-const isProvider = (value: string): value is SignInProvider =>
-  value === 'google' || value === 'apple' || value === 'github'
+const isProvider = (value: string): value is BrowserProvider =>
+  value === 'workos' || value === 'github'
 
 const base64url = (bytes: Uint8Array) =>
   btoa(String.fromCharCode(...bytes))
@@ -529,91 +511,18 @@ const base64url = (bytes: Uint8Array) =>
     .replace(/=+$/, '')
 const encodeJson = (value: unknown) => base64url(new TextEncoder().encode(JSON.stringify(value)))
 
-/**
- * Apple's client secret: a short-lived ES256 JWT signed with the Sign in with Apple key.
- * WebCrypto's ECDSA signature is already JWS's r‖s form.
- */
-async function appleSecret(env: Env) {
-  const pem = (env.APPLE_PRIVATE_KEY ?? '').replace(/-----[^-]+-----|\s/g, '')
-  const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0))
-  const signer = await crypto.subtle.importKey(
-    'pkcs8',
-    der,
-    { name: 'ECDSA', namedCurve: 'P-256' },
-    false,
-    ['sign'],
-  )
-  const input = `${encodeJson({ alg: 'ES256', kid: env.APPLE_KEY_ID })}.${encodeJson({
-    iss: env.APPLE_TEAM_ID,
-    iat: now(),
-    exp: now() + 300,
-    aud: 'https://appleid.apple.com',
-    sub: env.APPLE_CLIENT_ID,
-  })}`
-  const signature = await crypto.subtle.sign(
-    { name: 'ECDSA', hash: 'SHA-256' },
-    signer,
-    new TextEncoder().encode(input),
-  )
-  return `${input}.${base64url(new Uint8Array(signature))}`
-}
-
-/**
- * An ID token's claims. It comes straight from the provider's token endpoint over TLS, in
- * exchange for our client secret, so OpenID Connect lets us skip the signature; the issuer,
- * audience, and expiry are still checked.
- */
-function idClaims(token: unknown, issuers: string[], audience: string) {
-  if (typeof token !== 'string') throw new HttpError(502, 'Sign-in did not return an identity.')
-  const part = token.split('.')[1] ?? ''
-  const claims = JSON.parse(
-    new TextDecoder().decode(
-      Uint8Array.from(atob(part.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
-    ),
-  ) as {
-    iss?: string
-    aud?: string
-    exp?: number
-    sub?: string
-    email?: string
-    email_verified?: boolean | string
-    name?: string
-  }
-  if (
-    !claims.sub ||
-    !issuers.includes(claims.iss ?? '') ||
-    claims.aud !== audience ||
-    !claims.exp ||
-    claims.exp < now()
-  )
-    throw new HttpError(502, 'Sign-in returned an identity Gui could not check.')
-  const verified = claims.email_verified === true || claims.email_verified === 'true'
-  return { sub: claims.sub, email: verified ? (claims.email ?? null) : null, name: claims.name }
-}
-
-/** Where a provider sends the browser back to; registered with each provider. */
-const callbackUrl = (request: Request, provider: SignInProvider) =>
+/** Where WorkOS or GitHub sends the browser back to; registered with each. */
+const callbackUrl = (request: Request, provider: BrowserProvider) =>
   `${new URL(request.url).origin}/callback/${provider}`
 
-function authorizeUrl(env: Env, request: Request, provider: SignInProvider, state: string) {
+function authorizeUrl(env: Env, request: Request, provider: BrowserProvider, state: string) {
   const redirect = callbackUrl(request, provider)
-  if (provider === 'google')
-    return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
-      client_id: env.GOOGLE_CLIENT_ID ?? '',
+  if (provider === 'workos')
+    return `https://api.workos.com/user_management/authorize?${new URLSearchParams({
+      client_id: env.WORKOS_CLIENT_ID ?? '',
       redirect_uri: redirect,
       response_type: 'code',
-      scope: 'openid email profile',
-      state,
-      prompt: 'select_account',
-    })}`
-  if (provider === 'apple')
-    return `https://appleid.apple.com/auth/authorize?${new URLSearchParams({
-      client_id: env.APPLE_CLIENT_ID ?? '',
-      redirect_uri: redirect,
-      response_type: 'code',
-      // Asking for name and email makes Apple POST the result back (form_post).
-      scope: 'name email',
-      response_mode: 'form_post',
+      provider: 'authkit',
       state,
     })}`
   return `https://github.com/login/oauth/authorize?${new URLSearchParams({
@@ -623,104 +532,70 @@ function authorizeUrl(env: Env, request: Request, provider: SignInProvider, stat
   })}`
 }
 
-/** Trades the provider's code for who signed in. GitHub's also becomes the connection. */
-async function providerIdentity(
-  env: Env,
-  request: Request,
-  provider: SignInProvider,
-  code: string,
-  appleUser: string | null,
-) {
-  const redirect = callbackUrl(request, provider)
-  if (provider === 'google') {
-    const tokens = await form<{ id_token?: string }>(
-      'https://oauth2.googleapis.com/token',
-      {
-        code,
-        client_id: env.GOOGLE_CLIENT_ID ?? '',
-        client_secret: env.GOOGLE_CLIENT_SECRET ?? '',
-        redirect_uri: redirect,
-        grant_type: 'authorization_code',
-      },
-      'Google',
-    )
-    const claims = idClaims(
-      tokens.id_token,
-      ['https://accounts.google.com', 'accounts.google.com'],
-      env.GOOGLE_CLIENT_ID ?? '',
-    )
-    return {
-      identity: {
-        provider,
-        subject: claims.sub,
-        email: claims.email,
-        name: claims.name ?? null,
-      } satisfies Identity,
+async function workos<T>(env: Env, path: string, body: unknown): Promise<T> {
+  const res = await fetch(`https://api.workos.com${path}`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${env.WORKOS_API_KEY ?? ''}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'User-Agent': 'Gui',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15_000),
+    redirect: 'manual',
+  })
+  if (!res.ok) throw new HttpError(502, 'Sign-in could not finish. Try again.')
+  return (await res.json().catch(() => ({}))) as T
+}
+
+/**
+ * Trades AuthKit's code for who signed in. Gui keeps its own session, so WorkOS's ends here:
+ * signing in again (after signing out, say) asks who you are rather than reusing it.
+ */
+async function workosIdentity(env: Env, code: string): Promise<Identity> {
+  const { user, access_token } = await workos<{
+    user?: {
+      id?: string
+      email?: string
+      email_verified?: boolean
+      first_name?: string | null
+      last_name?: string | null
     }
-  }
-  if (provider === 'apple') {
-    const tokens = await form<{ id_token?: string }>(
-      'https://appleid.apple.com/auth/token',
-      {
-        code,
-        client_id: env.APPLE_CLIENT_ID ?? '',
-        client_secret: await appleSecret(env),
-        redirect_uri: redirect,
-        grant_type: 'authorization_code',
-      },
-      'Apple',
-    )
-    const claims = idClaims(
-      tokens.id_token,
-      ['https://appleid.apple.com'],
-      env.APPLE_CLIENT_ID ?? '',
-    )
-    // Apple sends the name once, on the first sign-in, beside the code rather than in it.
-    let name: string | null = null
-    try {
-      const parsed = JSON.parse(appleUser ?? '{}') as {
-        name?: { firstName?: string; lastName?: string }
-      }
-      name =
-        [parsed.name?.firstName, parsed.name?.lastName].filter(Boolean).join(' ').slice(0, 200) ||
-        null
-    } catch {}
-    return {
-      identity: { provider, subject: claims.sub, email: claims.email, name } satisfies Identity,
-    }
-  }
-  const data = await gitHubOAuth('login/oauth/access_token', {
-    client_id: env.GITHUB_CLIENT_ID,
-    client_secret: env.GITHUB_CLIENT_SECRET,
+    access_token?: string
+  }>(env, '/user_management/authenticate', {
+    client_id: env.WORKOS_CLIENT_ID,
+    client_secret: env.WORKOS_API_KEY,
+    grant_type: 'authorization_code',
     code,
-    redirect_uri: redirect,
   })
-  if (!data.access_token) throw new HttpError(401, 'GitHub sign-in was denied or expired.')
-  const { user, email, identity } = await gitHubIdentity(data.access_token)
+  if (!user?.id) throw new HttpError(502, 'Sign-in did not return an identity.')
+  const sessionId = jwtClaims(access_token).sid
+  if (typeof sessionId === 'string')
+    await workos(env, '/user_management/sessions/revoke', { session_id: sessionId }).catch(
+      () => undefined,
+    )
+  const name = [user.first_name, user.last_name].filter(Boolean).join(' ').slice(0, 200)
   return {
-    identity,
-    github: { user, email, data: data as ProviderToken & { access_token: string } },
+    provider: 'workos',
+    subject: user.id,
+    email: user.email_verified && user.email ? user.email : null,
+    name: name || null,
   }
 }
 
-const EMAIL_PATTERN = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/
-
-async function sendSignInEmail(env: Env, request: Request, to: string, code: string, link: string) {
-  if (!env.EMAIL) throw new HttpError(503, 'Email sign-in is not available yet.')
-  const url = `${new URL(request.url).origin}/email?t=${link}`
-  await env.EMAIL.send({
-    to,
-    from: env.EMAIL_FROM ?? 'signin@usegui.com',
-    subject: `Sign in to Gui: ${code}`,
-    text: `Sign in to Gui on your Mac with this link:\n\n${url}\n\nOr enter this code in Gui: ${code}\n\nThe link and code stop working after 15 minutes. If you did not try to sign in to Gui, you can ignore this email.`,
-    html: `<div style="font:16px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:28rem"><p>Sign in to Gui on your Mac:</p><p><a href="${escapeHtml(url)}" style="display:inline-block;padding:.6rem 1rem;border-radius:.5rem;background:#2563eb;color:#fff;font-weight:600;text-decoration:none">Sign in to Gui</a></p><p>Or enter this code in Gui:</p><p style="font:600 1.5rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2em">${code}</p><p style="color:#6b7280">The link and code stop working after 15 minutes. If you did not try to sign in to Gui, you can ignore this email.</p></div>`,
-  })
-}
-
-/** Six digits from a uniform random source. */
-function emailCode() {
-  const values = crypto.getRandomValues(new Uint32Array(1))
-  return String((values[0] ?? 0) % 1_000_000).padStart(6, '0')
+/** A JWT's claims, unchecked: only for reading WorkOS's session ID out of its own answer. */
+function jwtClaims(token: unknown): Record<string, unknown> {
+  try {
+    const part = typeof token === 'string' ? (token.split('.')[1] ?? '') : ''
+    return JSON.parse(
+      new TextDecoder().decode(
+        Uint8Array.from(atob(part.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
+      ),
+    )
+  } catch {
+    return {}
+  }
 }
 
 async function attemptFor(request: Request, env: Env) {
@@ -762,7 +637,7 @@ async function signInRoute(
       body.port > 65535
     )
       throw new HttpError(400, 'Invalid sign-in request.')
-    // With a session, this adds a sign-in (GitHub) to the signed-in account.
+    // With a session, this connects GitHub to the signed-in account.
     const linkTo = bearerToken(request) ? (await session(request, env)).account.id : null
     await limited(env, request)
     await env.DB.batch([
@@ -785,26 +660,30 @@ async function signInRoute(
   if (request.method === 'GET' && signIn) {
     const provider = signIn[1] ?? ''
     if (!isProvider(provider)) return failed('Gui doesn’t know this way of signing in.', 404)
-    if (!configured(env, provider))
-      return failed('This way of signing in isn’t available yet.', 503)
+    if (!configured(env, provider)) return failed('Signing in isn’t available yet.', 503)
     const state = random()
+    // WorkOS signs in; GitHub only connects to the account that started the attempt.
     const started = await env.DB.prepare(
-      'UPDATE auth_attempts SET state_hash = ?, provider = ? WHERE public_id = ? AND expires_at > ? AND account_id IS NULL',
+      'UPDATE auth_attempts SET state_hash = ?, provider = ? WHERE public_id = ? AND expires_at > ? AND account_id IS NULL AND (link_account_id IS NULL) = ?',
     )
-      .bind(await hash(state), provider, url.searchParams.get('a') ?? '', now())
+      .bind(
+        await hash(state),
+        provider,
+        url.searchParams.get('a') ?? '',
+        now(),
+        provider === 'workos' ? 1 : 0,
+      )
       .run()
     if (!started.meta.changes) return failed('This sign-in expired.')
     return Response.redirect(authorizeUrl(env, request, provider, state), 302)
   }
 
   const callback = /^\/callback\/([a-z]+)$/.exec(path)
-  if (callback && (request.method === 'GET' || request.method === 'POST')) {
+  if (callback && request.method === 'GET') {
     const provider = callback[1] ?? ''
     if (!isProvider(provider)) return failed('Gui doesn’t know this way of signing in.', 404)
     diagnostic.stage = `${provider} callback`
-    const params =
-      request.method === 'POST' ? new URLSearchParams(await request.text()) : url.searchParams
-    const state = params.get('state')
+    const state = url.searchParams.get('state')
     if (!state) return failed('The sign-in page sent an incomplete answer.')
     // The state is single-use: whoever presents it first ends it.
     const attempt = await env.DB.prepare(
@@ -813,116 +692,32 @@ async function signInRoute(
       .bind(await hash(state), provider, now())
       .first<Attempt>()
     if (!attempt) return failed('This sign-in expired.')
-    const code = params.get('code')
-    if (params.get('error') || !code) return failed('Sign-in was cancelled.')
+    const code = url.searchParams.get('code')
+    if (url.searchParams.get('error') || !code) return failed('Sign-in was cancelled.')
     try {
-      const result = await providerIdentity(env, request, provider, code, params.get('user'))
-      const accountId = await accountFor(env, result.identity, attempt.link_account_id)
-      if (result.github)
-        await saveConnection(
-          env,
-          accountId,
-          result.github.user,
-          result.github.email,
-          result.github.data,
-        )
+      if (provider === 'workos')
+        return await finish(env, attempt, await accountFor(env, await workosIdentity(env, code)))
+      const data = await gitHubOAuth('login/oauth/access_token', {
+        client_id: env.GITHUB_CLIENT_ID,
+        client_secret: env.GITHUB_CLIENT_SECRET,
+        code,
+        redirect_uri: callbackUrl(request, provider),
+      })
+      if (!data.access_token) throw new HttpError(401, 'GitHub sign-in was denied or expired.')
+      const { user, email, identity } = await gitHubIdentity(data.access_token)
+      const accountId = await accountFor(env, identity, attempt.link_account_id)
+      await saveConnection(
+        env,
+        accountId,
+        user,
+        email,
+        data as ProviderToken & { access_token: string },
+      )
       return await finish(env, attempt, accountId)
     } catch (error) {
       if (error instanceof HttpError) return failed(error.message, error.status)
       throw error
     }
-  }
-
-  if (request.method === 'POST' && path === '/auth/email') {
-    diagnostic.stage = 'email sign-in'
-    const attempt = await attemptFor(request, env)
-    if (attempt.link_account_id) throw new HttpError(400, 'Use a provider to add a sign-in.')
-    const body = (await request.json().catch(() => ({}))) as { email?: unknown }
-    const email = typeof body.email === 'string' ? body.email.trim() : ''
-    if (email.length > 254 || !EMAIL_PATTERN.test(email))
-      throw new HttpError(400, 'Enter an email address, like you@example.com.')
-    await limited(env, request)
-    const perAddress = await env.EMAIL_LIMITER?.limit({ key: email.toLowerCase() })
-    if (perAddress && !perAddress.success)
-      throw new HttpError(
-        429,
-        'Gui just sent an email to this address. Wait a minute, then try again.',
-      )
-    if (attempt.emails_sent >= EMAILS_PER_ATTEMPT)
-      throw new HttpError(429, 'Too many emails for one sign-in. Start again.')
-    const code = emailCode()
-    const link = random()
-    await env.DB.prepare(
-      'UPDATE auth_attempts SET email = ?, email_code_hash = ?, email_link_hash = ?, email_tries = 0, emails_sent = emails_sent + 1 WHERE token_hash = ?',
-    )
-      .bind(
-        email,
-        await hash(`${attempt.token_hash}:${code}`),
-        await hash(link),
-        attempt.token_hash,
-      )
-      .run()
-    diagnostic.stage = 'email delivery'
-    await sendSignInEmail(env, request, email, code, link)
-    return json({ ok: true })
-  }
-
-  // Opening the link only asks: mail scanners open links too, and must not sign anyone in.
-  if (request.method === 'GET' && path === '/email') {
-    const token = url.searchParams.get('t') ?? ''
-    if (!/^[a-f\d-]{72}$/i.test(token)) return failed('This link is incomplete.')
-    return page(
-      'Sign in to Gui',
-      `<p>Continue to sign in to Gui on this Mac.</p><form method="post" action="/email"><input type="hidden" name="t" value="${escapeHtml(token)}"><button type="submit">Sign in to Gui</button></form><p style="margin-top:1.5rem">On another device? Enter the code from the email in Gui instead.</p>`,
-    )
-  }
-  if (request.method === 'POST' && path === '/email') {
-    diagnostic.stage = 'email link'
-    const token = new URLSearchParams(await request.text()).get('t') ?? ''
-    const attempt = await env.DB.prepare(
-      'UPDATE auth_attempts SET email_link_hash = NULL, email_code_hash = NULL WHERE email_link_hash = ? AND expires_at > ? AND account_id IS NULL RETURNING *',
-    )
-      .bind(await hash(token), now())
-      .first<Attempt>()
-    if (!attempt?.email) return failed('This link expired or was already used.')
-    const accountId = await accountFor(env, {
-      provider: 'email',
-      subject: attempt.email.toLowerCase(),
-      email: attempt.email,
-      name: null,
-    })
-    return finish(env, attempt, accountId)
-  }
-
-  // The code from the email, typed into Gui: no browser, so the session comes straight back.
-  if (request.method === 'POST' && path === '/auth/email/code') {
-    diagnostic.stage = 'email code'
-    const attempt = await attemptFor(request, env)
-    const body = (await request.json().catch(() => ({}))) as { code?: unknown }
-    const code = typeof body.code === 'string' ? body.code.replace(/\D/g, '') : ''
-    if (!attempt.email || !attempt.email_code_hash)
-      throw new HttpError(400, 'Ask for a new email, then enter its code.')
-    const tried = await env.DB.prepare(
-      'UPDATE auth_attempts SET email_tries = email_tries + 1 WHERE token_hash = ? AND email_tries < ?',
-    )
-      .bind(attempt.token_hash, EMAIL_TRIES)
-      .run()
-    if (!tried.meta.changes) throw new HttpError(429, 'Too many wrong codes. Ask for a new email.')
-    if ((await hash(`${attempt.token_hash}:${code}`)) !== attempt.email_code_hash)
-      throw new HttpError(400, 'That code doesn’t match. Check the email and try again.')
-    const consumed = await env.DB.prepare(
-      'DELETE FROM auth_attempts WHERE token_hash = ? AND email_code_hash = ?',
-    )
-      .bind(attempt.token_hash, attempt.email_code_hash)
-      .run()
-    if (!consumed.meta.changes) throw new HttpError(401, 'Sign-in expired. Try again.')
-    const accountId = await accountFor(env, {
-      provider: 'email',
-      subject: attempt.email.toLowerCase(),
-      email: attempt.email,
-      name: null,
-    })
-    return json({ session: await newSession(env, accountId) })
   }
 
   if (request.method === 'POST' && path === '/auth/token') {
@@ -1071,11 +866,6 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     const user = await env.DB.prepare('SELECT * FROM users WHERE account_id = ?')
       .bind(account.id)
       .first<User>()
-    const { results } = await env.DB.prepare(
-      'SELECT DISTINCT provider FROM identities WHERE account_id = ? ORDER BY created_at',
-    )
-      .bind(account.id)
-      .all<{ provider: IdentityProvider }>()
     // `profile` is the GitHub connection, in the shape Gui versions before accounts read.
     const profile: GitHubProfile | null = user && {
       login: user.login,
@@ -1088,7 +878,6 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
         email: account.email,
         name: account.name,
         updates: !!account.updates,
-        providers: results.map((row) => row.provider),
       },
       profile,
       installUrl: `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`,
@@ -1110,6 +899,25 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     return json({ ok: true })
   }
   if (path === '/account' && request.method === 'DELETE') {
+    // WorkOS's record of the person goes too. One already gone is fine.
+    const { results: workosUsers } = await env.DB.prepare(
+      "SELECT subject FROM identities WHERE account_id = ? AND provider = 'workos'",
+    )
+      .bind(account.id)
+      .all<{ subject: string }>()
+    for (const { subject } of workosUsers) {
+      const res = await fetch(
+        `https://api.workos.com/user_management/users/${encodeURIComponent(subject)}`,
+        {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${env.WORKOS_API_KEY ?? ''}`, 'User-Agent': 'Gui' },
+          signal: AbortSignal.timeout(15_000),
+          redirect: 'manual',
+        },
+      )
+      if (!res.ok && res.status !== 404)
+        throw new HttpError(502, 'Could not delete the account. Try again.')
+    }
     await env.DB.batch([
       env.DB.prepare('DELETE FROM sessions WHERE account_id = ?').bind(account.id),
       env.DB.prepare('DELETE FROM auth_attempts WHERE account_id = ? OR link_account_id = ?').bind(
@@ -1122,7 +930,7 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     ])
     return json({ ok: true })
   }
-  // Disconnecting GitHub drops its tokens. GitHub stays a way to sign in to this account.
+  // Disconnecting GitHub drops its tokens; the account stays signed in.
   if (path === '/github' && request.method === 'DELETE') {
     await env.DB.prepare('DELETE FROM users WHERE account_id = ?').bind(account.id).run()
     return json({ ok: true })

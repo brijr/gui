@@ -16,7 +16,6 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { isSignInProvider } from '../shared/account'
 import {
   Events,
   Invoke,
@@ -53,14 +52,11 @@ import {
   accountEvents,
   accountState,
   cancelSignIn,
-  emailCode,
-  emailSignIn,
   getAccount,
   mustSignIn,
   setAccountUpdates,
   signIn,
   signOut,
-  waitForSignIn,
 } from './account'
 import { killStoppedAgents } from './agent'
 import { agentHealth } from './agent-status'
@@ -618,25 +614,7 @@ function registerIpc() {
   }
   accountHandle(Invoke.accountState, () => accountState())
   accountHandle(Invoke.accountProfile, () => getAccount())
-  accountHandle(Invoke.accountSignIn, (provider) =>
-    reportError(async () => {
-      if (!isSignInProvider(provider)) throw new Error('Choose how to sign in.')
-      await signIn(provider)
-    }),
-  )
-  accountHandle(Invoke.accountEmail, (email) =>
-    reportError(async () => {
-      if (!isString(email) || email.length > 254) throw new Error('Enter your email address.')
-      await emailSignIn(email.trim())
-    }),
-  )
-  accountHandle(Invoke.accountCode, (code) =>
-    reportError(async () => {
-      if (!isString(code) || code.length > 20) throw new Error('Enter the code from the email.')
-      await emailCode(code)
-    }),
-  )
-  accountHandle(Invoke.accountWait, () => reportError(() => waitForSignIn()))
+  accountHandle(Invoke.accountSignIn, () => reportError(() => signIn()))
   accountHandle(Invoke.accountCancel, () => reportError(() => cancelSignIn()))
   accountHandle(Invoke.accountSignOut, () => reportError(() => signOut()))
   accountHandle(Invoke.accountUpdates, (updates) =>

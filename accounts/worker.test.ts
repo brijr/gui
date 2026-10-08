@@ -1,6 +1,6 @@
 import { Database as SQLite } from 'bun:sqlite'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import worker, { type Database, type EmailMessage, type Env, type Statement } from './src/worker'
+import worker, { type Database, type Env, type Statement } from './src/worker'
 
 let db: SQLite
 let env: Env
@@ -13,18 +13,24 @@ let refreshCalls: number
 let createdBody: unknown
 let pullBody: unknown
 let creationDenied: boolean
-let sentEmails: EmailMessage[]
-let googleUser: { sub: string; email: string; email_verified: boolean; name: string }
-let appleSubject: string
+let workosUser: {
+  id: string
+  email: string
+  email_verified: boolean
+  first_name: string | null
+  last_name: string | null
+}
+let revokedSessions: string[]
+let deletedUsers: string[]
 let appKey: CryptoKeyPair
 let tokenRequests: { installation: string; body: unknown }[]
 
 const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url')
-const idToken = (claims: Record<string, unknown>) =>
+const jwt = (claims: Record<string, unknown>) =>
   `${encode({ alg: 'none' })}.${encode({ exp: Math.floor(Date.now() / 1000) + 600, ...claims })}.sig`
 const migrations = async () =>
   Promise.all(
-    ['0001_accounts.sql', '0002_gui_accounts.sql'].map((name) =>
+    ['0001_accounts.sql', '0002_gui_accounts.sql', '0003_workos.sql'].map((name) =>
       Bun.file(new URL(`./migrations/${name}`, import.meta.url)).text(),
     ),
   )
@@ -72,24 +78,20 @@ beforeEach(async () => {
     GITHUB_APP_SLUG: 'gui-test',
     GITHUB_CLIENT_SECRET: 'secret',
     TOKEN_ENCRYPTION_KEY: 'ab'.repeat(32),
-    GOOGLE_CLIENT_ID: 'google-client',
-    GOOGLE_CLIENT_SECRET: 'google-secret',
-    APPLE_CLIENT_ID: 'dev.gui.signin',
-    APPLE_TEAM_ID: 'TEAM',
-    APPLE_KEY_ID: 'KEY',
-    APPLE_PRIVATE_KEY: await applePrivateKey(),
+    WORKOS_CLIENT_ID: 'client_workos',
+    WORKOS_API_KEY: 'sk_test_workos',
     GITHUB_APP_ID: '12345',
     GITHUB_APP_PRIVATE_KEY: await appPrivateKey(),
-    EMAIL: {
-      async send(message) {
-        sentEmails.push(message)
-      },
-    },
-    EMAIL_LIMITER: { limit: async () => ({ success: true }) },
   }
-  sentEmails = []
-  googleUser = { sub: 'g-1', email: 'test@example.com', email_verified: true, name: 'Google User' }
-  appleSubject = 'apple-1'
+  workosUser = {
+    id: 'user_1',
+    email: 'test@example.com',
+    email_verified: true,
+    first_name: 'Ada',
+    last_name: 'Lovelace',
+  }
+  revokedSessions = []
+  deletedUsers = []
   providerError = null
   emailVerified = true
   secondAccount = false
@@ -102,28 +104,29 @@ beforeEach(async () => {
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const params = new URLSearchParams(String(init?.body ?? ''))
-    if (url.hostname === 'oauth2.googleapis.com') {
-      expect(params.get('client_secret')).toBe('google-secret')
-      return Response.json({
-        id_token: idToken({
-          iss: 'https://accounts.google.com',
-          aud: 'google-client',
-          ...googleUser,
-        }),
+    if (url.hostname === 'api.workos.com') {
+      expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer sk_test_workos')
+      if (init?.method === 'DELETE') {
+        deletedUsers.push(url.pathname.split('/').pop() ?? '')
+        return new Response(null, { status: 202 })
+      }
+      const body = JSON.parse(String(init?.body))
+      if (url.pathname === '/user_management/sessions/revoke') {
+        revokedSessions.push(body.session_id)
+        return Response.json({})
+      }
+      expect(url.pathname).toBe('/user_management/authenticate')
+      expect(body).toMatchObject({
+        client_id: 'client_workos',
+        client_secret: 'sk_test_workos',
+        grant_type: 'authorization_code',
       })
-    }
-    if (url.hostname === 'appleid.apple.com') {
-      // A signed ES256 client secret, never the key itself.
-      expect(params.get('client_secret')?.split('.')).toHaveLength(3)
-      expect(params.get('client_secret')).not.toContain('PRIVATE')
+      if (body.code !== 'c') return Response.json({ error: 'invalid_grant' }, { status: 400 })
       return Response.json({
-        id_token: idToken({
-          iss: 'https://appleid.apple.com',
-          aud: 'dev.gui.signin',
-          sub: appleSubject,
-          email: 'relay@privaterelay.appleid.com',
-          email_verified: 'true',
-        }),
+        user: workosUser,
+        access_token: jwt({ sid: `session_${workosUser.id}` }),
+        refresh_token: 'workos-refresh',
+        authentication_method: 'GoogleOAuth',
       })
     }
     if (url.pathname === '/login/device/code')
@@ -236,14 +239,6 @@ async function appPrivateKey() {
   const der = Buffer.from(await crypto.subtle.exportKey('pkcs8', appKey.privateKey)).subarray(26)
   return `-----BEGIN RSA PRIVATE KEY-----\n${der.toString('base64')}\n-----END RSA PRIVATE KEY-----`
 }
-async function applePrivateKey() {
-  const pair = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, [
-    'sign',
-    'verify',
-  ])
-  const der = Buffer.from(await crypto.subtle.exportKey('pkcs8', pair.privateKey))
-  return `-----BEGIN PRIVATE KEY-----\n${der.toString('base64')}\n-----END PRIVATE KEY-----`
-}
 async function login() {
   const attempt = (await (await call('/github/start', undefined, 'POST')).json()) as {
     attempt: string
@@ -260,7 +255,7 @@ test('login stores verified identity, encrypts provider credentials, and prevent
   const response = await call('/account', signedIn.session)
   expect(await response.json()).toMatchObject({
     // Not subscribed until the person says so.
-    account: { email: 'test@example.com', updates: false, providers: ['github'] },
+    account: { email: 'test@example.com', updates: false },
     profile: { login: 'tester', email: 'test@example.com', updates: false },
   })
   const user = db.query('SELECT * FROM users').get() as {
@@ -454,10 +449,10 @@ async function providerState(id: string, provider: string) {
   expect(redirect.status).toBe(302)
   return new URL(redirect.headers.get('Location') ?? '').searchParams.get('state') ?? ''
 }
-async function signInWithGoogle() {
+async function signIn() {
   const { attempt, id } = await start()
-  const state = await providerState(id, 'google')
-  const session = await collect(attempt, await browse(`/callback/google?code=c&state=${state}`))
+  const state = await providerState(id, 'workos')
+  const session = await collect(attempt, await browse(`/callback/workos?code=c&state=${state}`))
   if (!session) throw new Error('No session')
   return { session, state }
 }
@@ -466,12 +461,13 @@ test('migrating keeps GitHub users signed in, and only an explicit email choice 
   db.close()
   db = new SQLite(':memory:')
   db.exec('PRAGMA foreign_keys = ON')
-  const [first, second] = await migrations()
+  const [first, second, third] = await migrations()
   db.exec(first ?? '')
   db.exec(`INSERT INTO users (github_id, login, email, updates, preference_changed_at, created_at, last_login_at, github_token, token_expires_at)
     VALUES (1, 'defaulted', 'a@example.com', 1, NULL, 1, 1, 'x', 1), (2, 'chose', 'b@example.com', 1, 5, 1, 1, 'x', 1)`)
   db.exec(`INSERT INTO sessions VALUES ('hash-1', 1, 9999999999), ('hash-2', 2, 9999999999)`)
   db.exec(second ?? '')
+  db.exec(third ?? '')
   expect(db.query('SELECT email, updates FROM accounts ORDER BY email').all()).toEqual([
     { email: 'a@example.com', updates: 0 },
     { email: 'b@example.com', updates: 1 },
@@ -486,150 +482,73 @@ test('migrating keeps GitHub users signed in, and only an explicit email choice 
   })
 })
 
-test('Google sign-in goes through the browser and back to Gui by loopback, once', async () => {
-  const { session, state } = await signInWithGoogle()
-  expect(await (await call('/account', session)).json()).toMatchObject({
-    account: {
-      email: 'test@example.com',
-      name: 'Google User',
-      updates: false,
-      providers: ['google'],
-    },
+test('sign-in goes through AuthKit in the browser and back to Gui by loopback, once', async () => {
+  const { attempt, id } = await start()
+  const redirect = new URL((await browse(`/signin/workos?a=${id}`)).headers.get('Location') ?? '')
+  expect(redirect.origin + redirect.pathname).toBe(
+    'https://api.workos.com/user_management/authorize',
+  )
+  expect(Object.fromEntries(redirect.searchParams)).toMatchObject({
+    client_id: 'client_workos',
+    provider: 'authkit',
+    response_type: 'code',
+    redirect_uri: 'https://accounts.test/callback/workos',
+  })
+  const state = redirect.searchParams.get('state') ?? ''
+  const session = await collect(attempt, await browse(`/callback/workos?code=c&state=${state}`))
+  expect(await (await call('/account', session ?? undefined)).json()).toMatchObject({
+    account: { email: 'test@example.com', name: 'Ada Lovelace', updates: false },
     profile: null,
   })
-  // The provider's state is single-use.
-  expect((await browse(`/callback/google?code=c&state=${state}`)).status).toBe(400)
+  // Gui keeps its own session; WorkOS's ends, so signing in again asks again.
+  expect(revokedSessions).toEqual(['session_user_1'])
+  // The state is single-use.
+  expect((await browse(`/callback/workos?code=c&state=${state}`)).status).toBe(400)
   // No GitHub yet: repositories ask for it without signing Gui out.
-  expect((await call('/repositories', session)).status).toBe(403)
+  expect((await call('/repositories', session ?? undefined)).status).toBe(403)
 })
 
-test('a cancelled or expired browser sign-in shows a page and creates nothing', async () => {
+test('a cancelled, refused, or expired browser sign-in shows a page and creates nothing', async () => {
   const { attempt, id } = await start()
-  const state = await providerState(id, 'google')
-  const cancelled = await browse(`/callback/google?error=access_denied&state=${state}`)
+  const state = await providerState(id, 'workos')
+  const cancelled = await browse(`/callback/workos?error=access_denied&state=${state}`)
   expect(cancelled.status).toBe(400)
   expect(await cancelled.text()).toContain('Sign-in was cancelled')
   expect((await call('/auth/token', attempt, 'POST', { code: 'guess' })).status).toBe(401)
+  const refused = await start()
+  const refusedState = await providerState(refused.id, 'workos')
+  expect((await browse(`/callback/workos?code=stale&state=${refusedState}`)).status).toBe(502)
   const later = await start()
   db.exec('UPDATE auth_attempts SET expires_at = 0')
-  expect((await browse(`/signin/google?a=${later.id}`)).status).toBe(400)
+  expect((await browse(`/signin/workos?a=${later.id}`)).status).toBe(400)
   expect(db.query('SELECT count(*) AS n FROM sessions').get()).toEqual({ n: 0 })
+  expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 0 })
 })
 
-test('Apple posts its answer back, and its first-time name is kept', async () => {
-  const { attempt, id } = await start()
-  const state = await providerState(id, 'apple')
-  const response = await browse('/callback/apple', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code: 'c',
-      state,
-      user: JSON.stringify({ name: { firstName: 'Ada', lastName: 'Lovelace' } }),
-    }),
-  })
-  const session = await collect(attempt, response)
-  expect(await (await call('/account', session ?? undefined)).json()).toMatchObject({
-    account: {
-      name: 'Ada Lovelace',
-      email: 'relay@privaterelay.appleid.com',
-      providers: ['apple'],
-    },
-  })
-})
-
-test('the same verified email reaches one account, whichever way someone signs in', async () => {
-  const google = await signInWithGoogle()
+test('the same verified email reaches one account, from WorkOS or Gui’s GitHub sign-in', async () => {
   const github = await login()
+  const workos = await signIn()
   expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 1 })
-  expect(await (await call('/account', github.session)).json()).toMatchObject({
-    account: { providers: ['google', 'github'] },
+  expect(await (await call('/account', workos.session)).json()).toMatchObject({
+    profile: { login: 'tester' },
   })
-  expect((await call('/account', google.session)).status).toBe(200)
+  expect((await call('/account', github.session)).status).toBe(200)
   // An unverified email never joins an existing account.
-  googleUser = { sub: 'g-2', email: 'test@example.com', email_verified: false, name: 'Other' }
-  await signInWithGoogle()
+  workosUser = { ...workosUser, id: 'user_2', email_verified: false }
+  await signIn()
   expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 2 })
 })
 
-test('emailed sign-in: a code typed into Gui, limited tries, no account until it matches', async () => {
-  const { attempt } = await start()
-  expect((await call('/auth/email', attempt, 'POST', { email: 'not an email' })).status).toBe(400)
-  expect(
-    (await call('/auth/email', attempt, 'POST', { email: 'Designer@Example.com' })).status,
-  ).toBe(200)
-  const message = sentEmails[0]
-  if (!message) throw new Error('No email')
-  expect(message.to).toBe('Designer@Example.com')
-  const code = /(\d{6})/.exec(message.subject)?.[1] ?? ''
-  expect(message.text).toContain(code)
-  const wrong = code === '000000' ? '111111' : '000000'
-  expect((await call('/auth/email/code', attempt, 'POST', { code: wrong })).status).toBe(400)
-  expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 0 })
-  const right = await call('/auth/email/code', attempt, 'POST', { code })
-  expect(right.status).toBe(200)
-  const { session } = (await right.json()) as { session: string }
-  expect(await (await call('/account', session)).json()).toMatchObject({
-    account: { email: 'Designer@Example.com', providers: ['email'] },
-  })
-  // Used up.
-  expect((await call('/auth/email/code', attempt, 'POST', { code })).status).toBe(401)
-})
-
-test('wrong email codes run out', async () => {
-  const { attempt } = await start()
-  await call('/auth/email', attempt, 'POST', { email: 'designer@example.com' })
-  const code = /(\d{6})/.exec(sentEmails[0]?.subject ?? '')?.[1] ?? ''
-  const wrong = code === '000000' ? '111111' : '000000'
-  for (let i = 0; i < 5; i++) await call('/auth/email/code', attempt, 'POST', { code: wrong })
-  expect((await call('/auth/email/code', attempt, 'POST', { code })).status).toBe(429)
-})
-
-test('emailed link: opening it only asks, and confirming signs in on this Mac once', async () => {
-  const { attempt } = await start()
-  await call('/auth/email', attempt, 'POST', { email: 'designer@example.com' })
-  const link = new URL(/https:\/\/\S+/.exec(sentEmails[0]?.text ?? '')?.[0] ?? '')
-  const token = link.searchParams.get('t') ?? ''
-  // A mail scanner opening the link changes nothing.
-  const opened = await browse(`${link.pathname}${link.search}`)
-  expect(opened.status).toBe(200)
-  expect(await opened.text()).toContain('<form method="post" action="/email">')
-  expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 0 })
-  const confirm = () =>
-    browse('/email', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ t: token }),
-    })
-  const session = await collect(attempt, await confirm())
-  expect((await call('/account', session ?? undefined)).status).toBe(200)
-  expect((await confirm()).status).toBe(400)
-})
-
-test('sign-in emails are limited per address and per sign-in', async () => {
-  const { attempt } = await start()
-  for (let i = 0; i < 3; i++)
-    expect((await call('/auth/email', attempt, 'POST', { email: 'a@example.com' })).status).toBe(
-      200,
-    )
-  expect((await call('/auth/email', attempt, 'POST', { email: 'a@example.com' })).status).toBe(429)
-  env.EMAIL_LIMITER = { limit: async () => ({ success: false }) }
-  const other = await start()
-  expect(
-    (await call('/auth/email', other.attempt, 'POST', { email: 'b@example.com' })).status,
-  ).toBe(429)
-  expect(sentEmails).toHaveLength(3)
-})
-
 test('GitHub connects to a signed-in account, and disconnecting keeps Gui signed in', async () => {
-  const { session } = await signInWithGoogle()
+  const { session } = await signIn()
   const link = await start(session)
+  // WorkOS is for signing in; this attempt only connects GitHub.
+  expect((await browse(`/signin/workos?a=${link.id}`)).status).toBe(400)
   const state = await providerState(link.id, 'github')
   expect(
     await collect(link.attempt, await browse(`/callback/github?code=c&state=${state}`)),
   ).toBeNull()
   expect(await (await call('/account', session)).json()).toMatchObject({
-    account: { providers: ['google', 'github'] },
     profile: { login: 'tester' },
   })
   expect((await call('/repositories', session)).status).toBe(200)
@@ -638,10 +557,15 @@ test('GitHub connects to a signed-in account, and disconnecting keeps Gui signed
   expect((await call('/account', session)).status).toBe(200)
 })
 
+test('GitHub in the browser only connects; it does not sign in', async () => {
+  const { id } = await start()
+  expect((await browse(`/signin/github?a=${id}`)).status).toBe(400)
+})
+
 test('a GitHub user already in another account cannot be linked to this one', async () => {
   await login()
-  googleUser = { sub: 'g-9', email: 'someone@example.com', email_verified: true, name: 'Someone' }
-  const { session } = await signInWithGoogle()
+  workosUser = { ...workosUser, id: 'user_9', email: 'someone@example.com' }
+  const { session } = await signIn()
   const link = await start(session)
   const state = await providerState(link.id, 'github')
   const response = await browse(`/callback/github?code=c&state=${state}`)
@@ -650,11 +574,17 @@ test('a GitHub user already in another account cannot be linked to this one', as
   expect((await call('/repositories', session)).status).toBe(403)
 })
 
-test('ways of signing in that are not set up say so instead of failing', async () => {
-  env.GOOGLE_CLIENT_SECRET = undefined
+test('signing in that is not set up says so instead of failing', async () => {
+  env.WORKOS_API_KEY = undefined
   const { id } = await start()
-  expect((await browse(`/signin/google?a=${id}`)).status).toBe(503)
-  env.EMAIL = undefined
-  const { attempt } = await start()
-  expect((await call('/auth/email', attempt, 'POST', { email: 'a@example.com' })).status).toBe(503)
+  expect((await browse(`/signin/workos?a=${id}`)).status).toBe(503)
+  expect((await browse(`/signin/google?a=${id}`)).status).toBe(404)
+})
+
+test('deleting the Gui account deletes the person at WorkOS too', async () => {
+  const { session } = await signIn()
+  expect((await call('/account', session, 'DELETE')).status).toBe(200)
+  expect(deletedUsers).toEqual(['user_1'])
+  expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 0 })
+  expect((await call('/account', session)).status).toBe(401)
 })

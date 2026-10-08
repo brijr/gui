@@ -25,10 +25,13 @@ import Legal from '../components/Legal.astro'
   </p>
 
   <h2>Your Gui account</h2>
-  <p>To use Gui, you sign in with Google, Apple, GitHub, or an email link. We keep:</p>
+  <p>
+    To use Gui, you sign in with Google, Apple, GitHub, or a code sent to your email. WorkOS runs
+    the sign-in page for us. We keep:
+  </p>
   <ul>
     <li>Your email address and your name, as the sign-in service gives them to us.</li>
-    <li>An ID from each sign-in service that you use, so that we know it is you next time.</li>
+    <li>An ID from WorkOS, so that we know it is you next time.</li>
     <li>When you made the account and when you last signed in.</li>
     <li>Whether you want emails about new Gui features. This is off until you turn it on.</li>
     <li>
@@ -57,8 +60,10 @@ import Legal from '../components/Legal.astro'
 
   <h2>Who processes your data</h2>
   <p>
-    The Gui account service runs on Cloudflare, which stores the data above and sends our email.
-    Google, Apple, and GitHub process your sign-in under their own privacy policies. We do not
+    The Gui account service runs on Cloudflare, which stores the data above. WorkOS runs sign-in:
+    it keeps a record of your sign-in (your email, your name, and how you sign in) and sends
+    sign-in codes. Google, Apple, and GitHub process your sign-in under their own privacy
+    policies. We do not
     sell your data, and we do not share it for advertising.
   </p>
 
