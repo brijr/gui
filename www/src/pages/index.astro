@@ -48,28 +48,28 @@ const tools = [
 // Frames from the same session as the hero video.
 const steps = [
   {
-    name: 'Select',
+    name: 'Select an element on the page',
     text: 'Select the element that you want to change. Gui shows its tag and its size.',
     light: selectLight,
     dark: selectDark,
     alt: 'Gui outlines two words in the headline and shows the label span, 227 × 50.',
   },
   {
-    name: 'Describe',
+    name: 'Describe the change in your own words',
     text: 'Write the change in the chat, in your words. The selected element goes with it.',
     light: describeLight,
     dark: describeDark,
     alt: 'The chat shows the selected span and the message: turn this highlight into a hand-drawn marker underline, same yellow.',
   },
   {
-    name: 'Watch',
+    name: 'Watch the agent edit your code',
     text: 'The agent finds the file and changes the code. The chat shows each step.',
     light: watchLight,
     dark: watchDark,
     alt: 'The chat shows the agent at work: a completed step and a timer.',
   },
   {
-    name: 'Compare',
+    name: 'Compare before and after, then keep or undo',
     text: 'The page shows the change. Compare it before and after, then keep it or undo it.',
     light: compareLight,
     dark: compareDark,
@@ -319,15 +319,11 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     margin-top: var(--s-4);
     display: grid;
     gap: var(--s-5) var(--s-4);
-    counter-reset: step;
   }
   @media (min-width: 40rem) {
     .steps {
       grid-template-columns: 1fr 1fr;
     }
-  }
-  .steps li {
-    counter-increment: step;
   }
   .steps :global(img) {
     display: block;
@@ -339,12 +335,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .steps h3 {
     margin-top: var(--s-3);
     font-weight: 400;
-  }
-  .steps h3::before {
-    content: counter(step) '\2009';
-    color: var(--muted);
-    font-weight: 300;
-    font-variant-numeric: tabular-nums;
   }
   .steps p {
     color: var(--muted);

@@ -54,6 +54,10 @@ const { light, dark, stillLight, stillDark, alt, sizes } = Astro.props
   /* The video carries the window's own shape and edge; its corners are the page's color. */
   .hero-video {
     position: relative;
+    border: 1px solid var(--rule);
+    /* The window's 20px corners in the 1920×1200 frame, so they scale with it. */
+    border-radius: 1.04% / 1.67%;
+    overflow: hidden;
   }
   .hero-video :global(img) {
     display: block;
