@@ -16,7 +16,15 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { Invoke, MAX_TERMINAL_INPUT, type OutputChunk, Send, type StartForm } from '../shared/ipc'
+import { isSignInProvider } from '../shared/account'
+import {
+  Events,
+  Invoke,
+  MAX_TERMINAL_INPUT,
+  type OutputChunk,
+  Send,
+  type StartForm,
+} from '../shared/ipc'
 import {
   SHORTCUTS,
   type ShortcutId,
@@ -41,21 +49,31 @@ import {
   type StorageKind,
   VIEWPORTS,
 } from '../shared/types'
+import {
+  accountEvents,
+  accountState,
+  cancelSignIn,
+  emailCode,
+  emailSignIn,
+  getAccount,
+  mustSignIn,
+  setAccountUpdates,
+  signIn,
+  signOut,
+  waitForSignIn,
+} from './account'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { developerTools } from './developer-tools'
 import {
-  cancelGitHub,
   cloneGitHub,
+  connectGitHub,
   createGitHub,
   disconnectGitHub,
   getGitHub,
-  gitHubUpdates,
   manageGitHub,
-  pollGitHub,
-  startGitHub,
 } from './github'
 import { isLoopback } from './loopback'
 import { createProject, projectName } from './new-project'
@@ -174,6 +192,14 @@ const canonical = (path: string) => realpath(path).catch(() => path)
  * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
 async function openProjectIn(target: ProjectWindow | undefined, root: string) {
+  // Gui needs an account first: the start screen asks for it, and the folder opens after.
+  if (mustSignIn()) {
+    waitingForAccount.push({ target, root })
+    const tab = tabToOpenIn(target)
+    const win = allWindows().find((win) => win.tabs.includes(tab))
+    if (win) focusWindow(win.win, { steal: true })
+    return
+  }
   if (!(await isDirectory(root))) {
     dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
@@ -192,6 +218,21 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
     opening.delete(real)
     syncMenuItems()
   }
+}
+
+/** Folders asked for while signed out, in order. */
+const waitingForAccount: { target: ProjectWindow | undefined; root: string }[] = []
+
+/** Tells Gui's own pages, and opens what waited for an account once there is one. */
+function onAccountChange() {
+  const state = accountState()
+  for (const win of BrowserWindow.getAllWindows())
+    if (!win.isDestroyed()) win.webContents.send(Events.account, state)
+  if (mustSignIn()) return
+  // Back from the browser: Gui comes to the front, where the user left it.
+  const win = lastFocusedWindow()
+  if (state.signedIn && win) focusWindow(win.win, { steal: true })
+  for (const { target, root } of waitingForAccount.splice(0)) openSafely(target, root)
 }
 
 /** The window's start-screen tab, or a new tab in it; ⌘N is what makes a new window. */
@@ -356,7 +397,7 @@ const SECTIONS: readonly SettingsSection[] = [
   'projects',
   'github',
   'storage',
-  'advanced',
+  'account',
 ]
 const STORAGE_KINDS: readonly StorageKind[] = ['chats', 'checkpoints', 'previewData']
 const isRecordOfStrings = (value: unknown): value is Record<string, string> =>
@@ -561,15 +602,48 @@ function registerIpc() {
     })
   }
   githubHandle(Invoke.githubState, () => getGitHub())
-  githubHandle(Invoke.githubStart, () => startGitHub())
-  githubHandle(Invoke.githubPoll, () => pollGitHub())
-  githubHandle(Invoke.githubCancel, () => cancelGitHub())
+  githubHandle(Invoke.githubConnect, () => reportError(() => connectGitHub()))
   githubHandle(Invoke.githubDisconnect, () => disconnectGitHub())
   githubHandle(Invoke.githubManage, () => manageGitHub())
-  githubHandle(Invoke.githubUpdates, (_event, value) => {
-    if (typeof value !== 'boolean') throw new Error('Invalid email preference.')
-    return gitHubUpdates(value)
-  })
+  // The account, like GitHub, only from Gui's own UI. Failures come back as `{ error }`.
+  const accountHandle = (
+    channel: string,
+    handler: (value: unknown) => Promise<unknown> | unknown,
+  ) => {
+    ipcMain.handle(channel, (event, value: unknown) => {
+      if (!fromAppUi(event)) throw new Error('Gui accounts are available only from Gui’s own UI.')
+      return handler(value)
+    })
+  }
+  accountHandle(Invoke.accountState, () => accountState())
+  accountHandle(Invoke.accountProfile, () => getAccount())
+  accountHandle(Invoke.accountSignIn, (provider) =>
+    reportError(async () => {
+      if (!isSignInProvider(provider)) throw new Error('Choose how to sign in.')
+      await signIn(provider)
+    }),
+  )
+  accountHandle(Invoke.accountEmail, (email) =>
+    reportError(async () => {
+      if (!isString(email) || email.length > 254) throw new Error('Enter your email address.')
+      await emailSignIn(email.trim())
+    }),
+  )
+  accountHandle(Invoke.accountCode, (code) =>
+    reportError(async () => {
+      if (!isString(code) || code.length > 20) throw new Error('Enter the code from the email.')
+      await emailCode(code)
+    }),
+  )
+  accountHandle(Invoke.accountWait, () => reportError(() => waitForSignIn()))
+  accountHandle(Invoke.accountCancel, () => reportError(() => cancelSignIn()))
+  accountHandle(Invoke.accountSignOut, () => reportError(() => signOut()))
+  accountHandle(Invoke.accountUpdates, (updates) =>
+    reportError(async () => {
+      if (typeof updates !== 'boolean') throw new Error('Invalid email preference.')
+      await setAccountUpdates(updates)
+    }),
+  )
   githubHandle(Invoke.githubClone, async (event, value) => {
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)
       throw new Error('Choose a GitHub repository.')
@@ -1333,6 +1407,7 @@ if (!app.requestSingleInstanceLock()) {
     lockDownSessions()
     registerRecordingProtocol()
     registerIpc()
+    accountEvents.on('change', onAccountChange)
     watchSettings()
     buildMenu()
     // The Agent menu lists what's installed and signed in.
@@ -1351,6 +1426,9 @@ if (!app.requestSingleInstanceLock()) {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
     const win = createWindow()
+    // A session the service no longer knows (signed out elsewhere, deleted) asks for sign-in
+    // again. Offline, Gui stays signed in.
+    if (accountState().signedIn) void getAccount().catch(() => undefined)
     // Know up front whether the likely agents are ready or need sign-in; costs no usage.
     void agentHealth.checkOnLaunch(getPrefs().agentId)
     const initial = process.env.GUI_OPEN

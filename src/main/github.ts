@@ -1,96 +1,17 @@
 import { execFile } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { chmod, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { app, safeStorage, shell } from 'electron'
-import type {
-  GitHubLogin,
-  GitHubPoll,
-  GitHubProfile,
-  GitHubRepository,
-  GitHubState,
-} from '../shared/github'
+import { shell } from 'electron'
+import type { GitHubProfile, GitHubRepository, GitHubState } from '../shared/github'
+import { AccountError, request, savedSession, serviceUrl } from './account'
 import { parseRepo } from './clone'
 import { developerTools } from './developer-tools'
 import { getShellEnv } from './shell-env'
 
-declare const __GUI_ACCOUNTS_URL__: string
-interface LoginAttempt {
-  token: string
-  code: GitHubLogin
-  generation: number
-}
-let attempt: LoginAttempt | null = null
-let generation = 0
-let loginStarting = false
-let loginPolling = false
-const sessionFile = () => join(app.getPath('userData'), 'github-session')
-function serviceUrl() {
-  const value = !app.isPackaged
-    ? (process.env.GUI_ACCOUNTS_URL ?? __GUI_ACCOUNTS_URL__)
-    : __GUI_ACCOUNTS_URL__
-  if (!value) throw new Error('GitHub connection is not configured in this build yet.')
-  const url = new URL(value)
-  if (url.username || url.password || url.search || url.hash || url.pathname !== '/')
-    throw new Error('Invalid account service address.')
-  if (
-    url.protocol !== 'https:' &&
-    !(
-      url.protocol === 'http:' &&
-      !app.isPackaged &&
-      ['localhost', '127.0.0.1'].includes(url.hostname)
-    )
-  )
-    throw new Error('The account service requires HTTPS.')
-  return url.origin
-}
-async function savedSession(): Promise<string | null> {
-  try {
-    // Opening Projects should not ask for Keychain access before the user has signed in.
-    const encrypted = await readFile(sessionFile())
-    if (!safeStorage.isEncryptionAvailable()) return null
-    return safeStorage.decryptString(encrypted)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw new Error('Could not unlock your GitHub connection. Disconnect and try again.')
-  }
-}
-class AccountError extends Error {
-  constructor(
-    public status: number,
-    message: string,
-  ) {
-    super(message)
-  }
-}
-async function request<T>(
-  path: string,
-  token?: string | null,
-  method = 'GET',
-  body?: unknown,
-): Promise<T> {
-  const response = await fetch(`${serviceUrl()}${path}`, {
-    method,
-    redirect: 'error',
-    signal: AbortSignal.timeout(30_000),
-    headers: {
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      'Content-Type': 'application/json',
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  })
-  const result = (await response.json()) as T & { error?: string }
-  if (!response.ok) {
-    if (response.status === 401 && token && token !== attempt?.token)
-      await rm(sessionFile(), { force: true })
-    throw new AccountError(
-      response.status,
-      result.error ?? 'Could not connect to GitHub. Try again.',
-    )
-  }
-  return result
-}
+export { connectGitHub } from './account'
+
+/** The account's GitHub connection and the repositories Gui may see through it. */
 export async function getGitHub(): Promise<GitHubState> {
   try {
     serviceUrl()
@@ -100,114 +21,22 @@ export async function getGitHub(): Promise<GitHubState> {
   const token = await savedSession()
   if (!token) return { configured: true, profile: null, repositories: [] }
   try {
-    const { profile } = await request<{ profile: GitHubProfile }>('/account', token)
+    const { profile } = await request<{ profile: GitHubProfile | null }>('/account', token)
+    if (!profile) return { configured: true, profile: null, repositories: [] }
     const { repositories } = await request<{ repositories: GitHubRepository[] }>(
       '/repositories',
       token,
     )
     return { configured: true, profile, repositories }
   } catch (error) {
-    if (error instanceof AccountError && error.status === 401)
+    if (error instanceof AccountError && (error.status === 401 || error.status === 403))
       return { configured: true, profile: null, repositories: [] }
     throw error
   }
 }
-export async function startGitHub(): Promise<GitHubLogin> {
-  if (!safeStorage.isEncryptionAvailable())
-    throw new Error('Secure storage is unavailable. GitHub sign-in needs the macOS keychain.')
-  if (loginStarting) throw new Error('GitHub sign-in is starting. Try again in a moment.')
-  // A sign-in whose page went away without cancelling it (Settings closed or reloaded midway)
-  // is picked up again while its code is good, and replaced once it has expired.
-  if (attempt) {
-    if (Date.now() < attempt.code.expiresAt) {
-      await shell.openExternal('https://github.com/login/device')
-      return attempt.code
-    }
-    await cancelGitHub().catch(() => undefined)
-  }
-  loginStarting = true
-  const current = ++generation
-  try {
-    const result = await request<GitHubLogin & { attempt: string }>('/github/start', null, 'POST')
-    if (current !== generation) {
-      await request('/github/cancel', result.attempt, 'POST')
-      throw new Error('GitHub sign-in was cancelled.')
-    }
-    const code = { code: result.code, interval: result.interval, expiresAt: result.expiresAt }
-    attempt = { token: result.attempt, code, generation: current }
-    await shell.openExternal('https://github.com/login/device')
-    return code
-  } catch (error) {
-    await cancelGitHub().catch(() => undefined)
-    throw error
-  } finally {
-    loginStarting = false
-  }
-}
-export async function cancelGitHub() {
-  generation++
-  const current = attempt
-  attempt = null
-  if (current) await request('/github/cancel', current.token, 'POST')
-}
-export async function pollGitHub(): Promise<GitHubPoll> {
-  const current = attempt
-  if (!current) throw new Error('Start GitHub sign-in again.')
-  if (Date.now() >= current.code.expiresAt) {
-    await cancelGitHub()
-    throw new Error('GitHub sign-in expired. Try again.')
-  }
-  if (loginPolling) return { pending: true }
-  loginPolling = true
-  try {
-    const result = await request<GitHubPoll & { session?: string }>(
-      '/github/poll',
-      current.token,
-      'POST',
-    )
-    if (result.pending) return { pending: true }
-    if (!result.session) throw new Error('GitHub did not complete sign-in. Try again.')
-    if (current.generation !== generation) {
-      await request('/logout', result.session, 'POST')
-      return { pending: true }
-    }
-    await mkdir(app.getPath('userData'), { recursive: true, mode: 0o700 })
-    const temporary = `${sessionFile()}.${randomUUID()}`
-    try {
-      await writeFile(temporary, safeStorage.encryptString(result.session), { mode: 0o600 })
-      if (current.generation !== generation) {
-        await request('/logout', result.session, 'POST')
-        return { pending: true }
-      }
-      await rename(temporary, sessionFile())
-      if (current.generation !== generation) {
-        await rm(sessionFile(), { force: true })
-        await request('/logout', result.session, 'POST')
-        return { pending: true }
-      }
-    } finally {
-      await rm(temporary, { force: true })
-    }
-    attempt = null
-    return { pending: false }
-  } catch (error) {
-    await cancelGitHub().catch(() => undefined)
-    throw error
-  } finally {
-    loginPolling = false
-  }
-}
+/** Drops the GitHub connection. Gui stays signed in, and GitHub stays a way to sign in. */
 export async function disconnectGitHub() {
-  await cancelGitHub().catch(() => undefined)
-  const token = await savedSession().catch(() => null)
-  try {
-    if (token) await request('/logout', token, 'POST')
-  } finally {
-    await rm(sessionFile(), { force: true })
-  }
-}
-export async function gitHubUpdates(updates: boolean) {
-  await request('/account/updates', await savedSession(), 'POST', { updates })
+  await request('/github', await savedSession(), 'DELETE')
 }
 export async function manageGitHub() {
   const { installUrl } = await request<{ installUrl: string }>('/account', await savedSession())

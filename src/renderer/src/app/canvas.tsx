@@ -38,9 +38,11 @@ import { PathText } from '../lib/path-text'
 import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, Code, IconButton, SegmentedControl, Spinner } from '../lib/ui'
+import { needsSignIn, useAccount } from '../lib/use-account'
 import { useAction } from '../settings/use-action'
 import { useMorphDrawsFrame } from './layout-morph'
 import { crashed, stoppedOutside } from './server-status'
+import { SignIn } from './sign-in'
 import { focusAddressBar } from './toolbar'
 
 /**
@@ -793,6 +795,14 @@ function OpenActions() {
  * will do the work, and once there are any, recent chats and projects.
  */
 function EmptyState({ state }: { state: WindowState }) {
+  const account = useAccount()
+  // Gui needs an account before anything else; projects asked for meanwhile open after.
+  if (!account) return null
+  if (needsSignIn(account)) return <SignIn />
+  return <StartScreen state={state} />
+}
+
+function StartScreen({ state }: { state: WindowState }) {
   const [otherAgents, setOtherAgents] = useState(false)
   // Once offered, connecting stays up through its own checks until an agent works.
   const [connecting, setConnecting] = useState(false)

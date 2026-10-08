@@ -15,6 +15,7 @@ export const SYMBOLS = {
   // An outline ring, as the toolbar's other tools are outlines; a solid dot outweighed them.
   CircleDot: 'record.circle',
   CircleSlash: 'nosign',
+  CircleUser: 'person.crop.circle',
   Clock: 'clock',
   Copy: 'doc.on.doc',
   Crop: 'crop',
@@ -51,7 +52,6 @@ export const SYMBOLS = {
   RotateCw: 'arrow.clockwise',
   Search: 'magnifyingglass',
   Shield: 'shield',
-  SlidersHorizontal: 'slider.horizontal.3',
   ShieldOff: 'shield.slash',
   Smartphone: 'iphone',
   Square: 'stop.fill',

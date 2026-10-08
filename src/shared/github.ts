@@ -16,11 +16,3 @@ export interface GitHubState {
   profile: GitHubProfile | null
   repositories: GitHubRepository[]
 }
-
-export interface GitHubLogin {
-  code: string
-  interval: number
-  expiresAt: number
-}
-
-export type GitHubPoll = { pending: true } | { pending: false }

@@ -1,3 +1,4 @@
+import type { IdentityProvider, SignInProvider } from '../../src/shared/account'
 import type { GitHubProfile, GitHubRepository } from '../../src/shared/github'
 
 // Only the D1 operations this service uses. Bun's SQLite test adapter implements the same contract.
@@ -11,23 +12,70 @@ export interface Database {
   prepare(sql: string): Statement
   batch(statements: Statement[]): Promise<unknown>
 }
+export interface EmailMessage {
+  to: string
+  from: string
+  subject: string
+  html: string
+  text: string
+}
 export interface Env {
   DB: Database
   LOGIN_LIMITER: { limit(options: { key: string }): Promise<{ success: boolean }> }
+  /** Sign-in emails per address, so the service can't be used to flood someone's inbox. */
+  EMAIL_LIMITER?: { limit(options: { key: string }): Promise<{ success: boolean }> }
+  /** Cloudflare Email Service's send_email binding. */
+  EMAIL?: { send(message: EmailMessage): Promise<unknown> }
+  EMAIL_FROM?: string
   GITHUB_CLIENT_ID: string
   GITHUB_APP_SLUG: string
   GITHUB_CLIENT_SECRET: string
   TOKEN_ENCRYPTION_KEY: string
+  GOOGLE_CLIENT_ID?: string
+  GOOGLE_CLIENT_SECRET?: string
+  /** Sign in with Apple: the Services ID, team, and the .p8 key that signs the client secret. */
+  APPLE_CLIENT_ID?: string
+  APPLE_TEAM_ID?: string
+  APPLE_KEY_ID?: string
+  APPLE_PRIVATE_KEY?: string
 }
+interface Account {
+  id: string
+  email: string | null
+  name: string | null
+  updates: number
+}
+/** An account's GitHub connection (the `users` table): the tokens behind repositories. */
 interface User {
   github_id: number
+  account_id: string
   login: string
   name: string | null
   email: string | null
-  updates: number
   github_token: string
   refresh_token: string | null
   token_expires_at: number
+}
+interface Attempt {
+  token_hash: string
+  public_id: string
+  port: number
+  link_account_id: string | null
+  provider: string | null
+  email: string | null
+  email_code_hash: string | null
+  email_tries: number
+  emails_sent: number
+  account_id: string | null
+  exchange_hash: string | null
+  expires_at: number
+}
+/** Who signed in, as the provider vouches for them. `email` is only ever a verified one. */
+interface Identity {
+  provider: IdentityProvider
+  subject: string
+  email: string | null
+  name: string | null
 }
 interface ProviderToken {
   access_token?: string
@@ -49,6 +97,10 @@ const hex = (bytes: ArrayBuffer) =>
   Array.from(new Uint8Array(bytes), (v) => v.toString(16).padStart(2, '0')).join('')
 const hash = async (value: string) =>
   hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))
+const SESSION_SECONDS = 180 * 86400
+const ATTEMPT_SECONDS = 15 * 60
+const EMAIL_TRIES = 5
+const EMAILS_PER_ATTEMPT = 3
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -77,8 +129,9 @@ async function decrypt(env: Env, value: string) {
     await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, await key(env), data),
   )
 }
-async function provider(path: string, values: Record<string, string>) {
-  const res = await fetch(`https://github.com/${path}`, {
+/** A form POST to a provider's token endpoint, answered in JSON. */
+async function form<T>(url: string, values: Record<string, string>, name: string): Promise<T> {
+  const res = await fetch(url, {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -89,10 +142,13 @@ async function provider(path: string, values: Record<string, string>) {
     signal: AbortSignal.timeout(15_000),
     redirect: 'manual',
   })
-  if (!res.ok) throw new HttpError(502, 'GitHub could not complete sign-in. Try again.')
-  return res.json() as Promise<
+  if (!res.ok) throw new HttpError(502, `${name} could not complete sign-in. Try again.`)
+  return res.json() as Promise<T>
+}
+function gitHubOAuth(path: string, values: Record<string, string>) {
+  return form<
     ProviderToken & { device_code: string; user_code: string; interval: number; expires_in: number }
-  >
+  >(`https://github.com/${path}`, values, 'GitHub')
 }
 async function github<T>(token: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`https://api.github.com${path}`, {
@@ -118,17 +174,35 @@ async function github<T>(token: string, path: string, body?: unknown): Promise<T
   if (!res.ok) throw new HttpError(502, 'Could not reach GitHub. Try again.')
   return res.json() as Promise<T>
 }
-async function session(request: Request, env: Env): Promise<{ user: User; tokenHash: string }> {
-  const bearer = request.headers.get('Authorization')?.match(/^Bearer ([a-f\d-]{72})$/i)?.[1]
-  if (!bearer) throw new HttpError(401, 'Connect GitHub to continue.')
+const bearerToken = (request: Request) =>
+  request.headers.get('Authorization')?.match(/^Bearer ([a-f\d-]{72})$/i)?.[1]
+async function session(
+  request: Request,
+  env: Env,
+): Promise<{ account: Account; tokenHash: string }> {
+  const bearer = bearerToken(request)
+  if (!bearer) throw new HttpError(401, 'Sign in to Gui to continue.')
   const tokenHash = await hash(bearer)
-  const user = await env.DB.prepare(
-    'SELECT users.* FROM users JOIN sessions USING (github_id) WHERE token_hash = ? AND expires_at > ?',
+  const found = await env.DB.prepare(
+    'SELECT accounts.*, sessions.expires_at AS session_expires_at FROM accounts JOIN sessions ON sessions.account_id = accounts.id WHERE token_hash = ? AND expires_at > ?',
   )
     .bind(tokenHash, now())
+    .first<Account & { session_expires_at: number }>()
+  if (!found) throw new HttpError(401, 'Your Gui session expired. Sign in again.')
+  // A Gui that's used stays signed in: the session moves forward once it's a month old.
+  if (found.session_expires_at < now() + SESSION_SECONDS - 30 * 86400)
+    await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
+      .bind(now() + SESSION_SECONDS, tokenHash)
+      .run()
+  return { account: found, tokenHash }
+}
+async function connection(env: Env, account: Account) {
+  const user = await env.DB.prepare('SELECT * FROM users WHERE account_id = ?')
+    .bind(account.id)
     .first<User>()
-  if (!user) throw new HttpError(401, 'Your Gui session expired. Reconnect GitHub.')
-  return { user, tokenHash }
+  // Not 401: the Gui session is fine, and older Gui versions sign out on 401.
+  if (!user) throw new HttpError(403, 'Connect GitHub in Settings → GitHub to continue.')
+  return user
 }
 async function accessToken(env: Env, user: User) {
   if (user.token_expires_at > now() + 60) return decrypt(env, user.github_token)
@@ -148,7 +222,7 @@ async function accessToken(env: Env, user: User) {
     if (!fresh) throw new HttpError(401, 'Reconnect GitHub.')
     if (fresh.token_expires_at > now() + 60) return decrypt(env, fresh.github_token)
     if (!fresh.refresh_token) throw new HttpError(401, 'Reconnect GitHub.')
-    const data = await provider('login/oauth/access_token', {
+    const data = await gitHubOAuth('login/oauth/access_token', {
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
       grant_type: 'refresh_token',
@@ -172,9 +246,6 @@ async function accessToken(env: Env, user: User) {
       .bind(user.github_id)
       .run()
   }
-}
-function profile(user: User): GitHubProfile {
-  return { login: user.login, name: user.name, email: user.email, updates: !!user.updates }
 }
 async function repositories(token: string): Promise<GitHubRepository[]> {
   const output: GitHubRepository[] = []
@@ -207,20 +278,625 @@ async function repositories(token: string): Promise<GitHubRepository[]> {
     a.fullName.localeCompare(b.fullName),
   )
 }
-async function route(request: Request, env: Env, diagnostic: { stage: string }): Promise<Response> {
+
+/**
+ * The account an identity signs in to: the one it's already part of, else the account with
+ * the same verified email (so Google and an emailed link reach one account), else a new one.
+ * With `linkTo`, the identity joins that account, unless another account already has it.
+ */
+async function accountFor(env: Env, identity: Identity, linkTo?: string | null): Promise<string> {
+  const known = await env.DB.prepare(
+    'SELECT account_id FROM identities WHERE provider = ? AND subject = ?',
+  )
+    .bind(identity.provider, identity.subject)
+    .first<{ account_id: string }>()
+  if (linkTo && known && known.account_id !== linkTo)
+    throw new HttpError(409, 'This sign-in already belongs to another Gui account.')
+  let id = linkTo ?? known?.account_id ?? null
+  if (!id && identity.email)
+    id =
+      (
+        await env.DB.prepare(
+          'SELECT id FROM accounts WHERE email = ? COLLATE NOCASE ORDER BY created_at LIMIT 1',
+        )
+          .bind(identity.email)
+          .first<{ id: string }>()
+      )?.id ?? null
+  const created = !id
+  if (!id) {
+    id = crypto.randomUUID()
+    // Product updates start off. The app asks, and sets them if the person says yes.
+    await env.DB.prepare(
+      'INSERT INTO accounts (id, email, name, updates, created_at, last_login_at) VALUES (?, ?, ?, 0, ?, ?)',
+    )
+      .bind(id, identity.email, identity.name, now(), now())
+      .run()
+  }
+  if (!known)
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO identities (provider, subject, account_id, email, created_at) VALUES (?, ?, ?, ?, ?)',
+    )
+      .bind(identity.provider, identity.subject, id, identity.email, now())
+      .run()
+  // Two first sign-ins at once: the identity went to whichever account was made first.
+  const owner = await env.DB.prepare(
+    'SELECT account_id FROM identities WHERE provider = ? AND subject = ?',
+  )
+    .bind(identity.provider, identity.subject)
+    .first<{ account_id: string }>()
+  if (!owner) throw new HttpError(500, 'Could not save the sign-in. Try again.')
+  if (created && owner.account_id !== id)
+    await env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(id).run()
+  await env.DB.prepare(
+    'UPDATE accounts SET last_login_at = ?, email = COALESCE(email, ?), name = COALESCE(name, ?) WHERE id = ?',
+  )
+    .bind(now(), identity.email, identity.name, owner.account_id)
+    .run()
+  return owner.account_id
+}
+
+/** The GitHub user behind a token, as an identity, with their verified primary email. */
+async function gitHubIdentity(token: string) {
+  const user = await github<{ id: number; login: string; name: string | null }>(token, '/user')
+  const emails = await github<{ email: string; primary: boolean; verified: boolean }[]>(
+    token,
+    '/user/emails',
+  )
+  const email = emails.find((item) => item.primary && item.verified)?.email ?? null
+  const identity: Identity = {
+    provider: 'github',
+    subject: String(user.id),
+    email,
+    name: user.name ?? user.login,
+  }
+  return { user, email, identity }
+}
+
+/** Saves the account's GitHub connection, replacing a different GitHub user it had before. */
+async function saveConnection(
+  env: Env,
+  accountId: string,
+  user: { id: number; login: string; name: string | null },
+  email: string | null,
+  data: ProviderToken & { access_token: string },
+) {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM users WHERE account_id = ? AND github_id != ?').bind(
+      accountId,
+      user.id,
+    ),
+    env.DB.prepare(`INSERT INTO users (github_id, account_id, login, name, email, created_at, last_login_at, github_token, refresh_token, token_expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(github_id) DO UPDATE SET account_id=excluded.account_id, login=excluded.login, name=excluded.name, email=excluded.email,
+      last_login_at=excluded.last_login_at, github_token=excluded.github_token, refresh_token=excluded.refresh_token, token_expires_at=excluded.token_expires_at`).bind(
+      user.id,
+      accountId,
+      user.login,
+      user.name,
+      email,
+      now(),
+      now(),
+      await encrypt(env, data.access_token),
+      data.refresh_token ? await encrypt(env, data.refresh_token) : null,
+      now() + (data.expires_in ?? 28800),
+    ),
+  ])
+}
+
+async function newSession(env: Env, accountId: string) {
+  const token = random()
+  await env.DB.prepare('INSERT INTO sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)')
+    .bind(await hash(token), accountId, now() + SESSION_SECONDS)
+    .run()
+  return token
+}
+
+// ── Sign-in pages ────────────────────────────────────────────────────────────────────────
+
+const escapeHtml = (text: string) =>
+  text.replace(
+    /[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c] ?? c,
+  )
+
+/** A small page in the browser, for what happens there: errors, and the emailed link. */
+function page(title: string, body: string, status = 200) {
+  return new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light dark"><title>${escapeHtml(title)} · Gui</title><style>body{font:16px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:28rem;margin:15vh auto;padding:0 1.5rem}h1{font-size:1.375rem;margin:0 0 .5rem}p{margin:0 0 1rem;color:color-mix(in srgb,currentColor 70%,transparent)}button{font:inherit;font-weight:600;padding:.6rem 1rem;border-radius:.5rem;border:0;background:#2563eb;color:#fff;cursor:pointer}</style></head><body><h1>${escapeHtml(title)}</h1>${body}</body></html>`,
+    {
+      status,
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+        'Content-Security-Policy':
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'",
+        'Referrer-Policy': 'no-referrer',
+      },
+    },
+  )
+}
+const failed = (message: string, status = 400) =>
+  page(
+    'Sign-in didn’t finish',
+    `<p>${escapeHtml(message)}</p><p>Go back to Gui and try again.</p>`,
+    status,
+  )
+
+/** Sends the browser back to the Gui that started this sign-in, with a one-time code. */
+async function finish(env: Env, attempt: Attempt, accountId: string) {
+  const exchange = random()
+  const done = await env.DB.prepare(
+    'UPDATE auth_attempts SET account_id = ?, exchange_hash = ? WHERE token_hash = ? AND expires_at > ?',
+  )
+    .bind(accountId, await hash(exchange), attempt.token_hash, now())
+    .run()
+  if (!done.meta.changes) return failed('This sign-in expired.')
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: `http://127.0.0.1:${attempt.port}/callback?code=${exchange}`,
+      'Cache-Control': 'no-store',
+      'Referrer-Policy': 'no-referrer',
+    },
+  })
+}
+
+function configured(env: Env, provider: SignInProvider) {
+  if (provider === 'github') return !!(env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET)
+  if (provider === 'google') return !!(env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET)
+  return !!(env.APPLE_CLIENT_ID && env.APPLE_TEAM_ID && env.APPLE_KEY_ID && env.APPLE_PRIVATE_KEY)
+}
+const isProvider = (value: string): value is SignInProvider =>
+  value === 'google' || value === 'apple' || value === 'github'
+
+const base64url = (bytes: Uint8Array) =>
+  btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '')
+const encodeJson = (value: unknown) => base64url(new TextEncoder().encode(JSON.stringify(value)))
+
+/**
+ * Apple's client secret: a short-lived ES256 JWT signed with the Sign in with Apple key.
+ * WebCrypto's ECDSA signature is already JWS's r‖s form.
+ */
+async function appleSecret(env: Env) {
+  const pem = (env.APPLE_PRIVATE_KEY ?? '').replace(/-----[^-]+-----|\s/g, '')
+  const der = Uint8Array.from(atob(pem), (c) => c.charCodeAt(0))
+  const signer = await crypto.subtle.importKey(
+    'pkcs8',
+    der,
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,
+    ['sign'],
+  )
+  const input = `${encodeJson({ alg: 'ES256', kid: env.APPLE_KEY_ID })}.${encodeJson({
+    iss: env.APPLE_TEAM_ID,
+    iat: now(),
+    exp: now() + 300,
+    aud: 'https://appleid.apple.com',
+    sub: env.APPLE_CLIENT_ID,
+  })}`
+  const signature = await crypto.subtle.sign(
+    { name: 'ECDSA', hash: 'SHA-256' },
+    signer,
+    new TextEncoder().encode(input),
+  )
+  return `${input}.${base64url(new Uint8Array(signature))}`
+}
+
+/**
+ * An ID token's claims. It comes straight from the provider's token endpoint over TLS, in
+ * exchange for our client secret, so OpenID Connect lets us skip the signature; the issuer,
+ * audience, and expiry are still checked.
+ */
+function idClaims(token: unknown, issuers: string[], audience: string) {
+  if (typeof token !== 'string') throw new HttpError(502, 'Sign-in did not return an identity.')
+  const part = token.split('.')[1] ?? ''
+  const claims = JSON.parse(
+    new TextDecoder().decode(
+      Uint8Array.from(atob(part.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)),
+    ),
+  ) as {
+    iss?: string
+    aud?: string
+    exp?: number
+    sub?: string
+    email?: string
+    email_verified?: boolean | string
+    name?: string
+  }
+  if (
+    !claims.sub ||
+    !issuers.includes(claims.iss ?? '') ||
+    claims.aud !== audience ||
+    !claims.exp ||
+    claims.exp < now()
+  )
+    throw new HttpError(502, 'Sign-in returned an identity Gui could not check.')
+  const verified = claims.email_verified === true || claims.email_verified === 'true'
+  return { sub: claims.sub, email: verified ? (claims.email ?? null) : null, name: claims.name }
+}
+
+/** Where a provider sends the browser back to; registered with each provider. */
+const callbackUrl = (request: Request, provider: SignInProvider) =>
+  `${new URL(request.url).origin}/callback/${provider}`
+
+function authorizeUrl(env: Env, request: Request, provider: SignInProvider, state: string) {
+  const redirect = callbackUrl(request, provider)
+  if (provider === 'google')
+    return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID ?? '',
+      redirect_uri: redirect,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      prompt: 'select_account',
+    })}`
+  if (provider === 'apple')
+    return `https://appleid.apple.com/auth/authorize?${new URLSearchParams({
+      client_id: env.APPLE_CLIENT_ID ?? '',
+      redirect_uri: redirect,
+      response_type: 'code',
+      // Asking for name and email makes Apple POST the result back (form_post).
+      scope: 'name email',
+      response_mode: 'form_post',
+      state,
+    })}`
+  return `https://github.com/login/oauth/authorize?${new URLSearchParams({
+    client_id: env.GITHUB_CLIENT_ID,
+    redirect_uri: redirect,
+    state,
+  })}`
+}
+
+/** Trades the provider's code for who signed in. GitHub's also becomes the connection. */
+async function providerIdentity(
+  env: Env,
+  request: Request,
+  provider: SignInProvider,
+  code: string,
+  appleUser: string | null,
+) {
+  const redirect = callbackUrl(request, provider)
+  if (provider === 'google') {
+    const tokens = await form<{ id_token?: string }>(
+      'https://oauth2.googleapis.com/token',
+      {
+        code,
+        client_id: env.GOOGLE_CLIENT_ID ?? '',
+        client_secret: env.GOOGLE_CLIENT_SECRET ?? '',
+        redirect_uri: redirect,
+        grant_type: 'authorization_code',
+      },
+      'Google',
+    )
+    const claims = idClaims(
+      tokens.id_token,
+      ['https://accounts.google.com', 'accounts.google.com'],
+      env.GOOGLE_CLIENT_ID ?? '',
+    )
+    return {
+      identity: {
+        provider,
+        subject: claims.sub,
+        email: claims.email,
+        name: claims.name ?? null,
+      } satisfies Identity,
+    }
+  }
+  if (provider === 'apple') {
+    const tokens = await form<{ id_token?: string }>(
+      'https://appleid.apple.com/auth/token',
+      {
+        code,
+        client_id: env.APPLE_CLIENT_ID ?? '',
+        client_secret: await appleSecret(env),
+        redirect_uri: redirect,
+        grant_type: 'authorization_code',
+      },
+      'Apple',
+    )
+    const claims = idClaims(
+      tokens.id_token,
+      ['https://appleid.apple.com'],
+      env.APPLE_CLIENT_ID ?? '',
+    )
+    // Apple sends the name once, on the first sign-in, beside the code rather than in it.
+    let name: string | null = null
+    try {
+      const parsed = JSON.parse(appleUser ?? '{}') as {
+        name?: { firstName?: string; lastName?: string }
+      }
+      name =
+        [parsed.name?.firstName, parsed.name?.lastName].filter(Boolean).join(' ').slice(0, 200) ||
+        null
+    } catch {}
+    return {
+      identity: { provider, subject: claims.sub, email: claims.email, name } satisfies Identity,
+    }
+  }
+  const data = await gitHubOAuth('login/oauth/access_token', {
+    client_id: env.GITHUB_CLIENT_ID,
+    client_secret: env.GITHUB_CLIENT_SECRET,
+    code,
+    redirect_uri: redirect,
+  })
+  if (!data.access_token) throw new HttpError(401, 'GitHub sign-in was denied or expired.')
+  const { user, email, identity } = await gitHubIdentity(data.access_token)
+  return {
+    identity,
+    github: { user, email, data: data as ProviderToken & { access_token: string } },
+  }
+}
+
+const EMAIL_PATTERN = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/
+
+async function sendSignInEmail(env: Env, request: Request, to: string, code: string, link: string) {
+  if (!env.EMAIL) throw new HttpError(503, 'Email sign-in is not available yet.')
+  const url = `${new URL(request.url).origin}/email?t=${link}`
+  await env.EMAIL.send({
+    to,
+    from: env.EMAIL_FROM ?? 'signin@usegui.com',
+    subject: `Sign in to Gui: ${code}`,
+    text: `Sign in to Gui on your Mac with this link:\n\n${url}\n\nOr enter this code in Gui: ${code}\n\nThe link and code stop working after 15 minutes. If you did not try to sign in to Gui, you can ignore this email.`,
+    html: `<div style="font:16px/1.5 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;max-width:28rem"><p>Sign in to Gui on your Mac:</p><p><a href="${escapeHtml(url)}" style="display:inline-block;padding:.6rem 1rem;border-radius:.5rem;background:#2563eb;color:#fff;font-weight:600;text-decoration:none">Sign in to Gui</a></p><p>Or enter this code in Gui:</p><p style="font:600 1.5rem ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.2em">${code}</p><p style="color:#6b7280">The link and code stop working after 15 minutes. If you did not try to sign in to Gui, you can ignore this email.</p></div>`,
+  })
+}
+
+/** Six digits from a uniform random source. */
+function emailCode() {
+  const values = crypto.getRandomValues(new Uint32Array(1))
+  return String((values[0] ?? 0) % 1_000_000).padStart(6, '0')
+}
+
+async function attemptFor(request: Request, env: Env) {
+  const bearer = bearerToken(request)
+  if (!bearer) throw new HttpError(401, 'Sign-in expired. Try again.')
+  const attempt = await env.DB.prepare(
+    'SELECT * FROM auth_attempts WHERE token_hash = ? AND expires_at > ?',
+  )
+    .bind(await hash(bearer), now())
+    .first<Attempt>()
+  if (!attempt) throw new HttpError(401, 'Sign-in expired. Try again.')
+  return attempt
+}
+
+async function limited(env: Env, request: Request) {
+  const allowed = await env.LOGIN_LIMITER.limit({
+    key: request.headers.get('CF-Connecting-IP') ?? 'local',
+  })
+  if (!allowed.success)
+    throw new HttpError(429, 'Too many sign-in attempts. Try again in a minute.')
+}
+
+/** The sign-in routes: Gui starts an attempt, the browser finishes it, Gui collects a session. */
+async function signInRoute(
+  request: Request,
+  env: Env,
+  path: string,
+  diagnostic: { stage: string },
+): Promise<Response | null> {
   const url = new URL(request.url)
-  const path = url.pathname
+  if (request.method === 'POST' && path === '/auth/start') {
+    diagnostic.stage = 'sign-in start'
+    await key(env)
+    const body = (await request.json().catch(() => ({}))) as { port?: unknown }
+    if (
+      typeof body.port !== 'number' ||
+      !Number.isInteger(body.port) ||
+      body.port < 1024 ||
+      body.port > 65535
+    )
+      throw new HttpError(400, 'Invalid sign-in request.')
+    // With a session, this adds a sign-in (GitHub) to the signed-in account.
+    const linkTo = bearerToken(request) ? (await session(request, env)).account.id : null
+    await limited(env, request)
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM auth_attempts WHERE expires_at <= ?').bind(now()),
+      env.DB.prepare('DELETE FROM login_attempts WHERE expires_at <= ?').bind(now()),
+      env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now()),
+    ])
+    const attempt = random()
+    const publicId = hex(crypto.getRandomValues(new Uint8Array(16)).buffer)
+    const expiresAt = now() + ATTEMPT_SECONDS
+    await env.DB.prepare(
+      'INSERT INTO auth_attempts (token_hash, public_id, port, link_account_id, expires_at) VALUES (?, ?, ?, ?, ?)',
+    )
+      .bind(await hash(attempt), publicId, body.port, linkTo, expiresAt)
+      .run()
+    return json({ attempt, id: publicId, expiresAt: expiresAt * 1000 })
+  }
+
+  const signIn = /^\/signin\/([a-z]+)$/.exec(path)
+  if (request.method === 'GET' && signIn) {
+    const provider = signIn[1] ?? ''
+    if (!isProvider(provider)) return failed('Gui doesn’t know this way of signing in.', 404)
+    if (!configured(env, provider))
+      return failed('This way of signing in isn’t available yet.', 503)
+    const state = random()
+    const started = await env.DB.prepare(
+      'UPDATE auth_attempts SET state_hash = ?, provider = ? WHERE public_id = ? AND expires_at > ? AND account_id IS NULL',
+    )
+      .bind(await hash(state), provider, url.searchParams.get('a') ?? '', now())
+      .run()
+    if (!started.meta.changes) return failed('This sign-in expired.')
+    return Response.redirect(authorizeUrl(env, request, provider, state), 302)
+  }
+
+  const callback = /^\/callback\/([a-z]+)$/.exec(path)
+  if (callback && (request.method === 'GET' || request.method === 'POST')) {
+    const provider = callback[1] ?? ''
+    if (!isProvider(provider)) return failed('Gui doesn’t know this way of signing in.', 404)
+    diagnostic.stage = `${provider} callback`
+    const params =
+      request.method === 'POST' ? new URLSearchParams(await request.text()) : url.searchParams
+    const state = params.get('state')
+    if (!state) return failed('The sign-in page sent an incomplete answer.')
+    // The state is single-use: whoever presents it first ends it.
+    const attempt = await env.DB.prepare(
+      'UPDATE auth_attempts SET state_hash = NULL WHERE state_hash = ? AND provider = ? AND expires_at > ? RETURNING *',
+    )
+      .bind(await hash(state), provider, now())
+      .first<Attempt>()
+    if (!attempt) return failed('This sign-in expired.')
+    const code = params.get('code')
+    if (params.get('error') || !code) return failed('Sign-in was cancelled.')
+    try {
+      const result = await providerIdentity(env, request, provider, code, params.get('user'))
+      const accountId = await accountFor(env, result.identity, attempt.link_account_id)
+      if (result.github)
+        await saveConnection(
+          env,
+          accountId,
+          result.github.user,
+          result.github.email,
+          result.github.data,
+        )
+      return await finish(env, attempt, accountId)
+    } catch (error) {
+      if (error instanceof HttpError) return failed(error.message, error.status)
+      throw error
+    }
+  }
+
+  if (request.method === 'POST' && path === '/auth/email') {
+    diagnostic.stage = 'email sign-in'
+    const attempt = await attemptFor(request, env)
+    if (attempt.link_account_id) throw new HttpError(400, 'Use a provider to add a sign-in.')
+    const body = (await request.json().catch(() => ({}))) as { email?: unknown }
+    const email = typeof body.email === 'string' ? body.email.trim() : ''
+    if (email.length > 254 || !EMAIL_PATTERN.test(email))
+      throw new HttpError(400, 'Enter an email address, like you@example.com.')
+    await limited(env, request)
+    const perAddress = await env.EMAIL_LIMITER?.limit({ key: email.toLowerCase() })
+    if (perAddress && !perAddress.success)
+      throw new HttpError(
+        429,
+        'Gui just sent an email to this address. Wait a minute, then try again.',
+      )
+    if (attempt.emails_sent >= EMAILS_PER_ATTEMPT)
+      throw new HttpError(429, 'Too many emails for one sign-in. Start again.')
+    const code = emailCode()
+    const link = random()
+    await env.DB.prepare(
+      'UPDATE auth_attempts SET email = ?, email_code_hash = ?, email_link_hash = ?, email_tries = 0, emails_sent = emails_sent + 1 WHERE token_hash = ?',
+    )
+      .bind(
+        email,
+        await hash(`${attempt.token_hash}:${code}`),
+        await hash(link),
+        attempt.token_hash,
+      )
+      .run()
+    diagnostic.stage = 'email delivery'
+    await sendSignInEmail(env, request, email, code, link)
+    return json({ ok: true })
+  }
+
+  // Opening the link only asks: mail scanners open links too, and must not sign anyone in.
+  if (request.method === 'GET' && path === '/email') {
+    const token = url.searchParams.get('t') ?? ''
+    if (!/^[a-f\d-]{72}$/i.test(token)) return failed('This link is incomplete.')
+    return page(
+      'Sign in to Gui',
+      `<p>Continue to sign in to Gui on this Mac.</p><form method="post" action="/email"><input type="hidden" name="t" value="${escapeHtml(token)}"><button type="submit">Sign in to Gui</button></form><p style="margin-top:1.5rem">On another device? Enter the code from the email in Gui instead.</p>`,
+    )
+  }
+  if (request.method === 'POST' && path === '/email') {
+    diagnostic.stage = 'email link'
+    const token = new URLSearchParams(await request.text()).get('t') ?? ''
+    const attempt = await env.DB.prepare(
+      'UPDATE auth_attempts SET email_link_hash = NULL, email_code_hash = NULL WHERE email_link_hash = ? AND expires_at > ? AND account_id IS NULL RETURNING *',
+    )
+      .bind(await hash(token), now())
+      .first<Attempt>()
+    if (!attempt?.email) return failed('This link expired or was already used.')
+    const accountId = await accountFor(env, {
+      provider: 'email',
+      subject: attempt.email.toLowerCase(),
+      email: attempt.email,
+      name: null,
+    })
+    return finish(env, attempt, accountId)
+  }
+
+  // The code from the email, typed into Gui: no browser, so the session comes straight back.
+  if (request.method === 'POST' && path === '/auth/email/code') {
+    diagnostic.stage = 'email code'
+    const attempt = await attemptFor(request, env)
+    const body = (await request.json().catch(() => ({}))) as { code?: unknown }
+    const code = typeof body.code === 'string' ? body.code.replace(/\D/g, '') : ''
+    if (!attempt.email || !attempt.email_code_hash)
+      throw new HttpError(400, 'Ask for a new email, then enter its code.')
+    const tried = await env.DB.prepare(
+      'UPDATE auth_attempts SET email_tries = email_tries + 1 WHERE token_hash = ? AND email_tries < ?',
+    )
+      .bind(attempt.token_hash, EMAIL_TRIES)
+      .run()
+    if (!tried.meta.changes) throw new HttpError(429, 'Too many wrong codes. Ask for a new email.')
+    if ((await hash(`${attempt.token_hash}:${code}`)) !== attempt.email_code_hash)
+      throw new HttpError(400, 'That code doesn’t match. Check the email and try again.')
+    const consumed = await env.DB.prepare(
+      'DELETE FROM auth_attempts WHERE token_hash = ? AND email_code_hash = ?',
+    )
+      .bind(attempt.token_hash, attempt.email_code_hash)
+      .run()
+    if (!consumed.meta.changes) throw new HttpError(401, 'Sign-in expired. Try again.')
+    const accountId = await accountFor(env, {
+      provider: 'email',
+      subject: attempt.email.toLowerCase(),
+      email: attempt.email,
+      name: null,
+    })
+    return json({ session: await newSession(env, accountId) })
+  }
+
+  if (request.method === 'POST' && path === '/auth/token') {
+    diagnostic.stage = 'sign-in exchange'
+    const attempt = await attemptFor(request, env)
+    const body = (await request.json().catch(() => ({}))) as { code?: unknown }
+    if (typeof body.code !== 'string' || !attempt.account_id || !attempt.exchange_hash)
+      throw new HttpError(401, 'Sign-in did not finish. Try again.')
+    if ((await hash(body.code)) !== attempt.exchange_hash)
+      throw new HttpError(401, 'Sign-in did not finish. Try again.')
+    // Once only: replaying the code finds nothing.
+    const consumed = await env.DB.prepare('DELETE FROM auth_attempts WHERE token_hash = ?')
+      .bind(attempt.token_hash)
+      .run()
+    if (!consumed.meta.changes) throw new HttpError(401, 'Sign-in did not finish. Try again.')
+    if (attempt.link_account_id) return json({ session: null })
+    return json({ session: await newSession(env, attempt.account_id) })
+  }
+
+  if (request.method === 'POST' && path === '/auth/cancel') {
+    const bearer = bearerToken(request)
+    if (bearer)
+      await env.DB.prepare('DELETE FROM auth_attempts WHERE token_hash = ?')
+        .bind(await hash(bearer))
+        .run()
+    return json({ ok: true })
+  }
+  return null
+}
+
+/**
+ * GitHub's device flow, which Gui used to sign in with before Gui accounts. Versions out
+ * there still use it, so it signs in to the account that has that GitHub user.
+ */
+async function deviceRoute(
+  request: Request,
+  env: Env,
+  path: string,
+  diagnostic: { stage: string },
+) {
   if (request.method === 'POST' && path === '/github/start') {
     diagnostic.stage = 'sign-in configuration'
     if (!env.GITHUB_CLIENT_ID || !env.GITHUB_APP_SLUG || !env.GITHUB_CLIENT_SECRET)
       throw new HttpError(503, 'GitHub connection is not configured yet.')
     await key(env)
     diagnostic.stage = 'sign-in rate limit'
-    const allowed = await env.LOGIN_LIMITER.limit({
-      key: request.headers.get('CF-Connecting-IP') ?? 'local',
-    })
-    if (!allowed.success)
-      throw new HttpError(429, 'Too many sign-in attempts. Try again in a minute.')
+    await limited(env, request)
     // Bounded cleanup also keeps abandoned sign-ins and expired sessions out of storage.
     diagnostic.stage = 'sign-in cleanup'
     await env.DB.batch([
@@ -228,7 +904,7 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
       env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now()),
     ])
     diagnostic.stage = 'GitHub device authorization'
-    const data = await provider('login/device/code', { client_id: env.GITHUB_CLIENT_ID })
+    const data = await gitHubOAuth('login/device/code', { client_id: env.GITHUB_CLIENT_ID })
     if (!data.device_code || !data.user_code)
       throw new HttpError(502, 'GitHub could not start sign-in.')
     const attempt = random()
@@ -251,7 +927,7 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     })
   }
   if (request.method === 'POST' && (path === '/github/poll' || path === '/github/cancel')) {
-    const bearer = request.headers.get('Authorization')?.match(/^Bearer ([a-f\d-]{72})$/i)?.[1]
+    const bearer = bearerToken(request)
     if (!bearer) throw new HttpError(401, 'Sign-in expired. Try again.')
     const tokenHash = await hash(bearer)
     if (path === '/github/cancel') {
@@ -270,7 +946,7 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
       .bind(now() + Math.max(attempt.interval_seconds, 30), tokenHash, now())
       .run()
     if (!claimed.meta.changes) return json({ pending: true })
-    const data = await provider('login/oauth/access_token', {
+    const data = await gitHubOAuth('login/oauth/access_token', {
       client_id: env.GITHUB_CLIENT_ID,
       device_code: await decrypt(env, attempt.device_code),
       grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
@@ -288,15 +964,7 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
       await env.DB.prepare('DELETE FROM login_attempts WHERE token_hash = ?').bind(tokenHash).run()
       throw new HttpError(401, 'GitHub sign-in was denied or expired. Try again.')
     }
-    const user = await github<{ id: number; login: string; name: string | null }>(
-      data.access_token,
-      '/user',
-    )
-    const emails = await github<{ email: string; primary: boolean; verified: boolean }[]>(
-      data.access_token,
-      '/user/emails',
-    )
-    const email = emails.find((item) => item.primary && item.verified)?.email ?? null
+    const { user, email, identity } = await gitHubIdentity(data.access_token)
     // Cancellation and replay cannot create sessions after the attempt was removed.
     const consumed = await env.DB.prepare(
       'DELETE FROM login_attempts WHERE token_hash = ? AND expires_at > ?',
@@ -304,50 +972,63 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
       .bind(tokenHash, now())
       .run()
     if (!consumed.meta.changes) throw new HttpError(401, 'Sign-in cancelled or expired.')
-    const sessionToken = random()
-    await env.DB.batch([
-      // A new account starts subscribed to product updates when GitHub gives an email (the
-      // terms say so); the user can opt out in Settings → Advanced. Signing in again leaves
-      // the choice alone.
-      env.DB.prepare(`INSERT INTO users (github_id, login, name, email, updates, created_at, last_login_at, github_token, refresh_token, token_expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(github_id) DO UPDATE SET login=excluded.login, name=excluded.name, email=excluded.email,
-        last_login_at=excluded.last_login_at, github_token=excluded.github_token, refresh_token=excluded.refresh_token, token_expires_at=excluded.token_expires_at`).bind(
-        user.id,
-        user.login,
-        user.name,
-        email,
-        email ? 1 : 0,
-        now(),
-        now(),
-        await encrypt(env, data.access_token),
-        data.refresh_token ? await encrypt(env, data.refresh_token) : null,
-        now() + (data.expires_in ?? 28800),
-      ),
-      env.DB.prepare('INSERT INTO sessions VALUES (?, ?, ?)').bind(
-        await hash(sessionToken),
-        user.id,
-        now() + 30 * 86400,
-      ),
-    ])
-    return json({ pending: false, session: sessionToken })
+    const accountId = await accountFor(env, identity)
+    await saveConnection(
+      env,
+      accountId,
+      user,
+      email,
+      data as ProviderToken & { access_token: string },
+    )
+    return json({ pending: false, session: await newSession(env, accountId) })
   }
-  const { user, tokenHash } = await session(request, env)
-  if (path === '/account' && request.method === 'GET')
+  return null
+}
+
+async function route(request: Request, env: Env, diagnostic: { stage: string }): Promise<Response> {
+  const url = new URL(request.url)
+  const path = url.pathname
+  const signedIn = await signInRoute(request, env, path, diagnostic)
+  if (signedIn) return signedIn
+  const device = await deviceRoute(request, env, path, diagnostic)
+  if (device) return device
+
+  const { account, tokenHash } = await session(request, env)
+  if (path === '/account' && request.method === 'GET') {
+    const user = await env.DB.prepare('SELECT * FROM users WHERE account_id = ?')
+      .bind(account.id)
+      .first<User>()
+    const { results } = await env.DB.prepare(
+      'SELECT DISTINCT provider FROM identities WHERE account_id = ? ORDER BY created_at',
+    )
+      .bind(account.id)
+      .all<{ provider: IdentityProvider }>()
+    // `profile` is the GitHub connection, in the shape Gui versions before accounts read.
+    const profile: GitHubProfile | null = user && {
+      login: user.login,
+      name: user.name,
+      email: account.email,
+      updates: !!account.updates,
+    }
     return json({
-      profile: profile(user),
+      account: {
+        email: account.email,
+        name: account.name,
+        updates: !!account.updates,
+        providers: results.map((row) => row.provider),
+      },
+      profile,
       installUrl: `https://github.com/apps/${env.GITHUB_APP_SLUG}/installations/new`,
     })
+  }
   if (path === '/account/updates' && request.method === 'POST') {
     const body = (await request.json()) as { updates?: unknown }
     if (typeof body.updates !== 'boolean')
       throw new HttpError(400, 'Choose whether to receive product updates.')
-    if (body.updates && !user.email)
-      throw new HttpError(400, 'Add a verified primary email in GitHub before subscribing.')
-    await env.DB.prepare(
-      'UPDATE users SET updates = ?, preference_changed_at = ? WHERE github_id = ?',
-    )
-      .bind(Number(body.updates), now(), user.github_id)
+    if (body.updates && !account.email)
+      throw new HttpError(400, 'Add an email to your account before subscribing.')
+    await env.DB.prepare('UPDATE accounts SET updates = ?, preference_changed_at = ? WHERE id = ?')
+      .bind(Number(body.updates), now(), account.id)
       .run()
     return json({ ok: true })
   }
@@ -357,11 +1038,23 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
   }
   if (path === '/account' && request.method === 'DELETE') {
     await env.DB.batch([
-      env.DB.prepare('DELETE FROM sessions WHERE github_id = ?').bind(user.github_id),
-      env.DB.prepare('DELETE FROM users WHERE github_id = ?').bind(user.github_id),
+      env.DB.prepare('DELETE FROM sessions WHERE account_id = ?').bind(account.id),
+      env.DB.prepare('DELETE FROM auth_attempts WHERE account_id = ? OR link_account_id = ?').bind(
+        account.id,
+        account.id,
+      ),
+      env.DB.prepare('DELETE FROM users WHERE account_id = ?').bind(account.id),
+      env.DB.prepare('DELETE FROM identities WHERE account_id = ?').bind(account.id),
+      env.DB.prepare('DELETE FROM accounts WHERE id = ?').bind(account.id),
     ])
     return json({ ok: true })
   }
+  // Disconnecting GitHub drops its tokens. GitHub stays a way to sign in to this account.
+  if (path === '/github' && request.method === 'DELETE') {
+    await env.DB.prepare('DELETE FROM users WHERE account_id = ?').bind(account.id).run()
+    return json({ ok: true })
+  }
+  const user = await connection(env, account)
   if (path === '/repositories' && request.method === 'GET')
     return json({ repositories: await repositories(await accessToken(env, user)) })
   if (path === '/repositories' && request.method === 'POST') {

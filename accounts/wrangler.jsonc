@@ -4,9 +4,19 @@
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
   "ratelimits": [
-    { "name": "LOGIN_LIMITER", "namespace_id": "5204419", "simple": { "limit": 10, "period": 60 } }
+    { "name": "LOGIN_LIMITER", "namespace_id": "5204419", "simple": { "limit": 10, "period": 60 } },
+    // Sign-in emails to one address.
+    { "name": "EMAIL_LIMITER", "namespace_id": "5204420", "simple": { "limit": 2, "period": 60 } }
   ],
-  "vars": { "GITHUB_CLIENT_ID": "Iv23liakas1b7Im4gK8a", "GITHUB_APP_SLUG": "gui-projects" },
+  // Google and Apple client IDs go here once registered; their secrets (GOOGLE_CLIENT_SECRET,
+  // APPLE_PRIVATE_KEY) are Worker secrets. A provider without its settings shows as unavailable.
+  "vars": {
+    "GITHUB_CLIENT_ID": "Iv23liakas1b7Im4gK8a",
+    "GITHUB_APP_SLUG": "gui-projects",
+    "EMAIL_FROM": "signin@usegui.com"
+  },
+  // Cloudflare Email Service, for sign-in links. usegui.com must be onboarded for sending.
+  "send_email": [{ "name": "EMAIL" }],
   "d1_databases": [
     {
       "binding": "DB",

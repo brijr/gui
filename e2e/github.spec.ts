@@ -32,47 +32,58 @@ test('signed-out Projects opens without accessing Keychain', async ({ launch }) 
   await expect(page.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible()
 })
 
-test('GitHub project connection signs in, lists repositories, saves opt-in, and disconnects', async ({
+test('GitHub connects to the Gui account, lists repositories, and disconnects', async ({
   launch,
 }) => {
-  // As the account service does: a new account with an email starts subscribed.
-  let updates = true
-  let revoked = false
+  let connected = false
+  let loopback = 0
   let createdName = ''
+  const readBody = (request: import('node:http').IncomingMessage) =>
+    new Promise<Record<string, unknown>>((resolve) => {
+      let body = ''
+      request.on('data', (part) => {
+        body += part
+      })
+      request.on('end', () => resolve(body ? JSON.parse(body) : {}))
+    })
   const server = createServer((request, response) => {
     const reply = (body: unknown) => {
       response.setHeader('Content-Type', 'application/json')
       response.end(JSON.stringify(body))
     }
-    if (request.url === '/github/start')
-      return reply({
-        attempt: 'a'.repeat(72),
-        code: 'TEST-CODE',
-        interval: 0.1,
-        expiresAt: Date.now() + 60_000,
+    if (request.url === '/auth/start')
+      return void readBody(request).then((body) => {
+        // Connecting adds GitHub to the signed-in account.
+        expect(request.headers.authorization).toBe(`Bearer ${'b'.repeat(72)}`)
+        loopback = Number(body.port)
+        reply({ attempt: 'a'.repeat(72), id: 'public', expiresAt: Date.now() + 60_000 })
       })
-    if (request.url === '/github/poll') return reply({ pending: false, session: 'b'.repeat(72) })
-    if (request.url === '/account') {
-      if (revoked) {
-        response.statusCode = 401
-        return reply({ error: 'Reconnect GitHub.' })
-      }
+    if (request.url === '/auth/token') {
+      connected = true
+      return reply({ session: null })
+    }
+    if (request.url === '/account')
       return reply({
-        profile: { login: 'gui-tester', name: 'Gui Tester', email: 'tester@example.com', updates },
+        account: {
+          email: 'tester@example.com',
+          name: 'Gui Tester',
+          updates: false,
+          providers: ['google'],
+        },
+        profile: connected
+          ? { login: 'gui-tester', name: 'Gui Tester', email: 'tester@example.com', updates: false }
+          : null,
         installUrl: 'https://github.com/apps/gui-test/installations/new',
       })
+    if (request.url === '/github' && request.method === 'DELETE') {
+      connected = false
+      return reply({ ok: true })
     }
-    if (request.url === '/repositories' && request.method === 'POST') {
-      let body = ''
-      request.on('data', (part) => {
-        body += part
-      })
-      request.on('end', () => {
-        createdName = JSON.parse(body).name
+    if (request.url === '/repositories' && request.method === 'POST')
+      return void readBody(request).then((body) => {
+        createdName = String(body.name)
         reply({ repository: { id: 2, fullName: `gui-tester/${createdName}`, private: true } })
       })
-      return
-    }
     if (request.url === '/repositories')
       return reply({
         repositories: [{ id: 1, fullName: 'gui-tester/private-project', private: true }],
@@ -81,21 +92,6 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
       return reply({ token: 'test-provider-secret', fullName: 'gui-tester/private-project' })
     if (request.url === '/repositories/1/pulls')
       return reply({ url: 'https://github.com/gui-tester/private-project/pull/1' })
-    if (request.url === '/account/updates') {
-      let body = ''
-      request.on('data', (part) => {
-        body += part
-      })
-      request.on('end', () => {
-        updates = JSON.parse(body).updates
-        reply({ ok: true })
-      })
-      return
-    }
-    if (request.url === '/logout') {
-      revoked = true
-      return reply({ ok: true })
-    }
     response.statusCode = 404
     reply({ error: 'Not found' })
   })
@@ -108,11 +104,18 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     const session = await launch({ fixture: 'vite' })
     await session.waitForPreview()
     // No browser navigation or keychain prompt in tests. Production uses Electron secure storage.
-    await session.app.evaluate(({ shell, safeStorage }) => {
+    // Already signed in to Gui, as everyone is by the time they reach Settings.
+    await session.app.evaluate(({ app, shell, safeStorage }) => {
       shell.openExternal = async () => undefined
       safeStorage.isEncryptionAvailable = () => true
       safeStorage.encryptString = (value) => Buffer.from(`test-encrypted:${value}`)
       safeStorage.decryptString = (value) => value.toString().replace(/^test-encrypted:/, '')
+      const fs = process.getBuiltinModule('fs') as typeof import('node:fs')
+      const path = process.getBuiltinModule('path') as typeof import('node:path')
+      fs.writeFileSync(
+        path.join(app.getPath('userData'), 'github-session'),
+        `test-encrypted:${'b'.repeat(72)}`,
+      )
     })
     await session.chrome.evaluate(() => window.gui.openSettings('github'))
     let page = session.app
@@ -130,8 +133,12 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
       .toBe(true)
     if (!page) throw new Error('Settings did not open')
     await page.getByRole('button', { name: 'Connect GitHub', exact: true }).click()
-    await expect(page.getByText('TEST-CODE')).toBeVisible()
-    await page.screenshot({ path: test.info().outputPath('github-code.png') })
+    await expect(page.getByText('Finish connecting in your browser')).toBeVisible()
+    await page.screenshot({ path: test.info().outputPath('github-connecting.png') })
+    // The browser, back from GitHub, lands on Gui's loopback with the one-time code.
+    await expect.poll(() => loopback).toBeGreaterThan(0)
+    const landing = await fetch(`http://127.0.0.1:${loopback}/callback?code=one-time`)
+    expect(await landing.text()).toContain('GitHub is connected')
     await expect(page.getByText('@gui-tester', { exact: true })).toBeVisible()
     await expect(
       page
@@ -140,16 +147,6 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
         .getByText('Private', { exact: true }),
     ).toBeVisible()
     await expect(page.getByRole('button', { name: 'Clone & open' })).toBeVisible()
-    // Product updates are in Advanced: on from the start, and the user can opt out there.
-    await page.getByRole('button', { name: 'Advanced', exact: true }).click()
-    const preference = page.getByRole('checkbox', {
-      name: 'Email me Gui product updates at tester@example.com',
-    })
-    await expect(preference).toBeChecked()
-    await preference.uncheck()
-    await expect.poll(() => updates).toBe(false)
-    await expect(preference).not.toBeChecked()
-    await page.getByRole('button', { name: 'GitHub', exact: true }).click()
     await page.getByLabel('Repository name', { exact: true }).fill('design-project')
     await page.getByRole('button', { name: 'Create private repository', exact: true }).click()
     await expect.poll(() => createdName).toBe('design-project')
@@ -271,7 +268,9 @@ test('GitHub project connection signs in, lists repositories, saves opt-in, and 
     expect(await preview.evaluate(() => 'gui' in window)).toBe(false)
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
-    expect(revoked).toBe(true)
+    expect(connected).toBe(false)
+    // Disconnecting GitHub leaves Gui signed in.
+    expect(existsSync(join(userData, 'github-session'))).toBe(true)
     await page.screenshot({ path: test.info().outputPath('github-disconnected.png') })
     // The start screen's GitHub projects opens them in Settings, beside Clone by URL.
     await session.chrome.evaluate(() => window.gui.newTab())

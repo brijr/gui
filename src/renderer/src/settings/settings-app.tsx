@@ -4,9 +4,9 @@ import type { SettingsSection, SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { GitHubMark } from '../lib/github-mark'
-import { Bot, FolderOpen, HardDrive, MessageSquare, SlidersHorizontal } from '../lib/icons'
+import { Bot, CircleUser, FolderOpen, HardDrive, MessageSquare } from '../lib/icons'
 import { PRESS } from '../lib/ui'
-import { AdvancedSection } from './advanced-section'
+import { AccountSection } from './account-section'
 import { AgentsSection } from './agents-section'
 import { ChatSection } from './chat-section'
 import { GitHubSection } from './github-section'
@@ -26,7 +26,7 @@ const SECTIONS: readonly SectionInfo[] = [
   { id: 'projects', label: 'Projects', icon: FolderOpen },
   { id: 'github', label: 'GitHub', icon: GitHubMark },
   { id: 'storage', label: 'Storage', icon: HardDrive },
-  { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
+  { id: 'account', label: 'Account', icon: CircleUser },
 ]
 
 export function SettingsApp() {
@@ -103,7 +103,7 @@ function SectionContent({ section, settings }: SectionContentProps) {
       return <GitHubSection />
     case 'storage':
       return <StorageSection settings={settings} />
-    case 'advanced':
-      return <AdvancedSection />
+    case 'account':
+      return <AccountSection />
   }
 }

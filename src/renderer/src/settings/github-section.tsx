@@ -1,25 +1,24 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import type { GitHubLogin, GitHubState } from '../../../shared/github'
+import type { GitHubState } from '../../../shared/github'
 import { gui } from '../lib/api'
+import { readableError } from '../lib/errors'
 import { Field, InlineError, Input } from '../lib/field'
 import { GitHubMark } from '../lib/github-mark'
-import { Check, Copy, GitBranch, RotateCw, Search } from '../lib/icons'
+import { GitBranch, RotateCw, Search } from '../lib/icons'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, List, ListItem, Message } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
 
 /**
- * Settings → GitHub: connect an account (GitHub's device flow: a code to enter on
- * github.com), then open its repositories in Gui or create a new one. Local projects never
- * need it. Its product-update emails are in Settings → Advanced.
+ * Settings → GitHub: connect GitHub to the Gui account (in the browser), then open its
+ * repositories in Gui or create a new one. Local projects never need it.
  */
 export function GitHubSection() {
   const [state, setState] = useState<GitHubState | null>(null)
-  const [login, setLogin] = useState<GitHubLogin | null>(null)
+  const [connecting, setConnecting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const mounted = useRef(true)
-  const signingIn = useRef(false)
 
   useEffect(() => {
     mounted.current = true
@@ -29,39 +28,8 @@ export function GitHubSection() {
       .catch((err: Error) => setError(err.message))
     return () => {
       mounted.current = false
-      if (signingIn.current) void gui.cancelGitHub().catch(() => undefined)
     }
   }, [])
-
-  // While a code is out, ask GitHub at the pace it set whether the user has approved it.
-  useEffect(() => {
-    if (!login) return
-    let active = true
-    let timer: ReturnType<typeof setTimeout>
-    const poll = async () => {
-      try {
-        const result = await gui.pollGitHub()
-        if (!active) return
-        if (result.pending) timer = setTimeout(poll, login.interval * 1000)
-        else {
-          signingIn.current = false
-          setLogin(null)
-          setState(await gui.getGitHub())
-        }
-      } catch (err) {
-        if (active) {
-          signingIn.current = false
-          setLogin(null)
-          setError(err instanceof Error ? err.message : 'Could not connect GitHub.')
-        }
-      }
-    }
-    timer = setTimeout(poll, login.interval * 1000)
-    return () => {
-      active = false
-      clearTimeout(timer)
-    }
-  }, [login])
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true)
@@ -76,21 +44,20 @@ export function GitHubSection() {
     }
   }
   const refresh = async () => setState(await gui.getGitHub())
-  // Starting again while a code is out gets the same code back and opens github.com again.
-  const start = async () => {
-    signingIn.current = true
-    try {
-      setLogin(await gui.startGitHub())
-    } catch (err) {
-      signingIn.current = false
-      throw err
-    }
+  // Choosing Connect again while it waits opens the browser again on the same sign-in.
+  const connect = () => {
+    setConnecting(true)
+    setError(null)
+    gui
+      .connectGitHub()
+      .then(refresh)
+      .catch((err: unknown) => {
+        const message = readableError(err)
+        if (mounted.current && message !== 'Sign-in was cancelled.') setError(message)
+      })
+      .finally(() => mounted.current && setConnecting(false))
   }
-  const cancel = async () => {
-    signingIn.current = false
-    setLogin(null)
-    await gui.cancelGitHub()
-  }
+  const cancel = () => void gui.cancelAccountSignIn().catch(() => undefined)
 
   const profile = state?.profile ?? null
   const failed = error && <InlineError>{error}</InlineError>
@@ -119,17 +86,23 @@ export function GitHubSection() {
     )
   }
 
-  if (login) {
+  if (connecting) {
     return (
-      <>
-        <DeviceCode
-          login={login}
-          busy={busy}
-          onReopen={() => void run(start)}
-          onCancel={() => void run(cancel)}
-        />
-        {failed}
-      </>
+      <AccountCard
+        title="Finish connecting in your browser"
+        detail="Sign in to GitHub there and allow Gui. Then come back here."
+      >
+        <p role="status" className="flex items-center gap-2 text-small text-muted">
+          <Spinner />
+          Waiting for GitHub…
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={connect}>Open GitHub again</Button>
+          <Button variant="ghost" onClick={cancel}>
+            Cancel
+          </Button>
+        </div>
+      </AccountCard>
     )
   }
 
@@ -138,14 +111,9 @@ export function GitHubSection() {
       <>
         <AccountCard
           title="Connect your GitHub account"
-          detail="Open your repositories in Gui and create new projects. Local projects never need an account."
+          detail="Open your repositories in Gui and create new projects. Local projects never need GitHub."
         >
-          <Button
-            variant="primary"
-            disabled={busy}
-            className="self-start"
-            onClick={() => void run(start)}
-          >
+          <Button variant="primary" disabled={busy} className="self-start" onClick={connect}>
             Connect GitHub
           </Button>
         </AccountCard>
@@ -226,77 +194,6 @@ function AccountCard({
       </div>
       {children}
     </Card>
-  )
-}
-
-/** Minutes and seconds until `at`, ticking; 0:00 once it's passed. */
-function useCountdown(at: number) {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
-  const left = Math.max(0, Math.round((at - now) / 1000))
-  return `${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`
-}
-
-/** Signing in: the code to type on github.com, a way to copy it, and the wait for approval. */
-function DeviceCode({
-  login,
-  busy,
-  onReopen,
-  onCancel,
-}: {
-  login: GitHubLogin
-  busy: boolean
-  onReopen: () => void
-  onCancel: () => void
-}) {
-  const [copied, setCopied] = useState(false)
-  const left = useCountdown(login.expiresAt)
-  const codeId = useId()
-  const copy = () => {
-    void navigator.clipboard
-      .writeText(login.code)
-      .then(() => {
-        setCopied(true)
-        setTimeout(() => setCopied(false), 1500)
-      })
-      .catch(() => undefined)
-  }
-  return (
-    <AccountCard
-      title="Enter this code on GitHub"
-      detail="GitHub opened in your browser. Type or paste the code there to connect Gui."
-    >
-      <div className="flex items-center gap-2">
-        <output
-          id={codeId}
-          aria-label="Your GitHub code"
-          className="flex h-11 min-w-0 flex-1 select-all items-center rounded-lg border border-line-strong bg-surface px-4 font-mono text-title font-medium tracking-[0.2em] text-fg"
-        >
-          {login.code}
-        </output>
-        <Button size="lg" icon={copied ? Check : Copy} aria-describedby={codeId} onClick={copy}>
-          {copied ? 'Copied' : 'Copy'}
-        </Button>
-      </div>
-      <p role="status" className="flex items-center gap-2 text-small text-muted">
-        <Spinner />
-        <span>
-          Waiting for you to approve it on GitHub · expires in{' '}
-          <span className="tabular-nums">{left}</span>
-        </span>
-      </p>
-      <div className="flex flex-wrap gap-2">
-        <Button disabled={busy} onClick={onReopen}>
-          Open GitHub again
-        </Button>
-        <Button variant="ghost" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
-    </AccountCard>
   )
 }
 

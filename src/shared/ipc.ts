@@ -1,4 +1,5 @@
-import type { GitHubLogin, GitHubPoll, GitHubRepository, GitHubState } from './github'
+import type { AccountProfile, AccountState, SignInProvider } from './account'
+import type { GitHubRepository, GitHubState } from './github'
 import type { SymbolImages } from './symbols'
 import type {
   AgentId,
@@ -43,13 +44,19 @@ export const Invoke = {
   removeRecent: 'project:remove-recent',
   archiveRecentChat: 'project:archive-chat',
   cloneProject: 'project:clone',
+  accountState: 'account:state',
+  accountProfile: 'account:profile',
+  accountSignIn: 'account:sign-in',
+  accountEmail: 'account:email',
+  accountCode: 'account:code',
+  accountWait: 'account:wait',
+  accountCancel: 'account:cancel',
+  accountSignOut: 'account:sign-out',
+  accountUpdates: 'account:updates',
   githubState: 'github:state',
-  githubStart: 'github:start',
-  githubPoll: 'github:poll',
-  githubCancel: 'github:cancel',
+  githubConnect: 'github:connect',
   githubDisconnect: 'github:disconnect',
   githubManage: 'github:manage',
-  githubUpdates: 'github:updates',
   githubClone: 'github:clone',
   githubCreate: 'github:create',
   newProject: 'project:new',
@@ -193,6 +200,7 @@ export const Events = {
   pickState: 'pick:state',
   settings: 'settings',
   settingsSection: 'settings:section',
+  account: 'account',
 } as const
 
 export type Unsubscribe = () => void
@@ -246,13 +254,29 @@ export interface GuiApi {
    * picks, then opens it. Rejects with a message to show; resolves if they cancel the picker.
    */
   cloneProject(repo: string): Promise<void>
+  /** Whether Gui needs an account and has one, read without the network. */
+  getAccount(): Promise<AccountState>
+  onAccount(cb: (state: AccountState) => void): Unsubscribe
+  /** The signed-in account from the service; null when signed out. */
+  getAccountProfile(): Promise<AccountProfile | null>
+  /**
+   * Opens the provider in the browser and resolves once Gui is signed in. Rejects with a
+   * message to show, or "Sign-in was cancelled." after cancelAccountSignIn.
+   */
+  accountSignIn(provider: SignInProvider): Promise<void>
+  /** Emails a sign-in link and code; resolves once sent. waitForAccount resolves on the link. */
+  accountEmail(email: string): Promise<void>
+  /** Signs in with the code from the email. */
+  accountCode(code: string): Promise<void>
+  waitForAccount(): Promise<void>
+  cancelAccountSignIn(): Promise<void>
+  signOutAccount(): Promise<void>
+  setAccountUpdates(updates: boolean): Promise<void>
   getGitHub(): Promise<GitHubState>
-  startGitHub(): Promise<GitHubLogin>
-  pollGitHub(): Promise<GitHubPoll>
-  cancelGitHub(): Promise<void>
+  /** Adds GitHub to the signed-in account through the browser; resolves once connected. */
+  connectGitHub(): Promise<void>
   disconnectGitHub(): Promise<void>
   manageGitHub(): Promise<void>
-  gitHubUpdates(updates: boolean): Promise<void>
   cloneGitHub(id: number): Promise<void>
   createGitHub(name: string): Promise<GitHubRepository>
   /**

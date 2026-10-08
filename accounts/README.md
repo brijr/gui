@@ -1,6 +1,30 @@
 # Gui accounts
 
-The account service supports GitHub project connections. Local projects do not require an account. It stores profile and verified primary email centrally, with an explicit product-update opt-in. It does not send email.
+Gui requires an account before it opens a project. People sign in with Google, Apple, GitHub, or an emailed link and code (Cloudflare Email Service). Each way of signing in is an identity on one account; a verified email that matches an existing account joins it. GitHub can also be connected to an account for repositories, cloning, and pull requests. The service stores the name, the email, and a product-update choice that is off until the person turns it on.
+
+## Sign-in flow
+
+1. Gui listens on a loopback port and calls `POST /auth/start` with it. The response is a secret attempt token, which Gui keeps, and a public ID.
+2. Gui opens `/signin/{google|apple|github}?a=ID` in the browser. The worker sends the browser to the provider with a single-use state.
+3. The provider returns to `/callback/{provider}`. Apple posts its result. The worker finds or creates the account and sends the browser to `http://127.0.0.1:PORT/callback?code=…`.
+4. Gui trades that one-time code, with its attempt token, for a session at `POST /auth/token`.
+
+A sign-in link forwarded to someone else cannot sign in the sender's Gui. The other person's browser returns to their own computer, and only the sender's Gui holds the attempt token.
+
+Email works the same way. `POST /auth/email` sends a link and a 6-digit code. The link opens a page with a button, so mail scanners that open links do not sign anyone in. Confirming continues as in step 3. The code is typed into Gui instead (`POST /auth/email/code`), for email read on another device. A sign-in allows 3 emails and 5 code tries. `EMAIL_LIMITER` limits emails to each address.
+
+Connecting GitHub in Settings uses the same flow, started with the session. The identity joins the signed-in account and no new session is made. The old device-flow routes (`/github/start`, `/github/poll`) remain for Gui versions that still use them.
+
+## Provider setup
+
+Each provider stays unavailable, with a page that says so, until its settings exist. Callback URLs are `https://SERVICE/callback/{provider}`, on the host that Gui's build uses.
+
+- **GitHub:** add `https://SERVICE/callback/github` as a callback URL on the existing `Gui Projects` app.
+- **Google:** create an OAuth client of type *Web application* with that redirect URI. Set `GOOGLE_CLIENT_ID` as a var and `GOOGLE_CLIENT_SECRET` as a secret. The consent screen needs the `openid`, `email`, and `profile` scopes, and must be published before it can be used outside test users.
+- **Apple:** create a Services ID, which becomes `APPLE_CLIENT_ID`, with Sign in with Apple enabled. Register the service domain and return URL. Create a Sign in with Apple key. Set `APPLE_TEAM_ID` and `APPLE_KEY_ID` as vars, and the `.p8` contents as the `APPLE_PRIVATE_KEY` secret.
+- **Email:** onboard `usegui.com` for Cloudflare Email Sending (`npx wrangler email sending enable usegui.com`). The `send_email` binding `EMAIL` and `EMAIL_FROM` are in `wrangler.jsonc`. Email Sending is in beta and requires Workers Paid.
+
+Apply `migrations/0002_gui_accounts.sql` before deploying this worker. It turns every GitHub user into an account with GitHub as its sign-in, and keeps existing sessions. Product updates stay on only for people who chose them in Settings; the rest had been subscribed by default without being asked.
 
 ## Local development
 
@@ -14,15 +38,15 @@ Install the root dependencies and run `bun install` inside `accounts/`. Register
 
 Enable expiring user access tokens. Enter its client ID and app slug in a local Wrangler configuration or `.dev.vars`. Add `GITHUB_CLIENT_SECRET` and `TOKEN_ENCRYPTION_KEY` to `.dev.vars`. The encryption key must be 64 hexadecimal characters from a cryptographically random 32-byte value. Keep this file out of Git. Changing the key without migrating encrypted records makes existing connections unreadable.
 
-Run `bun run migrate:local` and `bun run dev` from `accounts/`. Start the desktop from the repository root with `GUI_ACCOUNTS_URL=http://127.0.0.1:8787 bun run dev`.
+Run `bun run migrate:local` and `bun run dev` from `accounts/`. Start the desktop from the repository root with `GUI_ACCOUNTS_URL=http://127.0.0.1:8787 bun run dev`. Unpackaged builds started with `GUI_ACCOUNT_REQUIRED=0` do not require an account; the end-to-end tests use this setting, except `e2e/account.spec.ts`.
 
 The registered app must allow installation by the intended users. A user authorizes their identity through the browser device flow, then installs the app on selected repositories. Organization approval and SSO can delay access. Refresh repositories after installation. Gui lists only repositories accessible to both the user and app.
 
 ## Production activation
 
-The `Gui Projects` GitHub App is registered under `brijr`, and the `gui-accounts` D1 database and schema exist in the WIP Cloudflare account. `wrangler.jsonc` contains their public identifiers. The Worker code, DB binding, login rate limiter, public app identifiers, and encrypted server secrets are deployed at `https://gui-accounts.brijr.workers.dev`. Live device authorization, attempt storage, cancellation, sign-in from the installed Gui app, and connected repository listing have been verified. Live repository creation, cloning, and shipping remain unverified. Configure the Worker hostname and rate-limit namespace for the intended account. Keep deployment and remote migration authorization separate from local implementation.
+The `Gui Projects` GitHub App is registered under `brijr`, and the `gui-accounts` D1 database and schema exist in the WIP Cloudflare account. `wrangler.jsonc` contains their public identifiers. The Worker code, DB binding, login rate limiter, public app identifiers, and encrypted server secrets are deployed at `https://gui-accounts.brijr.workers.dev`. Live device authorization, attempt storage, cancellation, sign-in from the installed Gui app, and connected repository listing have been verified with the earlier GitHub-only service. The account sign-in (Google, Apple, GitHub web flow, email) and `0002_gui_accounts.sql` are not deployed or verified live yet. Live repository creation, cloning, and shipping remain unverified. Configure the Worker hostname and rate-limit namespace for the intended account. Keep deployment and remote migration authorization separate from local implementation.
 
-The desktop defaults to `https://gui-accounts.brijr.workers.dev`. To use a different service, build with `GUI_ACCOUNTS_URL=https://YOUR-ACCOUNT-SERVICE bun run build`. The production service origin is embedded at build time; a packaged app does not accept a runtime override. Builds without an origin show that GitHub connections are unavailable and retain cloning by URL.
+The desktop defaults to `https://gui-accounts.brijr.workers.dev`. To use a different service, build with `GUI_ACCOUNTS_URL=https://YOUR-ACCOUNT-SERVICE bun run build`. The production service origin is embedded at build time; a packaged app does not accept a runtime override. Builds without an origin do not require an account, show that GitHub connections are unavailable, and retain cloning by URL. Provider callback URLs use this origin, so choose the final hostname before you register them.
 
 Validate live sign-in, private-repository cloning, revoked access, and token refresh with an authorized test account before shipping. Automated checks use provider and keychain stand-ins. They do not prove live GitHub credentials, macOS keychain access, or production behavior.
 
@@ -34,9 +58,9 @@ The existing shipping sheet reviews a branch, title, description, and files befo
 
 ## Contact information
 
-Authorized operators can read contact information using the database's existing access controls. There is no public customer export endpoint. Select only `login`, `name`, `email`, and `preference_changed_at` from `users` where `updates = 1 AND email IS NOT NULL` for a product-update recipient list. Do not export provider tokens or Gui sessions. Preferences default to off and survive repeat sign-in by GitHub numeric identity.
+Authorized operators can read contact information using the database's existing access controls. There is no public customer export endpoint. For a product-update recipient list, select only `name`, `email`, and `preference_changed_at` from `accounts` where `updates = 1 AND email IS NOT NULL`. Do not export provider tokens or Gui sessions. Preferences default to off, are offered at sign-in and in Settings → Account, and survive repeat sign-in.
 
-Sign-in refreshes the saved name, handle, and verified primary email. Disconnect signs out the current device; it preserves the hosted profile and email preference. Repository permissions are managed on GitHub. The authenticated `DELETE /account` endpoint removes the account and all Gui sessions; GitHub authorization itself must be revoked on GitHub separately.
+An account keeps its first email and name. Sign-in only fills them if they are missing. Signing out in Settings → Account ends that device's session. Disconnecting GitHub removes the GitHub tokens but keeps GitHub as a way to sign in. Sessions last 180 days, and active use extends them. The authenticated `DELETE /account` endpoint removes the account, its identities, its GitHub connection, and all Gui sessions. GitHub authorization itself must be revoked on GitHub separately.
 
 Provider tokens and pending device codes are encrypted in D1 with AES-GCM. Gui session and attempt tokens are hashed in D1. Only the Electron main process sees a provider credential for cloning or pushing. Git receives it through a temporary askpass script and process environment, with credential helpers disabled. The clone remote and arguments contain no token, and error messages exclude git stderr. For connected GitHub repositories, the existing shipping sheet uses this connection to push and create a pull request without requiring `gh` sign-in. It supplies a GitHub noreply identity for commits only when git cannot resolve an existing identity; it does not edit global git settings. The temporary script contains no token and is removed after the operation. Clone failures remove only the new destination Gui reserved.
 
