@@ -257,7 +257,7 @@ export interface GuiApi {
   /** The signed-in account from the service; null when signed out. */
   getAccountProfile(): Promise<AccountProfile | null>
   /**
-   * Opens sign-in (WorkOS AuthKit: Google, Apple, GitHub, or email) in the browser and
+   * Opens sign-in (WorkOS AuthKit: Google, GitHub, or email) in the browser and
    * resolves once Gui is signed in. Rejects with a message to show, or "Sign-in was
    * cancelled." after cancelAccountSignIn.
    */

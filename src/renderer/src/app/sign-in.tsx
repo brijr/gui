@@ -9,7 +9,7 @@ const CANCELLED = 'Sign-in was cancelled.'
 
 /**
  * The start screen until there's a Gui account. Signing in happens in the browser, on WorkOS
- * AuthKit (Google, Apple, GitHub, or email); once it's done, main tells every window and this
+ * AuthKit (Google, GitHub, or email); once it's done, main tells every window and this
  * goes away.
  */
 export function SignIn() {
@@ -47,7 +47,7 @@ export function SignIn() {
         <GuiMark animated className="mb-4" />
         <h1 className="text-title font-semibold">Sign in to Gui</h1>
         <p className="text-pretty text-muted">
-          Use your Gui account to design your app with your own agents. Sign in with Google, Apple,
+          Use your Gui account to design your app with your own agents. Sign in with Google,
           GitHub, or your email. New here? Signing in makes an account.
         </p>
       </div>
