@@ -352,9 +352,12 @@ async function ask(session: GuiSession, text: string) {
 
 type PermissionCard = Extract<TurnItem, { kind: 'permission' }>
 
-/** Waits for the unanswered card asking about `toolCallId`'s step, in the last turn. */
-function waitingCard(session: GuiSession, title: string) {
-  return waitFor(async () => {
+/**
+ * Waits for the unanswered card asking about `toolCallId`'s step, in the last turn, and for
+ * the chat panel to show it: its keys answer only a card the panel has.
+ */
+async function waitingCard(session: GuiSession, title: string) {
+  const waiting = await waitFor(async () => {
     const turn = (await session.chatSnapshot()).turns.at(-1)
     const card = turn?.items.find(
       (item): item is PermissionCard =>
@@ -362,6 +365,8 @@ function waitingCard(session: GuiSession, title: string) {
     )
     return turn && card ? { turnId: turn.id, card } : null
   }, `a card for "${title}"`)
+  await expect(session.chat.getByRole('region', { name: 'Run a command?' })).toContainText(title)
+  return waiting
 }
 
 /** Waits for the stand-in to have been answered `count` times, and returns the answers. */
