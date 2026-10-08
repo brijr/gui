@@ -923,6 +923,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     let status: TurnStatus = 'done'
     /** Why the queue waits after this turn rather than going on; null to go on. */
     let pause: QueuePauseReason | null = null
+    let slot: { ready: Promise<void>; release: () => void } | null = null
     try {
       if (!(await this.confirmTrust())) {
         status = 'cancelled'
@@ -944,6 +945,27 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (stopped()) {
         status = 'cancelled'
         return
+      }
+      slot = this.checkpoints.turnSlot()
+      let free = false
+      void slot.ready.then(() => {
+        free = true
+      })
+      await sleep(0)
+      if (!free) {
+        this.pushItem(record, {
+          kind: 'notice',
+          id: randomUUID(),
+          tone: 'info',
+          text: 'Waiting for the agent in another tab on this folder to finish.',
+        })
+      }
+      while (!free) {
+        if (stopped()) {
+          status = 'cancelled'
+          return
+        }
+        await sleep(250)
       }
       record.before = await this.trySnapshot(record, `before turn ${record.turn.index + 1}`)
       if (stopped()) {
@@ -1061,6 +1083,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
             .catch(() => null)
         }
       }
+      slot?.release()
       // Only now is the turn over; reporting it earlier would let a send race the snapshot.
       record.turn.status = status
       record.turn.endedAt = Date.now()

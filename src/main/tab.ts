@@ -72,6 +72,7 @@ import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
 import {
+  chatReferences,
   claimHistoryFile,
   listArchived,
   loadHistory,
@@ -625,6 +626,9 @@ export class ProjectTab {
       this.recordings.retain(
         saved?.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []) ?? [],
       )
+      void this.recordings
+        .sweep(() => chatReferences(root).then((found) => found?.recordings ?? null))
+        .catch((error: unknown) => console.error('[gui] failed to clean up recordings', error))
       const mcp = await startMcpServer(tools, this.recordings).catch((error: unknown) => {
         console.error('[gui] preview tools unavailable', error)
         return null
@@ -635,7 +639,9 @@ export class ProjectTab {
       }
       this.mcp = mcp
 
-      const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env)
+      const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env, {
+        referenced: () => chatReferences(root).then((found) => found?.checkpoints ?? null),
+      })
       const chat = new ChatController(root, checkpoints, {
         agentId: this.state.agentId,
         docked: getPrefs().chatSidebar,

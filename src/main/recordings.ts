@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, nativeImage, protocol } from 'electron'
 import type { RecordingAttachment } from '../shared/types'
@@ -8,9 +8,16 @@ import { thumbnail } from './thumbnail'
 const MAX_BYTES = 128 * 1024 * 1024
 const MAX_VIDEO_BYTES = 32 * 1024 * 1024
 const ID = /^[a-f0-9-]{36}$/
+/** A clip folder this new is left by the sweep: it may be one being made right now. */
+const SWEEP_GRACE_MS = 60 * 60 * 1000
 export const recordingProjectKey = (root: string) =>
   createHash('sha256').update(root).digest('hex').slice(0, 32)
 const base = () => join(app.getPath('userData'), 'recordings')
+
+/** Every project's open Recordings, whose clips in hand the sweep leaves alone. */
+const open = new Set<Recordings>()
+/** Projects swept since launch. */
+const swept = new Set<string>()
 
 interface Manifest extends RecordingAttachment {
   timestamps: number[]
@@ -32,7 +39,35 @@ export class Recordings {
   private retained = new Set<string>()
   private unsent = new Set<string>()
   private disposed = false
-  constructor(private root: string) {}
+  constructor(private root: string) {
+    open.add(this)
+  }
+
+  /**
+   * Once a launch, removes the project's clips no saved chat refers to and no tab holds:
+   * unsent ones left by a crash, or by a queued message that was cleared. `referenced` is
+   * null when that can't be known, which skips it.
+   */
+  async sweep(referenced: () => Promise<Set<string> | null>) {
+    const key = recordingProjectKey(this.root)
+    if (swept.has(key)) return
+    swept.add(key)
+    const keep = await referenced()
+    if (!keep) return
+    const folder = join(base(), key)
+    for (const id of await readdir(folder).catch(() => [] as string[])) {
+      if (!ID.test(id) || keep.has(id)) continue
+      const held = [...open].some((other) => other.root === this.root && other.holds(id))
+      if (held) continue
+      const info = await stat(join(folder, id)).catch(() => null)
+      if (!info || Date.now() - info.mtimeMs < SWEEP_GRACE_MS) continue
+      await rm(join(folder, id), { recursive: true, force: true })
+    }
+  }
+
+  private holds(id: string) {
+    return this.retained.has(id) || this.unsent.has(id) || this.draft?.id === id
+  }
 
   async start() {
     if (this.disposed || this.draft) throw new Error('A recording is already active.')
@@ -194,6 +229,7 @@ export class Recordings {
 
   dispose() {
     this.disposed = true
+    open.delete(this)
     for (const id of this.unsent) void this.discard(id).catch(console.error)
     if (this.draft) void this.discard(this.draft.id).catch(console.error)
   }

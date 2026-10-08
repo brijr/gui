@@ -1,7 +1,7 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { mkdir, readdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
+import { renameSync } from 'node:fs'
+import { readdir, readFile, realpath, rename, rm } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app } from 'electron'
 import { parseCommands } from '../shared/commands'
 import {
@@ -15,6 +15,7 @@ import {
   type Turn,
   type TurnItem,
 } from '../shared/types'
+import { asidePath, writeFileAtomic, writeFileAtomicSync, writeTemp } from './atomic-file'
 
 /** Everything needed to reopen a project's chat where it left off, including undo. */
 export interface SavedChat {
@@ -96,12 +97,8 @@ export async function lastMessage(root: string): Promise<{ prompt: string; at: n
 }
 
 export async function loadHistory(file: string): Promise<SavedChat | null> {
-  let text: string
-  try {
-    text = await readFile(file, 'utf8')
-  } catch {
-    return null
-  }
+  const text = await readHistory(file)
+  if (text === null) return null
   try {
     const parsed = JSON.parse(text) as Partial<SavedChat> | null
     if (parsed?.version !== 1 || !Array.isArray(parsed.turns)) throw new Error('unknown format')
@@ -127,11 +124,83 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
     }
   } catch (error) {
     // Keep what's there for recovery instead of letting the next save overwrite it.
-    const aside = `${file.replace(/\.json$/, '')}.corrupt-${Date.now()}.json`
-    console.error(`[gui] unreadable chat history, moved to ${aside}`, error)
-    await rename(file, aside).catch(() => undefined)
+    await setAside(file, error)
     return null
   }
+}
+
+/**
+ * The file's text, or null without one. A file that's there but can't be read (too many
+ * open files, permissions) gets a few tries, then is set aside: the chat starting empty
+ * must not save over it.
+ */
+async function readHistory(file: string): Promise<string | null> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await readFile(file, 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+      if (attempt === 3) {
+        await setAside(file, error)
+        return null
+      }
+      await new Promise((resolve) => setTimeout(resolve, 100 * attempt))
+    }
+  }
+}
+
+async function setAside(file: string, error: unknown) {
+  const aside = asidePath(file)
+  console.error(`[gui] unreadable chat history, moved to ${aside}`, error)
+  await rename(file, aside).catch(() => undefined)
+}
+
+/** What a project's saved chats still refer to, kept until no chat does. */
+export interface ChatReferences {
+  checkpoints: Set<string>
+  recordings: Set<string>
+}
+
+/**
+ * What the saved chats of `root` refer to: its own chat file, those of other tabs on it, and
+ * its archive. Null if any of them can't be read, as that one might refer to something too.
+ */
+export async function chatReferences(root: string): Promise<ChatReferences | null> {
+  const real = await realpath(root).catch(() => root)
+  const name = historyName(real)
+  const own = new RegExp(`^${name}(-\\d+)?\\.json$`)
+  const found: ChatReferences = { checkpoints: new Set(), recordings: new Set() }
+  const add = async (file: string) => {
+    try {
+      const saved = JSON.parse(await readFile(file, 'utf8')) as Partial<SavedChat>
+      for (const point of Object.values(saved.checkpoints ?? {})) {
+        if (typeof point?.before === 'string') found.checkpoints.add(point.before)
+        if (typeof point?.after === 'string') found.checkpoints.add(point.after)
+      }
+      if (typeof saved.redo?.sha === 'string') found.checkpoints.add(saved.redo.sha)
+      for (const turn of Array.isArray(saved.turns) ? saved.turns : []) {
+        for (const clip of Array.isArray(turn?.recordings) ? turn.recordings : []) {
+          if (typeof clip?.id === 'string') found.recordings.add(clip.id)
+        }
+      }
+      return true
+    } catch (error) {
+      // Gone since it was listed (archived or deleted) is fine; anything else isn't known.
+      return (error as NodeJS.ErrnoException).code === 'ENOENT'
+    }
+  }
+  const names = await readdir(dir()).catch(() => [] as string[])
+  for (const entry of names.filter((entry) => own.test(entry))) {
+    if (!(await add(join(dir(), entry)))) return null
+  }
+  // Listed after the live files were read, so one archived meanwhile is read here.
+  const folder = join(dir(), name)
+  const archived = await readdir(folder).catch(() => [] as string[])
+  for (const entry of archived) {
+    if (!CHAT_ID.test(entry.replace(/\.json$/, '')) || !entry.endsWith('.json')) continue
+    if (!(await add(join(folder, entry)))) return null
+  }
+  return found
 }
 
 /** Nothing was running when the app quit, so open permission prompts can't be answered. */
@@ -259,8 +328,6 @@ function serialize(chat: SavedChat) {
 }
 
 /** A sibling temp file, so the rename that replaces the history is atomic. */
-const tempFile = (file: string) => `${file}.${randomBytes(6).toString('hex')}.tmp`
-
 /**
  * Saves one chat's history: in the background one write at a time (the latest state
  * wins), or synchronously for the last save before the chat goes away. Each write goes
@@ -287,18 +354,10 @@ export class HistoryWriter {
   saveSync() {
     this.closed = true
     this.dirty = false
-    const tmp = tempFile(this.file)
     try {
-      mkdirSync(dirname(this.file), { recursive: true, mode: 0o700 })
-      writeFileSync(tmp, serialize(this.read()), { mode: 0o600, flag: 'wx' })
-      renameSync(tmp, this.file)
+      writeFileAtomicSync(this.file, serialize(this.read()))
     } catch (error) {
       console.error('[gui] failed to save chat history', error)
-      try {
-        rmSync(tmp, { force: true })
-      } catch {
-        // Best effort; a stray temp file is harmless.
-      }
     }
   }
 
@@ -306,17 +365,17 @@ export class HistoryWriter {
     this.writing = true
     while (this.dirty && !this.closed) {
       this.dirty = false
-      const tmp = tempFile(this.file)
+      let tmp: string | null = null
       try {
-        await mkdir(dirname(this.file), { recursive: true, mode: 0o700 })
-        await writeFile(tmp, serialize(this.read()), { mode: 0o600, flag: 'wx' })
+        const written = await writeTemp(this.file, serialize(this.read()))
+        tmp = written
         // Checked and renamed with no await between, so a final saveSync can't be
         // overwritten by this older state.
-        if (this.closed) await rm(tmp, { force: true })
-        else renameSync(tmp, this.file)
+        if (this.closed) await rm(written, { force: true })
+        else renameSync(written, this.file)
       } catch (error) {
         console.error('[gui] failed to save chat history', error)
-        await rm(tmp, { force: true }).catch(() => undefined)
+        if (tmp) await rm(tmp, { force: true }).catch(() => undefined)
       }
     }
     this.writing = false
@@ -376,19 +435,6 @@ function isSummary(value: unknown): value is ChatSummary {
   )
 }
 
-/** Written whole to a temp file first, so a crash leaves the old file or the new one. */
-async function writeAtomic(file: string, text: string) {
-  const tmp = tempFile(file)
-  try {
-    await mkdir(dirname(file), { recursive: true, mode: 0o700 })
-    await writeFile(tmp, text, { mode: 0o600, flag: 'wx' })
-    await rename(tmp, file)
-  } catch (error) {
-    await rm(tmp, { force: true }).catch(() => undefined)
-    throw error
-  }
-}
-
 /** The index as the files are: read when the index is missing or unreadable. */
 async function rebuildIndex(folder: string): Promise<ChatSummary[]> {
   const names = await readdir(folder).catch(() => [] as string[])
@@ -432,7 +478,7 @@ function updateIndex(folder: string, update: (list: ChatSummary[]) => ChatSummar
   const task = (indexQueue.get(folder) ?? Promise.resolve()).then(async () => {
     const { list, stored } = await readIndex(folder)
     const next = update(list).sort((a, b) => b.lastAt - a.lastAt)
-    if (next !== list || !stored) await writeAtomic(join(folder, INDEX), JSON.stringify(next))
+    if (next !== list || !stored) await writeFileAtomic(join(folder, INDEX), JSON.stringify(next))
     return next
   })
   indexQueue.set(
@@ -447,7 +493,7 @@ export async function archiveChat(root: string, saved: SavedChat): Promise<ChatS
   const summary = summarize(saved)
   if (!summary) return null
   const folder = await archiveDir(root)
-  await writeAtomic(archivedFile(folder, saved.id), serialize(saved))
+  await writeFileAtomic(archivedFile(folder, saved.id), serialize(saved))
   await updateIndex(folder, (list) => [summary, ...list.filter((entry) => entry.id !== saved.id)])
   return summary
 }
