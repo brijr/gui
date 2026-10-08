@@ -62,6 +62,7 @@ import {
   signOut,
   waitForSignIn,
 } from './account'
+import { killStoppedAgents } from './agent'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { offersChoice } from './chat'
@@ -1387,7 +1388,11 @@ function shutdown() {
   for (const win of allWindows()) win.destroy()
   agentHealth.dispose()
   nodeRuntime.dispose()
+  killStoppedAgents()
 }
+
+// A rejected promise nothing awaited is logged rather than lost.
+process.on('unhandledRejection', (reason) => console.error('[gui] unhandled rejection', reason))
 
 // One Gui per data folder: two would delete each other's live shadow-repo lock and
 // overwrite each other's history. The lock is keyed on userData, so a dev build or a

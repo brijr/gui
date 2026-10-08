@@ -1,5 +1,6 @@
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { ErrorBoundary } from '../lib/error-boundary'
 
 const components: Components = {
   a: ({ href, children }) => (
@@ -19,9 +20,12 @@ const components: Components = {
 export function Markdown({ text }: { text: string }) {
   return (
     <div className="markdown break-words">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {text}
-      </ReactMarkdown>
+      {/* Agent output: if it can't be drawn as Markdown, show it as written. */}
+      <ErrorBoundary resetKey={text} fallback={() => <p className="whitespace-pre-wrap">{text}</p>}>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+          {text}
+        </ReactMarkdown>
+      </ErrorBoundary>
     </div>
   )
 }

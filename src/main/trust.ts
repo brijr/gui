@@ -1,6 +1,7 @@
-import { readFile, realpath, writeFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, type BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
+import { writeFileAtomic } from './atomic-file'
 
 /**
  * Projects whose dev script the user has agreed to run. Opening a folder must not
@@ -27,24 +28,28 @@ export function listTrusted() {
   return load()
 }
 
+let pendingWrite: Promise<unknown> = Promise.resolve()
+
+/** One change at a time, each on the list the last one wrote, so none is lost. */
+function update(change: (trusted: string[]) => string[]) {
+  const task = pendingWrite.then(async () => {
+    const trusted = await load()
+    const next = change(trusted)
+    if (next !== trusted) await writeFileAtomic(file(), JSON.stringify(next, null, 2))
+  })
+  pendingWrite = task.catch(() => undefined)
+  return task
+}
+
 /** The project's dev script will ask again before it runs. */
 export async function untrust(root: string) {
-  const trusted = await load()
-  await writeFile(
-    file(),
-    JSON.stringify(
-      trusted.filter((path) => path !== root),
-      null,
-      2,
-    ),
-  )
+  const path = await canonical(root)
+  await update((trusted) => trusted.filter((p) => p !== root && p !== path))
 }
 
 export async function trust(root: string) {
   const path = await canonical(root)
-  const trusted = await load()
-  if (trusted.includes(path)) return
-  await writeFile(file(), JSON.stringify([...trusted, path], null, 2))
+  await update((trusted) => (trusted.includes(path) ? trusted : [...trusted, path]))
 }
 
 /**

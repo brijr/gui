@@ -34,4 +34,25 @@ export function guardAppContents(wc: WebContents) {
     openExternal(url)
     return { action: 'deny' }
   })
+  reloadAfterCrash(wc)
+}
+
+/** A crashed app page reloaded more often than this in a minute is left as it is. */
+const MAX_CRASH_RELOADS = 3
+
+/**
+ * Gui's own pages hold no state main doesn't have, so one whose renderer crashed loads again
+ * and is sent it, instead of staying blank. A page that keeps crashing stops being reloaded.
+ */
+function reloadAfterCrash(wc: WebContents) {
+  let reloads: number[] = []
+  wc.on('render-process-gone', (_event, details) => {
+    if (details.reason === 'clean-exit' || wc.isDestroyed()) return
+    const now = Date.now()
+    reloads = reloads.filter((at) => now - at < 60_000)
+    console.error(`[gui] ${wc.getURL()} renderer gone (${details.reason})`)
+    if (reloads.length >= MAX_CRASH_RELOADS) return
+    reloads.push(now)
+    wc.reload()
+  })
 }

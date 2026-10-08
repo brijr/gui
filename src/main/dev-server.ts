@@ -4,6 +4,7 @@ import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
 import { Output } from './output'
 import { listenersOn, loopbackFor, portOpen, processGroups } from './ports'
+import { groupAlive, processGroupsOf, signalGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 
 const PROBE_TIMEOUT_MS = 120_000
@@ -11,12 +12,15 @@ const PROBE_TIMEOUT_MS = 120_000
 const SLOW_START_MS = 30_000
 /** After this long, accept any listener on the port even if we can't prove it's ours. */
 const OWNERSHIP_GRACE_MS = 20_000
+/** How long a stopped server and what it started get to exit before what's left is killed. */
+const STOP_GRACE_MS = 3000
 const ESC = '\u001b'
 const ANSI = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^\u0007]*(?:\u0007|${ESC}\\\\)`, 'g')
 const LOCAL_URL =
   /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.localhost)(?::\d{2,5})?[^\s'"]*/
 
 const stripAnsi = (text: string) => text.replace(ANSI, '')
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 let lastLogsId = 0
 
@@ -56,6 +60,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private proc: IPty | null = null
   /** Settles when `proc` has exited and its exit has been handled. */
   private exited: Promise<void> = Promise.resolve()
+  private disposed = false
   /** Its output and Gui's notes in between, kept to draw again; never held up by the drawer */
   readonly output = new Output(`logs-${++lastLogsId}`, {
     send: (chunk) => this.emit('data', chunk),
@@ -85,7 +90,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   async start(command: string) {
-    if (this.proc) return
+    // A restart or app switch can still be waiting on the old server when its tab closes.
+    if (this.proc || this.disposed) return
     const run = ++this.run
     const env = await getShellEnv()
     if (run !== this.run) return
@@ -137,7 +143,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
    * was stopped, or was superseded.
    */
   async runTask(command: string, cwd: string): Promise<number | null> {
-    if (this.proc) return null
+    if (this.proc || this.disposed) return null
     const run = ++this.run
     const env = await getShellEnv()
     if (run !== this.run) return null
@@ -167,22 +173,33 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.update({ lastLine: message })
   }
 
-  stop() {
+  /**
+   * Asks the server and everything it started to stop, and kills what's left after a grace
+   * period. Resolves once they're all gone. The package manager the PTY runs often exits on
+   * SIGTERM first while the server it started lingers, so this follows every group, not it.
+   */
+  stop(): Promise<void> {
     const proc = this.proc
-    if (!proc) return
+    if (!proc) return Promise.resolve()
     this.stopping = true
-    killGroup(proc.pid, 'SIGTERM')
-    setTimeout(() => {
-      if (this.proc === proc) killGroup(proc.pid, 'SIGKILL')
-    }, 3000)
+    const groups = processGroupsOf([proc])
+    signalGroups(groups, 'SIGTERM')
+    return (async () => {
+      const deadline = Date.now() + STOP_GRACE_MS
+      let alive = groups.filter(groupAlive)
+      while (alive.length > 0 && Date.now() < deadline) {
+        await sleep(50)
+        alive = alive.filter(groupAlive)
+      }
+      signalGroups(alive, 'SIGKILL')
+    })()
   }
 
-  /** Stops whatever is running and resolves once it has exited. */
+  /** Stops whatever is running and resolves once it and everything it started have exited. */
   async stopAndWait() {
     if (!this.proc) return
     const exited = this.exited
-    this.stop()
-    await exited
+    await Promise.all([this.stop(), exited])
   }
 
   async restart() {
@@ -203,10 +220,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   dispose() {
+    this.disposed = true
     this.run++
     this.output.dispose()
     if (this.lastLineTimer) clearTimeout(this.lastLineTimer)
-    if (this.proc) killGroup(this.proc.pid, 'SIGKILL')
+    if (this.proc) signalGroups(processGroupsOf([this.proc]), 'SIGKILL')
     this.proc = null
     this.removeAllListeners()
   }
@@ -322,17 +340,4 @@ export class DevServer extends EventEmitter<DevServerEvents> {
 
 async function anyLoopbackOpen(port: number) {
   return (await portOpen('127.0.0.1', port)) || (await portOpen('::1', port))
-}
-
-function killGroup(pid: number, signal: NodeJS.Signals) {
-  try {
-    // The PTY child leads its own session, so its pid is also the process group id.
-    process.kill(-pid, signal)
-  } catch {
-    try {
-      process.kill(pid, signal)
-    } catch {
-      // already gone
-    }
-  }
 }

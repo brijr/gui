@@ -28,6 +28,7 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { ErrorBoundary } from '../lib/error-boundary'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import {
@@ -750,7 +751,9 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
     >
       <div ref={content} className="flex flex-col gap-6">
         {turns.map((turn) => (
-          <TurnView key={turn.id} turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
+          <ErrorBoundary key={turn.id} resetKey={turn}>
+            <TurnView turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
+          </ErrorBoundary>
         ))}
         {turns.length >= LONG_CHAT && turns.at(-1)?.status !== 'running' && <LongChatHint />}
       </div>

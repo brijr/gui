@@ -136,6 +136,8 @@ const PERSIST_DELAY_MS = 400
 /** While a turn streams: often enough that a crash loses little, without rewriting the file constantly. */
 const PERSIST_RUNNING_MS = 1500
 const RESET_SETTLE_MS = 5000
+/** How long Stop waits for the agent to end the turn before stopping the agent itself. */
+const CANCEL_SETTLE_MS = 10_000
 /**
  * How long the command menu waits, once an agent started early for it, for the commands
  * to arrive: agents report them just after the session starts, not with it.
@@ -625,8 +627,27 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.stopAgent()
       this.patchMeta({ status: 'idle' })
     } else {
-      await this.agent?.cancel().catch(() => undefined)
+      const agent = this.agent
+      await agent?.cancel().catch(() => undefined)
+      if (agent) void this.stopIfCancelIgnored(agent, record)
     }
+  }
+
+  /**
+   * A cancel is only a request. An agent that ignores it (hung, deadlocked) would hold the
+   * turn, and everything queued after it, forever: stop it, and resume its session next time.
+   */
+  private async stopIfCancelIgnored(agent: AgentSession, record: TurnRecord) {
+    const settled = await Promise.race([
+      record.settled.then(
+        () => true,
+        () => true,
+      ),
+      sleep(CANCEL_SETTLE_MS).then(() => false),
+    ])
+    if (settled || this.disposed || this.agent !== agent || this.active !== record) return
+    this.stopAgent()
+    this.resumeSessionId = this.sessionId
   }
 
   respondPermission(turnId: string, itemId: string, optionId: string | null) {

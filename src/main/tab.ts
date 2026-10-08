@@ -868,7 +868,7 @@ export class ProjectTab {
   }
 
   stopDevServer() {
-    this.devServer?.stop()
+    void this.devServer?.stop()
   }
 
   restartDevServer() {
@@ -1658,7 +1658,7 @@ export class ProjectTab {
 
   /** "Switch app…": stops the current app and asks again. */
   private showAppChooser() {
-    this.devServer?.stop()
+    void this.devServer?.stop()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
     this.preview.webContents.loadURL('about:blank').catch(() => undefined)
@@ -3030,15 +3030,24 @@ export class ProjectTab {
     if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()
+    // Async work still in flight checks these against what it started with; clearing them
+    // is what tells it the project is gone.
+    this.stopWatchingForApp()
     this.devServer?.dispose()
+    this.devServer = null
     this.terminals?.dispose()
+    this.terminals = null
     this.chat?.dispose()
+    this.chat = null
     this.retireHistoryFile()
     this.mcp?.close()
+    this.mcp = null
+    this.previewTools = null
     this.emulation.dispose()
     this.picker.dispose()
     this.inspector.dispose()
     this.recordings?.dispose()
+    this.recordings = null
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()
   }

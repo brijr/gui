@@ -647,11 +647,16 @@ export class AgentSession {
     this.connection = null
     const child = this.child
     this.child = null
-    if (!child?.pid || child.exitCode !== null) return
+    if (!child?.pid) return
     const pid = child.pid
-    killGroup(pid, 'SIGTERM')
+    // Even once the adapter itself has exited, what it started (the CLI, its MCP servers,
+    // commands it ran) can still be in its group.
+    const leaderAlive = child.exitCode === null && child.signalCode === null
+    killGroup(pid, 'SIGTERM', leaderAlive)
+    liveGroups.add(pid)
     setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) killGroup(pid, 'SIGKILL')
+      liveGroups.delete(pid)
+      killGroup(pid, 'SIGKILL', child.exitCode === null && child.signalCode === null)
     }, 2000).unref()
   }
 
@@ -707,10 +712,27 @@ export class AgentSession {
   }
 }
 
-function killGroup(pid: number, signal: NodeJS.Signals) {
+/** Agent process groups sent SIGTERM and not yet past their SIGKILL grace period. */
+const liveGroups = new Set<number>()
+
+/**
+ * Kills what's left of every stopped agent's group now. Quitting can't wait out the grace
+ * period: the timer that would send SIGKILL dies with the app.
+ */
+export function killStoppedAgents() {
+  for (const pid of liveGroups) killGroup(pid, 'SIGKILL', false)
+  liveGroups.clear()
+}
+
+/**
+ * Signals the agent's process group. Only while the leader is alive is its own pid a fallback:
+ * once it has exited, the pid may belong to some other process.
+ */
+function killGroup(pid: number, signal: NodeJS.Signals, leaderAlive: boolean) {
   try {
     process.kill(-pid, signal)
   } catch {
+    if (!leaderAlive) return
     try {
       process.kill(pid, signal)
     } catch {

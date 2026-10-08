@@ -1,11 +1,10 @@
-import { execFileSync } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import { basename } from 'node:path'
 import { app } from 'electron'
 import { type IPty, spawn as spawnPty } from 'node-pty'
 import type { TerminalOutput } from '../shared/ipc'
 import type { TerminalId, TerminalInfo } from '../shared/types'
 import { Output } from './output'
+import { groupAlive, processGroupsOf, signalGroups, sleepSync } from './process-groups'
 import { getShellEnv } from './shell-env'
 
 /** How long hung-up shells and their jobs get to exit before what's left is killed. */
@@ -229,88 +228,4 @@ function end(shells: Shell[]) {
     alive = alive.filter(groupAlive)
   }
   signalGroups(alive, 'SIGKILL')
-}
-
-interface ProcessRow {
-  pid: number
-  ppid: number
-  pgid: number
-  /** Its controlling terminal ("ttys012"), or "??" */
-  tty: string
-}
-
-/**
- * The process groups of the shells and of everything on their terminals or descended from
- * them. Read while the shells (and so their terminals) are still there: a terminal device
- * freed by an exited shell can already belong to someone else's.
- */
-function processGroupsOf(procs: IPty[]): number[] {
-  const rows = processTable()
-  const children = new Map<number, number[]>()
-  for (const row of rows) children.set(row.ppid, [...(children.get(row.ppid) ?? []), row.pid])
-  const byPid = new Map(rows.map((row) => [row.pid, row]))
-  const ttys = new Set(procs.map(ttyOf).filter((tty) => tty !== null))
-
-  const groups = new Set(procs.map((proc) => proc.pid))
-  const seen = new Set<number>()
-  const stack = procs.map((proc) => proc.pid)
-  for (let pid = stack.pop(); pid !== undefined; pid = stack.pop()) {
-    if (seen.has(pid)) continue
-    seen.add(pid)
-    const row = byPid.get(pid)
-    if (row) groups.add(row.pgid)
-    stack.push(...(children.get(pid) ?? []))
-  }
-  for (const row of rows) if (ttys.has(row.tty)) groups.add(row.pgid)
-
-  // Never Gui's own group, nor launchd's or the kernel's.
-  const own = byPid.get(process.pid)?.pgid
-  return [...groups].filter((group) => group > 1 && group !== own && group !== process.pid)
-}
-
-/** The PTY's device, as `ps` names it. */
-function ttyOf(proc: IPty): string | null {
-  const { ptsName } = proc as IPty & { ptsName?: string }
-  return ptsName ? basename(ptsName) : null
-}
-
-function processTable(): ProcessRow[] {
-  try {
-    const out = execFileSync('/bin/ps', ['-A', '-o', 'pid=,ppid=,pgid=,tty='], {
-      encoding: 'utf8',
-      timeout: 5000,
-      maxBuffer: 16 * 1024 * 1024,
-    })
-    return out.split('\n').flatMap((line) => {
-      const [pid, ppid, pgid, tty = ''] = line.trim().split(/\s+/)
-      const row = { pid: Number(pid), ppid: Number(ppid), pgid: Number(pgid), tty }
-      return Number.isInteger(row.pid) && Number.isInteger(row.pgid) && row.pid > 0 ? [row] : []
-    })
-  } catch {
-    // Without the table, the shells' own groups are still ended.
-    return []
-  }
-}
-
-function signalGroups(groups: number[], signal: NodeJS.Signals) {
-  for (const group of groups) {
-    try {
-      process.kill(-group, signal)
-    } catch {
-      // already gone
-    }
-  }
-}
-
-function groupAlive(group: number) {
-  try {
-    process.kill(-group, 0)
-    return true
-  } catch {
-    return false
-  }
-}
-
-function sleepSync(ms: number) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
 }

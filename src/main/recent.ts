@@ -1,7 +1,8 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { RecentProject } from '../shared/types'
+import { writeFileAtomic } from './atomic-file'
 import { lastMessage } from './history'
 
 const MAX_RECENT = 12
@@ -11,7 +12,7 @@ let pendingWrite: Promise<unknown> = Promise.resolve()
 function updateRecent(update: (recent: RecentProject[]) => RecentProject[]) {
   const task = pendingWrite.then(async () => {
     const next = update(await loadRecent())
-    await writeFile(file(), JSON.stringify(next, null, 2))
+    await writeFileAtomic(file(), JSON.stringify(next, null, 2))
     return next
   })
   pendingWrite = task.catch(() => undefined)

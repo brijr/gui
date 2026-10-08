@@ -1,8 +1,9 @@
 import { EventEmitter } from 'node:events'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, renameSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { app } from 'electron'
 import { type AgentId, DEFAULT_AGENT_ID, isAgentId, type PanelCorner } from '../shared/types'
+import { asidePath, writeFileAtomicSync } from './atomic-file'
 
 export interface ChatSize {
   width: number
@@ -123,7 +124,18 @@ export function getPrefs(): Prefs {
       agentSettings: agentSettings(parsed.agentSettings),
       askRoots: roots(parsed.askRoots),
     }
-  } catch {
+  } catch (error) {
+    // A damaged file would otherwise be replaced by defaults on the next save, losing (among
+    // the rest) which projects are in Ask mode. Keep it aside instead.
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+      const aside = asidePath(file())
+      console.error(`[gui] unreadable preferences, moved to ${aside}`, error)
+      try {
+        renameSync(file(), aside)
+      } catch {
+        // Unreadable and immovable; the next save replaces it.
+      }
+    }
     cached = {
       ...DEFAULTS,
       chatSize: { ...DEFAULTS.chatSize },
@@ -139,7 +151,7 @@ export function getPrefs(): Prefs {
 export function setPrefs(patch: Partial<Prefs>) {
   cached = { ...getPrefs(), ...patch }
   try {
-    writeFileSync(file(), JSON.stringify(cached, null, 2))
+    writeFileAtomicSync(file(), JSON.stringify(cached, null, 2))
   } catch (error) {
     console.error('[gui] failed to save preferences', error)
   }
