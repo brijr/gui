@@ -16,6 +16,8 @@
   "vars": {
     "GITHUB_CLIENT_ID": "Iv23liakas1b7Im4gK8a",
     "GITHUB_APP_SLUG": "gui-projects",
+    // Mints Gui's per-repository push tokens, with the app's key (GITHUB_APP_PRIVATE_KEY, a secret).
+    "GITHUB_APP_ID": "5204419",
     // WorkOS Staging, for testing; switch to Production's client ID and key before launch.
     "WORKOS_CLIENT_ID": "client_01M4E6ZGP4NBGP6X2FT787Y9V5"
   },
