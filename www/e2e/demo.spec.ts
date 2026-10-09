@@ -104,22 +104,18 @@ test('opening and closing run at a steady frame rate', async ({ page }) => {
   expect(p952).toBeLessThan(34)
 })
 
-test('the scripted session underlines the words, and Undo takes it back', async ({ page }) => {
+test('the scripted session makes the words bold, and Undo takes it back', async ({ page }) => {
   await open(page)
   await untilIdle(page)
 
   const words = page.locator('[data-demo-target]')
-  const tiles = words.locator('.demo-pixels i')
-  expect(await tiles.count()).toBe(19)
-  // In the mark's blues, in the order it assembles
-  expect(await tiles.nth(0).evaluate((el) => getComputedStyle(el).backgroundColor)).toBe(
-    'rgb(0, 102, 255)',
-  )
+  const weight = () => words.evaluate((el) => getComputedStyle(el).fontWeight)
+  await expect.poll(weight).toBe('600')
+  // Only the two words: the rest of the headline stays light.
+  expect(await page.locator('.lede').evaluate((el) => getComputedStyle(el).fontWeight)).toBe('250')
   const chat = page.getByRole('complementary', { name: 'Chat' })
-  await expect(chat).toContainText('Underline these words with blue pixels, like the Gui mark.')
-  await expect(chat).toContainText(
-    'I put a row of square tiles under “real app”, in the six blues of the mark.',
-  )
+  await expect(chat).toContainText('Make these words bold.')
+  await expect(chat).toContainText('I changed the weight of “real app” from 250 to 600.')
   await expect(chat).toContainText('Worked for')
   await expect(page.getByText('Point at something to change')).toBeHidden()
 
@@ -128,9 +124,9 @@ test('the scripted session underlines the words, and Undo takes it back', async 
   await expect(page.locator('[data-selected] .mark-label')).toContainText('span')
 
   await chat.getByRole('button', { name: 'Undo' }).click()
-  await expect(words.locator('.demo-pixels')).toHaveCount(0)
+  await expect.poll(weight).toBe('250')
   await chat.getByRole('button', { name: 'Redo' }).click()
-  await expect(words.locator('.demo-pixels')).toHaveCount(1)
+  await expect.poll(weight).toBe('600')
 })
 
 test('the visitor selects an element and tries a suggestion', async ({ page }) => {
@@ -197,7 +193,7 @@ test('closing puts the page back as it was', async ({ page }) => {
   expect(await page.locator('[data-page]').getAttribute('class')).toBe('page')
   expect(await page.locator('.sub').getAttribute('style')).toBeNull()
   expect(await page.locator('[data-demo-target]').getAttribute('class')).toBeNull()
-  await expect(page.locator('[data-demo-target] .demo-pixels')).toHaveCount(0)
+  expect(await page.locator('[data-demo-target]').getAttribute('style')).toBeNull()
   expect(await page.evaluate(() => document.documentElement.className)).toBe('')
   await expect(page.getByRole('button', { name: 'Try it now' })).toBeFocused()
 
@@ -227,10 +223,13 @@ test('Start again replays the session from a clean page', async ({ page }) => {
   await open(page)
   await untilIdle(page)
   await page.getByRole('button', { name: 'Start the demo again' }).click()
-  await expect(page.locator('[data-demo-target] .demo-pixels')).toHaveCount(0)
   await expect(page.getByText('Point at something to change')).toBeVisible()
   await untilIdle(page)
-  await expect(page.locator('[data-demo-target] .demo-pixels')).toHaveCount(1)
+  await expect
+    .poll(() =>
+      page.locator('[data-demo-target]').evaluate((el) => getComputedStyle(el).fontWeight),
+    )
+    .toBe('600')
 })
 
 test.describe('on a phone', () => {
@@ -248,7 +247,11 @@ test.describe('on a phone', () => {
     expect(chat.y + chat.height).toBeLessThanOrEqual(844)
     await expect(page.getByRole('button', { name: 'Close demo' })).toBeVisible()
     await untilIdle(page)
-    await expect(page.locator('[data-demo-target] .demo-pixels')).toHaveCount(1)
+    await expect
+      .poll(() =>
+        page.locator('[data-demo-target]').evaluate((el) => getComputedStyle(el).fontWeight),
+      )
+      .toBe('600')
   })
 })
 
@@ -281,4 +284,47 @@ test('state is reported for each step', async ({ page }) => {
   expect(await stateOf(page)).toBeNull()
   await page.getByRole('button', { name: 'Try it now' }).click()
   expect(await stateOf(page)).toBe('opening')
+})
+
+test.describe('How it works', () => {
+  test('each step is drawn in Gui’s interface, not a screenshot', async ({ page }) => {
+    const steps = page.locator('.steps > li')
+    await expect(steps).toHaveCount(4)
+    await expect(page.locator('.steps img')).toHaveCount(0)
+    for (const kind of ['select', 'describe', 'watch', 'compare']) {
+      const stage = page.locator(`.stage[data-kind="${kind}"]`)
+      await expect(stage).toHaveAttribute('role', 'img')
+      expect((await stage.getAttribute('aria-label'))?.length).toBeGreaterThan(20)
+      // 4:3, like the screenshots were
+      const box = await stage.boundingBox()
+      if (!box) throw new Error('no box')
+      expect(Math.abs(box.width / box.height - 4 / 3)).toBeLessThan(0.02)
+    }
+    await expect(page.locator('[data-kind="select"] .label')).toContainText('span')
+    await expect(page.locator('[data-kind="describe"]')).toContainText('Make these words bold.')
+    await expect(page.locator('[data-kind="compare"] .bold')).toHaveCSS('font-weight', '600')
+  })
+
+  test('the stages stay inside their cards on a phone', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 })
+    for (const kind of ['select', 'describe', 'watch', 'compare']) {
+      const fits = await page.locator(`.stage[data-kind="${kind}"]`).evaluate((stage) => {
+        const outer = stage.getBoundingClientRect()
+        const inner = (
+          stage.querySelector('.panel, .page-bit') as HTMLElement
+        ).getBoundingClientRect()
+        return (
+          inner.left >= outer.left && inner.right <= outer.right && inner.bottom <= outer.bottom
+        )
+      })
+      expect(fits, kind).toBe(true)
+    }
+  })
+
+  test('the Working timer counts while it is on screen', async ({ page }) => {
+    const timer = page.locator('[data-timer]')
+    await timer.scrollIntoViewIfNeeded()
+    const first = await timer.textContent()
+    await expect(timer).not.toHaveText(first ?? '', { timeout: 3000 })
+  })
 })

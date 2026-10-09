@@ -1,0 +1,51 @@
+/*
+ * Gui's own look, for the parts of the site that show its interface (the demo, the steps of
+ * "How it works"): the tokens of the app (src/renderer/src/styles.css), on .gui.
+ */
+.gui {
+  --canvas: #ececec;
+  --surface: #f7f7f7;
+  --raised: #ffffff;
+  --line: rgb(0 0 0 / 0.08);
+  --line-strong: rgb(0 0 0 / 0.14);
+  --fill: rgb(0 0 0 / 0.06);
+  --hover: rgb(0 0 0 / 0.045);
+  --c-fg: #18181a;
+  --c-muted: #545458;
+  --subtle: #68686d;
+  --accent: #0066ff;
+  --accent-hover: #005be5;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(0 102 255 / 0.1);
+  --accent-text: #0058e0;
+  --success: #147a3a;
+  --danger: #b83d0b;
+  --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
+  --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.06);
+  --ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: "SF Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  .gui {
+    --canvas: #0e0e0f;
+    --surface: #18181a;
+    --raised: #202023;
+    --line: rgb(255 255 255 / 0.08);
+    --line-strong: rgb(255 255 255 / 0.15);
+    --fill: rgb(255 255 255 / 0.08);
+    --hover: rgb(255 255 255 / 0.06);
+    --c-fg: #ededef;
+    --c-muted: #ababb0;
+    --subtle: #8c8c91;
+    --accent: #5c9dff;
+    --accent-hover: #4b8ff7;
+    --accent-fg: #04122b;
+    --accent-soft: rgb(92 157 255 / 0.16);
+    --accent-text: #5c9dff;
+    --success: #4ade80;
+    --danger: #fb923c;
+    --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
+    --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.5), 0 0 0 0.5px rgb(255 255 255 / 0.08);
+  }
+}

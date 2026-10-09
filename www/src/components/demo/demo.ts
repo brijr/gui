@@ -56,12 +56,11 @@ const NARROW = 760
 /** The desktop's menu bar, over the wallpaper (wide screens only) */
 const MENU_BAR = 26
 
-const PROMPT = 'Underline these words with blue pixels, like the Gui mark.'
+const PROMPT = 'Make these words bold.'
 const REPLY =
-  'I put a row of square tiles under “real app”, in the six blues of the mark. Each tile slides out from under the one before it, as the mark does when it assembles at the top of the page.'
-
-/** The mark's tiles, in the order it assembles (public/mark-animated.svg) */
-const MARK_BLUES = ['#0066FF', '#7CB0FF', '#4590FF', '#1E78FF', '#5A9CFF', '#1F78FF']
+  'I changed the weight of “real app” from 250 to 600. The rest of the headline stays light, so the two words stand out.'
+/** The weight the scripted change gives the words; the headline is 250 */
+const BOLD = '600'
 const FREE_REPLY =
   'This demo has no agent, so it can only make the changes in the suggestions. In Gui, your own agent reads your code and makes the change that you write.'
 
@@ -609,7 +608,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     hideCursor()
 
     await converse(
-      { prompt: PROMPT, target: words, reply: REPLY, change: underline(words), compare: true },
+      { prompt: PROMPT, target: words, reply: REPLY, change: bold(words), compare: true },
       id,
     )
     ready()
@@ -731,7 +730,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
         const figure = h('figure', '', title)
         const shot = h('div', 'shot')
         const text = h('span', '', words)
-        if (drawn) pixels(text, false)
+        if (drawn) text.style.fontWeight = BOLD
         shot.append(text)
         figure.append(shot)
         grid.append(figure)
@@ -774,43 +773,12 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     if (!originals.has(el)) originals.set(el, el.getAttribute('style'))
   }
 
-  /** An underline of the mark's tiles: about square, so their count follows the words' length. */
-  function pixels(words: HTMLElement, animate: boolean) {
-    const row = h('span', 'demo-pixels')
-    row.setAttribute('aria-hidden', 'true')
-    const count = Math.max(8, Math.round((words.textContent ?? '').trim().length * 2.4))
-    row.style.setProperty('--n', String(count))
-    for (let i = 0; i < count; i++) {
-      const tile = h('i')
-      tile.style.setProperty('--i', String(i))
-      tile.style.background = MARK_BLUES[i % MARK_BLUES.length]
-      row.append(tile)
-    }
-    if (animate) row.classList.add('is-building')
-    words.classList.add('demo-underlined')
-    words.append(row)
-    return row
-  }
-
-  function underline(words: HTMLElement): Change {
-    let row: HTMLElement | null = null
+  // The variable font has every weight between, so the words thicken smoothly in place.
+  function bold(words: HTMLElement): Change {
     return {
-      plus: 18,
+      ...restyle(words, 'font-weight', BOLD, `font-weight 700ms ${EASE_DRAW}`),
+      plus: 3,
       minus: 1,
-      applied: false,
-      apply() {
-        row?.remove()
-        row = pixels(words, true)
-      },
-      revert() {
-        const gone = row
-        row = null
-        if (!gone) return
-        gone.classList.remove('is-building')
-        gone.classList.add('is-leaving')
-        // After the last tile has gone back under the first.
-        setTimeout(() => gone.remove(), reduce.matches ? 160 : 140 + gone.childElementCount * 14)
-      },
     }
   }
 
@@ -906,11 +874,6 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       else el.setAttribute('style', style)
     }
     originals.clear()
-    for (const row of page.querySelectorAll('.demo-pixels')) row.remove()
-    for (const el of page.querySelectorAll('.demo-underlined')) {
-      el.classList.remove('demo-underlined')
-      if (!el.className) el.removeAttribute('class')
-    }
   }
 
   // Controls
