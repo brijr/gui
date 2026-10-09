@@ -115,7 +115,8 @@ const api: GuiApi = {
   onChatMenuChoice: (cb) => subscribe(Events.chatMenuChoice, cb),
   onChatFloat: (cb) => subscribe(Events.chatFloat, cb),
   chatMorphed: send(Send.chatMorphed),
-  send: (text, images, recordings) => ipcRenderer.invoke(Invoke.send, text, images, recordings),
+  send: (text, images, recordings, followUp) =>
+    ipcRenderer.invoke(Invoke.send, text, images, recordings, followUp),
   cancel: send(Send.cancel),
   respondPermission: send(Send.respondPermission),
   setShipSheetOpen: send(Send.setShipSheetOpen),

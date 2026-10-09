@@ -1458,14 +1458,19 @@ export class ProjectTab {
 
   // Chat
 
-  async sendChatMessage(text: string, images: ImageAttachment[], ids: string[] = []) {
+  async sendChatMessage(
+    text: string,
+    images: ImageAttachment[],
+    ids: string[] = [],
+    followUp: string | null = null,
+  ) {
     const recordings = this.recordings
     const chat = this.chat
     if (!chat || !recordings) return false
     try {
       const clips = await recordings.attachments(ids)
       if (this.chat !== chat) return false
-      const accepted = chat.send(text, images, clips)
+      const accepted = chat.send(text, images, clips, followUp)
       if (accepted) recordings.retain(ids)
       return accepted
     } catch {

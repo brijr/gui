@@ -653,22 +653,26 @@ function registerIpc() {
     if (!(await loadRecent()).some((project) => project.root === root)) return
     openSafely(windowFor(event), root)
   })
-  ipcMain.handle(Invoke.send, (event, text: unknown, images: unknown, recordings: unknown) => {
-    if (!isString(text)) return false
-    const attached = images === undefined ? [] : images
-    if (!Array.isArray(attached) || attached.length > MAX_IMAGES || !attached.every(isImage)) {
-      return false
-    }
-    const ids = recordings ?? []
-    if (
-      !Array.isArray(ids) ||
-      ids.length > 3 ||
-      !ids.every(isString) ||
-      new Set(ids).size !== ids.length
-    )
-      return false
-    return tabFor(event)?.sendChatMessage(text, attached, ids) ?? false
-  })
+  ipcMain.handle(
+    Invoke.send,
+    (event, text: unknown, images: unknown, recordings: unknown, followUp: unknown) => {
+      if (!isString(text)) return false
+      if (followUp != null && (!isString(followUp) || followUp.length > 100)) return false
+      const attached = images === undefined ? [] : images
+      if (!Array.isArray(attached) || attached.length > MAX_IMAGES || !attached.every(isImage)) {
+        return false
+      }
+      const ids = recordings ?? []
+      if (
+        !Array.isArray(ids) ||
+        ids.length > 3 ||
+        !ids.every(isString) ||
+        new Set(ids).size !== ids.length
+      )
+        return false
+      return tabFor(event)?.sendChatMessage(text, attached, ids, followUp ?? null) ?? false
+    },
+  )
   ipcMain.handle(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
   ipcMain.handle(Invoke.takeScreenshot, (event, at: unknown) => {
     const tab = tabFor(event)

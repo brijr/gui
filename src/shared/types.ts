@@ -590,6 +590,16 @@ export interface QueuedMessage {
   context: Picked[]
   attachments: { name: string; thumbnail: string }[]
   recordings?: RecordingAttachment[]
+  followUp?: FollowUp | null
+}
+
+/** An earlier turn a message follows up on, so the agent can pick that edit up again. */
+export interface FollowUp {
+  turnId: string
+  /** The turn's number in the chat, from 1 */
+  number: number
+  /** What the user asked in it */
+  prompt: string
 }
 
 /**
@@ -770,6 +780,8 @@ export interface Turn {
   /** Reference images the user attached; thumbnails only (the full images went to the agent) */
   attachments?: { name: string; thumbnail: string }[]
   recordings?: RecordingAttachment[]
+  /** The earlier turn this message follows up on */
+  followUp?: FollowUp | null
   reverted: boolean
 }
 

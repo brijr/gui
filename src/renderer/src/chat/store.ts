@@ -21,6 +21,8 @@ interface ChatStore {
   /** Images attached to the draft, already downscaled; kept here for the same reason */
   attachments: DraftImage[]
   recordings: RecordingAttachment[]
+  /** The earlier turn the draft follows up on (its Follow up button), by id */
+  followUp: string | null
   /** Why an image wasn't attached; the composer shows it briefly */
   notice: string | null
   /** ⇧⌘M asked for the model picker; the composer's model button opens it and clears this */
@@ -35,6 +37,7 @@ export const useChat = create<ChatStore>(() => ({
   draft: '',
   attachments: [],
   recordings: [],
+  followUp: null,
   notice: null,
   pickModel: false,
   float: { form: 'panel', corner: { x: 'right', y: 'bottom' }, seq: 0 },
@@ -69,6 +72,11 @@ let floatReceived = false
 
 export function setDraft(draft: string) {
   useChat.setState({ draft })
+}
+
+/** Follow up on an earlier turn: the composer shows it, and the next message takes it along. */
+export function setFollowUp(followUp: string | null) {
+  useChat.setState({ followUp })
 }
 
 export function setNotice(notice: string | null) {
@@ -152,6 +160,7 @@ interface Sent {
   prompt: string
   images: string[]
   recordings: string[]
+  followUp: string | null
   at: number
   /** Main took it, but its turn (or queued message) hasn't arrived: clears the composer soon */
   fallback?: ReturnType<typeof setTimeout>
@@ -168,8 +177,13 @@ const SENT_CLEAR_MS = 300
  * The composer is sending `text` with the draft images `images` (by id): when main's turn or
  * queued message for it arrives, it rises out of the composer as the composer clears.
  */
-export function noteSend(text: string, images: string[], recordings: string[] = []) {
-  sent = { prompt: text.trim(), images, recordings, at: performance.now() }
+export function noteSend(
+  text: string,
+  images: string[],
+  recordings: string[] = [],
+  followUp: string | null = null,
+) {
+  sent = { prompt: text.trim(), images, recordings, followUp, at: performance.now() }
 }
 
 /**
@@ -182,6 +196,7 @@ export function settleSend(
   text: string,
   images: string[],
   recordings: string[] = [],
+  followUp: string | null = null,
 ) {
   const pending = sent
   if (!accepted) {
@@ -193,12 +208,14 @@ export function settleSend(
     pending.fallback = setTimeout(() => {
       if (sent !== pending) return
       sent = null
-      applyInOrder(() => clearSent(pending.prompt, pending.images, pending.recordings))
+      applyInOrder(() =>
+        clearSent(pending.prompt, pending.images, pending.recordings, pending.followUp),
+      )
     }, SENT_CLEAR_MS)
     return
   }
   // Already risen (or rising, its update about to apply): this only finds it done.
-  applyInOrder(() => clearSent(text.trim(), images, recordings))
+  applyInOrder(() => clearSent(text.trim(), images, recordings, followUp))
 }
 
 /** Takes the sent message if `prompt` is it, still fresh. */
@@ -214,9 +231,15 @@ function takeSent(prompt: string) {
 }
 
 /** Empties the composer of what was sent, unless the user has typed since. */
-function clearSent(prompt: string, images: string[], recordings: string[]) {
+function clearSent(
+  prompt: string,
+  images: string[],
+  recordings: string[],
+  followUp: string | null,
+) {
   const { draft } = useChat.getState()
   if (draft.trim() === prompt) setDraft('')
+  if (followUp && useChat.getState().followUp === followUp) setFollowUp(null)
   removeAttachments(images)
   removeRecordings(recordings)
 }
@@ -315,7 +338,7 @@ function onMeta(meta: ChatMeta) {
     transition(
       () => {
         apply()
-        clearSent(message.prompt, message.images, message.recordings)
+        clearSent(message.prompt, message.images, message.recordings, message.followUp)
       },
       moves,
       [`queue:${newest.id}`],
@@ -355,7 +378,7 @@ function onTurn(turn: Turn) {
       transition(
         () => {
           upsertTurn(turn)
-          clearSent(message.prompt, message.images, message.recordings)
+          clearSent(message.prompt, message.images, message.recordings, message.followUp)
         },
         [{ name: 'chat-message', from: composerInput, to: userMessage(turn.id) }],
         [`${turn.id}:user`],

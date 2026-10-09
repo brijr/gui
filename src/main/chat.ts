@@ -27,6 +27,7 @@ import {
   agentName,
   type ChatMeta,
   type ChatSnapshot,
+  type FollowUp,
   type ImageAttachment,
   type ModelSettings,
   needsSetup,
@@ -58,7 +59,7 @@ import { type DetailedError, describeError } from './errors'
 import { archiveChat, HistoryWriter, loadArchived, removeArchived, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
-import { buildPrompt, type PromptViewport } from './prompt'
+import { buildPrompt, describeFollowUp, type PromptViewport } from './prompt'
 import type { Recordings } from './recordings'
 import { cornerColor, thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
@@ -100,6 +101,7 @@ interface TurnRecord {
 
 interface QueuedPayload {
   recordings?: RecordingAttachment[]
+  followUp?: FollowUp | null
   images: ImageAttachment[]
   selection: Picked[]
   /** The viewport the message was written in */
@@ -575,22 +577,30 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /**
    * Starts a turn, or queues the message (`meta.queue`) while another operation is in
    * progress. Returns false only when nothing was accepted (an empty message, or disposed).
-   * Images alone are a complete message: they're sent with a default prompt.
+   * Images alone are a complete message: they're sent with a default prompt. `followUpId`
+   * is an earlier turn the message is about; one that's gone is ignored.
    */
   send(
     text: string,
     images: ImageAttachment[] = [],
     recordings: RecordingAttachment[] = [],
+    followUpId: string | null = null,
   ): boolean {
-    if (this.lock && !this.disposed) return this.enqueue(text, images, recordings)
+    const followUp = this.followUpFor(followUpId)
+    if (this.lock && !this.disposed) return this.enqueue(text, images, recordings, followUp)
     // An agent that isn't installed or signed in can't take it yet: it waits, with the setup
     // step above it, and goes out once the agent is ready (refreshAgent).
     if (needsSetup(this.meta.agent)) {
-      if (!this.enqueue(text, images, recordings)) return false
+      if (!this.enqueue(text, images, recordings, followUp)) return false
       this.patchMeta({ queuePaused: true, queuePauseReason: 'setup' })
       return true
     }
-    return this.startTurn(text, false, images, null, recordings)
+    return this.startTurn(text, false, images, null, recordings, followUp)
+  }
+
+  private followUpFor(turnId: string | null): FollowUp | null {
+    const turn = turnId ? this.records.find((record) => record.turn.id === turnId)?.turn : null
+    return turn ? { turnId: turn.id, number: turn.index + 1, prompt: turn.prompt } : null
   }
 
   /**
@@ -803,6 +813,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     images: ImageAttachment[] = [],
     queued: QueuedPayload | null = null,
     recordings: RecordingAttachment[] = queued?.recordings ?? [],
+    followUp: FollowUp | null = queued?.followUp ?? null,
   ): boolean {
     const prompt =
       messagePrompt(text, images) ||
@@ -816,6 +827,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (command) {
       images = []
       recordings = []
+      followUp = null
     }
     const picked = queued ? queued.selection : fix ? [] : this.meta.selection
     const selection = command ? [] : picked
@@ -844,6 +856,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
           ? { attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })) }
           : {}),
         recordings,
+        ...(followUp ? { followUp } : {}),
         reverted: false,
       },
       command,
@@ -870,6 +883,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     text: string,
     images: ImageAttachment[],
     recordings: RecordingAttachment[] = [],
+    followUp: FollowUp | null = null,
   ): boolean {
     const prompt =
       messagePrompt(text, images) ||
@@ -884,8 +898,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
       context: withoutScreenshots(selection),
       attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })),
       recordings,
+      ...(followUp ? { followUp } : {}),
     }
-    this.queued.set(item.id, { images, recordings, selection, viewport: this.options.viewport() })
+    this.queued.set(item.id, {
+      images,
+      recordings,
+      followUp,
+      selection,
+      viewport: this.options.viewport(),
+    })
     this.patchMeta({ queue: [...this.meta.queue, item], selection: [] })
     return true
   }
@@ -897,6 +918,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (!next) return
     const payload = this.queued.get(next.id) ?? {
       images: [],
+      followUp: next.followUp ?? null,
       selection: next.context,
       viewport: this.options.viewport(),
     }
@@ -988,6 +1010,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // Agents only run a command that starts the prompt, so it goes alone; Gui's
       // instructions wait for the next ordinary message.
       const preamble = !record.command && this.primedAgent !== agent
+      const followUp = record.turn.followUp
+      const earlier = followUp
+        ? this.records.find((other) => other.turn.id === followUp.turnId)?.turn
+        : null
       const blocks: ContentBlock[] = record.command
         ? [{ type: 'text', text: record.turn.prompt }]
         : buildPrompt({
@@ -1000,6 +1026,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
             tools: this.agentHasTools,
             images: info.supportsImages,
             attachments: images,
+            followUp: earlier ? describeFollowUp(earlier, info.supportsImages) : [],
           })
       for (const clip of record.turn.recordings ?? []) {
         blocks.push({

@@ -29,6 +29,7 @@ import {
   Info,
   MousePointer2,
   Redo2,
+  Reply,
   Search,
   SquareTerminal,
   TriangleAlert,
@@ -42,7 +43,7 @@ import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, PRESS, Spinner } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
-import { useChat, waitingCard } from './store'
+import { setFollowUp, useChat, waitingCard } from './store'
 import { isNewRow, markSeen } from './transitions'
 
 type ToolItem = Extract<TurnItem, { kind: 'tool' }>
@@ -167,6 +168,15 @@ function UserMessage({ turn }: { turn: Turn }) {
       {turn.recordings?.map((clip) => (
         <RecordingClip key={clip.id} clip={clip} />
       ))}
+      {turn.followUp && (
+        <p
+          className="flex max-w-7/8 min-w-0 items-center gap-1.5 text-caption text-subtle"
+          title={turn.followUp.prompt}
+        >
+          <Reply className="size-3 shrink-0" aria-hidden="true" />
+          <span className="truncate">Following up on “{turn.followUp.prompt}”</span>
+        </p>
+      )}
       <p
         data-user-message={turn.id}
         className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-1.5 text-fg"
@@ -945,12 +955,13 @@ function ChangedFiles({ changes }: { changes: FileChange[] }) {
 
 /**
  * The end of a turn that changed files: how the element looked before and after, what
- * changed, and Undo (Redo once undone).
+ * changed, Follow up (talk about this change again, later on), and Undo (Redo once undone).
  */
 function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const following = useChat((s) => s.followUp === turn.id)
   const changes = turn.changes ?? []
   const additions = changes.reduce((sum, change) => sum + change.additions, 0)
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
@@ -986,6 +997,16 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
           unrecorded && <span className="text-small text-muted">Changes not recorded</span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
+          <Button
+            size="sm"
+            icon={Reply}
+            variant={following ? 'primary' : 'secondary'}
+            aria-pressed={following}
+            title="Ask about this change in your next message"
+            onClick={() => setFollowUp(following ? null : turn.id)}
+          >
+            Follow up
+          </Button>
           {turn.reverted ? (
             <>
               <Badge>Undone</Badge>

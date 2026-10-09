@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ChatMeta, QueuedMessage, QueuePauseReason } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Clock, ImageIcon, X } from '../lib/icons'
+import { Clock, ImageIcon, Reply, X } from '../lib/icons'
 import { Card } from '../lib/surface'
 import { Button, IconButton } from '../lib/ui'
 import { noteRemoveQueued } from './store'
@@ -78,7 +78,11 @@ function QueuedItem({ item }: { item: QueuedMessage }) {
         fresh && 'animate-row-in motion-reduce:animate-row-fade',
       )}
     >
-      <Clock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+      {item.followUp ? (
+        <Reply className="size-3 shrink-0 text-subtle" aria-label="Follow-up" />
+      ) : (
+        <Clock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+      )}
       <p className="min-w-0 flex-1 truncate text-small" title={item.prompt}>
         {item.prompt}
       </p>

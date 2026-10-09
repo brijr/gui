@@ -437,9 +437,15 @@ export interface GuiApi {
   chatMorphed(form: ChatForm, seq: number): void
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
-   * false only when it wasn't accepted (e.g. empty, or no project).
+   * false only when it wasn't accepted (e.g. empty, or no project). `followUp` is the id of
+   * an earlier turn the message is about.
    */
-  send(text: string, images?: ImageAttachment[], recordings?: string[]): Promise<boolean>
+  send(
+    text: string,
+    images?: ImageAttachment[],
+    recordings?: string[],
+    followUp?: string | null,
+  ): Promise<boolean>
   /** Drops a queued message */
   removeQueued(id: string): void
   /** Runs the next queued message now (when idle), resuming a paused queue */

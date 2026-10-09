@@ -49,6 +49,7 @@ export const SYMBOLS = {
   Play: 'play.fill',
   Plus: 'plus',
   Redo2: 'arrow.uturn.forward',
+  Reply: 'arrowshape.turn.up.left',
   RotateCw: 'arrow.clockwise',
   Search: 'magnifyingglass',
   Shield: 'shield',

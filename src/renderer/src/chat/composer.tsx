@@ -18,6 +18,7 @@ import {
   Info,
   MousePointer2,
   Paperclip,
+  Reply,
   Square,
   TriangleAlert,
   X,
@@ -37,6 +38,7 @@ import {
   removeAttachments,
   removeRecordings,
   setDraft,
+  setFollowUp,
   setNotice,
   settleSend,
   useChat,
@@ -52,6 +54,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   const text = useChat((s) => s.draft)
   const attachments = useChat((s) => s.attachments)
   const recordings = useChat((s) => s.recordings)
+  // A turn that's gone (a new session) has nothing to follow up on.
+  const followUp = useChat((s) => s.turns.find((turn) => turn.id === s.followUp) ?? null)
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   /** Images still being downscaled; a ref so overlapping pastes count each other. */
@@ -68,6 +72,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       input.current?.focus({ preventScroll: true })
     previousRecordings.current = recordings.length
   }, [recordings.length])
+  // Asking to follow up on a turn means writing about it next.
+  const followUpId = followUp?.id ?? null
+  useEffect(() => {
+    if (followUpId) input.current?.focus({ preventScroll: true })
+  }, [followUpId])
   useEffect(() => {
     if (!notice) return
     const timer = setTimeout(() => setNotice(null), NOTICE_MS)
@@ -115,22 +124,25 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       data,
       thumbnail,
     }))
+    const about = followUp?.id ?? null
     sending.current = true
     // Its turn (or queued message) rises out of the composer when main reports it.
     noteSend(
       text,
       sent.map((image) => image.id),
       clips,
+      about,
     )
     try {
       // Keep the draft unless main took it (started the turn or queued it). Only what went
       // out clears: an image attached while sending stays for the next message.
-      const accepted = await gui.send(text, images, clips)
+      const accepted = await gui.send(text, images, clips, about)
       settleSend(
         accepted,
         text,
         sent.map((image) => image.id),
         clips,
+        about,
       )
       if (accepted) setNotice(null)
     } finally {
@@ -204,6 +216,16 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       <QueuedMessages meta={meta} />
       {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}
       {meta.selection.length > 0 && <Selection selection={meta.selection} />}
+      {followUp && (
+        <FollowUpCard
+          number={followUp.index + 1}
+          prompt={followUp.prompt}
+          onRemove={() => {
+            setFollowUp(null)
+            input.current?.focus({ preventScroll: true })
+          }}
+        />
+      )}
       {notice && (
         <Line tone="info" role="status">
           {notice}
@@ -422,6 +444,34 @@ function Selection({ selection }: { selection: Picked[] }) {
           </li>
         ))}
       </ul>
+    </Card>
+  )
+}
+
+/** The earlier turn the next message follows up on, until it's sent or removed. */
+function FollowUpCard({
+  number,
+  prompt,
+  onRemove,
+}: {
+  number: number
+  prompt: string
+  onRemove: () => void
+}) {
+  return (
+    <Card tone="inset" className={cn(ARRIVE, 'flex items-center gap-2 py-1 pr-1 pl-3')}>
+      <Reply className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+      <p className="min-w-0 flex-1 truncate text-small" title={prompt}>
+        <span className="text-muted">Following up on </span>
+        {prompt}
+      </p>
+      <IconButton
+        size="sm"
+        label={`Stop following up on message ${number}`}
+        title="Remove"
+        icon={X}
+        onClick={onRemove}
+      />
     </Card>
   )
 }
