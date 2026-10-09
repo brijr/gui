@@ -1,0 +1,84 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { electronExecutable, waitFor } from './helpers/env'
+import { standInsFile } from './helpers/session'
+import { expect, test } from './helpers/test'
+
+// The user sees their app in Gui's preview, so an agent must never open their browser: a
+// stand-in ACP agent (a small Node script, in place of Grok through GUI_AGENT_STAND_INS)
+// records the BROWSER its sessions start with and the first prompt it gets.
+
+const AGENT_SCRIPT = String.raw`
+const { appendFileSync } = require('node:fs')
+const [log] = process.argv.slice(2)
+const write = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
+const handle = ({ id, method, params }) => {
+  if (id === undefined || method === undefined) return
+  if (method === 'initialize') {
+    const agentCapabilities = { mcpCapabilities: { http: true } }
+    return write({ id, result: { protocolVersion: 1, agentCapabilities, authMethods: [] } })
+  }
+  if (method === 'session/new') {
+    const entry = { cwd: params.cwd, browser: process.env.BROWSER ?? null, mcpServers: params.mcpServers.length }
+    appendFileSync(log + '.sessions', JSON.stringify(entry) + '\n')
+    return write({ id, result: { sessionId: 'session-1' } })
+  }
+  if (method === 'session/prompt') {
+    appendFileSync(log, JSON.stringify(params.prompt) + '\n')
+    return write({ id, result: { stopReason: 'end_turn' } })
+  }
+  write({ id, error: { code: -32601, message: 'Method not found' } })
+}
+let buffer = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buffer += chunk
+  for (let end = buffer.indexOf('\n'); end !== -1; end = buffer.indexOf('\n')) {
+    const line = buffer.slice(0, end).trim()
+    buffer = buffer.slice(end + 1)
+    if (line) handle(JSON.parse(line))
+  }
+})
+`
+
+type Block = { type: string; text?: string }
+type Started = { cwd: string; browser: string | null; mcpServers: number }
+
+test('agents start without a browser to open, and are told the preview is theirs', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  const { base } = session.fixture
+  const log = join(base, 'prompts.ndjson')
+  const script = join(base, 'browser-agent.cjs')
+  writeFileSync(script, AGENT_SCRIPT)
+  const standIn = {
+    command: electronExecutable(),
+    args: [script, log],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
+  }
+  writeFileSync(standInsFile(session.fixture), JSON.stringify({ grok: standIn }))
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  await session.chrome.evaluate(() => window.gui.setAgent('grok'))
+  await waitFor(async () => (await session.chatSnapshot()).meta.agentId === 'grok', 'Grok')
+  const lines = (file: string) =>
+    existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean) : []
+
+  const box = session.chat.getByRole('textbox', { name: /^Message / })
+  await box.fill('Make the heading blue')
+  await box.press('Enter')
+  expect((await session.waitForTurn(0)).turn.status).toBe('done')
+
+  // The chat's session, not Gui's agent check (which starts its own in a folder of its own).
+  const started = lines(`${log}.sessions`)
+    .map((line) => JSON.parse(line) as Started)
+    .filter(({ cwd }) => !cwd.includes('agent-check'))
+  expect(started).toHaveLength(1)
+  expect(started[0]).toMatchObject({ browser: 'none', mcpServers: 1 })
+
+  const [prompt] = lines(log).map((line) => JSON.parse(line) as Block[])
+  const preamble = prompt?.[0]?.text ?? ''
+  expect(preamble).toContain('These preview tools are your browser')
+  expect(preamble).toContain("Never open the user's browser")
+})

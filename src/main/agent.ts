@@ -337,10 +337,14 @@ export class AgentSession {
     const meta = sessionMeta(definition, permissions)
     const spec = await spawnSpec(definition, shellEnv)
     if (this.disposed) throw new Error('Agent was stopped')
+    // The user sees the app in Gui's preview, so dev servers and tools the agent starts
+    // (`vite --open`, Create React App, Python's webbrowser) shouldn't open their browser.
+    // Sign-in still needs it.
+    const browser = authenticate ? {} : { BROWSER: 'none' }
     // Own process group, so dispose() can stop the agent and everything it started.
     const child = spawn(spec.command, spec.args, {
       cwd: this.cwd,
-      env: { ...shellEnv, ...spec.env },
+      env: { ...shellEnv, ...browser, ...spec.env },
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     })

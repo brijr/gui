@@ -1,0 +1,1092 @@
+---
+import { getImage } from 'astro:assets'
+import wallpaper from '../assets/wallpaper.jpg'
+import { svg } from './demo/icons'
+
+// "Try it now": the page shrinks into a Gui window, and a scripted session plays on the real page.
+// The visitor can then select elements and try a few changes. There is no agent and no network:
+// src/components/demo/demo.ts runs it all.
+const suggestions = [
+  { id: 'bolder', label: 'Make this bolder' },
+  { id: 'serif', label: 'Use a serif font' },
+  { id: 'blue', label: 'Make this blue' },
+]
+
+// The desktop behind the window: San Francisco in fog, by Zetong Li on Unsplash.
+const widths = [1280, 1920, 2560, 3840]
+const wallpapers = await Promise.all(
+  (['avif', 'webp'] as const).map(async (format) => {
+    const images = await Promise.all(
+      widths.map((width) => getImage({ src: wallpaper, width, format, quality: 70 })),
+    )
+    return { format, srcset: images.map((image, i) => `${image.src} ${widths[i]}w`).join(', ') }
+  }),
+)
+const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', quality: 75 })
+---
+
+<div class="demo" data-demo hidden>
+  <div class="desk" data-desk>
+    <picture>
+      {
+        wallpapers.map(({ format, srcset }) => (
+          <source type={`image/${format}`} srcset={srcset} sizes="100vw" />
+        ))
+      }
+      <img src={fallback.src} alt="" loading="lazy" decoding="async" data-wallpaper />
+    </picture>
+    <div class="menu-bar" aria-hidden="true">
+      <b>Gui</b>
+      <span>File</span>
+      <span>Edit</span>
+      <span>View</span>
+      <span>Window</span>
+      <span>Help</span>
+      <span class="grow"></span>
+      <span data-clock></span>
+    </div>
+  </div>
+  <div class="window" data-window></div>
+  <div class="marks" data-marks aria-hidden="true">
+    <div class="mark" data-hover><span class="mark-label"></span></div>
+    <div class="mark is-selected" data-selected><span class="mark-label"></span></div>
+  </div>
+
+  <div class="chrome" data-chrome role="dialog" aria-modal="true" aria-label="Gui demo">
+    <header class="toolbar" data-toolbar>
+      <div class="lights">
+        <button class="light close" type="button" data-close aria-label="Close the demo"
+          ><Fragment set:html={svg('x', 8)} /></button
+        >
+        <span class="light min" aria-hidden="true"></span>
+        <span class="light max" aria-hidden="true"></span>
+      </div>
+      <span class="project wide-only" aria-hidden="true">
+        <Fragment set:html={svg('folder')} />
+        gui-website
+        <Fragment set:html={svg('chevronDown', 12)} />
+      </span>
+      <span class="nav wide-only" aria-hidden="true">
+        <span class="tool"><Fragment set:html={svg('arrowLeft')} /></span>
+        <span class="tool"><Fragment set:html={svg('arrowRight')} /></span>
+        <span class="tool"><Fragment set:html={svg('rotateCw')} /></span>
+      </span>
+      <span class="url" aria-hidden="true"><span class="live"></span><span class="url-text">http://localhost:4321/</span></span>
+      <span class="devices wide-only" aria-hidden="true">
+        <span class="tool is-on"><Fragment set:html={svg('monitor')} /></span>
+        <span class="tool"><Fragment set:html={svg('laptop')} /></span>
+        <span class="tool"><Fragment set:html={svg('tablet')} /></span>
+        <span class="tool"><Fragment set:html={svg('phone')} /></span>
+      </span>
+      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('camera')} /></span>
+      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('record')} /></span>
+      <button class="tool" type="button" data-select aria-pressed="false" aria-label="Select an element">
+        <Fragment set:html={svg('pointer')} />
+      </button>
+      <span class="tool is-on wide-only" aria-hidden="true"><Fragment set:html={svg('message')} /></span>
+      <button class="done" type="button" data-close>Close demo</button>
+    </header>
+
+    <aside class="chat" data-chat aria-label="Chat">
+      <header class="chat-head">
+        <span class="status"></span>
+        <span class="agent">Claude Code</span>
+        <Fragment set:html={svg('chevronDown', 12)} />
+        <span class="grow"></span>
+        <button class="tool" type="button" data-restart aria-label="Start the demo again" title="Start again">
+          <Fragment set:html={svg('newChat')} />
+        </button>
+        <span class="tool" aria-hidden="true"><Fragment set:html={svg('panelRight')} /></span>
+        <span class="tool" aria-hidden="true"><Fragment set:html={svg('more')} /></span>
+      </header>
+
+      <div class="transcript" data-transcript aria-live="polite">
+        <div class="empty" data-empty>
+          <span class="empty-icon"><Fragment set:html={svg('pointer', 16)} /></span>
+          <p class="empty-title">Point at something to change</p>
+          <p>
+            Click an element on the page, then write the change. Your agent edits the code and the
+            page updates.
+          </p>
+          <button class="button" type="button" data-select>
+            <Fragment set:html={svg('pointer')} />
+            Select element
+          </button>
+        </div>
+      </div>
+
+      <div class="suggest" data-suggest hidden>
+        <p data-suggest-hint>Select an element on the page, then try a change.</p>
+        <div class="suggest-row">
+          {
+            suggestions.map((s) => (
+              <button class="button" type="button" data-suggestion={s.id} disabled>
+                {s.label}
+              </button>
+            ))
+          }
+        </div>
+      </div>
+
+      <form class="composer" data-composer>
+        <div class="chips" data-chips></div>
+        <textarea data-input rows="2" placeholder="Ask Claude Code…" aria-label="Message"></textarea>
+        <div class="composer-foot">
+          <span class="tool" aria-hidden="true"><Fragment set:html={svg('paperclip')} /></span>
+          <span class="pill" aria-hidden="true">Auto</span>
+          <span class="model" aria-hidden="true">Default (recommended) <Fragment set:html={svg('chevronDown', 12)} /></span>
+          <span class="grow"></span>
+          <button class="send" type="submit" data-send aria-label="Send" disabled>
+            <Fragment set:html={svg('arrowUp')} />
+          </button>
+        </div>
+      </form>
+    </aside>
+  </div>
+
+  <div class="edge" data-edge aria-hidden="true"></div>
+  <div class="cursor" data-cursor aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="22" height="22">
+      <path
+        d="M5 2.5v16.2l4.2-4.1 2.7 6.3 2.9-1.2-2.7-6.2h5.9z"
+        fill="#111"
+        stroke="#fff"
+        stroke-width="1.4"
+        stroke-linejoin="round"></path>
+    </svg>
+    <span class="ripple"></span>
+  </div>
+</div>
+
+<script>
+  import { setup } from './demo/demo'
+
+  setup()
+</script>
+
+<style is:global>
+  /* The page while it is in the demo: fixed in place and scrolled inside its own box, so it can
+     shrink as one picture. demo.ts sets its size and its transform. */
+  .page.is-demo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 2;
+    height: 100vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    transform-origin: 0 0;
+    border-radius: var(--demo-page-radius, 0);
+    box-shadow: var(--demo-page-ring, none);
+  }
+  html.demo-open {
+    overflow: hidden;
+  }
+  .page.is-demo::-webkit-scrollbar {
+    display: none;
+  }
+  .page.is-picking,
+  .page.is-picking * {
+    cursor: default !important;
+    user-select: none;
+  }
+
+  /* The change in the scripted session: an underline of the mark's square tiles. Like the mark
+     assembling (public/mark-animated.svg), each tile slides out from under the one before it
+     into its slot; on Undo they go back the same way, last first. */
+  .demo-underlined {
+    position: relative;
+  }
+  .demo-pixels {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(100% + 0.04em);
+    display: flex;
+    height: 0.2em;
+    pointer-events: none;
+  }
+  .demo-pixels i {
+    flex: 1;
+    position: relative;
+    z-index: calc(var(--n) - var(--i));
+  }
+  .demo-pixels.is-building i {
+    animation: demo-pixel-in 150ms cubic-bezier(0.2, 0, 0, 1) both;
+    animation-delay: calc(var(--i) * 26ms + 60ms);
+  }
+  .demo-pixels.is-leaving i {
+    animation: demo-pixel-out 110ms cubic-bezier(0.4, 0, 1, 1) both;
+    animation-delay: calc((var(--n) - 1 - var(--i)) * 14ms);
+  }
+  @keyframes demo-pixel-in {
+    0% {
+      opacity: 0;
+      transform: translateX(-100%);
+    }
+    1% {
+      opacity: 1;
+    }
+  }
+  @keyframes demo-pixel-out {
+    99% {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+      transform: translateX(-100%);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .demo-pixels.is-building i,
+    .demo-pixels.is-leaving i {
+      animation: none;
+    }
+    .demo-pixels.is-building {
+      animation: demo-pixels-fade 150ms linear both;
+    }
+    .demo-pixels.is-leaving {
+      animation: demo-pixels-fade 150ms linear reverse both;
+    }
+    @keyframes demo-pixels-fade {
+      from {
+        opacity: 0;
+      }
+    }
+  }
+</style>
+
+<style is:global>
+  /* Gui's own tokens (src/renderer/src/styles.css in the app). */
+  .demo {
+    --canvas: #ececec;
+    --surface: #f7f7f7;
+    --raised: #ffffff;
+    --line: rgb(0 0 0 / 0.08);
+    --line-strong: rgb(0 0 0 / 0.14);
+    --fill: rgb(0 0 0 / 0.06);
+    --hover: rgb(0 0 0 / 0.045);
+    --c-fg: #18181a;
+    --c-muted: #545458;
+    --subtle: #68686d;
+    --accent: #0066ff;
+    --accent-hover: #005be5;
+    --accent-fg: #ffffff;
+    --accent-soft: rgb(0 102 255 / 0.1);
+    --accent-text: #0058e0;
+    --success: #147a3a;
+    --danger: #b83d0b;
+    --desk: linear-gradient(#f3d3a8, #b9c4d6);
+    --desk-dim: transparent;
+    --elevation-window: 0 30px 80px rgb(0 0 0 / 0.18), 0 8px 24px rgb(0 0 0 / 0.08);
+    --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
+    --ease-out: cubic-bezier(0.2, 0, 0, 1);
+    display: contents;
+  }
+  @media (prefers-color-scheme: dark) {
+    .demo {
+      --canvas: #0e0e0f;
+      --surface: #18181a;
+      --raised: #202023;
+      --line: rgb(255 255 255 / 0.08);
+      --line-strong: rgb(255 255 255 / 0.15);
+      --fill: rgb(255 255 255 / 0.08);
+      --hover: rgb(255 255 255 / 0.06);
+      --c-fg: #ededef;
+      --c-muted: #ababb0;
+      --subtle: #8c8c91;
+      --accent: #5c9dff;
+      --accent-hover: #4b8ff7;
+      --accent-fg: #04122b;
+      --accent-soft: rgb(92 157 255 / 0.16);
+      --accent-text: #5c9dff;
+      --success: #4ade80;
+      --danger: #fb923c;
+      --desk: linear-gradient(#3a2e2a, #141a24);
+      --desk-dim: rgb(8 10 16 / 0.45);
+      --elevation-window: 0 30px 80px rgb(0 0 0 / 0.6), 0 8px 24px rgb(0 0 0 / 0.4);
+      --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
+    }
+  }
+  .demo[hidden],
+  .demo [hidden] {
+    display: none !important;
+  }
+
+  .demo .desk,
+  .demo .window,
+  .demo .marks,
+  .demo .chrome,
+  .demo .edge,
+  .demo .cursor {
+    position: fixed;
+  }
+  .demo .desk {
+    inset: 0;
+    z-index: 1;
+    background: var(--desk);
+    overflow: hidden;
+  }
+  .demo .desk img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    /* The skyline sits low in the photo; keep it in view under the window's lower edge. */
+    object-position: 50% 62%;
+    opacity: 0;
+    transition: opacity 400ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .demo .desk img.is-ready {
+    opacity: 1;
+  }
+  /* Dark mode: the same evening, later. */
+  .demo .desk::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--desk-dim);
+  }
+  .demo .menu-bar {
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    height: 26px;
+    padding: 0 18px;
+    background: rgb(255 255 255 / 0.22);
+    backdrop-filter: blur(24px) saturate(1.6);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    color: rgb(0 0 0 / 0.85);
+    font: 13px/16px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    white-space: nowrap;
+  }
+  .demo .menu-bar b {
+    font-weight: 700;
+  }
+  @media (prefers-color-scheme: dark) {
+    .demo .menu-bar {
+      background: rgb(0 0 0 / 0.28);
+      color: rgb(255 255 255 / 0.9);
+    }
+  }
+  .demo[data-narrow] .menu-bar {
+    display: none;
+  }
+  /* The page (z-index 2) sits on the window, under the marks and the chrome. */
+  .demo .window,
+  .demo .chrome,
+  .demo .edge {
+    left: var(--win-x);
+    top: var(--win-y);
+    width: var(--win-w);
+    height: var(--win-h);
+    border-radius: 12px;
+  }
+  .demo .window {
+    z-index: 1;
+    background: var(--canvas);
+    box-shadow: var(--elevation-window);
+  }
+  .demo .marks {
+    z-index: 3;
+    left: var(--area-x);
+    top: var(--area-y);
+    width: var(--area-w);
+    height: var(--area-h);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .demo .chrome {
+    z-index: 4;
+    pointer-events: none;
+    color: var(--c-fg);
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 400;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  .demo .edge {
+    z-index: 5;
+    pointer-events: none;
+    box-shadow: inset 0 0 0 0.5px var(--line-strong);
+  }
+  .demo .cursor {
+    z-index: 6;
+    left: 0;
+    top: 0;
+    pointer-events: none;
+    opacity: 0;
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+  }
+  .demo .cursor svg {
+    display: block;
+    margin: -3px 0 0 -5px;
+    transform-origin: 5px 3px;
+  }
+  .demo .ripple {
+    position: absolute;
+    left: -14px;
+    top: -14px;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    opacity: 0;
+  }
+
+  /* Outlines, as Gui draws them over the preview */
+  .demo .mark {
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 4px;
+    border: 1px solid var(--accent);
+    background: var(--accent-soft);
+    opacity: 0;
+    transition: opacity 120ms var(--ease-out);
+  }
+  .demo .mark.is-selected {
+    border-width: 2px;
+    background: none;
+  }
+  .demo .mark.is-on {
+    opacity: 1;
+  }
+  .demo .mark.is-gliding {
+    transition:
+      opacity 120ms var(--ease-out),
+      transform 160ms var(--ease-out),
+      width 160ms var(--ease-out),
+      height 160ms var(--ease-out);
+  }
+  .demo .mark-label {
+    position: absolute;
+    left: -1px;
+    bottom: calc(100% + 3px);
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    height: 20px;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font: 500 11px/14px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+  }
+  .demo .mark-label:empty {
+    display: none;
+  }
+  .demo .mark.is-low .mark-label {
+    bottom: auto;
+    top: 3px;
+    left: 3px;
+  }
+  .demo .mark-label span {
+    opacity: 0.8;
+    font-weight: 400;
+  }
+
+  /* Toolbar */
+  .demo .toolbar {
+    position: absolute;
+    inset: 0 0 auto;
+    height: var(--tb);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px 0 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+    border-radius: 12px 12px 0 0;
+    pointer-events: auto;
+    color: var(--c-muted);
+  }
+  .demo .lights {
+    display: flex;
+    gap: 8px;
+    margin-right: 10px;
+  }
+  .demo .light {
+    display: grid;
+    place-items: center;
+    width: 12px;
+    height: 12px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.12);
+  }
+  .demo .light.close {
+    background: #ff5f57;
+    color: rgb(0 0 0 / 0.55);
+    cursor: pointer;
+  }
+  .demo .light.close svg {
+    opacity: 0;
+    stroke-width: 3.5;
+  }
+  .demo .lights:hover .light.close svg,
+  .demo .light.close:focus-visible svg {
+    opacity: 1;
+  }
+  .demo .light.min {
+    background: #febc2e;
+  }
+  .demo .light.max {
+    background: #28c840;
+  }
+  .demo .project {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 6px;
+    color: var(--c-fg);
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .demo .project svg:first-child {
+    color: var(--c-muted);
+  }
+  .demo .nav,
+  .demo .devices {
+    display: flex;
+    gap: 2px;
+  }
+  .demo .devices {
+    padding: 2px;
+    border-radius: 8px;
+    background: var(--fill);
+  }
+  .demo .devices .tool {
+    width: 26px;
+    height: 24px;
+  }
+  .demo .url {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 28px;
+    padding: 0 10px;
+    border-radius: 6px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--c-fg);
+    font: 12px/16px 'SF Mono', ui-monospace, Menlo, monospace;
+    white-space: nowrap;
+  }
+  .demo .url-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .demo .live {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .demo .tool {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: inherit;
+  }
+  .demo .tool.is-on,
+  .demo .tool[aria-pressed='true'] {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+  button.tool {
+    cursor: pointer;
+    transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
+  }
+  button.tool:hover {
+    background: var(--hover);
+    color: var(--c-fg);
+  }
+  button.tool[aria-pressed='true']:hover {
+    background: var(--accent-soft);
+    color: var(--accent-text);
+  }
+  .demo .done {
+    flex: none;
+    height: 28px;
+    margin-left: 4px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--c-fg);
+    color: var(--surface);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 120ms var(--ease-out);
+  }
+  .demo .done:hover {
+    opacity: 0.85;
+  }
+  button:focus-visible,
+  textarea:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .demo[data-narrow] .wide-only {
+    display: none;
+  }
+
+  /* Chat */
+  .demo .chat {
+    position: absolute;
+    left: var(--chat-x);
+    top: var(--chat-y);
+    width: var(--chat-w);
+    height: var(--chat-h);
+    display: flex;
+    flex-direction: column;
+    background: var(--raised);
+    box-shadow: 1px 0 0 var(--line);
+    border-radius: 0 0 0 12px;
+    pointer-events: auto;
+  }
+  .demo[data-narrow] .chat {
+    box-shadow: 0 -1px 0 var(--line);
+    border-radius: 0 0 12px 12px;
+  }
+  .demo .chat-head {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 36px;
+    padding: 0 6px 0 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--c-muted);
+  }
+  .demo .chat-head .tool {
+    width: 24px;
+    height: 24px;
+  }
+  .demo .status {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--success);
+  }
+  .demo .agent {
+    color: var(--c-fg);
+    font-weight: 500;
+  }
+  .demo .grow {
+    flex: 1;
+  }
+  .demo .transcript {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-width: thin;
+  }
+  .demo .empty {
+    margin: auto 0;
+    padding: 0 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    color: var(--c-muted);
+  }
+  .demo .empty-icon {
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    margin-bottom: 6px;
+    border-radius: 50%;
+    background: var(--fill);
+    color: var(--c-fg);
+  }
+  .demo .empty-title {
+    color: var(--c-fg);
+    font-weight: 600;
+  }
+  .demo .empty .button {
+    margin-top: 8px;
+  }
+  .demo .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 28px;
+    padding: 0 10px;
+    border: 0;
+    border-radius: 6px;
+    background: var(--raised);
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      var(--elevation-control);
+    color: var(--c-fg);
+    font: inherit;
+    font-size: 12px;
+    font-weight: 500;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 120ms var(--ease-out),
+      opacity 120ms var(--ease-out),
+      transform 120ms var(--ease-out);
+  }
+  .demo .button:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--raised), var(--c-fg) 4%);
+  }
+  .demo .button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+  .demo .button:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  .demo .button[aria-pressed='true'] {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent);
+    color: var(--accent-text);
+  }
+
+  .demo .suggest {
+    flex: none;
+    padding: 4px 12px 8px;
+    color: var(--c-muted);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .demo[data-narrow] .suggest p {
+    display: none;
+  }
+  .demo .suggest-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .demo .composer {
+    flex: none;
+    margin: 0 8px 8px;
+    padding: 8px;
+    border-radius: 8px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    transition: box-shadow 120ms var(--ease-out);
+  }
+  .demo .composer:focus-within,
+  .demo .composer.is-active {
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .demo .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .demo .chips:not(:empty) {
+    margin-bottom: 6px;
+  }
+  .demo .composer textarea {
+    display: block;
+    width: 100%;
+    padding: 2px 4px;
+    border: 0;
+    resize: none;
+    background: none;
+    color: var(--c-fg);
+    font: inherit;
+  }
+  .demo .composer textarea:focus-visible {
+    outline: none;
+  }
+  .demo .composer textarea::placeholder {
+    color: var(--subtle);
+  }
+  .demo .composer-foot {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 4px;
+    color: var(--c-muted);
+    font-size: 12px;
+  }
+  .demo .composer-foot .tool {
+    width: 24px;
+    height: 24px;
+  }
+  .demo .pill {
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 500;
+  }
+  .demo .model {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 6px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .demo .send {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
+    cursor: pointer;
+    transition:
+      opacity 120ms var(--ease-out),
+      transform 120ms var(--ease-out);
+  }
+  .demo .send:disabled {
+    background: var(--fill);
+    color: var(--subtle);
+    cursor: default;
+  }
+  .demo .send.is-pressed {
+    transform: scale(0.88);
+  }
+
+  /* Rows that demo.ts adds to the transcript */
+  .demo .transcript .row {
+    animation: row-in 160ms var(--ease-out);
+  }
+  @keyframes row-in {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .demo .transcript .row {
+      animation-name: row-fade;
+    }
+    @keyframes row-fade {
+      from {
+        opacity: 0;
+      }
+    }
+  }
+  .demo .transcript .you {
+    align-self: stretch;
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--fill);
+  }
+  .demo .transcript .you .chips {
+    margin-bottom: 4px;
+  }
+  .demo .transcript .chip,
+  .demo .chips .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    height: 22px;
+    padding: 0 6px;
+    border-radius: 4px;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: 11px;
+    line-height: 14px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .demo .transcript .chip b,
+  .demo .chips .chip b {
+    font-weight: 600;
+    font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  }
+  .demo .transcript .chip i,
+  .demo .chips .chip i {
+    font-style: normal;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    opacity: 0.85;
+  }
+  .demo .transcript .thinking {
+    color: var(--c-muted);
+    background: linear-gradient(
+      90deg,
+      var(--c-muted) 0%,
+      var(--c-muted) 40%,
+      var(--c-fg) 50%,
+      var(--c-muted) 60%,
+      var(--c-muted) 100%
+    );
+    background-size: 250% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation:
+      row-in 160ms var(--ease-out),
+      shimmer 1.6s linear infinite;
+  }
+  @keyframes shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: -150% 0;
+    }
+  }
+  .demo .transcript .step {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--c-muted);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .demo .transcript .step code {
+    color: var(--c-fg);
+    font: 11.5px/16px 'SF Mono', ui-monospace, Menlo, monospace;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .demo .transcript .step-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 16px;
+    height: 16px;
+  }
+  .demo .transcript .spinner {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    border: 1.5px solid var(--line-strong);
+    border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+  .demo .transcript .step.is-done .step-icon {
+    color: var(--success);
+  }
+  .demo .transcript .diffstat {
+    margin-left: auto;
+    font: 11px/14px 'SF Mono', ui-monospace, Menlo, monospace;
+    white-space: nowrap;
+  }
+  .demo .transcript .plus {
+    color: var(--success);
+  }
+  .demo .transcript .minus {
+    color: var(--danger);
+  }
+  .demo .transcript .reply {
+    color: var(--c-fg);
+  }
+  .demo .transcript .reply code {
+    padding: 1px 4px;
+    border-radius: 4px;
+    background: var(--fill);
+    font: 11.5px/16px 'SF Mono', ui-monospace, Menlo, monospace;
+  }
+  .demo .transcript .word {
+    animation: word-in 220ms var(--ease-out);
+  }
+  @keyframes word-in {
+    from {
+      opacity: 0;
+    }
+  }
+  .demo .transcript .card {
+    padding: 10px;
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .demo .transcript .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .demo .transcript .compare figure {
+    margin: 0;
+    color: var(--c-muted);
+    font-size: 11px;
+    line-height: 14px;
+  }
+  .demo .transcript .shot {
+    display: flex;
+    align-items: center;
+    height: 44px;
+    margin-top: 4px;
+    padding: 0 10px;
+    border-radius: 6px;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--fg);
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', sans-serif;
+    font-size: 17px;
+    font-weight: 250;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .demo .transcript .card-foot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--c-muted);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .demo .transcript .card-foot .button {
+    margin-left: auto;
+  }
+  .demo .transcript .meta {
+    color: var(--subtle);
+    font-size: 11px;
+    line-height: 14px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .demo .transcript .thinking {
+      animation: row-fade 150ms linear;
+      -webkit-text-fill-color: currentColor;
+      background: none;
+    }
+  }
+</style>
