@@ -16,7 +16,7 @@ const tool = async (name, args) => {
 }
 const handle = async ({id,method,params}) => {
   if (id === undefined || !method) return
-  if (method === 'initialize') return write({id,result:{protocolVersion:1,agentCapabilities:{promptCapabilities:{image:true},mcpCapabilities:{http:true}},authMethods:[]}})
+  if (method === 'initialize') return write({id,result:{protocolVersion:1,agentCapabilities:{promptCapabilities:{image:process.env.RECORDING_IMAGES!=='0'},mcpCapabilities:{http:true}},authMethods:[]}})
   if (method === 'session/new') { mcp=params.mcpServers.find(s=>s.url); return write({id,result:{sessionId:'recording-test'}}) }
   if (method === 'session/prompt') {
     const text=params.prompt.filter(b=>b.type==='text').map(b=>b.text).join('\n')
@@ -28,7 +28,8 @@ const handle = async ({id,method,params}) => {
     const outside=await tool('recording_frame',{recordingId:clip,index:metadata.frameCount})
     const oversized=await tool('recording_frames',{recordingId:clip,startMs:0,endMs:metadata.durationMs,fps:30})
     const other=await tool('recording_info',{recordingId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'})
-    const result={imageCount:params.prompt.filter(b=>b.type==='image').length,info:metadata,frame:frame.content.find(b=>b.type==='text')?.text,frameImage:frame.content.some(b=>b.type==='image'),rangeImages:range.content.filter(b=>b.type==='image').length,outside:outside.isError,oversized:oversized.isError,other:other.isError}
+    const timeline=await tool('recording_timeline',{recordingId:clip})
+    const result={prompt:text,timeline:timeline.content[0]?.text,imageCount:params.prompt.filter(b=>b.type==='image').length,info:metadata,frame:frame.content.find(b=>b.type==='text')?.text,frameImage:frame.content.some(b=>b.type==='image'),rangeImages:range.content.filter(b=>b.type==='image').length,outside:outside.isError,oversized:oversized.isError,other:other.isError}
     write({method:'session/update',params:{sessionId:params.sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(result)}}}})
     return write({id,result:{stopReason:'end_turn'}})
   }
@@ -39,7 +40,7 @@ process.stdin.setEncoding('utf8')
 process.stdin.on('data',chunk=>{buffer+=chunk;let end;while((end=buffer.indexOf('\n'))!==-1){const line=buffer.slice(0,end);buffer=buffer.slice(end+1);if(line)handle(JSON.parse(line)).catch(error=>write({id:JSON.parse(line).id,error:{code:-32603,message:error.message}}))}})
 `
 
-async function useAgent(session: GuiSession) {
+async function useAgent(session: GuiSession, { images = true } = {}) {
   const script = join(session.fixture.base, 'recording-agent.cjs')
   writeFileSync(script, AGENT_SCRIPT)
   writeFileSync(
@@ -48,7 +49,7 @@ async function useAgent(session: GuiSession) {
       Recording: {
         command: electronExecutable(),
         args: [script],
-        env: { ELECTRON_RUN_AS_NODE: '1' },
+        env: { ELECTRON_RUN_AS_NODE: '1', RECORDING_IMAGES: images ? '1' : '0' },
       },
     }),
   )
@@ -79,7 +80,10 @@ async function animate(session: GuiSession) {
   })
 }
 
-async function record(session: GuiSession): Promise<RecordingAttachment> {
+async function record(
+  session: GuiSession,
+  during?: () => Promise<void>,
+): Promise<RecordingAttachment> {
   const attached = session.chat.evaluate(
     () =>
       new Promise<RecordingAttachment>((resolve) => {
@@ -93,7 +97,9 @@ async function record(session: GuiSession): Promise<RecordingAttachment> {
   await expect(
     session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }),
   ).toBeVisible()
-  await session.chrome.waitForTimeout(1800)
+  await session.chrome.waitForTimeout(600)
+  await during?.()
+  await session.chrome.waitForTimeout(1200)
   await session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }).click()
   await expect(
     session.chat
@@ -185,6 +191,60 @@ test('preview video plays, sends overview images, and exposes exact frames and b
   } finally {
     await reopened.close()
   }
+})
+
+test('an agent without image support gets the timeline of what happened in the page', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await useAgent(session, { images: false })
+  await animate(session)
+  const preview = await session.previewPage()
+  await preview.evaluate(() => {
+    const style = document.createElement('style')
+    style.textContent =
+      '.e2e-menu{opacity:0;transition:opacity 300ms ease-out}.e2e-menu.open{opacity:1}'
+    document.head.append(style)
+    const menu = document.createElement('div')
+    menu.className = 'e2e-menu'
+    menu.textContent = 'Menu'
+    document.body.append(menu)
+  })
+  const clip = await record(session, () =>
+    preview.evaluate(() => document.querySelector('.e2e-menu')?.classList.add('open')),
+  )
+  const directory = join(
+    session.fixture.userData,
+    'recordings',
+    readdirSync(join(session.fixture.userData, 'recordings'))[0],
+    clip.id,
+  )
+  const saved = JSON.parse(readFileSync(join(directory, 'timeline.json'), 'utf8'))
+  const transition = saved.find(
+    (entry: { kind: string; type?: string; name?: string }) =>
+      entry.kind === 'animation' && entry.type === 'transition' && entry.name === 'opacity',
+  )
+  expect(transition).toMatchObject({ duration: 300, easing: 'ease-out' })
+  // On the frames' clock: after the 600 ms the recording ran before the class went on.
+  expect(transition.at).toBeGreaterThan(400)
+  expect(transition.at).toBeLessThan(clip.durationMs)
+  await session.chat.locator('[data-composer]').fill('Why is the menu fade slow?')
+  await session.chat.getByRole('button', { name: 'Send', exact: true }).click()
+  const { turn } = await session.waitForTurn(0)
+  expect(turn.status).toBe('done')
+  const reply = turn.items.find((item) => item.kind === 'text')
+  if (reply?.kind !== 'text') throw new Error('Missing agent reply')
+  const result = JSON.parse(reply.text)
+  expect(result.imageCount).toBe(0)
+  expect(result.prompt).toContain('You cannot see its frames')
+  expect(result.prompt).not.toContain('The following images')
+  expect(result.prompt).toContain('CSS transition opacity on div.e2e-menu')
+  expect(result.prompt).toContain('script animation (WAAPI) on div')
+  expect(result.timeline).toContain('300 ms ease-out')
+  expect(result.timeline).toContain('class on div.e2e-menu')
+  const notice = turn.items.find((item) => item.kind === 'notice')
+  expect(notice).toMatchObject({ tone: 'info' })
 })
 
 test('removing an unsent recording deletes its files and does not send a turn', async ({

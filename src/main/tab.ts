@@ -103,6 +103,7 @@ import {
   startFresh,
 } from './proposal'
 import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
+import { RecordingTrace } from './recording-trace'
 import { Recordings } from './recordings'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import {
@@ -283,6 +284,33 @@ export class ProjectTab {
 
   get recordingSource() {
     return this.preview.webContents.mainFrame
+  }
+
+  /** Traces what happens in the preview while it's recorded (recording-trace.ts). */
+  traceRecording() {
+    const contents = this.preview.webContents
+    const trace = new RecordingTrace(contents)
+    const onStart = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
+      if (details.isMainFrame && !details.isSameDocument) void trace.navigating()
+    }
+    const onLoad = () => trace.navigated(contents.getURL())
+    contents.on('did-start-navigation', onStart)
+    contents.on('dom-ready', onLoad)
+    const detach = () => {
+      if (contents.isDestroyed()) return
+      contents.off('did-start-navigation', onStart)
+      contents.off('dom-ready', onLoad)
+    }
+    return {
+      finish: async (startedAt: number, durationMs: number) => {
+        detach()
+        return trace.finish(startedAt, durationMs)
+      },
+      dispose: () => {
+        detach()
+        trace.dispose()
+      },
+    }
   }
 
   attachRecording(recording: import('../shared/types').RecordingAttachment) {

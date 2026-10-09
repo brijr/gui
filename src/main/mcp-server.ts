@@ -7,6 +7,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { z } from 'zod'
 import type { PreviewTools } from './preview-tools'
 import { fenceUntrusted } from './prompt'
+import { formatTimeline } from './recording-trace'
 import type { Recordings } from './recordings'
 
 export const MCP_SERVER_NAME = 'gui'
@@ -22,6 +23,7 @@ export const PREVIEW_TOOL_NAMES = [
   'recording_info',
   'recording_frame',
   'recording_frames',
+  'recording_timeline',
 ] as const
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
@@ -231,6 +233,31 @@ function buildServer(tools: PreviewTools, recordings: Recordings) {
       try {
         const frames = await recordings.frames(recordingId, startMs, endMs, fps)
         return frames.length ? frameContent(frames) : text('No captured frames in this range.')
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+  server.registerTool(
+    'recording_timeline',
+    {
+      title: 'Read what happened during a recording',
+      description:
+        "Read a text log of what happened in the preview page while it was recorded, with times in ms on the same clock as the frames: the user's clicks, keys and scrolls; every CSS transition, CSS animation and element.animate() with its target element, duration, delay, easing and keyframe values; inline styles changed by script (JS-driven motion); class changes; added and removed elements; layout shifts; and slow frames (jank). Use it to find which element and code drive an animation, and its exact timing. It cannot tell what anything looks like, nor see inside canvas or WebGL.",
+      inputSchema: {
+        recordingId,
+        startMs: z.number().min(0).max(61000).optional(),
+        endMs: z.number().min(0).max(61000).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ recordingId, startMs, endMs }) => {
+      try {
+        const entries = await recordings.timeline(recordingId)
+        const log = formatTimeline(entries, { startMs, endMs, limit: 600 })
+        return log
+          ? untrusted('recording_timeline', log)
+          : text('Nothing was traced in this range (or the clip predates timelines).')
       } catch (error) {
         return failure(error)
       }

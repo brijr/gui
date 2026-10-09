@@ -124,6 +124,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             recordingId,
             durationMs,
             new Uint8Array(await blob.arrayBuffer()),
+            performance.timeOrigin + started,
           )
         } catch (cause) {
           await gui.discardRecording(recordingId).catch(() => undefined)

@@ -521,7 +521,13 @@ export interface GuiApi {
    */
   startRecording(): Promise<string>
   saveRecordingFrame(id: string, timestampMs: number, jpeg: Uint8Array): Promise<boolean>
-  finishRecording(id: string, durationMs: number, video: Uint8Array): Promise<void>
+  /** `startedAt` is when the clip's time 0 was, in epoch ms (`timeOrigin + now`) */
+  finishRecording(
+    id: string,
+    durationMs: number,
+    video: Uint8Array,
+    startedAt: number,
+  ): Promise<void>
   discardRecording(id: string): Promise<void>
   onRecordingAttach(cb: (recording: RecordingAttachment) => void): Unsubscribe
   takeScreenshot(at?: { x: number; y: number }): Promise<'copied' | 'saved' | 'attached' | null>
