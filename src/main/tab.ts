@@ -56,6 +56,7 @@ import {
   type ShipInfo,
   type ShipRequest,
   type ShipResult,
+  type StartCommandInput,
   type TabStatus,
   type TerminalId,
   type Viewport,
@@ -117,11 +118,13 @@ import {
 } from './setup'
 import { getShellEnv } from './shell-env'
 import { ship, shipInfo } from './ship'
+import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
+import { describeServer, logTail, startupFailure, startupReport } from './startup'
 import { PREVIEW_PARTITION } from './storage'
 import { Terminals } from './terminals'
 import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
-import { askToTrust, isTrusted, promptName, promptText } from './trust'
+import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { focusWindow, showWindow } from './window'
 
@@ -186,6 +189,10 @@ const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 const REHIGHLIGHT_DELAY_MS = 900
 /** The id a pick goes by in the overlay while it's read, before it has its own */
 const PENDING_PICK = 'pending'
+/** How long dev_server_restart waits for the app; agents give up on a tool call after about a minute. */
+const AGENT_START_WAIT_MS = 45_000
+/** How much of the dev server's output the agent's dev server tools return */
+const AGENT_LOG_LINES = 60
 /** A package.json being written fires several changes; look once they've settled. */
 const APP_CHECK_DELAY_MS = 500
 /** Package scripts an install runs from the project's own package.json. */
@@ -410,6 +417,10 @@ export class ProjectTab {
   /** On a project with nothing to start yet (a new one): watches for its package.json. */
   private appWatcher: FSWatcher | null = null
   private appCheckTimer: NodeJS.Timeout | null = null
+  /** When the agent last got the app going again itself (dev_server_restart, set_start_command) */
+  private agentRestartedAt = 0
+  /** Getting the app going again from the top (`retryStartup`), so it runs once at a time */
+  private retrying: Promise<void> | null = null
 
   constructor(host: TabHost) {
     this.host = host
@@ -625,7 +636,7 @@ export class ProjectTab {
     try {
       file = await claimHistoryFile(root)
       const [{ project, apps, choosing }, env, saved] = await Promise.all([
-        detectProject(root, getPrefs().apps[root] ?? null),
+        resolveProject(root, getPrefs().apps[root] ?? null),
         getShellEnv(),
         loadHistory(file),
       ])
@@ -648,6 +659,9 @@ export class ProjectTab {
         logs: () => this.getLogs(),
         viewScale: () => this.emulation.scale,
         restoreViewport: () => this.emulation.restore(),
+        serverStatus: () => describeServer(this.state),
+        restartServer: () => this.restartForAgent(),
+        setStartCommand: (input) => this.setStartCommandForAgent(input),
       })
       this.previewTools = tools
       this.recordings = new Recordings(root)
@@ -678,6 +692,7 @@ export class ProjectTab {
         recordings: this.recordings,
         mcpServers: () => (this.mcp ? [this.mcp.config] : []),
         viewport: () => this.promptViewport(),
+        startupReport: (tools) => startupReport(this.state, this.getLogs(), tools),
       })
       chat.on('meta', (meta) => {
         this.sendChat(Events.chatMeta, meta)
@@ -694,6 +709,13 @@ export class ProjectTab {
         this.host.tabChanged(this, false)
       })
       chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
+      chat.on('startupFixEnd', (turn) => {
+        // The agent fixed things without getting the app going again itself: Gui does.
+        if (turn.status !== 'done' || this.agentRestartedAt >= turn.startedAt) return
+        if (startupFailure(this.state) || this.state.devServer.status === 'idle') {
+          void this.retryStartup()
+        }
+      })
       chat.on('attention', () => {
         this.onAttention()
         this.host.tabChanged(this, false)
@@ -846,7 +868,7 @@ export class ProjectTab {
     const devServer = this.devServer
     const root = this.state.project?.root
     if (!devServer || !root || this.chat?.turnRunning) return
-    const { project, apps, choosing } = await detectProject(root, getPrefs().apps[root] ?? null)
+    const { project, apps, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
     if (!project.devCommand && !choosing) return
     const setup = await detectSetup(project, choosing ? apps : null)
     if (devServer !== this.devServer || !this.appWatcher) return
@@ -1589,6 +1611,8 @@ export class ProjectTab {
     if (!project || !this.apps.some((app) => app.dir === dir)) return
     if (this.devServer && this.switchingApp === this.devServer) return
     setPrefs({ apps: { ...getPrefs().apps, [project.root]: dir } })
+    // Picking an app is picking what runs: a start command set in Gui gives way.
+    if (project.custom) void saveStartCommand(project.root, null).catch(() => undefined)
     void this.runApp(dir)
   }
 
@@ -1652,7 +1676,7 @@ export class ProjectTab {
       if (!(await this.confirmScripts(project, install))) return
       if (devServer !== this.devServer) return
       if (install && !(await this.install(devServer, project))) return
-      await devServer.start(project.devCommand)
+      await devServer.start(project.devCommand, project.custom?.url ?? null)
     } finally {
       if (this.settingUp === devServer) this.settingUp = null
     }
@@ -1720,6 +1744,127 @@ export class ProjectTab {
   private nextSetup(patch: Partial<ProjectSetup>) {
     const setup = this.state.setup ?? { apps: null, dependencies: 'ok', env: null }
     return settleSetup({ ...setup, ...patch })
+  }
+
+  // Getting a failed start going again (the agent's dev server tools, start commands)
+
+  /**
+   * Gets the app going again from the top, as the project is now: the agent (or the user)
+   * may have changed its scripts, installed its packages or set a start command since. Stops
+   * what's running, reads the project again, then installs if needed and starts it.
+   */
+  retryStartup(): Promise<void> {
+    this.retrying ??= this.restartFromTop().finally(() => {
+      this.retrying = null
+    })
+    return this.retrying
+  }
+
+  private async restartFromTop() {
+    const devServer = this.devServer
+    const root = this.state.project?.root
+    // A setup in flight (installing, or asking to run the project) goes on by itself.
+    if (!devServer || !root || this.settingUp === devServer) return
+    await devServer.stopAndWait()
+    const { project, apps, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
+    const setup = await detectSetup(project, choosing ? apps : null)
+    if (devServer !== this.devServer) return
+    this.apps = apps
+    devServer.setCwd(appRoot(project))
+    // Gui's own Node.js download goes on whatever the project says now.
+    const node = this.state.setup?.node ?? null
+    this.patch({
+      project,
+      setup: node
+        ? settleSetup({ ...(setup ?? { apps: null, dependencies: 'ok', env: null }), node })
+        : setup,
+    })
+    // The page's error was about the old server; the canvas follows the new one.
+    if (this.state.preview.error) this.patchPreview({ error: null })
+    if (project.devCommand || choosing) this.stopWatchingForApp()
+    else if (!this.appWatcher) this.watchForApp(root)
+    await this.setUpAndStart()
+  }
+
+  /** Resolves once the app shows in the preview, has failed, is waiting on the user, or after `ms`. */
+  private async waitForStart(ms: number) {
+    const deadline = Date.now() + ms
+    while (Date.now() < deadline && !this.disposed) {
+      const { devServer, setup, preview } = this.state
+      if (setup?.apps || setup?.node || setup?.dependencies === 'failed') return
+      if (devServer.status === 'exited' || preview.error) return
+      if (devServer.status === 'running' && preview.visible) return
+      if (devServer.status === 'idle' && !this.settingUp && !this.retrying) return
+      await new Promise((resolve) => setTimeout(resolve, 300))
+    }
+  }
+
+  /** How getting the app going went, for the agent: the headline, the state, the output. */
+  private startOutcome() {
+    const { devServer, preview } = this.state
+    const headline =
+      startupFailure(this.state) ??
+      (devServer.status === 'running' && preview.visible
+        ? `The app is running at ${devServer.url}, and the preview shows it.`
+        : devServer.status === 'starting' || devServer.status === 'running'
+          ? 'Still starting. Check again in a moment with dev_server_status.'
+          : "The app isn't running.")
+    const output = logTail(this.getLogs(), AGENT_LOG_LINES)
+    return [headline, describeServer(this.state), `Latest output:\n${output || '(none)'}`].join(
+      '\n\n',
+    )
+  }
+
+  /** dev_server_restart: gets the app going again and waits to see how it went. */
+  private async restartForAgent() {
+    if (!this.state.project) throw new Error('No project is open')
+    this.agentRestartedAt = Date.now()
+    await this.retryStartup()
+    await this.waitForStart(AGENT_START_WAIT_MS)
+    return this.startOutcome()
+  }
+
+  /**
+   * set_start_command: the agent's start command, once the user has seen and approved it
+   * (which trusts the project, as starting it would), then the app started with it.
+   */
+  private async setStartCommandForAgent(input: StartCommandInput | null) {
+    const project = this.state.project
+    if (!project) throw new Error('No project is open')
+    if (!input) {
+      if (!project.custom)
+        return `Gui already runs the start command it detects.\n\n${describeServer(this.state)}`
+      await saveStartCommand(project.root, null)
+      return this.restartForAgent()
+    }
+    const start = await validateStartCommand(project.root, input)
+    const where = start.dir ? ` in the ${promptName(start.dir)} folder` : ''
+    const address = start.url ? `, at ${promptName(start.url)}` : ''
+    const agreed = await this.askToTrust(project.root, {
+      message: `Start ${promptName(project.name)} a different way?`,
+      detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, 2000)}\n\nGui will run it now and whenever you open this project. It runs code on your Mac: only allow commands you trust. You can go back to the detected command in Settings.`,
+      buttons: ['Use This Command', 'Cancel'],
+      // The agent asked, not the user: Return mustn't be what agrees.
+      defaultId: 1,
+    })
+    if (!agreed) return 'The user declined. Gui still starts the app the way it did.'
+    if (this.state.project?.root !== project.root) throw new Error('The project was closed')
+    await saveStartCommand(project.root, start)
+    return this.restartForAgent()
+  }
+
+  /**
+   * The user's own start command, from the canvas (null: back to what Gui detects). They
+   * wrote it, so it's trusted. Throws what's wrong with it, to show under the field.
+   */
+  async setStartCommand(input: StartCommandInput | null) {
+    const root = this.state.project?.root
+    if (!root) return
+    const start = input ? await validateStartCommand(root, input) : null
+    await saveStartCommand(root, start)
+    if (start) await trust(root)
+    // Not waited on: installing can take minutes, and the canvas follows it.
+    if (this.state.project?.root === root) void this.retryStartup()
   }
 
   removeQueued(id: string) {
@@ -1886,6 +2031,18 @@ export class ProjectTab {
     const sent = this.chat?.fixProblems() ?? false
     if (sent) this.focusChat()
     return sent
+  }
+
+  /** "Fix with agent" on a start that failed: the agent gets why, and the chat comes forward. */
+  fixStartup() {
+    const sent = this.chat?.fixStartup() ?? false
+    if (!sent) return false
+    if (!this.state.chatVisible) {
+      this.patch({ chatVisible: true })
+      this.layout()
+    }
+    this.focusChat()
+    return true
   }
 
   /**

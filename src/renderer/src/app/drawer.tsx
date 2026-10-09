@@ -1,5 +1,6 @@
 import { lazy, type ReactNode, Suspense, useEffect, useRef, useState } from 'react'
 import {
+  type AgentId,
   type DrawerTab,
   drawerNeighbor,
   type TerminalId,
@@ -12,6 +13,7 @@ import { StatusDot } from '../lib/status'
 import { Banner, PanelHeader } from '../lib/surface'
 import { rovingTabKeyDown, TAB_LABEL, TabCloseButton, tabClass } from '../lib/tabs'
 import { Button, IconButton, PRESS } from '../lib/ui'
+import { FixStartupButton } from './fix-startup'
 import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus, stoppedOutside } from './server-status'
 
@@ -93,7 +95,7 @@ export function Drawer({ state }: { state: WindowState }) {
   return (
     <>
       {!drawn && !state.focusMode && (failed || stopped) && state.preview.visible && (
-        <StoppedBar crashed={failed} />
+        <StoppedBar crashed={failed} agentId={state.agentId} />
       )}
       {/* Kept mounted while closed, so the terminals keep their scrollback and place. */}
       <section
@@ -207,6 +209,7 @@ export function Drawer({ state }: { state: WindowState }) {
                   {failed && (
                     <>
                       <span className="shrink-0 text-small text-danger">Stopped with an error</span>
+                      <FixStartupButton agentId={state.agentId} variant="secondary" size="sm" />
                       <Button size="sm" onClick={() => gui.restartDevServer()}>
                         Restart
                       </Button>
@@ -272,7 +275,7 @@ function Panel({ tab, shown, children }: { tab: DrawerTab; shown: boolean; child
  * Under a preview whose app is gone: it crashed (an alert, with the logs to see why), or
  * something outside Gui stopped it (said calmly, with a way to start it again).
  */
-function StoppedBar({ crashed }: { crashed: boolean }) {
+function StoppedBar({ crashed, agentId }: { crashed: boolean; agentId: AgentId }) {
   return (
     // The banner's soft tint goes over the window's surface, as the rest of the chrome's bars.
     <div className="relative z-chrome shrink-0 bg-surface">
@@ -286,6 +289,7 @@ function StoppedBar({ crashed }: { crashed: boolean }) {
             <Button variant="ghost" size="sm" onClick={() => gui.showLogs()}>
               Show logs
             </Button>
+            {crashed && <FixStartupButton agentId={agentId} variant="secondary" size="sm" />}
             <Button size="sm" onClick={() => gui.restartDevServer()}>
               {crashed ? 'Restart' : 'Start'}
             </Button>

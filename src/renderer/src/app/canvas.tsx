@@ -4,6 +4,7 @@ import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
 import {
   frameLabel,
   PROJECT_TEMPLATES,
+  type ProjectInfo,
   type ProjectSetup,
   type ProjectTemplate,
   type ViewportFrame,
@@ -40,6 +41,7 @@ import { timeAgo } from '../lib/time'
 import { Button, Code, IconButton, SegmentedControl, Spinner } from '../lib/ui'
 import { needsSignIn, useAccount } from '../lib/use-account'
 import { useAction } from '../settings/use-action'
+import { FixStartupButton } from './fix-startup'
 import { useMorphDrawsFrame } from './layout-morph'
 import { crashed, stoppedOutside } from './server-status'
 import { SignIn } from './sign-in'
@@ -177,9 +179,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
         note={devServer.lastLine}
         actions={
           <>
-            <Button variant="primary" onClick={() => gui.installDependencies()}>
-              Try again
-            </Button>
+            <FixStartupButton agentId={state.agentId} />
+            <Button onClick={() => gui.installDependencies()}>Try again</Button>
             <LogsToggle open={logsOpen} noun="output" />
           </>
         }
@@ -205,14 +206,23 @@ function CanvasMessage({ state }: { state: WindowState }) {
         }
         note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
         actions={
-          <>
-            <Button variant="primary" onClick={() => gui.restartDevServer()}>
-              Start again
-            </Button>
-            <LogsToggle open={logsOpen} noun="logs" />
-          </>
+          failed ? (
+            <>
+              <FixStartupButton agentId={state.agentId} />
+              <Button onClick={() => gui.restartDevServer()}>Start again</Button>
+              <LogsToggle open={logsOpen} noun="logs" />
+            </>
+          ) : (
+            <>
+              <Button variant="primary" onClick={() => gui.restartDevServer()}>
+                Start again
+              </Button>
+              <LogsToggle open={logsOpen} noun="logs" />
+            </>
+          )
         }
         env={env}
+        start={project}
       />
     )
   }
@@ -229,10 +239,12 @@ function CanvasMessage({ state }: { state: WindowState }) {
             <Button variant="primary" onClick={() => gui.reload()}>
               Try again
             </Button>
+            <FixStartupButton agentId={state.agentId} variant="secondary" />
             <LogsToggle open={logsOpen} noun="logs" />
           </>
         }
         env={env}
+        start={project}
       />
     )
   }
@@ -246,6 +258,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         note={devServer.lastLine}
         actions={
           <>
+            <FixStartupButton agentId={state.agentId} variant="secondary" />
             <LogsToggle open={logsOpen} noun="logs" />
             <Button variant="ghost" onClick={() => focusAddressBar()}>
               Enter address
@@ -253,6 +266,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
           </>
         }
         env={env}
+        start={project}
       />
     )
   }
@@ -274,7 +288,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={INFO}
         title="Start building your app"
         detail="Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
-        note="Add a “dev” script to package.json to let Gui start your app automatically."
+        note="Add a “dev” script to package.json, or set a start command, to let Gui start your app automatically."
         actions={
           <>
             <Button variant="primary" onClick={() => gui.expandChat()}>
@@ -285,6 +299,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
             </Button>
           </>
         }
+        start={project}
       />
     )
   }
@@ -319,6 +334,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
           </Button>
         }
         env={env}
+        start={project}
       />
     )
   }
@@ -385,26 +401,155 @@ interface SetupCardProps {
   children?: ReactNode
   /** The env file to offer, as a row of its own */
   env?: EnvSetup | null
+  /** The project whose start command to show, with a way to change it, as a row of its own */
+  start?: ProjectInfo
 }
 
 /**
  * A canvas state: the shared Message in a card, then what there is to choose or set up as
  * List rows (apps, the env file), then the technical details.
  */
-function SetupCard({ icon, tone, title, detail, note, actions, children, env }: SetupCardProps) {
+function SetupCard({
+  icon,
+  tone,
+  title,
+  detail,
+  note,
+  actions,
+  children,
+  env,
+  start,
+}: SetupCardProps) {
   return (
     <Card className="flex w-full max-w-sm flex-col gap-4 p-5">
       <Message icon={icon} tone={tone} title={title} actions={actions}>
         {detail}
       </Message>
       {children}
-      {env && (
-        <List>
-          <EnvItem env={env} />
-        </List>
-      )}
+      <SetupRows env={env ?? null} start={start ?? null} />
       {note && <TechnicalDetails text={note} />}
     </Card>
+  )
+}
+
+/** The env file and the start command, as List rows; changing the command takes their place. */
+function SetupRows({ env, start }: { env: EnvSetup | null; start: ProjectInfo | null }) {
+  const [editing, setEditing] = useState(false)
+  if (editing && start) return <StartCommandForm project={start} onDone={() => setEditing(false)} />
+  if (!env && !start) return null
+  return (
+    <List>
+      {env && <EnvItem env={env} />}
+      {start && (
+        <ListItem
+          title={start.custom ? 'Start command (set in Gui)' : 'Start command'}
+          detail={
+            start.devCommand ? (
+              <span className="block truncate font-mono text-caption" title={start.devCommand}>
+                {start.devCommand}
+              </span>
+            ) : (
+              'None found'
+            )
+          }
+          trailing={
+            <Button onClick={() => setEditing(true)}>{start.devCommand ? 'Change' : 'Set'}</Button>
+          }
+        />
+      )}
+    </List>
+  )
+}
+
+const START_FIELDS = { command: 'start-command', dir: 'start-dir', url: 'start-url' }
+
+/**
+ * How Gui starts the app, when what it found isn't right: a command (any, not only a
+ * package.json script), the folder it runs in, and the address for a server that doesn't
+ * print one. Saving starts the app with it, and Gui uses it whenever the project opens.
+ */
+function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: () => void }) {
+  const [command, setCommand] = useState(project.devCommand ?? '')
+  const [dir, setDir] = useState(project.appDir ?? '')
+  const [url, setUrl] = useState(project.custom?.url ?? '')
+  const save = useAction()
+  const apply = (start: Parameters<typeof gui.setStartCommand>[0]) =>
+    save.run(async () => {
+      await gui.setStartCommand(start)
+      onDone()
+    })
+  const field = {
+    mono: true,
+    spellCheck: false,
+    autoCapitalize: 'off',
+    autoCorrect: 'off',
+    disabled: save.pending,
+  } as const
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (command.trim() && !save.pending) void apply({ command, dir, url })
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !save.pending) onDone()
+      }}
+    >
+      <Field
+        label="Start command"
+        htmlFor={START_FIELDS.command}
+        hint="Runs in your shell, like a script in package.json."
+      >
+        <Input
+          {...field}
+          id={START_FIELDS.command}
+          autoFocus
+          placeholder="npm run dev"
+          aria-describedby={`${START_FIELDS.command}-hint`}
+          value={command}
+          onChange={(event) => setCommand(event.target.value)}
+        />
+      </Field>
+      <Field label="Folder" htmlFor={START_FIELDS.dir} hint="In the project. Empty for its root.">
+        <Input
+          {...field}
+          id={START_FIELDS.dir}
+          placeholder="apps/web"
+          aria-describedby={`${START_FIELDS.dir}-hint`}
+          value={dir}
+          onChange={(event) => setDir(event.target.value)}
+        />
+      </Field>
+      <Field
+        label="Address"
+        htmlFor={START_FIELDS.url}
+        hint="Only if your app doesn't print its address."
+      >
+        <Input
+          {...field}
+          id={START_FIELDS.url}
+          placeholder="http://localhost:3000"
+          aria-describedby={`${START_FIELDS.url}-hint`}
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+        />
+      </Field>
+      {save.error && <InlineError>{save.error}</InlineError>}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" variant="primary" loading={save.pending} disabled={!command.trim()}>
+          Save and start
+        </Button>
+        <Button disabled={save.pending} onClick={onDone}>
+          Cancel
+        </Button>
+        {project.custom && (
+          <Button variant="ghost" disabled={save.pending} onClick={() => void apply(null)}>
+            Use detected
+          </Button>
+        )}
+      </div>
+    </form>
   )
 }
 

@@ -135,6 +135,8 @@ const api: GuiApi = {
   togglePopOut: send(Send.togglePopOut),
   toggleDock: send(Send.toggleDock),
   fixProblems: () => ipcRenderer.invoke(Invoke.fixProblems),
+  fixStartup: () => ipcRenderer.invoke(Invoke.fixStartup),
+  setStartCommand: (start) => invokeOrThrow(Invoke.setStartCommand, start),
   signInAgain: () => ipcRenderer.invoke(Invoke.chatSignIn),
   setUpChatAgent: () => ipcRenderer.invoke(Invoke.chatSetUpAgent),
   grabChat: send(Send.grabChat),
@@ -176,6 +178,7 @@ const api: GuiApi = {
   deleteCustomAgent: (name) => invokeOrThrow(Invoke.deleteCustomAgent, name),
   openCustomAgentsFile: send(Send.openCustomAgentsFile),
   untrustProject: (root) => ipcRenderer.invoke(Invoke.untrustProject, root),
+  resetStartCommand: (root) => ipcRenderer.invoke(Invoke.resetStartCommand, root),
   clearRecent: () => ipcRenderer.invoke(Invoke.clearRecent),
   clearStorage: (kind) => ipcRenderer.invoke(Invoke.clearStorage, kind),
 }

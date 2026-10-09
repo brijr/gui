@@ -45,6 +45,7 @@ import {
   type Rect,
   type SettingsSection,
   type ShipRequest,
+  type StartCommandInput,
   type StorageKind,
   VIEWPORTS,
 } from '../shared/types'
@@ -88,6 +89,7 @@ import {
   isSettingsContents,
   openSettings,
   removeRecent,
+  resetStartCommand,
   saveCustom,
   setAgentEnabled,
   setChatDocked,
@@ -372,6 +374,12 @@ function tabFor(event: IpcMainEvent | IpcMainInvokeEvent) {
 }
 
 const isString = (value: unknown): value is string => typeof value === 'string'
+const isStartCommandInput = (value: unknown): value is StartCommandInput => {
+  if (!value || typeof value !== 'object') return false
+  const { command, dir, url } = value as Record<string, unknown>
+  const optional = (field: unknown) => field === undefined || field === null || isString(field)
+  return isString(command) && optional(dir) && optional(url)
+}
 const isNumber = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value)
 /** For a drawer view asking about output it can't have: nothing to draw. */
@@ -718,6 +726,14 @@ function registerIpc() {
   })
   ipcMain.handle(Invoke.redo, (event) => tabFor(event)?.redo())
   ipcMain.handle(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
+  ipcMain.handle(Invoke.fixStartup, (event) => tabFor(event)?.fixStartup() ?? false)
+  ipcMain.handle(Invoke.setStartCommand, (event, start: unknown) =>
+    reportError(async () => {
+      if (start !== null && !isStartCommandInput(start))
+        throw new Error('That start command is malformed.')
+      await tabFor(event)?.setStartCommand(start)
+    }),
+  )
   ipcMain.handle(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
   ipcMain.handle(Invoke.chatSetUpAgent, (event) => tabFor(event)?.setUpAgent())
   ipcMain.handle(Invoke.loadCommands, (event) => tabFor(event)?.loadCommands())
@@ -855,6 +871,9 @@ function registerIpc() {
   )
   handleSettings(Invoke.untrustProject, (_event, root) =>
     isString(root) ? untrustProject(root) : undefined,
+  )
+  handleSettings(Invoke.resetStartCommand, (_event, root) =>
+    isString(root) ? resetStartCommand(root) : undefined,
   )
   handleSettings(Invoke.clearRecent, () => clearRecent())
   ipcMain.handle(Invoke.removeRecent, (event, root: unknown) =>

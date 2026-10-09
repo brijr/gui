@@ -76,6 +76,8 @@ interface ChatEvents {
   attention: []
   /** A turn finished in the current session. */
   turnEnd: [turn: Turn]
+  /** A turn that asked the agent to get the app running has ended (after `turnEnd`) */
+  startupFixEnd: [turn: Turn]
 }
 
 export interface ChatOptions {
@@ -88,12 +90,21 @@ export interface ChatOptions {
   mcpServers: () => McpServer[]
   /** The preview's viewport as the user sees it now, which each prompt names */
   viewport: () => PromptViewport
+  /** Why the app won't start, as the agent is told it (`startupReport`) */
+  startupReport: (tools: boolean) => string
 }
+
+/**
+ * What a turn asks the agent to fix, with what it's told about it: the preview's errors,
+ * or why the app won't start. Null for the user's own message.
+ */
+type Fix = 'problems' | 'startup'
 
 interface TurnRecord {
   turn: Turn
   /** The message is one of the agent's slash commands, sent to it as just that */
   command: boolean
+  fix: Fix | null
   before: string | null
   after: string | null
   cancelRequested: boolean
@@ -107,6 +118,8 @@ interface QueuedPayload {
   selection: Picked[]
   /** The viewport the message was written in */
   viewport: PromptViewport
+  /** Set for "Fix with agent" waiting its turn: its report is written when it starts */
+  fix?: 'startup'
 }
 
 interface RedoPoint {
@@ -151,6 +164,8 @@ const OVERWRITE_LIST_MAX = 8
 
 /** The errors may be the preview's or the dev server's; the prompt lists them with their source. */
 const FIX_PROMPT = 'The app has errors. Find the cause and fix them.'
+/** What "Fix with agent" on a failed start asks; Gui's report on it rides along. */
+export const STARTUP_PROMPT = "My app won't start. Find out why and fix it."
 
 /** What an image sent without text asks for; also what the transcript and history show. */
 const imagePrompt = (count: number) =>
@@ -172,6 +187,9 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
   preview_navigate: 'Open page in preview',
   preview_reload: 'Reload preview',
   dev_server_logs: 'Read dev server logs',
+  dev_server_status: 'Check dev server',
+  dev_server_restart: 'Restart dev server',
+  set_start_command: 'Change start command',
 }
 const PREVIEW_TOOLS = Object.keys(PREVIEW_TOOL_LABELS).join('|')
 /**
@@ -447,6 +465,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       saved?.turns.map((turn) => ({
         turn,
         command: false,
+        fix: null,
         before: saved.checkpoints[turn.id]?.before ?? null,
         after: saved.checkpoints[turn.id]?.after ?? null,
         cancelRequested: false,
@@ -534,10 +553,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * Asks the agent to fix what's currently broken; the errors ride along in the prompt.
-   * A pending element selection is left for the user's next message.
-   */
-  /**
    * The agent's login expired mid-chat: runs its sign-in, and once it's signed in, ends the
    * session that still holds the old login, so the next message starts one that has it.
    */
@@ -549,9 +564,50 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return signedIn
   }
 
+  /**
+   * Asks the agent to fix what's currently broken; the errors ride along in the prompt.
+   * A pending element selection is left for the user's next message.
+   */
   fixProblems() {
     if (this.meta.problems.length === 0) return false
-    return this.startTurn(FIX_PROMPT, true)
+    return this.startTurn(FIX_PROMPT, 'problems')
+  }
+
+  /**
+   * Asks the agent to get the app running, with Gui's report on why it isn't. Like a message,
+   * it waits its turn behind one in progress, or for the agent to be set up; its report is
+   * written when it starts, so it says how things are then.
+   */
+  fixStartup() {
+    if (this.disposed) return false
+    const waiting = this.meta.queue.some((item) => this.queued.get(item.id)?.fix === 'startup')
+    if (waiting) return true
+    if (this.lock) return this.enqueueStartup()
+    if (needsSetup(this.meta.agent)) {
+      this.enqueueStartup()
+      this.patchMeta({ queuePaused: true, queuePauseReason: 'setup' })
+      return true
+    }
+    return this.startTurn(STARTUP_PROMPT, 'startup')
+  }
+
+  private enqueueStartup() {
+    const item: QueuedMessage = {
+      id: randomUUID(),
+      prompt: STARTUP_PROMPT,
+      context: [],
+      attachments: [],
+      recordings: [],
+    }
+    this.queued.set(item.id, {
+      images: [],
+      recordings: [],
+      selection: [],
+      viewport: this.options.viewport(),
+      fix: 'startup',
+    })
+    this.patchMeta({ queue: [...this.meta.queue, item] })
+    return true
   }
 
   /** Whether a turn, undo or redo is in progress. */
@@ -597,7 +653,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.patchMeta({ queuePaused: true, queuePauseReason: 'setup' })
       return true
     }
-    return this.startTurn(text, false, images, null, recordings, followUp)
+    return this.startTurn(text, null, images, null, recordings, followUp)
   }
 
   private followUpFor(turnId: string | null): FollowUp | null {
@@ -806,12 +862,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * `fix` turns carry the current problems and leave the pending selection alone. A
-   * `queued` message brings the element it was sent with, and leaves the current one too.
+   * `fix` turns carry what's to fix (the current problems, or the start report) and leave
+   * the pending selection alone. A `queued` message brings the element it was sent with,
+   * and leaves the current one too.
    */
   private startTurn(
     text: string,
-    fix: boolean,
+    fix: Fix | null,
     images: ImageAttachment[] = [],
     queued: QueuedPayload | null = null,
     recordings: RecordingAttachment[] = queued?.recordings ?? [],
@@ -862,6 +919,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         reverted: false,
       },
       command,
+      fix,
       before: null,
       after: null,
       cancelRequested: false,
@@ -875,7 +933,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (!fix && !queued) this.patchMeta({ selection: [] })
     this.flushTurn(record)
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
-    const problems = fix ? this.meta.problems : []
+    const problems = fix === 'problems' ? this.meta.problems : []
     record.settled = this.runTurn(record, selection, viewport, problems, images, this.epoch)
     return true
   }
@@ -926,7 +984,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
     this.queued.delete(next.id)
     this.patchMeta({ queue: rest })
-    this.startTurn(next.prompt, false, payload.images, payload)
+    this.startTurn(next.prompt, payload.fix ?? null, payload.images, payload)
   }
 
   private clearQueue() {
@@ -1024,6 +1082,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
             viewport,
             // Only Fix carries errors: they're usually unrelated to an ordinary request.
             problems,
+            // Written now, after the agent is up: it says how the app is doing as the turn starts.
+            startup:
+              record.fix === 'startup' ? this.options.startupReport(this.agentHasTools) : null,
             preamble,
             tools: this.agentHasTools,
             images: info.supportsImages,
@@ -1136,6 +1197,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (live()) {
         if (this.meta.status === 'working') this.patchMeta({ status: 'ready' })
         this.emit('turnEnd', record.turn)
+        if (record.fix === 'startup') this.emit('startupFixEnd', record.turn)
         // Settled (lock released, after snapshot taken), so the next message can start. Stop,
         // an error, a declined trust prompt, or a turn the agent refused or cut short holds
         // the rest back until the user resumes it: they were written expecting this one to work.

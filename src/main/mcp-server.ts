@@ -12,7 +12,10 @@ import type { Recordings } from './recordings'
 
 export const MCP_SERVER_NAME = 'gui'
 
-/** Tool names Gui exposes; all are read-only views of the preview except navigation. */
+/**
+ * Tool names Gui exposes; all are read-only views of the preview except navigation and the
+ * dev server's own controls. A new start command still waits for the user's approval.
+ */
 export const PREVIEW_TOOL_NAMES = [
   'preview_screenshot',
   'preview_inspect',
@@ -20,6 +23,9 @@ export const PREVIEW_TOOL_NAMES = [
   'preview_navigate',
   'preview_reload',
   'dev_server_logs',
+  'dev_server_status',
+  'dev_server_restart',
+  'set_start_command',
   'recording_info',
   'recording_frame',
   'recording_frames',
@@ -166,6 +172,70 @@ function buildServer(tools: PreviewTools, recordings: Recordings) {
     async ({ lines }) => {
       const output = tools.logs(lines ?? 80)
       return output ? untrusted('dev_server_logs', output) : text('(no output yet)')
+    },
+  )
+
+  server.registerTool(
+    'dev_server_status',
+    {
+      title: 'Check the dev server',
+      description:
+        "Whether the user's app is installing, starting, running or stopped, and how Gui starts it: the start command, the folder it runs in, and the package manager.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => untrusted('dev_server_status', tools.serverStatus()),
+  )
+
+  server.registerTool(
+    'dev_server_restart',
+    {
+      title: 'Restart the dev server',
+      description:
+        "Get the user's app running again in Gui's preview after fixing why it wouldn't start, or when a change needs a fresh server (new dependencies, config, env vars). Gui reads package.json again, installs dependencies if they're missing, starts the app and waits up to a minute for it. Returns its status and latest output. Never start a dev server yourself; this is the one the preview shows.",
+      inputSchema: {},
+    },
+    async () => {
+      try {
+        return untrusted('dev_server_restart', await tools.restartServer())
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+
+  server.registerTool(
+    'set_start_command',
+    {
+      title: 'Change how Gui starts the app',
+      description:
+        "Change the command Gui runs to start the user's app, when what it detects is wrong: another script, a command outside package.json (make dev, docker compose up, python -m http.server), another folder, or a server that never prints its address. The user is asked to approve it; once they do, Gui uses it whenever the project opens, starts the app with it and returns the result. Pass `reset` to go back to what Gui detects. Don't use it to work around an error in the project's code.",
+      inputSchema: {
+        command: z.string().max(2000).optional().describe('The shell command, on one line'),
+        dir: z
+          .string()
+          .max(500)
+          .optional()
+          .describe('Folder it runs in, relative to the project root (default: the root)'),
+        url: z
+          .string()
+          .max(500)
+          .optional()
+          .describe("The app's local address, only when the server doesn't print it"),
+        reset: z.boolean().optional().describe('Go back to the command Gui detects'),
+      },
+    },
+    async ({ command, dir, url, reset }) => {
+      try {
+        if (reset) return untrusted('set_start_command', await tools.setStartCommand(null))
+        if (!command) return failure(new Error('Pass `command`, or `reset` to go back.'))
+        return untrusted(
+          'set_start_command',
+          await tools.setStartCommand({ command, dir: dir ?? null, url: url ?? null }),
+        )
+      } catch (error) {
+        return failure(error)
+      }
     },
   )
 

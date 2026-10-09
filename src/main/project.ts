@@ -414,6 +414,7 @@ export async function detectProject(
     devCommand: script ? `${packageManager} run ${script.name}` : null,
     devScript: script?.body ?? null,
     appDir,
+    custom: null,
   })
 
   const rootScript = devScriptOf(pkg)

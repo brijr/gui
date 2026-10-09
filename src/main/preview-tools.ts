@@ -1,5 +1,5 @@
 import type { WebContents } from 'electron'
-import type { ElementContext, Rect } from '../shared/types'
+import type { ElementContext, Rect, StartCommandInput } from '../shared/types'
 import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import type { Problems } from './problems'
@@ -86,6 +86,15 @@ export interface PreviewToolsDeps {
   viewScale: () => number
   /** Inside the inspector's lock: puts the user's viewport (device frame or none) back */
   restoreViewport: () => Promise<void>
+  /** The dev server's state in a few lines (`describeServer`) */
+  serverStatus: () => string
+  /** Gets the app running again, from the top, and waits to see; what happened */
+  restartServer: () => Promise<string>
+  /**
+   * Starts the app with `input` from now on once the user approves it (null: what Gui
+   * detects again), and waits to see; what happened
+   */
+  setStartCommand: (input: StartCommandInput | null) => Promise<string>
 }
 
 interface LayoutMetrics {
@@ -174,6 +183,18 @@ export class PreviewTools {
       wc.reload()
     })
     return this.deps.currentUrl()
+  }
+
+  serverStatus() {
+    return this.deps.serverStatus()
+  }
+
+  restartServer() {
+    return this.deps.restartServer()
+  }
+
+  setStartCommand(input: StartCommandInput | null) {
+    return this.deps.setStartCommand(input)
   }
 
   logs(lines: number) {
