@@ -104,18 +104,18 @@ test('opening and closing run at a steady frame rate', async ({ page }) => {
   expect(p952).toBeLessThan(34)
 })
 
-test('the scripted session makes the words bold, and Undo takes it back', async ({ page }) => {
+test('the scripted session makes the words semi-bold, and Undo takes it back', async ({ page }) => {
   await open(page)
   await untilIdle(page)
 
   const words = page.locator('[data-demo-target]')
   const weight = () => words.evaluate((el) => getComputedStyle(el).fontWeight)
-  await expect.poll(weight).toBe('600')
+  await expect.poll(weight).toBe('450')
   // Only the two words: the rest of the headline stays light.
   expect(await page.locator('.lede').evaluate((el) => getComputedStyle(el).fontWeight)).toBe('250')
   const chat = page.getByRole('complementary', { name: 'Chat' })
-  await expect(chat).toContainText('Make these words bold.')
-  await expect(chat).toContainText('I changed the weight of “real app” from 250 to 600.')
+  await expect(chat).toContainText('Make this semi-bold.')
+  await expect(chat).toContainText('I changed the weight of “real app” from 250 to 450,')
   await expect(chat).toContainText('Worked for')
   await expect(page.getByText('Point at something to change')).toBeHidden()
 
@@ -126,7 +126,7 @@ test('the scripted session makes the words bold, and Undo takes it back', async 
   await chat.getByRole('button', { name: 'Undo' }).click()
   await expect.poll(weight).toBe('250')
   await chat.getByRole('button', { name: 'Redo' }).click()
-  await expect.poll(weight).toBe('600')
+  await expect.poll(weight).toBe('450')
 })
 
 test('the visitor selects an element and tries a suggestion', async ({ page }) => {
@@ -229,7 +229,7 @@ test('Start again replays the session from a clean page', async ({ page }) => {
     .poll(() =>
       page.locator('[data-demo-target]').evaluate((el) => getComputedStyle(el).fontWeight),
     )
-    .toBe('600')
+    .toBe('450')
 })
 
 test.describe('on a phone', () => {
@@ -251,7 +251,7 @@ test.describe('on a phone', () => {
       .poll(() =>
         page.locator('[data-demo-target]').evaluate((el) => getComputedStyle(el).fontWeight),
       )
-      .toBe('600')
+      .toBe('450')
   })
 })
 
@@ -301,8 +301,8 @@ test.describe('How it works', () => {
       expect(Math.abs(box.width / box.height - 4 / 3)).toBeLessThan(0.02)
     }
     await expect(page.locator('[data-kind="select"] .label')).toContainText('span')
-    await expect(page.locator('[data-kind="describe"]')).toContainText('Make these words bold.')
-    await expect(page.locator('[data-kind="compare"] .bold')).toHaveCSS('font-weight', '600')
+    await expect(page.locator('[data-kind="describe"]')).toContainText('Make this semi-bold.')
+    await expect(page.locator('[data-kind="compare"] .bold')).toHaveCSS('font-weight', '450')
   })
 
   test('the stages stay inside their cards on a phone', async ({ page }) => {

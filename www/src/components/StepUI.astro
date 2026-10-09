@@ -3,7 +3,7 @@ import '../styles/gui.css'
 import { svg } from './demo/icons'
 
 // One step of "How it works", drawn with Gui's own interface rather than a screenshot: the same
-// session as the "Try it now" demo ("real app" made bold). Each stage is laid out at
+// session as the "Try it now" demo ("real app" made semi-bold). Each stage is laid out at
 // 532 × 399 and scales with its card (--u is one of those pixels), as a picture would, but stays
 // sharp and follows the visitor's appearance.
 interface Props {
@@ -13,7 +13,7 @@ interface Props {
 }
 
 const { kind, label } = Astro.props
-const prompt = 'Make these words bold.'
+const prompt = 'Make this semi-bold.'
 
 // The chat's header, and the row under the composer
 const head = (live: boolean) =>
@@ -125,7 +125,7 @@ const foot = (stop: boolean) =>
           </div>
           <div class="transcript">
             <p class="reply">
-              I changed the weight of “real app” from 250 to 600. The rest of the headline stays light.
+              I changed the weight of “real app” from 250 to 450. The rest of the headline stays light.
             </p>
             <div class="card">
               <div class="compare">
@@ -603,7 +603,7 @@ const foot = (stop: boolean) =>
     white-space: nowrap;
   }
   .shot .bold {
-    font-weight: 600;
+    font-weight: 450;
   }
   .card-foot {
     display: flex;
