@@ -487,6 +487,7 @@ const captures = new Map<
     store: Recordings
     tab: ReturnType<typeof tabFor>
     source: import('electron').WebFrameMain
+    trace: ReturnType<NonNullable<ReturnType<typeof tabFor>>['traceRecording']>
     armed: boolean
     timer: NodeJS.Timeout
   }
@@ -513,11 +514,13 @@ function registerIpc() {
       throw new Error('Project closed.')
     }
     const owner = event.sender.id
+    const trace = tab.traceRecording()
     const timer = setTimeout(() => {
       captures.delete(owner)
+      trace.dispose()
       void store.discard(id).catch(console.error)
     }, 65_000)
-    captures.set(owner, { id, store, tab, source: tab.recordingSource, armed: true, timer })
+    captures.set(owner, { id, store, tab, source: tab.recordingSource, trace, armed: true, timer })
     if (!captureOwners.has(event.sender)) {
       captureOwners.add(event.sender)
       event.sender.once('destroyed', () => {
@@ -525,6 +528,7 @@ function registerIpc() {
         if (!capture) return
         clearTimeout(capture.timer)
         captures.delete(owner)
+        capture.trace.dispose()
         void capture.store.discard(capture.id).catch(console.error)
       })
     }
@@ -545,14 +549,18 @@ function registerIpc() {
   })
   ipcMain.handle(
     Invoke.finishRecording,
-    async (event, id: unknown, duration: unknown, video: unknown) => {
+    async (event, id: unknown, duration: unknown, video: unknown, startedAt: unknown) => {
       const capture = captures.get(event.sender.id)
       if (!capture || id !== capture.id || !isNumber(duration) || !(video instanceof Uint8Array))
         throw new Error('Recording is unavailable.')
       clearTimeout(capture.timer)
       captures.delete(event.sender.id)
       try {
-        const clip = await capture.store.finish(capture.id, duration, video)
+        // Without the recorder's start time the events can't be put on the frames' clock.
+        let timeline: Awaited<ReturnType<typeof capture.trace.finish>> = []
+        if (isNumber(startedAt)) timeline = await capture.trace.finish(startedAt, duration)
+        else capture.trace.dispose()
+        const clip = await capture.store.finish(capture.id, duration, video, timeline)
         if (capture.tab?.recordings !== capture.store) {
           await capture.store.discard(capture.id)
           return
@@ -570,6 +578,7 @@ function registerIpc() {
     if (capture?.id === id) {
       clearTimeout(capture.timer)
       captures.delete(event.sender.id)
+      capture.trace.dispose()
       await capture.store.discard(id)
     } else {
       await tabFor(event)?.recordings?.discard(id)

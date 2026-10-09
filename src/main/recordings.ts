@@ -3,6 +3,7 @@ import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, nativeImage, protocol } from 'electron'
 import type { RecordingAttachment } from '../shared/types'
+import type { TraceEntry } from './recording-trace'
 import { thumbnail } from './thumbnail'
 
 const MAX_BYTES = 128 * 1024 * 1024
@@ -131,7 +132,12 @@ export class Recordings {
     }
   }
 
-  async finish(id: string, durationMs: number, video: Uint8Array): Promise<RecordingAttachment> {
+  async finish(
+    id: string,
+    durationMs: number,
+    video: Uint8Array,
+    timeline: TraceEntry[] = [],
+  ): Promise<RecordingAttachment> {
     const draft = this.draft
     if (!draft || draft.id !== id || this.disposed || draft.writing)
       throw new Error('Recording is no longer active.')
@@ -161,6 +167,7 @@ export class Recordings {
       timestamps: draft.timestamps,
     }
     await writeFile(join(draft.dir, 'video.webm'), video)
+    await writeFile(join(draft.dir, 'timeline.json'), JSON.stringify(timeline))
     await writeFile(join(draft.dir, 'manifest.json'), JSON.stringify(manifest))
     this.draft = null
     this.unsent.add(id)
@@ -174,6 +181,15 @@ export class Recordings {
     if (manifest.id !== id || !Array.isArray(manifest.timestamps))
       throw new Error('Recording is unavailable.')
     return manifest
+  }
+
+  /** What happened in the page while it was recorded (recording-trace.ts); empty for older clips. */
+  async timeline(id: string): Promise<TraceEntry[]> {
+    await this.info(id)
+    const entries: unknown = JSON.parse(
+      await readFile(join(this.path(id), 'timeline.json'), 'utf8').catch(() => '[]'),
+    )
+    return Array.isArray(entries) ? entries : []
   }
 
   async attachments(ids: string[]) {

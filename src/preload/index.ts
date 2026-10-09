@@ -147,8 +147,8 @@ const api: GuiApi = {
   loadCommands: () => ipcRenderer.invoke(Invoke.loadCommands),
   startRecording: () => ipcRenderer.invoke(Invoke.startRecording),
   saveRecordingFrame: (id, at, jpeg) => ipcRenderer.invoke(Invoke.recordingFrame, id, at, jpeg),
-  finishRecording: (id, duration, video) =>
-    ipcRenderer.invoke(Invoke.finishRecording, id, duration, video),
+  finishRecording: (id, duration, video, startedAt) =>
+    ipcRenderer.invoke(Invoke.finishRecording, id, duration, video, startedAt),
   discardRecording: (id) => ipcRenderer.invoke(Invoke.discardRecording, id),
   onRecordingAttach: (cb) => subscribe(Events.recordingAttach, cb),
   takeScreenshot: (at) => ipcRenderer.invoke(Invoke.takeScreenshot, at),
