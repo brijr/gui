@@ -56,11 +56,11 @@ const NARROW = 760
 /** The desktop's menu bar, over the wallpaper (wide screens only) */
 const MENU_BAR = 26
 
-const PROMPT = 'Make these words bold.'
+const PROMPT = 'Make this semi-bold.'
 const REPLY =
-  'I changed the weight of “real app” from 250 to 600. The rest of the headline stays light, so the two words stand out.'
+  'I changed the weight of “real app” from 250 to 450, a semi-bold for this light headline. The rest of the headline stays light, so the two words stand out.'
 /** The weight the scripted change gives the words; the headline is 250 */
-const BOLD = '600'
+const BOLD = '450'
 const FREE_REPLY =
   'This demo has no agent, so it can only make the changes in the suggestions. In Gui, your own agent reads your code and makes the change that you write.'
 
