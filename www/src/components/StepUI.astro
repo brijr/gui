@@ -1,0 +1,633 @@
+---
+import '../styles/gui.css'
+import { svg } from './demo/icons'
+
+// One step of "How it works", drawn with Gui's own interface rather than a screenshot: the same
+// session as the "Try it now" demo ("real app" made bold). Each stage is laid out at
+// 532 × 399 and scales with its card (--u is one of those pixels), as a picture would, but stays
+// sharp and follows the visitor's appearance.
+interface Props {
+  kind: 'select' | 'describe' | 'watch' | 'compare'
+  /** What the stage shows, for screen readers */
+  label: string
+}
+
+const { kind, label } = Astro.props
+const prompt = 'Make these words bold.'
+
+// The chat's header, and the row under the composer
+const head = (live: boolean) =>
+  `<header class="head"><span class="dot${live ? ' is-live' : ''}"></span><b>Claude Code</b>${svg('chevronDown', 12)}<span class="grow"></span>${svg('newChat')}${svg('panelRight')}${svg('more')}</header>`
+const foot = (stop: boolean) =>
+  `<div class="foot">${svg('paperclip')}<span class="pill">Auto</span><span class="model">Default (recommended) ${svg('chevronDown', 12)}</span><span class="grow"></span><span class="send${stop ? ' is-stop' : ''}">${svg(stop ? 'stop' : 'arrowUp')}</span></div>`
+---
+
+<div class="stage gui" data-kind={kind} role="img" aria-label={label}>
+  <div class="ui" aria-hidden="true">
+    {
+      kind === 'select' && (
+        <div class="page-bit">
+          <p class="bit-lede">
+            Design on your{' '}
+            <span class="target">
+              real app
+              <span class="outline">
+                <span class="label">
+                  span <span>130 × 49</span>
+                </span>
+              </span>
+            </span>
+            , not on a mockup.
+          </p>
+          <p class="bit-sub">Select an element, then tell your AI agent what to change.</p>
+          <svg class="arrow" viewBox="0 0 24 24">
+            <path d="M5 2.5v16.2l4.2-4.1 2.7 6.3 2.9-1.2-2.7-6.2h5.9z" />
+          </svg>
+        </div>
+      )
+    }
+
+    {
+      kind === 'describe' && (
+        <div class="panel">
+          <Fragment set:html={head(false)} />
+          <div class="empty">
+            <span class="empty-icon" set:html={svg('message', 16)} />
+            <b>Describe the change</b>
+            <span>Say what it should look like, and send. Your agent edits the code.</span>
+          </div>
+          <div class="context">
+            <span class="thumb"><i>real app</i></span>
+            <span class="context-text">
+              <span>
+                <code>&lt;span&gt;</code> real app
+              </span>
+              <code class="path">h1.lede &gt; span</code>
+            </span>
+            <span class="x" set:html={svg('x', 12)} />
+          </div>
+          <div class="composer is-focused">
+            <p>
+              {prompt}
+              <span class="caret" />
+            </p>
+            <Fragment set:html={foot(false)} />
+          </div>
+        </div>
+      )
+    }
+
+    {
+      kind === 'watch' && (
+        <div class="panel">
+          <Fragment set:html={head(true)} />
+          <div class="transcript">
+            <div class="you">
+              <span class="chip">
+                <Fragment set:html={svg('pointer', 11)} />
+                <b>span</b> real app
+              </span>
+              <p>{prompt}</p>
+            </div>
+            <div class="step is-done">
+              <span class="step-icon" set:html={svg('check', 12)} />
+              Read <code>src/pages/index.astro</code>
+            </div>
+            <div class="step is-done">
+              <span class="step-icon" set:html={svg('check', 12)} />
+              Edit <code>src/pages/index.astro</code>
+              <span class="diffstat">
+                <span class="plus">+3</span> <span class="minus">−1</span>
+              </span>
+            </div>
+            <div class="step">
+              <span class="step-icon">
+                <span class="spinner" />
+              </span>
+              Working <span class="timer" data-timer>4s</span>
+            </div>
+          </div>
+          <div class="composer">
+            <p class="placeholder">Queue a message…</p>
+            <Fragment set:html={foot(true)} />
+          </div>
+        </div>
+      )
+    }
+
+    {
+      kind === 'compare' && (
+        <div class="panel">
+          <Fragment set:html={head(true)} />
+          <div class="banner">
+            <span>1 change not shared yet</span>
+            <span class="share">Share for review</span>
+          </div>
+          <div class="transcript">
+            <p class="reply">
+              I changed the weight of “real app” from 250 to 600. The rest of the headline stays light.
+            </p>
+            <div class="card">
+              <div class="compare">
+                <figure>
+                  Before
+                  <div class="shot">real app</div>
+                </figure>
+                <figure>
+                  After
+                  <div class="shot">
+                    <b class="bold">real app</b>
+                  </div>
+                </figure>
+              </div>
+              <div class="card-foot">
+                <Fragment set:html={svg('chevronRight', 12)} />1 file changed
+                <span class="diffstat">
+                  <span class="plus">+3</span> <span class="minus">−1</span>
+                </span>
+                <span class="button">
+                  <Fragment set:html={svg('undo')} />
+                  Undo
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+  </div>
+</div>
+
+<script>
+  // The "Working" timer counts up while it is on screen, as it does in the app.
+  for (const timer of document.querySelectorAll<HTMLElement>('[data-timer]')) {
+    let seconds = 4
+    let tick = 0
+    new IntersectionObserver(([entry]) => {
+      clearInterval(tick)
+      if (!entry.isIntersecting) return
+      tick = window.setInterval(() => {
+        seconds = seconds >= 59 ? 4 : seconds + 1
+        timer.textContent = `${seconds}s`
+      }, 1000)
+    }).observe(timer)
+  }
+</script>
+
+<style>
+  .stage {
+    container-type: inline-size;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    border: 1px solid var(--rule);
+    background: var(--canvas);
+  }
+  .ui {
+    /* One pixel of the 532-wide layout */
+    --u: calc(100cqi / 532);
+    position: relative;
+    height: 100%;
+    display: grid;
+    place-items: center;
+    color: var(--c-fg);
+    font-family: var(--font-ui);
+    font-size: calc(var(--u) * 13);
+    line-height: calc(18 / 13);
+    font-weight: 400;
+    letter-spacing: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.885em;
+  }
+  b {
+    font-weight: 600;
+  }
+
+  /* 1. A piece of the site, with the words selected */
+  [data-kind='select'] {
+    background: var(--bg);
+  }
+  .page-bit {
+    position: relative;
+    width: calc(var(--u) * 430);
+    font-family: inherit;
+  }
+  .bit-lede {
+    color: var(--fg);
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', sans-serif;
+    font-size: calc(var(--u) * 40);
+    line-height: 1.08;
+    letter-spacing: -0.035em;
+    font-weight: 250;
+  }
+  .bit-sub {
+    margin-top: calc(var(--u) * 14);
+    color: var(--muted);
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', sans-serif;
+    font-size: calc(var(--u) * 16);
+    line-height: 1.45;
+    font-weight: 300;
+  }
+  .target {
+    position: relative;
+    white-space: nowrap;
+  }
+  .outline {
+    position: absolute;
+    inset: 0.04em -0.06em -0.02em;
+    border: calc(var(--u) * 2) solid var(--accent);
+    border-radius: calc(var(--u) * 4);
+  }
+  .label {
+    position: absolute;
+    left: calc(var(--u) * -2);
+    bottom: calc(100% + var(--u) * 4);
+    display: flex;
+    gap: calc(var(--u) * 6);
+    align-items: center;
+    height: calc(var(--u) * 20);
+    padding: 0 calc(var(--u) * 6);
+    border-radius: calc(var(--u) * 4);
+    background: var(--accent);
+    color: var(--accent-fg);
+    font: 500 calc(var(--u) * 11) / 1 var(--font-ui);
+    letter-spacing: 0;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .label span {
+    opacity: 0.8;
+    font-weight: 400;
+  }
+  .arrow {
+    position: absolute;
+    left: calc(var(--u) * 372);
+    top: calc(var(--u) * 30);
+    width: calc(var(--u) * 22);
+    fill: #111;
+    stroke: #fff;
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.3));
+  }
+
+  /* 2–4. The chat panel, as it floats over the preview */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    width: calc(var(--u) * 372);
+    height: calc(var(--u) * 351);
+    overflow: hidden;
+    border-radius: calc(var(--u) * 12);
+    background: var(--raised);
+    box-shadow: var(--elevation-panel);
+  }
+  .panel :global(.head) {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 0.46em;
+    height: 2.77em;
+    padding: 0 0.6em 0 0.92em;
+    border-bottom: 1px solid var(--line);
+    color: var(--c-muted);
+  }
+  .panel :global(.head b) {
+    color: var(--c-fg);
+    font-weight: 500;
+  }
+  .panel :global(.dot) {
+    width: 0.46em;
+    height: 0.46em;
+    border-radius: 50%;
+    background: var(--subtle);
+  }
+  .panel :global(.dot.is-live) {
+    background: var(--success);
+  }
+  .panel :global(.grow) {
+    flex: 1;
+  }
+  .panel :global(svg) {
+    width: 1.08em;
+    height: 1.08em;
+    flex: none;
+  }
+
+  .empty {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 0.3em;
+    padding: 0 2.6em;
+    color: var(--c-muted);
+  }
+  .empty b {
+    color: var(--c-fg);
+  }
+  .empty-icon {
+    display: grid;
+    place-items: center;
+    width: 2.46em;
+    height: 2.46em;
+    margin-bottom: 0.4em;
+    border-radius: 50%;
+    background: var(--fill);
+    color: var(--c-fg);
+  }
+  .empty-icon :global(svg) {
+    width: 1.23em;
+    height: 1.23em;
+  }
+
+  .context {
+    display: flex;
+    align-items: center;
+    gap: 0.62em;
+    margin: 0 0.62em 0.46em;
+    padding: 0.46em 0.62em 0.46em 0.46em;
+    border-radius: 0.62em;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .thumb {
+    flex: none;
+    display: flex;
+    align-items: center;
+    width: 3.4em;
+    height: 2.6em;
+    padding-left: 0.3em;
+    overflow: hidden;
+    border-radius: 0.3em;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--fg);
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback', sans-serif;
+    font-size: 1.15em;
+    font-weight: 300;
+    white-space: nowrap;
+  }
+  .thumb i {
+    font-style: normal;
+    border-radius: 0.1em;
+    box-shadow: 0 0 0 1px var(--accent);
+  }
+  .context-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    color: var(--c-fg);
+    font-size: 0.923em;
+    line-height: 1.35;
+  }
+  .path {
+    color: var(--c-muted);
+  }
+  .x {
+    color: var(--c-muted);
+  }
+
+  .composer {
+    flex: none;
+    margin: 0 0.62em 0.62em;
+    padding: 0.62em;
+    border-radius: 0.62em;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+  }
+  .composer.is-focused {
+    box-shadow:
+      inset 0 0 0 1px var(--accent),
+      0 0 0 0.23em var(--accent-soft);
+  }
+  .composer p {
+    min-height: 2.77em;
+    padding: 0 0.3em;
+  }
+  .placeholder {
+    color: var(--subtle);
+  }
+  .caret {
+    display: inline-block;
+    width: 1px;
+    height: 1.15em;
+    margin-left: 1px;
+    vertical-align: -0.2em;
+    background: var(--c-fg);
+    animation: blink 1.06s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caret {
+      animation: none;
+    }
+  }
+  .panel :global(.foot) {
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+    margin-top: 0.3em;
+    color: var(--c-muted);
+    font-size: 0.923em;
+  }
+  .panel :global(.pill) {
+    padding: 0.15em 0.6em;
+    border-radius: 0.5em;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-weight: 500;
+  }
+  .panel :global(.model) {
+    display: flex;
+    align-items: center;
+    gap: 0.3em;
+    padding: 0 0.4em;
+    white-space: nowrap;
+  }
+  .panel :global(.send) {
+    display: grid;
+    place-items: center;
+    width: 2em;
+    height: 2em;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .panel :global(.send.is-stop) {
+    border-radius: 0.5em;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    color: var(--c-fg);
+  }
+
+  .transcript {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.77em;
+    padding: 0.92em;
+    overflow: hidden;
+  }
+  .you {
+    padding: 0.62em 0.77em;
+    border-radius: 0.62em;
+    background: var(--fill);
+  }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3em;
+    height: 1.7em;
+    margin-bottom: 0.3em;
+    padding: 0 0.46em;
+    border-radius: 0.3em;
+    background: var(--accent-soft);
+    color: var(--accent-text);
+    font-size: 0.846em;
+  }
+  .chip b {
+    font-family: var(--font-mono);
+  }
+  .step {
+    display: flex;
+    align-items: center;
+    gap: 0.62em;
+    color: var(--c-muted);
+    font-size: 0.923em;
+  }
+  .step code {
+    color: var(--c-fg);
+  }
+  .step-icon {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 1.23em;
+    height: 1.23em;
+  }
+  .step.is-done .step-icon {
+    color: var(--success);
+  }
+  .spinner {
+    width: 0.92em;
+    height: 0.92em;
+    border-radius: 50%;
+    border: 0.12em solid var(--line-strong);
+    border-top-color: var(--accent);
+    animation: spin 0.7s linear infinite;
+  }
+  @keyframes spin {
+    to {
+      transform: rotate(1turn);
+    }
+  }
+  .timer {
+    font-variant-numeric: tabular-nums;
+  }
+  .diffstat {
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: 0.917em;
+    white-space: nowrap;
+  }
+  .plus {
+    color: var(--success);
+  }
+  .minus {
+    color: var(--danger);
+  }
+
+  .banner {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.46em;
+    padding: 0.62em 0.92em;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--c-muted);
+    font-size: 0.923em;
+  }
+  .share {
+    padding: 0.25em 0.67em;
+    border-radius: 0.5em;
+    background: var(--accent);
+    color: var(--accent-fg);
+    font-weight: 500;
+  }
+  .reply {
+    color: var(--c-fg);
+  }
+  .card {
+    padding: 0.77em;
+    border-radius: 0.62em;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.62em;
+    margin-bottom: 0.77em;
+  }
+  figure {
+    margin: 0;
+    color: var(--c-muted);
+    font-size: 0.846em;
+  }
+  .shot {
+    display: flex;
+    align-items: center;
+    height: 2.9em;
+    margin-top: 0.36em;
+    padding: 0 0.9em;
+    border-radius: 0.5em;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+    color: var(--fg);
+    font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', sans-serif;
+    font-size: 1.6em;
+    font-weight: 250;
+    letter-spacing: -0.03em;
+    white-space: nowrap;
+  }
+  .shot .bold {
+    font-weight: 600;
+  }
+  .card-foot {
+    display: flex;
+    align-items: center;
+    gap: 0.46em;
+    color: var(--c-muted);
+    font-size: 0.923em;
+  }
+  .card-foot .diffstat {
+    margin-left: 0;
+  }
+  .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.46em;
+    height: 2.33em;
+    margin-left: auto;
+    padding: 0 0.83em;
+    border-radius: 0.5em;
+    background: var(--raised);
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      var(--elevation-control);
+    color: var(--c-fg);
+    font-weight: 500;
+  }
+</style>

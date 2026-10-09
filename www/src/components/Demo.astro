@@ -1,6 +1,7 @@
 ---
 import { getImage } from 'astro:assets'
 import wallpaper from '../assets/wallpaper.jpg'
+import '../styles/gui.css'
 import { svg } from './demo/icons'
 
 // "Try it now": the page shrinks into a Gui window, and a scripted session plays on the real page.
@@ -25,7 +26,7 @@ const wallpapers = await Promise.all(
 const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', quality: 75 })
 ---
 
-<div class="demo" data-demo hidden>
+<div class="demo gui" data-demo hidden>
   <div class="desk" data-desk>
     <picture>
       {
@@ -192,121 +193,21 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     user-select: none;
   }
 
-  /* The change in the scripted session: an underline of the mark's square tiles. Like the mark
-     assembling (public/mark-animated.svg), each tile slides out from under the one before it
-     into its slot; on Undo they go back the same way, last first. */
-  .demo-underlined {
-    position: relative;
-  }
-  .demo-pixels {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: calc(100% + 0.04em);
-    display: flex;
-    height: 0.2em;
-    pointer-events: none;
-  }
-  .demo-pixels i {
-    flex: 1;
-    position: relative;
-    z-index: calc(var(--n) - var(--i));
-  }
-  .demo-pixels.is-building i {
-    animation: demo-pixel-in 150ms cubic-bezier(0.2, 0, 0, 1) both;
-    animation-delay: calc(var(--i) * 26ms + 60ms);
-  }
-  .demo-pixels.is-leaving i {
-    animation: demo-pixel-out 110ms cubic-bezier(0.4, 0, 1, 1) both;
-    animation-delay: calc((var(--n) - 1 - var(--i)) * 14ms);
-  }
-  @keyframes demo-pixel-in {
-    0% {
-      opacity: 0;
-      transform: translateX(-100%);
-    }
-    1% {
-      opacity: 1;
-    }
-  }
-  @keyframes demo-pixel-out {
-    99% {
-      opacity: 1;
-    }
-    to {
-      opacity: 0;
-      transform: translateX(-100%);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .demo-pixels.is-building i,
-    .demo-pixels.is-leaving i {
-      animation: none;
-    }
-    .demo-pixels.is-building {
-      animation: demo-pixels-fade 150ms linear both;
-    }
-    .demo-pixels.is-leaving {
-      animation: demo-pixels-fade 150ms linear reverse both;
-    }
-    @keyframes demo-pixels-fade {
-      from {
-        opacity: 0;
-      }
-    }
-  }
 </style>
 
 <style is:global>
-  /* Gui's own tokens (src/renderer/src/styles.css in the app). */
+  /* Gui's tokens are in src/styles/gui.css; these are the desktop's own. */
   .demo {
-    --canvas: #ececec;
-    --surface: #f7f7f7;
-    --raised: #ffffff;
-    --line: rgb(0 0 0 / 0.08);
-    --line-strong: rgb(0 0 0 / 0.14);
-    --fill: rgb(0 0 0 / 0.06);
-    --hover: rgb(0 0 0 / 0.045);
-    --c-fg: #18181a;
-    --c-muted: #545458;
-    --subtle: #68686d;
-    --accent: #0066ff;
-    --accent-hover: #005be5;
-    --accent-fg: #ffffff;
-    --accent-soft: rgb(0 102 255 / 0.1);
-    --accent-text: #0058e0;
-    --success: #147a3a;
-    --danger: #b83d0b;
     --desk: linear-gradient(#f3d3a8, #b9c4d6);
     --desk-dim: transparent;
     --elevation-window: 0 30px 80px rgb(0 0 0 / 0.18), 0 8px 24px rgb(0 0 0 / 0.08);
-    --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
-    --ease-out: cubic-bezier(0.2, 0, 0, 1);
     display: contents;
   }
   @media (prefers-color-scheme: dark) {
     .demo {
-      --canvas: #0e0e0f;
-      --surface: #18181a;
-      --raised: #202023;
-      --line: rgb(255 255 255 / 0.08);
-      --line-strong: rgb(255 255 255 / 0.15);
-      --fill: rgb(255 255 255 / 0.08);
-      --hover: rgb(255 255 255 / 0.06);
-      --c-fg: #ededef;
-      --c-muted: #ababb0;
-      --subtle: #8c8c91;
-      --accent: #5c9dff;
-      --accent-hover: #4b8ff7;
-      --accent-fg: #04122b;
-      --accent-soft: rgb(92 157 255 / 0.16);
-      --accent-text: #5c9dff;
-      --success: #4ade80;
-      --danger: #fb923c;
       --desk: linear-gradient(#3a2e2a, #141a24);
       --desk-dim: rgb(8 10 16 / 0.45);
       --elevation-window: 0 30px 80px rgb(0 0 0 / 0.6), 0 8px 24px rgb(0 0 0 / 0.4);
-      --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
     }
   }
   .demo[hidden],
