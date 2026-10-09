@@ -86,9 +86,13 @@ const url = path === undefined ? undefined : `${site}${path}`
     {structuredData && <script type="application/ld+json" set:html={JSON.stringify(structuredData)} />}
   </head>
   <body>
-    <main>
-      <slot />
-    </main>
+    <!-- The page in a box of its own, so the demo (Demo.astro) can shrink it into a Gui window. -->
+    <div class="page" data-page>
+      <main>
+        <slot />
+      </main>
+    </div>
+    <slot name="after" />
   </body>
 </html>
 
@@ -126,7 +130,6 @@ const url = path === undefined ? undefined : `${site}${path}`
     color-scheme: light dark;
   }
   body {
-    padding: var(--s-6) var(--s-4);
     background: var(--bg);
     color: var(--fg);
     font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
@@ -139,6 +142,10 @@ const url = path === undefined ? undefined : `${site}${path}`
     body {
       font-size: 1.0625rem;
     }
+  }
+  .page {
+    padding: var(--s-6) var(--s-4);
+    background: var(--bg);
   }
   main {
     width: 100%;

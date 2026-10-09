@@ -13,6 +13,7 @@ import selectDark from '../assets/steps/select-dark.png'
 import selectLight from '../assets/steps/select-light.png'
 import watchDark from '../assets/steps/watch-dark.png'
 import watchLight from '../assets/steps/watch-light.png'
+import Demo from '../components/Demo.astro'
 import HeroVideo from '../components/HeroVideo.astro'
 import Shot from '../components/Shot.astro'
 import Base from '../layouts/Base.astro'
@@ -153,8 +154,23 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     <span>noun</span>
   </p>
 
-  <h1 class="lede">A Mac app for web design and UI design. Design on your real app, not on a mockup.</h1>
+  <h1 class="lede">
+    A Mac app for web design and UI design. Design on your <span data-demo-target>real app</span>,
+    not on a mockup.
+  </h1>
   <p class="sub">Select an element, then tell your AI agent what to change. The agent changes the code.</p>
+
+  <div class="try">
+    <button class="try-button" type="button" data-demo-open aria-haspopup="dialog">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path
+          d="M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z"
+        ></path>
+      </svg>
+      Try it now
+    </button>
+    <span>A short demo on this page. You do not have to download anything.</span>
+  </div>
 
   <figure class="wide">
     <HeroVideo
@@ -266,6 +282,8 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   <footer>
     <a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.
   </footer>
+
+  <Demo slot="after" />
 </Base>
 
 <style>
@@ -298,9 +316,60 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     max-width: 34rem;
     text-wrap: balance;
   }
+  /* The words the demo selects: on one line, so their outline is a single box. */
+  .lede [data-demo-target] {
+    white-space: nowrap;
+  }
   .sub {
     margin-top: var(--s-3);
     color: var(--muted);
+  }
+  .try {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--s-2) var(--s-3);
+    margin-top: var(--s-4);
+  }
+  .try span {
+    font-size: 0.875rem;
+    font-weight: 380;
+    letter-spacing: 0.01em;
+    color: var(--muted);
+  }
+  .try-button {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    padding: 0.625rem 1.125rem 0.625rem 0.875rem;
+    border: 0;
+    border-radius: 999px;
+    background: var(--fg);
+    color: var(--bg);
+    font: inherit;
+    font-size: 1rem;
+    font-weight: 420;
+    letter-spacing: -0.005em;
+    cursor: pointer;
+    transition:
+      opacity 120ms cubic-bezier(0.2, 0, 0, 1),
+      transform 120ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .try-button svg {
+    fill: currentColor;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+  }
+  .try-button:hover {
+    opacity: 0.86;
+  }
+  .try-button:active {
+    transform: scale(0.97);
+  }
+  .try-button:focus-visible {
+    outline: 2px solid var(--fg);
+    outline-offset: 3px;
   }
   figure {
     margin-top: var(--s-5);

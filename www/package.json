@@ -7,13 +7,15 @@
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",
-    "deploy": "astro build && wrangler deploy"
+    "deploy": "astro build && wrangler deploy",
+    "test": "astro build && playwright test"
   },
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.3.0",
     "astro": "^7.3.5"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "wrangler": "^4.147.0"
   }
 }
