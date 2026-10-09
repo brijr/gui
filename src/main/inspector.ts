@@ -436,11 +436,16 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   async nodeAt(point: Point): Promise<number | null> {
     await this.ready()
     try {
+      // The protocol hit-tests document coordinates, not the viewport's: past the first
+      // screen, a viewport point would land on whatever was scrolled away.
+      const { cssLayoutViewport: scroll } = await this.cmd<{
+        cssLayoutViewport: { pageX: number; pageY: number }
+      }>('Page.getLayoutMetrics')
       const { backendNodeId } = await this.cmd<{ backendNodeId?: number }>(
         'DOM.getNodeForLocation',
         {
-          x: Math.round(point.x),
-          y: Math.round(point.y),
+          x: Math.round(point.x + scroll.pageX),
+          y: Math.round(point.y + scroll.pageY),
           includeUserAgentShadowDOM: false,
           ignorePointerEventsNone: true,
         },

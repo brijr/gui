@@ -198,3 +198,33 @@ test('the wheel scrolls the page while picking, and outlines follow it', async (
   )
   expect(await selecting(session)).toBe(true)
 })
+
+test('picks below the first screen once the page is scrolled', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  const preview = await session.previewPage()
+  await preview.evaluate(() => {
+    const spacer = document.createElement('div')
+    spacer.style.height = '2000px'
+    const below = document.createElement('p')
+    below.id = 'below'
+    below.textContent = 'Below the fold'
+    const after = document.createElement('div')
+    after.style.height = '2000px'
+    document.body.append(spacer, below, after)
+    below.scrollIntoView({ block: 'center' })
+  })
+  await waitFor(() => preview.evaluate(() => scrollY > 1000), 'the page to scroll')
+  const overlay = await session.pickPage()
+
+  // The protocol hit-tests in page coordinates; the overlay's are the viewport's.
+  const box = await session.viewBox('#below')
+  await session.startPicking()
+  await session.overlayPointer({ x: box.x + 10, y: box.y + box.height / 2 })
+  await expect(overlay.locator('[data-label]')).toContainText(
+    `${Math.round(box.width)} × ${Math.round(box.height)}`,
+  )
+  const picked = await session.pickElement('#below')
+  expect(picked.tag).toBe('p')
+  expect(picked.attributes.id).toBe('below')
+})
