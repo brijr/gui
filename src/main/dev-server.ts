@@ -74,6 +74,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private stopping = false
   /** A one-off command is running; its output isn't the dev server's. */
   private task = false
+  /** The app's address when it's set rather than read from the output */
+  private fixedUrl: string | null = null
 
   /** `cwd` is where the dev script runs: the project root, or a monorepo app's folder. */
   constructor(private cwd: string) {
@@ -89,9 +91,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.cwd = cwd
   }
 
-  async start(command: string) {
+  /** `url` is where the app will answer, for a server that doesn't print its address. */
+  async start(command: string, url: string | null = null) {
     // A restart or app switch can still be waiting on the old server when its tab closes.
     if (this.proc || this.disposed) return
+    this.fixedUrl = url
     const run = ++this.run
     const env = await getShellEnv()
     if (run !== this.run) return
@@ -121,6 +125,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       this.write(`${ESC}[31mCouldn't start the dev server: ${message}${ESC}[0m\r\n`)
       this.update({ status: 'exited', exitCode: null, lastLine: `Couldn't start: ${message}` })
       return
+    }
+    if (url) {
+      this.update({ url })
+      void this.waitUntilReachable(url, run)
     }
     proc.onExit(({ exitCode: code, signal }) => {
       if (run !== this.run) return
@@ -206,7 +214,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const command = this.state.command
     if (!command) return
     await this.stopAndWait()
-    await this.start(command)
+    await this.start(command, this.fixedUrl)
   }
 
   resize(cols: number, rows: number) {

@@ -112,6 +112,28 @@ export interface ProjectInfo {
   devScript: string | null
   /** In a monorepo, the app the dev server runs in (POSIX path relative to root); null for the root */
   appDir: string | null
+  /** The start command set in Gui, in place of what it found; null when it runs what it found */
+  custom: StartCommand | null
+}
+
+/**
+ * How Gui starts a project when what it detects isn't right: set by the user, or by their
+ * agent with the user's approval. Kept in Gui's own data, never in the project.
+ */
+export interface StartCommand {
+  /** Run in the user's login shell, like a package.json script */
+  command: string
+  /** The folder it runs in (POSIX path relative to the root); null for the root */
+  dir: string | null
+  /** The app's address, for a server that doesn't print one; null to read it from the output */
+  url: string | null
+}
+
+/** A start command as the user or agent gives it, before Gui checks it (`validateStartCommand`) */
+export interface StartCommandInput {
+  command: string
+  dir?: string | null
+  url?: string | null
 }
 
 /** An app inside a monorepo that Gui can preview */
@@ -928,6 +950,8 @@ export interface SettingsState {
   customAgentsError: string | null
   /** Projects whose dev script runs without asking */
   trustedProjects: string[]
+  /** Projects started with a command set in Gui rather than the one it detected */
+  startCommands: { root: string; start: StartCommand }[]
   recentProjects: RecentProject[]
   storage: StorageUsage
   /** Project roots open in a tab of any window; clearing storage keeps their data */

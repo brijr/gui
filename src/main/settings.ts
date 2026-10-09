@@ -22,6 +22,7 @@ import {
   withChats,
 } from './recent'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
+import { listStartCommands, saveStartCommand } from './start-commands'
 import { clearStorage as clearStorageData, measureStorage } from './storage'
 import { followSurface, surfaceColor } from './theme'
 import { listTrusted, untrust } from './trust'
@@ -102,9 +103,10 @@ export async function getSettings(sender: WebContents): Promise<SettingsState> {
 
 async function buildState(): Promise<SettingsState> {
   const prefs = getPrefs()
-  const [custom, trustedProjects, recentProjects] = await Promise.all([
+  const [custom, trustedProjects, startCommands, recentProjects] = await Promise.all([
     customAgentEntries(),
     listTrusted(),
+    listStartCommands(),
     loadRecent(),
   ])
   return {
@@ -114,6 +116,7 @@ async function buildState(): Promise<SettingsState> {
     customAgents: custom.entries,
     customAgentsError: custom.error,
     trustedProjects,
+    startCommands,
     recentProjects,
     storage,
     openProjects: openRoots(),
@@ -184,6 +187,15 @@ export async function deleteCustom(name: string) {
 
 export async function untrustProject(root: string) {
   await untrust(root)
+  await refreshSettings()
+}
+
+/** Back to the command Gui detects; a tab with the project open starts it that way now. */
+export async function resetStartCommand(root: string) {
+  await saveStartCommand(root, null)
+  for (const tab of allTabs()) {
+    if (tab.projectRoot === root && tab.getState().project?.custom) void tab.retryStartup()
+  }
   await refreshSettings()
 }
 

@@ -25,6 +25,7 @@ import type {
   ShipInfo,
   ShipRequest,
   ShipResult,
+  StartCommandInput,
   StorageKind,
   TerminalId,
   Turn,
@@ -61,6 +62,8 @@ export const Invoke = {
   restoreTurn: 'chat:restore',
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
+  fixStartup: 'chat:fix-startup',
+  setStartCommand: 'project:set-start-command',
   chatSignIn: 'chat:sign-in',
   chatSetUpAgent: 'chat:set-up-agent',
   loadCommands: 'chat:load-commands',
@@ -88,6 +91,7 @@ export const Invoke = {
   saveCustomAgent: 'settings:save-custom-agent',
   deleteCustomAgent: 'settings:delete-custom-agent',
   untrustProject: 'settings:untrust-project',
+  resetStartCommand: 'settings:reset-start-command',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
 } as const
@@ -495,6 +499,16 @@ export interface GuiApi {
   toggleDock(): void
   /** Sends the current preview errors to the agent; false if busy or nothing to fix */
   fixProblems(): Promise<boolean>
+  /**
+   * Asks the agent to get the app running, with why it isn't; it waits behind a turn in
+   * progress. False when there's no chat to ask
+   */
+  fixStartup(): Promise<boolean>
+  /**
+   * Starts the project with this command from now on, or with null, with what Gui detects
+   * again; rejects with what's wrong with it
+   */
+  setStartCommand(start: StartCommandInput | null): Promise<void>
   /** Runs the chat's agent's sign-in after its login expired; true once it's signed in */
   signInAgain(): Promise<boolean>
   /**
@@ -574,6 +588,8 @@ export interface GuiApi {
   openCustomAgentsFile(): void
   /** The project's dev script will ask before running again */
   untrustProject(root: string): Promise<void>
+  /** The project starts with the command Gui detects again */
+  resetStartCommand(root: string): Promise<void>
   clearRecent(): Promise<void>
   /** Asks to confirm, then clears; false when the user cancelled */
   clearStorage(kind: StorageKind): Promise<boolean>

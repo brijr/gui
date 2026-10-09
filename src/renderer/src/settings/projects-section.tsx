@@ -1,5 +1,5 @@
 import { useId } from 'react'
-import type { SettingsState } from '../../../shared/types'
+import type { SettingsState, StartCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { InlineError } from '../lib/field'
 import { PathText } from '../lib/path-text'
@@ -14,8 +14,9 @@ function recentLabel(count: number) {
 }
 
 export function ProjectsSection({ settings }: { settings: SettingsState }) {
-  const { trustedProjects, recentProjects, home } = settings
+  const { trustedProjects, startCommands, recentProjects, home } = settings
   const trustedId = useId()
+  const startId = useId()
   const recentId = useId()
   const clear = useAction()
   const count = recentProjects.length
@@ -41,6 +42,23 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
         )}
       </section>
 
+      {startCommands.length > 0 && (
+        <section aria-labelledby={startId} className="flex flex-col gap-2">
+          <GroupLabel as="h2" id={startId}>
+            Start commands
+          </GroupLabel>
+          <p className="text-pretty text-small text-muted">
+            These projects start with a command set in Gui instead of the one Gui found. Resetting
+            goes back to the one it finds.
+          </p>
+          <List>
+            {startCommands.map(({ root, start }) => (
+              <StartCommandRow key={root} root={root} start={start} home={home} />
+            ))}
+          </List>
+        </section>
+      )}
+
       <section aria-labelledby={recentId} className="flex flex-col gap-2">
         <GroupLabel as="h2" id={recentId}>
           Recent projects
@@ -61,6 +79,44 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
         {clear.error && <InlineError>{clear.error}</InlineError>}
       </section>
     </>
+  )
+}
+
+function StartCommandRow({
+  root,
+  start,
+  home,
+}: {
+  root: string
+  start: StartCommand
+  home: string
+}) {
+  const reset = useAction()
+  const where = [start.dir, start.url].filter(Boolean).join(' · ')
+  return (
+    <ListItem
+      title={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
+      detail={
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate select-text font-mono text-caption" title={start.command}>
+            {start.command}
+            {where && <span className="text-subtle"> ({where})</span>}
+          </span>
+          <PathText path={root} home={home} className="select-text text-caption text-subtle" />
+        </span>
+      }
+      trailing={
+        <Button
+          aria-label={`Reset the start command for ${root}`}
+          disabled={reset.pending}
+          onClick={() => void reset.run(() => gui.resetStartCommand(root))}
+        >
+          Reset
+        </Button>
+      }
+    >
+      {reset.error && <InlineError>{reset.error}</InlineError>}
+    </ListItem>
   )
 }
 
