@@ -319,15 +319,25 @@ export class RecordingTrace {
     this.stopped = true
     void this.run('globalThis.__guiTrace?.stop(); delete globalThis.__guiTrace')
     const rel = (at: number) => Math.round((at - startedAt) * 10) / 10
-    return this.entries
-      .map((entry) => {
-        const out = { ...entry, at: rel(entry.at) }
-        if ('end' in out) out.end = rel(out.end)
-        return out
-      })
-      .filter((entry) => entry.at >= -50 && entry.at <= durationMs + 50)
-      .map((entry) => (entry.at < 0 ? { ...entry, at: 0 } : entry))
-      .sort((a, b) => a.at - b.at)
+    return (
+      this.entries
+        .map((entry) => {
+          const out = { ...entry, at: rel(entry.at) }
+          if ('end' in out) out.end = rel(out.end)
+          return out
+        })
+        // What was already going on as the clip began (traced while the capture was starting)
+        // counts from its first frame.
+        .filter(
+          (entry) =>
+            entry.at <= durationMs + 50 &&
+            (entry.at >= -50 ||
+              (entry.kind === 'animation' && entry.running) ||
+              ('end' in entry && entry.end >= 0)),
+        )
+        .map((entry) => (entry.at < 0 ? { ...entry, at: 0 } : entry))
+        .sort((a, b) => a.at - b.at)
+    )
   }
 
   dispose() {
@@ -358,12 +368,21 @@ export class RecordingTrace {
     }
   }
 
+  /** A hung page gives up after a second, so it can't hold up saving the clip. */
   private async run(code: string): Promise<unknown> {
+    let timer: NodeJS.Timeout | undefined
     try {
       if (this.contents.isDestroyed()) return null
-      return await this.contents.executeJavaScriptInIsolatedWorld(TRACE_WORLD, [{ code }])
+      return await Promise.race([
+        this.contents.executeJavaScriptInIsolatedWorld(TRACE_WORLD, [{ code }]),
+        new Promise((resolve) => {
+          timer = setTimeout(() => resolve(null), 1000)
+        }),
+      ])
     } catch {
       return null
+    } finally {
+      clearTimeout(timer)
     }
   }
 }
