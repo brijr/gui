@@ -305,6 +305,8 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   }
   .demo .chrome {
     z-index: 4;
+    /* The toolbar and the chat slide in from past the window's edges; it clips them there. */
+    overflow: hidden;
     pointer-events: none;
     color: var(--c-fg);
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;

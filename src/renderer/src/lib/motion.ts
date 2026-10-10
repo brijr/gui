@@ -17,24 +17,21 @@ export function prefersReducedMotion() {
 /** Advances by `dt` seconds; true once it's done and can leave the loop. */
 type Tick = (dt: number) => boolean
 
-const ticks = new Set<Tick>()
+/** Each running tick, and the time it was last stepped to (when it started, at first). */
+const ticks = new Map<Tick, number>()
 let frame = 0
-let last = 0
 
 function loop(now: number) {
-  // Real time, so a late frame catches up rather than slowing the motion down (the spring is
-  // exact for any step); a stall longer than 0.1 s is taken as 0.1 s.
-  const dt = last ? Math.min((now - last) / 1000, 0.1) : 1 / 60
-  last = now
-  for (const tick of [...ticks]) {
-    if (tick(dt)) ticks.delete(tick)
+  // Real time, from where each one last left off, so a late frame catches up rather than
+  // slowing the motion down (the spring is exact for any step), and a first frame steps only
+  // the time since it started, whatever the refresh rate; a stall longer than 0.1 s is taken
+  // as 0.1 s.
+  for (const [tick, since] of [...ticks]) {
+    if (!ticks.has(tick)) continue
+    ticks.set(tick, now)
+    if (tick(Math.min(Math.max(0, now - since) / 1000, 0.1))) ticks.delete(tick)
   }
-  if (ticks.size > 0) {
-    frame = requestAnimationFrame(loop)
-  } else {
-    frame = 0
-    last = 0
-  }
+  frame = ticks.size > 0 ? requestAnimationFrame(loop) : 0
 }
 
 // A hidden page gets no frames: whatever is moving lands now, rather than playing out the rest
@@ -42,7 +39,7 @@ function loop(now: number) {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'hidden') return
   for (let pass = 0; pass < 10 && ticks.size > 0; pass++) {
-    for (const tick of [...ticks]) {
+    for (const tick of [...ticks.keys()]) {
       if (tick(10)) ticks.delete(tick)
     }
   }
@@ -50,7 +47,7 @@ document.addEventListener('visibilitychange', () => {
 
 /** Runs `tick` every animation frame until it returns true or the returned stop is called. */
 export function onFrames(tick: Tick): () => void {
-  ticks.add(tick)
+  ticks.set(tick, performance.now())
   if (!frame) frame = requestAnimationFrame(loop)
   return () => {
     ticks.delete(tick)
