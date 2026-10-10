@@ -184,3 +184,21 @@ const api: GuiApi = {
 }
 
 contextBridge.exposeInMainWorld('gui', api)
+
+/*
+ * Main's motion steps on this page's frames (main/panel-flight.ts `onDisplayFrames`): while it
+ * asks, a message from every animation frame, so a view main moves stays in step with the
+ * display.
+ */
+// The page's own, which the preload's (Node) types don't include.
+declare function requestAnimationFrame(callback: (time: number) => void): number
+declare function cancelAnimationFrame(handle: number): void
+let displayFrame = 0
+const sendDisplayFrame = () => {
+  displayFrame = requestAnimationFrame(sendDisplayFrame)
+  ipcRenderer.send(Send.displayFrame)
+}
+ipcRenderer.on(Events.displayFrames, (_event, on: boolean) => {
+  cancelAnimationFrame(displayFrame)
+  displayFrame = on ? requestAnimationFrame(sendDisplayFrame) : 0
+})

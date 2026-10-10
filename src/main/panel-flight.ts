@@ -1,11 +1,12 @@
 import { performance } from 'node:perf_hooks'
-import { app, type BrowserWindow, screen, systemPreferences } from 'electron'
+import { app, ipcMain, systemPreferences, type WebContents } from 'electron'
+import { Events, Send } from '../shared/ipc'
 import { Spring, type SpringConfig } from '../shared/motion'
 
 /*
  * The main process's side of src/shared/motion.ts. The floating chat is a native view, so its
- * motion is main's: a pair of springs stepped from a timer at the display's refresh rate, each
- * step moving the view with `setBounds`.
+ * motion is main's: a pair of springs stepped on the display's frames, each step moving the
+ * view with `setBounds`.
  */
 
 export interface Point {
@@ -30,15 +31,50 @@ export function prefersReducedMotion() {
 }
 
 /**
- * The refresh rate of the display the window is on; 60 when it doesn't say, says 0, or says
- * something no display runs at (a virtual display's report).
+ * Without the page's frames for this long (it's hidden, or busy), a timer steps in, at about
+ * 60 Hz, until they come back.
  */
-function refreshRate(win: BrowserWindow) {
-  try {
-    const hz = screen.getDisplayMatching(win.getBounds()).displayFrequency
-    return Number.isFinite(hz) && hz >= 30 && hz <= 240 ? hz : 60
-  } catch {
-    return 60
+const FALLBACK_MS = 34
+const FALLBACK_INTERVAL_MS = 1000 / 60
+
+const frameTicks = new Map<WebContents, Set<() => void>>()
+let listening = false
+
+/**
+ * Runs `tick` once per frame the display shows, until the returned stop is called. Main has no
+ * vsync of its own, and a timer at the refresh rate beats against it (timers land on whole
+ * milliseconds and drift), so a moving view judders: a frame repeated, then a double step.
+ * Instead `contents`' page (the preload) sends a message from each of its animation frames
+ * while asked to. A timer covers for it while it has none.
+ */
+export function onDisplayFrames(contents: WebContents, tick: () => void): () => void {
+  if (!listening) {
+    listening = true
+    ipcMain.on(Send.displayFrame, (event) => {
+      for (const each of [...(frameTicks.get(event.sender) ?? [])]) each()
+    })
+  }
+  let ticks = frameTicks.get(contents)
+  if (!ticks) {
+    ticks = new Set()
+    frameTicks.set(contents, ticks)
+    if (!contents.isDestroyed()) contents.send(Events.displayFrames, true)
+  }
+  let last = performance.now()
+  const step = () => {
+    last = performance.now()
+    tick()
+  }
+  ticks.add(step)
+  const fallback = setInterval(() => {
+    if (performance.now() - last > FALLBACK_MS) step()
+  }, FALLBACK_INTERVAL_MS)
+  return () => {
+    clearInterval(fallback)
+    const set = frameTicks.get(contents)
+    if (!set?.delete(step) || set.size > 0) return
+    frameTicks.delete(contents)
+    if (!contents.isDestroyed()) contents.send(Events.displayFrames, false)
   }
 }
 
@@ -49,7 +85,8 @@ function refreshRate(win: BrowserWindow) {
 const MAX_STEP = 0.1
 
 interface FlightOptions {
-  win: BrowserWindow
+  /** The page whose frames it steps on: the window's own */
+  frames: WebContents
   from: Point
   /** Units per second: the release velocity of a throw, or a flight's that was redirected */
   velocity: Point
@@ -67,13 +104,13 @@ interface FlightOptions {
 
 /**
  * A point (the floating panel's anchored corner) springing to a target, X and Y on springs of
- * their own. Steps at the display's refresh rate until both rest, then lands exactly on the
+ * their own. Steps on the display's frames until both rest, then lands exactly on the
  * target and stops its timer. `stop` leaves it where it is, for a grab mid-flight.
  */
 export class Flight {
   private readonly x: Spring
   private readonly y: Spring
-  private timer: NodeJS.Timeout | null
+  private unsubscribe: (() => void) | null
   private last = performance.now()
   private readonly options: FlightOptions
 
@@ -83,7 +120,7 @@ export class Flight {
     const target = options.target()
     this.x = new Spring(from.x, { target: target.x, velocity: velocity.x, config })
     this.y = new Spring(from.y, { target: target.y, velocity: velocity.y, config })
-    this.timer = setInterval(() => {
+    this.unsubscribe = onDisplayFrames(options.frames, () => {
       try {
         this.tick()
       } catch (error) {
@@ -91,7 +128,7 @@ export class Flight {
         this.stop()
         console.error('[gui] panel flight stopped', error)
       }
-    }, 1000 / refreshRate(options.win))
+    })
   }
 
   /** Where it is now. */
@@ -105,13 +142,13 @@ export class Flight {
   }
 
   get running() {
-    return this.timer !== null
+    return this.unsubscribe !== null
   }
 
   /** Stops where it is. */
   stop() {
-    if (this.timer) clearInterval(this.timer)
-    this.timer = null
+    this.unsubscribe?.()
+    this.unsubscribe = null
   }
 
   /** Lands on its target now, without the rest of the motion. */
@@ -127,6 +164,7 @@ export class Flight {
   }
 
   private tick() {
+    if (!this.running) return
     const now = performance.now()
     const dt = Math.min((now - this.last) / 1000, MAX_STEP)
     this.last = now

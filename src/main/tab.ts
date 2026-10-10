@@ -86,7 +86,7 @@ import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { type RunningMcpServer, startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
-import { Flight, type Point, prefersReducedMotion } from './panel-flight'
+import { Flight, onDisplayFrames, type Point, prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import { PreviewMorph } from './preview-morph'
@@ -167,20 +167,21 @@ const TUCK_DELAY_MS = 2500
 const WINDOW_FADE_MS = 150
 
 /**
- * Fades a window in as it's shown (a popped-out chat), so it arrives rather than blinks on.
- * Opacity only, which macOS draws for any window; with reduced motion it's simply there.
+ * Fades a window in as it's shown (a popped-out chat), so it arrives rather than blinks on, on
+ * the frames of `contents` (the page it shows). Opacity only, which macOS draws for any window;
+ * with reduced motion it's simply there.
  */
-function fadeIn(win: BrowserWindow) {
+function fadeIn(win: BrowserWindow, contents: WebContents) {
   if (prefersReducedMotion()) return
   win.setOpacity(0)
-  const start = Date.now()
-  const timer = setInterval(() => {
-    if (win.isDestroyed()) return clearInterval(timer)
-    const t = Math.min(1, (Date.now() - start) / WINDOW_FADE_MS)
+  const start = performance.now()
+  const stop = onDisplayFrames(contents, () => {
+    if (win.isDestroyed()) return stop()
+    const t = Math.min(1, (performance.now() - start) / WINDOW_FADE_MS)
     // Eases out, as every arrival does (--ease-out).
     win.setOpacity(1 - (1 - t) ** 3)
-    if (t === 1) clearInterval(timer)
-  }, 16)
+    if (t === 1) stop()
+  })
 }
 
 /** The floating forms by size: the view grows to a larger one at once. */
@@ -2196,7 +2197,7 @@ export class ProjectTab {
     this.layout()
     win.once('ready-to-show', () => {
       if (this.popout !== win || !this.host.isActive(this)) return
-      fadeIn(win)
+      fadeIn(win, this.chatView.webContents)
       showWindow(win)
       this.focusChat()
     })
@@ -2823,7 +2824,7 @@ export class ProjectTab {
       return
     }
     const flight: Flight = new Flight({
-      win: this.host.win,
+      frames: this.host.win.webContents,
       from: cornerPoint(from, this.anchor),
       velocity,
       config,
@@ -2870,7 +2871,7 @@ export class ProjectTab {
       return
     }
     const flight: Flight = new Flight({
-      win: this.host.win,
+      frames: this.host.win.webContents,
       from: { x: this.dockedWidth(), y: 0 },
       velocity: { x: 0, y: 0 },
       config: SPRINGS.default,

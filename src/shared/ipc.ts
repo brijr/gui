@@ -125,6 +125,8 @@ export const Send = {
   morphShown: 'layout:morph-shown',
   morphLanded: 'layout:morph-landed',
   cancelMorph: 'layout:morph-cancel',
+  /** One of the page's animation frames, while main asks for them (main/panel-flight.ts) */
+  displayFrame: 'motion:frame',
   setFocusMode: 'layout:focus-mode',
   setShortcutsOpen: 'layout:shortcuts',
   toggleChat: 'chat:toggle',
@@ -198,6 +200,8 @@ export const Events = {
   recordingAttach: 'recording:attach',
   chatFloat: 'chat:float',
   morph: 'layout:morph',
+  /** Main's motion needs the page's frames (true) or is done with them (false) */
+  displayFrames: 'motion:frames',
   pickState: 'pick:state',
   settings: 'settings',
   settingsSection: 'settings:section',

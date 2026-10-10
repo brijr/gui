@@ -31,7 +31,8 @@ interface Change {
   minus: number
   applied: boolean
   apply(): void
-  revert(): void
+  /** `instant`: no transition, under a bigger motion (the demo closing) */
+  revert(instant?: boolean): void
 }
 
 interface Turn {
@@ -77,9 +78,15 @@ function settled(animations: Animation[]) {
       return Number(timing?.endTime ?? 0)
     }),
   )
+  // The timer only counts once they've started: a heavy first frame mustn't cut them short.
+  const started = Promise.all(animations.map((a) => a.ready.catch(() => {})))
   return Promise.race([
     Promise.all(animations.map((a) => a.finished)).then(() => {}),
-    new Promise<void>((resolve) => setTimeout(resolve, longest + 100)),
+    started.then(() => new Promise<void>((resolve) => setTimeout(resolve, longest + 100))),
+    new Promise<void>((resolve) => {
+      if (document.hidden) return resolve()
+      document.addEventListener('visibilitychange', () => resolve(), { once: true })
+    }),
   ])
 }
 const at = (p: Point) => `translate(${p.x}px, ${p.y}px)`
@@ -145,6 +152,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   let opener: HTMLElement | null = null
   let frame = 0
   let resizing = 0
+  /** The transcript's scroll height when it last scrolled to the end */
+  let transcriptHeight = 0
   const applied: Change[] = []
   /** The style attribute of each element the demo changed, from before the demo */
   const originals = new Map<Styled, string | null>()
@@ -154,6 +163,19 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   const sleep = (ms: number, id: number) =>
     new Promise<void>((resolve, reject) => {
       setTimeout(() => (id === run ? resolve() : reject(new Cancelled())), ms)
+    })
+
+  /** Once `el`'s smooth scroll has come to rest (or after a while, without scrollend). */
+  const scrolled = (el: HTMLElement, id: number) =>
+    new Promise<void>((resolve, reject) => {
+      const done = () => {
+        clearTimeout(timer)
+        el.removeEventListener('scrollend', done)
+        if (id === run) resolve()
+        else reject(new Cancelled())
+      }
+      const timer = setTimeout(done, reduce.matches ? 60 : 1200)
+      el.addEventListener('scrollend', done)
     })
 
   function check(id: number) {
@@ -360,7 +382,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     setPicking(false)
     select(null)
     hideCursor()
-    revertAll()
+    // At once: the page growing back hides it, and a headline re-wrapping as it grows wouldn't.
+    revertAll(true)
 
     // From wherever things are, so closing while it opens turns it around smoothly.
     const from = new Map(
@@ -427,17 +450,21 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   // Outlines over the preview, kept on their elements every frame (the page can scroll).
 
   function track() {
-    place(hoverMark, hovered !== selected ? hovered : null)
-    place(selectedMark, selected)
+    // Both boxes read before either outline moves, so a frame lays the page out once.
+    const hover = hovered !== selected && hovered?.isConnected ? hovered : null
+    const pick = selected?.isConnected ? selected : null
+    const hoverBox = hover?.getBoundingClientRect() ?? null
+    const pickBox = pick?.getBoundingClientRect() ?? null
+    place(hoverMark, hover, hoverBox)
+    place(selectedMark, pick, pickBox)
     frame = requestAnimationFrame(track)
   }
 
-  function place(mark: HTMLElement, el: Element | null) {
-    if (!el?.isConnected) {
+  function place(mark: HTMLElement, el: Element | null, r: DOMRect | null) {
+    if (!el || !r) {
       mark.classList.remove('is-on')
       return
     }
-    const r = el.getBoundingClientRect()
     const y = r.top - geo.area.y
     mark.style.transform = `translate(${r.left - geo.area.x}px, ${y}px)`
     mark.style.width = `${r.width}px`
@@ -496,10 +523,16 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   }
 
   function hideCursor() {
+    // From where it's drawn, mid-move or mid-fade: cancelling first would jump it to the end of
+    // its move, and back to full opacity when it was already hidden.
+    const style = getComputedStyle(cursor)
+    const opacity = Number(style.opacity)
+    const matrix = new DOMMatrixReadOnly(style.transform)
+    cursorAt = { x: matrix.e, y: matrix.f }
     for (const a of cursor.getAnimations()) a.cancel()
     cursor.style.transform = at(cursorAt)
-    if (state !== 'closed') {
-      cursor.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 160, fill: 'forwards' })
+    if (state !== 'closed' && opacity > 0) {
+      cursor.animate([{ opacity }, { opacity: 0 }], { duration: 160, fill: 'forwards' })
     }
   }
 
@@ -568,7 +601,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     const r = headline.getBoundingClientRect()
     if (r.top < geo.area.y + 8 || r.bottom > geo.area.y + geo.area.h - 8) {
       page.scrollTo({ top: 0, behavior: reduce.matches ? 'instant' : 'smooth' })
-      await sleep(reduce.matches ? 60 : 700, id)
+      await scrolled(page, id)
     }
 
     showCursor({ x: geo.area.x + geo.area.w * 0.6, y: geo.area.y + geo.area.h * 0.7 })
@@ -681,9 +714,14 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     return row
   }
 
+  /** Only when the transcript has grown: a new smooth scroll per word restarts it from rest. */
   function scrollDown() {
+    const { scrollHeight, clientHeight } = transcript
+    if (scrollHeight === transcriptHeight) return
+    transcriptHeight = scrollHeight
+    if (scrollHeight <= clientHeight) return
     transcript.scrollTo({
-      top: transcript.scrollHeight,
+      top: scrollHeight - clientHeight,
       behavior: reduce.matches ? 'instant' : 'smooth',
     })
   }
@@ -761,6 +799,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
 
   function resetChat() {
     transcript.replaceChildren(empty)
+    transcriptHeight = 0
     empty.hidden = false
     suggest.hidden = true
     input.value = ''
@@ -796,21 +835,34 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       if (v) el.style.setProperty(prop, v)
       else el.style.removeProperty(prop)
     }
-    // A font can't animate from one family to the next, so it dips out and back instead.
+    // A font can't animate from one family to the next, so it dips out and back instead: the
+    // family changes once the dip has bottomed out, never while the old one still shows.
     const swap = (v: string) => {
       if (!fade || reduce.matches) return set(v)
-      el.animate([{ opacity: 1 }, { opacity: 0.08, offset: 0.45 }, { opacity: 1 }], {
-        duration: 560,
-        easing: 'ease-in-out',
+      const out = el.animate([{ opacity: 1 }, { opacity: 0.08 }], {
+        duration: 250,
+        easing: EASE_IN,
+        fill: 'forwards',
       })
-      setTimeout(() => set(v), 250)
+      out.finished
+        .catch(() => {})
+        .then(() => {
+          set(v)
+          el.animate([{ opacity: 0.08 }, { opacity: 1 }], { duration: 310, easing: EASE_OUT })
+          out.cancel()
+        })
     }
     return {
       plus: 1,
       minus: 1,
       applied: false,
       apply: () => swap(value),
-      revert: () => swap(before),
+      revert: (instant = false) => {
+        if (!instant) return swap(before)
+        el.style.transition = 'none'
+        if (before) el.style.setProperty(prop, before)
+        else el.style.removeProperty(prop)
+      },
     }
   }
 
@@ -860,8 +912,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     return null
   }
 
-  function revertAll() {
-    for (const change of applied.reverse()) if (change.applied) change.revert()
+  function revertAll(instant = false) {
+    for (const change of applied.reverse()) if (change.applied) change.revert(instant)
     applied.length = 0
   }
 
