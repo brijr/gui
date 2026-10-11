@@ -2,7 +2,7 @@ import { useId } from 'react'
 import type { SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { GroupLabel, List, ListItem } from '../lib/surface'
-import { Switch } from '../lib/ui'
+import { SegmentedControl, Switch } from '../lib/ui'
 
 export function ChatSection({ settings }: { settings: SettingsState }) {
   const headingId = useId()
@@ -25,6 +25,20 @@ export function ChatSection({ settings }: { settings: SettingsState }) {
               onCheckedChange={(docked) => gui.setChatDocked(docked)}
               label="Show the chat as a sidebar"
               labelHidden
+            />
+          }
+        />
+        <ListItem
+          title="Chat sidebar position"
+          trailing={
+            <SegmentedControl
+              label="Chat sidebar position"
+              value={settings.chatSidebarSide}
+              segments={[
+                { value: 'left', label: 'Left' },
+                { value: 'right', label: 'Right' },
+              ]}
+              onChange={(side) => gui.setChatSidebarSide(side)}
             />
           }
         />

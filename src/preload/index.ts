@@ -182,6 +182,7 @@ const api: GuiApi = {
   setAgentEnabled: send(Send.setAgentEnabled),
   setDefaultAgent: send(Send.setDefaultAgent),
   setChatDocked: send(Send.setChatDocked),
+  setChatSidebarSide: send(Send.setChatSidebarSide),
   saveCustomAgent: (originalName, entry) =>
     invokeOrThrow(Invoke.saveCustomAgent, originalName, entry),
   deleteCustomAgent: (name) => invokeOrThrow(Invoke.deleteCustomAgent, name),

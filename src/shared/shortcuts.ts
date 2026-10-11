@@ -253,7 +253,7 @@ export const SHORTCUTS = {
     accelerator: 'Shift+CmdOrCtrl+D',
     menu: 'view',
     group: 'chat',
-    description: 'Show the chat as the left sidebar, or float it over the preview',
+    description: 'Show the chat as a sidebar, or float it over the preview',
   },
   popOutChat: {
     label: 'Pop Out Chat',

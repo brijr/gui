@@ -175,6 +175,7 @@ export const Send = {
   setAgentEnabled: 'settings:agent-enabled',
   setDefaultAgent: 'settings:default-agent',
   setChatDocked: 'settings:chat-docked',
+  setChatSidebarSide: 'settings:chat-sidebar-side',
   openCustomAgentsFile: 'settings:open-agents-file',
 } as const
 
@@ -551,7 +552,7 @@ export interface GuiApi {
   takeScreenshot(at?: { x: number; y: number }): Promise<'copied' | 'saved' | 'attached' | null>
   /**
    * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged
-   * edges move and the opposite ones stay put. Docked, only its left edge resizes it.
+   * edges move and the opposite ones stay put. Docked, only its edge facing the preview resizes it.
    */
   resizeChat(edge: PanelEdge, dx: number, dy: number): void
   endResizeChat(): void
@@ -585,6 +586,7 @@ export interface GuiApi {
   setAgentEnabled(agentId: AgentId, enabled: boolean): void
   setDefaultAgent(agentId: AgentId): void
   setChatDocked(docked: boolean): void
+  setChatSidebarSide(side: 'left' | 'right'): void
   /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */
   saveCustomAgent(originalName: string | null, entry: CustomAgentEntry): Promise<void>
   deleteCustomAgent(name: string): Promise<void>

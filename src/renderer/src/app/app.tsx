@@ -50,9 +50,11 @@ export function App() {
     // and focusing something in them on the way must not scroll the whole window to it.
     <div
       className="relative flex h-dvh flex-col overflow-clip bg-canvas"
-      // The chat sidebar (its own view, from main) runs down the left: everything here starts
-      // right of it.
-      style={{ paddingLeft: state?.sidebarWidth || undefined }}
+      // The chat sidebar (its own view, from main) runs beside the chrome.
+      style={{
+        paddingLeft: state?.sidebarSide === 'left' ? state.sidebarWidth || undefined : undefined,
+        paddingRight: state?.sidebarSide === 'right' ? state.sidebarWidth || undefined : undefined,
+      }}
     >
       {/* The preview's layout morphs: over the canvas, under the bars and the drawer. It's the
           canvas's own content moving, not chrome, so it takes the layer below chrome's: the

@@ -451,7 +451,7 @@ export class ProjectWindow implements TabHost {
     const tabbed = this.list.length > 1
     const lights = this.focus
       ? FOCUS_TRAFFIC_LIGHTS
-      : this.active.sidebarShown || !tabbed
+      : (this.active.sidebarShown && this.active.getState().sidebarSide === 'left') || !tabbed
         ? TRAFFIC_LIGHTS
         : TAB_ROW_TRAFFIC_LIGHTS
     if (lights === this.lights) return

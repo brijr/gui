@@ -15,7 +15,7 @@ import {
   TOOLBAR_HEIGHT,
   TRAFFIC_LIGHTS_INSET,
 } from '../../../shared/layout'
-import { withShortcut } from '../../../shared/shortcuts'
+import { shortcutText, withShortcut } from '../../../shared/shortcuts'
 import {
   CHAT_FORMS,
   type ChatFloat,
@@ -45,7 +45,7 @@ import {
 } from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
-import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
+import { Button, IconButton, Kbd, PRESS, Spinner } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
@@ -113,10 +113,13 @@ export function ChatPanel() {
         data-chat-panel
         className={cn(
           'relative flex h-dvh flex-col bg-raised',
-          !meta.popped && 'border-r border-line-strong',
+          !meta.popped && 'border-line-strong',
+          !meta.popped && (meta.sidebarSide === 'left' ? 'border-r' : 'border-l'),
         )}
       >
-        {!meta.popped && <ResizeHandle edge="right" docked />}
+        {!meta.popped && (
+          <ResizeHandle edge={meta.sidebarSide === 'left' ? 'right' : 'left'} docked />
+        )}
         <Header meta={meta} />
         <Body meta={meta} turnIds={turnIds} running={running} />
       </div>
@@ -388,7 +391,11 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
       onPointerDown={onPointerDown}
       className={cn(
         'absolute z-sticky after:absolute after:opacity-0 after:transition-opacity hover:after:opacity-70',
-        docked ? DOCKED_CLASS : EDGE_CLASS[edge],
+        docked
+          ? edge === 'left'
+            ? DOCKED_CLASS.replaceAll('right-0', 'left-0')
+            : DOCKED_CLASS
+          : EDGE_CLASS[edge],
         edge.includes('-') ? CORNER_CLASS : 'after:bg-accent',
       )}
     />
@@ -841,13 +848,14 @@ function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: nu
         icon={<MousePointer2 className="size-4" aria-hidden="true" />}
         title="Point at something to change"
         actions={
-          <Button icon={MousePointer2} onClick={() => gui.toggleSelect()}>
+          <Button icon={MousePointer2} shortcut="selectElement" onClick={() => gui.toggleSelect()}>
             Select element
           </Button>
         }
       >
-        Click elements in your app (⇧ for several) or drag out an area, then describe the change.
-        Your agent edits the code and the preview updates live.
+        Press <Kbd>{shortcutText('selectElement')}</Kbd>, then click something in the preview to
+        select it. Describe the edit you want in the chat below and send. Your agent edits the
+        code and the preview updates live.
       </Message>
       <div className="mx-auto mb-auto w-full max-w-sm pt-4">
         <StarterPrompts prompts={STARTERS.change} />

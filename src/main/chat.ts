@@ -59,7 +59,7 @@ import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
 import { archiveChat, HistoryWriter, loadArchived, removeArchived, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
-import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
+import { getPrefs, prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
 import {
   buildPrompt,
   describeFollowUp,
@@ -340,6 +340,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       canSelect: false,
       minimized: false,
       docked: options.docked,
+      sidebarSide: getPrefs().chatSidebarSide,
       trafficLights: false,
       popped: false,
       redoTurnIds: saved?.redo?.turnIds ?? [],
@@ -556,6 +557,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setTrafficLights(trafficLights: boolean) {
     if (trafficLights !== this.meta.trafficLights) this.patchMeta({ trafficLights })
+  }
+
+  setSidebarSide(sidebarSide: 'left' | 'right') {
+    if (sidebarSide !== this.meta.sidebarSide) this.patchMeta({ sidebarSide })
   }
 
   setDocked(docked: boolean) {

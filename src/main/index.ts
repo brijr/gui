@@ -91,6 +91,7 @@ import {
   saveCustom,
   setAgentEnabled,
   setChatDocked,
+  setChatSidebarSide,
   setDefaultAgent,
   untrustProject,
   watchSettings,
@@ -904,6 +905,9 @@ function registerIpc() {
   })
   onSettings(Send.setDefaultAgent, (agentId) => isAgentId(agentId) && setDefaultAgent(agentId))
   onSettings(Send.setChatDocked, (docked) => typeof docked === 'boolean' && setChatDocked(docked))
+  onSettings(Send.setChatSidebarSide, (side) => {
+    if (side === 'left' || side === 'right') setChatSidebarSide(side)
+  })
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
   on(Send.navigate, (tab, url) => isString(url) && tab.navigate(url))
   on(Send.back, (tab) => tab.back())

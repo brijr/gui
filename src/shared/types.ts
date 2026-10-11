@@ -381,10 +381,11 @@ export interface WindowState {
   agentId: AgentId
   chatVisible: boolean
   /**
-   * The chat sidebar's width while it shows, down the window's left side from top to bottom;
-   * the chrome (tab row, toolbar, canvas, drawer) starts to its right. 0 otherwise.
+   * The chat sidebar's width while it shows; the chrome leaves this much room on
+   * sidebarSide for the chat. 0 otherwise.
    */
   sidebarWidth: number
+  sidebarSide: 'left' | 'right'
   drawer: DrawerState
   /** Null until read, so the start screen doesn't draw without it and then jump */
   recent: RecentProject[] | null
@@ -687,8 +688,9 @@ export interface ChatMeta {
   /** The preview shows the local app, so there's an element to pick */
   canSelect: boolean
   minimized: boolean
-  /** The window's left sidebar, top to bottom, instead of floating over the preview */
+  /** The window's sidebar, top to bottom, instead of floating over the preview */
   docked: boolean
+  sidebarSide: 'left' | 'right'
   /** The window's traffic lights sit in the chat's header (the sidebar, outside full screen) */
   trafficLights: boolean
   /** Popped out into a window of its own, which it fills */
@@ -953,6 +955,7 @@ export interface SettingsState {
   defaultAgentId: AgentId
   /** Whether new chats start docked to the side */
   chatSidebar: boolean
+  chatSidebarSide: 'left' | 'right'
   customAgents: CustomAgentEntry[]
   /** Why agents.json can't be read; custom agents can't be edited in Settings while set */
   customAgentsError: string | null

@@ -12,8 +12,9 @@ export interface ChatSize {
 
 export interface Prefs {
   agentId: AgentId
-  /** The chat is the window's left sidebar rather than a floating panel. */
+  /** The chat is the window's sidebar rather than a floating panel. */
   chatSidebar: boolean
+  chatSidebarSide: 'left' | 'right'
   /** The floating chat panel's size, without its shadow margin; windows clamp it to fit */
   chatSize: ChatSize
   /** The sidebar's width */
@@ -33,6 +34,7 @@ export interface Prefs {
 const DEFAULTS: Prefs = {
   agentId: DEFAULT_AGENT_ID,
   chatSidebar: false,
+  chatSidebarSide: 'left',
   chatSize: { width: 360, height: 520 },
   chatSidebarWidth: 380,
   chatCorner: { x: 'left', y: 'bottom' },
@@ -114,6 +116,7 @@ export function getPrefs(): Prefs {
       agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
       chatSidebar:
         typeof parsed.chatSidebar === 'boolean' ? parsed.chatSidebar : DEFAULTS.chatSidebar,
+      chatSidebarSide: parsed.chatSidebarSide === 'right' ? 'right' : 'left',
       chatSize: chatSize(parsed.chatSize),
       chatSidebarWidth: length(parsed.chatSidebarWidth, DEFAULTS.chatSidebarWidth),
       chatCorner: chatCorner(parsed.chatCorner),

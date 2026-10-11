@@ -60,7 +60,8 @@ export function Toolbar({ state }: { state: WindowState }) {
   // With two or more tabs the traffic lights sit in the tab row above (tab-strip.tsx), and
   // with the chat sidebar in its header.
   const tabbed = state.tabs.length > 1
-  const lights = !tabbed && !state.fullScreen && state.sidebarWidth === 0
+  const lights =
+    !tabbed && !state.fullScreen && (state.sidebarWidth === 0 || state.sidebarSide === 'right')
   // Picking and screenshots only work on the local app.
   const capturable = preview.visible && preview.selectable
 

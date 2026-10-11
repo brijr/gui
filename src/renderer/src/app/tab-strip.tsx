@@ -274,7 +274,10 @@ export function TabStrip({ state }: { state: WindowState }) {
       // full screen hides them.
       style={{
         height: TAB_ROW_HEIGHT,
-        paddingLeft: state.fullScreen || state.sidebarWidth > 0 ? undefined : TRAFFIC_LIGHTS_INSET,
+        paddingLeft:
+          state.fullScreen || (state.sidebarWidth > 0 && state.sidebarSide === 'left')
+            ? undefined
+            : TRAFFIC_LIGHTS_INSET,
       }}
     >
       <div

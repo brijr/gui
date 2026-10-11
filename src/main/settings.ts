@@ -113,6 +113,7 @@ async function buildState(): Promise<SettingsState> {
     agents: agentHealth.list(),
     defaultAgentId: prefs.agentId,
     chatSidebar: prefs.chatSidebar,
+    chatSidebarSide: prefs.chatSidebarSide,
     customAgents: custom.entries,
     customAgentsError: custom.error,
     trustedProjects,
@@ -148,6 +149,11 @@ export function setDefaultAgent(id: AgentId) {
   if (!agentHealth.has(id)) return
   agentHealth.ensureChecked(id)
   setPrefs({ agentId: id })
+}
+
+export function setChatSidebarSide(side: 'left' | 'right') {
+  setPrefs({ chatSidebarSide: side })
+  for (const tab of allTabs()) tab.setChatSidebarSide(side)
 }
 
 export function setChatDocked(docked: boolean) {

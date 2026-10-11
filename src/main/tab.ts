@@ -423,6 +423,7 @@ export class ProjectTab {
       agentId: getPrefs().agentId,
       chatVisible: true,
       sidebarWidth: 0,
+      sidebarSide: getPrefs().chatSidebarSide,
       drawer: closedDrawer(),
       recent: recentSoFar(),
       home: app.getPath('home'),
@@ -582,6 +583,7 @@ export class ProjectTab {
         canSelect: this.canSelect,
         minimized: false,
         docked: getPrefs().chatSidebar,
+        sidebarSide: getPrefs().chatSidebarSide,
         trafficLights: false,
         popped: false,
         redoTurnIds: [],
@@ -1976,6 +1978,12 @@ export class ProjectTab {
     void this.resources.chat?.setAgent(agentId)
   }
 
+  setChatSidebarSide(side: 'left' | 'right') {
+    this.resources.chat?.setSidebarSide(side)
+    this.layout()
+    this.host.tabChanged(this, false)
+  }
+
   toggleDock() {
     if (!this.resources.chat) return
     if (this.popout) return this.popIn()
@@ -2348,13 +2356,14 @@ export class ProjectTab {
   /**
    * Chat panel resizing by a pointer delta from one of its edges or corners: the dragged edges
    * follow the pointer and the opposite ones stay where they are. As the sidebar, only its
-   * right edge resizes it.
+   * edge facing the preview resizes it.
    */
   resizeChat(edge: PanelEdge, dx: number, dy: number) {
     if (!this.state.chatVisible || !this.hasProject) return
     if (this.docked) {
-      if (edge !== 'right') return
-      const width = this.dockedWidth() + dx
+      const left = getPrefs().chatSidebarSide === 'left'
+      if (edge !== (left ? 'right' : 'left')) return
+      const width = this.dockedWidth() + (left ? dx : -dx)
       const [contentWidth] = this.host.win.getContentSize()
       this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
       this.resizing = 'docked'
@@ -2673,13 +2682,18 @@ export class ProjectTab {
       this.showFloat(float)
     }
     this.chatView.setVisible(showChat && !covered)
-    this.resources.chat?.setTrafficLights(docked && !this.host.win.isFullScreen())
+    this.resources.chat?.setTrafficLights(
+      docked && getPrefs().chatSidebarSide === 'left' && !this.host.win.isFullScreen(),
+    )
     if (docked) {
       const dockWidth = this.dockedWidth()
       // Still off past the window's left edge while it slides in (`holdDock`).
       const slide = this.dockSlide ? (this.dockSlide.flight?.point.x ?? dockWidth) : 0
       this.chatView.setBounds({
-        x: -Math.round(slide),
+        x:
+          getPrefs().chatSidebarSide === 'left'
+            ? -Math.round(slide)
+            : contentWidth - dockWidth + Math.round(slide),
         y: 0,
         width: dockWidth,
         height: Math.max(0, contentHeight),
@@ -2924,8 +2938,7 @@ export class ProjectTab {
     return this.state.chatVisible && this.hasProject && !this.host.focusMode && !this.popout
   }
 
-  /** Where the preview goes: the canvas, less the column a docked panel takes on its right. */
-  /** The canvas: the chrome lays it out right of the sidebar (`sidebarWidth`) already. */
+  /** The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). */
   private previewArea(): Rect {
     return this.host.canvas
   }
@@ -2936,18 +2949,21 @@ export class ProjectTab {
     return Math.round(clamp(this.dockWidth, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
   }
 
-  /** The chat shows as the window's left sidebar. */
+  /** The chat shows as the window's sidebar. */
   get sidebarShown() {
     return this.chatShown && this.docked
   }
 
   /**
-   * Tells the chrome how much room to leave on the left: it lays out the tab row, toolbar,
-   * canvas and drawer right of it, and reports the canvas back (`setCanvasRect`).
+   * Tells the chrome how much room to leave beside the chat: it lays out the tab row, toolbar,
+   * canvas and drawer, and reports the canvas back (`setCanvasRect`).
    */
   private syncSidebarWidth() {
     const width = this.sidebarShown ? this.dockedWidth() : 0
-    if (width !== this.state.sidebarWidth) this.patch({ sidebarWidth: width })
+    const side = getPrefs().chatSidebarSide
+    if (width !== this.state.sidebarWidth || side !== this.state.sidebarSide) {
+      this.patch({ sidebarWidth: width, sidebarSide: side })
+    }
   }
 
   /** The floating panel's size: the remembered one, within the window and the canvas's height. */

@@ -57,6 +57,7 @@ export function Canvas({ state }: { state: WindowState }) {
   // Mid-morph the frame moves with the preview's snapshot, which draws it (layout-morph.ts).
   const morphing = useMorphDrawsFrame()
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: switching sides moves the canvas without resizing it.
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -77,7 +78,7 @@ export function Canvas({ state }: { state: WindowState }) {
       observer.disconnect()
       window.removeEventListener('resize', report)
     }
-  }, [])
+  }, [state.sidebarSide])
 
   return (
     <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
