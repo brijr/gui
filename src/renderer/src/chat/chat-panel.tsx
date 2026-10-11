@@ -15,7 +15,7 @@ import {
   TOOLBAR_HEIGHT,
   TRAFFIC_LIGHTS_INSET,
 } from '../../../shared/layout'
-import { shortcutText, withShortcut } from '../../../shared/shortcuts'
+import { withShortcut } from '../../../shared/shortcuts'
 import {
   CHAT_FORMS,
   type ChatFloat,
@@ -45,7 +45,7 @@ import {
 } from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
-import { Button, IconButton, Kbd, PRESS, Spinner } from '../lib/ui'
+import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
@@ -773,11 +773,6 @@ const STARTERS = {
     'Build a portfolio site with a project gallery',
     'Build a sign-up form with friendly validation',
   ],
-  change: [
-    'Make it feel more modern and polished',
-    'Add a dark mode that follows the system setting',
-    'Make it work well on phones',
-  ],
 }
 
 /**
@@ -844,22 +839,22 @@ function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: nu
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
       <Message
-        className="m-auto shrink-0"
+        className="m-auto w-full max-w-sm shrink-0"
         icon={<MousePointer2 className="size-4" aria-hidden="true" />}
-        title="Point at something to change"
+        title="Select something to edit"
         actions={
-          <Button icon={MousePointer2} shortcut="selectElement" onClick={() => gui.toggleSelect()}>
+          <Button
+            variant="primary"
+            icon={MousePointer2}
+            shortcut="selectElement"
+            onClick={() => gui.toggleSelect()}
+          >
             Select element
           </Button>
         }
       >
-        Press <Kbd>{shortcutText('selectElement')}</Kbd>, then click something in the preview to
-        select it. Describe the edit you want in the chat below and send. Your agent edits the
-        code and the preview updates live.
+        Pick something in the preview, then describe your edit below.
       </Message>
-      <div className="mx-auto mb-auto w-full max-w-sm pt-4">
-        <StarterPrompts prompts={STARTERS.change} />
-      </div>
     </div>
   )
 }
