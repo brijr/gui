@@ -5,6 +5,7 @@ import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { z } from 'zod'
+import { PREVIEW_KEYS } from './preview-interactions'
 import type { PreviewTools } from './preview-tools'
 import { fenceUntrusted } from './prompt'
 import { formatTimeline } from './recording-trace'
@@ -13,12 +14,18 @@ import type { Recordings } from './recordings'
 export const MCP_SERVER_NAME = 'gui'
 
 /**
- * Tool names Gui exposes; all are read-only views of the preview except navigation and the
- * dev server's own controls. A new start command still waits for the user's approval.
+ * Tool names Gui exposes: inspect and interact with the preview, plus dev-server controls.
+ * A new start command still waits for the user's approval.
  */
 export const PREVIEW_TOOL_NAMES = [
   'preview_screenshot',
   'preview_inspect',
+  'preview_snapshot',
+  'preview_click',
+  'preview_hover',
+  'preview_type',
+  'preview_press',
+  'preview_scroll',
   'preview_console',
   'preview_navigate',
   'preview_reload',
@@ -51,6 +58,128 @@ function failure(error: unknown) {
 
 function buildServer(tools: PreviewTools, recordings: Recordings) {
   const server = new McpServer({ name: 'gui-preview', version: '0.1.0' })
+
+  server.registerTool(
+    'preview_snapshot',
+    {
+      title: 'Read the preview page',
+      description:
+        'Read visible page text and up to 100 rendered headings and controls with CSS selectors, labels, values and state. Includes offscreen controls. Use before interacting and again after hot reload if a selector becomes stale. Main document only; iframe and shadow-root contents are omitted. Pair with preview_screenshot to judge appearance.',
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        return untrusted(
+          'preview_page',
+          JSON.stringify(await tools.interactions.snapshot(), null, 2),
+        )
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+
+  const selector = z.string().min(1).max(500).describe('Unique CSS selector from the current page')
+  const actionAnnotations = { readOnlyHint: false, destructiveHint: true, openWorldHint: true }
+  // Input executes the app's own handlers, which can submit forms or call external APIs.
+  for (const action of ['click', 'hover'] as const) {
+    server.registerTool(
+      `preview_${action}`,
+      {
+        title: action === 'click' ? 'Click in the preview' : 'Hover in the preview',
+        description: `${action === 'click' ? 'Click' : 'Move the pointer over'} a unique visible element using real browser input. Scrolls it into view. Rejects ambiguous or covered targets. Changes the shared preview; inspect or screenshot afterwards to see the result.`,
+        inputSchema: { selector },
+        annotations: actionAnnotations,
+      },
+      async ({ selector }) => {
+        try {
+          await tools.interactions[action](selector)
+          return text('Input sent. Use preview_snapshot or preview_screenshot to check the result.')
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    )
+  }
+
+  server.registerTool(
+    'preview_type',
+    {
+      title: 'Type in the preview',
+      description:
+        'Type text into a unique editable input, textarea or contenteditable using real browser input (including React handlers). Replaces the existing text by default; replace=false inserts at the cursor after clicking the field. Does not submit; use preview_press with Enter when needed. Changes the shared preview.',
+      inputSchema: {
+        selector,
+        text: z
+          .string()
+          .max(10_000)
+          .describe('Text to insert; empty text clears the field when replacing'),
+        replace: z.boolean().optional().describe('Replace existing text (default true)'),
+      },
+      annotations: actionAnnotations,
+    },
+    async ({ selector, text: value, replace }) => {
+      try {
+        await tools.interactions.type(selector, value, replace)
+        return text(
+          'Text input sent. Use preview_snapshot or preview_screenshot to check the result.',
+        )
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+
+  server.registerTool(
+    'preview_press',
+    {
+      title: 'Press a key in the preview',
+      description:
+        'Press a browser key in the currently focused element, or focus a unique selector first. Supports Enter, Escape, Tab, Space, editing and navigation keys; shift=true supports reverse Tab. Use for dialogs, form submission, keyboard navigation and native select controls. Changes the shared preview.',
+      inputSchema: {
+        key: z.enum(PREVIEW_KEYS),
+        selector: selector.optional(),
+        shift: z.boolean().optional(),
+      },
+      annotations: actionAnnotations,
+    },
+    async ({ key, selector, shift }) => {
+      try {
+        await tools.interactions.press(key, selector, shift)
+        return text(
+          'Key input sent. Use preview_snapshot or preview_screenshot to check the result.',
+        )
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+
+  server.registerTool(
+    'preview_scroll',
+    {
+      title: 'Scroll the preview',
+      description:
+        'Send a wheel event in CSS pixels: positive deltaY scrolls down, negative up. Optionally target a unique element to scroll a nested container; otherwise uses the viewport center. Changes the shared preview; take a fresh snapshot or screenshot afterwards.',
+      inputSchema: {
+        deltaY: z.number().min(-5000).max(5000),
+        deltaX: z.number().min(-5000).max(5000).optional(),
+        selector: selector.optional(),
+      },
+      annotations: actionAnnotations,
+    },
+    async ({ deltaY, deltaX, selector }) => {
+      try {
+        await tools.interactions.scroll(deltaY, deltaX, selector)
+        return text(
+          'Scroll input sent. Use preview_snapshot or preview_screenshot to check the result.',
+        )
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
 
   server.registerTool(
     'preview_screenshot',

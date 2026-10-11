@@ -60,7 +60,13 @@ import { type DetailedError, describeError } from './errors'
 import { archiveChat, HistoryWriter, loadArchived, removeArchived, type SavedChat } from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
-import { buildPrompt, describeFollowUp, fenceUntrusted, type PromptViewport } from './prompt'
+import {
+  buildPrompt,
+  describeFollowUp,
+  fenceUntrusted,
+  PROMPT_VERSION,
+  type PromptViewport,
+} from './prompt'
 import { formatTimeline } from './recording-trace'
 import type { Recordings } from './recordings'
 import { cornerColor, thumbnail } from './thumbnail'
@@ -185,6 +191,12 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
   recording_frames: 'Inspect recorded animation',
   recording_timeline: 'Read recording timeline',
   preview_inspect: 'Inspect element',
+  preview_snapshot: 'Read preview page',
+  preview_click: 'Click in preview',
+  preview_hover: 'Hover in preview',
+  preview_type: 'Type in preview',
+  preview_press: 'Press key in preview',
+  preview_scroll: 'Scroll preview',
   preview_console: 'Check preview errors',
   preview_navigate: 'Open page in preview',
   preview_reload: 'Reload preview',
@@ -485,7 +497,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.redoPoint = saved?.redo ?? null
     this.sessionId = saved?.sessionId ?? null
     this.resumeSessionId = this.sessionId
-    this.primed = saved?.primed ? (saved.primedWithTools ? 'tools' : 'plain') : null
+    this.primed =
+      saved?.primed && saved.primedVersion === PROMPT_VERSION
+        ? saved.primedWithTools
+          ? 'tools'
+          : 'plain'
+        : null
     this.hadSession = this.records.length > 0
     // Its agent was stopped with the chat it was started for.
     this.warming = null
@@ -1897,6 +1914,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       sessionId: this.sessionId,
       primed: this.primed !== null,
       primedWithTools: this.primed === 'tools',
+      primedVersion: this.primed !== null ? PROMPT_VERSION : undefined,
       turns: this.records.map((r) => r.turn),
       checkpoints,
       redo: this.redoPoint,

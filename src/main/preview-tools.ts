@@ -2,6 +2,7 @@ import type { WebContents } from 'electron'
 import type { ElementContext, Rect, StartCommandInput } from '../shared/types'
 import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
+import { PreviewInteractions } from './preview-interactions'
 import type { Problems } from './problems'
 
 /**
@@ -120,9 +121,13 @@ function withTimeout<T>(promise: Promise<T>, message: string, ms: number) {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
-/** What the agent can do with the live preview: look at it, measure it, read its errors. */
+/** What the agent can do with the live preview: inspect it, interact, and check its work. */
 export class PreviewTools {
-  constructor(private readonly deps: PreviewToolsDeps) {}
+  readonly interactions: PreviewInteractions
+
+  constructor(private readonly deps: PreviewToolsDeps) {
+    this.interactions = new PreviewInteractions(deps.inspector, () => this.assertLoaded())
+  }
 
   /**
    * Captures the preview as the user sees it, at the page's CSS size even when a device
@@ -133,7 +138,10 @@ export class PreviewTools {
   async screenshot(options: ScreenshotOptions): Promise<FramedScreenshot> {
     this.assertLoaded()
     return this.deps.inspector.exclusive((session) =>
-      session.withoutHighlight(() => this.capture(session, options)),
+      session.withoutHighlight(() => {
+        this.assertLoaded()
+        return this.capture(session, options)
+      }),
     )
   }
 
@@ -204,7 +212,7 @@ export class PreviewTools {
 
   /** The tools only ever act on the user's own local app, never a page it linked to. */
   private assertLoaded() {
-    const url = this.deps.currentUrl()
+    const url = this.deps.wc.getURL()
     if (!url) throw new Error('The preview has no page loaded yet')
     if (!isLoopback(url)) throw new Error('The preview is not showing the local dev server')
   }

@@ -33,6 +33,8 @@ export interface SavedChat {
   primed?: boolean
   /** Whether those instructions included the preview tools */
   primedWithTools?: boolean
+  /** Version of Gui's instructions that session received */
+  primedVersion?: number
   turns: Turn[]
   /** Checkpoint shas per turn id, so restored turns can still be undone */
   checkpoints: Record<string, { before: string | null; after: string | null }>
@@ -117,6 +119,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
       sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : null,
       primed: parsed.primed === true,
       primedWithTools: parsed.primedWithTools === true,
+      primedVersion: typeof parsed.primedVersion === 'number' ? parsed.primedVersion : undefined,
       turns: parsed.turns.map((turn) => settleTurn(turn, checkpoints[turn.id]?.before ?? null)),
       checkpoints,
       redo: parsed.redo ?? null,
