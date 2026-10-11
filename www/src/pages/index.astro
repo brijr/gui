@@ -137,21 +137,24 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 ---
 
 <Base title={title} description={description} path="/" structuredData={structuredData}>
-  <img class="mark" src="/mark-animated.svg" alt="" width="40" height="40" />
-
-  <p class="entry">
-    <span class="word">Gui</span>
-    <span class="ipa">/ˈɡuː.i/</span>
-    <span>noun</span>
-  </p>
+  <div class="brand">
+    <img class="mark" src="/mark-animated.svg" alt="" width="40" height="40" />
+    <span class="wordmark">Gui</span>
+  </div>
 
   <h1 class="lede">
-    A Mac app for web design and UI design. Design on your <span data-demo-target>real app</span>,
-    not on a mockup.
+    An agent harness for web design and UI design.<br />
+    Design on your <span data-demo-target>real app</span>, not on a mockup.
   </h1>
-  <p class="sub">Select an element, then tell your AI agent what to change. The agent changes the code.</p>
+  <p class="sub">Iterate the details with the agent harness built for designers and visual engineers.</p>
 
   <div class="try">
+    <button class="try-button download-button" type="button" data-download>
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+        <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />
+      </svg>
+      <span aria-live="polite">Download now</span>
+    </button>
     <button class="try-button" type="button" data-demo-open aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
         <path
@@ -160,7 +163,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       </svg>
       Try it now
     </button>
-    <span>A short demo on this page. You do not have to download anything.</span>
   </div>
 
   <figure class="wide">
@@ -266,32 +268,44 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
   <footer>
     <a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.
+    <a class="brand-link" href="/brand">Brand assets</a>
   </footer>
 
   <Demo slot="after" />
 </Base>
 
+<script>
+  const downloadButton = document.querySelector<HTMLButtonElement>('[data-download]')!
+  downloadButton.addEventListener('click', () => {
+    downloadButton.querySelector('span')!.textContent = 'Coming soon'
+  })
+</script>
+
 <style>
-  .mark {
-    display: block;
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: var(--s-3);
     margin-bottom: var(--s-5);
   }
-  .entry {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--s-2);
-    margin-bottom: var(--s-3);
-    color: var(--muted);
+  .mark {
+    display: block;
   }
-  .entry .word {
-    color: var(--fg);
-    font-weight: 400;
+  .wordmark {
+    font-size: 2rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: -0.055em;
+    animation: wordmark-reveal 350ms ease-out 725ms both;
   }
-  /* Inter Tight's Latin subset has no IPA; the system font does, so no second file loads. */
-  .ipa {
-    font-family: ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
-    font-weight: 300;
+  @keyframes wordmark-reveal {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .wordmark {
+      animation: none;
+    }
   }
   .lede {
     font-size: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
@@ -300,6 +314,18 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     font-weight: 250;
     max-width: 34rem;
     text-wrap: balance;
+  }
+  /* Each sentence on its own line, once the column can hold the longer one. */
+  @media (min-width: 64rem) {
+    .lede {
+      max-width: max-content;
+      text-wrap: nowrap;
+    }
+  }
+  @media (max-width: 63.99rem) {
+    .lede br {
+      display: none;
+    }
   }
   /* The words the demo selects: on one line, so their outline is a single box. */
   .lede [data-demo-target] {
@@ -315,12 +341,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     align-items: center;
     gap: var(--s-2) var(--s-3);
     margin-top: var(--s-4);
-  }
-  .try span {
-    font-size: 0.875rem;
-    font-weight: 380;
-    letter-spacing: 0.01em;
-    color: var(--muted);
   }
   .try-button {
     display: inline-flex;
@@ -345,6 +365,17 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     stroke: currentColor;
     stroke-width: 1.5;
     stroke-linejoin: round;
+  }
+  .download-button {
+    background: #0066ff;
+    color: #fff;
+    min-width: 10.25rem;
+    justify-content: center;
+  }
+  .download-button svg {
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
   }
   .try-button:hover {
     opacity: 0.86;
@@ -456,5 +487,8 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   }
   footer {
     margin-top: var(--s-6);
+  }
+  .brand-link {
+    margin-left: var(--s-3);
   }
 </style>

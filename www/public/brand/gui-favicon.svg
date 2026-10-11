@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 100 100" fill="none">
+  <title>Gui</title>
+  <!-- The Mac app icon (build/icon.icon): the mark on a light plate, dark in dark mode. -->
+  <style>
+    .top { stop-color: #FFFFFF; }
+    .bottom { stop-color: #EEF1F5; }
+    .edge { stroke: rgba(0, 0, 0, 0.1); }
+    @media (prefers-color-scheme: dark) {
+      .top { stop-color: #2C2D31; }
+      .bottom { stop-color: #17181B; }
+      .edge { stroke: rgba(255, 255, 255, 0.12); }
+    }
+  </style>
+  <defs>
+    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" class="top"/>
+      <stop offset="1" class="bottom"/>
+    </linearGradient>
+  </defs>
+  <rect x="0.5" y="0.5" width="99" height="99" rx="22.5" fill="url(#plate)" class="edge"/>
+  <g transform="translate(19 19) scale(0.6739)">
+    <rect x="0" y="0" width="30.6667" height="30.6667" fill="#0066FF"/>
+    <rect x="61.3333" y="0" width="30.6667" height="30.6667" fill="#1F78FF"/>
+    <rect x="0" y="30.6667" width="30.6667" height="30.6667" fill="#7CB0FF"/>
+    <rect x="61.3333" y="30.6667" width="30.6667" height="30.6667" fill="#5A9CFF"/>
+    <rect x="0" y="61.3333" width="30.6667" height="30.6667" fill="#4590FF"/>
+    <rect x="30.6667" y="61.3333" width="30.6667" height="30.6667" fill="#1E78FF"/>
+  </g>
+</svg>

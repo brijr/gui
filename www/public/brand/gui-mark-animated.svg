@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 92 92" fill="none" overflow="hidden">
+  <title>Gui</title>
+  <!-- The mark (build/icon.icon/Assets/mark.svg) assembling counterclockwise from the top left:
+       it drops in, then each tile slides out from under the one before it into its slot (down
+       the side, along the bottom, up the right). The bar goes round the empty bottom-right
+       corner. Tiles are painted last first so each starts covered. Plays once; with reduced
+       motion the whole mark just fades in. -->
+  <style>
+    rect {
+      transform-box: fill-box;
+      animation: tile 150ms cubic-bezier(0.2, 0, 0, 1) both;
+    }
+    .turn {
+      animation-name: turn;
+    }
+    @keyframes tile {
+      0% { opacity: 0; transform: var(--from); }
+      1% { opacity: 1; }
+    }
+    @keyframes turn {
+      0% { opacity: 0; transform: var(--from); }
+      1% { opacity: 1; }
+      50% { transform: var(--via); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      rect { animation: none; }
+      svg { animation: fade 150ms linear both; }
+      @keyframes fade { from { opacity: 0; } }
+    }
+  </style>
+  <rect x="61.3333" y="0" width="30.6667" height="30.6667" fill="#1F78FF" style="--from: translate(0, 100%); animation-delay: 575ms"/>
+  <rect class="turn" x="61.3333" y="30.6667" width="30.6667" height="30.6667" fill="#5A9CFF" style="--from: translate(-100%, 100%); --via: translate(0, 100%); animation-delay: 460ms"/>
+  <rect x="30.6667" y="61.3333" width="30.6667" height="30.6667" fill="#1E78FF" style="--from: translate(-100%, 0); animation-delay: 345ms"/>
+  <rect x="0" y="61.3333" width="30.6667" height="30.6667" fill="#4590FF" style="--from: translate(0, -100%); animation-delay: 230ms"/>
+  <rect x="0" y="30.6667" width="30.6667" height="30.6667" fill="#7CB0FF" style="--from: translate(0, -100%); animation-delay: 115ms"/>
+  <rect x="0" y="0" width="30.6667" height="30.6667" fill="#0066FF" style="--from: translate(0, -100%); animation-delay: 0ms"/>
+</svg>

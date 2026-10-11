@@ -1,0 +1,93 @@
+<div class="scrollbar" aria-hidden="true"><div class="scrollbar-thumb"></div></div>
+
+<script>
+  const track = document.querySelector<HTMLElement>('.scrollbar')!
+  const thumb = track.querySelector<HTMLElement>('.scrollbar-thumb')!
+  const root = document.documentElement
+  let fadeTimer: ReturnType<typeof setTimeout>
+  let dragging = false
+  let startY = 0
+  let startScroll = 0
+  let travel = 0
+  let scrollRange = 0
+
+  const update = () => {
+    scrollRange = Math.max(0, root.scrollHeight - root.clientHeight)
+    const height = Math.min(track.clientHeight, Math.max(32, track.clientHeight * root.clientHeight / root.scrollHeight))
+    travel = track.clientHeight - height
+    thumb.style.height = `${height}px`
+    thumb.style.transform = `translateY(${scrollRange ? Math.max(0, Math.min(1, window.scrollY / scrollRange)) * travel : 0}px)`
+    track.hidden = scrollRange === 0 || getComputedStyle(document.body).overflowY === 'hidden'
+  }
+  const reveal = () => {
+    clearTimeout(fadeTimer)
+    track.classList.add('is-visible')
+    fadeTimer = setTimeout(() => {
+      if (!dragging) track.classList.remove('is-visible')
+    }, 800)
+  }
+
+  window.addEventListener('scroll', () => { update(); reveal() }, { passive: true })
+  window.addEventListener('resize', update)
+  new ResizeObserver(update).observe(document.body)
+  new MutationObserver(update).observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] })
+  track.addEventListener('pointerenter', reveal)
+  thumb.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    dragging = true
+    startY = event.clientY
+    startScroll = window.scrollY
+    thumb.setPointerCapture(event.pointerId)
+    reveal()
+  })
+  thumb.addEventListener('pointermove', (event) => {
+    if (dragging && travel > 0) window.scrollTo({ top: startScroll + (event.clientY - startY) * scrollRange / travel, behavior: 'instant' })
+  })
+  thumb.addEventListener('lostpointercapture', () => { dragging = false; reveal() })
+  root.classList.add('custom-scrollbar')
+  update()
+</script>
+
+<style is:global>
+  html.custom-scrollbar {
+    scrollbar-width: none;
+  }
+  html.custom-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar {
+    position: fixed;
+    top: 4px;
+    right: 2px;
+    bottom: 4px;
+    width: 12px;
+    z-index: 1000;
+    opacity: 0;
+    transition: opacity 250ms ease;
+    pointer-events: none;
+  }
+  .scrollbar[hidden] {
+    display: none;
+  }
+  .scrollbar.is-visible {
+    opacity: 1;
+  }
+  .scrollbar-thumb {
+    width: 6px;
+    margin-inline: auto;
+    border-radius: 999px;
+    background: var(--muted);
+    pointer-events: auto;
+    touch-action: none;
+    cursor: default;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scrollbar { transition: none; }
+  }
+  @media (forced-colors: active) {
+    html.custom-scrollbar { scrollbar-width: auto; }
+    html.custom-scrollbar::-webkit-scrollbar { display: block; }
+    .scrollbar { display: none; }
+  }
+</style>

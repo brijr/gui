@@ -1,0 +1,99 @@
+---
+import Base from '../layouts/Base.astro'
+const assets = [
+  { name: 'Color mark', detail: 'The original six-tile mark.', file: 'gui-mark', surface: 'neutral', type: 'mark' },
+  { name: 'Logo · dark lettering', detail: 'For light backgrounds.', file: 'gui-logo-dark', surface: 'light', type: 'logo' },
+  { name: 'Logo · light lettering', detail: 'For dark backgrounds.', file: 'gui-logo-light', surface: 'dark', type: 'logo' },
+  { name: 'Wordmark · dark', detail: 'Outlined lettering, no font required.', file: 'gui-wordmark-dark', surface: 'light', type: 'wordmark' },
+  { name: 'Wordmark · light', detail: 'Outlined lettering, no font required.', file: 'gui-wordmark-light', surface: 'dark', type: 'wordmark' },
+  { name: 'Monochrome · dark', detail: 'For single-color applications.', file: 'gui-mark-dark', surface: 'light', type: 'mark' },
+  { name: 'Monochrome · light', detail: 'For single-color applications.', file: 'gui-mark-light', surface: 'dark', type: 'mark' },
+  { name: 'App icon · light', detail: '1024 × 1024 PNG and scalable SVG.', file: 'gui-app-icon-light', surface: 'neutral', type: 'icon' },
+  { name: 'App icon · dark', detail: '1024 × 1024 PNG and scalable SVG.', file: 'gui-app-icon-dark', surface: 'neutral', type: 'icon' },
+]
+const colors = [['Gui blue', '#0066FF'], ['Ink', '#111111'], ['Paper', '#FAFAFA'], ['Dark canvas', '#161616'], ['Light ink', '#F2F2F2']]
+const extras = [
+  ['Animated mark', 'SVG · plays once', 'gui-mark-animated.svg'],
+  ['Adaptive favicon', 'SVG · light and dark mode', 'gui-favicon.svg'],
+  ['Browser favicon', 'ICO', 'gui-favicon.ico'],
+  ['Apple touch icon', 'PNG', 'gui-apple-touch-icon.png'],
+  ['Social card', 'JPG', 'gui-social-card.jpg'],
+  ['Color palette', 'JSON', 'colors.json'],
+]
+---
+<Base title="Brand assets — Gui" description="Download Gui logos, wordmarks, app icons, and brand colors." path="/brand">
+  <nav class="wide"><a class="home" href="/"><img src="/brand/gui-mark.svg" width="28" height="28" alt="" />Gui</a><span>Brand assets</span></nav>
+  <header class="wide">
+    <p class="eyebrow">THE GUI BRAND KIT</p>
+    <h1>A little Gui.<br />Everywhere you need it.</h1>
+    <p class="intro">Logos, icons, and colors for your next mention of Gui. Ready to use, in the formats you need.</p>
+    <a class="download-kit" href="/brand/gui-brand-kit.zip" download><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" /></svg>Download the full kit <span>ZIP</span></a>
+  </header>
+  <section class="wide" aria-labelledby="logos-heading">
+    <div class="section-heading"><h2 id="logos-heading">Logos & icons</h2><p>Scalable SVGs. Transparent PNGs.</p></div>
+    <div class="asset-grid">
+      {assets.map(asset => <article class="asset">
+        <div class:list={['asset-preview', asset.surface]}><img class={asset.type} src={`/brand/${asset.file}.svg`} alt={asset.name} loading="lazy" /></div>
+        <div class="asset-info"><h3>{asset.name}</h3><p>{asset.detail}</p><div class="formats"><a href={`/brand/${asset.file}.svg`} download>SVG <span aria-hidden="true">↓</span></a><a href={`/brand/${asset.file}.png`} download>PNG <span aria-hidden="true">↓</span></a></div></div>
+      </article>)}
+    </div>
+  </section>
+  <section class="wide" aria-labelledby="extras-heading">
+    <div class="section-heading"><h2 id="extras-heading">The finishing touches</h2><p>For browsers, home screens, and sharing.</p></div>
+    <div class="extras">{extras.map(([name, detail, file]) => <a href={`/brand/${file}`} download><span>{name}<small>{detail}</small></span><span aria-hidden="true">↓</span></a>)}</div>
+  </section>
+  <section class="wide" aria-labelledby="colors-heading">
+    <div class="section-heading"><h2 id="colors-heading">Our colors</h2><p>A bright blue, with room to breathe.</p></div>
+    <div class="colors">{colors.map(([name, hex]) => <div><div class="swatch" style={`background:${hex}`}></div><h3>{name}</h3><code>{hex}</code></div>)}</div>
+    <p class="tile-note">The logo’s six blue tiles retain their original colors. The complete palette is included in the kit.</p>
+  </section>
+  <section class="wide guidelines" aria-labelledby="guidelines-heading"><h2 id="guidelines-heading">Keep it simple.</h2><div><p>Give the logo space. Keep its proportions and original colors, and choose lettering that contrasts with the background.</p><p>Our typeface is <strong>Inter Tight</strong>. The wordmark uses weight 600 and tight spacing; downloadable SVGs contain outlines so they work without installing a font.</p></div></section>
+  <footer class="wide"><a href="/">← Back to Gui</a><a href="/brand/README.txt" download>Usage notes ↓</a></footer>
+</Base>
+<style>
+  nav { display:flex; align-items:center; justify-content:space-between; gap:var(--s-3); color:var(--muted); font-size:.875rem; }
+  .home { display:flex; align-items:center; gap:.75rem; font-size:1.5rem; font-weight:600; letter-spacing:-.055em; color:var(--fg); text-decoration:none; }
+  header { padding-block:var(--s-6); }
+  .eyebrow { color:var(--muted); font-size:.75rem; font-weight:500; letter-spacing:.12em; margin-bottom:var(--s-4); }
+  h1 { font-size:clamp(2.5rem,5vw,4.5rem); font-weight:250; line-height:1.04; letter-spacing:-.045em; }
+  .intro { max-width:35rem; margin-top:var(--s-4); color:var(--muted); }
+  .download-kit { display:inline-flex; align-items:center; gap:.75rem; margin-top:var(--s-5); padding:.875rem 1.25rem; background:#0066ff; color:#fff; border-radius:999px; text-decoration:none; font-size:1rem; font-weight:450; }
+  .download-kit span { font-size:.75rem; opacity:.7; }
+  .download-kit:hover { background:#005be5; }
+  section + section { margin-top:var(--s-6); }
+  .section-heading { display:flex; align-items:baseline; justify-content:space-between; gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+  h2 { font-size:1.5rem; font-weight:450; letter-spacing:-.025em; }
+  .section-heading p,.asset-info p { color:var(--muted); font-size:.875rem; }
+  .asset-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:var(--s-4); }
+  .asset { border:1px solid var(--rule); border-radius:12px; overflow:hidden; }
+  .asset-preview { height:200px; display:flex; align-items:center; justify-content:center; padding:var(--s-4); }
+  .neutral { background:color-mix(in srgb,var(--fg) 4%,var(--bg)); }
+  .light { background:#f5f5f5; }
+  .dark { background:#1c1c1c; }
+  .asset-preview img { display:block; max-width:100%; }
+  .mark { width:72px; height:72px; }
+  .logo { width:180px; }
+  .wordmark { width:100px; }
+  .icon { width:96px; height:96px; }
+  .asset-info { padding:var(--s-4); border-top:1px solid var(--rule); }
+  h3 { font-size:1rem; font-weight:450; }
+  .asset-info p { margin-top:var(--s-1); }
+  .formats { display:flex; gap:var(--s-2); margin-top:var(--s-4); }
+  .formats a { display:flex; align-items:center; justify-content:space-between; gap:var(--s-4); padding:.375rem .75rem; border:1px solid var(--rule); border-radius:6px; text-decoration:none; font-size:.8125rem; font-weight:450; }
+  .formats a:hover,.extras a:hover { background:color-mix(in srgb,var(--fg) 5%,var(--bg)); }
+  .extras { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 var(--s-5); }
+  .extras a { display:flex; align-items:center; justify-content:space-between; padding:var(--s-4) 0; border-bottom:1px solid var(--rule); text-decoration:none; }
+  small { display:block; color:var(--muted); font-size:.8125rem; margin-top:var(--s-1); }
+  .colors { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:var(--s-3); }
+  .swatch { height:100px; border-radius:8px; border:1px solid var(--rule); margin-bottom:var(--s-3); }
+  code { color:var(--muted); font-size:.8125rem; }
+  .tile-note { margin-top:var(--s-4); color:var(--muted); font-size:.875rem; }
+  .guidelines { display:grid; grid-template-columns:1fr 2fr; gap:var(--s-5); padding-top:var(--s-5); border-top:1px solid var(--rule); }
+  .guidelines p { color:var(--muted); }
+  .guidelines p + p { margin-top:var(--s-3); }
+  strong { color:var(--fg); font-weight:450; }
+  footer { display:flex; justify-content:space-between; gap:var(--s-3); border-top:1px solid var(--rule); margin-top:var(--s-6); padding-top:var(--s-4); font-size:.875rem; color:var(--muted); }
+  a:focus-visible { outline:2px solid #0066ff; outline-offset:4px; }
+  @media(max-width:60rem) { .asset-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+  @media(max-width:36rem) { .asset-grid,.extras,.guidelines { grid-template-columns:1fr; } .colors { grid-template-columns:repeat(2,minmax(0,1fr)); } header { padding-block:var(--s-5); } .guidelines { gap:var(--s-4); } }
+</style>

@@ -1,5 +1,6 @@
 ---
 import interTight from '@fontsource-variable/inter-tight/files/inter-tight-latin-wght-normal.woff2?url'
+import Scrollbar from '../components/Scrollbar.astro'
 
 interface Props {
   title: string
@@ -93,6 +94,7 @@ const url = path === undefined ? undefined : `${site}${path}`
       </main>
     </div>
     <slot name="after" />
+    <Scrollbar />
   </body>
 </html>
 
