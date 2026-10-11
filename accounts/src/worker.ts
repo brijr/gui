@@ -1,3 +1,4 @@
+import type { AccountErrorCode } from '../../src/shared/account'
 import type { GitHubProfile, GitHubRepository } from '../../src/shared/github'
 
 // Only the D1 operations this service uses. Bun's SQLite test adapter implements the same contract.
@@ -72,6 +73,7 @@ class HttpError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: AccountErrorCode,
   ) {
     super(message)
   }
@@ -146,7 +148,12 @@ async function github<T>(token: string, path: string, body?: unknown): Promise<T
     signal: AbortSignal.timeout(15_000),
     redirect: 'manual',
   })
-  if (res.status === 401) throw new HttpError(401, 'GitHub access expired. Reconnect GitHub.')
+  if (res.status === 401)
+    throw new HttpError(
+      403,
+      'GitHub access expired. Reconnect GitHub.',
+      'github_reconnect_required',
+    )
   if (res.status === 422)
     throw new HttpError(
       409,
@@ -164,14 +171,15 @@ async function session(
   env: Env,
 ): Promise<{ account: Account; tokenHash: string }> {
   const bearer = bearerToken(request)
-  if (!bearer) throw new HttpError(401, 'Sign in to Gui to continue.')
+  if (!bearer) throw new HttpError(401, 'Sign in to Gui to continue.', 'account_session_invalid')
   const tokenHash = await hash(bearer)
   const found = await env.DB.prepare(
     'SELECT accounts.*, sessions.expires_at AS session_expires_at FROM accounts JOIN sessions ON sessions.account_id = accounts.id WHERE token_hash = ? AND expires_at > ?',
   )
     .bind(tokenHash, now())
     .first<Account & { session_expires_at: number }>()
-  if (!found) throw new HttpError(401, 'Your Gui session expired. Sign in again.')
+  if (!found)
+    throw new HttpError(401, 'Your Gui session expired. Sign in again.', 'account_session_invalid')
   // A Gui that's used stays signed in: the session moves forward once it's a month old.
   if (found.session_expires_at < now() + SESSION_SECONDS - 30 * 86400)
     await env.DB.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
@@ -184,12 +192,22 @@ async function connection(env: Env, account: Account) {
     .bind(account.id)
     .first<User>()
   // Not 401: the Gui session is fine, and older Gui versions sign out on 401.
-  if (!user) throw new HttpError(403, 'Connect GitHub in Settings → GitHub to continue.')
+  if (!user)
+    throw new HttpError(
+      403,
+      'Connect GitHub in Settings → GitHub to continue.',
+      'github_reconnect_required',
+    )
   return user
 }
 async function accessToken(env: Env, user: User) {
   if (user.token_expires_at > now() + 60) return decrypt(env, user.github_token)
-  if (!user.refresh_token) throw new HttpError(401, 'GitHub access expired. Reconnect GitHub.')
+  if (!user.refresh_token)
+    throw new HttpError(
+      403,
+      'GitHub access expired. Reconnect GitHub.',
+      'github_reconnect_required',
+    )
   const lock = await env.DB.prepare(
     'UPDATE users SET refresh_lock_until = ? WHERE github_id = ? AND refresh_lock_until < ?',
   )
@@ -202,9 +220,10 @@ async function accessToken(env: Env, user: User) {
     const fresh = await env.DB.prepare('SELECT * FROM users WHERE github_id = ?')
       .bind(user.github_id)
       .first<User>()
-    if (!fresh) throw new HttpError(401, 'Reconnect GitHub.')
+    if (!fresh) throw new HttpError(403, 'Reconnect GitHub.', 'github_reconnect_required')
     if (fresh.token_expires_at > now() + 60) return decrypt(env, fresh.github_token)
-    if (!fresh.refresh_token) throw new HttpError(401, 'Reconnect GitHub.')
+    if (!fresh.refresh_token)
+      throw new HttpError(403, 'Reconnect GitHub.', 'github_reconnect_required')
     const data = await gitHubOAuth('login/oauth/access_token', {
       client_id: env.GITHUB_CLIENT_ID,
       client_secret: env.GITHUB_CLIENT_SECRET,
@@ -212,7 +231,11 @@ async function accessToken(env: Env, user: User) {
       refresh_token: await decrypt(env, fresh.refresh_token),
     })
     if (!data.access_token || !data.refresh_token)
-      throw new HttpError(401, 'GitHub access expired. Reconnect GitHub.')
+      throw new HttpError(
+        403,
+        'GitHub access expired. Reconnect GitHub.',
+        'github_reconnect_required',
+      )
     await env.DB.prepare(
       'UPDATE users SET github_token = ?, refresh_token = ?, token_expires_at = ? WHERE github_id = ?',
     )
@@ -284,7 +307,7 @@ async function repositoryToken(env: Env, repo: ConnectedRepository) {
     { repository_ids: [repo.id], permissions: { contents: 'write', pull_requests: 'read' } },
   ).catch((error: unknown) => {
     // The app's own credentials were refused: that's the service's setup, not the user's.
-    if (error instanceof HttpError && error.status === 401)
+    if (error instanceof HttpError && error.code === 'github_reconnect_required')
       throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
     throw error
   })
@@ -1033,7 +1056,7 @@ export default {
         })
       // Never return provider responses, credentials, SQL errors, or stacks to clients.
       return error instanceof HttpError
-        ? json({ error: error.message }, error.status)
+        ? json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status)
         : json({ error: 'The account service could not complete this request. Try again.' }, 500)
     }
   },

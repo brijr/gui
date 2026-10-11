@@ -13,6 +13,8 @@ let refreshCalls: number
 let createdBody: unknown
 let pullBody: unknown
 let creationDenied: boolean
+let githubUnauthorized: boolean
+let installationUnauthorized: boolean
 let workosUser: {
   id: string
   email: string
@@ -100,9 +102,13 @@ beforeEach(async () => {
   createdBody = null
   pullBody = null
   creationDenied = false
+  githubUnauthorized = false
+  installationUnauthorized = false
   tokenRequests = []
   globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
+    if (url.hostname === 'api.github.com' && githubUnauthorized)
+      return Response.json({ message: 'Bad credentials' }, { status: 401 })
     const params = new URLSearchParams(String(init?.body ?? ''))
     if (url.hostname === 'api.workos.com') {
       expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer sk_test_workos')
@@ -165,6 +171,8 @@ beforeEach(async () => {
     }
     const minting = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(url.pathname)
     if (minting) {
+      if (installationUnauthorized)
+        return Response.json({ message: 'Bad credentials' }, { status: 401 })
       // Signed by the app's key, as the app: never with the user's token.
       const jwt = new Headers(init?.headers).get('Authorization')?.replace(/^Bearer /, '') ?? ''
       const [header, claims, signature] = jwt.split('.')
@@ -587,4 +595,38 @@ test('deleting the Gui account deletes the person at WorkOS too', async () => {
   expect(deletedUsers).toEqual(['user_1'])
   expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 0 })
   expect((await call('/account', session)).status).toBe(401)
+})
+
+for (const failure of ['no refresh token', 'rejected refresh', 'provider unauthorized'] as const) {
+  test(`GitHub ${failure} asks to reconnect while retaining the Gui session`, async () => {
+    const { session } = await login()
+    if (failure === 'no refresh token')
+      db.exec('UPDATE users SET token_expires_at = 0, refresh_token = NULL')
+    if (failure === 'rejected refresh') {
+      db.exec('UPDATE users SET token_expires_at = 0')
+      providerError = 'bad_refresh_token'
+    }
+    if (failure === 'provider unauthorized') githubUnauthorized = true
+    const response = await call('/repositories', session)
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ code: 'github_reconnect_required' })
+    expect((await call('/account', session)).status).toBe(200)
+  })
+}
+
+test('invalid Gui sessions have their own stable error code', async () => {
+  const { session } = await login()
+  db.exec('UPDATE sessions SET expires_at = 0')
+  const response = await call('/account', session)
+  expect(response.status).toBe(401)
+  expect(await response.json()).toMatchObject({ code: 'account_session_invalid' })
+})
+
+test('refused service app credentials do not ask the user to reconnect GitHub', async () => {
+  const { session } = await login()
+  installationUnauthorized = true
+  const response = await call('/repositories/101/credential', session, 'POST')
+  expect(response.status).toBe(503)
+  expect(await response.json()).toEqual({ error: 'Pushing through Gui is unavailable right now.' })
+  expect((await call('/account', session)).status).toBe(200)
 })

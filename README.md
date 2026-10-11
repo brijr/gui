@@ -129,6 +129,8 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - `bun run install-app` — builds Gui and installs it as `/Applications/Gui.app` (quits and reopens a running Gui) and the `gui` terminal command. To update, `git pull && bun run install-app`
 - `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GUI_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, `grok`, `kiro`, `opencode`, `pi`, `muse`, `amp`, `devin`, or `cursor`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
+- `bun run check` — type checks, lint, architecture boundaries/cycles, fast desktop checks, and account-service tests
+- `bun run test:fast` — lifecycle, IPC, worker/persistence, and chat transport/recovery checks without launching Electron or using paid agents
 
 ## Packaging
 
@@ -146,4 +148,4 @@ Before shipping a signed build, note that the `runAsNode` fuse is on because the
 
 ## Not yet
 
-Drawing on a picked area, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, auto-update, and parallel variations. Source-map resolution runs on the main thread; very large Next.js maps can briefly stall the UI on pick — moving it to a worker is planned.
+Drawing on a picked area, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, auto-update, and parallel variations. Source-map fetching, parsing, and lookup run in a bounded background worker, so large maps do not block the main process while picking.

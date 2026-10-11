@@ -173,7 +173,7 @@ test('a sign-in that fails says so; cancelling and signing out ask again', async
       .pages()
       .find((page) => page.url().endsWith('/settings.html'))
     if (!settings) throw new Error('Settings did not open')
-    await expect(settings.getByText('designer@example.com')).toBeVisible()
+    await expect(settings.getByText('designer@example.com', { exact: true })).toBeVisible()
     await settings.getByRole('button', { name: 'Sign out' }).click()
     await expect.poll(() => fake.service.signedOut).toBe(true)
     await expect(chrome.getByRole('heading', { name: 'Sign in to Gui' })).toBeVisible()

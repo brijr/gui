@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { renameSync } from 'node:fs'
 import { readdir, readFile, realpath, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
@@ -15,7 +14,8 @@ import {
   type Turn,
   type TurnItem,
 } from '../shared/types'
-import { asidePath, writeFileAtomic, writeFileAtomicSync, writeTemp } from './atomic-file'
+import { asidePath, writeFileAtomic } from './atomic-file'
+import { serializeHistory } from './history-format'
 
 /** Everything needed to reopen a project's chat where it left off, including undo. */
 export interface SavedChat {
@@ -308,79 +308,7 @@ function settleItem(item: TurnItem): TurnItem {
   }
 }
 
-/** Query strings and fragments can carry tokens; history only needs the page. */
-function withoutQuery(url: string) {
-  try {
-    const parsed = new URL(url)
-    return `${parsed.origin}${parsed.pathname}`
-  } catch {
-    return ''
-  }
-}
-
-function serialize(chat: SavedChat) {
-  // Before/after images are for the live session only; history stays small.
-  const turns = chat.turns.map(({ preview: _preview, ...turn }) => ({
-    ...turn,
-    context: turn.context.map((picked) => ({ ...picked, url: withoutQuery(picked.url) })),
-  }))
-  return JSON.stringify({ ...chat, turns })
-}
-
-/** A sibling temp file, so the rename that replaces the history is atomic. */
-/**
- * Saves one chat's history: in the background one write at a time (the latest state
- * wins), or synchronously for the last save before the chat goes away. Each write goes
- * to a temp file that replaces the history only once complete, so a crash can't
- * truncate it. Owner-only: history holds prompts and page content.
- */
-export class HistoryWriter {
-  private writing = false
-  private dirty = false
-  private closed = false
-
-  constructor(
-    private readonly file: string,
-    private readonly read: () => SavedChat,
-  ) {}
-
-  save() {
-    if (this.closed) return
-    this.dirty = true
-    if (!this.writing) void this.drain()
-  }
-
-  /** Final save; later saves are ignored and a background write still in flight is dropped. */
-  saveSync() {
-    this.closed = true
-    this.dirty = false
-    try {
-      writeFileAtomicSync(this.file, serialize(this.read()))
-    } catch (error) {
-      console.error('[gui] failed to save chat history', error)
-    }
-  }
-
-  private async drain() {
-    this.writing = true
-    while (this.dirty && !this.closed) {
-      this.dirty = false
-      let tmp: string | null = null
-      try {
-        const written = await writeTemp(this.file, serialize(this.read()))
-        tmp = written
-        // Checked and renamed with no await between, so a final saveSync can't be
-        // overwritten by this older state.
-        if (this.closed) await rm(written, { force: true })
-        else renameSync(written, this.file)
-      } catch (error) {
-        console.error('[gui] failed to save chat history', error)
-        if (tmp) await rm(tmp, { force: true }).catch(() => undefined)
-      }
-    }
-    this.writing = false
-  }
-}
+export { flushHistorySync, HistoryWriter } from './history-writer'
 
 // Archived chats: each project's live chat file stays where it is (`historyFile`), and the
 // chats it replaced sit in a folder beside it named the same, one file per chat, with an
@@ -493,7 +421,7 @@ export async function archiveChat(root: string, saved: SavedChat): Promise<ChatS
   const summary = summarize(saved)
   if (!summary) return null
   const folder = await archiveDir(root)
-  await writeFileAtomic(archivedFile(folder, saved.id), serialize(saved))
+  await writeFileAtomic(archivedFile(folder, saved.id), serializeHistory(saved))
   await updateIndex(folder, (list) => [summary, ...list.filter((entry) => entry.id !== saved.id)])
   return summary
 }

@@ -25,6 +25,12 @@ import {
   type StartForm,
 } from '../shared/ipc'
 import {
+  type AllRequestArgs,
+  IpcRequestError,
+  type LegacyChannel,
+  type LegacyResult,
+} from '../shared/ipc-requests'
+import {
   SHORTCUTS,
   type ShortcutId,
   type ShortcutSpec,
@@ -49,30 +55,22 @@ import {
   type StorageKind,
   VIEWPORTS,
 } from '../shared/types'
-import {
-  accountEvents,
-  accountState,
-  cancelSignIn,
-  getAccount,
-  mustSignIn,
-  setAccountUpdates,
-  signIn,
-  signOut,
-} from './account'
+import { accountEvents, accountState, getAccount, mustSignIn } from './account'
+import { registerAccountIpc } from './account-ipc'
 import { killStoppedAgents } from './agent'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { developerTools } from './developer-tools'
+import { cloneGitHub } from './github'
+import { flushHistorySync } from './history'
 import {
-  cloneGitHub,
-  connectGitHub,
-  createGitHub,
-  disconnectGitHub,
-  getGitHub,
-  manageGitHub,
-} from './github'
+  createLegacyRegistrar,
+  createRequestRegistrar,
+  noRequestArgs,
+  stringRequestArgs,
+} from './ipc-handler'
 import { isLoopback } from './loopback'
 import { createProject, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
@@ -504,7 +502,16 @@ const captures = new Map<
 const captureOwners = new WeakSet<WebContents>()
 
 function registerIpc() {
-  ipcMain.handle(Invoke.startRecording, async (event) => {
+  const handleLegacy = createLegacyRegistrar<IpcMainInvokeEvent>((channel, listener) =>
+    ipcMain.handle(channel, listener),
+  )
+  const requireTab = (event: IpcMainInvokeEvent) => {
+    const tab = tabFor(event)
+    if (!tab) throw new IpcRequestError('no_tab', 'Project closed.')
+    return tab
+  }
+
+  handleLegacy(Invoke.startRecording, async (event) => {
     const win = windowFor(event)
     const tab = tabFor(event)
     if (
@@ -542,7 +549,7 @@ function registerIpc() {
     }
     return id
   })
-  ipcMain.handle(Invoke.recordingFrame, (event, id: unknown, at: unknown, jpeg: unknown) => {
+  handleLegacy(Invoke.recordingFrame, (event, id: unknown, at: unknown, jpeg: unknown) => {
     const capture = captures.get(event.sender.id)
     if (
       !capture ||
@@ -555,7 +562,7 @@ function registerIpc() {
       return false
     return capture.store.frame(capture.id, at, jpeg)
   })
-  ipcMain.handle(
+  handleLegacy(
     Invoke.finishRecording,
     async (event, id: unknown, duration: unknown, video: unknown, startedAt: unknown) => {
       const capture = captures.get(event.sender.id)
@@ -580,7 +587,7 @@ function registerIpc() {
       }
     },
   )
-  ipcMain.handle(Invoke.discardRecording, async (event, id: unknown) => {
+  handleLegacy(Invoke.discardRecording, async (event, id: unknown) => {
     if (!isString(id)) return
     const capture = captures.get(event.sender.id)
     if (capture?.id === id) {
@@ -592,85 +599,58 @@ function registerIpc() {
       await tabFor(event)?.recordings?.discard(id)
     }
   })
-  ipcMain.handle(Invoke.getSymbols, (event) =>
+  handleLegacy(Invoke.getSymbols, (event) =>
     windowFor(event) || isSettingsContents(event.sender) ? getSymbols() : {},
   )
-  ipcMain.handle(Invoke.getState, (event) => windowFor(event)?.getState())
-  ipcMain.handle(Invoke.getLogs, (event) => tabFor(event)?.logsOutput() ?? NO_OUTPUT)
-  ipcMain.handle(Invoke.getTerminal, (event, id: unknown) => {
+  handleLegacy(Invoke.getState, (event) => {
+    const win = windowFor(event)
+    if (!win) throw new IpcRequestError('forbidden', 'Window unavailable.')
+    return win.getState()
+  })
+  handleLegacy(Invoke.getLogs, (event) => tabFor(event)?.logsOutput() ?? NO_OUTPUT)
+  handleLegacy(Invoke.getTerminal, (event, id: unknown) => {
     // Like the terminals' other channels: the window's own chrome, for its active tab.
     const win = windowFor(event)
-    if (win?.win.webContents !== event.sender || !isTerminalId(id)) return NO_OUTPUT
+    if (win?.win.webContents !== event.sender)
+      throw new IpcRequestError(
+        'forbidden',
+        'Terminal output is available only from Gui’s project window.',
+      )
+    if (!isTerminalId(id)) throw new IpcRequestError('invalid_request', 'Invalid terminal.')
     return win.activeTab.terminalOutput(id)
   })
-  ipcMain.handle(Invoke.getChat, (event) => tabFor(event)?.getChat())
-  ipcMain.handle(Invoke.openProject, (event) => pickProject(windowFor(event)))
-  const githubHandle = (
-    channel: string,
-    handler: (event: IpcMainInvokeEvent, value: unknown) => unknown,
-  ) => {
-    ipcMain.handle(channel, (event, value: unknown) => {
-      if (!fromAppUi(event))
-        throw new Error('GitHub connections are available only from Gui project UI.')
-      return handler(event, value)
-    })
-  }
-  githubHandle(Invoke.githubState, () => getGitHub())
-  githubHandle(Invoke.githubConnect, () => reportError(() => connectGitHub()))
-  githubHandle(Invoke.githubDisconnect, () => disconnectGitHub())
-  githubHandle(Invoke.githubManage, () => manageGitHub())
-  // The account, like GitHub, only from Gui's own UI. Failures come back as `{ error }`.
-  const accountHandle = (
-    channel: string,
-    handler: (value: unknown) => Promise<unknown> | unknown,
-  ) => {
-    ipcMain.handle(channel, (event, value: unknown) => {
-      if (!fromAppUi(event)) throw new Error('Gui accounts are available only from Gui’s own UI.')
-      return handler(value)
-    })
-  }
-  accountHandle(Invoke.accountState, () => accountState())
-  accountHandle(Invoke.accountProfile, () => getAccount())
-  accountHandle(Invoke.accountSignIn, () => reportError(() => signIn()))
-  accountHandle(Invoke.accountCancel, () => reportError(() => cancelSignIn()))
-  accountHandle(Invoke.accountSignOut, () => reportError(() => signOut()))
-  accountHandle(Invoke.accountUpdates, (updates) =>
-    reportError(async () => {
-      if (typeof updates !== 'boolean') throw new Error('Invalid email preference.')
-      await setAccountUpdates(updates)
-    }),
+  handleLegacy(Invoke.getChat, (event) => requireTab(event).getChat())
+  handleLegacy(Invoke.openProject, (event) => pickProject(windowFor(event)))
+  const handleRequest = createRequestRegistrar<IpcMainInvokeEvent>((channel, listener) =>
+    ipcMain.handle(channel, listener),
   )
-  githubHandle(Invoke.githubClone, async (event, value) => {
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0)
-      throw new Error('Choose a GitHub repository.')
-    const target = windowFor(event)
-    const folder = await pickParent(target, 'Clone GitHub project', 'Clone here')
-    if (folder) openSafely(target, await cloneGitHub(value, folder))
+  registerAccountIpc(handleRequest, {
+    authorize: fromAppUi,
+    clone: async (event, id) => {
+      const target = windowFor(event)
+      const folder = await pickParent(target, 'Clone GitHub project', 'Clone here')
+      if (folder) openSafely(target, await cloneGitHub(id, folder))
+    },
   })
-  githubHandle(Invoke.githubCreate, (_event, value) => {
-    if (typeof value !== 'string' || !/^[\w-][\w.-]{0,99}$/.test(value))
-      throw new Error('Enter a valid GitHub project name.')
-    return createGitHub(value)
-  })
-  ipcMain.handle(Invoke.cloneProject, (event, repo: unknown) =>
+  handleLegacy(Invoke.cloneProject, (event, repo: unknown) =>
     reportError(async () => {
       if (!isString(repo) || repo.length > 500) throw new Error('Enter a GitHub repo.')
       await cloneProject(windowFor(event), repo)
     }),
   )
-  ipcMain.handle(Invoke.newProject, (event, name: unknown, template: unknown) =>
+  handleLegacy(Invoke.newProject, (event, name: unknown, template: unknown) =>
     reportError(async () => {
       if (!isString(name)) throw new Error('Enter a name for the project.')
       await newProject(windowFor(event), name, isProjectTemplate(template) ? template : 'blank')
     }),
   )
-  ipcMain.handle(Invoke.openRecent, async (event, root: unknown) => {
+  handleLegacy(Invoke.openRecent, async (event, root: unknown) => {
     if (!isString(root)) return
     // Only paths the user opened before; anything else goes through the folder picker.
     if (!(await loadRecent()).some((project) => project.root === root)) return
     openSafely(windowFor(event), root)
   })
-  ipcMain.handle(
+  handleLegacy(
     Invoke.send,
     (event, text: unknown, images: unknown, recordings: unknown, followUp: unknown) => {
       if (!isString(text)) return false
@@ -690,76 +670,85 @@ function registerIpc() {
       return tabFor(event)?.sendChatMessage(text, attached, ids, followUp ?? null) ?? false
     },
   )
-  ipcMain.handle(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
-  ipcMain.handle(Invoke.takeScreenshot, (event, at: unknown) => {
+  handleLegacy(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
+  handleLegacy(Invoke.takeScreenshot, (event, at: unknown) => {
     const tab = tabFor(event)
     return tab?.screenshotMenu(event.sender, isPoint(at) ? at : null) ?? null
   })
-  ipcMain.handle(Invoke.ship, (event, request: unknown) => {
+  handleLegacy(Invoke.ship, (event, request: unknown) => {
     if (!isShipRequest(request)) throw new Error('Invalid request')
     const tab = tabFor(event)
     if (!tab) throw new Error('No project is open.')
     return tab.ship(request)
   })
-  ipcMain.handle(Invoke.getProposal, async (event, refresh: unknown) => {
+  handleLegacy(Invoke.getProposal, async (event, refresh: unknown) => {
     try {
       return (await tabFor(event)?.getProposal(refresh === true)) ?? null
     } catch {
       return null // Not a repository, or git missing: the bar just isn't shown.
     }
   })
-  ipcMain.handle(Invoke.startFresh, (event) => reportError(async () => tabFor(event)?.startFresh()))
-  ipcMain.handle(Invoke.bringInLatest, (event) =>
-    reportError(async () => tabFor(event)?.bringInLatest()),
+  handleLegacy(Invoke.startFresh, (event) =>
+    reportError(async () => requireTab(event).startFresh()),
   )
-  ipcMain.handle(Invoke.finishMerge, (event) =>
-    reportError(async () => tabFor(event)?.finishMerge()),
+  handleLegacy(Invoke.bringInLatest, (event) =>
+    reportError(async () => requireTab(event).bringInLatest()),
   )
-  ipcMain.handle(Invoke.cancelMerge, (event) =>
-    reportError(async () => tabFor(event)?.cancelMerge()),
+  handleLegacy(Invoke.finishMerge, (event) =>
+    reportError(async () => requireTab(event).finishMerge()),
   )
-  ipcMain.handle(Invoke.resolveConflicts, (event) =>
-    reportError(async () => tabFor(event)?.resolveConflicts()),
+  handleLegacy(Invoke.cancelMerge, (event) =>
+    reportError(async () => requireTab(event).cancelMerge()),
   )
-  ipcMain.handle(Invoke.restoreTurn, (event, turnId: unknown) => {
-    if (isString(turnId)) return tabFor(event)?.restoreTurn(turnId)
+  handleLegacy(Invoke.resolveConflicts, (event) =>
+    reportError(async () => requireTab(event).resolveConflicts()),
+  )
+  handleLegacy(Invoke.restoreTurn, (event, turnId: unknown) => {
+    if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
+    return requireTab(event).restoreTurn(turnId)
   })
-  ipcMain.handle(Invoke.redo, (event) => tabFor(event)?.redo())
-  ipcMain.handle(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
-  ipcMain.handle(Invoke.fixStartup, (event) => tabFor(event)?.fixStartup() ?? false)
-  ipcMain.handle(Invoke.setStartCommand, (event, start: unknown) =>
+  handleLegacy(Invoke.redo, (event) => requireTab(event).redo())
+  handleLegacy(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
+  handleLegacy(Invoke.fixStartup, (event) => tabFor(event)?.fixStartup() ?? false)
+  handleLegacy(Invoke.setStartCommand, (event, start: unknown) =>
     reportError(async () => {
       if (start !== null && !isStartCommandInput(start))
         throw new Error('That start command is malformed.')
-      await tabFor(event)?.setStartCommand(start)
+      await requireTab(event).setStartCommand(start)
     }),
   )
-  ipcMain.handle(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
-  ipcMain.handle(Invoke.chatSetUpAgent, (event) => tabFor(event)?.setUpAgent())
-  ipcMain.handle(Invoke.loadCommands, (event) => tabFor(event)?.loadCommands())
-  ipcMain.handle(Invoke.listChats, (event) => tabFor(event)?.listChats() ?? [])
-  ipcMain.handle(Invoke.openChat, (event, id: unknown) =>
-    reportError(async () => {
-      if (isString(id)) await tabFor(event)?.openChat(id)
-    }),
+  handleLegacy(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
+  handleLegacy(Invoke.chatSetUpAgent, (event) => requireTab(event).setUpAgent())
+  handleLegacy(Invoke.loadCommands, (event) => tabFor(event)?.loadCommands())
+  const chatRequest = {
+    authorize: (event: IpcMainInvokeEvent) => !!windowFor(event),
+    validate: noRequestArgs,
+  }
+  handleRequest(Invoke.listChats, chatRequest, (event) => requireTab(event).listChats())
+  handleRequest(Invoke.openChat, { ...chatRequest, validate: stringRequestArgs(1) }, (event, id) =>
+    requireTab(event).openChat(id),
   )
-  ipcMain.handle(Invoke.renameChat, (event, id: unknown, title: unknown) =>
-    reportError(async () => {
-      if (isString(id) && isString(title)) await tabFor(event)?.renameChat(id, title)
-    }),
+  handleRequest(
+    Invoke.renameChat,
+    {
+      ...chatRequest,
+      validate: (args) =>
+        args.length === 2 && isString(args[0]) && args[0].length > 0 && isString(args[1]),
+    },
+    (event, id, title) => requireTab(event).renameChat(id, title),
   )
-  ipcMain.handle(Invoke.deleteChat, (event, id: unknown) =>
-    reportError(async () => {
-      if (isString(id)) await tabFor(event)?.deleteChat(id)
-    }),
+  handleRequest(
+    Invoke.deleteChat,
+    { ...chatRequest, validate: stringRequestArgs(1) },
+    (event, id) => requireTab(event).deleteChat(id),
   )
-  ipcMain.handle(Invoke.signIn, async (event, agentId: unknown) => {
+  handleLegacy(Invoke.signIn, async (event, agentId: unknown) => {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.signIn(agentId)
   })
-  ipcMain.handle(Invoke.installAgent, async (event, agentId: unknown) => {
+  handleLegacy(Invoke.installAgent, async (event, agentId: unknown) => {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.install(agentId)
   })
-  ipcMain.handle(Invoke.connectAgent, async (event, agentId: unknown) => {
+  handleLegacy(Invoke.connectAgent, async (event, agentId: unknown) => {
     if (fromAppUi(event) && isAgentId(agentId)) await agentHealth.connect(agentId)
   })
 
@@ -837,13 +826,21 @@ function registerIpc() {
     if (isString(id) && isOutputPosition(end)) tab.ackOutput(id, end)
   })
 
-  const handleSettings = (
-    channel: string,
-    handler: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
+  const handleSettings = <C extends LegacyChannel>(
+    channel: C,
+    handler: (
+      event: IpcMainInvokeEvent,
+      ...args: AllRequestArgs<C>
+    ) => LegacyResult<C> | Promise<LegacyResult<C>>,
   ) => {
-    ipcMain.handle(channel, (event, ...args: unknown[]) =>
-      fromSettings(event) ? handler(event, ...args) : undefined,
-    )
+    handleLegacy(channel, (event, ...args) => {
+      if (!fromSettings(event))
+        throw new IpcRequestError(
+          'forbidden',
+          'Settings are available only from Gui’s Settings window.',
+        )
+      return handler(event, ...args)
+    })
   }
   const onSettings = (channel: string, handler: (...args: unknown[]) => void) => {
     ipcMain.on(channel, (event, ...args: unknown[]) => {
@@ -876,10 +873,10 @@ function registerIpc() {
     isString(root) ? resetStartCommand(root) : undefined,
   )
   handleSettings(Invoke.clearRecent, () => clearRecent())
-  ipcMain.handle(Invoke.removeRecent, (event, root: unknown) =>
+  handleLegacy(Invoke.removeRecent, (event, root: unknown) =>
     fromAppUi(event) && isString(root) ? removeRecent(root) : undefined,
   )
-  ipcMain.handle(Invoke.archiveRecentChat, (event, root: unknown) =>
+  handleLegacy(Invoke.archiveRecentChat, (event, root: unknown) =>
     reportError(async () => {
       if (fromAppUi(event) && isString(root)) await archiveRecentChat(root)
     }),
@@ -1396,6 +1393,7 @@ function focusExistingWindow() {
 /** Stops agent processes that would otherwise outlive the app. */
 function shutdown() {
   for (const win of allWindows()) win.destroy()
+  flushHistorySync()
   agentHealth.dispose()
   nodeRuntime.dispose()
   killStoppedAgents()

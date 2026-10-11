@@ -808,6 +808,8 @@ export interface Turn {
 }
 
 export interface ChatSnapshot {
+  /** Last ordered update included for each turn; absent IDs have not emitted yet. */
+  revisions?: Record<string, number>
   meta: ChatMeta
   turns: Turn[]
   /** How the floating chat is drawn; from the window, when it asks (`getChat`) */

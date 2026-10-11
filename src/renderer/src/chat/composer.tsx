@@ -55,7 +55,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   const attachments = useChat((s) => s.attachments)
   const recordings = useChat((s) => s.recordings)
   // A turn that's gone (a new session) has nothing to follow up on.
-  const followUp = useChat((s) => s.turns.find((turn) => turn.id === s.followUp) ?? null)
+  const followUp = useChat((s) => s.turnsById[s.followUp ?? ''] ?? null)
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   /** Images still being downscaled; a ref so overlapping pastes count each other. */

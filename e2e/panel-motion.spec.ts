@@ -242,14 +242,29 @@ test('grabbing the panel mid-flight catches it where it is', async ({ launch }) 
   await sleep(400)
   expect((await session.app.evaluate(chatLayout))?.chat).toEqual(caught.chat)
 
-  // The drag goes on from there, with the pointer where it grabbed.
-  await session.chat.evaluate(() => window.gui.dragChat(30, 25))
+  // The first sampled flight frame can still be near an edge. Drag toward the canvas's
+  // center so window-edge clamping does not mask the exact pointer delta being tested.
+  const drag = {
+    dx:
+      caught.chat.x + caught.chat.width / 2 < caught.preview.x + caught.preview.width / 2
+        ? 30
+        : -30,
+    dy:
+      caught.chat.y + caught.chat.height / 2 < caught.preview.y + caught.preview.height / 2
+        ? 25
+        : -25,
+  }
+  await session.chat.evaluate(({ dx, dy }) => window.gui.dragChat(dx, dy), drag)
   const dragged = await layoutWhen(
     session,
     'the caught panel dragged',
     ({ chat }) => chat.x !== caught.chat.x || chat.y !== caught.chat.y,
   )
-  expect(dragged.chat).toEqual({ ...caught.chat, x: caught.chat.x + 30, y: caught.chat.y + 25 })
+  expect(dragged.chat).toEqual({
+    ...caught.chat,
+    x: caught.chat.x + drag.dx,
+    y: caught.chat.y + drag.dy,
+  })
   await session.chat.evaluate(() => window.gui.endDragChat({ x: 0, y: 0 }))
   await layoutWhen(session, 'the panel in a corner again', (layout) => {
     const { left, right, top, bottom } = gaps(layout)

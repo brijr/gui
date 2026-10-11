@@ -24,7 +24,6 @@ import {
   PANEL_EDGES,
   type PanelCorner,
   type PanelEdge,
-  type Turn,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -102,11 +101,10 @@ export function ChatPanel() {
   )
   useProposalUpdates()
   const meta = useChat((s) => s.meta)
-  const turns = useChat((s) => s.turns)
+  const turnIds = useChat((s) => s.turnIds)
+  const running = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
   const float = useChat((s) => s.float)
   if (!meta) return null
-
-  const running = turns.some((turn) => turn.status === 'running')
 
   // The sidebar, or popped out into a window of its own, which it fills.
   if (meta.docked || meta.popped) {
@@ -120,13 +118,13 @@ export function ChatPanel() {
       >
         {!meta.popped && <ResizeHandle edge="right" docked />}
         <Header meta={meta} />
-        <Body meta={meta} turns={turns} running={running} />
+        <Body meta={meta} turnIds={turnIds} running={running} />
       </div>
     )
   }
 
   return (
-    <FloatingChat float={float} meta={meta} turns={turns} running={running}>
+    <FloatingChat float={float} meta={meta} running={running}>
       {/* The strong hairline is deliberate: the panel floats over whatever page is in the
           preview, often white on white, where the regular one disappears. */}
       <div
@@ -134,7 +132,7 @@ export function ChatPanel() {
         className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
       >
         <Header meta={meta} />
-        <Body meta={meta} turns={turns} running={running} />
+        <Body meta={meta} turnIds={turnIds} running={running} />
       </div>
       {/* Every edge and corner resizes the panel; the opposite ones stay put. */}
       {PANEL_EDGES.map((edge) => (
@@ -148,7 +146,7 @@ export function ChatPanel() {
  * Under the header: "Create pull request" or the review comments take over the transcript and
  * composer until closed; otherwise the pull request's bar sits over the transcript.
  */
-function Body({ meta, turns, running }: { meta: ChatMeta; turns: Turn[]; running: boolean }) {
+function Body({ meta, turnIds, running }: { meta: ChatMeta; turnIds: string[]; running: boolean }) {
   const shipping = useShipSheet((s) => s.open)
   const reviewing = useProposal((s) => s.reviewing)
   if (shipping) return <ShipSheet />
@@ -156,7 +154,7 @@ function Body({ meta, turns, running }: { meta: ChatMeta; turns: Turn[]; running
   return (
     <>
       <ProposalBar />
-      <Transcript turns={turns} meta={meta} />
+      <Transcript turnIds={turnIds} meta={meta} />
       <Composer meta={meta} running={running} />
     </>
   )
@@ -176,13 +174,11 @@ function atCorner(corner: PanelCorner): CSSProperties {
 function FloatingChat({
   float,
   meta,
-  turns,
   running,
   children,
 }: {
   float: ChatFloat
   meta: ChatMeta
-  turns: Turn[]
   running: boolean
   children: ReactNode
 }) {
@@ -256,7 +252,7 @@ function FloatingChat({
           className={cn('absolute', form !== 'bubble' && 'pointer-events-none')}
           style={{ ...atCorner(corner), width: BUBBLE.width, height: BUBBLE.height }}
         >
-          <ChatBubble turns={turns} running={running} picking={meta.selecting} />
+          <ChatBubble running={running} picking={meta.selecting} />
         </div>
       )}
     </div>
@@ -581,18 +577,10 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
  * went back to the page. The panel morphs into this bubble at its anchored corner and main
  * shrinks the view to it. Clicking it brings the panel back (and stops picking).
  */
-function ChatBubble({
-  turns,
-  running,
-  picking,
-}: {
-  turns: Turn[]
-  running: boolean
-  picking: boolean
-}) {
+function ChatBubble({ running, picking }: { running: boolean; picking: boolean }) {
   const statusId = useId()
   // A permission card in the running turn; it shows once the panel is back.
-  const waiting = waitingCard(turns) !== null
+  const waiting = useChat((s) => waitingCard(s.turns) !== null)
   const status = waiting
     ? 'The agent is waiting for you. '
     : running
@@ -630,8 +618,8 @@ function ChatBubble({
   )
 }
 
-function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
-  if (turns.length === 0) {
+function Transcript({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
+  if (turnIds.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col">
         <EmptyTranscript canSelect={meta.canSelect} picked={meta.selection.length} />
@@ -639,7 +627,7 @@ function Transcript({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
       </div>
     )
   }
-  return <Turns turns={turns} meta={meta} />
+  return <Turns turnIds={turnIds} meta={meta} />
 }
 
 function toEnd(el: HTMLElement | null) {
@@ -699,13 +687,14 @@ function LongChatHint() {
  * message, so it always comes into view and the transcript follows from there, wherever they
  * had scrolled to.
  */
-function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
+function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
   const scroller = useRef<HTMLDivElement>(null)
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   /** When the user last opened or closed a disclosure in the transcript. */
   const toggledAt = useRef(Number.NEGATIVE_INFINITY)
-  const newest = turns.at(-1)?.id
+  const newest = turnIds.at(-1)
+  const running = useChat((s) => s.turnsById[newest ?? '']?.status === 'running')
 
   // Before paint, so a message moving into the transcript lands where it ends up.
   useLayoutEffect(() => {
@@ -714,8 +703,8 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
     toEnd(scroller.current)
   }, [newest])
   useLayoutEffect(() => {
-    if (stick.current && turns.length) toEnd(scroller.current)
-  }, [turns])
+    if (stick.current && turnIds.length) toEnd(scroller.current)
+  }, [turnIds])
 
   // The transcript's own height (the composer growing) and its content's (anything that grows
   // after it renders) both change without a scroll.
@@ -750,14 +739,23 @@ function Turns({ turns, meta }: { turns: Turn[]; meta: ChatMeta }) {
       className="min-h-0 flex-1 select-text overflow-y-auto scroll-stable scroll-fade px-3 py-4"
     >
       <div ref={content} className="flex flex-col gap-6">
-        {turns.map((turn) => (
-          <ErrorBoundary key={turn.id} resetKey={turn}>
-            <TurnView turn={turn} showRedo={meta.redoTurnIds[0] === turn.id} />
-          </ErrorBoundary>
+        {turnIds.map((id) => (
+          <TurnRow key={id} id={id} showRedo={meta.redoTurnIds[0] === id} />
         ))}
-        {turns.length >= LONG_CHAT && turns.at(-1)?.status !== 'running' && <LongChatHint />}
+        {turnIds.length >= LONG_CHAT && !running && <LongChatHint />}
       </div>
     </div>
+  )
+}
+
+/** Each row observes its own turn; streaming does not rerender the transcript shell. */
+function TurnRow({ id, showRedo }: { id: string; showRedo: boolean }) {
+  const turn = useChat((s) => s.turnsById[id])
+  if (!turn) return null
+  return (
+    <ErrorBoundary resetKey={turn}>
+      <TurnView turn={turn} showRedo={showRedo} />
+    </ErrorBoundary>
   )
 }
 

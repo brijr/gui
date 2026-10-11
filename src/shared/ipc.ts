@@ -1,4 +1,5 @@
 import type { AccountProfile, AccountState } from './account'
+import type { ChatTurnUpdate } from './chat-transport'
 import type { GitHubRepository, GitHubState } from './github'
 import type { SymbolImages } from './symbols'
 import type {
@@ -28,7 +29,6 @@ import type {
   StartCommandInput,
   StorageKind,
   TerminalId,
-  Turn,
   Viewport,
   WindowState,
 } from './types'
@@ -427,7 +427,7 @@ export interface GuiApi {
 
   getChat(): Promise<ChatSnapshot>
   onChatMeta(cb: (meta: ChatMeta) => void): Unsubscribe
-  onChatTurn(cb: (turn: Turn) => void): Unsubscribe
+  onChatTurn(cb: (turn: ChatTurnUpdate) => void): Unsubscribe
   onChatReset(cb: (snapshot: ChatSnapshot) => void): Unsubscribe
   onChatFocus(cb: () => void): Unsubscribe
   /** A choice from the More menu that the chat page carries out */

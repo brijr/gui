@@ -41,7 +41,6 @@ import {
   isTerminalId,
   type MorphKind,
   type NodeSetup,
-  type PanelCorner,
   type PanelEdge,
   type Picked,
   type PreviewFrame,
@@ -69,6 +68,15 @@ import { agentHealth } from './agent-status'
 import { agentMenuItems } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
 import { availableModels, ChatController } from './chat'
+import {
+  type Anchor,
+  anchorFor,
+  cornerPoint,
+  fadeIn,
+  inCorner,
+  maxFloatingSize,
+  PANEL_MARGIN,
+} from './chat-presentation'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
@@ -84,15 +92,16 @@ import {
 } from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
-import { type RunningMcpServer, startMcpServer } from './mcp-server'
+import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
-import { Flight, onDisplayFrames, type Point, prefersReducedMotion } from './panel-flight'
+import { Flight, type Point, prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import { PreviewMorph } from './preview-morph'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
+import { ProjectResources } from './project-resources'
 import type { PromptViewport } from './prompt'
 import {
   bringInLatest,
@@ -126,13 +135,12 @@ import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
-import { focusWindow, showWindow } from './window'
+import { focusWindow, showWindow } from './window-presentation'
 
 const PANEL_MIN = { width: 320, height: 360 }
 /** Below this the panel can't show its header, a line of transcript and the composer. */
 const PANEL_SHORTEST = 200
-/** Space the floating panel's size leaves around it in the window. */
-const PANEL_MARGIN = 12
+
 const DOCK_MIN_WIDTH = 320
 /** The docked panel leaves the preview at least the rest of the canvas. */
 const DOCK_MAX_SHARE = 0.6
@@ -163,27 +171,6 @@ const MORPH_TIMEOUT_MS = 700
  * the way once the user has moved on.
  */
 const TUCK_DELAY_MS = 2500
-/** A window appearing fades in over this long (--motion-fade), unless motion is reduced. */
-const WINDOW_FADE_MS = 150
-
-/**
- * Fades a window in as it's shown (a popped-out chat), so it arrives rather than blinks on, on
- * the frames of `contents` (the page it shows). Opacity only, which macOS draws for any window;
- * with reduced motion it's simply there.
- */
-function fadeIn(win: BrowserWindow, contents: WebContents) {
-  if (prefersReducedMotion()) return
-  win.setOpacity(0)
-  const start = performance.now()
-  const stop = onDisplayFrames(contents, () => {
-    if (win.isDestroyed()) return stop()
-    const t = Math.min(1, (performance.now() - start) / WINDOW_FADE_MS)
-    // Eases out, as every arrival does (--ease-out).
-    win.setOpacity(1 - (1 - t) ** 3)
-    if (t === 1) stop()
-  })
-}
-
 /** The floating forms by size: the view grows to a larger one at once. */
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
@@ -201,14 +188,6 @@ const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
 type ScreenshotAction = 'copy' | 'copy-full-page' | 'save' | 'attach'
 type ScreenshotResult = 'copied' | 'saved' | 'attached'
-
-/** A corner of the canvas, and how far the floating panel's own corner there is from it. */
-interface Anchor extends PanelCorner {
-  /** From the canvas's left or right edge */
-  dx: number
-  /** From the canvas's top or bottom edge */
-  dy: number
-}
 
 /** What the window shows for its active tab, without the window's own tab strip. */
 export type TabState = Omit<
@@ -277,18 +256,18 @@ export class ProjectTab {
    */
   private placement: Rect = { x: 0, y: 0, width: 0, height: 0 }
   private state: TabState
-  private devServer: DevServer | null = null
-  /** The project's terminals in the drawer; none run until the user opens one. */
-  private terminals: Terminals | null = null
-  private chat: ChatController | null = null
-  /** The chat file this tab's chat writes; claimed so another tab on the folder gets its own. */
-  private historyFile: string | null = null
-  /** The project `historyFile` is for, which its chat is archived under */
-  private historyRoot: string | null = null
-  private mcp: RunningMcpServer | null = null
-  /** The current project's preview tools; also used to show how a change turned out. */
-  private previewTools: PreviewTools | null = null
-  recordings: Recordings | null = null
+  private resources = this.createProjectResources()
+
+  private createProjectResources() {
+    return new ProjectResources({
+      release: releaseHistoryFile,
+      retire: retireHistoryFile,
+    })
+  }
+
+  get recordings() {
+    return this.resources.recordings
+  }
 
   get recordingSource() {
     return this.preview.webContents.mainFrame
@@ -322,7 +301,7 @@ export class ProjectTab {
   }
 
   attachRecording(recording: import('../shared/types').RecordingAttachment) {
-    if (!this.chat) return
+    if (!this.resources.chat) return
     this.sendChat(Events.recordingAttach, recording)
     focusWindow(this.popout ?? this.host.win)
     this.focusChat()
@@ -482,7 +461,7 @@ export class ProjectTab {
       ended: () => this.landDock(),
     })
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
-    this.problems.on('change', (problems) => this.chat?.setProblems(problems))
+    this.problems.on('change', (problems) => this.resources.chat?.setProblems(problems))
     agentHealth.on('change', this.onAgentHealth)
     nodeRuntime.on('change', this.onNodeRuntime)
     developerTools.on('change', this.onDeveloperTools)
@@ -517,11 +496,11 @@ export class ProjectTab {
 
   /** What the tab strip shows next to the name; a waiting permission card comes first. */
   get status(): TabStatus {
-    if (this.chat?.awaitingPermission) return 'attention'
-    if (this.chat?.turnRunning) return 'working'
+    if (this.resources.chat?.awaitingPermission) return 'attention'
+    if (this.resources.chat?.turnRunning) return 'working'
     const { devServer, setup } = this.state
     const crashed = devServer.status === 'exited' && devServer.exitCode !== 0
-    const failed = this.chat?.meta.status === 'error' || setup?.dependencies === 'failed'
+    const failed = this.resources.chat?.meta.status === 'error' || setup?.dependencies === 'failed'
     return crashed || failed ? 'error' : 'idle'
   }
 
@@ -536,7 +515,7 @@ export class ProjectTab {
     this.layout()
     // A permission card that came up in the background is what the user switched here for
     // (in a focused window: focusing the chat would raise it).
-    if (this.chat?.awaitingPermission && this.host.win.isFocused()) this.focusChat()
+    if (this.resources.chat?.awaitingPermission && this.host.win.isFocused()) this.focusChat()
   }
 
   /**
@@ -575,16 +554,16 @@ export class ProjectTab {
   }
 
   getLogs() {
-    return this.devServer?.logs() ?? ''
+    return this.resources.devServer?.logs() ?? ''
   }
 
   /** The dev server's output, for the drawer to draw it from. */
   logsOutput() {
-    return this.devServer?.output.snapshot()
+    return this.resources.devServer?.output.snapshot()
   }
 
   getChat(): ChatSnapshot {
-    if (this.chat) return { ...this.chat.snapshot(), float: this.float() }
+    if (this.resources.chat) return { ...this.resources.chat.snapshot(), float: this.float() }
     return {
       meta: {
         agentId: this.state.agentId,
@@ -629,13 +608,17 @@ export class ProjectTab {
   }
 
   async openProject(root: string) {
+    this.closeProject()
+    if (this.disposed) return
     const generation = ++this.openGeneration
     this.opening = root
-    this.closeProject()
-    const current = () => !this.disposed && generation === this.openGeneration
+    const resources = this.createProjectResources()
+    this.resources = resources
+    const current = () => !this.disposed && resources.active && generation === this.openGeneration
     let file: string | null = null
     try {
       file = await claimHistoryFile(root)
+      if (!resources.claim(file) || !current()) return
       const [{ project, apps, choosing }, env, saved] = await Promise.all([
         resolveProject(root, getPrefs().apps[root] ?? null),
         getShellEnv(),
@@ -664,23 +647,20 @@ export class ProjectTab {
         restartServer: () => this.restartForAgent(),
         setStartCommand: (input) => this.setStartCommandForAgent(input),
       })
-      this.previewTools = tools
-      this.recordings = new Recordings(root)
-      this.recordings.retain(
+      this.resources.previewTools = tools
+      const recordings = new Recordings(root)
+      resources.recordings = recordings
+      recordings.retain(
         saved?.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []) ?? [],
       )
-      void this.recordings
+      void recordings
         .sweep(() => chatReferences(root).then((found) => found?.recordings ?? null))
         .catch((error: unknown) => console.error('[gui] failed to clean up recordings', error))
-      const mcp = await startMcpServer(tools, this.recordings).catch((error: unknown) => {
+      const mcp = await startMcpServer(tools, recordings).catch((error: unknown) => {
         console.error('[gui] preview tools unavailable', error)
         return null
       })
-      if (!current()) {
-        mcp?.close()
-        return
-      }
-      this.mcp = mcp
+      if (!resources.attachMcp(mcp) || !current()) return
 
       const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env, {
         referenced: () => chatReferences(root).then((found) => found?.checkpoints ?? null),
@@ -690,8 +670,8 @@ export class ProjectTab {
         docked: getPrefs().chatSidebar,
         saved,
         historyFile: file,
-        recordings: this.recordings,
-        mcpServers: () => (this.mcp ? [this.mcp.config] : []),
+        recordings,
+        mcpServers: () => (resources.mcp ? [resources.mcp.config] : []),
         viewport: () => this.promptViewport(),
         startupReport: (tools) => startupReport(this.state, this.getLogs(), tools),
       })
@@ -702,8 +682,8 @@ export class ProjectTab {
         this.layout()
         this.host.tabChanged(this, false)
       })
+      chat.on('turnUpdate', (update) => this.sendChat(Events.chatTurn, update))
       chat.on('turn', (turn) => {
-        this.sendChat(Events.chatTurn, turn)
         // The edited element's highlight would otherwise sit in the next turn's screenshots.
         if (turn.status === 'running') this.cancelRehighlight()
         // Working, or a permission card answered: the tab strip shows it.
@@ -741,9 +721,8 @@ export class ProjectTab {
           }, REHIGHLIGHT_DELAY_MS)
         }
       })
-      this.chat = chat
-      this.historyFile = file
-      this.historyRoot = root
+      this.resources.chat = chat
+      resources.attachHistory(root, file)
       chat.setCanSelect(this.canSelect)
       this.patch({ agentId: chat.meta.agentId })
       this.sendChat(Events.chatReset, chat.snapshot())
@@ -753,14 +732,14 @@ export class ProjectTab {
       devServer.on('data', (chunk) => this.send(Events.logs, chunk))
       devServer.on('line', (line) => this.problems.addServerLine(line))
       devServer.on('change', (state) => this.onDevServer(state))
-      this.devServer = devServer
+      this.resources.devServer = devServer
       this.apps = apps
 
       // At the root, like the agent: a monorepo's app is a `cd` away.
       const terminals = new Terminals(project.root)
       terminals.on('data', (output) => this.send(Events.terminalData, output))
       terminals.on('change', () => this.patchDrawer({ terminals: terminals.list() }))
-      this.terminals = terminals
+      this.resources.terminals = terminals
 
       this.patch({
         project,
@@ -776,10 +755,16 @@ export class ProjectTab {
       if (!current()) return
       this.host.shareRecent(recent)
       void this.setUpAndStart()
+    } catch (error) {
+      // A failed setup must not leave a hidden chat or server running. A superseded
+      // opening disposes only its own lifetime, never the replacement project's UI.
+      if (current()) this.closeProject()
+      else void resources.dispose()
+      throw error
     } finally {
       if (generation === this.openGeneration) this.opening = null
-      // A superseded open never handed its file to a chat.
-      if (file && file !== this.historyFile) releaseHistoryFile(file)
+      // Failed or superseded openings share the same disposal path as normal close.
+      if (!resources.historyFile) resources.dispose()
     }
   }
 
@@ -866,13 +851,13 @@ export class ProjectTab {
    * project and installing it, and the turn's end looks again.
    */
   private async checkForApp() {
-    const devServer = this.devServer
+    const devServer = this.resources.devServer
     const root = this.state.project?.root
-    if (!devServer || !root || this.chat?.turnRunning) return
+    if (!devServer || !root || this.resources.chat?.turnRunning) return
     const { project, apps, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
     if (!project.devCommand && !choosing) return
     const setup = await detectSetup(project, choosing ? apps : null)
-    if (devServer !== this.devServer || !this.appWatcher) return
+    if (devServer !== this.resources.devServer || !this.appWatcher) return
     this.stopWatchingForApp()
     this.apps = apps
     devServer.setCwd(appRoot(project))
@@ -880,24 +865,19 @@ export class ProjectTab {
     void this.setUpAndStart()
   }
 
-  closeProject() {
-    this.recordings?.dispose()
-    this.recordings = null
+  private disposeProjectResources() {
+    ++this.openGeneration
+    this.opening = null
     this.stopWatchingForApp()
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.rehighlightTimer = null
-    this.devServer?.dispose()
-    this.devServer = null
-    this.terminals?.dispose()
-    this.terminals = null
+    this.resources.dispose()
     this.apps = []
-    this.chat?.dispose()
-    this.chat = null
-    this.retireHistoryFile()
-    this.mcp?.close()
-    this.mcp = null
-    this.previewTools = null
+  }
+
+  closeProject() {
+    this.disposeProjectResources()
     this.problems.clear()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
@@ -925,16 +905,16 @@ export class ProjectTab {
   }
 
   stopDevServer() {
-    void this.devServer?.stop()
+    void this.resources.devServer?.stop()
   }
 
   restartDevServer() {
-    if (this.devServer?.state.command) void this.devServer.restart()
+    if (this.resources.devServer?.state.command) void this.resources.devServer.restart()
     else this.startDevServer()
   }
 
   resizeLogs(cols: number, rows: number) {
-    this.devServer?.resize(cols, rows)
+    this.resources.devServer?.resize(cols, rows)
   }
 
   // Drawer: the dev server's output and the terminals
@@ -944,7 +924,7 @@ export class ProjectTab {
    * there's none yet) and puts the keyboard in it; open, closes it.
    */
   toggleDrawer() {
-    const terminals = this.terminals
+    const terminals = this.resources.terminals
     if (!terminals) return
     // In focus mode it's hidden whatever its setting: ⌘J brings it back, with the rest.
     if (this.state.drawer.open && !this.host.focusMode) return this.setDrawerOpen(false)
@@ -967,13 +947,13 @@ export class ProjectTab {
   }
 
   newTerminal() {
-    const id = this.terminals?.create()
+    const id = this.resources.terminals?.create()
     if (id) this.showDrawer(id, true)
   }
 
   /** Ends the terminal's shell; if it was showing, the drawer shows its neighbor instead. */
   closeTerminal(id: TerminalId) {
-    const terminals = this.terminals
+    const terminals = this.resources.terminals
     if (!terminals?.has(id)) return
     if (this.state.drawer.tab === id) {
       this.patchDrawer({ tab: drawerNeighbor(terminals.list(), id) })
@@ -982,29 +962,29 @@ export class ProjectTab {
   }
 
   restartTerminal(id: TerminalId) {
-    this.terminals?.restart(id)
+    this.resources.terminals?.restart(id)
   }
 
   terminalOutput(id: TerminalId) {
-    return this.terminals?.output(id) ?? ''
+    return this.resources.terminals?.output(id) ?? { id, data: '', end: 0 }
   }
 
   writeTerminal(id: TerminalId, data: string) {
-    this.terminals?.write(id, data)
+    this.resources.terminals?.write(id, data)
   }
 
   resizeTerminal(id: TerminalId, cols: number, rows: number) {
-    this.terminals?.resize(id, cols, rows)
+    this.resources.terminals?.resize(id, cols, rows)
   }
 
   clearTerminal(id: TerminalId) {
-    this.terminals?.clear(id)
+    this.resources.terminals?.clear(id)
   }
 
   /** The drawer has drawn a view's output up to `end`: the dev server's, or a terminal's. */
   ackOutput(id: string, end: number) {
-    if (id === this.devServer?.output.id) this.devServer.output.ack(end)
-    else if (isTerminalId(id)) this.terminals?.ack(id, end)
+    if (id === this.resources.devServer?.output.id) this.resources.devServer.output.ack(end)
+    else if (isTerminalId(id)) this.resources.terminals?.ack(id, end)
   }
 
   /**
@@ -1016,13 +996,14 @@ export class ProjectTab {
     const { open, tab } = this.state.drawer
     const onScreen = open && !this.host.focusMode && this.host.isActive(this) && !this.disposed
     const shown = onScreen ? (tab ?? 'server') : null
-    this.devServer?.output.setShown(shown === 'server')
-    this.terminals?.show(shown === 'server' ? null : shown)
+    this.resources.devServer?.output.setShown(shown === 'server')
+    this.resources.terminals?.show(shown === 'server' ? null : shown)
   }
 
   /** Only a tab the drawer has: the dev server's output, or one of this project's terminals. */
   private showDrawer(tab: DrawerTab, focus = false) {
-    if (!this.terminals || (tab !== 'server' && !this.terminals.has(tab))) return
+    if (!this.resources.terminals || (tab !== 'server' && !this.resources.terminals.has(tab)))
+      return
     this.leaveFocusMode()
     this.patchDrawer({ open: true, tab })
     if (focus) this.focusDrawer(tab)
@@ -1259,7 +1240,7 @@ export class ProjectTab {
     }
     // Only pick from the local app: what's picked is sent to the agent.
     const local = isLoopback(this.preview.webContents.getURL())
-    if (!this.state.preview.visible || !this.chat || !local) return
+    if (!this.state.preview.visible || !this.resources.chat || !local) return
     // Picking is on the live page: a morph in progress lands at once.
     this.morph.finish()
     // The overlay outlines what's picked now; the page's own highlight would double it.
@@ -1284,7 +1265,7 @@ export class ProjectTab {
       if (node === null) return
       const already = [...this.pickedNodes].find(([, picked]) => picked === node)?.[0]
       if (add && already) {
-        this.chat?.removeFromSelection(already)
+        this.resources.chat?.removeFromSelection(already)
         return
       }
       await this.readPick(add, { id: PENDING_PICK, kind: 'element', node }, async (project) => {
@@ -1316,7 +1297,7 @@ export class ProjectTab {
   }
 
   removeSelection(id: string) {
-    this.chat?.removeFromSelection(id)
+    this.resources.chat?.removeFromSelection(id)
   }
 
   /** The pointer is over a pick's chip in the composer: the page shows which one it is. */
@@ -1340,14 +1321,14 @@ export class ProjectTab {
     read: (project: ProjectInfo) => Promise<Picked>,
   ) {
     const project = this.state.project
-    const chat = this.chat
+    const chat = this.resources.chat
     if (!project || !chat || !isLoopback(this.preview.webContents.getURL())) return
     this.pendingPick = pending
     this.picker.setBusy(true)
     this.syncOutlined()
     try {
       const picked = await read(project)
-      if (chat !== this.chat) return
+      if (chat !== this.resources.chat) return
       // The pick's highlight replaces any post-turn one and belongs to the selection.
       this.cancelRehighlight()
       if (add) chat.addToSelection(picked)
@@ -1357,7 +1338,7 @@ export class ProjectTab {
         this.dodge(picked.rect)
       }
     } catch (error) {
-      if (chat !== this.chat) return
+      if (chat !== this.resources.chat) return
       const message = error instanceof Error ? error.message : String(error)
       const what = pending.kind === 'region' ? 'area' : 'element'
       chat.setSelectionError(`Couldn't read that ${what}: ${message}`)
@@ -1421,7 +1402,7 @@ export class ProjectTab {
 
   /** What the overlay outlines while the user picks: the selection, and a pick being read. */
   private syncOutlined() {
-    const outlined = (this.chat?.meta.selection ?? []).flatMap((picked): Outlined[] => {
+    const outlined = (this.resources.chat?.meta.selection ?? []).flatMap((picked): Outlined[] => {
       if (isRegion(picked)) {
         return picked.crop ? [{ id: picked.id, kind: 'region', area: picked.crop.area }] : []
       }
@@ -1439,7 +1420,7 @@ export class ProjectTab {
    */
   private syncHighlight() {
     if (this.picker.picking) return
-    const selection = this.chat?.meta.selection ?? []
+    const selection = this.resources.chat?.meta.selection ?? []
     const target =
       selection.find((picked) => picked.id === this.hoveredPick) ??
       selection.findLast((picked) => !isRegion(picked) && this.pickedNodes.has(picked.id))
@@ -1516,11 +1497,11 @@ export class ProjectTab {
     followUp: string | null = null,
   ) {
     const recordings = this.recordings
-    const chat = this.chat
+    const chat = this.resources.chat
     if (!chat || !recordings) return false
     try {
       const clips = await recordings.attachments(ids)
-      if (this.chat !== chat) return false
+      if (this.resources.chat !== chat) return false
       const accepted = chat.send(text, images, clips, followUp)
       if (accepted) recordings.retain(ids)
       return accepted
@@ -1533,10 +1514,10 @@ export class ProjectTab {
 
   async getShipInfo(): Promise<ShipInfo | null> {
     const root = this.state.project?.root
-    const chat = this.chat
+    const chat = this.resources.chat
     if (!root || !chat) return null
     if (!(await this.confirmGit(root))) return cancelledShipInfo()
-    if (chat !== this.chat) return null
+    if (chat !== this.resources.chat) return null
     const prompts = chat
       .snapshot()
       .turns.filter((turn) => turn.status === 'done' && !turn.reverted)
@@ -1552,7 +1533,7 @@ export class ProjectTab {
   async ship(request: ShipRequest): Promise<ShipResult> {
     const root = this.state.project?.root
     if (!root) throw new Error('No project is open.')
-    if (this.chat?.busy) throw new Error('Wait for the agent to finish first.')
+    if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
     if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
     if (this.state.project?.root !== root) throw new Error('No project is open.')
     return ship(root, request)
@@ -1598,7 +1579,7 @@ export class ProjectTab {
   private async gitRootForAction() {
     const root = this.state.project?.root
     if (!root) throw new Error('No project is open.')
-    if (this.chat?.busy) throw new Error('Wait for the agent to finish first.')
+    if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
     if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
     if (this.state.project?.root !== root) throw new Error('No project is open.')
     return root
@@ -1610,7 +1591,7 @@ export class ProjectTab {
   chooseApp(dir: string) {
     const project = this.state.project
     if (!project || !this.apps.some((app) => app.dir === dir)) return
-    if (this.devServer && this.switchingApp === this.devServer) return
+    if (this.resources.devServer && this.switchingApp === this.resources.devServer) return
     setPrefs({ apps: { ...getPrefs().apps, [project.root]: dir } })
     // Picking an app is picking what runs: a start command set in Gui gives way.
     if (project.custom) void saveStartCommand(project.root, null).catch(() => undefined)
@@ -1657,7 +1638,7 @@ export class ProjectTab {
    */
   private async setUpAndStart() {
     const { project, setup } = this.state
-    const devServer = this.devServer
+    const devServer = this.resources.devServer
     if (!project || !devServer || setup?.apps) return
     // Undo needs git from the first turn: find out now whether it runs, so a missing install
     // shows as a banner rather than macOS's own prompt mid-turn.
@@ -1665,7 +1646,7 @@ export class ProjectTab {
     // Nothing can install or run without Node.js, nor can the agent build an app with it:
     // offer Gui's own first. Once it's set up, this runs again (onNodeRuntime).
     if (await nodeRuntime.missingFor(project.packageManager)) {
-      if (devServer === this.devServer) this.patchSetup({ node: nodeRuntime.state })
+      if (devServer === this.resources.devServer) this.patchSetup({ node: nodeRuntime.state })
       return
     }
     if (this.state.setup?.node) this.patchSetup({ node: null })
@@ -1675,7 +1656,7 @@ export class ProjectTab {
     try {
       const install = setup?.dependencies === 'missing' || setup?.dependencies === 'failed'
       if (!(await this.confirmScripts(project, install))) return
-      if (devServer !== this.devServer) return
+      if (devServer !== this.resources.devServer) return
       if (install && !(await this.install(devServer, project))) return
       await devServer.start(project.devCommand, project.custom?.url ?? null)
     } finally {
@@ -1687,11 +1668,11 @@ export class ProjectTab {
   private async install(devServer: DevServer, project: ProjectInfo) {
     this.patchSetup({ dependencies: 'installing' })
     const missing = await missingPackageManager(project.packageManager, await getShellEnv())
-    if (devServer !== this.devServer) return false
+    if (devServer !== this.resources.devServer) return false
     const code = missing
       ? null
       : await devServer.runTask(installCommand(project.packageManager), project.root)
-    if (devServer !== this.devServer) return false
+    if (devServer !== this.resources.devServer) return false
     if (missing) devServer.print(missing)
     if (code === 0) {
       this.patchSetup({ dependencies: 'ok' })
@@ -1703,7 +1684,7 @@ export class ProjectTab {
 
   /** Switches the dev server to another monorepo app, then sets it up and starts it. */
   private async runApp(dir: string) {
-    const devServer = this.devServer
+    const devServer = this.resources.devServer
     const root = this.state.project?.root
     if (!devServer || !root) return
     this.switchingApp = devServer
@@ -1711,7 +1692,7 @@ export class ProjectTab {
       await devServer.stopAndWait()
       const { project } = await detectProject(root, dir)
       const env = await detectEnv(root, project.appDir)
-      if (devServer !== this.devServer) return
+      if (devServer !== this.resources.devServer) return
       devServer.setCwd(appRoot(project))
       this.patch({ project, setup: this.nextSetup({ apps: null, env }) })
     } finally {
@@ -1722,7 +1703,7 @@ export class ProjectTab {
 
   /** "Switch app…": stops the current app and asks again. */
   private showAppChooser() {
-    void this.devServer?.stop()
+    void this.resources.devServer?.stop()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
     this.preview.webContents.loadURL('about:blank').catch(() => undefined)
@@ -1762,14 +1743,14 @@ export class ProjectTab {
   }
 
   private async restartFromTop() {
-    const devServer = this.devServer
+    const devServer = this.resources.devServer
     const root = this.state.project?.root
     // A setup in flight (installing, or asking to run the project) goes on by itself.
     if (!devServer || !root || this.settingUp === devServer) return
     await devServer.stopAndWait()
     const { project, apps, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
     const setup = await detectSetup(project, choosing ? apps : null)
-    if (devServer !== this.devServer) return
+    if (devServer !== this.resources.devServer) return
     this.apps = apps
     devServer.setCwd(appRoot(project))
     // Gui's own Node.js download goes on whatever the project says now.
@@ -1869,15 +1850,15 @@ export class ProjectTab {
   }
 
   removeQueued(id: string) {
-    this.chat?.removeQueued(id)
+    this.resources.chat?.removeQueued(id)
   }
 
   sendQueuedNow() {
-    this.chat?.sendQueuedNow()
+    this.resources.chat?.sendQueuedNow()
   }
 
   cancelChat() {
-    void this.chat?.cancel()
+    void this.resources.chat?.cancel()
   }
 
   /** Auto mode for this tab's project (see ChatMeta.autoApprove); off without one. */
@@ -1893,27 +1874,27 @@ export class ProjectTab {
 
   /** The model and effort settings the composer offers; null without a chat. */
   get chatModels() {
-    return this.chat?.meta.models ?? null
+    return this.resources.chat?.meta.models ?? null
   }
 
   setAgentSetting(settingId: string, value: string) {
-    this.chat?.setAgentSetting(settingId, value)
+    this.resources.chat?.setAgentSetting(settingId, value)
   }
 
   /** Starts the chat's agent early so the command menu can list its commands. */
   loadCommands() {
-    return this.chat?.loadCommands()
+    return this.resources.chat?.loadCommands()
   }
 
   /** ⇧⌘M: shows the chat and opens the composer's model picker, searching. */
   chooseModel() {
-    if (!this.chat?.meta.models) return shell.beep()
+    if (!this.resources.chat?.meta.models) return shell.beep()
     this.focusChat()
     this.sendChat(Events.command, 'chooseModel')
   }
 
   respondPermission(turnId: string, itemId: string, optionId: string | null) {
-    this.chat?.respondPermission(turnId, itemId, optionId)
+    this.resources.chat?.respondPermission(turnId, itemId, optionId)
   }
 
   /**
@@ -1922,7 +1903,7 @@ export class ProjectTab {
    * waits, it doesn't offer that, or the PR sheet has the keys.
    */
   permissionAnswer(allow: boolean) {
-    const waiting = this.shipSheetOpen ? null : this.chat?.oldestPermission()
+    const waiting = this.shipSheetOpen ? null : this.resources.chat?.oldestPermission()
     const kind = allow ? 'allow_once' : 'reject_once'
     const option = waiting?.item.options.find((choice) => choice.kind === kind)
     if (!waiting || !option) return null
@@ -1942,60 +1923,49 @@ export class ProjectTab {
   }
 
   restoreTurn(turnId: string) {
-    return this.chat?.restoreTurn(turnId)
+    return this.resources.chat?.restoreTurn(turnId)
   }
 
   redo() {
-    return this.chat?.redo()
+    return this.resources.chat?.redo()
   }
 
   newChat() {
-    void this.chat?.reset()
+    void this.resources.chat?.reset()
   }
 
   /** Archives the open chat, as New chat does; false when it couldn't be. */
   archiveChat() {
-    return this.chat?.reset() ?? Promise.resolve(true)
+    return this.resources.chat?.reset() ?? Promise.resolve(true)
   }
 
   /** The chat file this tab's chat writes, if one is open. */
   get chatFile() {
-    return this.historyFile
-  }
-
-  /** Once its chat has saved for the last time: a second tab's numbered file is archived. */
-  private retireHistoryFile() {
-    const file = this.historyFile
-    const root = this.historyRoot
-    this.historyFile = null
-    this.historyRoot = null
-    if (!file) return
-    if (root) void retireHistoryFile(root, file)
-    else releaseHistoryFile(file)
+    return this.resources.historyFile
   }
 
   /** The project's archived chats, newest first; none without a project. */
   listChats() {
-    const root = this.historyRoot
+    const root = this.resources.historyRoot
     return root ? listArchived(root) : Promise.resolve([])
   }
 
   async openChat(id: string) {
-    if (!this.chat) throw new Error('No project is open.')
-    await this.chat.openArchived(id)
+    if (!this.resources.chat) throw new Error('No project is open.')
+    await this.resources.chat.openArchived(id)
     this.focusChat()
   }
 
   async renameChat(id: string, title: string) {
-    if (this.historyRoot) await renameArchived(this.historyRoot, id, title)
+    if (this.resources.historyRoot) await renameArchived(this.resources.historyRoot, id, title)
   }
 
   async deleteChat(id: string) {
-    if (this.historyRoot) await removeArchived(this.historyRoot, id)
+    if (this.resources.historyRoot) await removeArchived(this.resources.historyRoot, id)
   }
 
   clearSelection() {
-    this.chat?.setSelection([])
+    this.resources.chat?.setSelection([])
   }
 
   setAgent(agentId: AgentId) {
@@ -2003,40 +1973,40 @@ export class ProjectTab {
     agentHealth.ensureChecked(agentId)
     setPrefs({ agentId })
     this.patch({ agentId })
-    void this.chat?.setAgent(agentId)
+    void this.resources.chat?.setAgent(agentId)
   }
 
   toggleDock() {
-    if (!this.chat) return
+    if (!this.resources.chat) return
     if (this.popout) return this.popIn()
     this.leaveFocusMode()
     this.untuck()
     this.morphLayout('dock')
-    const docked = !this.chat.meta.docked
+    const docked = !this.resources.chat.meta.docked
     setPrefs({ chatSidebar: docked })
-    this.chat.setDocked(docked)
+    this.resources.chat.setDocked(docked)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
     if (docked) this.holdDock()
     this.layout()
   }
 
   signInAgain() {
-    return this.chat?.signInAgain() ?? Promise.resolve(false)
+    return this.resources.chat?.signInAgain() ?? Promise.resolve(false)
   }
 
   setUpAgent() {
-    return this.chat?.setUpAgent() ?? Promise.resolve()
+    return this.resources.chat?.setUpAgent() ?? Promise.resolve()
   }
 
   fixProblems() {
-    const sent = this.chat?.fixProblems() ?? false
+    const sent = this.resources.chat?.fixProblems() ?? false
     if (sent) this.focusChat()
     return sent
   }
 
   /** "Fix with agent" on a start that failed: the agent gets why, and the chat comes forward. */
   fixStartup() {
-    const sent = this.chat?.fixStartup() ?? false
+    const sent = this.resources.chat?.fixStartup() ?? false
     if (!sent) return false
     if (!this.state.chatVisible) {
       this.patch({ chatVisible: true })
@@ -2052,37 +2022,38 @@ export class ProjectTab {
    * of the page again.
    */
   private async captureAfter(chat: ChatController, turnId: string, shown: Picked) {
-    const tools = this.previewTools
-    if (!tools || chat !== this.chat || !this.state.preview.visible) return
+    const tools = this.resources.previewTools
+    if (!tools || chat !== this.resources.chat || !this.state.preview.visible) return
     const crop = shown.crop ?? null
     const options = isRegion(shown)
       ? { area: crop?.area }
       : { selector: shown.selector, matching: crop ?? undefined }
     const shot = await tools.screenshot(options).catch(() => null)
-    if (chat !== this.chat) return
+    if (chat !== this.resources.chat) return
     const frame = shot && crop ? previewFrame(crop.area, shot.area) : null
     chat.setPreviewAfter(turnId, thumbnail(shot), frame)
   }
 
   /** Undoes the newest turn that changed files and hasn't been undone. */
   async undoLastChange() {
-    const turnId = this.chat?.lastUndoableTurnId()
+    const turnId = this.resources.chat?.lastUndoableTurnId()
     if (!turnId) return shell.beep()
-    await this.chat?.restoreTurn(turnId).catch(() => shell.beep())
+    await this.resources.chat?.restoreTurn(turnId).catch(() => shell.beep())
   }
 
   async redoLastChange() {
-    if (!this.chat?.meta.redoTurnIds.length) return shell.beep()
-    await this.chat.redo().catch(() => shell.beep())
+    if (!this.resources.chat?.meta.redoTurnIds.length) return shell.beep()
+    await this.resources.chat.redo().catch(() => shell.beep())
   }
 
   /** Re-finds an element after hot reload (its old node is gone) and highlights it. */
   private async highlightSelector(selector: string | undefined) {
-    if (!selector || !this.state.preview.visible || this.chat?.meta.selection.length) return
+    if (!selector || !this.state.preview.visible || this.resources.chat?.meta.selection.length)
+      return
     const generation = this.rehighlightGeneration
     // A turn or pick can start while this waits on the inspector; checked again under its lock.
     const current = () =>
-      generation === this.rehighlightGeneration && !this.chat?.meta.selection.length
+      generation === this.rehighlightGeneration && !this.resources.chat?.meta.selection.length
     try {
       const backendNodeId = await this.inspector.querySelector(selector)
       if (!current()) return
@@ -2131,7 +2102,7 @@ export class ProjectTab {
   setMinimized(minimized: boolean) {
     this.cancelTuck()
     this.tucked = false
-    this.chat?.setMinimized(minimized)
+    this.resources.chat?.setMinimized(minimized)
     this.layout()
   }
 
@@ -2147,7 +2118,7 @@ export class ProjectTab {
 
   /** ⌥⌘L and the chat's header button: into a window of its own, or back into this one. */
   togglePopOut() {
-    if (!this.hasProject || !this.chat) return
+    if (!this.hasProject || !this.resources.chat) return
     if (this.popout) this.popIn()
     else this.popOut()
   }
@@ -2192,7 +2163,7 @@ export class ProjectTab {
       this.popIn()
     })
     win.on('page-title-updated', (event) => event.preventDefault())
-    this.chat?.setPopped(true)
+    this.resources.chat?.setPopped(true)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
     this.layout()
     win.once('ready-to-show', () => {
@@ -2207,7 +2178,7 @@ export class ProjectTab {
   private popIn() {
     if (!this.popout) return
     this.closePopout()
-    this.chat?.setPopped(false)
+    this.resources.chat?.setPopped(false)
     if (this.host.isActive(this)) {
       this.host.win.contentView.addChildView(this.chatView)
       if (this.docked) {
@@ -2238,7 +2209,7 @@ export class ProjectTab {
     if (!win || win.isDestroyed()) return
     const [width, height] = win.getContentSize()
     this.chatView.setBounds({ x: 0, y: 0, width, height })
-    this.chat?.setTrafficLights(true)
+    this.resources.chat?.setTrafficLights(true)
   }
 
   /**
@@ -2284,8 +2255,8 @@ export class ProjectTab {
       !this.disposed &&
       this.chatShown &&
       !this.docked &&
-      !this.chat?.meta.minimized &&
-      !this.chat?.awaitingPermission &&
+      !this.resources.chat?.meta.minimized &&
+      !this.resources.chat?.awaitingPermission &&
       !this.state.preview.selecting &&
       !this.resizing &&
       !this.flight &&
@@ -2388,7 +2359,7 @@ export class ProjectTab {
       this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
       this.resizing = 'docked'
     } else {
-      if (this.chat?.meta.minimized || this.bubbled) return
+      if (this.resources.chat?.meta.minimized || this.bubbled) return
       // Resizing follows the pointer 1:1: a panel still landing stops where it is.
       this.holdFlight()
       const [contentWidth, contentHeight] = this.host.win.getContentSize()
@@ -2444,7 +2415,7 @@ export class ProjectTab {
     sender: WebContents | null = null,
     at: { x: number; y: number } | null = null,
   ): Promise<ScreenshotResult | null> {
-    const tools = this.previewTools
+    const tools = this.resources.previewTools
     const project = this.state.project
     if (this.screenshotting) return null
     if (!tools || !project || !this.canCapture()) {
@@ -2454,7 +2425,7 @@ export class ProjectTab {
     this.screenshotting = true
     try {
       const action = await this.chooseScreenshot(at && this.inWindow(sender, at))
-      if (!action || tools !== this.previewTools || !this.canCapture()) return null
+      if (!action || tools !== this.resources.previewTools || !this.canCapture()) return null
       // Inspect mode's hover highlight is drawn into the page, so leave it first.
       if (this.state.preview.selecting) await this.setSelecting(false)
       // At the display's own resolution, and without the selection highlight.
@@ -2503,7 +2474,7 @@ export class ProjectTab {
         item('Copy full page', 'copy-full-page'),
         item('Save screenshot…', 'save'),
         { type: 'separator' },
-        item('Attach to chat', 'attach', this.chat !== null),
+        item('Attach to chat', 'attach', this.resources.chat !== null),
       ]).popup({
         window: this.host.win,
         ...at,
@@ -2526,7 +2497,7 @@ export class ProjectTab {
 
   /** Adds the screenshot to the composer as a reference image, then shows the chat. */
   private attachScreenshot(png: Buffer, name: string) {
-    if (!this.chat) return false
+    if (!this.resources.chat) return false
     const image = nativeImage.createFromBuffer(png)
     if (image.isEmpty()) throw new Error("Couldn't read the captured image")
     this.focusChat()
@@ -2574,7 +2545,7 @@ export class ProjectTab {
       }
       this.patch({ chatVisible: true })
     }
-    if (this.chat?.meta.minimized) this.chat.setMinimized(false)
+    if (this.resources.chat?.meta.minimized) this.resources.chat.setMinimized(false)
     this.layout()
     // In a background tab the panel is ready for when the user switches to it.
     if (!this.host.isActive(this)) return
@@ -2598,7 +2569,7 @@ export class ProjectTab {
 
   /** Docked to the side: the chat's own setting, or the saved one while a project opens. */
   private get docked() {
-    return this.chat?.meta.docked ?? getPrefs().chatSidebar
+    return this.resources.chat?.meta.docked ?? getPrefs().chatSidebar
   }
 
   /**
@@ -2702,7 +2673,7 @@ export class ProjectTab {
       this.showFloat(float)
     }
     this.chatView.setVisible(showChat && !covered)
-    this.chat?.setTrafficLights(docked && !this.host.win.isFullScreen())
+    this.resources.chat?.setTrafficLights(docked && !this.host.win.isFullScreen())
     if (docked) {
       const dockWidth = this.dockedWidth()
       // Still off past the window's left edge while it slides in (`holdDock`).
@@ -2728,8 +2699,9 @@ export class ProjectTab {
   /** What the floating chat should be drawn as now. */
   private wantedForm(): ChatForm {
     if (this.bubbled) return 'bubble'
-    if (this.tucked && this.chatShown && !this.docked && !this.chat?.meta.minimized) return 'bubble'
-    return this.chat?.meta.minimized ? 'pill' : 'panel'
+    if (this.tucked && this.chatShown && !this.docked && !this.resources.chat?.meta.minimized)
+      return 'bubble'
+    return this.resources.chat?.meta.minimized ? 'pill' : 'panel'
   }
 
   private float(): ChatFloat {
@@ -2783,7 +2755,7 @@ export class ProjectTab {
   private floatingRect(
     contentWidth: number,
     contentHeight: number,
-    shape: 'panel' | 'pill' = this.chat?.meta.minimized ? 'pill' : 'panel',
+    shape: 'panel' | 'pill' = this.resources.chat?.meta.minimized ? 'pill' : 'panel',
     /** Where it rests at its anchor, even mid-flight */
     atRest = false,
   ): Rect {
@@ -2993,7 +2965,8 @@ export class ProjectTab {
   /** Moves the floating panel to the other side if it covers the element just picked. */
   private dodge(rect: Rect) {
     // Picking again already: the view is the bubble, not the panel to move.
-    if (!this.chat || this.chat.meta.docked || !this.chatShown || this.bubbled) return
+    if (!this.resources.chat || this.resources.chat.meta.docked || !this.chatShown || this.bubbled)
+      return
     // Page coordinates, which a device frame or a zoom draws at its scale, in the window.
     const previewBounds = this.placement
     const scale = this.emulation.scale
@@ -3181,7 +3154,7 @@ export class ProjectTab {
     const { visible, selecting } = this.state.preview
     this.patch({ preview: { ...this.state.preview, ...patch } })
     const preview = this.state.preview
-    this.chat?.setCanSelect(this.canSelect)
+    this.resources.chat?.setCanSelect(this.canSelect)
     // Picking draws the floating chat as a bubble (see `bubbled`).
     if (preview.visible !== visible || preview.selecting !== selecting) this.layout()
     if (preview.selecting === selecting) return
@@ -3189,11 +3162,11 @@ export class ProjectTab {
       this.picker.stop()
       this.syncHighlight()
     }
-    this.chat?.setSelecting(preview.selecting)
+    this.resources.chat?.setSelecting(preview.selecting)
     const attention = this.attentionWaiting
     this.attentionWaiting = false
     // A permission card that came up while the user picked shows now, as it would have then.
-    if (!preview.selecting && attention && this.chat?.awaitingPermission) this.focusChat()
+    if (!preview.selecting && attention && this.resources.chat?.awaitingPermission) this.focusChat()
   }
 
   private send(channel: string, payload: unknown) {
@@ -3227,24 +3200,10 @@ export class ProjectTab {
     if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.problems.dispose()
-    // Async work still in flight checks these against what it started with; clearing them
-    // is what tells it the project is gone.
-    this.stopWatchingForApp()
-    this.devServer?.dispose()
-    this.devServer = null
-    this.terminals?.dispose()
-    this.terminals = null
-    this.chat?.dispose()
-    this.chat = null
-    this.retireHistoryFile()
-    this.mcp?.close()
-    this.mcp = null
-    this.previewTools = null
+    this.disposeProjectResources()
     this.emulation.dispose()
     this.picker.dispose()
     this.inspector.dispose()
-    this.recordings?.dispose()
-    this.recordings = null
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()
   }
@@ -3305,42 +3264,6 @@ function previewFrame(before: Rect, after: Rect): PreviewFrame | null {
     width: after.width,
     height: after.height,
     before: { ...before, x: before.x - after.x, y: before.y - after.y },
-  }
-}
-
-/** The anchor at `corner` of `area` (the canvas) that puts the floating panel at `rect`. */
-function anchorFor(rect: Rect, area: Rect, corner: PanelCorner): Anchor {
-  return {
-    x: corner.x,
-    y: corner.y,
-    dx: corner.x === 'left' ? rect.x - area.x : area.x + area.width - rect.x - rect.width,
-    dy: corner.y === 'top' ? rect.y - area.y : area.y + area.height - rect.y - rect.height,
-  }
-}
-
-/** The point at `rect`'s `corner`. */
-function cornerPoint(rect: Rect, corner: PanelCorner): Point {
-  return {
-    x: corner.x === 'left' ? rect.x : rect.x + rect.width,
-    y: corner.y === 'top' ? rect.y : rect.y + rect.height,
-  }
-}
-
-/** A box of `size` in `rect`'s `corner`. */
-function inCorner(rect: Rect, size: ChatSize, corner: PanelCorner): Rect {
-  return {
-    x: corner.x === 'left' ? rect.x : rect.x + rect.width - size.width,
-    y: corner.y === 'top' ? rect.y : rect.y + rect.height - size.height,
-    width: size.width,
-    height: size.height,
-  }
-}
-
-/** The largest the floating panel can be: the window's width, the canvas's (`area`) height. */
-function maxFloatingSize(contentWidth: number, area: Rect): ChatSize {
-  return {
-    width: contentWidth - PANEL_MARGIN * 2,
-    height: area.height - PANEL_MARGIN * 2,
   }
 }
 

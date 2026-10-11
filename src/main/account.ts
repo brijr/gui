@@ -5,7 +5,12 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { app, safeStorage, shell } from 'electron'
-import type { AccountProfile, AccountState } from '../shared/account'
+import {
+  type AccountErrorCode,
+  type AccountProfile,
+  type AccountState,
+  invalidatesAccountSession,
+} from '../shared/account'
 
 declare const __GUI_ACCOUNTS_URL__: string
 
@@ -100,6 +105,7 @@ export class AccountError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: AccountErrorCode,
   ) {
     super(message)
   }
@@ -125,13 +131,15 @@ export async function request<T>(
   // A proxy or Cloudflare error page isn't JSON; it still fails as the status says.
   const result = (
     response.ok ? await response.json() : await response.json().catch(() => ({}))
-  ) as T & { error?: string }
+  ) as T & { error?: string; code?: AccountErrorCode }
   if (!response.ok) {
     // Sign-in calls carry the attempt's token, not the session.
-    if (response.status === 401 && token && !path.startsWith('/auth/')) await forgetSession()
+    if (token && invalidatesAccountSession(response.status, result.code, path))
+      await forgetSession()
     throw new AccountError(
       response.status,
       result.error ?? 'Could not reach Gui accounts. Try again.',
+      result.code,
     )
   }
   return result

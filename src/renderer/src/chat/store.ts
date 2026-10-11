@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { applyTurnUpdate, type ChatTurnUpdate } from '../../../shared/chat-transport'
 import type {
   ChatFloat,
   ChatMeta,
@@ -10,12 +11,14 @@ import type {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
-import { closeShipSheet, useShipSheet } from './ship-sheet'
+import { closeShipSheet, useShipSheet } from './shipping-state'
 import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
 
 interface ChatStore {
   meta: ChatMeta | null
   turns: Turn[]
+  turnsById: Record<string, Turn>
+  turnIds: string[]
   /** Unsent composer text; kept here so it survives the composer remounting on dock/float/minimize */
   draft: string
   /** Images attached to the draft, already downscaled; kept here for the same reason */
@@ -34,6 +37,8 @@ interface ChatStore {
 export const useChat = create<ChatStore>(() => ({
   meta: null,
   turns: [],
+  turnsById: {},
+  turnIds: [],
   draft: '',
   attachments: [],
   recordings: [],
@@ -127,7 +132,14 @@ function applySnapshot(snapshot: ChatSnapshot) {
   // History, not news: none of it fades in.
   for (const turn of snapshot.turns) markSeen(rowKeys(turn))
   markSeen(snapshot.meta.queue.map((item) => `queue:${item.id}`))
-  useChat.setState({ meta: snapshot.meta, turns: snapshot.turns })
+  transportTurns = new Map(snapshot.turns.map((turn) => [turn.id, turn]))
+  revisions = new Map(Object.entries(snapshot.revisions ?? {}))
+  useChat.setState({
+    meta: snapshot.meta,
+    turns: snapshot.turns,
+    turnsById: Object.fromEntries(transportTurns),
+    turnIds: snapshot.turns.map((turn) => turn.id),
+  })
 }
 
 function upsertTurn(turn: Turn) {
@@ -135,10 +147,17 @@ function upsertTurn(turn: Turn) {
   if (!transcriptShown()) markSeen(rowKeys(turn))
   useChat.setState(({ turns }) => {
     const index = turns.findIndex((t) => t.id === turn.id)
-    if (index === -1) return { turns: [...turns, turn].sort((a, b) => a.index - b.index) }
+    if (index === -1) {
+      const next = [...turns, turn].sort((a, b) => a.index - b.index)
+      return {
+        turns: next,
+        turnsById: { ...useChat.getState().turnsById, [turn.id]: turn },
+        turnIds: next.map((t) => t.id),
+      }
+    }
     const next = turns.slice()
     next[index] = turn
-    return { turns: next }
+    return { turns: next, turnsById: { ...useChat.getState().turnsById, [turn.id]: turn } }
   })
 }
 
@@ -353,7 +372,7 @@ function onMeta(meta: ChatMeta) {
 }
 
 function onTurn(turn: Turn) {
-  const existing = useChat.getState().turns.find((t) => t.id === turn.id)
+  const existing = useChat.getState().turnsById[turn.id]
   if (!existing) {
     const held = starting?.item.prompt === turn.prompt ? releaseStarting() : null
     if (held) {
@@ -412,19 +431,119 @@ function onTurn(turn: Turn) {
 }
 
 function onReset(snapshot: ChatSnapshot) {
+  cancelRecoveryRetry()
+  recoveryRequired = false
+  const generation = ++recoveryGeneration
+  recovering = true
+  recoveryUpdates = []
+  recoveryMeta = null
   releaseStarting()
   if (sent?.fallback) clearTimeout(sent.fallback)
   sent = null
   applyInOrder(() => {
+    if (generation !== recoveryGeneration) return
     forgetSeen()
     applySnapshot(snapshot)
+    if (useChat.getState().notice === RECOVERY_FAILURE_NOTICE) setNotice(null)
+    recovering = false
+    if (recoveryMeta) onMeta(recoveryMeta)
+    recoveryMeta = null
+    const queued = recoveryUpdates
+    recoveryUpdates = []
+    for (const update of queued) onTurnUpdate(update)
   })
 }
 
+let transportTurns = new Map<string, Turn>()
+let revisions = new Map<string, number>()
+let recoveryGeneration = 0
+let recovering = false
+let recoveryRequired = false
+let recoveryRetry: ReturnType<typeof setTimeout> | null = null
+const RECOVERY_DELAYS_MS = [250, 750]
+const RECOVERY_FAILURE_NOTICE =
+  'Could not refresh the conversation after three attempts. Reload the chat to retry.'
+
+function cancelRecoveryRetry() {
+  if (recoveryRetry) clearTimeout(recoveryRetry)
+  recoveryRetry = null
+}
+let recoveryMeta: ChatMeta | null = null
+let recoveryUpdates: ChatTurnUpdate[] = []
+
+function onTurnUpdate(update: ChatTurnUpdate) {
+  if (recovering) {
+    recoveryUpdates.push(update)
+    return
+  }
+  if (recoveryRequired) {
+    recoveryUpdates.push(update)
+    refreshTransport()
+    return
+  }
+  const id = update.kind === 'snapshot' ? update.turn.id : update.id
+  const revision = revisions.get(id)
+  // A recovered snapshot may already include this queued event.
+  if (revision !== undefined && update.revision <= revision) return
+  const turn = applyTurnUpdate(transportTurns.get(id), revision, update)
+  if (turn) {
+    transportTurns.set(id, turn)
+    revisions.set(id, update.revision)
+    onTurn(turn)
+    return
+  }
+  refreshTransport()
+}
+
+function refreshTransport() {
+  cancelRecoveryRetry()
+  recovering = true
+  recoveryRequired = true
+  requestSnapshot(++recoveryGeneration, 0)
+}
+
+function requestSnapshot(generation: number, attempt: number) {
+  if (generation !== recoveryGeneration) return
+  void gui
+    .getChat()
+    .then((snapshot) => {
+      applyInOrder(() => {
+        if (generation !== recoveryGeneration) return
+        applySnapshot(snapshot)
+        if (snapshot.float && !floatReceived) useChat.setState({ float: snapshot.float })
+        recovering = false
+        recoveryRequired = false
+        if (useChat.getState().notice === RECOVERY_FAILURE_NOTICE) setNotice(null)
+        if (recoveryMeta) onMeta(recoveryMeta)
+        recoveryMeta = null
+        const queued = recoveryUpdates
+        recoveryUpdates = []
+        for (const next of queued) onTurnUpdate(next)
+      })
+    })
+    .catch(() => {
+      if (generation !== recoveryGeneration) return
+      const delay = RECOVERY_DELAYS_MS[attempt]
+      if (delay !== undefined) {
+        recoveryRetry = setTimeout(() => {
+          recoveryRetry = null
+          requestSnapshot(generation, attempt + 1)
+        }, delay)
+        return
+      }
+      recovering = false
+      setNotice(RECOVERY_FAILURE_NOTICE)
+    })
+}
+
 export function connectChat() {
+  recovering = true
   const offs = [
-    gui.onChatMeta(onMeta),
-    gui.onChatTurn(onTurn),
+    gui.onChatMeta((meta) => {
+      if (recovering || recoveryRequired) recoveryMeta = meta
+      else onMeta(meta)
+    }),
+    gui.onChatTurn(onTurnUpdate),
     gui.onChatReset(onReset),
     // Here rather than in the composer, which isn't mounted while the panel is minimized.
     gui.onChatAttach(attachFromMain),
@@ -442,13 +561,14 @@ export function connectChat() {
       if (command === 'chooseModel') chooseModel()
     }),
   ]
-  void gui.getChat().then((snapshot) => {
-    applyInOrder(() => {
-      if (!useChat.getState().meta) applySnapshot(snapshot)
-      if (snapshot.float && !floatReceived) useChat.setState({ float: snapshot.float })
-    })
-  })
+  refreshTransport()
   return () => {
+    recoveryGeneration++
+    cancelRecoveryRetry()
+    recovering = false
+    recoveryRequired = false
+    recoveryUpdates = []
+    recoveryMeta = null
     for (const off of offs) off()
   }
 }

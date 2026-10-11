@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { app, BrowserWindow, Menu, shell, type WebContents } from 'electron'
+import { BrowserWindow, Menu, shell, type WebContents } from 'electron'
 import { Events, type StartForm } from '../shared/ipc'
 import {
   FOCUS_BAR_HEIGHT,
@@ -14,6 +14,9 @@ import { prefersReducedMotion } from './panel-flight'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
 import { followSurface, surfaceColor } from './theme'
+import { focusWindow, showWindow } from './window-presentation'
+
+export { focusWindow, keepInBackground, showWindow } from './window-presentation'
 
 const windows = new Set<ProjectWindow>()
 /** The window focused last, for opening a project while Gui is in the background. */
@@ -42,34 +45,6 @@ export function findWindow(sender: WebContents) {
 /** The tab a page acts on: a chat panel's own tab, or the active tab for a window's chrome. */
 export function findTab(sender: WebContents) {
   return findWindow(sender)?.tabFor(sender)
-}
-
-/**
- * Unpackaged builds launched with GUI_E2E_BACKGROUND=1 (the end-to-end tests) show their
- * windows without activating Gui, so a test run doesn't take the keyboard from the app the
- * user is working in.
- */
-const inBackground = !app.isPackaged && process.env.GUI_E2E_BACKGROUND === '1'
-
-/**
- * In the background, macOS isn't let bring Gui to the front at all, whatever shows a window
- * or a sheet, and it keeps out of the Dock and ⌘Tab.
- */
-export function keepInBackground() {
-  if (inBackground && process.platform === 'darwin') app.setActivationPolicy('prohibited')
-}
-
-/** Shows a window, in front and with the keyboard unless Gui runs in the background. */
-export function showWindow(win: BrowserWindow) {
-  if (inBackground) win.showInactive()
-  else win.show()
-}
-
-/** Brings a window to the front with the keyboard, unless Gui runs in the background. */
-export function focusWindow(win: BrowserWindow, { steal = false } = {}) {
-  if (inBackground) return
-  if (steal && process.platform === 'darwin') app.focus({ steal: true })
-  win.focus()
 }
 
 /** The focused project window, counting its tab's popped-out chat as part of it. */

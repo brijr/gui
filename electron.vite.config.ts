@@ -26,7 +26,17 @@ export default defineConfig({
   main: {
     // Minified (electron-vite leaves it off), keeping function and class names so stack
     // traces in crash reports still say where they came from.
-    build: { externalizeDeps: true, minify: 'esbuild' },
+    build: {
+      externalizeDeps: true,
+      minify: 'esbuild',
+      rollupOptions: {
+        input: {
+          index: resolve('src/main/index.ts'),
+          'source-map-worker': resolve('src/main/source-map-worker.ts'),
+          'history-worker': resolve('src/main/history-worker.ts'),
+        },
+      },
+    },
     esbuild: { keepNames: true },
     // Agent CLIs aren't bundled; this pins the versions (and hashes) Gui downloads.
     define: {

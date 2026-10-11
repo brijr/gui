@@ -19,6 +19,7 @@ import type {
   SessionNotification,
 } from '@agentclientprotocol/sdk'
 import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
+import { type ChatTurnUpdate, TurnPublisher } from '../shared/chat-transport'
 import { invokedCommand, parseCommands } from '../shared/commands'
 import {
   type AgentCommand,
@@ -71,6 +72,7 @@ type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
 interface ChatEvents {
   meta: [meta: ChatMeta]
   turn: [turn: Turn]
+  turnUpdate: [update: ChatTurnUpdate]
   reset: [snapshot: ChatSnapshot]
   /** Something needs the user (e.g. a permission prompt) and the panel should be visible. */
   attention: []
@@ -246,6 +248,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** After dispose, nothing snapshots, saves, or emits. */
   private disposed = false
   private permissions = new Map<string, PermissionResolver>()
+  private turnPublisher = new TurnPublisher()
   private emitTimers = new Map<string, NodeJS.Timeout>()
   private redoPoint: RedoPoint | null = null
   /** Current agent session, persisted so the next launch can resume it. */
@@ -345,7 +348,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   snapshot(): ChatSnapshot {
-    return { meta: this.meta, turns: this.records.map((record) => record.turn) }
+    for (const record of this.records) {
+      if (this.emitTimers.has(record.turn.id)) this.flushTurn(record)
+    }
+    return {
+      meta: this.meta,
+      turns: this.records.map((record) => record.turn),
+      revisions: this.turnPublisher.revisions(),
+    }
   }
 
   async setAgent(agentId: AgentId) {
@@ -461,6 +471,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   /** Takes on a saved transcript, or with none, an empty one. */
   private load(saved: SavedChat | null) {
+    this.turnPublisher.clear()
     this.records =
       saved?.turns.map((turn) => ({
         turn,
@@ -837,8 +848,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
   }
 
-  dispose() {
-    if (this.disposed) return
+  dispose(): Promise<void> {
+    if (this.disposed) return this.history.close()
     this.epoch++
     this.disposed = true
     agentHealth.off('change', this.refreshModels)
@@ -854,11 +865,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.emitTimers.clear()
     if (this.persistTimer) clearTimeout(this.persistTimer)
     this.persistTimer = null
-    this.history.saveSync()
+    const saved = this.history.close()
     this.stopAgent()
     // In memory only: queued messages never outlive their window.
     this.clearQueue()
     this.removeAllListeners()
+    return saved
   }
 
   /**
@@ -1857,6 +1869,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.emitTimers.delete(record.turn.id)
     // Turns from a session that was reset since are no longer part of the transcript.
     if (this.disposed || !this.records.includes(record)) return
+    this.emit('turnUpdate', this.turnPublisher.update(record.turn))
     this.emit('turn', record.turn)
     this.schedulePersist()
   }

@@ -1,7 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Proposal, ProposalPull, ReviewComment } from '../shared/types'
-import { connectedGitHub, fetchGitHub, readGitHub } from './github'
 import {
   applyConnectedIdentity,
   CommandError,
@@ -17,7 +16,8 @@ import {
   readError,
   run,
   tail,
-} from './ship'
+} from './git'
+import { connectedGitHub, fetchGitHub, readGitHub } from './github'
 
 /**
  * Where the project's work stands as a pull request, and the moves around it a designer
