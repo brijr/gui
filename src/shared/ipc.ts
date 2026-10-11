@@ -296,7 +296,7 @@ export interface GuiApi {
    */
   showAgentMenu(at?: { x: number; y: number }): void
   /**
-   * The chat header's More menu, under the button: Create Pull Request, Archived Chats, Pop
+   * The chat header's More menu, under the button: Source Control, Archived Chats, Pop
    * Out. Main does Pop Out itself; the rest come back as `onChatMenuChoice`.
    */
   showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void

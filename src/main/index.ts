@@ -477,6 +477,11 @@ function isShipRequest(value: unknown): value is ShipRequest {
   if (!value || typeof value !== 'object') return false
   const request = value as Record<string, unknown>
   return (
+    (request.mode === undefined || request.mode === 'commit' || request.mode === 'share') &&
+    (request.files === undefined ||
+      (Array.isArray(request.files) &&
+        request.files.length <= 100_000 &&
+        request.files.every((path) => isString(path) && path.length <= 4096))) &&
     isString(request.branch) &&
     request.branch.length <= 200 &&
     isString(request.title) &&

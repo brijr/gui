@@ -3065,7 +3065,7 @@ export class ProjectTab {
     const choose = (choice: ChatMenuChoice) => this.sendChat(Events.chatMenuChoice, choice)
     const template: MenuItemConstructorOptions[] = [
       {
-        label: ship.open ? 'Close Pull Request' : 'Create Pull Request…',
+        label: ship.open ? 'Close Source Control' : 'Source Control…',
         enabled: !ship.busy,
         click: () => choose('pullRequest'),
       },

@@ -852,6 +852,8 @@ export interface ShipInfo {
   branch: string | null
   /** On the repository's default branch, so shipping starts a new branch */
   onDefaultBranch: boolean
+  /** Current branch has saved commits that can be pushed without committing more files. */
+  pendingCommits?: boolean
   files: ShipFile[]
   /** Changed files left out because they may hold secrets (e.g. `.env.local`) */
   skipped: string[]
@@ -861,6 +863,10 @@ export interface ShipInfo {
 }
 
 export interface ShipRequest {
+  /** Save locally or also push and open a review. Omitted by older callers: share. */
+  mode?: 'commit' | 'share'
+  /** Repository-relative changed paths to commit; omitted means all eligible files. */
+  files?: string[]
   /** Branch to commit on; created from the current one when it differs */
   branch: string
   title: string
@@ -874,7 +880,7 @@ export interface ShipResult {
   /**
    * `created`: the PR exists (`url`). `compare`: pushed, and `url` opens the host's
    * new-PR page to finish in the browser. `pushed`: pushed to a host Gui can't link.
-   * `committed`: no remote, committed locally only.
+   * `committed`: committed locally only.
    */
   outcome: 'created' | 'compare' | 'pushed' | 'committed'
   url: string | null

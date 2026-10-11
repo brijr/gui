@@ -10,6 +10,123 @@ import { expect, test } from './helpers/test'
 const MARKER = '// Shipped from Gui e2e'
 const SECRET = 'VITE_API_TOKEN=do-not-commit'
 
+test('retrying a failed push keeps excluded edits out of the saved commit', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  const { base, root } = session.fixture
+  git(root, 'branch', '-M', 'main')
+  git(root, 'config', 'user.name', 'Gui E2E')
+  git(root, 'config', 'user.email', 'e2e@example.com')
+  git(root, 'config', 'commit.gpgsign', 'false')
+  git(root, 'config', 'core.hooksPath', '/dev/null')
+  const origin = join(base, 'origin.git')
+  git(base, 'init', '--quiet', '--bare', origin)
+  git(root, 'remote', 'add', 'origin', origin)
+  git(root, 'push', '--quiet', '-u', 'origin', 'main')
+  git(root, 'remote', 'set-head', 'origin', 'main')
+  git(root, 'remote', 'set-url', 'origin', join(base, 'unavailable.git'))
+  appendFileSync(join(root, 'src/App.tsx'), `${MARKER}\n`)
+  appendFileSync(join(root, 'src/index.css'), '\n/* Exclude this edit */\n')
+  git(root, 'add', 'src/index.css')
+  await waitFor(() => session.chat.evaluate(getShipInfo), 'ship info')
+
+  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
+  await session.chat.getByRole('checkbox', { name: 'Include src/index.css' }).dispatchEvent('click')
+  await session.chat
+    .getByRole('button', { name: 'Commit and push', exact: true })
+    .dispatchEvent('click')
+  await expect(session.chat.getByRole('alert')).toBeVisible()
+  await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
+  await expect(
+    session.chat.getByRole('checkbox', { name: 'Include src/index.css' }),
+  ).not.toBeChecked()
+  const saved = git(root, 'rev-parse', 'HEAD').trim()
+  const branch = git(root, 'symbolic-ref', '--short', 'HEAD').trim()
+  expect(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim()).toBe(
+    'src/App.tsx',
+  )
+
+  git(root, 'remote', 'set-url', 'origin', origin)
+  await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
+  await expect(session.chat.getByText('Pushed', { exact: true })).toBeVisible()
+  expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
+  expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
+  expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
+})
+
+test('source control saves selected files locally, then shares the saved commit', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  const { base, root } = session.fixture
+  git(root, 'branch', '-M', 'main')
+  git(root, 'config', 'user.name', 'Gui E2E')
+  git(root, 'config', 'user.email', 'e2e@example.com')
+  git(root, 'config', 'commit.gpgsign', 'false')
+  git(root, 'config', 'core.hooksPath', '/dev/null')
+  const origin = join(base, 'origin.git')
+  git(base, 'init', '--quiet', '--bare', origin)
+  git(root, 'remote', 'add', 'origin', origin)
+  git(root, 'push', '--quiet', '-u', 'origin', 'main')
+  git(root, 'remote', 'set-head', 'origin', 'main')
+  const before = git(root, 'rev-parse', 'HEAD').trim()
+
+  appendFileSync(join(root, 'src/App.tsx'), `${MARKER}\n`)
+  appendFileSync(join(root, 'src/index.css'), '\n/* Keep this edit for later */\n')
+  // An excluded file must remain staged, even though the commit reads the working tree.
+  git(root, 'add', 'src/index.css')
+
+  const info = await waitFor(() => session.chat.evaluate(getShipInfo), 'ship info')
+  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
+  await expect(session.chat.getByRole('checkbox', { name: 'Include src/App.tsx' })).toBeChecked()
+  await session.chat.getByRole('radio', { name: /^Save a commit/ }).dispatchEvent('click')
+  await session.chat.getByRole('checkbox', { name: 'Include src/index.css' }).dispatchEvent('click')
+  await session.chat.getByRole('textbox', { name: 'Commit message' }).fill('Save only the app edit')
+  await session.chat
+    .getByRole('button', { name: 'Save commit', exact: true })
+    .dispatchEvent('click')
+  await expect(session.chat.getByText('Commit saved', { exact: true })).toBeVisible()
+
+  const branch = info.suggestion.branch
+  const saved = git(root, 'rev-parse', 'HEAD').trim()
+  expect(saved).not.toBe(before)
+  expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe(branch)
+  expect(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim()).toBe(
+    'src/App.tsx',
+  )
+  expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
+  expect(git(origin, 'for-each-ref', '--format=%(refname)', `refs/heads/${branch}`).trim()).toBe('')
+  expect(git(origin, 'rev-parse', 'main').trim()).toBe(before)
+
+  expect((await session.chat.evaluate(() => window.gui.getProposal(false)))?.ahead).toBe(1)
+  // Share just the saved commit while the excluded file remains staged.
+  await session.chat.getByRole('button', { name: 'Back to chat' }).first().dispatchEvent('click')
+  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
+  await session.chat.getByRole('button', { name: 'Clear selection' }).dispatchEvent('click')
+  await expect(
+    session.chat.getByText('Only saved commits will be pushed. Unselected edits stay here.'),
+  ).toBeVisible()
+  await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
+  await expect(session.chat.getByText('Pushed', { exact: true })).toBeVisible()
+  expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
+  expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
+  expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
+
+  // Explicit empty or stale selections must fail before changing branches or the index.
+  appendFileSync(join(root, 'src/App.tsx'), `${MARKER} again\n`)
+  for (const files of [[], ['missing.tsx']]) {
+    await expect(
+      session.chat.evaluate(shipChanges, {
+        ...info.suggestion,
+        branch: 'should-not-exist',
+        mode: 'commit',
+        files,
+      }),
+    ).rejects.toThrow()
+    expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe(branch)
+    expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
+  }
+})
+
 /** Runs in the chat page. */
 function getShipInfo() {
   return window.gui.getShipInfo()
@@ -119,7 +236,7 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
  * git assertions above and below are what this test is for.
  */
 async function checkSheet(app: ElectronApplication, chat: Page, info: ShipInfo) {
-  await chooseFromChatMenu(app, chat, 'Create Pull Request…')
+  await chooseFromChatMenu(app, chat, 'Source Control…')
   await expect.soft(chat.getByRole('textbox', { name: 'Title' })).toHaveValue(info.suggestion.title)
   // A remote Gui can't link: no pull request page, so the action is a plain push.
   await expect.soft(chat.getByRole('button', { name: 'Commit and push' })).toHaveCount(1)

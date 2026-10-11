@@ -696,7 +696,7 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   await session.shot('permission-keys')
 
   // The PR sheet has ⌘↩ while it's open: the card waits.
-  await chooseFromChatMenu(session.app, chat, 'Create Pull Request…')
+  await chooseFromChatMenu(session.app, chat, 'Source Control…')
   await expect(chat.getByRole('button', { name: 'Back to chat' }).first()).toBeVisible()
   await waitFor(async () => !(await keys()).allow, 'Allow off under the sheet')
   expect(await keys()).toEqual({ allow: false, dontAllow: false })

@@ -42,8 +42,13 @@ function hostName(info: ShipInfo) {
 }
 
 /** What the primary button does for this branch. */
-function actionFor(info: ShipInfo, branch: string) {
-  if (!info.remote) return { label: 'Commit', running: 'Committing…' }
+function actionFor(
+  info: ShipInfo,
+  branch: string,
+  mode?: ShipRequest['mode'],
+  count = info.files.length,
+) {
+  if (!info.remote || mode === 'commit') return { label: 'Save commit', running: 'Committing…' }
   // Committing straight onto the default branch leaves nothing to review.
   const direct = info.onDefaultBranch && branch === info.branch
   // More work for a pull request that's already open: it goes into that one.
@@ -52,7 +57,7 @@ function actionFor(info: ShipInfo, branch: string) {
   if (open && !direct && branch === info.branch && hostName(info))
     return { label: 'Update pull request', running: 'Updating…' }
   if (hostName(info) && !direct) return { label: 'Create pull request', running: 'Creating…' }
-  return info.files.length > 0
+  return count > 0
     ? { label: 'Commit and push', running: 'Pushing…' }
     : { label: 'Push', running: 'Pushing…' }
 }
@@ -77,21 +82,10 @@ export function ShipSheet() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const info = loaded.kind === 'ready' ? loaded.info : null
-  // Kept from before shipping, so the finished sheet still says what it did.
-  const pull = useProposal((s) => s.proposal?.pull)
-  const updating = pull?.state === 'open' || pull?.state === 'draft'
-  const heading =
-    done || !info || !draft
-      ? updating && done?.result.outcome === 'created'
-        ? 'Update pull request'
-        : 'Create pull request'
-      : actionFor(info, draft.branch.trim()).label
-
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <PanelHeader
-        title={heading}
+        title="Source control"
         leading={
           <IconButton
             size="sm"
@@ -145,10 +139,17 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
   }, [])
 
   const branch = draft.branch.trim()
-  const action = actionFor(info, branch)
-  const ready = draft.title.trim() !== '' && branch !== '' && !busy
+  const mode = info.remote ? (draft.mode ?? 'share') : 'commit'
+  const selected = new Set(draft.files ?? info.files.map((file) => file.path))
+  const count = info.files.filter((file) => selected.has(file.path)).length
+  const action = actionFor(info, branch, mode, count)
+  const ready =
+    draft.title.trim() !== '' &&
+    branch !== '' &&
+    !busy &&
+    (count > 0 || (mode === 'share' && Boolean(info.pendingCommits) && branch === info.branch))
   // A branch problem needs the branch field, which is otherwise tucked away.
-  const showBranch = expanded || /branch name/i.test(error ?? '')
+  const showBranch = expanded || /branch/i.test(error ?? '')
 
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
@@ -162,17 +163,70 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
   return (
     <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable scroll-fade p-3">
-        <Field label="Title" htmlFor={`${id}-title`}>
+        {info.remote && (
+          <fieldset className="flex flex-col gap-1.5" disabled={busy}>
+            <legend className="mb-1 text-small font-medium text-muted">
+              What would you like to do?
+            </legend>
+            {(
+              [
+                [
+                  'share',
+                  'Share for review',
+                  'Push saved commits and selected files, then open or update a review.',
+                ],
+                [
+                  'commit',
+                  'Save a commit',
+                  'Save a version on this computer. Share it when you’re ready.',
+                ],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <label
+                key={value}
+                className={cn(
+                  'flex cursor-pointer items-start gap-2 rounded-md border p-2 text-small',
+                  mode === value ? 'border-accent bg-accent-soft' : 'border-line hover:bg-hover',
+                  busy && 'pointer-events-none opacity-40',
+                )}
+              >
+                <input
+                  type="radio"
+                  name={`${id}-mode`}
+                  value={value}
+                  checked={mode === value}
+                  disabled={value === 'commit' && info.files.length === 0}
+                  onChange={() => setShipDraft({ mode: value })}
+                  className="mt-0.5 shrink-0 accent-accent"
+                />
+                <span className="min-w-0">
+                  <span className="block font-medium">{label}</span>
+                  <span className="block text-caption text-muted">
+                    {value === 'commit' && info.files.length === 0
+                      ? 'All changes are already committed.'
+                      : hint}
+                  </span>
+                </span>
+              </label>
+            ))}
+          </fieldset>
+        )}
+        <Field
+          label={mode === 'commit' ? 'Commit message' : 'Title'}
+          htmlFor={`${id}-title`}
+          hint={mode === 'commit' ? 'A short summary of what changed.' : undefined}
+        >
           <Input
             ref={titleInput}
             id={`${id}-title`}
             value={draft.title}
             maxLength={500}
             disabled={busy}
+            aria-describedby={mode === 'commit' ? `${id}-title-hint` : undefined}
             onChange={(event) => setShipDraft({ title: event.target.value })}
           />
         </Field>
-        <Field label="Description" htmlFor={`${id}-body`}>
+        <Field label="Description (optional)" htmlFor={`${id}-body`}>
           <Textarea
             id={`${id}-body`}
             value={draft.body}
@@ -189,31 +243,86 @@ function ShipForm({ info, draft, busy }: { info: ShipInfo; draft: ShipRequest; b
           <Disclosure
             open={showBranch}
             onOpenChange={setExpanded}
-            title="Change the branch or see the files"
+            title="Change the destination branch"
             className="self-start"
           >
             <GitBranch className="size-3 shrink-0" aria-hidden="true" />
-            <BranchSummary info={info} branch={branch} />
+            <BranchSummary info={info} branch={branch} count={count} />
           </Disclosure>
           {showBranch && (
             <div className={cn(REVEAL, 'flex flex-col gap-2 pl-4')}>
-              <Field label="Branch" htmlFor={`${id}-branch`}>
+              <Field
+                label="Branch"
+                htmlFor={`${id}-branch`}
+                hint="Use a new name to create a branch, or an existing name to switch to it."
+              >
                 <Input
                   id={`${id}-branch`}
                   mono
                   value={draft.branch}
                   maxLength={200}
                   disabled={busy}
+                  aria-describedby={`${id}-branch-hint`}
                   spellCheck={false}
                   autoCapitalize="off"
                   autoCorrect="off"
                   onChange={(event) => setShipDraft({ branch: event.target.value })}
                 />
               </Field>
-              {info.files.length > 0 && <FileList files={info.files} />}
             </div>
           )}
+          <p className="text-caption text-muted">
+            {branch !== info.branch ? 'Switch to this branch, then ' : ''}
+            {mode === 'commit'
+              ? 'save the selected files locally.'
+              : info.onDefaultBranch && branch === info.branch
+                ? `push directly to ${branch} in ${info.remote?.repo}.`
+                : `push to ${info.remote?.repo} for review.`}
+          </p>
         </div>
+
+        {info.files.length > 0 ? (
+          <div className="flex flex-col gap-1.5">
+            <div className="flex flex-wrap items-center justify-between gap-1 text-small">
+              <span className="font-medium text-muted">
+                Files to commit · {count} of {info.files.length}
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() =>
+                  setShipDraft({ files: count === info.files.length ? [] : undefined })
+                }
+              >
+                {count === info.files.length ? 'Clear selection' : 'Select all'}
+              </Button>
+            </div>
+            <FileList
+              files={info.files}
+              selected={selected}
+              busy={busy}
+              onToggle={(path) => {
+                const next = new Set(selected)
+                if (next.has(path)) next.delete(path)
+                else next.add(path)
+                setShipDraft({ files: [...next] })
+              }}
+            />
+            <p className="text-caption text-subtle">
+              Selected files use their current contents, including any unstaged edits.
+            </p>
+            {count === 0 && mode === 'share' && info.pendingCommits && branch === info.branch && (
+              <p className="text-caption text-muted">
+                Only saved commits will be pushed. Unselected edits stay here.
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-small text-muted">
+            Your changes are committed locally and ready to push.
+          </p>
+        )}
 
         {info.skipped.length > 0 && (
           <p
@@ -265,12 +374,11 @@ function ShipFormSkeleton() {
 }
 
 /** "Commits to <branch> · 2 files", with the branch kept readable however long it is. */
-function BranchSummary({ info, branch }: { info: ShipInfo; branch: string }) {
-  const count = info.files.length
+function BranchSummary({ info, branch, count }: { info: ShipInfo; branch: string; count: number }) {
   const files = `${count} ${count === 1 ? 'file' : 'files'}`
   // Committed earlier, but the push didn't go through.
   const [before, after] =
-    count === 0
+    info.files.length === 0
       ? ['Saved on', '· ready to push']
       : branch === info.branch
         ? ['Commits to', `· ${files}`]
@@ -292,22 +400,54 @@ const STATUS_COLOR: Record<ShipFile['status'], string> = {
   renamed: 'text-accent-text',
 }
 
-function FileList({ files }: { files: ShipFile[] }) {
-  const more = files.length - FILE_LIMIT
+function FileList({
+  files,
+  selected,
+  busy,
+  onToggle,
+}: {
+  files: ShipFile[]
+  selected: Set<string>
+  busy: boolean
+  onToggle: (path: string) => void
+}) {
+  const [limit, setLimit] = useState(FILE_LIMIT)
+  const more = files.length - limit
   return (
-    <ul className="flex flex-col gap-0.5 text-caption">
-      {files.slice(0, FILE_LIMIT).map((file) => (
-        <li key={file.path} className="flex min-w-0 items-center gap-2">
-          <span
-            className={cn('w-3 shrink-0 font-mono', STATUS_COLOR[file.status])}
-            title={file.status}
-          >
-            {file.status[0]?.toUpperCase()}
-          </span>
-          <PathText path={file.path} className="flex-1" />
+    <ul
+      aria-label="Files to commit"
+      className="flex max-h-40 flex-col gap-0.5 overflow-y-auto scroll-stable rounded-md border border-line p-1.5 text-caption"
+    >
+      {files.slice(0, limit).map((file) => (
+        <li key={file.path}>
+          <label className="flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-hover">
+            <input
+              type="checkbox"
+              checked={selected.has(file.path)}
+              disabled={busy}
+              aria-label={`Include ${file.path}`}
+              onChange={() => onToggle(file.path)}
+              className="shrink-0 accent-accent"
+            />
+            <span
+              className={cn('w-3 shrink-0 font-mono', STATUS_COLOR[file.status])}
+              aria-hidden="true"
+              title={file.status}
+            >
+              {file.status[0]?.toUpperCase()}
+            </span>
+            <span className="sr-only">{file.status}</span>
+            <PathText path={file.path} className="flex-1" />
+          </label>
         </li>
       ))}
-      {more > 0 && <li className="pl-5 text-subtle tabular-nums">and {more} more</li>}
+      {more > 0 && (
+        <li>
+          <Button size="sm" variant="ghost" onClick={() => setLimit(limit + FILE_LIMIT)}>
+            Show more ({more} remaining)
+          </Button>
+        </li>
+      )}
     </ul>
   )
 }
@@ -387,9 +527,14 @@ function Done({ result, info }: { result: ShipResult; info: ShipInfo }) {
       )
       break
     case 'committed':
-      heading = 'Committed'
+      heading = 'Commit saved'
       detail = (
-        <>Your changes are saved on {branch}. There’s no remote, so they stay on this computer.</>
+        <>
+          Your changes are saved on {branch} on this computer.
+          {info.remote
+            ? ' Open Source control when you’re ready to share them.'
+            : ' Add a remote to share them with your team.'}
+        </>
       )
       break
   }

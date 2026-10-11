@@ -81,11 +81,11 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
 
   const files = repo.changes.map((change) => change.file)
   const newBranch = startsNewBranch(repo)
+  const pendingCommits = repo.branch !== null && (await aheadOfRemote(repo, repo.branch))
   let blocked = repo.problem
   if (!blocked && files.length === 0) {
     // Committed earlier but the push failed: shipping again just pushes.
-    const pending = !newBranch && repo.branch !== null && (await aheadOfRemote(repo, repo.branch))
-    if (!pending) blocked = NOTHING_TO_SHIP
+    if (!pendingCommits) blocked = NOTHING_TO_SHIP
   }
   // Said up front rather than after the user writes a title; ship() checks again.
   if (!blocked && files.length > 0) {
@@ -100,12 +100,15 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
       ? filesTitle(files)
       : ((await gitOrNull(repo, ['log', '-1', '--format=%s'])) ?? 'Update')
   const branch =
-    newBranch || repo.branch === null ? uniqueBranch(`gui/${slugify(title)}`, repo) : repo.branch
+    (newBranch && (files.length > 0 || !pendingCommits)) || repo.branch === null
+      ? uniqueBranch(`gui/${slugify(title)}`, repo)
+      : repo.branch
 
   return {
     blocked,
     branch: repo.branch,
     onDefaultBranch: repo.branch !== null && repo.branch === repo.defaultBranch,
+    pendingCommits,
     files,
     skipped: repo.skipped,
     remote: repo.remote && { host: repo.remote.host, repo: repo.remote.repo },
@@ -121,6 +124,15 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
     throw new Error(readError(error))
   }
   if (repo.problem) throw new Error(repo.problem)
+  if (request.mode === 'commit' && repo.changes.length === 0) {
+    throw new Error('No changes to commit. Choose Share for review to push saved commits.')
+  }
+  // Validate the selection before switching branches or changing the index.
+  const pushOnly =
+    request.mode !== 'commit' &&
+    request.branch.trim() === repo.branch &&
+    (await aheadOfRemote(repo, request.branch.trim()))
+  selectChanges(repo.changes, request.files, pushOnly)
 
   const connected =
     repo.remote?.host === 'github' && repo.remote.web === 'github.com'
@@ -158,8 +170,15 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
     switched = await switchBranch(repo, branch)
     status = await readChanges(repo)
   }
-  const { changes, stagedSecrets } = status
   const undo = () => (switched ? undoSwitch(repo, branch, switched, start, startCommit) : null)
+  let changes: Change[]
+  try {
+    changes = selectChanges(status.changes, request.files, pushOnly)
+  } catch (error) {
+    await undo()
+    throw error
+  }
+  const { stagedSecrets } = status
 
   if (changes.length > 0) {
     const leak = await findLeak(repo, changes, env)
@@ -181,7 +200,8 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
   const commit = (await git(repo, ['rev-parse', '--short', 'HEAD'])).trim()
 
   const remote = repo.remote
-  if (!remote) return { branch, commit, outcome: 'committed', url: null }
+  if (!remote || request.mode === 'commit')
+    return { branch, commit, outcome: 'committed', url: null }
 
   let pushOutput: string
   try {
@@ -453,6 +473,23 @@ async function undoSwitch(
   } catch {
     // Best effort: the changes are still in the working tree either way.
   }
+}
+
+function selectChanges(
+  changes: Change[],
+  files: string[] | undefined,
+  allowEmpty = false,
+): Change[] {
+  if (files === undefined) return changes
+  if (files.length === 0 && !allowEmpty) throw new Error('Choose at least one file to commit.')
+  const paths = new Set(files)
+  const selected = changes.filter((change) => paths.has(change.file.path))
+  if (selected.length !== paths.size) {
+    throw new Error(
+      'The selected files changed. Reopen Source control to review the current files.',
+    )
+  }
+  return selected
 }
 
 async function commitChanges(repo: Repo, changes: Change[], title: string, body: string) {

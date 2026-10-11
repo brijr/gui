@@ -292,7 +292,7 @@ function barFor(
   }
 
   // Not shared yet.
-  if (proposal.changes > 0) {
+  if (proposal.changes > 0 || proposal.ahead > 0) {
     return (
       <Strip
         icon={CircleDot}
@@ -301,12 +301,17 @@ function barFor(
           <>
             {behind > 0 && !proposal.onDefaultBranch && bringIn('Bring in latest')}
             <Button size="sm" variant="primary" onClick={toggleShipSheet}>
-              Share for review
+              {proposal.changes > 0 ? 'Review changes' : 'Share for review'}
             </Button>
           </>
         }
       >
-        <span className="truncate">{plural(proposal.changes, 'change')} not shared yet</span>
+        <span className="truncate" title={proposal.branch ?? undefined}>
+          {proposal.changes > 0
+            ? `${plural(proposal.changes, 'uncommitted file')}`
+            : `${plural(proposal.ahead, 'commit')} ready to share`}
+          {proposal.branch && ` on ${proposal.branch}`}
+        </span>
       </Strip>
     )
   }

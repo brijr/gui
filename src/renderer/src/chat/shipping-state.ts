@@ -59,10 +59,15 @@ export async function loadShipInfo() {
     loaded = { kind: 'blocked', message: readableError(error) }
   }
   if (current !== generation) return
-  useShipSheet.setState(({ draft }) => ({
-    loaded,
-    draft: draft ?? (loaded.kind === 'ready' ? suggestionFor(loaded.info) : null),
-  }))
+  useShipSheet.setState(({ draft }) => {
+    if (loaded.kind !== 'ready') return { loaded }
+    if (!draft) return { loaded, draft: suggestionFor(loaded.info) }
+    // A failed push may have saved the selected files already. Keep other edits excluded
+    // and allow retrying just the push, rather than accidentally committing those edits.
+    const paths = new Set(loaded.info.files.map((file) => file.path))
+    const files = draft.files?.filter((path) => paths.has(path))
+    return { loaded, draft: { ...draft, files } }
+  })
 }
 
 /**
@@ -85,6 +90,8 @@ export async function submitShip(info: ShipInfo) {
   const { draft, busy } = useShipSheet.getState()
   if (!draft || busy) return
   const request = {
+    mode: info.remote ? (draft.mode ?? 'share') : 'commit',
+    files: draft.files,
     branch: draft.branch.trim(),
     title: draft.title.trim(),
     body: draft.body.trim(),

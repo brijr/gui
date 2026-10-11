@@ -208,8 +208,16 @@ async function behindLatest(repo: Repo): Promise<number | null> {
 async function aheadOfShared(repo: Repo): Promise<number> {
   if (!repo.remote || !repo.branch || !repo.hasHead) return 0
   const tracking = `refs/remotes/${repo.remote.name}/${repo.branch}`
-  if (!repo.refs.has(tracking)) return 0
-  const count = await gitOrNull(repo, ['rev-list', '--count', `${tracking}..HEAD`, '--'])
+  const shared = repo.defaultBranch && `refs/remotes/${repo.remote.name}/${repo.defaultBranch}`
+  // A local commit on a newly created branch has no upstream yet. Compare with the
+  // shared branch so it stays visible until the first push sets up tracking.
+  const base = repo.refs.has(tracking) ? tracking : shared && repo.refs.has(shared) ? shared : null
+  const count = await gitOrNull(repo, [
+    'rev-list',
+    '--count',
+    base ? `${base}..HEAD` : 'HEAD',
+    '--',
+  ])
   return Number(count) || 0
 }
 
