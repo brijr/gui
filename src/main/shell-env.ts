@@ -14,6 +14,31 @@ const FALLBACK_PATHS = [
   '/sbin',
 ]
 
+/**
+ * What an agent's terminal marks its commands with. Gui started from one inherits them, and
+ * tools that detect agents act on them in everything Gui starts: Astro 7's `astro dev`
+ * detaches into the background, leaving a server Gui can't stop or show the output of.
+ */
+const AGENT_MARKERS = new Set([
+  'AGENT',
+  'AI_AGENT',
+  'AMP_CURRENT_THREAD_ID',
+  'ANTIGRAVITY_AGENT',
+  'AUGMENT_AGENT',
+  'CLAUDECODE',
+  'CLAUDE_PID',
+  'CODEX_THREAD_ID',
+  'CRUSH',
+  'GEMINI_CLI',
+  'OPENCODE',
+  'QWEN_CODE',
+])
+/** Claude Code's session variables. Settings like CLAUDE_CODE_USE_BEDROCK in a shell profile come back with the login shell's env. */
+const AGENT_MARKER_PREFIXES = ['CLAUDE_CODE_']
+
+const isAgentMarker = (key: string) =>
+  AGENT_MARKERS.has(key) || AGENT_MARKER_PREFIXES.some((prefix) => key.startsWith(prefix))
+
 let cached: Promise<NodeJS.ProcessEnv> | null = null
 
 /**
@@ -28,6 +53,8 @@ export function getShellEnv(): Promise<NodeJS.ProcessEnv> {
 async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
   const shell = process.env.SHELL || '/bin/zsh'
   const base = { ...process.env }
+  // Before the login shell runs, so what the user's profile sets still comes through.
+  for (const key of Object.keys(base)) if (isAgentMarker(key)) delete base[key]
   const resolved = await new Promise<string | null>((resolve) => {
     execFile(
       shell,
