@@ -20,6 +20,8 @@ interface Layout {
   chat: { bounds: Rect; visible: boolean; window: number } | null
   preview: Rect | null
   lights: { x: number; y: number } | null
+  /** The preview mid-morph, resizing on its way (preview-morph.ts) */
+  morphing: boolean
 }
 
 /** Runs in main: where the chat and the preview are, across the app's windows. */
@@ -48,14 +50,15 @@ function layout({ BrowserWindow, WebContentsView }: ElectronModule): Layout {
       : null,
     preview: main ? (views(main).find(isPreview)?.getBounds() ?? null) : null,
     lights: main?.getWindowButtonPosition() ?? null,
+    morphing: ((globalThis as { guiMorphing?: Set<number> }).guiMorphing?.size ?? 0) > 0,
   }
 }
 
 function layoutWhen(session: GuiSession, label: string, check: (layout: Layout) => boolean) {
   return waitFor(async () => {
     const now = await session.app.evaluate(layout)
-    // Mid-morph the preview waits off the window's left edge.
-    return now.preview && now.preview.x >= 0 && check(now) ? now : null
+    // Mid-morph the preview isn't where it's going yet.
+    return now.preview && !now.morphing && check(now) ? now : null
   }, label)
 }
 

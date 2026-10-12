@@ -7,11 +7,12 @@ import { sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
-// Layout changes morph the preview rather than jump it (src/main/preview-morph.ts, renderer
-// app/layout-morph.ts): main captures the preview, the chrome draws that snapshot and springs it
-// from the old layout to the new one while the live view waits out of sight at its new layout,
-// then the live view comes back in place and the snapshot goes. These record the snapshot every
-// frame in the chrome and the live view's bounds in main as it happens.
+// Layout changes resize the live preview into their new layout rather than jump it, the way
+// dragging a window's edge would (src/main/preview-morph.ts, renderer app/layout-morph.ts):
+// main springs the view's bounds and its emulated viewport on the display's frames, the page
+// laying itself out again at every size on the way, and the chrome draws the device frame
+// around it. These record the live view's bounds in main, the page's width in the preview, and
+// what the chrome draws, every frame, as it happens.
 //
 // GUI_E2E_MORPH_FRAMES=<dir> also writes the window, as on screen, mid-morph there.
 
@@ -20,21 +21,29 @@ type ElectronModule = typeof import('electron/main')
 
 /** Short enough for CI's screen. */
 const WINDOW = { width: 1200, height: 800 }
-/**
- * A change whose snapshot takes longer than 40 ms is instant (preview-morph.ts). CI's runner,
- * without a GPU, captures slower than that, so these give it longer; the last test checks the
- * instant change itself.
- */
-const MORPHING = { GUI_E2E_CAPTURE_BUDGET_MS: '2000' }
 /** Room for a jump across one dropped frame at the spring's fastest, and no more. */
 const MAX_STEP = 150
 /**
- * Over a longer gap between frames (CI's runner, without a GPU, is often late), the snapshot
- * may cover more ground, but no faster than this, in px per ms of frame time: the springs step
- * by the frames' own times, and peak under 9 px/ms here (a change mid-morph, carrying its speed
- * into the next). A jump is several times faster.
+ * Over a longer gap between samples (CI's runner, without a GPU, is often late), the view may
+ * cover more ground, but no faster than this, in px per ms: the springs step by real time, and
+ * peak under 9 px/ms here (a change mid-morph, carrying its speed into the next). A jump is
+ * several times faster.
  */
 const MAX_SPEED = 12
+/**
+ * The drawer and the toolbar slide on the chrome's own spring, started when main's first frame
+ * of the morph arrives, so their edge can trail the view's by about a frame at the spring's
+ * fastest, and no more.
+ */
+const MAX_TRAIL = 32
+
+interface MainStore {
+  guiViewSamples?: ViewSample[]
+  guiViewSampler?: NodeJS.Timeout
+  guiViewStart?: number
+  guiMark?: number
+  guiMorphing?: Set<number>
+}
 
 /** Runs in main, in a task of its own: the preview view of the first window. */
 async function liveView({ BrowserWindow, WebContentsView }: ElectronModule) {
@@ -46,7 +55,13 @@ async function liveView({ BrowserWindow, WebContentsView }: ElectronModule) {
   )
   if (!win || !view) return null
   const [width = 0, height = 0] = win.getContentSize()
-  return { bounds: view.getBounds(), visible: view.getVisible(), content: { width, height } }
+  const morphing = ((globalThis as unknown as MainStore).guiMorphing?.size ?? 0) > 0
+  return {
+    bounds: view.getBounds(),
+    visible: view.getVisible(),
+    morphing,
+    content: { width, height },
+  }
 }
 
 function setContentSize(
@@ -62,13 +77,6 @@ interface ViewSample {
   visible: boolean
   /** The chat view, while it shows */
   chat: Rect | null
-}
-
-interface MainStore {
-  guiViewSamples?: ViewSample[]
-  guiViewSampler?: NodeJS.Timeout
-  guiMorphTimings?: { capture: number; wait: number; encode: number }[]
-  guiMorphFallbacks?: { reason: string; capture?: number }[]
 }
 
 /** Runs in main: records the preview view's bounds every 4 ms until `stopSampling`. */
@@ -87,8 +95,10 @@ function startSampling({ BrowserWindow, WebContentsView }: ElectronModule) {
   const samples: ViewSample[] = []
   const start = performance.now()
   store.guiViewSamples = samples
+  store.guiViewStart = start
+  store.guiMark = undefined
   const sample = () => {
-    const t = Math.round(performance.now() - start)
+    const t = performance.now() - start
     const chatBounds = chat?.getVisible() ? chat.getBounds() : null
     samples.push({ t, bounds: view.getBounds(), visible: view.getVisible(), chat: chatBounds })
   }
@@ -100,17 +110,13 @@ function startSampling({ BrowserWindow, WebContentsView }: ElectronModule) {
 function stopSampling() {
   const store = globalThis as unknown as MainStore
   if (store.guiViewSampler) clearInterval(store.guiViewSampler)
-  return store.guiViewSamples ?? []
+  return { samples: store.guiViewSamples ?? [], mark: store.guiMark ?? null }
 }
 
-/** Runs in main: how long each snapshot took (preview-morph.ts keeps them in unpackaged builds). */
-function captureTimings() {
-  return (globalThis as unknown as MainStore).guiMorphTimings ?? []
-}
-
-/** Runs in main: why each instant change didn't morph. */
-function captureFallbacks() {
-  return (globalThis as unknown as MainStore).guiMorphFallbacks ?? []
+/** Runs in main: notes when (on the sampler's clock) the next change was asked for. */
+function markNow() {
+  const store = globalThis as unknown as MainStore
+  store.guiMark = performance.now() - (store.guiViewStart ?? 0)
 }
 
 interface Box {
@@ -121,16 +127,10 @@ interface Box {
 }
 
 interface ChromeFrame {
-  /** When the frame's callback ran */
-  t: number
-  /** The frame's own time, which the springs step by (both from when recording started) */
-  frame: number
-  /** The snapshot's clip box, as drawn */
-  box: Box | null
-  /** Its pictures, bottom to top: opacity and drawn width */
-  layers: { opacity: number; width: number }[]
-  /** The device frame's edge it draws */
+  /** The device frame's edge the chrome draws around the view mid-morph */
   edge: { box: Box; opacity: number } | null
+  /** Where main last said the view is, mid-morph */
+  view: Box | null
   /** The drawer, and the bars above the canvas, as drawn */
   drawer: Box | null
   bars: { box: Box; opacity: number } | null
@@ -139,9 +139,8 @@ interface ChromeFrame {
 interface ChromeStore {
   guiFrames?: ChromeFrame[]
   guiRecording?: boolean
-  guiMark?: number
   /** The morph events main sent since recording started, and how to stop listening */
-  guiMorphs?: { type: string; reduced?: boolean }[]
+  guiMorphs?: string[]
   guiMorphsOff?: () => void
 }
 
@@ -149,46 +148,34 @@ interface ChromeStore {
 function startRecording() {
   const store = globalThis as unknown as ChromeStore
   const frames: ChromeFrame[] = []
-  const start = performance.now()
   store.guiFrames = frames
   store.guiRecording = true
-  store.guiMark = undefined
-  const morphs: { type: string; reduced?: boolean }[] = []
+  const morphs: string[] = []
   store.guiMorphs = morphs
+  let view: Box | null = null
   store.guiMorphsOff?.()
   store.guiMorphsOff = window.gui.onMorph((event) => {
-    morphs.push({
-      type: event.type,
-      reduced: event.type === 'snapshot' ? event.reduced : undefined,
-    })
+    morphs.push(event.type)
+    view = event.type === 'frame' ? event.rect : null
   })
   const rect = (el: Element | null) => {
     if (!el) return null
     const { x, y, width, height } = el.getBoundingClientRect()
     return { x, y, width, height }
   }
-  const record = (now: number) => {
-    const box = document.querySelector('[data-morph-snapshot]')
+  const record = () => {
     const edge = document.querySelector<HTMLElement>('[data-morph-frame]')
     const bars =
       document.querySelector('[aria-label="Viewport"]')?.closest('header')?.parentElement ?? null
-    const drawer = document.querySelector('section[aria-label="Terminal"]')
-    const layers = [...(box?.querySelectorAll('canvas') ?? [])].map((img) => ({
-      opacity: Number(getComputedStyle(img).opacity),
-      width: img.getBoundingClientRect().width,
-    }))
-    const drawerBox = rect(drawer)
+    const drawerBox = rect(document.querySelector('section[aria-label="Terminal"]'))
     frames.push({
-      t: performance.now() - start,
-      frame: now - start,
-      box: rect(box),
-      layers,
       edge: edge
         ? {
             box: rect(edge) ?? { x: 0, y: 0, width: 0, height: 0 },
             opacity: Number(edge.style.opacity || 1),
           }
         : null,
+      view,
       drawer: drawerBox && drawerBox.height > 0 ? drawerBox : null,
       bars: bars
         ? {
@@ -200,7 +187,6 @@ function startRecording() {
     if (store.guiRecording) requestAnimationFrame(record)
   }
   requestAnimationFrame(record)
-  return start
 }
 
 function stopRecording() {
@@ -208,26 +194,37 @@ function stopRecording() {
   store.guiRecording = false
   store.guiMorphsOff?.()
   store.guiMorphsOff = undefined
-  return { frames: store.guiFrames ?? [], mark: store.guiMark ?? null }
+  return { frames: store.guiFrames ?? [], morphs: store.guiMorphs ?? [] }
 }
 
-/**
- * Runs in the chrome page: a morph has come and gone since recording started. Main's `end`
- * closes it, or with Reduce motion (which never moves the view, so main doesn't end it) the
- * snapshot's fade having finished.
- */
+interface PageStore {
+  guiWidths?: number[]
+  guiWidthsRecording?: boolean
+}
+
+/** Runs in the preview's page: the width the page is laid out at, every frame. */
+function startWidths() {
+  const store = globalThis as unknown as PageStore
+  const widths: number[] = []
+  store.guiWidths = widths
+  store.guiWidthsRecording = true
+  const record = () => {
+    if (widths.at(-1) !== innerWidth) widths.push(innerWidth)
+    if (store.guiWidthsRecording) requestAnimationFrame(record)
+  }
+  record()
+}
+
+function stopWidths() {
+  const store = globalThis as unknown as PageStore
+  store.guiWidthsRecording = false
+  return store.guiWidths ?? []
+}
+
+/** Runs in the chrome page: a morph has come and gone since recording started. */
 function morphOver() {
   const events = (globalThis as unknown as ChromeStore).guiMorphs ?? []
-  if (!events.some((event) => event.type === 'pending')) return false
-  if (document.querySelector('[data-morph]')) return false
-  const last = events.at(-1)?.type
-  const reduced = events.some((event) => event.reduced === true)
-  return last === 'end' || (reduced && last === 'target')
-}
-
-/** Runs in the chrome page: notes when (on the recording's clock) the next change was asked for. */
-function markNow(start: number) {
-  ;(globalThis as unknown as ChromeStore).guiMark = performance.now() - start
+  return events.includes('pending') && events.at(-1) === 'end'
 }
 
 const EVIDENCE = process.env.GUI_E2E_MORPH_FRAMES
@@ -293,16 +290,16 @@ async function placement(session: GuiSession): Promise<Rect> {
 const same = (a: Rect, b: Rect) =>
   a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 
-const near = (a: Box | null, b: Rect, slack = 1.5) =>
-  a !== null &&
+const near = (a: Box | null | undefined, b: Rect, slack = 1.5) =>
+  !!a &&
   Math.abs(a.x - b.x) <= slack &&
   Math.abs(a.y - b.y) <= slack &&
   Math.abs(a.width - b.width) <= slack &&
   Math.abs(a.height - b.height) <= slack
 
 /**
- * Waits for the morph to be over: the live view visible at exactly where main lays the preview
- * out, and no snapshot left in the chrome.
+ * Waits for the morph to be over: main done with it, the live view visible at exactly where
+ * main lays the preview out, and no device frame of the morph's left in the chrome.
  */
 async function landed(
   session: GuiSession,
@@ -314,7 +311,7 @@ async function landed(
       if (morph && !(await session.chrome.evaluate(morphOver))) return null
       const view = await session.app.evaluate(liveView)
       const expected = await placement(session)
-      if (!view?.visible || !same(view.bounds, expected)) return null
+      if (!view?.visible || view.morphing || !same(view.bounds, expected)) return null
       const morphs = await session.chrome.locator('[data-morph]').count()
       return morphs === 0 ? { view, expected } : null
     },
@@ -325,65 +322,51 @@ async function landed(
 
 interface Recording {
   frames: ChromeFrame[]
-  mark: number | null
+  morphs: string[]
   samples: ViewSample[]
+  mark: number | null
+  /** The distinct widths the page was laid out at, in order */
+  widths: number[]
 }
 
-/** Records the chrome's frames and the live view's bounds while `act` runs and the morph lands. */
+/** Records the live view, the page and the chrome while `act` runs and the morph lands. */
 async function record(
   session: GuiSession,
-  act: (start: number) => Promise<unknown>,
+  act: () => Promise<unknown>,
   label: string,
+  { morph = true }: { morph?: boolean } = {},
 ): Promise<Recording & { end: Awaited<ReturnType<typeof landed>> }> {
+  const preview = await session.previewPage()
+  await preview.evaluate(startWidths)
   await session.app.evaluate(startSampling)
-  const start = await session.chrome.evaluate(startRecording)
-  const end = await act(start).then(() => landed(session, label, { morph: true }))
+  await session.chrome.evaluate(startRecording)
+  const end = await act().then(() => landed(session, label, { morph }))
   // A little longer: nothing may move once it has landed.
   await sleep(150)
-  const { frames, mark } = await session.chrome.evaluate(stopRecording)
-  const samples = await session.app.evaluate(stopSampling)
-  return { frames, mark, samples, end }
+  const { frames, morphs } = await session.chrome.evaluate(stopRecording)
+  const { samples, mark } = await session.app.evaluate(stopSampling)
+  const widths = await preview.evaluate(stopWidths)
+  return { frames, morphs, samples, mark, widths, end }
+}
+
+/** The live view's distinct bounds, in order, each with when it was first seen. */
+function viewPath(samples: ViewSample[]) {
+  const path: (Rect & { t: number; visible: boolean })[] = []
+  for (const { t, bounds, visible } of samples) {
+    const last = path.at(-1)
+    if (last && same(last, bounds) && last.visible === visible) continue
+    path.push({ t, visible, ...bounds })
+  }
+  return path
 }
 
 /**
- * The snapshot's rects, each once, in order. `previous` is the time of the frame recorded before
- * each: the recorder's callback can run before or after the morph's in a frame, so a rect may
- * be the one drawn a frame earlier.
+ * The steps from one of the view's bounds to the next that move further than the spring
+ * could in the time between them: none, for a continuous resize. Logs the largest step.
  */
-function boxes(frames: ChromeFrame[]) {
-  const all = frames.flatMap((frame, i) =>
-    frame.box
-      ? [
-          {
-            t: frame.t,
-            frame: frame.frame,
-            previous: frames[i - 1]?.frame ?? frame.frame,
-            ...frame.box,
-          },
-        ]
-      : [],
-  )
-  return all.filter((box, i) => {
-    const last = all[i - 1]
-    return (
-      !last ||
-      Math.abs(box.x - last.x) > 0.05 ||
-      Math.abs(box.y - last.y) > 0.05 ||
-      Math.abs(box.width - last.width) > 0.05 ||
-      Math.abs(box.height - last.height) > 0.05
-    )
-  })
-}
-
-/**
- * The steps from one drawn rect to the next that move further than the spring could in the
- * frame time that can have passed between them (from the frame before the first): none, for a
- * continuous morph. Logs the largest step, with that frame time and how long its callback came
- * after the last.
- */
-function jumps(path: (Box & { t: number; frame: number; previous: number })[], label: string) {
-  const found: { t: number; frames: number; step: number }[] = []
-  let largest = { step: 0, frames: 0, callbacks: 0 }
+function jumps(path: (Rect & { t: number })[], label: string) {
+  const found: { t: number; ms: number; step: number }[] = []
+  let largest = { step: 0, ms: 0 }
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1]
     const b = path[i]
@@ -394,30 +377,26 @@ function jumps(path: (Box & { t: number; frame: number; previous: number })[], l
       Math.abs(a.width - b.width),
       Math.abs(a.height - b.height),
     )
-    const frames = b.frame - a.previous
-    if (step > largest.step) largest = { step, frames, callbacks: b.t - a.t }
-    if (step >= Math.max(MAX_STEP, MAX_SPEED * frames)) {
-      found.push({ t: Math.round(b.t), frames: Math.round(frames), step: Math.round(step) })
+    // The sampler sees a step up to its interval after it happened.
+    const ms = b.t - a.t + 4
+    if (step > largest.step) largest = { step, ms }
+    if (step >= Math.max(MAX_STEP, MAX_SPEED * ms)) {
+      found.push({ t: Math.round(b.t), ms: Math.round(ms), step: Math.round(step) })
     }
   }
-  const ms = (value: number) => `${Math.round(value)} ms`
   console.log(
-    `[e2e] ${label}: largest step ${Math.round(largest.step)} px, over ${ms(largest.frames)} ` +
-      `of frame time (${ms(largest.callbacks)} between callbacks)`,
+    `[e2e] ${label}: ${path.length} sizes, largest step ${Math.round(largest.step)} px ` +
+      `over ${Math.round(largest.ms)} ms`,
   )
   return found
 }
 
-/** The live view's distinct bounds, in order, and whether each was out of sight. */
-function viewPath(samples: ViewSample[], contentHeight: number) {
-  const path: { bounds: Rect; outOfSight: boolean; visible: boolean }[] = []
-  for (const { bounds, visible } of samples) {
-    const last = path.at(-1)
-    if (last && same(last.bounds, bounds) && last.visible === visible) continue
-    const outOfSight = bounds.x === 1 - bounds.width && bounds.y === contentHeight - 1
-    path.push({ bounds, outOfSight, visible })
-  }
-  return path
+/** Never back the way it came: each value no further from `to` than the one before. */
+function monotonic(values: number[], to: number, slack = 0.5) {
+  return values.every(
+    (value, i) =>
+      i === 0 || Math.abs(value - to) <= Math.abs((values[i - 1] ?? value) - to) + slack,
+  )
 }
 
 async function setViewport(session: GuiSession, viewport: Viewport) {
@@ -431,149 +410,100 @@ async function ready(session: GuiSession) {
   return landed(session, 'the preview at the test size')
 }
 
-const latency = { capture: [] as number[], wait: [] as number[], encode: [] as number[] }
-
-async function collectTimings(session: GuiSession) {
-  for (const timing of await session.app.evaluate(captureTimings)) {
-    latency.capture.push(timing.capture)
-    latency.wait.push(timing.wait)
-    latency.encode.push(timing.encode)
-  }
-}
-
-/** The sessions the running test launched, for its log if it fails. */
-const launched: GuiSession[] = []
-function tracked(session: GuiSession) {
-  launched.push(session)
-  return session
-}
-
-// A failure says why its morph fell back, if it did (CI captures slower than a Mac with a GPU).
-test.afterEach(async ({ keepTemp: _keepTemp }, testInfo) => {
-  const sessions = launched.splice(0)
-  if (testInfo.status === testInfo.expectedStatus) return
-  for (const session of sessions) {
-    const fallbacks = await session.app.evaluate(captureFallbacks).catch(() => [])
-    console.log(`[e2e] morphs that fell back: ${JSON.stringify(fallbacks)}`)
-  }
-})
-
-test.afterAll(() => {
-  const stats = (values: number[]) => {
-    const sorted = [...values].sort((a, b) => a - b)
-    const median = sorted[Math.floor(sorted.length / 2)] ?? 0
-    const fixed = (value: number) => Number(value.toFixed(1))
-    return `min ${fixed(sorted[0] ?? 0)} / median ${fixed(median)} / max ${fixed(sorted.at(-1) ?? 0)} ms`
-  }
-  if (latency.capture.length === 0) return
-  console.log(
-    `[e2e] preview snapshots (${latency.capture.length}): capturePage ${stats(latency.capture)}; ` +
-      `asked to captured ${stats(latency.wait)}; JPEG ${stats(latency.encode)}`,
-  )
-})
-
-test('a viewport switch morphs a snapshot from the old frame to the new one', async ({
+test('a viewport switch resizes the live page from the old frame to the new one', async ({
   launch,
 }) => {
-  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
+  const session = await launch({ fixture: 'vite' })
   const { view: desktop } = await ready(session)
-  const captures = (await session.app.evaluate(captureTimings)).length
 
-  const { frames, samples, end } = await withEvidence(session, 'desktop-to-mobile', () =>
+  const { frames, samples, widths, end } = await withEvidence(session, 'desktop-to-mobile', () =>
     record(session, () => setViewport(session, 'mobile'), 'the mobile frame, landed'),
   )
   const mobile = end.expected
   expect(mobile.width).toBeLessThan(desktop.bounds.width / 2)
 
-  // The snapshot started where the desktop preview was, moved over many frames without
-  // jumping, and came to rest exactly on the mobile frame.
-  const path = boxes(frames)
+  // The view itself moved, on screen the whole way, over many frames without jumping, from the
+  // desktop preview to exactly the mobile frame.
+  const path = viewPath(samples)
   expect(path.length).toBeGreaterThan(6)
-  expect(near(path[0] ?? null, desktop.bounds)).toBe(true)
-  expect(near(path.at(-1) ?? null, mobile)).toBe(true)
+  expect(path.every((step) => step.visible)).toBe(true)
+  expect(near(path[0], desktop.bounds, 0)).toBe(true)
+  expect(near(path.at(-1), mobile, 0)).toBe(true)
   expect(jumps(path, 'desktop to mobile')).toEqual([])
   // Critically damped: it narrows all the way without widening again.
-  for (let i = 1; i < path.length; i++) {
-    expect(path[i]?.width ?? 0).toBeLessThanOrEqual((path[i - 1]?.width ?? 0) + 0.5)
-  }
+  expect(
+    monotonic(
+      path.map((step) => step.width),
+      mobile.width,
+    ),
+  ).toBe(true)
   const between = path.filter(
-    (box) => box.width < desktop.bounds.width - 40 && box.width > mobile.width + 40,
+    (step) => step.width < desktop.bounds.width - 40 && step.width > mobile.width + 40,
   )
   expect(between.length).toBeGreaterThan(2)
-  // The device frame's edge came in with it; and the page's new layout cross-faded in under the
-  // old picture while it moved.
+
+  // The page laid itself out at sizes on the way, like a window being resized, and is a
+  // phone's now.
+  const reflowed = widths.filter((width) => width < desktop.bounds.width - 40 && width > 430)
+  console.log(`[e2e] the page laid out at ${widths.length} widths on the way to the phone`)
+  expect(reflowed.length).toBeGreaterThan(2)
+  expect(monotonic(widths, 390, 1)).toBe(true)
+  expect(widths.at(-1)).toBe(390)
+
+  // The device frame's edge came in around it.
   const edges = frames.flatMap((frame) => (frame.edge ? [frame.edge.opacity] : []))
   expect(edges.some((opacity) => opacity > 0.05 && opacity < 0.95)).toBe(true)
-  expect(frames.some((frame) => frame.layers.length === 2)).toBe(true)
-
-  // The live view: in place until the snapshot showed, then out of sight at its new size, then
-  // back exactly where main lays it out. Never on screen anywhere in between.
-  const live = viewPath(samples, desktop.content.height)
-  expect(live[0]?.bounds).toEqual(desktop.bounds)
-  expect(live.at(-1)?.bounds).toEqual(mobile)
-  expect(live.every((step) => step.visible)).toBe(true)
-  const middle = live.slice(1, -1)
-  expect(middle.length).toBeGreaterThan(0)
-  for (const step of middle) {
-    expect(step.outOfSight).toBe(true)
-    expect(step.bounds.width).toBe(mobile.width)
-    expect(step.bounds.height).toBe(mobile.height)
-  }
-  // One snapshot, and the page is a phone's.
-  expect((await session.app.evaluate(captureTimings)).length).toBe(captures + 1)
-  const preview = await session.previewPage()
-  expect(await preview.evaluate(() => innerWidth)).toBe(390)
-  await collectTimings(session)
 })
 
-test('a change mid-morph carries on from where the snapshot is, without capturing again', async ({
-  launch,
-}) => {
-  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
+test('a change mid-morph carries on from where the view is', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
   const { view: desktop } = await ready(session)
-  const captures = (await session.app.evaluate(captureTimings)).length
 
-  const { frames, mark, end } = await record(
+  const { samples, mark, end } = await record(
     session,
-    async (start) => {
+    async () => {
       await setViewport(session, 'mobile')
-      // Mid-flight: the snapshot has narrowed by a good part of the way.
+      // Mid-flight: the view has narrowed by a good part of the way.
       await waitFor(
-        () =>
-          session.chrome.evaluate((width) => {
-            const box = document.querySelector('[data-morph-snapshot]')
-            const now = box?.getBoundingClientRect().width ?? width
-            return now < width * 0.8 && now > width * 0.45
-          }, desktop.bounds.width),
-        'the snapshot mid-morph',
+        async () => {
+          const view = await session.app.evaluate(liveView)
+          const width = view?.bounds.width ?? desktop.bounds.width
+          return width < desktop.bounds.width * 0.8 && width > desktop.bounds.width * 0.45
+        },
+        'the view mid-morph',
         { timeout: 5_000, interval: 5 },
       )
-      await session.chrome.evaluate(markNow, start)
+      await session.app.evaluate(markNow)
       await setViewport(session, 'tablet')
     },
     'the tablet frame, landed',
   )
   if (mark === null) throw new Error('No mark')
   const tablet = end.expected
-  const path = boxes(frames)
-  const after = path.filter((box) => box.t > mark)
-  const before = path.filter((box) => box.t <= mark)
+  const path = viewPath(samples)
+  const before = path.filter((step) => step.t <= mark)
+  const after = path.filter((step) => step.t > mark)
   expect(before.length).toBeGreaterThan(2)
   expect(after.length).toBeGreaterThan(4)
   // Continuous through the change: no jump back to where it started, or anywhere else.
   expect(jumps(path, 'mobile, then tablet mid-morph')).toEqual([])
-  expect(after.some((box) => near(box, desktop.bounds, 20))).toBe(false)
-  expect(near(path.at(-1) ?? null, tablet)).toBe(true)
-  // The one snapshot from before the first change.
-  expect((await session.app.evaluate(captureTimings)).length).toBe(captures + 1)
-  await collectTimings(session)
+  expect(after.some((step) => near(step, desktop.bounds, 20))).toBe(false)
+  expect(near(path.at(-1), tablet, 0)).toBe(true)
 })
 
-test('the drawer slides with the preview it covers, and both land exactly', async ({ launch }) => {
-  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
+test('the drawer slides with the preview it pushes, and both land exactly', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
   const { view: desktop } = await ready(session)
 
-  // Opening: the snapshot is clipped from the bottom as the drawer rises with its edge.
+  // The drawer's top against the view's bottom, each frame both moved.
+  const trail = (frames: ChromeFrame[]) =>
+    frames.flatMap((frame) =>
+      frame.view && frame.drawer
+        ? [Math.abs(frame.drawer.y - (frame.view.y + frame.view.height))]
+        : [],
+    )
+
+  // Opening: the page gets shorter as the drawer rises with its edge.
   const open = await withEvidence(session, 'drawer-open', () =>
     record(
       session,
@@ -584,28 +514,23 @@ test('the drawer slides with the preview it covers, and both land exactly', asyn
   const shorter = open.end.expected
   expect(shorter.height).toBeLessThan(desktop.bounds.height - 100)
   expect(shorter.width).toBe(desktop.bounds.width)
-  const rising = boxes(open.frames)
+  const rising = viewPath(open.samples)
   expect(rising.length).toBeGreaterThan(5)
-  expect(near(rising[0] ?? null, desktop.bounds)).toBe(true)
-  expect(near(rising.at(-1) ?? null, shorter)).toBe(true)
-  // Clipped, not scaled: the picture keeps its size while the box shrinks.
-  for (const frame of open.frames) {
-    for (const layer of frame.layers)
-      expect(Math.abs(layer.width - desktop.bounds.width)).toBeLessThan(1)
+  expect(near(rising[0], desktop.bounds, 0)).toBe(true)
+  expect(near(rising.at(-1), shorter, 0)).toBe(true)
+  expect(jumps(rising, 'drawer opening')).toEqual([])
+  // Only its height changes: its top and sides stay put, the page laid out at its width.
+  for (const step of rising) {
+    expect(step.x).toBe(desktop.bounds.x)
+    expect(step.y).toBe(desktop.bounds.y)
+    expect(step.width).toBe(desktop.bounds.width)
   }
-  const tracking = (frames: ChromeFrame[]) =>
-    frames.flatMap((frame) =>
-      frame.box && frame.drawer
-        ? [Math.abs(frame.drawer.y - (frame.box.y + frame.box.height))]
-        : [],
-    )
-  const gapsOpen = tracking(open.frames)
+  const gapsOpen = trail(open.frames)
   expect(gapsOpen.length).toBeGreaterThan(5)
-  expect(Math.max(...gapsOpen)).toBeLessThan(4)
-  const drawerTops = [...new Set(open.frames.flatMap((f) => (f.drawer ? [f.drawer.y] : [])))]
-  expect(drawerTops.length).toBeGreaterThan(5)
+  console.log(`[e2e] drawer opening: its edge at most ${Math.round(Math.max(...gapsOpen))} px off`)
+  expect(Math.max(...gapsOpen)).toBeLessThan(MAX_TRAIL)
 
-  // Closing: the drawer goes down and the preview's edge follows it.
+  // Closing: the drawer goes down and the page's edge follows it.
   const close = await withEvidence(session, 'drawer-close', () =>
     record(
       session,
@@ -614,13 +539,15 @@ test('the drawer slides with the preview it covers, and both land exactly', asyn
     ),
   )
   expect(close.end.expected).toEqual(desktop.bounds)
-  const falling = boxes(close.frames)
+  const falling = viewPath(close.samples)
   expect(falling.length).toBeGreaterThan(5)
-  expect(near(falling[0] ?? null, shorter)).toBe(true)
-  expect(near(falling.at(-1) ?? null, desktop.bounds)).toBe(true)
-  const gapsClose = tracking(close.frames)
+  expect(near(falling[0], shorter, 0)).toBe(true)
+  expect(near(falling.at(-1), desktop.bounds, 0)).toBe(true)
+  expect(jumps(falling, 'drawer closing')).toEqual([])
+  const gapsClose = trail(close.frames)
   expect(gapsClose.length).toBeGreaterThan(5)
-  expect(Math.max(...gapsClose)).toBeLessThan(4)
+  console.log(`[e2e] drawer closing: its edge at most ${Math.round(Math.max(...gapsClose))} px off`)
+  expect(Math.max(...gapsClose)).toBeLessThan(MAX_TRAIL)
   // The drawer is gone from the layout, with nothing left of its slide.
   const drawer = await session.chrome.evaluate(() => {
     const section = document.querySelector<HTMLElement>('section[aria-label="Terminal"]')
@@ -628,25 +555,28 @@ test('the drawer slides with the preview it covers, and both land exactly', asyn
   })
   expect(drawer?.height).toBeLessThanOrEqual(1)
   expect(drawer?.transform).toBe('')
-  await collectTimings(session)
 })
 
-test('zoom steps, focus mode and docking morph, and land on their exact layout', async ({
+test('zoom steps, focus mode and docking resize the page, and land on their exact layout', async ({
   launch,
 }) => {
-  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
+  const session = await launch({ fixture: 'vite' })
   const { view: desktop } = await ready(session)
 
-  // Zoom in on Desktop: the frame stays, the picture inside scales up from its middle.
+  // Zoom in on Desktop: the view stays, and the page lays out narrower and narrower inside it
+  // as it's drawn larger, like a browser zooming smoothly.
   const zoom = await withEvidence(session, 'zoom-in', () =>
     record(session, () => session.chrome.evaluate(() => window.gui.zoomPreview(1)), 'zoomed in'),
   )
   expect(zoom.end.expected).toEqual(desktop.bounds)
-  const scaled = zoom.frames.flatMap((frame) => frame.layers.map((layer) => layer.width))
-  expect(scaled.some((width) => width > desktop.bounds.width + 20)).toBe(true)
+  expect(viewPath(zoom.samples).length).toBe(1)
+  const zoomed = Math.round(desktop.bounds.width / 1.1)
+  const zooming = zoom.widths.filter(
+    (width) => width < desktop.bounds.width - 5 && width > zoomed + 5,
+  )
+  expect(zooming.length).toBeGreaterThan(1)
+  expect(Math.abs((zoom.widths.at(-1) ?? 0) - zoomed)).toBeLessThanOrEqual(1)
   expect((await session.state()).preview.zoom).toBe(1.1)
-  // Its morph over before the next change: the view doesn't move for a zoom, so only the
-  // morph's end says it's done.
   await record(session, () => session.chrome.evaluate(() => window.gui.zoomPreview(0)), 'at 100%')
   expect((await session.state()).preview.zoom).toBe(1)
 
@@ -655,10 +585,11 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
     record(session, () => session.chrome.evaluate(() => window.gui.setFocusMode(true)), 'focused'),
   )
   expect(focus.end.expected.y).toBe(FOCUS_BAR_HEIGHT)
-  const growing = boxes(focus.frames)
+  const growing = viewPath(focus.samples)
   expect(growing.length).toBeGreaterThan(5)
-  expect(near(growing[0] ?? null, desktop.bounds)).toBe(true)
-  expect(near(growing.at(-1) ?? null, focus.end.expected)).toBe(true)
+  expect(near(growing[0], desktop.bounds, 0)).toBe(true)
+  expect(near(growing.at(-1), focus.end.expected, 0)).toBe(true)
+  expect(jumps(growing, 'focus mode')).toEqual([])
   const bars = focus.frames.flatMap((frame) => (frame.bars ? [frame.bars.opacity] : []))
   expect(bars.some((opacity) => opacity > 0.05 && opacity < 0.95)).toBe(true)
 
@@ -670,16 +601,18 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
     ),
   )
   expect(unfocus.end.expected).toEqual(desktop.bounds)
-  expect(boxes(unfocus.frames).length).toBeGreaterThan(5)
+  expect(viewPath(unfocus.samples).length).toBeGreaterThan(5)
 
-  // The chat as the sidebar: the preview gives up its left side, uncovered then cross-faded.
+  // The chat as the sidebar: the page narrows as it slides in.
   const dock = await withEvidence(session, 'dock', () =>
     record(session, () => session.chat.evaluate(() => window.gui.toggleDock()), 'docked'),
   )
   expect(dock.end.expected.width).toBeLessThan(desktop.bounds.width - 200)
-  const narrowing = boxes(dock.frames)
+  const narrowing = viewPath(dock.samples)
   expect(narrowing.length).toBeGreaterThan(5)
-  expect(near(narrowing.at(-1) ?? null, dock.end.expected)).toBe(true)
+  expect(near(narrowing.at(-1), dock.end.expected, 0)).toBe(true)
+  expect(jumps(narrowing, 'docking')).toEqual([])
+  expect(dock.widths.length).toBeGreaterThan(3)
   // The sidebar slid in from past the window's left edge, rather than appearing.
   const docked = dock.samples.flatMap((sample) => (sample.chat ? [sample.chat.x] : []))
   const slid = docked.filter((x, i) => i === 0 || x !== docked[i - 1])
@@ -692,103 +625,38 @@ test('zoom steps, focus mode and docking morph, and land on their exact layout',
     'floating again',
   )
   expect(undock.end.expected).toEqual(desktop.bounds)
-  await collectTimings(session)
 })
 
-test('a click on the moving snapshot puts the live view in its new place at once', async ({
+test('with Reduce motion on, the preview changes in place and nothing slides', async ({
   launch,
 }) => {
-  const session = tracked(await launch({ fixture: 'vite', env: MORPHING }))
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   const { view: desktop } = await ready(session)
-  await setViewport(session, 'mobile')
-  const box = await waitFor(
+
+  const { frames, morphs, samples, widths, end } = await withEvidence(
+    session,
+    'reduced-mobile',
     () =>
-      session.chrome.evaluate((width) => {
-        const snapshot = document.querySelector('[data-morph-snapshot]')
-        const rect = snapshot?.getBoundingClientRect()
-        if (!rect || rect.width > width * 0.85) return null
-        return { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-      }, desktop.bounds.width),
-    'the snapshot on its way',
-    { timeout: 5_000, interval: 5 },
+      record(session, () => setViewport(session, 'mobile'), 'the mobile frame', { morph: false }),
   )
-  const clicked = Date.now()
-  await session.chrome.mouse.click(box.x + box.width / 2, box.y + 40)
-  const { expected } = await landed(session, 'the live view after the click', { timeout: 2_000 })
-  const took = Date.now() - clicked
-  // The spring had a good way to go; the click didn't wait for it.
-  expect(took).toBeLessThan(250)
-  expect(expected.width).toBeLessThan(box.width - 40)
-  console.log(`[e2e] a click mid-morph showed the live view after ${took} ms`)
-  await collectTimings(session)
-})
-
-test('with Reduce motion on, the preview changes in place and the snapshot only fades', async ({
-  launch,
-}) => {
-  const session = tracked(await launch({ fixture: 'vite', env: MORPHING, reducedMotion: 'reduce' }))
-  const { view: desktop } = await ready(session)
-
-  const { frames, samples, end } = await withEvidence(session, 'reduced-mobile', () =>
-    record(session, () => setViewport(session, 'mobile'), 'the mobile frame'),
-  )
-  // The live view went straight from one layout to the other: never out of sight, never between.
-  const live = viewPath(samples, desktop.content.height)
-  expect(live.map((step) => step.bounds)).toEqual([desktop.bounds, end.expected])
-  // The snapshot never moved: it faded out where the desktop preview was.
-  const path = boxes(frames)
-  expect(path.length).toBeLessThanOrEqual(1)
-  for (const frame of frames) if (frame.box) expect(near(frame.box, desktop.bounds)).toBe(true)
-  const opacities = frames.flatMap((frame) => frame.layers.map((layer) => layer.opacity))
-  expect(opacities.some((opacity) => opacity > 0.05 && opacity < 0.95)).toBe(true)
+  // Straight from one layout to the other: no sizes between, for the view or the page.
+  expect(viewPath(samples).map(({ x, y, width, height }) => ({ x, y, width, height }))).toEqual([
+    desktop.bounds,
+    end.expected,
+  ])
+  // The page itself may see the view's new size for a frame before its emulation applies.
+  expect(widths.length).toBeLessThanOrEqual(3)
+  expect(widths.at(-1)).toBe(390)
+  expect(morphs).toEqual([])
+  expect(frames.some((frame) => frame.edge)).toBe(false)
 
   // The drawer fades in place rather than sliding.
   const drawer = await record(
     session,
     () => session.chrome.evaluate(() => window.gui.setDrawerOpen(true)),
     'the drawer open',
+    { morph: false },
   )
   const tops = new Set(drawer.frames.flatMap((frame) => (frame.drawer ? [frame.drawer.y] : [])))
   expect(tops.size).toBe(1)
-  await collectTimings(session)
-})
-
-test('a snapshot slower than its budget makes the change instant, the view straight to its place', async ({
-  launch,
-}) => {
-  // No time at all to capture: every change falls back.
-  const session = tracked(
-    await launch({ fixture: 'vite', env: { GUI_E2E_CAPTURE_BUDGET_MS: '0' } }),
-  )
-  const { view: desktop } = await ready(session)
-  const captures = (await session.app.evaluate(captureTimings)).length
-  const fellBack = (await session.app.evaluate(captureFallbacks)).length
-
-  const { frames, samples, end } = await record(
-    session,
-    () => setViewport(session, 'mobile'),
-    'the mobile frame, at once',
-  )
-  const mobile = end.expected
-  expect(mobile.width).toBeLessThan(desktop.bounds.width / 2)
-
-  // Nothing drawn in the chrome, and the live view went from where it was to where it goes,
-  // never out of sight.
-  expect(boxes(frames)).toEqual([])
-  const events = await session.chrome.evaluate(
-    () => (globalThis as unknown as ChromeStore).guiMorphs ?? [],
-  )
-  expect(events.map((event) => event.type)).toEqual(['pending', 'end'])
-  const live = viewPath(samples, desktop.content.height)
-  expect(live.map((step) => step.bounds)).toEqual([desktop.bounds, mobile])
-  expect(live.every((step) => step.visible && !step.outOfSight)).toBe(true)
-  // Said why, once its late capture came back; and not kept as a snapshot.
-  await waitFor(
-    async () => (await session.app.evaluate(captureFallbacks)).length > fellBack || null,
-    'the fallback noted',
-  )
-  expect((await session.app.evaluate(captureFallbacks)).at(-1)?.reason).toBe('slow')
-  expect((await session.app.evaluate(captureTimings)).length).toBe(captures)
-  const preview = await session.previewPage()
-  expect(await preview.evaluate(() => innerWidth)).toBe(390)
 })

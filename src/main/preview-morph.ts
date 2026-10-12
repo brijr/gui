@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks'
-import type { BrowserWindow } from 'electron'
+import { app, type BrowserWindow } from 'electron'
 import { Spring } from '../shared/motion'
 import {
   type MorphEvent,
@@ -38,6 +38,13 @@ const MAX_STEP = 0.1
 
 /** Unique across tabs, so the chrome never takes one tab's morph for another's. */
 let lastId = 0
+
+/**
+ * The morphs armed or moving, by id, for the end-to-end tests to wait out (unpackaged builds
+ * only): mid-morph the view is between layouts.
+ */
+const morphing = new Set<number>()
+if (!app.isPackaged) (globalThis as { guiMorphing?: Set<number> }).guiMorphing = morphing
 
 type Phase = 'idle' | 'armed' | 'moving'
 
@@ -103,6 +110,7 @@ export class PreviewMorph {
     this.kind = kind
     this.from = from
     this.phase = 'armed'
+    morphing.add(this.id)
     // First, so the chrome holds the drawer or the toolbar until the preview moves with them.
     this.send({ type: 'pending', kind })
     this.clearTimer()
@@ -134,6 +142,7 @@ export class PreviewMorph {
     const id = this.id
     const moved = this.phase === 'moving'
     this.phase = 'idle'
+    morphing.delete(id)
     this.clearTimer()
     this.stopFrames?.()
     this.stopFrames = null

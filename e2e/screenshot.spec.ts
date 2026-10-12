@@ -288,9 +288,8 @@ async function chatLayout({ BrowserWindow, WebContentsView }: ElectronModule) {
   const chat = views.find((view) => view.webContents.getURL().endsWith('/chat.html'))
   const preview = views.find((view) => /^https?:\/\//.test(view.webContents.getURL()))
   if (!chat?.getVisible() || !preview) return null
-  // Mid-morph the preview waits out of sight, off the window's left edge (preview-morph.ts),
-  // and the layout isn't where it's going yet.
-  if (preview.getBounds().x < 0) return null
+  // Mid-morph the preview resizes on its way (preview-morph.ts): not where it's going yet.
+  if ((globalThis as { guiMorphing?: Set<number> }).guiMorphing?.size) return null
   const [width = 0, height = 0] = win.getContentSize()
   return { chat: chat.getBounds(), preview: preview.getBounds(), content: { width, height } }
 }

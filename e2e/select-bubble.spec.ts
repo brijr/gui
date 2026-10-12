@@ -27,6 +27,8 @@ interface Views {
   chat: Rect
   chatVisible: boolean
   preview: Rect
+  /** The preview mid-morph, resizing on its way (preview-morph.ts) */
+  morphing: boolean
 }
 
 /** Runs in main: the chat and preview views of the first window. */
@@ -39,18 +41,23 @@ function views({ BrowserWindow, WebContentsView }: ElectronModule): Views | null
   const chat = children.find((view) => view.webContents.getURL().endsWith('/chat.html'))
   const preview = children.find((view) => /^https?:\/\//.test(view.webContents.getURL()))
   if (!chat || !preview) return null
-  return { chat: chat.getBounds(), chatVisible: chat.getVisible(), preview: preview.getBounds() }
+  const morphing = (globalThis as { guiMorphing?: Set<number> }).guiMorphing?.size ?? 0
+  return {
+    chat: chat.getBounds(),
+    chatVisible: chat.getVisible(),
+    preview: preview.getBounds(),
+    morphing: morphing > 0,
+  }
 }
 
 /**
  * Waits for the visible chat view's bounds to satisfy `check`, outside a morph of the preview's
- * layout (mid-morph the preview waits out of sight, off the window's left edge, and a docked
- * chat slides in).
+ * layout (mid-morph the preview resizes on its way, and a docked chat slides in).
  */
 function chatWhere(session: GuiSession, label: string, check: (chat: Rect) => boolean) {
   return waitFor(async () => {
     const layout = await session.app.evaluate(views)
-    const settled = layout !== null && layout.preview.x >= 0
+    const settled = layout !== null && !layout.morphing
     return settled && layout.chatVisible && check(layout.chat) ? layout : null
   }, label)
 }
