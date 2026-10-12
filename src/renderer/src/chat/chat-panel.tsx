@@ -53,6 +53,7 @@ import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './pro
 import { openShipSheet, ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
 import { connectChat, keyedAnswer, setDraft, useChat, waitingCard } from './store'
 import { TurnView } from './turn-view'
+import { closeVersions, toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
 
 /** Fields ⌘⌫ deletes typing in. */
 const TEXT_INPUT = /^(text|search|url|email|password|tel|number)$/
@@ -77,7 +78,8 @@ function answerPermissionKeys() {
     if (!event.metaKey || modifiers || event.isComposing) return
     const allow = event.key === 'Enter'
     if (!allow && event.key !== 'Backspace') return
-    if (useShipSheet.getState().open || (!allow && typing(event.target))) return
+    if (useShipSheet.getState().open || useVersions.getState().open) return
+    if (!allow && typing(event.target)) return
     const answer = keyedAnswer(useChat.getState().turns, allow)
     if (!answer) return
     event.preventDefault()
@@ -152,8 +154,10 @@ export function ChatPanel() {
  */
 function Body({ meta, turnIds, running }: { meta: ChatMeta; turnIds: string[]; running: boolean }) {
   const shipping = useShipSheet((s) => s.open)
+  const versioning = useVersions((s) => s.open)
   const reviewing = useProposal((s) => s.reviewing)
   if (shipping) return <ShipSheet />
+  if (versioning) return <VersionsSheet />
   if (reviewing) return <ReviewSheet />
   return (
     <>
@@ -501,8 +505,11 @@ function MoreButton({ shipping, shipBusy }: { shipping: boolean; shipBusy: boole
   useEffect(
     () =>
       gui.onChatMenuChoice((choice) => {
-        if (choice === 'pullRequest') toggleShipSheet()
-        else setArchive(true)
+        if (choice === 'versions') toggleVersions()
+        else if (choice === 'pullRequest') {
+          closeVersions()
+          toggleShipSheet()
+        } else setArchive(true)
       }),
     [],
   )

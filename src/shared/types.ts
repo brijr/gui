@@ -926,6 +926,30 @@ export interface ShipResult {
 }
 
 /**
+ * One saved state of the project's files, from Gui's checkpoints: a finished turn's
+ * end, a version the user named, or the state saved automatically just before a
+ * restore. Versions live on this computer; publishing commits the current files
+ * through Source Control.
+ */
+export interface Version {
+  id: string
+  /** Checkpoint commit in the shadow repo */
+  sha: string
+  kind: 'turn' | 'named' | 'safety'
+  /** The turn's request, the user's name, or what the restore was making way for */
+  name: string
+  createdAt: number
+  /** Files this version changed from the one before it; null when that isn't known */
+  changes: FileChange[] | null
+  /** The turn it ends, for `kind: 'turn'` */
+  turnId?: string
+  /** The turn was undone with Undo, for `kind: 'turn'` */
+  reverted?: boolean
+  /** The project's files match this version now, as far as checkpoints record them */
+  current?: boolean
+}
+
+/**
  * Where the project's work stands on its way into the shared codebase: the bar over the
  * chat. Said without Git's words where it can: "the latest" is the default branch.
  */

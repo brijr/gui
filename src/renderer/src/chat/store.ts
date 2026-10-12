@@ -13,6 +13,7 @@ import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
 import { closeShipSheet, useShipSheet } from './shipping-state'
 import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
+import { closeVersions, useVersions } from './versions-state'
 
 interface ChatStore {
   meta: ChatMeta | null
@@ -123,9 +124,12 @@ function attachFromMain(image: ImageAttachment) {
  */
 function chooseModel() {
   if (!useChat.getState().meta?.models) return
-  // The sheet hides the composer; its draft is kept. It stays while it's creating the PR.
+  // The sheets hide the composer; their drafts are kept. They stay while busy.
   closeShipSheet()
-  if (!useShipSheet.getState().open) useChat.setState({ pickModel: true })
+  closeVersions()
+  if (!useShipSheet.getState().open && !useVersions.getState().open) {
+    useChat.setState({ pickModel: true })
+  }
 }
 
 function applySnapshot(snapshot: ChatSnapshot) {

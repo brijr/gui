@@ -30,6 +30,7 @@ import type {
   StartCommandInput,
   StorageKind,
   TerminalId,
+  Version,
   Viewport,
   WindowState,
 } from './types'
@@ -60,6 +61,9 @@ export const Invoke = {
   githubCreate: 'github:create',
   newProject: 'project:new',
   send: 'chat:send',
+  listVersions: 'versions:list',
+  saveVersion: 'versions:save',
+  restoreVersion: 'versions:restore',
   restoreTurn: 'chat:restore',
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
@@ -183,7 +187,7 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 
 /** Main → renderer */
 /** What the chat's More menu hands back to the chat page to do. */
-export type ChatMenuChoice = 'pullRequest' | 'archive'
+export type ChatMenuChoice = 'pullRequest' | 'archive' | 'versions'
 
 export const Events = {
   state: 'state',
@@ -477,6 +481,12 @@ export interface GuiApi {
   setShipSheetOpen(open: boolean): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
+  /** This chat's versions of the project's files, newest first; null without a project */
+  getVersions(): Promise<Version[] | null>
+  /** Saves the files as they are now as a named version; rejects with a readable message */
+  saveVersion(name: string): Promise<Version>
+  /** Puts the files back to a version, saving how they are now first */
+  restoreVersion(id: string): Promise<void>
   /** Archives this chat and starts an empty one (`ChatMeta.archived` offers it back) */
   newSession(): void
   /** The project's archived chats, newest first */

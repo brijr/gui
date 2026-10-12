@@ -82,7 +82,7 @@ async function ask(
 const textOf = (result: ToolResult) =>
   result.content.flatMap((item) => (item.type === 'text' ? [item.text ?? ''] : [])).join('\n')
 
-test('the agent reads source control and earlier turns, and proposes a commit for the user', async ({
+test('the agent reads source control, versions and earlier turns, and proposes a commit', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
@@ -102,10 +102,12 @@ test('the agent reads source control and earlier turns, and proposes a commit fo
   expect(textOf(clean)).toContain('No uncommitted changes.')
   appendFileSync(join(root, 'src/App.tsx'), '\n// Proposed by the agent\n')
   appendFileSync(join(root, 'src/index.css'), '\n/* Left out of the proposal */\n')
+  await session.chat.evaluate(() => window.gui.saveVersion('Agent-visible checkpoint'))
 
-  const [status, turns, proposed] = await ask(session, [
+  const [status, turns, versions, proposed] = await ask(session, [
     { name: 'source_control_status' },
     { name: 'chat_turns' },
+    { name: 'versions_list' },
     {
       name: 'source_control_propose',
       args: {
@@ -119,6 +121,11 @@ test('the agent reads source control and earlier turns, and proposes a commit fo
   expect(textOf(status)).toContain('Branch: main')
   expect(textOf(status)).toContain('modified src/App.tsx')
   expect(textOf(turns)).toContain('source_control_status')
+  expect(versions.isError).not.toBe(true)
+  expect(textOf(versions)).toContain('Agent-visible checkpoint')
+  expect(textOf(versions)).toContain('kind: named')
+  expect(textOf(versions)).toContain('current: yes')
+  expect(textOf(versions)).toContain('modified src/App.tsx')
   expect(proposed.isError).not.toBe(true)
 
   // The sheet opens filled in once the turn is over; nothing is committed until the user ships.

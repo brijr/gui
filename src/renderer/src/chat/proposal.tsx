@@ -29,6 +29,7 @@ import {
   useProposal,
 } from './proposal-state'
 import { toggleShipSheet, useShipSheet } from './shipping-state'
+import { useVersions } from './versions-state'
 
 export { refreshProposal, useProposal } from './proposal-state'
 
@@ -70,11 +71,16 @@ export function useProposalUpdates() {
     const offSheet = useShipSheet.subscribe((sheet, before) => {
       if (before.open && !sheet.open) void refreshProposal()
     })
+    // Restoring a version rewrites files, so the uncommitted count changes with it.
+    const offVersions = useVersions.subscribe((sheet, before) => {
+      if (before.open && !sheet.open) void refreshProposal()
+    })
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
       offTurns()
       offSheet()
+      offVersions()
     }
   }, [])
 }

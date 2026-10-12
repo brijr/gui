@@ -30,6 +30,9 @@ export interface AllIpcRequests {
   [Invoke.githubCreate]: Contract<'createGitHub'>
   [Invoke.newProject]: Contract<'newProject'>
   [Invoke.send]: Contract<'send'>
+  [Invoke.listVersions]: Contract<'getVersions'>
+  [Invoke.saveVersion]: Contract<'saveVersion'>
+  [Invoke.restoreVersion]: Contract<'restoreVersion'>
   [Invoke.restoreTurn]: Contract<'restoreTurn'>
   [Invoke.redo]: Contract<'redo'>
   [Invoke.fixProblems]: Contract<'fixProblems'>

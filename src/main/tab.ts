@@ -93,7 +93,7 @@ import {
 } from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
-import { describeSourceControl, describeTurns } from './mcp-app-tools'
+import { describeSourceControl, describeTurns, describeVersions } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
@@ -679,6 +679,7 @@ export class ProjectTab {
       const mcp = await startMcpServer(tools, recordings, {
         sourceControlStatus: () => this.sourceControlForAgent(),
         proposeShip: (draft) => this.proposeShipForAgent(draft),
+        versions: (limit) => this.versionsForAgent(limit),
         turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
       }).catch((error: unknown) => {
         console.error('[gui] preview tools unavailable', error)
@@ -1605,6 +1606,13 @@ export class ProjectTab {
     return describeSourceControl(info, proposal)
   }
 
+  /** versions_list: what the Versions sheet shows, for an agent helping find a restore point. */
+  private async versionsForAgent(limit: number) {
+    const chat = this.resources.chat
+    if (!this.state.project || !chat) throw new Error('No project is open')
+    return describeVersions(await chat.listVersions(), limit, chat.turnRunning)
+  }
+
   /** source_control_propose: Source Control opens with it when the turn ends. */
   private proposeShipForAgent(draft: ShipDraft) {
     if (!this.state.project) throw new Error('No project is open')
@@ -1997,6 +2005,22 @@ export class ProjectTab {
 
   restoreTurn(turnId: string) {
     return this.resources.chat?.restoreTurn(turnId)
+  }
+
+  listVersions() {
+    return this.resources.chat?.listVersions() ?? null
+  }
+
+  saveVersion(name: string) {
+    const chat = this.resources.chat
+    if (!chat) throw new Error('No project is open.')
+    return chat.saveVersion(name)
+  }
+
+  restoreVersion(id: string) {
+    const chat = this.resources.chat
+    if (!chat) throw new Error('No project is open.')
+    return chat.restoreVersion(id)
   }
 
   redo() {
@@ -3137,6 +3161,7 @@ export class ProjectTab {
     if (!this.hasProject) return
     const choose = (choice: ChatMenuChoice) => this.sendChat(Events.chatMenuChoice, choice)
     const template: MenuItemConstructorOptions[] = [
+      { label: 'Versions…', click: () => choose('versions') },
       {
         label: ship.open ? 'Close Source Control' : 'Source Control…',
         enabled: !ship.busy,

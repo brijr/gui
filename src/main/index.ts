@@ -713,6 +713,17 @@ function registerIpc() {
     if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
     return requireTab(event).restoreTurn(turnId)
   })
+  handleLegacy(Invoke.listVersions, (event) => tabFor(event)?.listVersions() ?? null)
+  handleLegacy(Invoke.saveVersion, (event, name: unknown) => {
+    if (!isString(name) || name.length > 1000)
+      throw new IpcRequestError('invalid_request', 'Invalid version name.')
+    return requireTab(event).saveVersion(name)
+  })
+  handleLegacy(Invoke.restoreVersion, (event, id: unknown) => {
+    if (!isString(id) || id.length > 200)
+      throw new IpcRequestError('invalid_request', 'Invalid version.')
+    return requireTab(event).restoreVersion(id)
+  })
   handleLegacy(Invoke.redo, (event) => requireTab(event).redo())
   handleLegacy(Invoke.fixProblems, (event) => tabFor(event)?.fixProblems() ?? false)
   handleLegacy(Invoke.fixStartup, (event) => tabFor(event)?.fixStartup() ?? false)

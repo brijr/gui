@@ -16,9 +16,10 @@ import {
   type RecordingAttachment,
   type Turn,
   type TurnItem,
+  type Version,
 } from '../shared/types'
 import { asidePath, writeFileAtomic } from './atomic-file'
-import { serializeHistory } from './history-format'
+import { serializeHistory, settleVersions } from './history-format'
 import type { PromptViewport } from './prompt'
 
 /** Everything needed to reopen a project's chat where it left off, including undo. */
@@ -53,6 +54,12 @@ export interface SavedChat {
    * doesn't lose them (absent with none, and in archived chats)
    */
   queue?: SavedQueued[]
+  /**
+   * Versions of the project's files the user named, and the states saved automatically
+   * before a restore (absent with none, and in older files). Turn versions are derived
+   * from `turns` and `checkpoints`, so only these are stored.
+   */
+  versions?: Version[]
 }
 
 export interface SavedQueued {
@@ -146,6 +153,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
       redo: parsed.redo ?? null,
       commands: settleCommands(parsed.commands),
       queue: settleQueue(parsed.queue),
+      versions: settleVersions(parsed.versions),
     }
   } catch (error) {
     // Keep what's there for recovery instead of letting the next save overwrite it.
@@ -203,6 +211,9 @@ export async function chatReferences(root: string): Promise<ChatReferences | nul
         if (typeof point?.after === 'string') found.checkpoints.add(point.after)
       }
       if (typeof saved.redo?.sha === 'string') found.checkpoints.add(saved.redo.sha)
+      for (const version of Array.isArray(saved.versions) ? saved.versions : []) {
+        if (typeof version?.sha === 'string') found.checkpoints.add(version.sha)
+      }
       const queued = Array.isArray(saved.queue) ? saved.queue.map((entry) => entry?.message) : []
       for (const turn of [...(Array.isArray(saved.turns) ? saved.turns : []), ...queued]) {
         for (const clip of Array.isArray(turn?.recordings) ? turn.recordings : []) {
@@ -401,6 +412,7 @@ function settleItem(item: TurnItem): TurnItem {
   }
 }
 
+export { MAX_VERSIONS } from './history-format'
 export { flushHistorySync, HistoryWriter } from './history-writer'
 
 // Archived chats: each project's live chat file stays where it is (`historyFile`), and the

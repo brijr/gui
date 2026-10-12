@@ -243,6 +243,25 @@ export class Checkpoints {
     })
   }
 
+  /** Each checkpoint's tree, so snapshots of identical files compare equal. */
+  trees(shas: string[]): Promise<Map<string, string>> {
+    return this.enqueue(async () => {
+      for (const sha of shas) assertSha(sha)
+      const repo = await this.ready()
+      const trees = new Map<string, string>()
+      for (const batch of chunk([...new Set(shas)])) {
+        const revs = batch.map((sha) => `${sha}^{tree}`)
+        const out = await this.git(repo, ['rev-parse', ...revs], { workTree: false })
+        const lines = out.split('\n').filter(Boolean)
+        batch.forEach((sha, index) => {
+          const tree = lines[index]
+          if (tree) trees.set(sha, tree)
+        })
+      }
+      return trees
+    })
+  }
+
   restore(sha: string, paths: string[]): Promise<void> {
     return this.enqueue(async () => {
       assertSha(sha)

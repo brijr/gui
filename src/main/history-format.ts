@@ -1,3 +1,4 @@
+import type { FileChange, Version } from '../shared/types'
 import type { SavedChat } from './history'
 
 /** Query strings and fragments can carry tokens; history only needs the page. */
@@ -97,6 +98,59 @@ export async function* historyChunks(chat: SavedChat, chunkBytes = 128 * 1024) {
     }
   }
   if (parts.length) yield parts.join('')
+}
+
+const VERSION_ID = /^[a-f0-9-]{36}$/
+const VERSION_SHA = /^[0-9a-f]{4,64}$/i
+/** How many named and pre-restore versions a chat keeps */
+export const MAX_VERSIONS = 100
+const MAX_VERSION_NAME = 200
+const MAX_VERSION_CHANGES = 5000
+
+function isFileChange(value: unknown): value is FileChange {
+  if (!value || typeof value !== 'object') return false
+  const { path, status, additions, deletions } = value as Record<string, unknown>
+  return (
+    typeof path === 'string' &&
+    path.length > 0 &&
+    path.length <= 1000 &&
+    (status === 'added' || status === 'modified' || status === 'deleted') &&
+    typeof additions === 'number' &&
+    Number.isFinite(additions) &&
+    typeof deletions === 'number' &&
+    Number.isFinite(deletions)
+  )
+}
+
+/**
+ * The saved named and pre-restore versions, keeping only whole ones: the file is just
+ * JSON on disk, and a bad entry mustn't cost the chat its history.
+ */
+export function settleVersions(value: unknown): Version[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const versions = value.flatMap((entry): Version[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const { id, sha, kind, name, createdAt, changes } = entry as Record<string, unknown>
+    if (typeof id !== 'string' || !VERSION_ID.test(id)) return []
+    if (typeof sha !== 'string' || !VERSION_SHA.test(sha)) return []
+    if (kind !== 'named' && kind !== 'safety') return []
+    if (typeof name !== 'string' || !name.trim()) return []
+    if (typeof createdAt !== 'number' || !Number.isFinite(createdAt)) return []
+    const kept = Array.isArray(changes)
+      ? changes.filter(isFileChange).slice(0, MAX_VERSION_CHANGES)
+      : null
+    return [
+      {
+        id,
+        sha,
+        kind,
+        name: name.replace(/\s+/g, ' ').trim().slice(0, MAX_VERSION_NAME),
+        createdAt,
+        changes: Array.isArray(changes) ? kept : null,
+      },
+    ]
+  })
+  return versions.length ? versions.slice(-MAX_VERSIONS) : undefined
 }
 
 export type HistoryWriteRequest =
