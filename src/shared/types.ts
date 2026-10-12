@@ -569,6 +569,21 @@ export interface PickOverlayState {
   scale: number
   /** Counts the times picking started, so the overlay can greet each one */
   run: number
+  /** The agent walking the user through the page (preview_point); never while picking */
+  guide?: GuideOverlay | null
+}
+
+/** One step of the agent's walkthrough, as the overlay draws it (its coordinates). */
+export interface GuideOverlay {
+  /** The element pointed at; null for a caption on its own, or once the element is gone */
+  rect: Rect | null
+  caption: string | null
+  /** Where the agent's pointer is; null before it first moves */
+  cursor: Point | null
+  /** Bumped by each click the agent makes, so the pointer shows it */
+  clicks: number
+  /** Bumped by each step, so its caption comes in afresh */
+  step: number
 }
 
 export interface Problem {
@@ -873,6 +888,20 @@ export interface ShipRequest {
   branch: string
   title: string
   body: string
+}
+
+/**
+ * A commit or pull request the agent proposed (source_control_propose): fills in the
+ * Source Control sheet once its turn ends, for the user to review and ship.
+ */
+export interface ShipDraft {
+  mode: 'commit' | 'share'
+  title: string
+  body: string
+  /** Gui's suggestion when omitted */
+  branch?: string
+  /** Every eligible file when omitted */
+  files?: string[]
 }
 
 export interface ShipResult {

@@ -23,6 +23,7 @@ import type {
   Rect,
   SettingsSection,
   SettingsState,
+  ShipDraft,
   ShipInfo,
   ShipRequest,
   ShipResult,
@@ -121,6 +122,7 @@ export const Send = {
   pickElement: 'pick:element',
   pickArea: 'pick:area',
   pickWheel: 'pick:wheel',
+  endGuide: 'pick:end-guide',
   setCanvasRect: 'layout:canvas',
   morphShown: 'layout:morph-shown',
   morphLanded: 'layout:morph-landed',
@@ -197,6 +199,8 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatMenuChoice: 'chat:menu-choice',
+  /** The agent proposed a commit or pull request: open Source Control filled in with it */
+  chatShipDraft: 'chat:ship-draft',
   chatAttach: 'chat:attach',
   recordingAttach: 'recording:attach',
   chatFloat: 'chat:float',
@@ -370,6 +374,8 @@ export interface GuiApi {
   pickArea(rect: Rect, add: boolean): void
   /** The wheel over the overlay scrolls the page under it */
   pickWheel(at: Point, deltaX: number, deltaY: number): void
+  /** The user clicked the agent's walkthrough away */
+  endGuide(): void
   /** What the overlay draws (see `PickOverlayState`) */
   onPickState(cb: (state: PickOverlayState) => void): Unsubscribe
   setCanvasRect(rect: Rect): void
@@ -433,6 +439,8 @@ export interface GuiApi {
   onChatFocus(cb: () => void): Unsubscribe
   /** A choice from the More menu that the chat page carries out */
   onChatMenuChoice(cb: (choice: ChatMenuChoice) => void): Unsubscribe
+  /** The agent's proposed commit or pull request, once its turn ended */
+  onShipDraft(cb: (draft: ShipDraft) => void): Unsubscribe
   /**
    * What the floating chat is drawn as, and the corner it's anchored by: the panel, the pill
    * while minimized, or the bubble while the user picks an element. The view grows to a larger

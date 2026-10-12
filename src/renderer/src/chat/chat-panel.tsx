@@ -50,7 +50,7 @@ import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
 import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
-import { ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
+import { openShipSheet, ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
 import { connectChat, keyedAnswer, setDraft, useChat, waitingCard } from './store'
 import { TurnView } from './turn-view'
 
@@ -99,6 +99,7 @@ export function ChatPanel() {
       }),
     [],
   )
+  useEffect(() => gui.onShipDraft(openShipSheet), [])
   useProposalUpdates()
   const meta = useChat((s) => s.meta)
   const turnIds = useChat((s) => s.turnIds)

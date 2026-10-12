@@ -1,6 +1,6 @@
 import { type WebContents, WebContentsView } from 'electron'
 import { Events } from '../shared/ipc'
-import type { PickOverlayState, Point, Rect } from '../shared/types'
+import type { GuideOverlay, PickOverlayState, Point, Rect } from '../shared/types'
 import type { Inspector } from './inspector'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 
@@ -44,6 +44,17 @@ export class Picker {
   /** What the overlay was last sent, to skip sending the same again. */
   private lastSent: string | null = null
   private run = 0
+  /**
+   * The agent's walkthrough (preview_point): an element and a caption, and its pointer in the
+   * page's CSS pixels. Drawn over the page without the keyboard, and only while not picking.
+   */
+  private guided: {
+    node: number | null
+    caption: string | null
+    cursor: Point | null
+    clicks: number
+    step: number
+  } | null = null
 
   constructor(
     private readonly preview: WebContents,
@@ -74,11 +85,22 @@ export class Picker {
     return this.active
   }
 
+  get guiding() {
+    return this.guided !== null
+  }
+
+  /** Measured and drawn while picking or guiding. */
+  private get shown() {
+    return this.active || this.guided !== null
+  }
+
   /**
    * Lays the overlay over the page and gives it the keyboard (Esc ends picking). `pointer` is
    * where the pointer already is over it, if it is.
    */
   start(bounds: Rect, pointer: Point | null) {
+    // Picking is the user's: the walkthrough steps aside.
+    this.guided = null
     this.active = true
     this.run++
     this.pointer = pointer
@@ -100,9 +122,49 @@ export class Picker {
     this.send({ hover: null, picked: [], busy: false, scale: this.scale(), run: this.run })
   }
 
+  /**
+   * A step of the agent's walkthrough: points at `node` (null: none) with `caption`, over the
+   * page at `bounds`. Leaves the keyboard where it is. Not while the user is picking.
+   */
+  guide(bounds: Rect, node: number | null, caption: string | null) {
+    if (this.active) return false
+    const previous = this.guided
+    this.guided = {
+      node,
+      caption,
+      // Each step's pointer goes to its element, until an input takes it elsewhere.
+      cursor: null,
+      clicks: previous?.clicks ?? 0,
+      step: (previous?.step ?? 0) + 1,
+    }
+    this.view.setBounds(bounds)
+    this.view.setVisible(true)
+    this.schedule()
+    return true
+  }
+
+  /** The agent's pointer goes to `at` (the page's CSS pixels), clicking there with `click`. */
+  guideCursor(at: Point, click: boolean) {
+    const guided = this.guided
+    if (!guided) return
+    guided.cursor = at
+    if (click) guided.clicks++
+    this.schedule()
+  }
+
+  endGuide() {
+    if (!this.guided) return
+    this.guided = null
+    if (this.active) return this.schedule()
+    this.view.setVisible(false)
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+    this.send({ hover: null, picked: [], busy: false, scale: this.scale(), run: this.run })
+  }
+
   /** The page moved or resized under the overlay. */
   setBounds(bounds: Rect) {
-    if (!this.active) return
+    if (!this.shown) return
     this.view.setBounds(bounds)
     this.schedule()
   }
@@ -183,7 +245,7 @@ export class Picker {
 
   /** Measures again soon: now, unless a measure is running (then right after it). */
   private schedule() {
-    if (!this.active) return
+    if (!this.shown) return
     if (this.refreshing) {
       this.dirty = true
       return
@@ -194,19 +256,32 @@ export class Picker {
 
   private async refresh() {
     this.timer = null
-    if (!this.active) return
+    if (!this.shown) return
     this.refreshing = true
     this.dirty = false
     try {
-      const [hover, picked] = await Promise.all([this.measureHover(), this.measureOutlined()])
-      if (this.active)
-        this.send({ hover, picked, busy: this.busy, scale: this.scale(), run: this.run })
+      if (this.active) {
+        const [hover, picked] = await Promise.all([this.measureHover(), this.measureOutlined()])
+        if (this.active)
+          this.send({ hover, picked, busy: this.busy, scale: this.scale(), run: this.run })
+      } else {
+        const guide = await this.measureGuide()
+        if (guide && this.guided)
+          this.send({
+            hover: null,
+            picked: [],
+            busy: false,
+            scale: this.scale(),
+            run: this.run,
+            guide,
+          })
+      }
     } catch {
       // The page is navigating or gone; the next refresh tries again.
     } finally {
       this.refreshing = false
     }
-    if (!this.active) return
+    if (!this.shown) return
     const following = Date.now() < this.followUntil
     const delay = this.dirty ? 0 : following ? FRAME_MS : IDLE_REFRESH_MS
     this.timer = setTimeout(() => void this.refresh(), delay)
@@ -242,6 +317,22 @@ export class Picker {
     if (this.hovered?.node === node) {
       this.hovered.label = label
       this.schedule()
+    }
+  }
+
+  private async measureGuide(): Promise<GuideOverlay | null> {
+    const guided = this.guided
+    if (!guided) return null
+    const box = guided.node === null ? null : await this.inspector.box(guided.node)
+    const scale = this.scale()
+    const cursor = guided.cursor && { x: guided.cursor.x * scale, y: guided.cursor.y * scale }
+    return {
+      rect: box && this.toView(box),
+      // Once its element is gone (navigation, hot reload), the caption no longer points at it.
+      caption: guided.node !== null && !box ? null : guided.caption,
+      cursor,
+      clicks: guided.clicks,
+      step: guided.step,
     }
   }
 

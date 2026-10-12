@@ -22,7 +22,7 @@ import {
   resolveAgent,
 } from './agents'
 import { DetailedError } from './errors'
-import { MCP_SERVER_NAME, PREVIEW_TOOL_NAMES } from './mcp-server'
+import { GUI_TOOL_NAMES, MCP_SERVER_NAME } from './mcp-server'
 import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
@@ -45,14 +45,15 @@ function packageDir(name: string) {
 
 /**
  * `_meta` for session/new and session/load. Claude asks before calling MCP tools; Gui's
- * preview tools only look at the preview, so allow them up front by exact name. (Codex
+ * own tools work inside the preview or wait for the user (a new start command, a proposed
+ * commit), so allow them up front by exact name. (Codex
  * reviews these calls itself.) Agents that take Ask or Auto only as a session starts
  * (Grok) get it here.
  */
 function sessionMeta(agent: AgentDefinition, policy: PermissionPolicy | undefined) {
   const permissions = policy ? agent.permissions?.sessionMeta?.[policy] : undefined
   if (agent.id !== 'claude') return permissions
-  const allowedTools = PREVIEW_TOOL_NAMES.map((tool) => `mcp__${MCP_SERVER_NAME}__${tool}`)
+  const allowedTools = GUI_TOOL_NAMES.map((tool) => `mcp__${MCP_SERVER_NAME}__${tool}`)
   return { ...permissions, claudeCode: { options: { allowedTools } } }
 }
 

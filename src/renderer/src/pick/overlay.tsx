@@ -5,7 +5,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { PickOverlayState, Point, Rect } from '../../../shared/types'
+import type { GuideOverlay, PickOverlayState, Point, Rect } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Counter, Kbd } from '../lib/ui'
@@ -136,6 +136,9 @@ export function PickOverlay() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  // Not picking: the agent is walking the user through the page.
+  if (state.guide) return <Guide guide={state.guide} />
+
   const area = drag ? rectBetween(drag.start, drag.end) : null
   const several = state.picked.length > 1
 
@@ -199,6 +202,101 @@ export function PickOverlay() {
     </div>
   )
 }
+
+/** Between the outline and the caption */
+const CAPTION_GAP = 10
+/** The caption's widest, and about its height for a line or two */
+const CAPTION_WIDTH = 280
+const CAPTION_HEIGHT = 64
+
+/**
+ * The agent's walkthrough (preview_point): what it points at, its caption beside it, and its
+ * pointer gliding to each step and each input's target. A click lets the page have the pointer
+ * back; the wheel still scrolls the page.
+ */
+function Guide({ guide }: { guide: GuideOverlay }) {
+  // A caption on its own, with no input since, has no pointer.
+  const target = guide.cursor ?? (guide.rect && center(guide.rect))
+  return (
+    <div
+      onPointerDown={() => gui.endGuide()}
+      onWheel={(event) => {
+        const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1
+        gui.pickWheel(
+          { x: event.clientX, y: event.clientY },
+          event.deltaX * lines,
+          event.deltaY * lines,
+        )
+      }}
+      className="fixed inset-0 overflow-hidden"
+    >
+      {guide.rect && (
+        <div
+          key={guide.step}
+          data-guide-outline=""
+          className="pointer-events-none absolute animate-row-fade rounded-sm border-2 border-accent shadow-[0_0_0_4px_var(--accent-soft)]"
+          style={place(guide.rect)}
+        />
+      )}
+      {guide.caption && (
+        <div
+          key={guide.step}
+          role="status"
+          aria-live="polite"
+          className="pointer-events-none absolute max-w-70 animate-row-in rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover motion-reduce:animate-row-fade"
+          style={captionPlace(guide.rect)}
+        >
+          {guide.caption}
+        </div>
+      )}
+      {target && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute top-0 left-0 transition-transform duration-650 ease-out motion-reduce:transition-none"
+          style={{ transform: `translate(${target.x}px, ${target.y}px)` }}
+        >
+          {guide.clicks > 0 && (
+            <span
+              key={guide.clicks}
+              className="absolute -top-4 -left-4 size-8 animate-click-ring rounded-full border-2 border-accent motion-reduce:animate-row-fade"
+            />
+          )}
+          <svg
+            width="20"
+            height="22"
+            viewBox="0 0 20 22"
+            className="drop-shadow-sm"
+            aria-hidden="true"
+          >
+            <path
+              d="M2 1.5v16.2l4.6-4.3 3.1 6.9 3-1.3-3-6.8 6.3-.3z"
+              className="fill-accent stroke-white"
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Below what's pointed at, or above it when there's no room; top-left without it. */
+function captionPlace(rect: Rect | null) {
+  if (!rect) return { top: 12, left: 12 }
+  const left = Math.min(Math.max(8, rect.x), Math.max(8, window.innerWidth - CAPTION_WIDTH - 8))
+  const below = rect.y + rect.height + CAPTION_GAP
+  if (below + CAPTION_HEIGHT <= window.innerHeight) return { top: below, left }
+  if (rect.y - CAPTION_GAP - CAPTION_HEIGHT >= 0)
+    return { bottom: window.innerHeight - rect.y + CAPTION_GAP, left }
+  // Taller than the view: inside its top edge.
+  return { top: Math.max(8, rect.y + CAPTION_GAP), left }
+}
+
+const center = (rect: Rect): Point => ({
+  x: Math.min(Math.max(rect.x + rect.width / 2, 0), window.innerWidth),
+  y: Math.min(Math.max(rect.y + rect.height / 2, 0), window.innerHeight),
+})
 
 function Outline({
   rect,

@@ -102,12 +102,28 @@ interface Target {
   error?: string
 }
 
+/**
+ * Before each input, where it lands (the page's CSS pixels) and whether it clicks: during a
+ * walkthrough the user's visible pointer goes there first, at a pace they can follow.
+ */
+export type BeforeInput = (at: { x: number; y: number }, click: boolean) => Promise<void>
+
 /** Real Chromium input in the shared preview; serializes with screenshots and picking. */
 export class PreviewInteractions {
   constructor(
     private readonly inspector: Inspector,
     private readonly assertLoaded: () => void,
+    private readonly beforeInput: BeforeInput = async () => {},
   ) {}
+
+  /** The one element `selector` matches, scrolled into view: its node, to point at. */
+  async locate(selector: string) {
+    return this.exclusive(async () => {
+      const node = await this.uniqueNode(selector)
+      await this.cmd('DOM.scrollIntoViewIfNeeded', { backendNodeId: node }).catch(() => undefined)
+      return node
+    })
+  }
 
   async snapshot() {
     return this.exclusive(async () => {
@@ -124,6 +140,7 @@ export class PreviewInteractions {
     return this.exclusive(async () => {
       const target = await this.target(selector)
       if (target.disabled) throw new Error('The target is disabled')
+      await this.beforeInput(target, true)
       await this.clickAt(target)
     })
   }
@@ -131,6 +148,7 @@ export class PreviewInteractions {
   async hover(selector: string) {
     return this.exclusive(async () => {
       const { x, y } = await this.target(selector)
+      await this.beforeInput({ x, y }, false)
       await this.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
     })
   }
@@ -140,6 +158,7 @@ export class PreviewInteractions {
       const target = await this.target(selector)
       if (target.disabled || !target.editable)
         throw new Error('The target is not an editable field')
+      await this.beforeInput(target, true)
       await this.clickAt(target)
       // Gui keeps the chat's keyboard while the agent works. Focus the DOM field without
       // bringing the app window forward, then verify a handler didn't replace it.
@@ -179,6 +198,7 @@ export class PreviewInteractions {
       if (selector) {
         const target = await this.target(selector)
         if (target.disabled) throw new Error('The target is disabled')
+        await this.beforeInput(target, false)
         await this.cmd('DOM.focus', { backendNodeId: await this.uniqueNode(selector) })
       }
       await this.key(key, shift)
@@ -188,8 +208,10 @@ export class PreviewInteractions {
   async scroll(deltaY: number, deltaX = 0, selector?: string) {
     return this.exclusive(async () => {
       let point: { x: number; y: number }
-      if (selector) point = await this.target(selector)
-      else {
+      if (selector) {
+        point = await this.target(selector)
+        await this.beforeInput(point, false)
+      } else {
         const { cssVisualViewport: viewport } = await this.cmd<{
           cssVisualViewport: { clientWidth: number; clientHeight: number }
         }>('Page.getLayoutMetrics')

@@ -29,6 +29,7 @@ import {
 export {
   closeShipSheet,
   linkTarget,
+  openShipSheet,
   opensByItself,
   toggleShipSheet,
   useShipSheet,

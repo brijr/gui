@@ -183,8 +183,8 @@ const imagePrompt = (count: number) =>
 const messagePrompt = (text: string, images: ImageAttachment[]) =>
   text.trim() || (images.length ? imagePrompt(images.length) : '')
 
-/** Readable labels for Gui's own preview tools, which agents report by raw MCP name. */
-const PREVIEW_TOOL_LABELS: Record<string, string> = {
+/** Readable labels for Gui's own tools, which agents report by raw MCP name. */
+const GUI_TOOL_LABELS: Record<string, string> = {
   preview_screenshot: 'Screenshot the preview',
   recording_info: 'Read recording timing',
   recording_frame: 'Inspect a recorded frame',
@@ -197,6 +197,7 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
   preview_type: 'Type in preview',
   preview_press: 'Press key in preview',
   preview_scroll: 'Scroll preview',
+  preview_point: 'Point out in preview',
   preview_console: 'Check preview errors',
   preview_navigate: 'Open page in preview',
   preview_reload: 'Reload preview',
@@ -204,8 +205,11 @@ const PREVIEW_TOOL_LABELS: Record<string, string> = {
   dev_server_status: 'Check dev server',
   dev_server_restart: 'Restart dev server',
   set_start_command: 'Change start command',
+  source_control_status: 'Check source control',
+  source_control_propose: 'Propose changes to ship',
+  chat_turns: 'Read earlier turns',
 }
-const PREVIEW_TOOLS = Object.keys(PREVIEW_TOOL_LABELS).join('|')
+const PREVIEW_TOOLS = Object.keys(GUI_TOOL_LABELS).join('|')
 /**
  * Exact MCP identities for Gui's tools, anchored at both ends: shell command titles
  * are model-written text and must never be mistaken for a preview tool. Claude reports
@@ -1614,7 +1618,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         items.push({
           kind: 'tool',
           id: update.toolCallId,
-          title: preview ? PREVIEW_TOOL_LABELS[preview] : this.relativize(update.title),
+          title: preview ? GUI_TOOL_LABELS[preview] : this.relativize(update.title),
           toolKind: preview ? 'preview' : (update.kind ?? 'other'),
           status,
           locations: (update.locations ?? []).map((l) => this.displayPath(l.path, l.line)),

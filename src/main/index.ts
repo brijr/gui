@@ -925,6 +925,7 @@ function registerIpc() {
   on(Send.pickWheel, (tab, at, dx, dy) => {
     if (isPoint(at) && isNumber(dx) && isNumber(dy)) tab.pickWheel(at, dx, dy)
   })
+  on(Send.endGuide, (tab) => tab.endGuide())
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   onWindow(Send.morphShown, (win, id, canvas) => {
     if (isNumber(id) && isRect(canvas)) win.morphShown(id, canvas)

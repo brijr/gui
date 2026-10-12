@@ -92,6 +92,7 @@ const api: GuiApi = {
   pickElement: send(Send.pickElement),
   pickArea: send(Send.pickArea),
   pickWheel: send(Send.pickWheel),
+  endGuide: send(Send.endGuide),
   onPickState: (cb) => subscribe(Events.pickState, cb),
   setCanvasRect: send(Send.setCanvasRect),
   onMorph: (cb) => subscribe(Events.morph, cb),
@@ -122,6 +123,7 @@ const api: GuiApi = {
   onChatReset: (cb) => subscribe(Events.chatReset, cb),
   onChatFocus: (cb) => subscribe(Events.chatFocus, cb),
   onChatMenuChoice: (cb) => subscribe(Events.chatMenuChoice, cb),
+  onShipDraft: (cb) => subscribe(Events.chatShipDraft, cb),
   onChatFloat: (cb) => subscribe(Events.chatFloat, cb),
   chatMorphed: send(Send.chatMorphed),
   send: (text, images, recordings, followUp) =>

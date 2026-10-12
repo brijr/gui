@@ -52,6 +52,7 @@ import {
   type RecentProject,
   type Rect,
   type RegionContext,
+  type ShipDraft,
   type ShipInfo,
   type ShipRequest,
   type ShipResult,
@@ -92,6 +93,7 @@ import {
 } from './history'
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
+import { describeSourceControl, describeTurns } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
@@ -179,6 +181,10 @@ const REHIGHLIGHT_DELAY_MS = 900
 const PENDING_PICK = 'pending'
 /** How long dev_server_restart waits for the app; agents give up on a tool call after about a minute. */
 const AGENT_START_WAIT_MS = 45_000
+/** How long the walkthrough's pointer takes to glide to an input's target (the overlay's too) */
+const GUIDE_GLIDE_MS = 650
+/** The walkthrough's last step stays this long after the agent's turn ends */
+const GUIDE_LINGER_MS = 5000
 /** How much of the dev server's output the agent's dev server tools return */
 const AGENT_LOG_LINES = 60
 /** A package.json being written fires several changes; look once they've settled. */
@@ -371,12 +377,16 @@ export class ProjectTab {
   private screenshotting = false
   /** "Create pull request" has the chat, and ⌘↩ with it (`permissionAnswer`). */
   private shipSheetOpen = false
+  /** source_control_propose's draft, held until the agent's turn ends */
+  private shipProposal: ShipDraft | null = null
   private disposed = false
   /** Bumped per openProject; async steps of a superseded open must not touch the window. */
   private openGeneration = 0
   private opening: string | null = null
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
   private rehighlightTimer: NodeJS.Timeout | null = null
+  /** Ends the agent's walkthrough a little after its turn did */
+  private guideEndTimer: NodeJS.Timeout | null = null
   /**
    * The preview's current page is Chromium's error page for a load that failed. It fires
    * dom-ready like any page, which must not take the failure back.
@@ -648,6 +658,12 @@ export class ProjectTab {
         serverStatus: () => describeServer(this.state),
         restartServer: () => this.restartForAgent(),
         setStartCommand: (input) => this.setStartCommandForAgent(input),
+        guide: (node, caption) => this.guideStep(node, caption),
+        guideInput: async (at, click) => {
+          if (!this.picker.guiding) return
+          this.picker.guideCursor(at, click)
+          await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
+        },
       })
       this.resources.previewTools = tools
       const recordings = new Recordings(root)
@@ -658,7 +674,11 @@ export class ProjectTab {
       void recordings
         .sweep(() => chatReferences(root).then((found) => found?.recordings ?? null))
         .catch((error: unknown) => console.error('[gui] failed to clean up recordings', error))
-      const mcp = await startMcpServer(tools, recordings).catch((error: unknown) => {
+      const mcp = await startMcpServer(tools, recordings, {
+        sourceControlStatus: () => this.sourceControlForAgent(),
+        proposeShip: (draft) => this.proposeShipForAgent(draft),
+        turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
+      }).catch((error: unknown) => {
         console.error('[gui] preview tools unavailable', error)
         return null
       })
@@ -704,6 +724,15 @@ export class ProjectTab {
         this.host.tabChanged(this, false)
       })
       chat.on('turnEnd', (turn) => {
+        // What the agent proposed to ship opens once it's done, for the user to review.
+        const proposed = this.shipProposal
+        this.shipProposal = null
+        if (proposed && turn.status === 'done') this.sendChat(Events.chatShipDraft, proposed)
+        // The walkthrough's last step stays a moment to be read, then gets out of the way.
+        if (this.picker.guiding) {
+          this.clearGuideEnd()
+          this.guideEndTimer = setTimeout(() => this.endGuide(), GUIDE_LINGER_MS)
+        }
         // The agent may have just set the project up; it's left alone while it works.
         if (this.appWatcher) void this.checkForApp()
         const shown = primaryPick(turn.context)
@@ -1295,7 +1324,27 @@ export class ProjectTab {
   }
 
   pickWheel(at: Point, deltaX: number, deltaY: number) {
-    if (this.picker.picking) this.picker.wheel(at, deltaX, deltaY)
+    if (this.picker.picking || this.picker.guiding) this.picker.wheel(at, deltaX, deltaY)
+  }
+
+  // The agent's walkthrough (preview_point), drawn by the pick overlay
+
+  /** A step, if the user can see the preview and isn't picking; whether it's shown. */
+  private guideStep(node: number | null, caption: string | null) {
+    if (!this.state.preview.visible || this.host.sheetShown) return false
+    this.clearGuideEnd()
+    return this.picker.guide(this.placement, node, caption)
+  }
+
+  /** The user clicked the walkthrough away, or it ran its course. */
+  endGuide() {
+    this.clearGuideEnd()
+    this.picker.endGuide()
+  }
+
+  private clearGuideEnd() {
+    if (this.guideEndTimer) clearTimeout(this.guideEndTimer)
+    this.guideEndTimer = null
   }
 
   removeSelection(id: string) {
@@ -1539,6 +1588,26 @@ export class ProjectTab {
     if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
     if (this.state.project?.root !== root) throw new Error('No project is open.')
     return ship(root, request)
+  }
+
+  /** source_control_status: never asks to run Git; says so when the user hasn't allowed it. */
+  private async sourceControlForAgent() {
+    const root = this.state.project?.root
+    if (!root) throw new Error('No project is open')
+    if (!(await isTrusted(root)))
+      return "The user hasn't let Gui run Git in this project yet. Opening Source Control asks them."
+    const [info, proposal] = await Promise.all([
+      shipInfo(root, []),
+      readProposal(root).catch(() => null),
+    ])
+    return describeSourceControl(info, proposal)
+  }
+
+  /** source_control_propose: Source Control opens with it when the turn ends. */
+  private proposeShipForAgent(draft: ShipDraft) {
+    if (!this.state.project) throw new Error('No project is open')
+    this.shipProposal = draft
+    return 'Gui will open Source Control with this filled in when your turn ends. The user reviews it and commits or opens the pull request; nothing is committed until they do. Tell them it is ready to review.'
   }
 
   // The pull request's progress (src/main/proposal.ts)
@@ -2618,6 +2687,9 @@ export class ProjectTab {
     if (this.picker.picking) {
       if (visible) this.picker.setBounds(bounds)
       else void this.setSelecting(false)
+    } else if (this.picker.guiding) {
+      if (visible) this.picker.setBounds(bounds)
+      else this.endGuide()
     }
     // Frozen, the emulation waits behind the morph's capture in the inspector's lock, and the
     // chrome's device frame stays around the view where it is, until the morph draws it.
@@ -3215,6 +3287,7 @@ export class ProjectTab {
     this.dockSlide?.flight?.stop()
     if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+    this.clearGuideEnd()
     this.problems.dispose()
     this.disposeProjectResources()
     this.emulation.dispose()

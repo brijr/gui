@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
+import type { ShipDraft, ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { useProposal } from './proposal-state'
@@ -14,6 +14,8 @@ interface ShipSheetStore {
   loaded: Loaded
   /** The form; lives here so it survives the panel remounting on dock/float/minimize */
   draft: ShipRequest | null
+  /** What the agent proposed (source_control_propose), filled in over Gui's suggestion */
+  proposed: ShipDraft | null
   busy: boolean
   error: string | null
   done: { result: ShipResult; info: ShipInfo } | null
@@ -23,6 +25,7 @@ const CLOSED: ShipSheetStore = {
   open: false,
   loaded: { kind: 'loading' },
   draft: null,
+  proposed: null,
   busy: false,
   error: null,
   done: null,
@@ -38,6 +41,13 @@ export function toggleShipSheet() {
   if (busy) return
   generation++
   useShipSheet.setState(open ? CLOSED : { ...CLOSED, open: true })
+}
+
+/** Opens the sheet afresh with the agent's proposal, unless a ship is underway. */
+export function openShipSheet(proposed: ShipDraft) {
+  if (useShipSheet.getState().busy) return
+  generation++
+  useShipSheet.setState({ ...CLOSED, open: true, proposed })
 }
 
 export function closeShipSheet() {
@@ -59,9 +69,10 @@ export async function loadShipInfo() {
     loaded = { kind: 'blocked', message: readableError(error) }
   }
   if (current !== generation) return
-  useShipSheet.setState(({ draft }) => {
+  useShipSheet.setState(({ draft, proposed }) => {
     if (loaded.kind !== 'ready') return { loaded }
-    if (!draft) return { loaded, draft: suggestionFor(loaded.info) }
+    if (!draft)
+      return { loaded, draft: withProposal(suggestionFor(loaded.info), proposed, loaded.info) }
     // A failed push may have saved the selected files already. Keep other edits excluded
     // and allow retrying just the push, rather than accidentally committing those edits.
     const paths = new Set(loaded.info.files.map((file) => file.path))
@@ -80,6 +91,24 @@ function suggestionFor(info: ShipInfo): ShipRequest {
   if (!open || info.files.length > 0 || info.suggestion.branch !== info.branch)
     return info.suggestion
   return { ...info.suggestion, title: pull.title, body: '' }
+}
+
+/**
+ * The agent's title, description and mode over Gui's suggestion; its branch and files
+ * where they still apply (files it named that aren't changed are dropped, and naming none
+ * that are leaves every file in).
+ */
+function withProposal(suggestion: ShipRequest, proposed: ShipDraft | null, info: ShipInfo) {
+  if (!proposed) return suggestion
+  const paths = new Set(info.files.map((file) => file.path))
+  const files = proposed.files?.filter((path) => paths.has(path))
+  return {
+    mode: info.remote ? proposed.mode : 'commit',
+    title: proposed.title.trim() || suggestion.title,
+    body: proposed.body.trim(),
+    branch: proposed.branch?.trim() || suggestion.branch,
+    files: files?.length ? files : undefined,
+  } satisfies ShipRequest
 }
 
 export function setShipDraft(patch: Partial<ShipRequest>) {

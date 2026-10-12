@@ -2,7 +2,7 @@ import type { WebContents } from 'electron'
 import type { ElementContext, Rect, StartCommandInput } from '../shared/types'
 import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
-import { PreviewInteractions } from './preview-interactions'
+import { type BeforeInput, PreviewInteractions } from './preview-interactions'
 import type { Problems } from './problems'
 
 /**
@@ -96,6 +96,13 @@ export interface PreviewToolsDeps {
    * detects again), and waits to see; what happened
    */
   setStartCommand: (input: StartCommandInput | null) => Promise<string>
+  /**
+   * preview_point: a walkthrough step drawn over the page (null node: a caption on its own).
+   * False when the user can't see it: the preview is hidden, or they're picking.
+   */
+  guide: (node: number | null, caption: string | null) => boolean
+  /** During a walkthrough, takes the visible pointer to each input's target first */
+  guideInput: BeforeInput
 }
 
 interface LayoutMetrics {
@@ -121,12 +128,34 @@ function withTimeout<T>(promise: Promise<T>, message: string, ms: number) {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/** About how long a walkthrough caption takes to read, and the pointer to land. */
+const readingTime = (caption: string | null) =>
+  caption ? Math.min(8000, 1400 + caption.length * 45) : 900
+
 /** What the agent can do with the live preview: inspect it, interact, and check its work. */
 export class PreviewTools {
   readonly interactions: PreviewInteractions
 
   constructor(private readonly deps: PreviewToolsDeps) {
-    this.interactions = new PreviewInteractions(deps.inspector, () => this.assertLoaded())
+    this.interactions = new PreviewInteractions(
+      deps.inspector,
+      () => this.assertLoaded(),
+      deps.guideInput,
+    )
+  }
+
+  /**
+   * Points the user at `selector` (scrolled into view) with `caption`, then waits about as
+   * long as reading it takes, so a walkthrough goes at the user's pace.
+   */
+  async point(selector: string | undefined, caption: string | undefined) {
+    this.assertLoaded()
+    const node = selector ? await this.interactions.locate(selector) : null
+    const text = caption?.replace(/\s+/g, ' ').trim() || null
+    if (!this.deps.guide(node, text))
+      return "Not shown: the user isn't looking at the preview right now (it's hidden, or they're picking)."
+    await sleep(readingTime(text))
+    return text ? 'Shown, and the user has had time to read it.' : 'Shown.'
   }
 
   /**

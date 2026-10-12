@@ -234,3 +234,34 @@ test('agent can edit, view, revise and view again within one turn', async ({ lau
     expect.arrayContaining([expect.objectContaining({ path: 'src/index.css' })]),
   )
 })
+
+test('a walkthrough points out elements with captions and shows the agent pointer', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  const page = await setup(session)
+  const overlay = await session.pickPage()
+
+  const [pointed, clicked] = await ask(session, [
+    { name: 'preview_point', args: { selector: '#open', caption: 'This opens the dialog.' } },
+    { name: 'preview_click', args: { selector: '#open' } },
+  ])
+  expect(pointed.isError, JSON.stringify(pointed)).not.toBe(true)
+  expect(pointed.content[0].text).toContain('Shown')
+  expect(clicked.isError).not.toBe(true)
+  await expect(page.locator('dialog')).toBeVisible()
+
+  // The last step stays a moment after the turn, over the page and out of its screenshots.
+  await expect(overlay.getByRole('status')).toHaveText('This opens the dialog.')
+  await expect(overlay.locator('[data-guide-outline]')).toBeVisible()
+  expect(await page.locator('text=This opens the dialog.').count()).toBe(0)
+
+  const [missing] = await ask(session, [
+    { name: 'preview_point', args: { selector: '#missing', caption: 'Nothing here' } },
+  ])
+  expect(missing.isError).toBe(true)
+
+  // A click hands the pointer back to the user.
+  await overlay.locator('[data-guide-outline]').locator('..').dispatchEvent('pointerdown')
+  await expect(overlay.getByRole('status')).toHaveCount(0)
+})

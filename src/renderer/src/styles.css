@@ -161,6 +161,21 @@
     }
   }
 
+  /* The agent's click in a walkthrough (pick/overlay.tsx): a ring spreading from the pointer.
+     With reduced motion, it fades where it is (animate-row-fade). */
+  --animate-click-ring: click-ring 500ms var(--ease-out) both;
+
+  @keyframes click-ring {
+    from {
+      opacity: 0.7;
+      transform: scale(0.3);
+    }
+    to {
+      opacity: 0;
+      transform: scale(1.4);
+    }
+  }
+
   /* Progress of unknown length: a third of the bar crossing its track, again and again. */
   --animate-sweep: sweep 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 
