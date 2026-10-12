@@ -644,7 +644,15 @@ export interface FollowUp {
  * What paused the queue: Stop, an error, the agent declining or hitting its output limit,
  * the user not trusting the project, or the agent waiting to be set up (installed, signed in)
  */
-export type QueuePauseReason = 'stopped' | 'error' | 'refused' | 'limit' | 'untrusted' | 'setup'
+export type QueuePauseReason =
+  | 'stopped'
+  | 'error'
+  | 'refused'
+  | 'limit'
+  | 'untrusted'
+  | 'setup'
+  /** Left waiting when Gui last closed */
+  | 'restored'
 
 export interface ChatMeta {
   agentId: AgentId

@@ -16,6 +16,7 @@ const PAUSED: Record<QueuePauseReason, string> = {
   limit: 'Paused: the agent hit its output limit',
   untrusted: "Paused: this project isn't trusted",
   setup: 'Sends once your agent is set up',
+  restored: 'Waiting from before Gui closed',
 }
 
 /** Enough of a queued message to tell its remove button from the others. */

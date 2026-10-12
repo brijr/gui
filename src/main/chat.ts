@@ -57,7 +57,14 @@ import type { PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
-import { archiveChat, HistoryWriter, loadArchived, removeArchived, type SavedChat } from './history'
+import {
+  archiveChat,
+  HistoryWriter,
+  loadArchived,
+  removeArchived,
+  type SavedChat,
+  type SavedQueued,
+} from './history'
 import { MCP_SERVER_NAME } from './mcp-server'
 import { getPrefs, prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
 import {
@@ -124,8 +131,8 @@ interface QueuedPayload {
   followUp?: FollowUp | null
   images: ImageAttachment[]
   selection: Picked[]
-  /** The viewport the message was written in */
-  viewport: PromptViewport
+  /** The viewport the message was written in; null when that's unknown */
+  viewport: PromptViewport | null
   /** Set for "Fix with agent" waiting its turn: its report is written when it starts */
   fix?: 'startup'
 }
@@ -356,6 +363,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       autoApprove: isAutoApprove(root),
     }
     this.load(saved)
+    this.restoreQueue(saved?.queue ?? [])
     this.history = new HistoryWriter(options.historyFile, () => this.savedChat())
     // A health check may list the agent's models, and another window may change the choice.
     agentHealth.on('change', this.refreshModels)
@@ -421,7 +429,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   /** The archive copy of this chat, for the archive itself and the "archived" notice. */
   private archiveCopy(): SavedChat {
-    return { ...this.savedChat(), agentId: this.transcriptAgent ?? this.meta.agentId }
+    // Its queue stays with the open chat (it's cleared by then anyway).
+    const { queue: _queue, ...saved } = this.savedChat()
+    return { ...saved, agentId: this.transcriptAgent ?? this.meta.agentId }
   }
 
   /**
@@ -522,6 +532,33 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.options.recordings.retain(
         saved.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []),
       )
+    }
+  }
+
+  /**
+   * Messages left waiting when Gui last closed. They come back paused: the turn they were
+   * waiting on was cut short, so they go out when the user says.
+   */
+  private restoreQueue(saved: SavedQueued[]) {
+    if (saved.length === 0) return
+    for (const { message, images, selection, viewport, fix } of saved) {
+      this.queued.set(message.id, {
+        images,
+        recordings: message.recordings ?? [],
+        followUp: message.followUp ?? null,
+        selection,
+        viewport,
+        ...(fix ? { fix } : {}),
+      })
+    }
+    this.options.recordings.retain(
+      saved.flatMap(({ message }) => message.recordings?.map((clip) => clip.id) ?? []),
+    )
+    this.meta = {
+      ...this.meta,
+      queue: saved.map(({ message }) => message),
+      queuePaused: true,
+      queuePauseReason: 'restored',
     }
   }
 
@@ -891,9 +928,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.emitTimers.clear()
     if (this.persistTimer) clearTimeout(this.persistTimer)
     this.persistTimer = null
+    // The final save keeps the queue, so it's back when the chat next opens.
     const saved = this.history.close()
     this.stopAgent()
-    // In memory only: queued messages never outlive their window.
     this.clearQueue()
     this.removeAllListeners()
     return saved
@@ -1018,7 +1055,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       images: [],
       followUp: next.followUp ?? null,
       selection: next.context,
-      viewport: this.options.viewport(),
+      viewport: null,
     }
     this.queued.delete(next.id)
     this.patchMeta({ queue: rest })
@@ -1928,12 +1965,28 @@ export class ChatController extends EventEmitter<ChatEvents> {
       checkpoints,
       redo: this.redoPoint,
       commands: Object.fromEntries(this.knownCommands),
+      ...(this.meta.queue.length ? { queue: this.meta.queue.map((m) => this.savedQueued(m)) } : {}),
+    }
+  }
+
+  private savedQueued(message: QueuedMessage): SavedQueued {
+    const payload = this.queued.get(message.id)
+    return {
+      message,
+      images: payload?.images ?? [],
+      selection: payload?.selection ?? message.context,
+      viewport: payload?.viewport ?? null,
+      ...(payload?.fix ? { fix: payload.fix } : {}),
     }
   }
 
   private patchMeta(patch: Partial<ChatMeta>) {
+    const queueChanged = patch.queue !== undefined && patch.queue !== this.meta.queue
     this.meta = { ...this.meta, ...patch }
-    if (!this.disposed) this.emit('meta', this.meta)
+    if (this.disposed) return
+    this.emit('meta', this.meta)
+    // Saved like the transcript, so a crash doesn't lose what's waiting.
+    if (queueChanged) this.schedulePersist()
   }
 }
 

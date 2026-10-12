@@ -8,14 +8,18 @@ import {
   type AgentId,
   type ChatSummary,
   DEFAULT_AGENT_ID,
+  type FollowUp,
+  type ImageAttachment,
   isAgentId,
   type Picked,
+  type QueuedMessage,
   type RecordingAttachment,
   type Turn,
   type TurnItem,
 } from '../shared/types'
 import { asidePath, writeFileAtomic } from './atomic-file'
 import { serializeHistory } from './history-format'
+import type { PromptViewport } from './prompt'
 
 /** Everything needed to reopen a project's chat where it left off, including undo. */
 export interface SavedChat {
@@ -44,6 +48,23 @@ export interface SavedChat {
    * them before the agent starts (absent in older files)
    */
   commands?: Record<string, AgentCommand[]>
+  /**
+   * Messages still waiting their turn, with what each takes to the agent, so a quit or crash
+   * doesn't lose them (absent with none, and in archived chats)
+   */
+  queue?: SavedQueued[]
+}
+
+export interface SavedQueued {
+  message: QueuedMessage
+  /** The full images, which the message itself only has thumbnails of */
+  images: ImageAttachment[]
+  /** What was picked, with its crops */
+  selection: Picked[]
+  /** The viewport it was written in; null when that's unknown */
+  viewport: PromptViewport | null
+  /** "Fix with agent" waiting its turn */
+  fix?: 'startup'
 }
 
 const dir = () => join(app.getPath('userData'), 'chats')
@@ -124,6 +145,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
       checkpoints,
       redo: parsed.redo ?? null,
       commands: settleCommands(parsed.commands),
+      queue: settleQueue(parsed.queue),
     }
   } catch (error) {
     // Keep what's there for recovery instead of letting the next save overwrite it.
@@ -181,7 +203,8 @@ export async function chatReferences(root: string): Promise<ChatReferences | nul
         if (typeof point?.after === 'string') found.checkpoints.add(point.after)
       }
       if (typeof saved.redo?.sha === 'string') found.checkpoints.add(saved.redo.sha)
-      for (const turn of Array.isArray(saved.turns) ? saved.turns : []) {
+      const queued = Array.isArray(saved.queue) ? saved.queue.map((entry) => entry?.message) : []
+      for (const turn of [...(Array.isArray(saved.turns) ? saved.turns : []), ...queued]) {
         for (const clip of Array.isArray(turn?.recordings) ? turn.recordings : []) {
           if (typeof clip?.id === 'string') found.recordings.add(clip.id)
         }
@@ -297,6 +320,73 @@ function settleRecordings(value: unknown): RecordingAttachment[] | undefined {
     })
     .slice(0, 3)
   return valid.length ? valid : undefined
+}
+
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
+/** As main accepts them when they're sent (`MAX_IMAGE_BASE64` in index.ts) */
+const MAX_IMAGE_BASE64 = 7 * 1024 * 1024
+
+function isImage(value: unknown): value is ImageAttachment {
+  if (!isAttachment(value)) return false
+  const { mimeType, data } = value as unknown as Record<string, unknown>
+  return (
+    typeof mimeType === 'string' &&
+    IMAGE_TYPES.has(mimeType) &&
+    typeof data === 'string' &&
+    data.length <= MAX_IMAGE_BASE64 &&
+    /^[A-Za-z0-9+/]+={0,2}$/.test(data)
+  )
+}
+
+function isViewport(value: unknown): value is PromptViewport {
+  if (!value || typeof value !== 'object') return false
+  const { name, width, height, fixed } = value as Record<string, unknown>
+  return (
+    typeof name === 'string' &&
+    typeof width === 'number' &&
+    typeof height === 'number' &&
+    typeof fixed === 'boolean'
+  )
+}
+
+function isFollowUp(value: unknown): value is FollowUp {
+  if (!value || typeof value !== 'object') return false
+  const { turnId, number, prompt } = value as Record<string, unknown>
+  return typeof turnId === 'string' && typeof number === 'number' && typeof prompt === 'string'
+}
+
+/** The saved queue, keeping only messages that are whole. */
+function settleQueue(value: unknown): SavedQueued[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const queue = value.flatMap((entry): SavedQueued[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const { message, images, selection, viewport, fix } = entry as Record<string, unknown>
+    if (!message || typeof message !== 'object') return []
+    const { id, prompt, context, attachments, recordings, followUp } = message as Record<
+      string,
+      unknown
+    >
+    if (typeof id !== 'string' || !CHAT_ID.test(id) || typeof prompt !== 'string' || !prompt)
+      return []
+    const picked = settleContext(context)
+    return [
+      {
+        message: {
+          id,
+          prompt,
+          context: picked,
+          attachments: settleAttachments(attachments) ?? [],
+          recordings: settleRecordings(recordings) ?? [],
+          ...(isFollowUp(followUp) ? { followUp } : {}),
+        },
+        images: Array.isArray(images) ? images.filter(isImage) : [],
+        selection: Array.isArray(selection) ? settleContext(selection) : picked,
+        viewport: isViewport(viewport) ? viewport : null,
+        ...(fix === 'startup' ? { fix } : {}),
+      },
+    ]
+  })
+  return queue.length ? queue : undefined
 }
 
 function settleItem(item: TurnItem): TurnItem {
