@@ -27,6 +27,23 @@ import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
 
+interface FormField {
+  type: string
+  title?: string | null
+  description?: string | null
+  enum?: string[] | null
+  oneOf?: { const: string; title: string }[] | null
+}
+
+/** A form field's choices, when it asks for a single pick from a list; otherwise null. */
+function formChoices(schema: acp.ElicitationPropertySchema) {
+  const field = schema as FormField
+  if (field.type !== 'string') return null
+  if (field.oneOf?.length) return field.oneOf.map((o) => ({ value: o.const, name: o.title }))
+  if (field.enum?.length) return field.enum.map((value) => ({ value, name: value }))
+  return null
+}
+
 const cursorPlan = z.object({
   toolCallId: z.string(),
   name: z.string().optional(),
@@ -397,6 +414,7 @@ export class AgentSession {
           )
         })
       })
+      .onRequest(acp.methods.client.elicitation.create, (ctx) => this.answerForm(ctx.params))
     if (definition.id === 'cursor') {
       app.onRequest('cursor/ask_question', z.unknown().parse, () => ({
         outcome: { outcome: 'skipped', reason: 'Ask the user in normal chat instead.' },
@@ -448,6 +466,8 @@ export class AgentSession {
           terminal: false,
           // Gui runs terminal sign-in itself (agent-status.ts); Claude only offers it then.
           auth: { terminal: true },
+          // Muse fails the turn when it has a question for a client that can't take forms.
+          elicitation: { form: {} },
         },
         clientInfo: { name: 'gui', version: '0.1.0' },
       }),
@@ -663,6 +683,62 @@ export class AgentSession {
       liveGroups.delete(pid)
       killGroup(pid, 'SIGKILL', child.exitCode === null && child.signalCode === null)
     }, 2000).unref()
+  }
+
+  /**
+   * Asks a form's questions one at a time on Gui's permission card, each with its choices
+   * as the buttons. Gui has no form fields, so a form with a question that isn't a single
+   * pick from a list (free text, several picks) is declined: the agent carries on without
+   * the answer, and can ask in chat instead.
+   */
+  private async answerForm(
+    request: acp.CreateElicitationRequest,
+  ): Promise<acp.CreateElicitationResponse> {
+    const sessionId = this.sessionId
+    if (request.mode !== 'form') return { action: 'decline' }
+    if (sessionId === null || this.disposed) return { action: 'cancel' }
+    const { requestedSchema } = request as acp.CreateElicitationRequest & {
+      requestedSchema: { properties?: Record<string, acp.ElicitationPropertySchema> }
+    }
+    const questions = Object.entries(requestedSchema?.properties ?? {}).map(([id, schema]) => ({
+      id,
+      schema: schema as FormField,
+      choices: formChoices(schema),
+    }))
+    if (questions.length === 0 || questions.some((question) => question.choices === null)) {
+      return { action: 'decline' }
+    }
+    const content: Record<string, string> = {}
+    for (const { id, schema, choices } of questions) {
+      const answer = await new Promise<string | null>((resolve) =>
+        this.handlers.onPermission(
+          {
+            sessionId,
+            toolCall: {
+              toolCallId: `question:${id}`,
+              title: schema.description || schema.title || request.message,
+              // Not an ACP kind: the card shows the title as its question.
+              kind: 'question' as acp.ToolKind,
+            },
+            // Skip first, so Auto mode never answers for the user (see `flaggedCaution`).
+            options: [
+              { optionId: 'skip', name: 'Skip', kind: 'reject_once' },
+              ...(choices ?? []).map((choice, index) => ({
+                optionId: String(index),
+                name: choice.name,
+                kind: 'answer' as acp.PermissionOptionKind,
+              })),
+            ],
+          },
+          resolve,
+        ),
+      )
+      if (answer === null) return { action: 'cancel' }
+      const choice = choices?.[Number(answer)]
+      if (answer === 'skip' || !choice) return { action: 'decline' }
+      content[id] = choice.value
+    }
+    return { action: 'accept', content }
   }
 
   private untilExit<T>(promise: Promise<T>) {

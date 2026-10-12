@@ -693,9 +693,13 @@ function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: s
   // An unanswered request in an ended turn has no agent waiting on it anymore.
   const [Icon, tone, outcome] = !chosen
     ? [CircleSlash, 'text-subtle', item.resolved === null ? 'Expired' : 'Cancelled']
-    : chosen.kind.startsWith('allow')
-      ? [Check, 'text-success', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
-      : [X, 'text-subtle', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
+    : item.toolKind === 'question'
+      ? chosen.kind === 'answer'
+        ? [Check, 'text-success', chosen.name]
+        : [X, 'text-subtle', 'Skipped']
+      : chosen.kind.startsWith('allow')
+        ? [Check, 'text-success', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
+        : [X, 'text-subtle', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
   const firstLine = subject.split('\n')[0]
   return (
     <p
@@ -731,7 +735,9 @@ function Permission({
   const subject = permissionSubject(toolKind, item.title, locations)
   if (item.resolved !== null || !live) return <PermissionOutcome item={item} subject={subject} />
 
-  const question = permissionQuestion(toolKind, locations)
+  // Agents' own questions (see `answerForm` in agent.ts) come with their wording.
+  const asked = toolKind === 'question'
+  const question = asked ? item.title : permissionQuestion(toolKind, locations)
   const options = [...item.options].sort(byOptionOrder)
   const many = locations.length > 1
   const why = many
@@ -753,7 +759,7 @@ function Permission({
           </Badge>
         )}
       </div>
-      {subject !== fileNames(locations) && (
+      {!asked && subject !== fileNames(locations) && (
         <pre className="max-h-32 select-text overflow-y-auto scroll-stable whitespace-pre-wrap break-all rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
           {subject}
         </pre>
