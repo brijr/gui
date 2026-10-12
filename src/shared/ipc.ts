@@ -124,9 +124,6 @@ export const Send = {
   pickWheel: 'pick:wheel',
   endGuide: 'pick:end-guide',
   setCanvasRect: 'layout:canvas',
-  morphShown: 'layout:morph-shown',
-  morphLanded: 'layout:morph-landed',
-  cancelMorph: 'layout:morph-cancel',
   /** One of the page's animation frames, while main asks for them (main/panel-flight.ts) */
   displayFrame: 'motion:frame',
   setFocusMode: 'layout:focus-mode',
@@ -380,19 +377,10 @@ export interface GuiApi {
   onPickState(cb: (state: PickOverlayState) => void): Unsubscribe
   setCanvasRect(rect: Rect): void
   /**
-   * The preview's layout morphs (`MorphEvent`): the chrome draws its snapshot moving from where
-   * the preview was to where it's going, under the toolbar and the drawer.
+   * The preview's layout morphs (`MorphEvent`): the chrome draws the device frame around the
+   * live view as it resizes, under the toolbar and the drawer.
    */
   onMorph(cb: (event: MorphEvent) => void): Unsubscribe
-  /**
-   * The morph's snapshot is on screen, so main can take the live view away, with the canvas
-   * as the change left it (the drawer or focus mode change it first).
-   */
-  morphShown(id: number, canvas: Rect): void
-  /** The morph has come to rest on its target `seq`: main shows the live view there */
-  morphLanded(id: number, seq: number): void
-  /** A click on the moving snapshot: the live view, in its new place, at once */
-  cancelMorph(id: number): void
   /** Focus mode on or off (see `WindowState.focusMode`) */
   setFocusMode(on: boolean): void
   /** Shows or closes the Keyboard Shortcuts sheet (`WindowState.shortcutsOpen`) */

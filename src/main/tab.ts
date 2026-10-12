@@ -254,7 +254,7 @@ export class ProjectTab {
   private readonly emulation: ViewportEmulation
   /** Each viewport's zoom, Desktop's at 100% and the frames fitting until the user zooms. */
   private zooms: Record<Viewport, Zoom> = { desktop: 1, laptop: null, tablet: null, mobile: null }
-  /** Moves the preview into a new layout by morphing a snapshot of it (preview-morph.ts). */
+  /** Resizes the live preview into a new layout, like a window being resized (preview-morph.ts). */
   private readonly morph: PreviewMorph
   /**
    * Where the preview is laid out, in the window: the view's bounds, except mid-morph, when
@@ -464,10 +464,12 @@ export class ProjectTab {
     this.emulation = new ViewportEmulation(this.inspector)
     this.morph = new PreviewMorph({
       window: () => this.host.win,
-      view: this.preview,
-      exclusive: (fn) => this.inspector.exclusive(() => fn()),
       send: (event) => this.send(Events.morph, event),
       layout: () => this.layout(),
+      apply: ({ rect, emulation }) => {
+        this.preview.setBounds(rect)
+        this.emulation.set(emulation)
+      },
       moving: (reduced) => this.slideDock(reduced),
       ended: () => this.landDock(),
     })
@@ -2677,11 +2679,10 @@ export class ProjectTab {
     if (!visible) this.morph.finish(false)
     // Desktop's zoom emulates too, without a frame.
     const frame = viewportSpec(viewport).size !== null && emulation
-    // Where the view goes: here, or mid-morph out of sight at this size; frozen, nowhere yet.
-    const [, contentHeight = 0] = this.host.win.getContentSize()
+    // Where the view goes: here, or mid-morph where its resize has got to on the way.
     const placed = { rect: bounds, scale: emulation?.scale ?? 1, frame: frame ? viewport : null }
-    const at = this.morph.place(placed, contentHeight)
-    if (at) this.preview.setBounds(at)
+    const live = this.morph.place(placed)
+    this.preview.setBounds(live?.rect ?? bounds)
     this.preview.setVisible(visible)
     // Picking needs the page on screen, where the overlay lies over it.
     if (this.picker.picking) {
@@ -2691,13 +2692,10 @@ export class ProjectTab {
       if (visible) this.picker.setBounds(bounds)
       else this.endGuide()
     }
-    // Frozen, the emulation waits behind the morph's capture in the inspector's lock, and the
-    // chrome's device frame stays around the view where it is, until the morph draws it.
-    this.emulation.set(emulation)
-    if (!this.morph.frozen) {
-      const rect = inCanvas(bounds, this.host.canvas)
-      this.showFrame(frame ? { viewport, rect, scale: frame.scale } : null)
-    }
+    this.emulation.set(live ? live.emulation : emulation)
+    // Mid-morph the chrome draws the device frame where the view is; this one shows once it rests.
+    const rect = inCanvas(bounds, this.host.canvas)
+    this.showFrame(frame ? { viewport, rect, scale: frame.scale } : null)
     this.layoutChat()
   }
 
@@ -2716,19 +2714,6 @@ export class ProjectTab {
       win.isVisible() &&
       !win.isMinimized()
     this.morph.request(kind, eligible)
-  }
-
-  /** The chrome has the morph's snapshot on screen; false when it's not this tab's morph. */
-  morphShown(id: number) {
-    return this.morph.snapshotShown(id)
-  }
-
-  morphLanded(id: number, seq: number) {
-    this.morph.landed(id, seq)
-  }
-
-  cancelMorph(id: number) {
-    this.morph.cancel(id)
   }
 
   /**

@@ -202,15 +202,6 @@ export class ProjectWindow implements TabHost {
   }
 
   /**
-   * The chrome has the active tab's morph snapshot on screen (preview-morph.ts), with its
-   * canvas as the change left it: the tab lays out there, and its preview starts moving.
-   */
-  morphShown(id: number, canvas: Rect) {
-    this.canvas = canvas
-    if (!this.active.morphShown(id)) this.active.layout()
-  }
-
-  /**
    * ⌘\: only the preview, under a slim title bar, while there's a project to show. Nothing
    * else changes, so turning it off brings back what was showing. Anything that needs the
    * chat or the toolbar (⌘J, ⇧⌘L, a pick or a permission card) turns it off first.

@@ -321,10 +321,10 @@ export interface PreviewState {
 }
 
 /**
- * A change that moves or resizes the preview, which morphs into its new layout rather than
- * jumping there (main/preview-morph.ts, renderer app/layout-morph.ts): another viewport, a
- * zoom step, the drawer opening or closing, the chat docking (or a docked chat showing or
- * hiding), focus mode.
+ * A change that moves or resizes the preview, which resizes the live page into its new layout
+ * rather than jumping there (main/preview-morph.ts, renderer app/layout-morph.ts): another
+ * viewport, a zoom step, the drawer opening or closing, the chat docking (or a docked chat
+ * showing or hiding), focus mode.
  */
 export type MorphKind = 'viewport' | 'zoom' | 'drawer' | 'dock' | 'focus'
 
@@ -339,24 +339,24 @@ export interface MorphPlacement {
 }
 
 /**
- * Main → the chrome, one morph (`id`) at a time: a change is coming (`pending`), the preview
- * as it was (`snapshot`, a JPEG of the view), where it's going (`target`, again for every
- * change before it lands, numbered `seq`), the preview as it will be there (`after`, null if
- * it couldn't be captured), and the live view back in its place (`end`).
+ * Main → the chrome, one morph (`id`) at a time: a change is coming (`pending`), where the
+ * live view is on each frame of its motion (`frame`), and the view resting in its new layout
+ * (`end`, which also comes for a change that moved nothing).
  */
 export type MorphEvent =
   | { type: 'pending'; id: number; kind: MorphKind }
   | {
-      type: 'snapshot'
+      type: 'frame'
       id: number
       kind: MorphKind
-      image: Uint8Array
-      from: MorphPlacement
-      /** Reduce motion: nothing moves; the snapshot fades out where the preview left */
-      reduced: boolean
+      /** The preview view, in window coordinates */
+      rect: Rect
+      scale: number
+      /** The device the frame's label names; null for Desktop at both ends */
+      viewport: Viewport | null
+      /** The device frame's edge and label: 1 around a device, 0 around Desktop */
+      opacity: number
     }
-  | { type: 'target'; id: number; seq: number; kind: MorphKind; to: MorphPlacement }
-  | { type: 'after'; id: number; seq: number; image: Uint8Array | null }
   | { type: 'end'; id: number }
 
 /**
