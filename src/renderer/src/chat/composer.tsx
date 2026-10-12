@@ -213,7 +213,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         <AgentStatus meta={meta} />
       )}
       {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
-      <QueuedMessages meta={meta} />
+      <QueuedMessages meta={meta} running={running} />
       {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}
       {meta.selection.length > 0 && <Selection selection={meta.selection} />}
       {followUp && (

@@ -147,6 +147,38 @@ retried.resolve({ meta, turns: [structuredClone(turn)], revisions: publisher.rev
 await Promise.resolve()
 assert.deepEqual(useChat.getState().turnsById.turn, turn)
 assert.equal(useChat.getState().meta?.error, 'Final buffered metadata')
+// Queued messages edited or rearranged land in place; one sent from the middle of the
+// queue leaves it as its turn arrives, and the rest keep waiting.
+const waiting = (id: string, prompt: string) => ({ id, prompt, context: [], attachments: [] })
+const firstWaiting = waiting('q1', 'First waiting')
+const secondWaiting = waiting('q2', 'Second waiting')
+const thirdWaiting = waiting('q3', 'Third waiting')
+const withQueue = (queue: ChatMeta['queue']) => ({ ...meta, queue, error: null })
+const queueIds = () => useChat.getState().meta?.queue.map((item) => item.id)
+emit('onChatMeta', withQueue([firstWaiting, secondWaiting, thirdWaiting]))
+assert.deepEqual(queueIds(), ['q1', 'q2', 'q3'])
+const secondEdited = waiting('q2', 'Second, edited')
+emit('onChatMeta', withQueue([firstWaiting, secondEdited, thirdWaiting]))
+assert.equal(useChat.getState().meta?.queue[1]?.prompt, 'Second, edited')
+emit('onChatMeta', withQueue([firstWaiting, thirdWaiting, secondEdited]))
+assert.deepEqual(queueIds(), ['q1', 'q3', 'q2'])
+emit('onChatMeta', withQueue([firstWaiting, secondEdited]))
+const middle: Turn = {
+  id: 'middle',
+  index: 1,
+  prompt: 'Third waiting',
+  context: [],
+  items: [],
+  status: 'running',
+  error: null,
+  startedAt: 3,
+  endedAt: null,
+  changes: null,
+  reverted: false,
+}
+emit('onChatTurn', structuredClone(publisher.update(middle)))
+assert.deepEqual(queueIds(), ['q1', 'q2'])
+assert.deepEqual(useChat.getState().turnsById.middle, middle)
 // Permanent failures stop after three attempts, and reset/disconnect cancel pending retries.
 publisher.update(turn)
 update()
@@ -184,5 +216,5 @@ disconnect()
 await new Promise((resolve) => setTimeout(resolve, 280))
 assert.equal(requests.length, 0)
 console.log(
-  'Chat store checks passed: initial race, duplicates, recovery, deferred reset, final-event retries, bounded failures and retry cancellation.',
+  'Chat store checks passed: initial race, duplicates, recovery, deferred reset, final-event retries, queue edit/reorder/send-from-middle, bounded failures and retry cancellation.',
 )

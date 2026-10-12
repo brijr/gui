@@ -74,6 +74,7 @@ export const Camera = icon(SYMBOLS.Camera, Lucide.Camera)
 export const Check = icon(SYMBOLS.Check, Lucide.Check)
 export const ChevronDown = icon(SYMBOLS.ChevronDown, Lucide.ChevronDown)
 export const ChevronRight = icon(SYMBOLS.ChevronRight, Lucide.ChevronRight)
+export const ChevronUp = icon(SYMBOLS.ChevronUp, Lucide.ChevronUp)
 export const Circle = icon(SYMBOLS.Circle, Lucide.Circle)
 export const CircleDot = icon(SYMBOLS.CircleDot, Lucide.CircleDot)
 export const CircleSlash = icon(SYMBOLS.CircleSlash, Lucide.CircleSlash)
@@ -93,6 +94,8 @@ export const GitBranch = icon(SYMBOLS.GitBranch, Lucide.GitBranch)
 // Lucide's: the system's arrow.triangle.pull doesn't read as a pull request.
 export const GitPullRequest: IconComponent = Lucide.GitPullRequest
 export const Globe = icon(SYMBOLS.Globe, Lucide.Globe)
+// Lucide's dotted grip: the system's line.3.horizontal reads as a menu, not a drag handle.
+export const GripVertical: IconComponent = Lucide.GripVertical
 export const History = icon(SYMBOLS.History, Lucide.History)
 export const HardDrive = icon(SYMBOLS.HardDrive, Lucide.HardDrive)
 export const ImageIcon = icon(SYMBOLS.ImageIcon, Lucide.ImageIcon)

@@ -113,6 +113,16 @@ test('messages sent while the agent works run in order; Stop pauses the queue', 
     'QUEUE-F',
     'QUEUE-G',
     'QUEUE-H',
+    'QUEUE-I',
+    'QUEUE-J',
+    'QUEUE-K',
+    'QUEUE-L',
+    'QUEUE-M',
+    'QUEUE-N',
+    'QUEUE-O',
+    'QUEUE-P',
+    'QUEUE-Q',
+    'QUEUE-R',
   ]
 
   // A starts; B and C, sent while it runs, are accepted and wait in the queue.
@@ -177,4 +187,129 @@ test('messages sent while the agent works run in order; Stop pauses the queue', 
   ])
   expect(received(recorded(), markers).slice(5)).toEqual(['QUEUE-F', 'QUEUE-H'])
   expect(final.meta.queue).toEqual([])
+
+  // A queued message can be edited and moved while it waits; the agent gets the new
+  // text, in the new order.
+  expect(await send(session, 'QUEUE-I seventh')).toBe(true)
+  expect(await send(session, 'QUEUE-J eighth draft')).toBe(true)
+  expect(await send(session, 'QUEUE-K ninth')).toBe(true)
+  const editing = await queued(session)
+  expect(prompts(editing)).toEqual(['QUEUE-J eighth draft', 'QUEUE-K ninth'])
+  await session.chat.evaluate(
+    (id) => window.gui.editQueued(id, 'QUEUE-J eighth, edited'),
+    editing[0]?.id ?? '',
+  )
+  await session.chat.evaluate((id) => window.gui.moveQueued(id, 0), editing[1]?.id ?? '')
+  const rearranged = async () => {
+    const snapshot = await session.chatSnapshot()
+    const now = prompts(snapshot.meta.queue)
+    return (
+      (now[0] === 'QUEUE-K ninth' && now[1] === 'QUEUE-J eighth, edited') ||
+      snapshot.turns[8]?.prompt === 'QUEUE-K ninth'
+    )
+  }
+  await waitFor(rearranged, 'the edit and move to reach the queue')
+  const afterEdit = await waitForIdle(session, 10)
+  expect(afterEdit.turns.slice(7).map((turn) => turn.prompt)).toEqual([
+    'QUEUE-I seventh',
+    'QUEUE-K ninth',
+    'QUEUE-J eighth, edited',
+  ])
+  expect(received(recorded(), markers).slice(7)).toEqual(['QUEUE-I', 'QUEUE-K', 'QUEUE-J'])
+
+  // Stop pauses three held messages; sending the middle one from its row runs just it,
+  // and the others stay held.
+  expect(await send(session, 'QUEUE-L tenth')).toBe(true)
+  expect(await send(session, 'QUEUE-M held one')).toBe(true)
+  expect(await send(session, 'QUEUE-N held two')).toBe(true)
+  expect(await send(session, 'QUEUE-O held three')).toBe(true)
+  const lPrompted = async () => recorded().length === 11
+  await waitFor(lPrompted, 'the agent to receive L')
+  await session.chat.evaluate(() => window.gui.cancel())
+  const held = await waitForIdle(session, 11)
+  expect(held.meta.queuePaused).toBe(true)
+  expect(prompts(held.meta.queue)).toEqual([
+    'QUEUE-M held one',
+    'QUEUE-N held two',
+    'QUEUE-O held three',
+  ])
+  const list = session.chat.getByRole('list', { name: 'Queued messages' })
+  // Dragging uses the same order as the accessible move buttons.
+  // Dispatch HTML drag events: native drag input across Electron views is unreliable.
+  const drag = async (from: number, to: number) => {
+    const dataTransfer = await session.chat.evaluateHandle(() => new DataTransfer())
+    const source = list.getByRole('listitem').nth(from)
+    const target = list.getByRole('listitem').nth(to)
+    await source.dispatchEvent('dragstart', { dataTransfer })
+    await target.dispatchEvent('dragover', { dataTransfer })
+    await target.dispatchEvent('drop', { dataTransfer })
+    await source.dispatchEvent('dragend', { dataTransfer })
+    await dataTransfer.dispose()
+  }
+  await drag(2, 0)
+  await waitFor(
+    async () =>
+      prompts(await queued(session)).join('|') ===
+      'QUEUE-O held three|QUEUE-M held one|QUEUE-N held two',
+    'the dragged message to move first',
+  )
+  await expect(list.getByRole('listitem').nth(0).locator('p')).toHaveText('QUEUE-O held three')
+  await drag(0, 2)
+  await waitFor(
+    async () =>
+      prompts(await queued(session)).join('|') ===
+      'QUEUE-M held one|QUEUE-N held two|QUEUE-O held three',
+    'the dragged message to move last',
+  )
+  const middleRow = list.getByRole('listitem').nth(1)
+  await middleRow.hover()
+  await middleRow.getByRole('button', { name: 'Send queued message now: QUEUE-N held two' }).click()
+  const afterMiddle = await waitForIdle(session, 12)
+  expect(afterMiddle.turns[11]?.prompt).toBe('QUEUE-N held two')
+  expect(afterMiddle.turns[11]?.status).toBe('done')
+  expect(prompts(afterMiddle.meta.queue)).toEqual(['QUEUE-M held one', 'QUEUE-O held three'])
+  expect(afterMiddle.meta.queuePaused).toBe(true)
+  await sleep(500)
+  expect(recorded()).toHaveLength(12)
+
+  // The row buttons rearrange and edit what's held; "Send next" then runs the rest in
+  // their new order, with the new text.
+  const firstRow = list.getByRole('listitem').nth(0)
+  await firstRow.hover()
+  await firstRow.getByRole('button', { name: 'Move queued message down: QUEUE-M held one' }).click()
+  const swapped = async () => {
+    const now = prompts(await queued(session))
+    return now[0] === 'QUEUE-O held three' && now[1] === 'QUEUE-M held one'
+  }
+  await waitFor(swapped, 'the swap to reach the queue')
+  const editRow = list.getByRole('listitem').nth(0)
+  await editRow.hover()
+  await editRow.getByRole('button', { name: 'Edit queued message: QUEUE-O held three' }).click()
+  await editRow
+    .getByRole('textbox', { name: 'Edit queued message: QUEUE-O held three' })
+    .fill('QUEUE-O held three, edited')
+  await editRow.getByRole('button', { name: 'Save' }).click()
+  const editedHeld = async () => prompts(await queued(session))[0] === 'QUEUE-O held three, edited'
+  await waitFor(editedHeld, 'the held edit to reach the queue')
+  await session.chat.evaluate(() => window.gui.sendQueuedNow())
+  const afterHeld = await waitForIdle(session, 14)
+  expect(afterHeld.turns.slice(12).map((turn) => turn.prompt)).toEqual([
+    'QUEUE-O held three, edited',
+    'QUEUE-M held one',
+  ])
+  expect(afterHeld.meta.queue).toEqual([])
+  expect(afterHeld.meta.queuePaused).toBe(false)
+
+  // "Clear all" drops everything waiting; none of it runs.
+  expect(await send(session, 'QUEUE-P eleventh')).toBe(true)
+  expect(await send(session, 'QUEUE-Q cleared one')).toBe(true)
+  expect(await send(session, 'QUEUE-R cleared two')).toBe(true)
+  expect(prompts(await queued(session))).toEqual(['QUEUE-Q cleared one', 'QUEUE-R cleared two'])
+  await session.chat.getByRole('button', { name: 'Clear all' }).click()
+  const cleared = async () => (await queued(session)).length === 0
+  await waitFor(cleared, 'the queue to clear')
+  const afterClear = await waitForIdle(session, 15)
+  expect(afterClear.turns[14]?.prompt).toBe('QUEUE-P eleventh')
+  expect(received(recorded(), markers)).toHaveLength(15)
+  expect(received(recorded(), markers).at(-1)).toBe('QUEUE-P')
 })

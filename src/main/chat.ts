@@ -757,11 +757,69 @@ export class ChatController extends EventEmitter<ChatEvents> {
     else this.patchMeta({ queue, queuePaused: false, queuePauseReason: null })
   }
 
+  /** Drops every queued message. */
+  clearQueued() {
+    if (this.meta.queue.length === 0) return
+    this.clearQueue()
+  }
+
+  /**
+   * Rewrites a queued message's text; what it carries (the pick, images, clips) stays.
+   * Text that leaves nothing to ask (empty, with nothing attached) changes nothing.
+   */
+  editQueued(id: string, text: string) {
+    const item = this.meta.queue.find((queued) => queued.id === id)
+    if (!item) return
+    const payload = this.queued.get(id)
+    const prompt =
+      messagePrompt(text, payload?.images ?? []) ||
+      (item.recordings?.length
+        ? 'Inspect the attached preview recording, especially its animations.'
+        : '')
+    if (!prompt || prompt === item.prompt) return
+    this.patchMeta({
+      queue: this.meta.queue.map((queued) => (queued.id === id ? { ...queued, prompt } : queued)),
+    })
+  }
+
+  /** Moves a queued message to `index` in the queue (0 runs next). */
+  moveQueued(id: string, index: number) {
+    const queue = [...this.meta.queue]
+    const from = queue.findIndex((item) => item.id === id)
+    const item = queue[from]
+    if (!item || !Number.isFinite(index)) return
+    const to = Math.max(0, Math.min(queue.length - 1, Math.floor(index)))
+    if (to === from) return
+    queue.splice(from, 1)
+    queue.splice(to, 0, item)
+    this.patchMeta({ queue })
+  }
+
   /** Resumes a paused queue; when nothing is running, its next message starts now. */
   sendQueuedNow() {
     if (this.disposed) return
     if (this.meta.queuePaused) this.patchMeta({ queuePaused: false, queuePauseReason: null })
     this.drainQueue()
+  }
+
+  /**
+   * Sends one queued message ahead of the rest: it starts now when nothing is running
+   * (the others stay held if the queue was paused), and otherwise moves to the front,
+   * so it runs next.
+   */
+  sendQueued(id: string) {
+    if (this.disposed) return
+    const item = this.meta.queue.find((queued) => queued.id === id)
+    if (!item) return
+    if (this.lock) {
+      if (this.meta.queuePaused) this.patchMeta({ queuePaused: false, queuePauseReason: null })
+      this.moveQueued(id, 0)
+      return
+    }
+    this.startQueued(
+      item,
+      this.meta.queue.filter((queued) => queued.id !== id),
+    )
   }
 
   async cancel() {
@@ -1168,6 +1226,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.lock || this.disposed || this.meta.queuePaused) return
     const [next, ...rest] = this.meta.queue
     if (!next) return
+    this.startQueued(next, rest)
+  }
+
+  /** Takes `next` off the queue (`rest` stays waiting) and starts its turn. */
+  private startQueued(next: QueuedMessage, rest: QueuedMessage[]) {
     const payload = this.queued.get(next.id) ?? {
       images: [],
       followUp: next.followUp ?? null,
@@ -1175,7 +1238,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
       viewport: null,
     }
     this.queued.delete(next.id)
-    this.patchMeta({ queue: rest })
+    // An empty queue has nothing to hold back.
+    if (rest.length > 0) this.patchMeta({ queue: rest })
+    else this.patchMeta({ queue: rest, queuePaused: false, queuePauseReason: null })
     this.startTurn(next.prompt, payload.fix ?? null, payload.images, payload)
   }
 

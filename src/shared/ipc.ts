@@ -161,7 +161,11 @@ export const Send = {
   endDragChat: 'chat:drag-end',
   chatMorphed: 'chat:morphed',
   removeQueued: 'chat:queue-remove',
+  editQueued: 'chat:queue-edit',
+  moveQueued: 'chat:queue-move',
   sendQueuedNow: 'chat:queue-send',
+  sendQueued: 'chat:queue-send-one',
+  clearQueued: 'chat:queue-clear',
   setAutoApprove: 'chat:auto-approve',
   setShipSheetOpen: 'chat:ship-sheet',
   setAgentSetting: 'chat:agent-setting',
@@ -457,8 +461,22 @@ export interface GuiApi {
   ): Promise<boolean>
   /** Drops a queued message */
   removeQueued(id: string): void
+  /** Drops every queued message */
+  clearQueued(): void
+  /**
+   * Rewrites a queued message's text, keeping what it carries (the pick, images, clips).
+   * Text that leaves nothing to ask changes nothing.
+   */
+  editQueued(id: string, text: string): void
+  /** Moves a queued message to `index` in the queue (0 runs next) */
+  moveQueued(id: string, index: number): void
   /** Runs the next queued message now (when idle), resuming a paused queue */
   sendQueuedNow(): void
+  /**
+   * Sends one queued message ahead of the rest: now when idle (a paused queue's others
+   * stay held), or next — moved to the front — while the agent works
+   */
+  sendQueued(id: string): void
   /** Auto mode on or off (see `ChatMeta.autoApprove`) */
   setAutoApprove(on: boolean): void
   /**

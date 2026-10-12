@@ -1934,8 +1934,24 @@ export class ProjectTab {
     this.resources.chat?.removeQueued(id)
   }
 
+  clearQueued() {
+    this.resources.chat?.clearQueued()
+  }
+
+  editQueued(id: string, text: string) {
+    this.resources.chat?.editQueued(id, text)
+  }
+
+  moveQueued(id: string, index: number) {
+    this.resources.chat?.moveQueued(id, index)
+  }
+
   sendQueuedNow() {
     this.resources.chat?.sendQueuedNow()
+  }
+
+  sendQueued(id: string) {
+    this.resources.chat?.sendQueued(id)
   }
 
   cancelChat() {

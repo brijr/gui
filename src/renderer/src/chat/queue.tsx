@@ -1,8 +1,18 @@
-import { useEffect, useState } from 'react'
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMeta, QueuedMessage, QueuePauseReason } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Clock, ImageIcon, Reply, X } from '../lib/icons'
+import {
+  ChevronDown,
+  ChevronUp,
+  Clock,
+  GripVertical,
+  ImageIcon,
+  Pencil,
+  Play,
+  Reply,
+  X,
+} from '../lib/icons'
 import { Card } from '../lib/surface'
 import { Button, IconButton } from '../lib/ui'
 import { noteRemoveQueued } from './store'
@@ -19,34 +29,54 @@ const PAUSED: Record<QueuePauseReason, string> = {
   restored: 'Waiting from before Gui closed',
 }
 
-/** Enough of a queued message to tell its remove button from the others. */
+/** Enough of a queued message to tell its buttons from the others. */
 function excerpt(prompt: string) {
   const text = prompt.replace(/\s+/g, ' ').trim()
   return text.length > 40 ? `${text.slice(0, 40).trimEnd()}…` : text
 }
 
+/** Row actions, shown while the row is pointed at or holds the keyboard (as the archive's). */
+const REVEAL =
+  'flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
+
 /**
  * Messages sent while the agent was busy, oldest first, just above the composer. Each
  * starts when the turn before it is done; after Stop, an error and the like they wait for
- * "Send next".
+ * "Send next". While they wait they can be edited, rearranged (drag, or the move buttons),
+ * sent ahead of the rest, or removed — one by one, or all at once from the header.
  */
-export function QueuedMessages({ meta }: { meta: ChatMeta }) {
+export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boolean }) {
+  const [dragging, setDragging] = useState<string | null>(null)
+  const [over, setOver] = useState<string | null>(null)
   if (meta.queue.length === 0) return null
   const paused = meta.queuePaused
+  const endDrag = () => {
+    setDragging(null)
+    setOver(null)
+  }
+  const dropOn = (id: string, source: string) => {
+    if (source && source !== id && meta.queue.some((item) => item.id === source)) {
+      const index = meta.queue.findIndex((item) => item.id === id)
+      if (index >= 0) gui.moveQueued(source, index)
+    }
+    endDrag()
+  }
+  const clearAll = () => {
+    for (const item of meta.queue) noteRemoveQueued(item.id)
+    gui.clearQueued()
+  }
   return (
     <Card tone="inset">
-      <div
-        className={
-          paused ? 'flex items-center gap-2 border-b border-line py-1 pr-1 pl-3' : undefined
-        }
-      >
+      <div className="flex items-center gap-2 border-b border-line py-1 pr-1 pl-3">
         {/* Mounted with the queue rather than the pause, so the pause is announced. */}
-        <p
-          role="status"
-          className={paused ? 'min-w-0 flex-1 truncate text-small text-muted' : 'sr-only'}
-        >
-          {paused ? PAUSED[meta.queuePauseReason ?? 'stopped'] : ''}
+        <p role="status" className="min-w-0 flex-1 truncate text-small text-muted">
+          {paused ? PAUSED[meta.queuePauseReason ?? 'stopped'] : 'Queued'}
         </p>
+        {meta.queue.length > 1 && (
+          <Button size="sm" variant="ghost" className="shrink-0" onClick={clearAll}>
+            Clear all
+          </Button>
+        )}
         {paused && (
           <Button size="sm" className="shrink-0" onClick={() => gui.sendQueuedNow()}>
             {meta.queuePauseReason === 'setup' ? 'Send anyway' : 'Send next'}
@@ -57,34 +87,166 @@ export function QueuedMessages({ meta }: { meta: ChatMeta }) {
         data-clip
         aria-label="Queued messages"
         className="max-h-28 overflow-y-auto scroll-stable py-1"
+        onDragLeave={(event) => {
+          const next = event.relatedTarget
+          if (!(next instanceof Node) || !event.currentTarget.contains(next)) setOver(null)
+        }}
       >
-        {meta.queue.map((item) => (
-          <QueuedItem key={item.id} item={item} />
+        {meta.queue.map((item, index) => (
+          <QueuedItem
+            key={item.id}
+            item={item}
+            index={index}
+            count={meta.queue.length}
+            running={running}
+            isDragging={dragging === item.id}
+            isOver={over === item.id && dragging !== item.id}
+            onDragStart={setDragging}
+            onDragOver={setOver}
+            onDrop={dropOn}
+            onDragEnd={endDrag}
+          />
         ))}
       </ul>
     </Card>
   )
 }
 
+interface QueuedItemProps {
+  item: QueuedMessage
+  index: number
+  count: number
+  running: boolean
+  isDragging: boolean
+  isOver: boolean
+  onDragStart: (id: string) => void
+  onDragOver: (id: string) => void
+  onDrop: (id: string, source: string) => void
+  onDragEnd: () => void
+}
+
 /** One queued message; it fades in the first time it shows unless it rose from the composer. */
-function QueuedItem({ item }: { item: QueuedMessage }) {
+function QueuedItem({
+  item,
+  index,
+  count,
+  running,
+  isDragging,
+  isOver,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+}: QueuedItemProps) {
   const key = `queue:${item.id}`
   const [fresh] = useState(() => isNewRow(key))
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(item.prompt)
+  const field = useRef<HTMLTextAreaElement>(null)
+  const editButton = useRef<HTMLButtonElement>(null)
   useEffect(() => markSeen([key]), [key])
+  // Editing takes the keyboard; saving or cancelling gives it back to the Edit button.
+  const wasEditing = useRef(false)
+  useEffect(() => {
+    if (editing) {
+      wasEditing.current = true
+      const el = field.current
+      el?.focus({ preventScroll: true })
+      el?.setSelectionRange(el.value.length, el.value.length)
+    } else if (wasEditing.current) {
+      wasEditing.current = false
+      editButton.current?.focus({ preventScroll: true })
+    }
+  }, [editing])
+
+  const name = excerpt(item.prompt)
+  const startEdit = () => {
+    setDraft(item.prompt)
+    setEditing(true)
+  }
+  // Empty text still sends what the message carries (images, clips), as it did when queued.
+  const canSave =
+    draft.trim() !== '' || item.attachments.length > 0 || (item.recordings?.length ?? 0) > 0
+  const save = () => {
+    if (!canSave) return
+    setEditing(false)
+    if (draft !== item.prompt) gui.editQueued(item.id, draft)
+  }
+  const onEditKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      save()
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      event.stopPropagation()
+      setEditing(false)
+    }
+  }
+
+  if (editing) {
+    return (
+      <li data-queue-item={item.id} className="flex items-start gap-2 py-1 pr-1 pl-3">
+        <textarea
+          ref={field}
+          aria-label={`Edit queued message: ${name}`}
+          value={draft}
+          rows={1}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={onEditKeyDown}
+          className="field-sizing-content max-h-28 min-h-7 min-w-0 flex-1 resize-none rounded-md border border-line-strong bg-raised px-2 py-1 text-small text-fg transition-colors outline-none placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none"
+        />
+        <div className="flex shrink-0 items-center gap-1 pt-0.5">
+          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+            Cancel
+          </Button>
+          <Button size="sm" variant="primary" disabled={!canSave} onClick={save}>
+            Save
+          </Button>
+        </div>
+      </li>
+    )
+  }
+
   return (
     <li
       data-queue-item={item.id}
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = 'move'
+        event.dataTransfer.setData('text/plain', item.id)
+        onDragStart(item.id)
+      }}
+      onDragOver={(event) => {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+        onDragOver(item.id)
+      }}
+      onDrop={(event) => {
+        event.preventDefault()
+        onDrop(item.id, event.dataTransfer.getData('text/plain'))
+      }}
+      onDragEnd={onDragEnd}
       className={cn(
-        'flex h-7 items-center gap-2 pr-1 pl-3',
+        'group flex h-7 items-center gap-2 pr-1 pl-1.5',
         fresh && 'animate-row-in motion-reduce:animate-row-fade',
+        isOver && 'bg-hover',
+        isDragging && 'opacity-50',
       )}
     >
+      <GripVertical
+        className="size-3.5 shrink-0 cursor-grab text-subtle active:cursor-grabbing"
+        aria-hidden="true"
+      />
       {item.followUp ? (
         <Reply className="size-3 shrink-0 text-subtle" aria-label="Follow-up" />
       ) : (
         <Clock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
       )}
-      <p className="min-w-0 flex-1 truncate text-small" title={item.prompt}>
+      <p
+        className="min-w-0 flex-1 truncate text-small"
+        title={item.prompt}
+        onDoubleClick={startEdit}
+      >
         {item.prompt}
       </p>
       {!!item.recordings?.length && (
@@ -99,9 +261,43 @@ function QueuedItem({ item }: { item: QueuedMessage }) {
           <span className="sr-only">{item.attachments.length === 1 ? ' image' : ' images'}</span>
         </span>
       )}
+      <div className={REVEAL}>
+        <IconButton
+          size="sm"
+          label={running ? `Send queued message next: ${name}` : `Send queued message now: ${name}`}
+          title={running ? 'Send next' : 'Send now'}
+          icon={Play}
+          disabled={running && index === 0}
+          onClick={() => gui.sendQueued(item.id)}
+        />
+        <IconButton
+          ref={editButton}
+          size="sm"
+          label={`Edit queued message: ${name}`}
+          title="Edit"
+          icon={Pencil}
+          onClick={startEdit}
+        />
+        <IconButton
+          size="sm"
+          label={`Move queued message up: ${name}`}
+          title="Move up"
+          icon={ChevronUp}
+          disabled={index === 0}
+          onClick={() => gui.moveQueued(item.id, index - 1)}
+        />
+        <IconButton
+          size="sm"
+          label={`Move queued message down: ${name}`}
+          title="Move down"
+          icon={ChevronDown}
+          disabled={index === count - 1}
+          onClick={() => gui.moveQueued(item.id, index + 1)}
+        />
+      </div>
       <IconButton
         size="sm"
-        label={`Remove queued message: ${excerpt(item.prompt)}`}
+        label={`Remove queued message: ${name}`}
         title="Remove"
         icon={X}
         onClick={() => {

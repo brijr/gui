@@ -321,34 +321,33 @@ function onMeta(meta: ChatMeta) {
   const apply = () => useChat.setState({ meta })
 
   if (starting) {
-    // Newer news while the queue's first message starts: the queue waits on with the latest,
+    // Newer news while a queued message starts: the queue waits on with the latest,
     // everything else applies now.
     starting.meta = meta
     applyInOrder(() => useChat.setState({ meta: withShownQueue(meta) }))
     return
   }
-  const [first] = removed
+  // One message gone while idle, and the user didn't remove it: main took it to start its
+  // turn (the next in line, or one sent from the middle of the queue).
+  const [gone] = removed
   const idle = !useChat.getState().turns.some((turn) => turn.status === 'running')
-  if (
-    first &&
-    removed.length === 1 &&
-    first.id === before[0]?.id &&
-    idle &&
-    !removing.has(first.id)
-  ) {
+  if (gone && removed.length === 1 && idle && !removing.has(gone.id)) {
     const timer = setTimeout(() => {
       const held = releaseStarting()
       if (held)
         transition(() => useChat.setState({ meta: held.meta }), queueMoves(before, held.meta.queue))
     }, STARTING_WAIT_MS)
-    starting = { meta, item: first, timer }
+    starting = { meta, item: gone, timer }
     applyInOrder(() => useChat.setState({ meta: withShownQueue(meta) }))
     return
   }
   for (const item of removed) removing.delete(item.id)
 
   if (removed.length === 0 && added.length === 0) {
-    applyInOrder(apply)
+    // The same messages, edited or rearranged: a new order moves, an edit just lands.
+    const reordered = before.some((item, index) => item.id !== after[index]?.id)
+    if (reordered) transition(apply, queueMoves(before, after))
+    else applyInOrder(apply)
     return
   }
   const moves = queueMoves(before, after)

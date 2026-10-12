@@ -948,7 +948,13 @@ function registerIpc() {
   })
   on(Send.cancel, (tab) => tab.cancelChat())
   on(Send.removeQueued, (tab, id) => isString(id) && tab.removeQueued(id))
+  on(Send.clearQueued, (tab) => tab.clearQueued())
+  on(Send.editQueued, (tab, id, text) => isString(id) && isString(text) && tab.editQueued(id, text))
+  on(Send.moveQueued, (tab, id, index) => {
+    if (isString(id) && isNumber(index)) tab.moveQueued(id, index)
+  })
   on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
+  on(Send.sendQueued, (tab, id) => isString(id) && tab.sendQueued(id))
   on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
   on(Send.setShipSheetOpen, (tab, open) => typeof open === 'boolean' && tab.setShipSheetOpen(open))
   on(Send.setAgentSetting, (tab, settingId, value) => {

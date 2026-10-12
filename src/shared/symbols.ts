@@ -11,6 +11,7 @@ export const SYMBOLS = {
   Check: 'checkmark',
   ChevronDown: 'chevron.down',
   ChevronRight: 'chevron.right',
+  ChevronUp: 'chevron.up',
   Circle: 'circle',
   // An outline ring, as the toolbar's other tools are outlines; a solid dot outweighed them.
   CircleDot: 'record.circle',
