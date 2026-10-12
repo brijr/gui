@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
 import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
-import { VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
+import { type BoardState, VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { Input } from '../lib/field'
 import {
@@ -14,14 +14,18 @@ import {
   type IconComponent,
   Laptop,
   MessageSquare,
+  Minus,
   Monitor,
   MousePointer2,
+  Plus,
   RotateCw,
+  Shapes,
   Smartphone,
   Tablet,
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
+import { useBoardView } from './board'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 
@@ -64,6 +68,16 @@ export function Toolbar({ state }: { state: WindowState }) {
     !tabbed && !state.fullScreen && (state.sidebarWidth === 0 || state.sidebarSide === 'right')
   // Picking and screenshots only work on the local app.
   const capturable = preview.visible && preview.selectable
+
+  if (state.board)
+    return (
+      <header
+        className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface pr-2 pl-2"
+        style={{ height: TOOLBAR_HEIGHT, paddingLeft: lights ? TRAFFIC_LIGHTS_INSET : undefined }}
+      >
+        <BoardToolbar state={state} board={state.board} named={!tabbed} />
+      </header>
+    )
 
   return (
     <header
@@ -135,6 +149,162 @@ export function Toolbar({ state }: { state: WindowState }) {
         </>
       )}
     </header>
+  )
+}
+
+/**
+ * A canvas's toolbar. On the board: the canvas's menu (and its name, renamed in place), a new
+ * frame, and the board's zoom. With a frame open: the way back to the board, the frame's
+ * name, and the preview's viewport, screenshot and Select, as for a project.
+ */
+function BoardToolbar({
+  state,
+  board,
+  named,
+}: {
+  state: WindowState
+  board: BoardState
+  named: boolean
+}) {
+  const { preview } = state
+  const capturable = preview.visible && preview.selectable
+  const open = board.frames.find((frame) => frame.id === board.open)
+  const frameButton = useRef<HTMLButtonElement>(null)
+  const boardView = useBoardView()
+  const [renaming, setRenaming] = useState(false)
+  useEffect(
+    () =>
+      gui.onBoardCommand((command) => {
+        if (command.type === 'renameBoard') setRenaming(true)
+      }),
+    [],
+  )
+
+  const chat = (
+    <IconButton
+      label="Toggle chat"
+      shortcut="toggleChat"
+      keys
+      icon={MessageSquare}
+      pressed={state.chatVisible}
+      onClick={() => gui.toggleChat()}
+    />
+  )
+
+  return (
+    <>
+      {renaming ? (
+        <input
+          // biome-ignore lint/a11y/noAutofocus: renaming starts by typing the new name.
+          autoFocus
+          aria-label="Canvas name"
+          defaultValue={board.name}
+          className="no-drag h-7 w-56 rounded-md border border-accent bg-raised px-2 text-small text-fg outline-none"
+          onFocus={(event) => event.currentTarget.select()}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') event.currentTarget.blur()
+            if (event.key === 'Escape') {
+              event.currentTarget.value = board.name
+              event.currentTarget.blur()
+            }
+          }}
+          onBlur={(event) => {
+            setRenaming(false)
+            const name = event.currentTarget.value.trim()
+            if (name && name !== board.name) gui.renameBoard(name)
+          }}
+        />
+      ) : (
+        <Button
+          variant="ghost"
+          icon={Shapes}
+          trailingIcon={ChevronDown}
+          aria-haspopup="menu"
+          aria-label={named ? undefined : 'Canvas menu'}
+          title="Canvas menu"
+          className="max-w-64"
+          onClick={() => gui.showBoardMenu()}
+        >
+          {named && <span className="min-w-0 truncate text-fg">{board.name}</span>}
+        </Button>
+      )}
+
+      {open ? (
+        <>
+          <Button variant="ghost" icon={ArrowLeft} onClick={() => gui.boardOpenFrame(null)}>
+            Board
+          </Button>
+          <p className="min-w-0 flex-1 truncate text-small font-medium text-fg">
+            {open.name}
+            <span className="ml-2 font-normal text-subtle tabular-nums">
+              {open.width} × {open.height}
+            </span>
+          </p>
+          <IconButton
+            label="Reload frame"
+            shortcut="reload"
+            icon={RotateCw}
+            spinning={preview.loading}
+            disabled={!preview.url}
+            onClick={() => gui.reload()}
+          />
+          <SegmentedControl
+            label="Viewport"
+            segments={VIEWPORT_SEGMENTS}
+            value={preview.viewport}
+            onChange={(viewport) => gui.setViewport(viewport)}
+            iconOnly
+          />
+          <div className="flex items-center gap-1">
+            <ScreenshotButton disabled={!capturable} />
+            <IconButton
+              label="Select element"
+              shortcut="selectElement"
+              keys
+              icon={MousePointer2}
+              pressed={preview.selecting}
+              emphasis="strong"
+              disabled={!capturable}
+              onClick={() => gui.toggleSelect()}
+            />
+          </div>
+          {chat}
+        </>
+      ) : (
+        <>
+          <Button
+            ref={frameButton}
+            variant="ghost"
+            icon={Plus}
+            trailingIcon={ChevronDown}
+            aria-haspopup="menu"
+            onClick={() => {
+              const box = frameButton.current?.getBoundingClientRect()
+              if (box) gui.showAddFrameMenu({ x: box.left, y: box.bottom + MENU_GAP })
+            }}
+          >
+            Frame
+          </Button>
+          <div className="flex-1" />
+          {boardView.camera && (
+            <div className="flex items-center gap-0.5">
+              <IconButton label="Zoom out" icon={Minus} onClick={() => boardView.zoomBy(0.8)} />
+              <button
+                type="button"
+                aria-label={`Zoom ${Math.round(boardView.camera.zoom * 100)}%, zoom to fit`}
+                title="Zoom to fit"
+                onClick={() => boardView.fit()}
+                className={`no-drag flex h-7 min-w-12 items-center justify-center rounded-md px-1.5 text-caption font-medium text-muted tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg ${PRESS}`}
+              >
+                {Math.round(boardView.camera.zoom * 100)}%
+              </button>
+              <IconButton label="Zoom in" icon={Plus} onClick={() => boardView.zoomBy(1.25)} />
+            </div>
+          )}
+          {chat}
+        </>
+      )}
+    </>
   )
 }
 

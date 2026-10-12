@@ -1,11 +1,43 @@
 import { execFile } from 'node:child_process'
-import { mkdir } from 'node:fs/promises'
+import { cp, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ProjectTemplate } from '../shared/types'
 import { developerTools } from './developer-tools'
 import { getShellEnv } from './shell-env'
 import { writeTemplate } from './templates'
 import { trust } from './trust'
+
+/**
+ * A project made from a canvas frame: its page as the app's index.html, the canvas's
+ * shared images in public/assets, and Vite to serve it, so it opens and runs like any project.
+ */
+export async function createProjectFromFrame(
+  name: string,
+  parent: string,
+  html: string,
+  assets: string,
+): Promise<string> {
+  const dest = await createProject(name, parent, 'blank')
+  // Frames reach their images as ../assets/…; the app serves them from /assets/.
+  await writeFile(join(dest, 'index.html'), html.replaceAll('../assets/', '/assets/'))
+  await writeFile(
+    join(dest, 'package.json'),
+    `${JSON.stringify(
+      {
+        name: name.toLowerCase().replace(/[^a-z0-9-]+/g, '-'),
+        private: true,
+        type: 'module',
+        scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
+        devDependencies: { vite: '^8.3.3' },
+      },
+      null,
+      2,
+    )}\n`,
+  )
+  await writeFile(join(dest, '.gitignore'), 'node_modules\ndist\n')
+  await cp(assets, join(dest, 'public', 'assets'), { recursive: true }).catch(() => undefined)
+  return dest
+}
 
 /** A folder name to make: one path segment, and nothing the Finder or git would trip on. */
 export function projectName(input: string): string | null {

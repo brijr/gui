@@ -1,4 +1,5 @@
 import type { AccountProfile, AccountState } from './account'
+import type { BoardCamera, FramePreset } from './board'
 import type { ChatTurnUpdate } from './chat-transport'
 import type { GitHubRepository, GitHubState } from './github'
 import type { SymbolImages } from './symbols'
@@ -184,6 +185,21 @@ export const Send = {
   setChatDocked: 'settings:chat-docked',
   setChatSidebarSide: 'settings:chat-sidebar-side',
   openCustomAgentsFile: 'settings:open-agents-file',
+  newBoard: 'board:new',
+  openBoard: 'board:open',
+  showRecentBoardMenu: 'board:recent-menu',
+  showBoardMenu: 'board:menu',
+  showFrameMenu: 'board:frame-menu',
+  showAddFrameMenu: 'board:add-frame-menu',
+  boardSelect: 'board:select',
+  boardArrange: 'board:arrange',
+  boardAddFrame: 'board:add-frame',
+  boardDuplicate: 'board:duplicate',
+  boardDelete: 'board:delete',
+  boardRenameFrame: 'board:rename-frame',
+  renameBoard: 'board:rename',
+  boardCamera: 'board:camera',
+  boardOpenFrame: 'board:open-frame',
 } as const
 
 /** The most a single `writeTerminal` carries; the drawer sends longer pastes in pieces. */
@@ -216,7 +232,26 @@ export const Events = {
   settings: 'settings',
   settingsSection: 'settings:section',
   account: 'account',
+  /** Something for the board to do that a menu asked for (`BoardCommand`) */
+  board: 'board',
 } as const
+
+/** What a menu in main asks the board to do: rename a frame or the canvas in place, zoom to fit. */
+export type BoardCommand =
+  | { type: 'renameFrame'; id: string }
+  | { type: 'renameBoard' }
+  | { type: 'fit' }
+  /** View → Zoom In (1), Zoom Out (-1) or Actual Size (0), which on the board fits it */
+  | { type: 'zoom'; step: 1 | -1 | 0 }
+
+/** A frame moved or resized on the board (`boardArrange`) */
+export interface FrameArrangement {
+  id: string
+  x: number
+  y: number
+  width?: number
+  height?: number
+}
 
 export type Unsubscribe = () => void
 
@@ -311,6 +346,35 @@ export interface GuiApi {
    */
   showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void
   showProjectMenu(): void
+
+  /** A new canvas, opened in this tab if it's a start screen, otherwise in a new one */
+  newBoard(): void
+  /** One of the start screen's canvases */
+  openBoard(id: string): void
+  /** The start screen's menu for one of its canvases: open, reveal, delete */
+  showRecentBoardMenu(id: string): void
+  /** The canvas's menu under its name in the toolbar */
+  showBoardMenu(): void
+  /** A frame's context menu on the board */
+  showFrameMenu(id: string): void
+  /** The sizes a new frame can be, under the toolbar's Frame button at `at` */
+  showAddFrameMenu(at: { x: number; y: number }): void
+  /** The frames selected on the board, in the order they were selected */
+  boardSelect(ids: string[]): void
+  /** Frames dragged or resized on the board: one undo step */
+  boardArrange(frames: FrameArrangement[]): void
+  /** A new frame at `at` on the board, or beside what's selected */
+  boardAddFrame(preset: FramePreset, at: { x: number; y: number } | null): void
+  boardDuplicate(ids: string[]): void
+  boardDelete(ids: string[]): void
+  boardRenameFrame(id: string, name: string): void
+  renameBoard(name: string): void
+  /** Where the board is looking, saved for next time */
+  boardCamera(camera: BoardCamera): void
+  /** Shows a frame live in the preview; null goes back to the board */
+  boardOpenFrame(id: string | null): void
+  onBoardCommand(cb: (command: BoardCommand) => void): Unsubscribe
+
   setAgent(agentId: AgentId): void
   /** Checks one agent, or every enabled one when no id is given */
   checkAgents(agentId?: AgentId): void

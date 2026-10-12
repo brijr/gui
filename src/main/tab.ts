@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
-import { writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { basename, join, posix } from 'node:path'
 import {
   app,
@@ -20,6 +20,7 @@ import {
   WebContentsView,
   type WebFrameMain,
 } from 'electron'
+import { type BoardCamera, FRAME_PRESETS, type FramePreset } from '../shared/board'
 import { type ChatMenuChoice, Events } from '../shared/ipc'
 import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
@@ -49,6 +50,7 @@ import {
   type ProjectSetup,
   type Proposal,
   primaryPick,
+  type RecentBoard,
   type RecentProject,
   type Rect,
   type RegionContext,
@@ -59,6 +61,7 @@ import {
   type StartCommandInput,
   type TabStatus,
   type TerminalId,
+  VIEWPORTS,
   type Viewport,
   type ViewportFrame,
   viewportSpec,
@@ -68,6 +71,8 @@ import {
 import { agentHealth } from './agent-status'
 import { agentMenuItems } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
+import { boardIdOf, listBoards } from './board'
+import { BoardSession } from './board-session'
 import { availableModels, ChatController } from './chat'
 import {
   type Anchor,
@@ -94,6 +99,7 @@ import {
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { describeSourceControl, describeTurns, describeVersions } from './mcp-app-tools'
+import type { BoardTools } from './mcp-board-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
@@ -104,7 +110,7 @@ import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
 import { ProjectResources } from './project-resources'
-import type { PromptViewport } from './prompt'
+import { describeBoard, type PromptBoard, type PromptViewport } from './prompt'
 import {
   bringInLatest,
   CONFLICT_PROMPT_START,
@@ -189,6 +195,11 @@ const GUIDE_LINGER_MS = 5000
 const AGENT_LOG_LINES = 60
 /** A package.json being written fires several changes; look once they've settled. */
 const APP_CHECK_DELAY_MS = 500
+/** What the dev server tools tell the agent in a canvas, which has none. */
+const BOARD_SERVER_STATUS =
+  'This is a canvas: Gui serves its frames itself and there is no dev server to start, restart or configure. Use the canvas tools.'
+/** canvas_screenshot's images, within what agents accept many of (preview-tools.ts) */
+const BOARD_SHOT_MAX = { width: 1600, height: 1960 }
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
@@ -224,6 +235,8 @@ export interface TabHost {
   sendChrome(tab: ProjectTab, channel: string, payload: unknown): void
   /** A project was added to the recent list: every tab's project menu lists it. */
   shareRecent(recent: RecentProject[]): void
+  /** The canvases changed (one made, renamed or deleted): every start screen lists them. */
+  shareBoards(boards: RecentBoard[]): void
 }
 
 let lastTabId = 0
@@ -238,6 +251,17 @@ const idleDevServer = (): DevServerState => ({
 })
 
 const closedDrawer = (): DrawerState => ({ open: false, tab: null, terminals: [] })
+
+/** A canvas as the tab's project: its folder and name, and nothing to run. */
+const boardProject = (root: string, name: string): ProjectInfo => ({
+  root,
+  name,
+  packageManager: 'npm',
+  devCommand: null,
+  devScript: null,
+  appDir: null,
+  custom: null,
+})
 
 /**
  * One project in a window's tab: its preview and chat views, dev server, terminals, agent,
@@ -440,6 +464,8 @@ export class ProjectTab {
       agents: agentHealth.list(),
       setup: null,
       developerTools: shownTools(developerTools.state),
+      board: null,
+      recentBoards: null,
     }
 
     this.preview = new WebContentsView({
@@ -495,6 +521,7 @@ export class ProjectTab {
     void loadRecent()
       .then(withChats)
       .then((recent) => this.patch({ recent }))
+    void listBoards().then((recentBoards) => this.patch({ recentBoards }))
   }
 
   /** The chat panel is the tab's own page; the chrome belongs to the window. */
@@ -564,6 +591,10 @@ export class ProjectTab {
 
   setRecent(recent: RecentProject[]) {
     this.patch({ recent })
+  }
+
+  setRecentBoards(recentBoards: RecentBoard[]) {
+    this.patch({ recentBoards })
   }
 
   getLogs() {
@@ -642,124 +673,7 @@ export class ProjectTab {
       const setup = await detectSetup(project, choosing ? apps : null)
       if (!current()) return
 
-      const tools = new PreviewTools({
-        wc: this.preview.webContents,
-        inspector: this.inspector,
-        problems: this.problems,
-        inspectNode: (backendNodeId) => {
-          const project = this.state.project
-          if (!project) return Promise.reject(new Error('No project is open'))
-          return this.inspectElement(backendNodeId, project, { screenshot: false })
-        },
-        devOrigin: () => this.devOrigin(),
-        currentUrl: () => this.state.preview.url,
-        navigate: (url) => this.loadPreview(url),
-        logs: () => this.getLogs(),
-        viewScale: () => this.emulation.scale,
-        restoreViewport: () => this.emulation.restore(),
-        serverStatus: () => describeServer(this.state),
-        restartServer: () => this.restartForAgent(),
-        setStartCommand: (input) => this.setStartCommandForAgent(input),
-        guide: (node, caption) => this.guideStep(node, caption),
-        guideInput: async (at, click) => {
-          if (!this.picker.guiding) return
-          this.picker.guideCursor(at, click)
-          await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
-        },
-      })
-      this.resources.previewTools = tools
-      const recordings = new Recordings(root)
-      resources.recordings = recordings
-      recordings.retain(
-        saved?.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []) ?? [],
-      )
-      void recordings
-        .sweep(() => chatReferences(root).then((found) => found?.recordings ?? null))
-        .catch((error: unknown) => console.error('[gui] failed to clean up recordings', error))
-      const mcp = await startMcpServer(tools, recordings, {
-        sourceControlStatus: () => this.sourceControlForAgent(),
-        proposeShip: (draft) => this.proposeShipForAgent(draft),
-        versions: (limit) => this.versionsForAgent(limit),
-        turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
-      }).catch((error: unknown) => {
-        console.error('[gui] preview tools unavailable', error)
-        return null
-      })
-      if (!resources.attachMcp(mcp) || !current()) return
-
-      const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env, {
-        referenced: () => chatReferences(root).then((found) => found?.checkpoints ?? null),
-      })
-      const chat = new ChatController(root, checkpoints, {
-        agentId: this.state.agentId,
-        docked: getPrefs().chatSidebar,
-        saved,
-        historyFile: file,
-        recordings,
-        mcpServers: () => (resources.mcp ? [resources.mcp.config] : []),
-        viewport: () => this.promptViewport(),
-        startupReport: (tools) => startupReport(this.state, this.getLogs(), tools),
-      })
-      chat.on('meta', (meta) => {
-        this.sendChat(Events.chatMeta, meta)
-        this.onSelection(meta.selection)
-        if (meta.agentId !== this.state.agentId) this.patch({ agentId: meta.agentId })
-        this.layout()
-        this.host.tabChanged(this, false)
-      })
-      chat.on('turnUpdate', (update) => this.sendChat(Events.chatTurn, update))
-      chat.on('turn', (turn) => {
-        // The edited element's highlight would otherwise sit in the next turn's screenshots.
-        if (turn.status === 'running') this.cancelRehighlight()
-        // Working, or a permission card answered: the tab strip shows it.
-        this.host.tabChanged(this, false)
-      })
-      chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
-      chat.on('startupFixEnd', (turn) => {
-        // The agent fixed things without getting the app going again itself: Gui does.
-        if (turn.status !== 'done' || this.agentRestartedAt >= turn.startedAt) return
-        if (startupFailure(this.state) || this.state.devServer.status === 'idle') {
-          void this.retryStartup()
-        }
-      })
-      chat.on('attention', () => {
-        this.onAttention()
-        this.host.tabChanged(this, false)
-      })
-      chat.on('turnEnd', (turn) => {
-        // What the agent proposed to ship opens once it's done, for the user to review.
-        const proposed = this.shipProposal
-        this.shipProposal = null
-        if (proposed && turn.status === 'done') this.sendChat(Events.chatShipDraft, proposed)
-        // The walkthrough's last step stays a moment to be read, then gets out of the way.
-        if (this.picker.guiding) {
-          this.clearGuideEnd()
-          this.guideEndTimer = setTimeout(() => this.endGuide(), GUIDE_LINGER_MS)
-        }
-        // The agent may have just set the project up; it's left alone while it works.
-        if (this.appWatcher) void this.checkForApp()
-        const shown = primaryPick(turn.context)
-        if (turn.status === 'done' && shown && turn.changes?.length) {
-          const selector = isRegion(shown) ? undefined : shown.selector
-          if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
-          const generation = this.rehighlightGeneration
-          this.rehighlightTimer = setTimeout(() => {
-            this.rehighlightTimer = null
-            // After hot reload: show how it looks now, then point at it again. A queued turn or
-            // a pick that started meanwhile still gets this turn's "after", just no highlight,
-            // unless that turn has already started on tools: the preview may show its changes.
-            if (chat.activeTurnUsedTools()) return
-            void this.captureAfter(chat, turn.id, shown).then(() => {
-              if (generation === this.rehighlightGeneration) void this.highlightSelector(selector)
-            })
-          }, REHIGHLIGHT_DELAY_MS)
-        }
-      })
-      this.resources.chat = chat
-      resources.attachHistory(root, file)
-      chat.setCanSelect(this.canSelect)
-      this.patch({ agentId: chat.meta.agentId })
-      this.sendChat(Events.chatReset, chat.snapshot())
+      if (!(await this.attachChat(root, file, saved, env, resources, current, null))) return
 
       // The agent, checkpoints and history stay at the root; only the dev server moves into the app.
       const devServer = new DevServer(appRoot(project))
@@ -800,6 +714,395 @@ export class ProjectTab {
       // Failed or superseded openings share the same disposal path as normal close.
       if (!resources.historyFile) resources.dispose()
     }
+  }
+
+  /**
+   * A canvas (main/board.ts) in this tab: its board, its chat, and its frames in the preview
+   * one at a time. Nothing runs but the agent: no dev server, terminals or install.
+   */
+  async openBoard(root: string) {
+    const id = boardIdOf(root)
+    if (!id) throw new Error('That folder is not one of Gui’s canvases.')
+    this.closeProject()
+    if (this.disposed) return
+    const generation = ++this.openGeneration
+    this.opening = root
+    const resources = this.createProjectResources()
+    this.resources = resources
+    const current = () => !this.disposed && resources.active && generation === this.openGeneration
+    try {
+      const file = await claimHistoryFile(root)
+      if (!resources.claim(file) || !current()) return
+      const board = new BoardSession(root, id)
+      resources.board = board
+      const [env, saved] = await Promise.all([getShellEnv(), loadHistory(file), board.open()])
+      if (!current()) return
+      board.on('change', () => {
+        if (this.resources.board === board) this.syncBoard()
+      })
+      board.on('frameChanged', (frame) => {
+        // A page has no hot reload: the one in sight loads again as it's rewritten.
+        if (this.resources.board === board && board.openId === frame && this.state.preview.url)
+          this.preview.webContents.reload()
+      })
+      if (!(await this.attachChat(root, file, saved, env, resources, current, board))) return
+      this.patch({
+        project: boardProject(root, board.name),
+        setup: null,
+        devServer: idleDevServer(),
+        drawer: closedDrawer(),
+        board: board.state(),
+      })
+      this.layout()
+      void listBoards().then((boards) => this.host.shareBoards(boards))
+    } catch (error) {
+      if (current()) this.closeProject()
+      else void resources.dispose()
+      throw error
+    } finally {
+      if (generation === this.openGeneration) this.opening = null
+      if (!resources.historyFile) resources.dispose()
+    }
+  }
+
+  /** The canvas open in this tab, if it's a canvas. */
+  get boardSession() {
+    return this.resources.board
+  }
+
+  /** The board as the chrome shows it, and the title, after the canvas changed. */
+  private syncBoard() {
+    const board = this.resources.board
+    if (!board || !this.state.project) return
+    const name = board.name
+    const project =
+      this.state.project.name === name ? this.state.project : { ...this.state.project, name }
+    // The frame open in the preview left the board (deleted, or its turn undone).
+    if (this.state.board?.open && !board.openId) this.closeFrame()
+    this.patch({ board: board.state(), project })
+  }
+
+  // The canvas's board (from the chrome)
+
+  boardSelect(ids: string[]) {
+    this.resources.board?.select(ids)
+  }
+
+  boardArrange(updates: { id: string; x: number; y: number; width?: number; height?: number }[]) {
+    this.resources.board?.arrange(updates)
+  }
+
+  /** A frame the user adds, of a preset size, where they asked or beside what's selected. */
+  async boardAddFrame(preset: FramePreset, at: { x: number; y: number } | null) {
+    const board = this.resources.board
+    if (!board) return
+    const { name, width, height } =
+      FRAME_PRESETS.find((option) => option.id === preset) ?? FRAME_PRESETS[0]
+    const count = board.frames.filter((frame) => frame.name.startsWith(name)).length
+    const frame = await board.create({
+      name: count ? `${name} ${count + 1}` : name,
+      width,
+      height,
+      at: at ?? undefined,
+      after: [...board.selected],
+    })
+    board.select([frame.id])
+  }
+
+  async boardDuplicate(ids: string[]) {
+    await this.resources.board?.duplicate(ids)
+  }
+
+  async boardDelete(ids: string[]) {
+    await this.resources.board?.remove(ids)
+  }
+
+  async boardRenameFrame(id: string, name: string) {
+    await this.resources.board?.rename(id, name)
+  }
+
+  async renameBoard(name: string) {
+    const board = this.resources.board
+    if (!board) return
+    await board.renameBoard(name)
+    this.host.shareBoards(await listBoards())
+  }
+
+  boardSetCamera(camera: BoardCamera) {
+    this.resources.board?.setCamera(camera)
+  }
+
+  /** ⌘Z on the board: the user's own last board change, before any of the agent's. */
+  async undoBoard() {
+    const board = this.resources.board
+    if (!board || board.openId) return false
+    return board.undo()
+  }
+
+  /**
+   * Shows a frame's page live in the preview (double-click, or the agent), sized like its
+   * frame when a device viewport matches it; null goes back to the board.
+   */
+  async openFrame(id: string | null) {
+    const board = this.resources.board
+    if (!board) return
+    if (id === null || !board.has(id)) {
+      board.setOpen(null)
+      this.closeFrame()
+      return
+    }
+    const frame = board.frame(id)
+    board.setOpen(id)
+    const match = VIEWPORTS.find(
+      (viewport) =>
+        viewport.size?.width === frame?.width && viewport.size?.height === frame?.height,
+    )
+    const fits = VIEWPORTS.find((viewport) => viewport.size?.width === frame?.width)
+    const viewport = (match ?? fits)?.id ?? 'desktop'
+    if (viewport !== this.state.preview.viewport) this.patchPreview({ viewport })
+    await this.loadPreview(board.frameUrl(id))
+  }
+
+  /** Back to the board: the preview hides and unloads, and its picking ends. */
+  private closeFrame() {
+    if (this.state.preview.selecting) void this.setSelecting(false)
+    this.preview.setVisible(false)
+    if (this.state.preview.url !== null)
+      this.preview.webContents.loadURL('about:blank').catch(() => undefined)
+    this.patchPreview({ url: null, error: null, visible: false, loading: false })
+    void this.inspector.clearHighlight()
+  }
+
+  /** The canvas as each prompt describes it. */
+  private promptBoard(): PromptBoard | null {
+    const board = this.resources.board
+    if (!board) return null
+    return {
+      name: board.name,
+      frames: [...board.frames],
+      selection: [...board.selected],
+      open: board.openId,
+    }
+  }
+
+  /** The canvas tools (mcp-board-tools.ts): what the agent does to the board, never undoable as the user's own. */
+  private boardTools(board: BoardSession): BoardTools {
+    const where = (frame: { id: string; width: number; height: number; x: number; y: number }) =>
+      `frames/${frame.id}.html, ${frame.width}×${frame.height} at (${frame.x}, ${frame.y})`
+    const touched = () => board.forgetUndo()
+    return {
+      list: () =>
+        describeBoard(
+          this.promptBoard() ?? { name: board.name, frames: [], selection: [], open: null },
+        ),
+      create: async ({ name, width, height, html, after }) => {
+        touched()
+        const frame = await board.create({ name, width, height, html, after }, false)
+        return `Created frame ${frame.id} "${frame.name}": ${where(frame)}.${html === undefined ? ' It has a placeholder page: write the whole page to that file.' : ''}`
+      },
+      duplicate: async (ids) => {
+        touched()
+        const made = await board.duplicate(ids, false)
+        if (!made.length) throw new Error('None of those frames are on the canvas.')
+        return made
+          .map((frame) => `Created ${frame.id} "${frame.name}": ${where(frame)}`)
+          .join('\n')
+      },
+      arrange: (moves) => {
+        touched()
+        const updates = moves.flatMap((move) => {
+          const frame = board.frame(move.id)
+          return frame ? [{ ...move, x: move.x ?? frame.x, y: move.y ?? frame.y }] : []
+        })
+        if (!updates.length) throw new Error('None of those frames are on the canvas.')
+        board.arrange(updates)
+        board.forgetUndo()
+        return updates
+          .map((update) => board.frame(update.id))
+          .map((frame) => (frame ? `${frame.id}: ${where(frame)}` : ''))
+          .join('\n')
+      },
+      rename: async (id, name) => {
+        if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
+        touched()
+        await board.rename(id, name, false)
+        return `Renamed ${id} to "${board.frame(id)?.name ?? name}".`
+      },
+      remove: async (ids) => {
+        const found = ids.filter((id) => board.has(id))
+        if (!found.length) throw new Error('None of those frames are on the canvas.')
+        touched()
+        await board.remove(found, false)
+        return `Deleted ${found.join(', ')}.`
+      },
+      screenshot: async (id) => {
+        if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
+        let image = await board.screenshot(id)
+        const { width, height } = image.getSize()
+        const scale = Math.min(1, BOARD_SHOT_MAX.width / width, BOARD_SHOT_MAX.height / height)
+        if (scale < 1)
+          image = image.resize({
+            width: Math.round(width * scale),
+            height: Math.round(height * scale),
+            quality: 'good',
+          })
+        const size = image.getSize()
+        return { data: image.toPNG().toString('base64'), ...size }
+      },
+      open: async (id) => {
+        if (id !== null && !board.has(id)) throw new Error(`There's no frame ${id}.`)
+        await this.openFrame(id)
+        return id
+          ? `Frame ${id} is open in the preview; the preview tools work on it.`
+          : 'Back on the board.'
+      },
+    }
+  }
+
+  /**
+   * The agent's side of an opening project or canvas: preview tools, recordings, Gui's MCP
+   * server, checkpoints and the chat. False when the opening was superseded meanwhile.
+   */
+  private async attachChat(
+    root: string,
+    file: string,
+    saved: Awaited<ReturnType<typeof loadHistory>>,
+    env: Awaited<ReturnType<typeof getShellEnv>>,
+    resources: ProjectResources,
+    current: () => boolean,
+    board: BoardSession | null,
+  ) {
+    const tools = new PreviewTools({
+      wc: this.preview.webContents,
+      inspector: this.inspector,
+      problems: this.problems,
+      inspectNode: (backendNodeId) => {
+        const project = this.state.project
+        if (!project) return Promise.reject(new Error('No project is open'))
+        return this.inspectElement(backendNodeId, project, { screenshot: false })
+      },
+      devOrigin: () => this.devOrigin(),
+      currentUrl: () => this.state.preview.url,
+      navigate: (url) => this.loadPreview(url),
+      logs: () => this.getLogs(),
+      viewScale: () => this.emulation.scale,
+      restoreViewport: () => this.emulation.restore(),
+      serverStatus: () => (board ? BOARD_SERVER_STATUS : describeServer(this.state)),
+      restartServer: () => (board ? Promise.resolve(BOARD_SERVER_STATUS) : this.restartForAgent()),
+      setStartCommand: (input) =>
+        board ? Promise.resolve(BOARD_SERVER_STATUS) : this.setStartCommandForAgent(input),
+      guide: (node, caption) => this.guideStep(node, caption),
+      guideInput: async (at, click) => {
+        if (!this.picker.guiding) return
+        this.picker.guideCursor(at, click)
+        await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
+      },
+    })
+    this.resources.previewTools = tools
+    const recordings = new Recordings(root)
+    resources.recordings = recordings
+    recordings.retain(
+      saved?.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []) ?? [],
+    )
+    void recordings
+      .sweep(() => chatReferences(root).then((found) => found?.recordings ?? null))
+      .catch((error: unknown) => console.error('[gui] failed to clean up recordings', error))
+    const mcp = await startMcpServer(
+      tools,
+      recordings,
+      {
+        sourceControlStatus: () => this.sourceControlForAgent(),
+        proposeShip: (draft) => this.proposeShipForAgent(draft),
+        versions: (limit) => this.versionsForAgent(limit),
+        turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
+      },
+      board ? this.boardTools(board) : null,
+    ).catch((error: unknown) => {
+      console.error('[gui] preview tools unavailable', error)
+      return null
+    })
+    if (!resources.attachMcp(mcp) || !current()) return false
+
+    const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env, {
+      referenced: () => chatReferences(root).then((found) => found?.checkpoints ?? null),
+    })
+    const chat = new ChatController(root, checkpoints, {
+      agentId: this.state.agentId,
+      docked: getPrefs().chatSidebar,
+      saved,
+      historyFile: file,
+      recordings,
+      mcpServers: () => (resources.mcp ? [resources.mcp.config] : []),
+      viewport: () => this.promptViewport(),
+      board: board ? () => this.promptBoard() : undefined,
+      startupReport: (tools) => startupReport(this.state, this.getLogs(), tools),
+    })
+    this.bindChat(chat)
+    this.resources.chat = chat
+    resources.attachHistory(root, file)
+    chat.setCanSelect(this.canSelect)
+    this.patch({ agentId: chat.meta.agentId })
+    this.sendChat(Events.chatReset, chat.snapshot())
+    return true
+  }
+
+  /** What the tab does as its chat changes, turns run and permission cards come up. */
+  private bindChat(chat: ChatController) {
+    chat.on('meta', (meta) => {
+      this.sendChat(Events.chatMeta, meta)
+      this.onSelection(meta.selection)
+      if (meta.agentId !== this.state.agentId) this.patch({ agentId: meta.agentId })
+      this.layout()
+      this.host.tabChanged(this, false)
+    })
+    chat.on('turnUpdate', (update) => this.sendChat(Events.chatTurn, update))
+    chat.on('turn', (turn) => {
+      // The edited element's highlight would otherwise sit in the next turn's screenshots.
+      if (turn.status === 'running') this.cancelRehighlight()
+      // Working, or a permission card answered: the tab strip shows it.
+      this.host.tabChanged(this, false)
+    })
+    chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
+    chat.on('startupFixEnd', (turn) => {
+      // The agent fixed things without getting the app going again itself: Gui does.
+      if (turn.status !== 'done' || this.agentRestartedAt >= turn.startedAt) return
+      if (startupFailure(this.state) || this.state.devServer.status === 'idle') {
+        void this.retryStartup()
+      }
+    })
+    chat.on('attention', () => {
+      this.onAttention()
+      this.host.tabChanged(this, false)
+    })
+    chat.on('turnEnd', (turn) => {
+      // What the agent proposed to ship opens once it's done, for the user to review.
+      const proposed = this.shipProposal
+      this.shipProposal = null
+      if (proposed && turn.status === 'done') this.sendChat(Events.chatShipDraft, proposed)
+      // The walkthrough's last step stays a moment to be read, then gets out of the way.
+      if (this.picker.guiding) {
+        this.clearGuideEnd()
+        this.guideEndTimer = setTimeout(() => this.endGuide(), GUIDE_LINGER_MS)
+      }
+      // The agent may have just set the project up; it's left alone while it works.
+      if (this.appWatcher) void this.checkForApp()
+      const shown = primaryPick(turn.context)
+      if (turn.status === 'done' && shown && turn.changes?.length) {
+        const selector = isRegion(shown) ? undefined : shown.selector
+        if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
+        const generation = this.rehighlightGeneration
+        this.rehighlightTimer = setTimeout(() => {
+          this.rehighlightTimer = null
+          // After hot reload: show how it looks now, then point at it again. A queued turn or
+          // a pick that started meanwhile still gets this turn's "after", just no highlight,
+          // unless that turn has already started on tools: the preview may show its changes.
+          if (chat.activeTurnUsedTools()) return
+          void this.captureAfter(chat, turn.id, shown).then(() => {
+            if (generation === this.rehighlightGeneration) void this.highlightSelector(selector)
+          })
+        }, REHIGHLIGHT_DELAY_MS)
+      }
+    })
   }
 
   /**
@@ -927,6 +1230,7 @@ export class ProjectTab {
       setup: null,
       devServer: idleDevServer(),
       drawer: closedDrawer(),
+      board: null,
       preview: { ...this.state.preview, url: null, error: null, visible: false, selecting: false },
     })
   }
@@ -959,6 +1263,8 @@ export class ProjectTab {
    */
   toggleDrawer() {
     const terminals = this.resources.terminals
+    // A canvas has no dev server or terminals.
+    if (this.resources.board) return shell.beep()
     if (!terminals) return
     // In focus mode it's hidden whatever its setting: ⌘J brings it back, with the rest.
     if (this.state.drawer.open && !this.host.focusMode) return this.setDrawerOpen(false)
@@ -967,6 +1273,7 @@ export class ProjectTab {
 
   /** Opened, it shows the tab it showed last; the dev server's output the first time. */
   setDrawerOpen(open: boolean) {
+    if (open && this.resources.board) return
     if (open) this.showDrawer(this.state.drawer.tab ?? 'server')
     else this.patchDrawer({ open: false })
   }
@@ -1120,6 +1427,11 @@ export class ProjectTab {
    * page, or a device frame's scale. The page keeps its CSS size either way.
    */
   zoom(step: 1 | -1 | 0) {
+    // On a canvas's board, the board zooms.
+    if (this.resources.board && !this.resources.board.openId) {
+      this.send(Events.board, { type: 'zoom', step })
+      return
+    }
     const { viewport } = this.state.preview
     const next = zoomed(viewport, this.previewArea(), this.zooms[viewport], step)
     if (next === undefined) return shell.beep()
@@ -1219,6 +1531,10 @@ export class ProjectTab {
       } else if (this.host.focusMode && this.host.isActive(this)) {
         event.preventDefault()
         this.host.setFocusMode(false)
+      } else if (this.resources.board?.openId) {
+        // A canvas's frame: back to the board, as in Figma's prototype view.
+        event.preventDefault()
+        void this.openFrame(null)
       }
     })
     wc.setWindowOpenHandler(({ url }) => {
@@ -1525,7 +1841,9 @@ export class ProjectTab {
    * The viewport named in each prompt: a device frame's size, or the preview's (Desktop), in
    * CSS pixels at its zoom.
    */
-  private promptViewport(): PromptViewport {
+  private promptViewport(): PromptViewport | null {
+    // On a canvas's board there's no page in sight; the canvas block says what is.
+    if (this.resources.board && !this.resources.board.openId) return null
     const { name, size } = viewportSpec(this.state.preview.viewport)
     if (size) return { name, ...size, fixed: true }
     const zoom = this.zooms.desktop ?? 1
@@ -1539,6 +1857,7 @@ export class ProjectTab {
   }
 
   private devOrigin() {
+    if (this.resources.board) return this.resources.board.origin
     return this.state.devServer.url ? originOf(this.state.devServer.url) : null
   }
 
@@ -3207,6 +3526,104 @@ export class ProjectTab {
     const inChat = sender === this.chatView.webContents && !this.popout
     const view = inChat ? this.chatView.getBounds() : { x: 0, y: 0 }
     return { x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) }
+  }
+
+  /** A frame's context menu on the board; acts on every selected frame when it's one of them. */
+  showFrameMenu(id: string, promote: (id: string) => void) {
+    const board = this.resources.board
+    const frame = board?.frame(id)
+    if (!board || !frame) return
+    if (!board.selected.includes(id)) board.select([id])
+    const ids = board.selected.includes(id) ? [...board.selected] : [id]
+    const many = ids.length > 1
+    const one = (label: string, click: () => unknown): MenuItemConstructorOptions => ({
+      label,
+      enabled: !many,
+      click: () => void click(),
+    })
+    const template: MenuItemConstructorOptions[] = [
+      one('Open', () => this.openFrame(id)),
+      one('Rename', () => this.send(Events.board, { type: 'renameFrame', id })),
+      {
+        label: many ? `Duplicate ${ids.length} Frames` : 'Duplicate',
+        accelerator: 'CmdOrCtrl+D',
+        registerAccelerator: false,
+        click: () => void board.duplicate(ids),
+      },
+      {
+        label: many ? `Delete ${ids.length} Frames` : 'Delete',
+        accelerator: 'Backspace',
+        registerAccelerator: false,
+        click: () => void board.remove(ids),
+      },
+      { type: 'separator' },
+      one('Copy HTML', async () =>
+        clipboard.writeText(await readFile(board.framePath(id), 'utf8')),
+      ),
+      one('Save as HTML…', () => this.exportFrame(id, 'html')),
+      one('Save Screenshot…', () => this.exportFrame(id, 'png')),
+      { type: 'separator' },
+      one('Turn into Project…', () => promote(id)),
+      one('Reveal in Finder', () => shell.showItemInFolder(board.framePath(id))),
+    ]
+    Menu.buildFromTemplate(template).popup({ window: this.host.win })
+  }
+
+  /** Saves a frame's page, or a screenshot of it, where the user picks. */
+  private async exportFrame(id: string, kind: 'html' | 'png') {
+    const board = this.resources.board
+    const frame = board?.frame(id)
+    if (!board || !frame) return
+    const { canceled, filePath } = await dialog.showSaveDialog(this.host.win, {
+      defaultPath: `${frame.id}.${kind}`,
+      filters: [
+        kind === 'html'
+          ? { name: 'HTML', extensions: ['html'] }
+          : { name: 'PNG', extensions: ['png'] },
+      ],
+    })
+    if (canceled || !filePath) return
+    try {
+      if (kind === 'html') await writeFile(filePath, await readFile(board.framePath(id)))
+      else await writeFile(filePath, (await board.screenshot(id)).toPNG())
+    } catch (error) {
+      dialog.showErrorBox(
+        "Couldn't save the frame",
+        error instanceof Error ? error.message : String(error),
+      )
+    }
+  }
+
+  /** The toolbar's Frame menu: a new frame at one of the preset sizes, beside what's selected. */
+  showAddFrameMenu(at: { x: number; y: number }) {
+    if (!this.resources.board) return
+    const template = FRAME_PRESETS.map(
+      (preset): MenuItemConstructorOptions => ({
+        label: `${preset.name}  ${preset.width} × ${preset.height}`,
+        click: () => void this.boardAddFrame(preset.id, null),
+      }),
+    )
+    Menu.buildFromTemplate(template).popup({
+      window: this.host.win,
+      x: Math.round(at.x),
+      y: Math.round(at.y),
+    })
+  }
+
+  /** The canvas's menu, under its name in the toolbar. */
+  showBoardMenu(newBoard: () => void) {
+    const board = this.resources.board
+    if (!board) return
+    const template: MenuItemConstructorOptions[] = [
+      { label: 'Rename Canvas', click: () => this.send(Events.board, { type: 'renameBoard' }) },
+      { label: 'New Canvas', click: newBoard },
+      { type: 'separator' },
+      {
+        label: 'Reveal in Finder',
+        click: () => shell.showItemInFolder(join(board.root, 'canvas.json')),
+      },
+    ]
+    Menu.buildFromTemplate(template).popup({ window: this.host.win })
   }
 
   showProjectMenu(

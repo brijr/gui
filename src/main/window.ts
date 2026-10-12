@@ -9,7 +9,7 @@ import {
   TOOLBAR_HEIGHT,
   TRAFFIC_LIGHTS,
 } from '../shared/layout'
-import type { RecentProject, Rect, TabInfo, WindowState } from '../shared/types'
+import type { RecentBoard, RecentProject, Rect, TabInfo, WindowState } from '../shared/types'
 import { prefersReducedMotion } from './panel-flight'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
@@ -69,6 +69,11 @@ export function allWindows() {
 
 export function allTabs() {
   return allWindows().flatMap((win) => win.tabs)
+}
+
+/** Every tab's start screen lists the canvases as they are now. */
+export function shareBoards(boards: RecentBoard[]) {
+  for (const tab of allTabs()) tab.setRecentBoards(boards)
 }
 
 export function windowOf(tab: ProjectTab) {
@@ -417,6 +422,10 @@ export class ProjectWindow implements TabHost {
 
   shareRecent(recent: RecentProject[]) {
     for (const tab of allTabs()) tab.setRecent(recent)
+  }
+
+  shareBoards(boards: RecentBoard[]) {
+    shareBoards(boards)
   }
 
   // Plumbing

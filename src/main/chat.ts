@@ -74,6 +74,7 @@ import {
   describeFollowUp,
   fenceUntrusted,
   PROMPT_VERSION,
+  type PromptBoard,
   type PromptViewport,
 } from './prompt'
 import { formatTimeline } from './recording-trace'
@@ -105,8 +106,10 @@ export interface ChatOptions {
   recordings: Recordings
   /** Gui's preview tools, offered to every agent session */
   mcpServers: () => McpServer[]
-  /** The preview's viewport as the user sees it now, which each prompt names */
-  viewport: () => PromptViewport
+  /** The preview's viewport as the user sees it now, which each prompt names; null on a canvas's board */
+  viewport: () => PromptViewport | null
+  /** The canvas this chat is on, as each prompt describes it; absent in a project */
+  board?: () => PromptBoard | null
   /** Why the app won't start, as the agent is told it (`startupReport`) */
   startupReport: (tools: boolean) => string
 }
@@ -1252,7 +1255,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private async runTurn(
     record: TurnRecord,
     selection: Picked[],
-    viewport: PromptViewport,
+    viewport: PromptViewport | null,
     problems: Problem[],
     images: ImageAttachment[],
     epoch: number,
@@ -1337,6 +1340,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
             text: record.turn.prompt,
             selection,
             viewport,
+            board: this.options.board?.() ?? null,
             // Only Fix carries errors: they're usually unrelated to an ordinary request.
             problems,
             // Written now, after the agent is up: it says how the app is doing as the turn starts.

@@ -260,11 +260,14 @@ export class Recordings {
   }
 }
 
+// Every privileged scheme in one call: a second call would replace this one's.
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'gui-recording',
     privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true },
   },
+  // A canvas's frame thumbnails, for its board (main/board.ts).
+  { scheme: 'gui-thumb', privileges: { standard: true, secure: true } },
 ])
 
 /** Only Gui's UI session has this protocol; preview pages cannot read stored clips. */

@@ -77,6 +77,13 @@ export const SHORTCUTS = {
     group: 'app',
     description: 'Start a project in a new, empty folder',
   },
+  newBoard: {
+    label: 'New Canvas',
+    accelerator: 'Alt+CmdOrCtrl+N',
+    menu: 'file',
+    group: 'app',
+    description: 'Open a new canvas to design on freely',
+  },
   cloneRepo: {
     label: 'Clone by URL…',
     accelerator: 'Shift+CmdOrCtrl+O',

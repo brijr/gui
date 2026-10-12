@@ -1,3 +1,5 @@
+import type { BoardCamera, BoardFrameLayout } from './board'
+
 /** A built-in agent's id, or `custom:<name>` for one the user added in agents.json */
 export type AgentId = string
 
@@ -400,6 +402,10 @@ export interface WindowState {
   developerTools: 'missing' | 'installing' | null
   /** The window's tabs, in order; the strip shows once there are two or more */
   tabs: TabInfo[]
+  /** The canvas this tab shows, when it's a canvas rather than a project; null otherwise */
+  board: BoardState | null
+  /** Canvases for the start screen, last edited first; null until read */
+  recentBoards: RecentBoard[] | null
   /** Id of the tab this state is for, the one the window shows */
   activeTab: string
   /**
@@ -411,6 +417,39 @@ export interface WindowState {
   shortcutsOpen: boolean
   /** The window is in macOS full screen, which hides its traffic lights */
   fullScreen: boolean
+}
+
+/** A frame on a canvas, as the board draws it. */
+export interface BoardFrame extends BoardFrameLayout {
+  /** Changes whenever its page or thumbnail does, so the board loads the new thumbnail */
+  version: number
+  /** A thumbnail has been captured for it */
+  captured: boolean
+}
+
+/** A canvas open in a tab: its frames, what's selected, and the frame open in the preview. */
+export interface BoardState {
+  id: string
+  name: string
+  frames: BoardFrame[]
+  /** Frame ids, in the order they were selected */
+  selection: string[]
+  /** The frame shown in the preview, live; null on the board */
+  open: string | null
+  /** Where the board was looking when it was last left; null to fit its frames */
+  camera: BoardCamera | null
+  /** Where the board loads thumbnails from: `${thumbs}/<frame id>?v=<version>` */
+  thumbs: string
+  /** The board's own changes ⌘Z can undo */
+  canUndo: boolean
+}
+
+/** A canvas as the start screen lists it. */
+export interface RecentBoard {
+  id: string
+  name: string
+  frames: number
+  editedAt: number
 }
 
 export interface Rect {

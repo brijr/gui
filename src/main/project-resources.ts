@@ -1,3 +1,4 @@
+import type { BoardSession } from './board-session'
 import type { ChatController } from './chat'
 import type { DevServer } from './dev-server'
 import type { RunningMcpServer } from './mcp-server'
@@ -18,6 +19,8 @@ export class ProjectResources {
   recordings: Recordings | null = null
   mcp: RunningMcpServer | null = null
   previewTools: PreviewTools | null = null
+  /** The canvas this is, when it's one rather than a project */
+  board: BoardSession | null = null
   historyFile: string | null = null
   historyRoot: string | null = null
   private claimedFile: string | null = null
@@ -64,9 +67,19 @@ export class ProjectResources {
       complete = resolve
     })
     // Clear ownership before teardown: callbacks during disposal see no live project.
-    const { devServer, terminals, chat, recordings, mcp, claimedFile, historyFile, historyRoot } =
-      this
+    const {
+      devServer,
+      terminals,
+      chat,
+      recordings,
+      mcp,
+      board,
+      claimedFile,
+      historyFile,
+      historyRoot,
+    } = this
     this.devServer = null
+    this.board = null
     this.terminals = null
     this.chat = null
     this.recordings = null
@@ -86,6 +99,7 @@ export class ProjectResources {
     safely(() => terminals?.dispose())
     const saved = safely(() => chat?.dispose())
     safely(() => mcp?.close())
+    safely(() => board?.dispose())
     // History must remain claimed until the last save completes. Recordings also remain
     // available until chat persistence has captured its references.
     void Promise.resolve(saved)

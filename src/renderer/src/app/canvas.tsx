@@ -24,6 +24,7 @@ import {
   AppWindow,
   Archive,
   ChevronRight,
+  Ellipsis,
   FolderOpen,
   FolderPlus,
   Info,
@@ -31,6 +32,7 @@ import {
   Link,
   Package,
   Play,
+  Shapes,
   TriangleAlert,
   Wrench,
   X,
@@ -41,6 +43,7 @@ import { timeAgo } from '../lib/time'
 import { Button, Code, IconButton, SegmentedControl, Spinner } from '../lib/ui'
 import { needsSignIn, useAccount } from '../lib/use-account'
 import { useAction } from '../settings/use-action'
+import { Board } from './board'
 import { FixStartupButton } from './fix-startup'
 import { useMorphDrawsFrame } from './layout-morph'
 import { crashed, stoppedOutside } from './server-status'
@@ -79,6 +82,27 @@ export function Canvas({ state }: { state: WindowState }) {
       window.removeEventListener('resize', report)
     }
   }, [state.sidebarSide])
+
+  // A canvas: its board, or with a frame open, the frame live in the preview over this.
+  if (state.board)
+    return (
+      <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
+        {preview.frame && preview.visible && !state.shortcutsOpen && !morphing && (
+          <DeviceFrame frame={preview.frame} />
+        )}
+        {state.board.open ? (
+          preview.error && (
+            <div className="absolute inset-0 flex items-center justify-center p-8">
+              <Message icon={ALERT} tone="danger" title="This frame didn’t load">
+                {preview.error}
+              </Message>
+            </div>
+          )
+        ) : (
+          <Board key={state.board.id} board={state.board} />
+        )}
+      </main>
+    )
 
   return (
     <main ref={ref} className="relative min-h-0 flex-1 bg-canvas">
@@ -848,6 +872,16 @@ function OpenActions() {
         <Button size="lg" icon={Link} className={cell} onClick={() => setForm('cloneRepo')}>
           Clone by URL
         </Button>
+        {/* No folder, install or server: a board to design on with the agent, open at once. */}
+        <Button
+          size="lg"
+          icon={Shapes}
+          className="col-span-2 w-full justify-start"
+          shortcut="newBoard"
+          onClick={() => gui.newBoard()}
+        >
+          Open a canvas
+        </Button>
       </div>
     )
   }
@@ -966,6 +1000,7 @@ function StartScreen({ state }: { state: WindowState }) {
     .sort((a, b) => b.chat.at - a.chat.at)
     .slice(0, 5)
   const projects = state.recent.filter((project) => !project.chat).slice(0, 5)
+  const boards = (state.recentBoards ?? []).slice(0, 5)
   const firstRun = state.recent.length === 0
   return (
     <div className="flex w-full max-w-md flex-col gap-8">
@@ -1009,6 +1044,41 @@ function StartScreen({ state }: { state: WindowState }) {
                   </span>
                 }
               />
+            ))}
+          </List>
+        </section>
+      )}
+
+      {boards.length > 0 && (
+        <section aria-labelledby="recent-canvases" className="flex flex-col gap-2">
+          <GroupLabel id="recent-canvases" as="h2">
+            Canvases
+          </GroupLabel>
+          <List>
+            {boards.map((board) => (
+              <li key={board.id}>
+                <div className="group relative">
+                  <ListRow
+                    flush
+                    onClick={() => gui.openBoard(board.id)}
+                    title={board.name}
+                    detail={`${board.frames === 1 ? '1 frame' : `${board.frames} frames`} · ${timeAgo(board.editedAt)}`}
+                    trailing={
+                      <span className="transition-opacity duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
+                        {CHEVRON}
+                      </span>
+                    }
+                  />
+                  <IconButton
+                    label={`More for ${board.name}`}
+                    icon={Ellipsis}
+                    size="sm"
+                    aria-haspopup="menu"
+                    onClick={() => gui.showRecentBoardMenu(board.id)}
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+                  />
+                </div>
+              </li>
             ))}
           </List>
         </section>

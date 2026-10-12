@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
-import { mkdir, realpath, rm, stat, symlink } from 'node:fs/promises'
+import { mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
@@ -13,11 +13,14 @@ import {
   Menu,
   type MenuItemConstructorOptions,
   session,
+  shell,
   type WebContents,
   webContents,
 } from 'electron'
+import { type BoardCamera, isFramePreset } from '../shared/board'
 import {
   Events,
+  type FrameArrangement,
   Invoke,
   MAX_TERMINAL_INPUT,
   type OutputChunk,
@@ -60,6 +63,15 @@ import { registerAccountIpc } from './account-ipc'
 import { killStoppedAgents } from './agent'
 import { agentHealth } from './agent-status'
 import { agentMenuItems, openCustomAgents } from './agents'
+import {
+  boardIdOf,
+  boardRoot,
+  createBoard,
+  deleteBoard,
+  isBoardId,
+  listBoards,
+  registerThumbProtocol,
+} from './board'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { developerTools } from './developer-tools'
@@ -72,7 +84,7 @@ import {
   stringRequestArgs,
 } from './ipc-handler'
 import { isLoopback } from './loopback'
-import { createProject, projectName } from './new-project'
+import { createProject, createProjectFromFrame, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
@@ -109,6 +121,7 @@ import {
   keepInBackground,
   lastFocusedWindow,
   ProjectWindow,
+  shareBoards,
   windowEvents,
 } from './window'
 
@@ -297,6 +310,113 @@ async function newProject(
   if (!name) throw new Error('Use a name without slashes or colons, like my-app.')
   const folder = await pickParent(target, `Create ${name} in…`, 'Create Here')
   if (folder) openSafely(target, await createProject(name, folder, template))
+}
+
+/**
+ * A canvas in the window's start-screen tab, or a new tab there. One already open in a tab
+ * shows that tab instead: two tabs on one canvas would each keep their own layout.
+ */
+async function openBoardIn(target: ProjectWindow | undefined, id: string) {
+  if (!isBoardId(id) || mustSignIn()) return
+  const root = boardRoot(id)
+  const open = allTabs().find((tab) => tab.projectRoot === root)
+  const shown = open && allWindows().find((win) => win.tabs.includes(open))
+  if (open && shown) {
+    shown.showTab(open)
+    focusWindow(shown.win, { steal: true })
+    return
+  }
+  if (!(await isDirectory(root))) {
+    shareBoards(await listBoards())
+    return
+  }
+  if (opening.has(root)) return
+  opening.add(root)
+  try {
+    await tabToOpenIn(target).openBoard(root)
+  } catch (error) {
+    dialog.showErrorBox(
+      "Couldn't open the canvas",
+      error instanceof Error ? error.message : String(error),
+    )
+  } finally {
+    opening.delete(root)
+    syncMenuItems()
+  }
+}
+
+/** ⌥⌘N, or the start screen's button: a new canvas, open at once, without a dialog. */
+async function newBoard(target: ProjectWindow | undefined) {
+  if (mustSignIn()) return
+  try {
+    const root = await createBoard()
+    const id = boardIdOf(root)
+    if (id) await openBoardIn(target, id)
+  } catch (error) {
+    dialog.showErrorBox(
+      "Couldn't make a canvas",
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+/** Turn into Project: the frame's page as a new project's app, made where the user picks. */
+async function promoteFrame(win: ProjectWindow, tab: ProjectTab, id: string) {
+  const board = tab.boardSession
+  const frame = board?.frame(id)
+  if (!board || !frame) return
+  const slug = frame.name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const name = projectName(slug) ?? 'canvas-frame'
+  try {
+    const folder = await pickParent(win, `Create ${name} in…`, 'Create Here')
+    if (!folder) return
+    const html = await readFile(board.framePath(id), 'utf8')
+    openSafely(win, await createProjectFromFrame(name, folder, html, join(board.root, 'assets')))
+  } catch (error) {
+    dialog.showErrorBox(
+      "Couldn't make the project",
+      error instanceof Error ? error.message : String(error),
+    )
+  }
+}
+
+/** The start screen's menu for a canvas: open it, show it in the Finder, or delete it. */
+function showRecentBoardMenu(win: ProjectWindow, id: string) {
+  if (!isBoardId(id)) return
+  const root = boardRoot(id)
+  Menu.buildFromTemplate([
+    { label: 'Open', click: () => void openBoardIn(win, id) },
+    { label: 'Reveal in Finder', click: () => shell.showItemInFolder(join(root, 'canvas.json')) },
+    { type: 'separator' },
+    {
+      label: 'Delete Canvas…',
+      click: async () => {
+        if (allTabs().some((tab) => tab.projectRoot === root)) {
+          await dialog.showMessageBox(win.win, {
+            message: 'Close the canvas first',
+            detail: 'It’s open in a tab. Close that tab, then delete it.',
+          })
+          return
+        }
+        const boards = await listBoards()
+        const name = boards.find((board) => board.id === id)?.name ?? 'this canvas'
+        const { response } = await dialog.showMessageBox(win.win, {
+          type: 'warning',
+          message: `Delete ${name}?`,
+          detail: 'Its frames and their pages are deleted for good.',
+          buttons: ['Delete', 'Cancel'],
+          defaultId: 1,
+          cancelId: 1,
+        })
+        if (response !== 0) return
+        await deleteBoard(id)
+        shareBoards(await listBoards())
+      },
+    },
+  ]).popup({ window: win.win })
 }
 
 /**
@@ -806,6 +926,53 @@ function registerIpc() {
     ),
   )
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
+  // Canvases: the start screen's, then the board's, from the window's own chrome only.
+  onWindow(Send.newBoard, (win) => void newBoard(win))
+  onWindow(Send.openBoard, (win, id) => isString(id) && void openBoardIn(win, id))
+  onWindow(Send.showRecentBoardMenu, (win, id) => isString(id) && showRecentBoardMenu(win, id))
+  onWindow(Send.showBoardMenu, (win) => win.activeTab.showBoardMenu(() => void newBoard(win)))
+  onWindow(Send.showFrameMenu, (win, id) => {
+    const tab = win.activeTab
+    if (isString(id)) tab.showFrameMenu(id, (frame) => void promoteFrame(win, tab, frame))
+  })
+  onWindow(Send.showAddFrameMenu, (win, at) => {
+    if (isPoint(at)) win.activeTab.showAddFrameMenu(at)
+  })
+  const onBoard = (channel: string, handler: (tab: ProjectTab, ...args: unknown[]) => void) =>
+    onWindow(channel, (win, ...args) => {
+      if (win.activeTab.boardSession) handler(win.activeTab, ...args)
+    })
+  const isIds = (value: unknown): value is string[] =>
+    Array.isArray(value) && value.length <= 100 && value.every(isString)
+  const isArrangement = (value: unknown): value is FrameArrangement => {
+    if (!value || typeof value !== 'object') return false
+    const { id, x, y, width, height } = value as Record<string, unknown>
+    const size = (edge: unknown) => edge === undefined || isNumber(edge)
+    return isString(id) && isNumber(x) && isNumber(y) && size(width) && size(height)
+  }
+  const isCamera = (value: unknown): value is BoardCamera => {
+    if (!value || typeof value !== 'object') return false
+    const { x, y, zoom } = value as Record<string, unknown>
+    return isNumber(x) && isNumber(y) && isNumber(zoom) && zoom > 0
+  }
+  onBoard(Send.boardSelect, (tab, ids) => isIds(ids) && tab.boardSelect(ids))
+  onBoard(Send.boardArrange, (tab, frames) => {
+    if (Array.isArray(frames) && frames.length <= 100 && frames.every(isArrangement))
+      tab.boardArrange(frames)
+  })
+  onBoard(Send.boardAddFrame, (tab, preset, at) => {
+    if (isFramePreset(preset) && (at === null || isPoint(at))) void tab.boardAddFrame(preset, at)
+  })
+  onBoard(Send.boardDuplicate, (tab, ids) => isIds(ids) && void tab.boardDuplicate(ids))
+  onBoard(Send.boardDelete, (tab, ids) => isIds(ids) && void tab.boardDelete(ids))
+  onBoard(Send.boardRenameFrame, (tab, id, name) => {
+    if (isString(id) && isString(name)) void tab.boardRenameFrame(id, name)
+  })
+  onBoard(Send.renameBoard, (tab, name) => isString(name) && void tab.renameBoard(name))
+  onBoard(Send.boardCamera, (tab, camera) => isCamera(camera) && tab.boardSetCamera(camera))
+  onBoard(Send.boardOpenFrame, (tab, id) => {
+    if (id === null || isString(id)) void tab.openFrame(id)
+  })
   onWindow(Send.newTab, (win) => win.newTab())
   onWindow(Send.selectTab, (win, id) => isString(id) && win.selectTab(id))
   onWindow(Send.closeTab, (win, id) => isString(id) && win.closeTab(id))
@@ -1097,6 +1264,8 @@ async function editHistory(direction: 'undo' | 'redo') {
   if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
   const tab = menuTab()
   if (!tab) return textEdit()
+  // On a canvas's board, the user's own moves come back before the agent's turns do.
+  if (direction === 'undo' && (await tab.undoBoard())) return
   await (direction === 'undo' ? tab.undoLastChange() : tab.redoLastChange())
 }
 
@@ -1271,6 +1440,7 @@ function buildMenu() {
         ...item('newWindow', { click: () => createWindow() }),
         ...item('openProject', { click: () => void pickProject(focusedWindow()) }),
         ...item('newProject', { click: () => startForm('newProject') }),
+        ...item('newBoard', { click: () => void newBoard(focusedWindow()) }),
         ...item('cloneRepo', {
           click: () => startForm('cloneRepo'),
         }),
@@ -1439,6 +1609,7 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     lockDownSessions()
     registerRecordingProtocol()
+    registerThumbProtocol()
     registerIpc()
     accountEvents.on('change', onAccountChange)
     watchSettings()

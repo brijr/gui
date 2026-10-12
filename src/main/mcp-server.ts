@@ -5,19 +5,33 @@ import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { APP_TOOL_NAMES, type AppTools, registerAppTools } from './mcp-app-tools'
+import { BOARD_TOOL_NAMES, type BoardTools, registerBoardTools } from './mcp-board-tools'
 import { PREVIEW_TOOL_NAMES, registerPreviewTools } from './mcp-preview-tools'
 import type { PreviewTools } from './preview-tools'
 import type { Recordings } from './recordings'
 
 export const MCP_SERVER_NAME = 'gui'
 
-/** Every tool Gui exposes: the preview's (mcp-preview-tools.ts) and Gui's own (mcp-app-tools.ts). */
-export const GUI_TOOL_NAMES = [...PREVIEW_TOOL_NAMES, ...APP_TOOL_NAMES] as const
+/**
+ * Every tool Gui exposes: the preview's (mcp-preview-tools.ts), Gui's own (mcp-app-tools.ts)
+ * and, in a canvas, the canvas's (mcp-board-tools.ts).
+ */
+export const GUI_TOOL_NAMES = [
+  ...PREVIEW_TOOL_NAMES,
+  ...APP_TOOL_NAMES,
+  ...BOARD_TOOL_NAMES,
+] as const
 
-function buildServer(tools: PreviewTools, recordings: Recordings, app: AppTools) {
+function buildServer(
+  tools: PreviewTools,
+  recordings: Recordings,
+  app: AppTools,
+  board: BoardTools | null,
+) {
   const server = new McpServer({ name: 'gui', version: '0.2.0' })
   registerPreviewTools(server, tools, recordings)
   registerAppTools(server, app)
+  if (board) registerBoardTools(server, board)
   return server
 }
 
@@ -35,6 +49,7 @@ export async function startMcpServer(
   tools: PreviewTools,
   recordings: Recordings,
   app: AppTools,
+  board: BoardTools | null = null,
 ): Promise<RunningMcpServer> {
   const token = randomBytes(24).toString('hex')
   const expected = Buffer.from(`Bearer ${token}`)
@@ -54,7 +69,7 @@ export async function startMcpServer(
       res.writeHead(405, { Allow: 'POST' }).end()
       return
     }
-    const server = buildServer(tools, recordings, app)
+    const server = buildServer(tools, recordings, app, board)
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,

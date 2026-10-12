@@ -53,6 +53,7 @@ export const SYMBOLS = {
   Reply: 'arrowshape.turn.up.left',
   RotateCw: 'arrow.clockwise',
   Search: 'magnifyingglass',
+  Shapes: 'square.on.circle',
   Shield: 'shield',
   ShieldOff: 'shield.slash',
   Smartphone: 'iphone',
