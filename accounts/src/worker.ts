@@ -1,5 +1,6 @@
 import type { AccountErrorCode } from '../../src/shared/account'
-import type { GitHubProfile, GitHubRepository } from '../../src/shared/github'
+import type { GitHubProfile } from '../../src/shared/github'
+import { type ConnectedRepository, GitHubRepositories } from './github-repositories'
 
 // Only the D1 operations this service uses. Bun's SQLite test adapter implements the same contract.
 export interface Statement {
@@ -135,7 +136,12 @@ function gitHubOAuth(path: string, values: Record<string, string>) {
     ProviderToken & { device_code: string; user_code: string; interval: number; expires_in: number }
   >(`https://github.com/${path}`, values, 'GitHub')
 }
-async function github<T>(token: string, path: string, body?: unknown): Promise<T> {
+async function github<T>(
+  token: string,
+  path: string,
+  body?: unknown,
+  allowMissing = false,
+): Promise<T> {
   const res = await fetch(`https://api.github.com${path}`, {
     ...(body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }),
     headers: {
@@ -148,6 +154,8 @@ async function github<T>(token: string, path: string, body?: unknown): Promise<T
     signal: AbortSignal.timeout(15_000),
     redirect: 'manual',
   })
+  if (res.status === 404 && allowMissing)
+    throw new HttpError(404, 'This GitHub installation is no longer available.')
   if (res.status === 401)
     throw new HttpError(
       403,
@@ -253,43 +261,10 @@ async function accessToken(env: Env, user: User) {
       .run()
   }
 }
-/** A repository, with the app installation that reaches it. */
-interface ConnectedRepository extends GitHubRepository {
-  installationId: number
-}
-
-async function repositories(token: string): Promise<ConnectedRepository[]> {
-  const output: ConnectedRepository[] = []
-  for (let page = 1; ; page++) {
-    const { installations } = await github<{ installations: { id: number }[] }>(
-      token,
-      `/user/installations?per_page=100&page=${page}`,
-    )
-    for (const installation of installations) {
-      for (let repoPage = 1; ; repoPage++) {
-        const result = await github<{
-          repositories: { id: number; full_name: string; private: boolean }[]
-        }>(
-          token,
-          `/user/installations/${installation.id}/repositories?per_page=100&page=${repoPage}`,
-        )
-        output.push(
-          ...result.repositories.map((repo) => ({
-            id: repo.id,
-            fullName: repo.full_name,
-            private: repo.private,
-            installationId: installation.id,
-          })),
-        )
-        if (result.repositories.length < 100) break
-      }
-    }
-    if (installations.length < 100) break
-  }
-  return [...new Map(output.map((repo) => [repo.id, repo])).values()].sort((a, b) =>
-    a.fullName.localeCompare(b.fullName),
-  )
-}
+const repositories = new GitHubRepositories(
+  (token, path) => github(token, path, undefined, true),
+  (error) => error instanceof HttpError && error.status === 404,
+)
 
 /**
  * A token for one repository that can only read and write its contents and read its pull
@@ -960,7 +935,10 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
   }
   const user = await connection(env, account)
   if (path === '/repositories' && request.method === 'GET') {
-    const list = await repositories(await accessToken(env, user))
+    const list = await repositories.list(
+      await accessToken(env, user),
+      `${account.id}:${user.github_id}`,
+    )
     return json({
       repositories: list.map(({ id, fullName, private: isPrivate }) => ({
         id,
@@ -988,8 +966,10 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
   }
   const clone = /^\/repositories\/(\d+)\/credential$/.exec(path)
   if (clone && request.method === 'POST') {
-    const repo = (await repositories(await accessToken(env, user))).find(
-      (item) => item.id === Number(clone[1]),
+    const repo = await repositories.find(
+      await accessToken(env, user),
+      `${account.id}:${user.github_id}`,
+      Number(clone[1]),
     )
     if (!repo)
       throw new HttpError(403, 'This repository is no longer connected to your GitHub account.')
@@ -1018,7 +998,7 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     )
       throw new HttpError(400, 'Enter a branch, base branch, title, and description.')
     const token = await accessToken(env, user)
-    const repo = (await repositories(token)).find((item) => item.id === Number(pull[1]))
+    const repo = await repositories.find(token, `${account.id}:${user.github_id}`, Number(pull[1]))
     if (!repo)
       throw new HttpError(403, 'This repository is no longer connected to your GitHub account.')
     const owner = repo.fullName.split('/')[0]

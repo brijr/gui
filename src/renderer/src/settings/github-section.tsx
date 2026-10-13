@@ -43,7 +43,7 @@ export function GitHubSection() {
       if (mounted.current) setBusy(false)
     }
   }
-  const refresh = async () => setState(await gui.getGitHub())
+  const refresh = async () => setState(await gui.getGitHub(true))
   // Choosing Connect again while it waits opens the browser again on the same sign-in.
   const connect = () => {
     setConnecting(true)

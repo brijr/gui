@@ -33,7 +33,14 @@ export function registerAccountIpc(
     },
     (_event, updates) => setAccountUpdates(updates),
   )
-  handleRequest(Invoke.githubState, appRequest, () => getGitHub())
+  handleRequest(
+    Invoke.githubState,
+    {
+      authorize: options.authorize,
+      validate: (args) => args.length === 0 || (args.length === 1 && typeof args[0] === 'boolean'),
+    },
+    (_event, refresh) => getGitHub(refresh),
+  )
   handleRequest(Invoke.githubConnect, appRequest, () => connectGitHub())
   handleRequest(Invoke.githubDisconnect, appRequest, () => disconnectGitHub())
   handleRequest(Invoke.githubManage, appRequest, () => manageGitHub())

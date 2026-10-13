@@ -49,7 +49,8 @@ const api: GuiApi = {
   cancelAccountSignIn: () => request(Invoke.accountCancel),
   signOutAccount: () => request(Invoke.accountSignOut),
   setAccountUpdates: (updates) => request(Invoke.accountUpdates, updates),
-  getGitHub: () => request(Invoke.githubState),
+  getGitHub: (refresh) =>
+    refresh === undefined ? request(Invoke.githubState) : request(Invoke.githubState, refresh),
   connectGitHub: () => request(Invoke.githubConnect),
   disconnectGitHub: () => request(Invoke.githubDisconnect),
   manageGitHub: () => request(Invoke.githubManage),

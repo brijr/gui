@@ -2,17 +2,37 @@ import { execFile } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import type { GitHubProfile, GitHubRepository, GitHubState } from '../shared/github'
-import { AccountError, request, savedSession, serviceUrl } from './account'
+import {
+  AccountError,
+  accountEvents,
+  connectGitHub as connectAccountGitHub,
+  request,
+  savedSession,
+  serviceUrl,
+} from './account'
 import { parseRepo } from './clone'
 import { developerTools } from './developer-tools'
+import { ScopedRequestCache } from './scoped-request-cache'
 import { getShellEnv } from './shell-env'
 
-export { connectGitHub } from './account'
+export async function connectGitHub() {
+  await connectAccountGitHub()
+  listing.clear()
+  credentials.clear()
+}
+
+const listing = new ScopedRequestCache<string, GitHubState>(15_000)
+app.on('browser-window-focus', () => listing.clear())
+accountEvents.on('change', () => {
+  listing.clear()
+  credentials.clear()
+})
 
 /** The account's GitHub connection and the repositories Gui may see through it. */
-export async function getGitHub(): Promise<GitHubState> {
+export async function getGitHub(refresh = false): Promise<GitHubState> {
+  if (refresh) listing.clear()
   try {
     serviceUrl()
   } catch {
@@ -20,6 +40,10 @@ export async function getGitHub(): Promise<GitHubState> {
   }
   const token = await savedSession()
   if (!token) return { configured: true, profile: null, repositories: [] }
+  return listing.get(token, () => loadGitHub(token))
+}
+
+async function loadGitHub(token: string): Promise<GitHubState> {
   try {
     const { profile } = await request<{ profile: GitHubProfile | null }>('/account', token)
     if (!profile) return { configured: true, profile: null, repositories: [] }
@@ -37,6 +61,8 @@ export async function getGitHub(): Promise<GitHubState> {
 /** Drops the GitHub connection. Gui stays signed in, and GitHub stays a way to sign in. */
 export async function disconnectGitHub() {
   await request('/github', await savedSession(), 'DELETE')
+  listing.clear()
+  credentials.clear()
 }
 export async function manageGitHub() {
   const { installUrl } = await request<{ installUrl: string }>('/account', await savedSession())
@@ -58,6 +84,7 @@ export async function createGitHub(name: string): Promise<GitHubRepository> {
     'POST',
     { name },
   )
+  listing.clear()
   return repository
 }
 

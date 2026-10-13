@@ -324,7 +324,8 @@ export interface GuiApi {
   cancelAccountSignIn(): Promise<void>
   signOutAccount(): Promise<void>
   setAccountUpdates(updates: boolean): Promise<void>
-  getGitHub(): Promise<GitHubState>
+  /** True bypasses the short-lived listing cache for an explicit refresh. */
+  getGitHub(refresh?: boolean): Promise<GitHubState>
   /** Adds GitHub to the signed-in account through the browser; resolves once connected. */
   connectGitHub(): Promise<void>
   disconnectGitHub(): Promise<void>
