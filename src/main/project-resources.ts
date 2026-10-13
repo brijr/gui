@@ -99,11 +99,17 @@ export class ProjectResources {
     safely(() => terminals?.dispose())
     const saved = safely(() => chat?.dispose())
     safely(() => mcp?.close())
-    safely(() => board?.dispose())
+    const boardSaved = safely(() => board?.dispose())
     // History must remain claimed until the last save completes. Recordings also remain
     // available until chat persistence has captured its references.
-    void Promise.resolve(saved)
-      .catch((error: unknown) => console.error('[gui] final chat save failed', error))
+    void Promise.all([
+      Promise.resolve(saved).catch((error: unknown) =>
+        console.error('[gui] final chat save failed', error),
+      ),
+      Promise.resolve(boardSaved).catch((error: unknown) =>
+        console.error('[gui] final canvas save failed', error),
+      ),
+    ])
       .then(async () => {
         try {
           await safely(() => {

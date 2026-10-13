@@ -1,4 +1,5 @@
-import { readdirSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { BoardState } from '../src/shared/types'
 import { electronExecutable, waitFor } from './helpers/env'
@@ -58,6 +59,20 @@ async function board(session: GuiSession): Promise<BoardState> {
 async function openCanvas(session: GuiSession) {
   await session.chrome.getByRole('button', { name: /Open a canvas/ }).click()
   return board(session)
+}
+
+/** Closing the last tab closes its window; leave a start-screen tab for reopen tests. */
+async function keepWindowOnClose(session: GuiSession) {
+  const id = (await session.state()).activeTab
+  await session.chrome.evaluate((tab) => {
+    window.gui.newTab()
+    window.gui.selectTab(tab)
+  }, id)
+  await waitFor(async () => {
+    const state = await session.state()
+    return state.tabs.length === 2 && state.activeTab === id
+  }, 'a spare tab before closing the canvas')
+  return id
 }
 
 const undo = (session: GuiSession) =>
@@ -209,5 +224,107 @@ test('the agent builds on the canvas with its canvas tools', async ({ launch }) 
   await waitFor(
     async () => (await board(session)).frames.some((frame) => frame.id === 'landing-bold'),
     'the deleted frame back',
+  )
+})
+
+test('overlapping frame actions keep unique files and immediate close/reopen preserves the final layout', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const canvas = await openCanvas(session)
+  await session.chrome.evaluate(() => {
+    for (let i = 0; i < 8; i++) window.gui.boardAddFrame('desktop', null)
+  })
+  const created = await waitFor(async () => {
+    const current = await board(session)
+    return current.frames.length === 8 ? current : null
+  }, 'all concurrent frame actions')
+  const ids = created.frames.map((frame) => frame.id)
+  expect(new Set(ids).size).toBe(8)
+  const root = (await session.state()).project?.root ?? ''
+  await waitFor(() => readdirSync(join(root, 'frames')).length === 8, 'all frame files')
+  expect(readdirSync(join(root, 'frames')).sort()).toEqual(ids.map((id) => `${id}.html`).sort())
+  for (let i = 1; i < created.frames.length; i++)
+    expect(created.frames[i].x).toBeGreaterThanOrEqual(
+      created.frames[i - 1].x + created.frames[i - 1].width,
+    )
+  const tab = await keepWindowOnClose(session)
+  await session.chrome.evaluate(
+    ({ id, canvasId, tabId }) => {
+      window.gui.boardArrange([{ id, x: 54321, y: 23456 }])
+      window.gui.closeTab(tabId)
+      window.gui.openBoard(canvasId)
+    },
+    { id: ids[0], canvasId: canvas.id, tabId: tab },
+  )
+  const reopened = await waitFor(async () => {
+    const state = await session.state()
+    return state.activeTab !== tab && state.board?.id === canvas.id ? state.board : null
+  }, 'the same canvas reopened after its final persistence')
+  expect(reopened.frames.find((frame) => frame.id === ids[0])).toMatchObject({ x: 54321, y: 23456 })
+  const saved = JSON.parse(readFileSync(join(root, 'canvas.json'), 'utf8')) as BoardState
+  expect(saved.frames.find((frame) => frame.id === ids[0])).toMatchObject({ x: 54321, y: 23456 })
+})
+
+test('thumbnail workers unload idle animated pages and shared CSS stays fresh through reopen', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const canvas = await openCanvas(session)
+  const root = (await session.state()).project?.root ?? ''
+  const css = join(root, 'assets', 'shared.css')
+  writeFileSync(css, 'body { margin: 0; background: #aa0000; color: white; }')
+  for (const id of ['one', 'two', 'three'])
+    writeFileSync(
+      join(root, 'frames', `${id}.html`),
+      `<!doctype html><link rel="stylesheet" href="../assets/shared.css"><h1>${id}</h1><script>window.ticks = 0; const tick = () => { window.ticks++; document.body.style.opacity = '1'; requestAnimationFrame(tick); }; requestAnimationFrame(tick);</script>`,
+    )
+  const ready = await waitFor(async () => {
+    const state = await board(session)
+    return state.frames.length === 3 && state.frames.every((frame) => frame.captured) ? state : null
+  }, 'animated frame thumbnails')
+  const idleWorkers = () =>
+    session.app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .filter((win) => win.webContents.isOffscreen())
+        .map((win) => ({ url: win.webContents.getURL(), painting: win.webContents.isPainting() })),
+    )
+  await waitFor(async () => {
+    const workers = await idleWorkers()
+    return (
+      workers.length > 0 &&
+      workers.every((worker) => worker.url === 'about:blank' && !worker.painting)
+    )
+  }, 'idle workers with no running frame page')
+  const thumb = join(session.fixture.userData, 'canvas-thumbnails', canvas.id, 'one.jpg')
+  const digest = () => createHash('sha256').update(readFileSync(thumb)).digest('hex')
+  const red = digest()
+  const previous = new Map(ready.frames.map((frame) => [frame.id, frame.version]))
+  writeFileSync(css, 'body { margin: 0; background: #0000aa; color: white; }')
+  await waitFor(async () => {
+    const state = await board(session)
+    return (
+      state.frames.every((frame) => frame.version > (previous.get(frame.id) ?? 0)) &&
+      digest() !== red
+    )
+  }, 'all thumbnails invalidated by shared CSS')
+  const blue = digest()
+  const tab = await keepWindowOnClose(session)
+  await session.chrome.evaluate((id) => window.gui.closeTab(id), tab)
+  await waitFor(async () => (await session.state()).board === null, 'the canvas closed')
+  writeFileSync(css, 'body { margin: 0; background: #00aa00; color: white; }')
+  await session.chrome.evaluate((id) => window.gui.openBoard(id), canvas.id)
+  await waitFor(async () => {
+    const state = await board(session)
+    return (
+      state.id === canvas.id &&
+      state.frames.every((frame) => frame.version > 0) &&
+      digest() !== blue
+    )
+  }, 'shared CSS changed while closed, recaptured on reopening')
+  await waitFor(
+    async () =>
+      (await idleWorkers()).every((worker) => worker.url === 'about:blank' && !worker.painting),
+    'reopened workers idle',
   )
 })

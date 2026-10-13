@@ -11,6 +11,44 @@ function fixture() {
 }
 
 describe('project lifetime', () => {
+  test('completion waits for the canvas final save and repeated disposal shares it', async () => {
+    const { resources, events } = fixture()
+    let finishBoard!: () => void
+    const boardSaving = new Promise<void>((resolve) => {
+      finishBoard = resolve
+    })
+    resources.board = { dispose: () => boardSaving } as never
+    resources.claim('chat.json')
+    let finished = false
+    const completion = resources.dispose()
+    void completion.then(() => {
+      finished = true
+    })
+    expect(resources.board).toBeNull()
+    expect(resources.dispose()).toBe(completion)
+    await Promise.resolve()
+    expect(finished).toBe(false)
+    expect(events).toEqual([])
+    finishBoard()
+    await completion
+    expect(finished).toBe(true)
+    expect(events).toEqual(['release:chat.json'])
+  })
+
+  test('a failed canvas save is handled and does not strand remaining teardown', async () => {
+    const { resources, events } = fixture()
+    resources.board = { dispose: () => Promise.reject(new Error('Canvas disk failed')) } as never
+    resources.recordings = { dispose: () => events.push('recordings') } as never
+    const logged = spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      await resources.dispose()
+      expect(events).toEqual(['recordings'])
+      expect(logged).toHaveBeenCalledTimes(1)
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
   test('clears resources immediately, saves before retiring, and disposes once', async () => {
     const { resources, events } = fixture()
     let finishSave!: () => void
