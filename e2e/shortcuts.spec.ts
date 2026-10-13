@@ -820,7 +820,8 @@ test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the li
 test('zoom steps a device frame from 25% to fit and zooms the desktop page, per viewport', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  // These assertions compare settled geometry; animated handoffs have separate motion specs.
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   await session.waitForPreview()
   await session.app.evaluate(setContentSize, WINDOW)
   await clickMenu(session, 'Laptop Viewport')
@@ -842,7 +843,7 @@ test('zoom steps a device frame from 25% to fit and zooms the desktop page, per 
   await clickMenu(session, 'Zoom Out')
   await sleep(300)
   await zoomIs(session, 0.25, 'the frame still at 25%')
-  expect(await session.app.evaluate(pageSize)).toEqual(laptop)
+  await expect.poll(() => session.app.evaluate(pageSize)).toEqual(laptop)
   await expect(frameLabel(session)).toHaveText(`Laptop · 1440 × 900 · 25%`)
   const small = await session.app.evaluate(views)
   expect(small?.preview.width).toBe(Math.round(1440 * 0.25))
@@ -916,7 +917,7 @@ test('zoom steps a device frame from 25% to fit and zooms the desktop page, per 
 test('at any zoom a pick finds the element, and the agent sees the page at its CSS size', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   await useStandIn(session)
   await session.waitForPreview()
   await session.app.evaluate(setContentSize, WINDOW)
