@@ -16,7 +16,12 @@ const test = base.extend<{ app: ElectronApplication; chrome: Page }>({
         env[key] = value
       }
     }
-    Object.assign(env, { GUI_OPEN: '', GUI_AGENT_STAND_INS: '', GUI_E2E_BACKGROUND: '1' })
+    Object.assign(env, {
+      GUI_OPEN: '',
+      GUI_AGENT_STAND_INS: '',
+      GUI_E2E_BACKGROUND: '1',
+      GUI_ACCOUNT_REQUIRED: '0',
+    })
     const app = await electron.launch({
       executablePath: electronExecutable(),
       args: [REPO_ROOT, `--user-data-dir=${profile}`],

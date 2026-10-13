@@ -1,6 +1,8 @@
 // Isolated process: Electron/platform stubs must not replace modules used by other fast tests.
 import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import * as fsSync from 'node:fs'
 import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,6 +10,9 @@ import { writeFileAtomic } from '../../src/main/atomic-file'
 import { type BoardManifest, MAX_FRAMES, parseManifest } from '../../src/shared/board'
 
 const nativeFs = { ...fs }
+const nativeFsSync = { ...fsSync }
+type WatchCallback = (event: string, file: string | null) => void
+const watchers = new Map<string, Set<WatchCallback>>()
 const base = await fs.mkdtemp(join(tmpdir(), 'gui-board-session-test-'))
 const openBoards: { dispose(): Promise<void> }[] = []
 let frameRead: { directory: string; gate: Promise<void>; calls: number } | null = null
@@ -16,6 +21,28 @@ let writing: ((root: string, manifest: BoardManifest) => Promise<void>) | null =
 let competingPage: { path: string; html: string } | null = null
 let failedPage: string | null = null
 let frameWrite: { path: string; gate: Promise<void>; calls: number } | null = null
+
+// The interleaving probe controls delivery; real recursive watcher delivery is covered in Electron.
+mock.module('node:fs', () => ({
+  ...nativeFsSync,
+  watch: ((root: string, _options: unknown, callback: WatchCallback) => {
+    const listeners = watchers.get(root) ?? new Set<WatchCallback>()
+    watchers.set(root, listeners)
+    listeners.add(callback)
+    return Object.assign(new EventEmitter(), {
+      close() {
+        listeners.delete(callback)
+        if (!listeners.size) watchers.delete(root)
+      },
+    })
+  }) as typeof fsSync.watch,
+}))
+
+function emitWatch(root: string, file: string) {
+  const listeners = watchers.get(root)
+  assert.ok(listeners?.size, 'The board must register its watcher')
+  for (const callback of listeners) callback('change', file)
+}
 
 mock.module('node:fs/promises', () => ({
   ...nativeFs,
@@ -277,6 +304,7 @@ try {
   assert.equal((await persisted(saved.root)).camera?.x, 3)
   const external = { ...(await persisted(saved.root)), name: 'External', camera: null }
   await nativeFs.writeFile(join(saved.root, 'canvas.json'), JSON.stringify(external))
+  emitWatch(saved.root, 'canvas.json')
   await until(() => saved.name === 'External')
   await saved.save()
   assert.equal(
@@ -285,6 +313,7 @@ try {
     'Preserved camera must be saved, not just marked written',
   )
   await nativeFs.rm(join(saved.root, 'canvas.json'))
+  emitWatch(saved.root, 'canvas.json')
   await until(() =>
     nativeFs.access(join(saved.root, 'canvas.json')).then(
       () => true,
