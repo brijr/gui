@@ -45,6 +45,7 @@ import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
 import { setFollowUp, useChat, waitingCard } from './store'
 import { isNewRow, markSeen } from './transitions'
+import { TurnPresentationScope, useTurnPresentation } from './turn-presentation'
 
 type ToolItem = Extract<TurnItem, { kind: 'tool' }>
 type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
@@ -80,45 +81,47 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
   const running = turn.status === 'running'
   const end = `${turn.id}:end`
   return (
-    <article className="flex flex-col gap-3">
-      <Row rowKey={`${turn.id}:user`}>
-        <UserMessage turn={turn} />
-      </Row>
-      <div className={cn('flex flex-col gap-3', turn.reverted && 'opacity-50')}>
-        {blocks.map((block, index) => (
-          <Row key={block.id} rowKey={block.id}>
-            <BlockView
-              block={block}
-              next={blocks[index + 1]}
-              turnId={turn.id}
-              live={running}
-              turnEnd={turn.endedAt}
-            />
-          </Row>
-        ))}
-        {running && <Working since={turn.startedAt} />}
-        {turn.status === 'error' && (
-          <Row rowKey={end}>
-            <Note tone="error" detail={turn.errorDetail}>
-              {turn.error}
-            </Note>
-            {turn.signIn && <SignInAgain />}
-          </Row>
-        )}
-        {turn.status === 'cancelled' && (
-          <Row rowKey={end}>
-            <Badge icon={CircleSlash} className="self-start">
-              Stopped
-            </Badge>
-          </Row>
-        )}
-      </div>
-      {!running && (
-        <Row rowKey={end}>
-          <Result turn={turn} showRedo={showRedo} />
+    <TurnPresentationScope id={turn.id}>
+      <article className="flex flex-col gap-3">
+        <Row rowKey={`${turn.id}:user`}>
+          <UserMessage turn={turn} />
         </Row>
-      )}
-    </article>
+        <div className={cn('flex flex-col gap-3', turn.reverted && 'opacity-50')}>
+          {blocks.map((block, index) => (
+            <Row key={block.id} rowKey={block.id}>
+              <BlockView
+                block={block}
+                next={blocks[index + 1]}
+                turnId={turn.id}
+                live={running}
+                turnEnd={turn.endedAt}
+              />
+            </Row>
+          ))}
+          {running && <Working since={turn.startedAt} />}
+          {turn.status === 'error' && (
+            <Row rowKey={end}>
+              <Note tone="error" detail={turn.errorDetail} stateKey="error">
+                {turn.error}
+              </Note>
+              {turn.signIn && <SignInAgain />}
+            </Row>
+          )}
+          {turn.status === 'cancelled' && (
+            <Row rowKey={end}>
+              <Badge icon={CircleSlash} className="self-start">
+                Stopped
+              </Badge>
+            </Row>
+          )}
+        </div>
+        {!running && (
+          <Row rowKey={end}>
+            <Result turn={turn} showRedo={showRedo} />
+          </Row>
+        )}
+      </article>
+    </TurnPresentationScope>
   )
 }
 
@@ -262,12 +265,19 @@ function BlockView({
 }) {
   switch (block.kind) {
     case 'text':
-      return <Markdown text={block.text} />
+      return <Markdown text={block.text} live={live} />
     case 'steps': {
       // The card below asks about the step the agent is on, so it speaks for that step.
       const asking = live && next?.kind === 'permission' && next.resolved === null
       return (
-        <StepGroup steps={block.steps} live={live} last={!next} asking={asking} turnEnd={turnEnd} />
+        <StepGroup
+          stateKey={block.id}
+          steps={block.steps}
+          live={live}
+          last={!next}
+          asking={asking}
+          turnEnd={turnEnd}
+        />
       )
     }
     case 'plan':
@@ -299,7 +309,7 @@ function BlockView({
       return <Permission item={block} turnId={turnId} live={live} />
     case 'notice':
       return (
-        <Note tone={block.tone} detail={block.detail}>
+        <Note tone={block.tone} detail={block.detail} stateKey={block.id}>
           {block.text}
         </Note>
       )
@@ -326,12 +336,15 @@ export const NOTE_INSET = 'pl-5'
 function Note({
   tone,
   detail,
+  stateKey,
   children,
 }: {
   tone: 'info' | 'error'
   detail?: string | null
+  stateKey: string
   children: ReactNode
 }) {
+  const details = useTurnPresentation(`details:${stateKey}`, false)
   const Icon = tone === 'error' ? TriangleAlert : Info
   return (
     <div className="flex flex-col gap-1">
@@ -339,14 +352,17 @@ function Note({
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 select-text break-words">{children}</span>
       </p>
-      {detail && <TechnicalDetails text={detail} className={NOTE_INSET} />}
+      {detail && <TechnicalDetails text={detail} className={NOTE_INSET} state={details} />}
     </div>
   )
 }
 
 /** After the agent's login expired: signs in again here, rather than leaving the chat stuck. */
 function SignInAgain() {
-  const [state, setState] = useState<'idle' | 'pending' | 'done' | 'failed'>('idle')
+  const [state, setState] = useTurnPresentation<'idle' | 'pending' | 'done' | 'failed'>(
+    'sign-in',
+    'idle',
+  )
   if (state === 'done') {
     return (
       <p className={cn('flex gap-1.5 text-small text-success', NOTE_INSET)}>
@@ -380,8 +396,8 @@ function SignInAgain() {
   )
 }
 
-function Thought({ text }: { text: string }) {
-  const [open, setOpen] = useState(false)
+function Thought({ id, text }: { id: string; text: string }) {
+  const [open, setOpen] = useTurnPresentation(`thought:${id}`, false)
   return (
     <div className="flex flex-col items-start gap-1">
       <Disclosure open={open} onOpenChange={setOpen}>
@@ -499,12 +515,14 @@ function ToolStatusIcon({ tool, live }: { tool: ToolItem; live: boolean }) {
  * permission card right below asks about the latest step, the group shows only its count.
  */
 function StepGroup({
+  stateKey,
   steps,
   live,
   last,
   asking,
   turnEnd,
 }: {
+  stateKey: string
   steps: Step[]
   live: boolean
   last: boolean
@@ -512,7 +530,7 @@ function StepGroup({
   /** When the turn ended; null while it runs */
   turnEnd: number | null
 }) {
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useTurnPresentation(`steps:${stateKey}`, false)
   const tools = steps.filter((step): step is ToolItem => step.kind === 'tool')
   const latest = tools.at(-1)
   // Thinking with no tool calls around it stays a plain "Thinking" disclosure.
@@ -520,7 +538,7 @@ function StepGroup({
     return (
       <>
         {steps.map((step) =>
-          step.kind === 'thought' ? <Thought key={step.id} text={step.text} /> : null,
+          step.kind === 'thought' ? <Thought key={step.id} id={step.id} text={step.text} /> : null,
         )}
       </>
     )
@@ -586,7 +604,7 @@ function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
           if (step.kind === 'thought') {
             return (
               <li key={step.id} className="px-3 py-0.5">
-                <Thought text={step.text} />
+                <Thought id={step.id} text={step.text} />
               </li>
             )
           }
@@ -811,9 +829,9 @@ function Working({ since }: { since: number }) {
  * size, the before image sits where it was inside the after image's larger area (`frame`).
  */
 function Comparison({ turn }: { turn: Turn }) {
-  const [large, setLarge] = useState(false)
+  const [large, setLarge] = useTurnPresentation('comparison:large', false)
   /** The after image's width over its height, when there's no frame to say it. */
-  const [loadedRatio, setLoadedRatio] = useState<number | null>(null)
+  const [loadedRatio, setLoadedRatio] = useTurnPresentation<number | null>('comparison:ratio', null)
   const preview = turn.preview
   // Without an after image there's nothing to compare yet (or the change wasn't on screen).
   if (!preview?.after) return null
@@ -964,9 +982,9 @@ function ChangedFiles({ changes }: { changes: FileChange[] }) {
  * changed, Follow up (talk about this change again, later on), and Undo (Redo once undone).
  */
 function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
-  const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [open, setOpen] = useTurnPresentation('result:files', false)
+  const [busy, setBusy] = useTurnPresentation('result:busy', false)
+  const [error, setError] = useTurnPresentation<string | null>('result:error', null)
   const following = useChat((s) => s.followUp === turn.id)
   const changes = turn.changes ?? []
   const additions = changes.reduce((sum, change) => sum + change.additions, 0)
@@ -992,7 +1010,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   return (
     <Card tone="inset" as="section" aria-label="Result" className="flex flex-col gap-3 p-3">
       <Comparison turn={turn} />
-      <div className="flex min-w-0 items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         {changes.length > 0 ? (
           <Disclosure open={open} onOpenChange={setOpen}>
             {plural(changes.length, 'file')} changed

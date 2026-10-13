@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
@@ -62,6 +63,15 @@ export default defineConfig({
     },
   },
   renderer: {
+    // The entity decoder's default entry uses its data table, so it works in both the
+    // chat and its parser worker. Its browser entry requires document.createElement.
+    resolve: {
+      alias: {
+        'decode-named-character-reference': createRequire(import.meta.url).resolve(
+          'decode-named-character-reference',
+        ),
+      },
+    },
     // Keep Gui's own UI server off 5173/3000 so it never collides with the projects it previews.
     server: { port: 5737, strictPort: true },
     plugins: [react({ babel: { plugins: ['babel-plugin-react-compiler'] } }), tailwindcss(), csp],

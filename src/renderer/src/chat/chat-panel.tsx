@@ -27,32 +27,27 @@ import {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { ErrorBoundary } from '../lib/error-boundary'
-import { readableError } from '../lib/errors'
-import { InlineError } from '../lib/field'
 import {
-  Archive,
   ChevronDown,
   Ellipsis,
   Maximize2,
   MessageSquare,
   Minus,
-  MousePointer2,
   PanelLeft,
   PictureInPicture2,
   SquareArrowOutDownLeft,
   SquarePen,
 } from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
-import { Message, PanelHeader } from '../lib/surface'
-import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
+import { PanelHeader } from '../lib/surface'
+import { IconButton, PRESS, Spinner } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
 import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
 import { openShipSheet, ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
-import { connectChat, keyedAnswer, setDraft, useChat, waitingCard } from './store'
-import { TurnView } from './turn-view'
+import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
+import { Transcript } from './transcript'
 import { closeVersions, toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
 
 /** Fields ⌘⌫ deletes typing in. */
@@ -630,239 +625,5 @@ function ChatBubble({ running, picking }: { running: boolean; picking: boolean }
         {picking && 'Stops selecting.'}
       </span>
     </>
-  )
-}
-
-function Transcript({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
-  if (turnIds.length === 0) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col">
-        <EmptyTranscript canSelect={meta.canSelect} picked={meta.selection.length} />
-        {meta.archived && <ArchivedNotice archived={meta.archived} />}
-      </div>
-    )
-  }
-  return <Turns turnIds={turnIds} meta={meta} />
-}
-
-function toEnd(el: HTMLElement | null) {
-  if (el) el.scrollTop = el.scrollHeight
-}
-
-/** Within this many pixels of the end counts as at the end. */
-const STICK_SLOP = 48
-/** How long after a disclosure is toggled its change in height is the user's, not new content. */
-const TOGGLE_WINDOW = 150
-
-/** After New chat: the chat it replaced is in the archive, and can come straight back. */
-function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived']> }) {
-  const [error, setError] = useState<string | null>(null)
-  return (
-    <div className="flex shrink-0 flex-col gap-1 border-t border-line px-3 py-2">
-      <div className="flex items-center gap-2">
-        <Archive className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-        <p className="min-w-0 flex-1 truncate text-small text-muted">
-          Your chat with {archived.agentName} is archived.
-        </p>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() =>
-            void gui.openChat(archived.id).catch((err: unknown) => setError(readableError(err)))
-          }
-        >
-          Reopen
-        </Button>
-      </div>
-      {error && <InlineError>{error}</InlineError>}
-    </div>
-  )
-}
-
-/** Past this many messages, the transcript suggests starting over (agents lose the thread). */
-const LONG_CHAT = 150
-
-function LongChatHint() {
-  return (
-    <div className="flex items-center gap-2 rounded-md border border-line px-3 py-2">
-      <p className="min-w-0 flex-1 text-small text-muted">
-        This chat is long. Agents stay sharper in a fresh one; this one stays in the archive.
-      </p>
-      <Button size="sm" icon={SquarePen} onClick={() => gui.newSession()}>
-        New chat
-      </Button>
-    </div>
-  )
-}
-
-/**
- * Stays pinned to the newest line unless the user scrolled up: as turns stream in, as what's
- * in them grows (a permission card, an image loading), and as the composer's stack (queue,
- * problems, the picked element) grows or shrinks under it. A new turn is the user's own
- * message, so it always comes into view and the transcript follows from there, wherever they
- * had scrolled to.
- */
-function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
-  const scroller = useRef<HTMLDivElement>(null)
-  const content = useRef<HTMLDivElement>(null)
-  const stick = useRef(true)
-  /** When the user last opened or closed a disclosure in the transcript. */
-  const toggledAt = useRef(Number.NEGATIVE_INFINITY)
-  const newest = turnIds.at(-1)
-  const running = useChat((s) => s.turnsById[newest ?? '']?.status === 'running')
-
-  // Before paint, so a message moving into the transcript lands where it ends up.
-  useLayoutEffect(() => {
-    if (newest === undefined) return
-    stick.current = true
-    toEnd(scroller.current)
-  }, [newest])
-  useLayoutEffect(() => {
-    if (stick.current && turnIds.length) toEnd(scroller.current)
-  }, [turnIds])
-
-  // The transcript's own height (the composer growing) and its content's (anything that grows
-  // after it renders) both change without a scroll.
-  useEffect(() => {
-    const el = scroller.current
-    const inner = content.current
-    if (!el || !inner) return
-    const observer = new ResizeObserver(() => {
-      // Opening "3 steps" near the end is the user reading there: it opens in place.
-      if (performance.now() - toggledAt.current < TOGGLE_WINDOW) return
-      if (stick.current) toEnd(el)
-    })
-    observer.observe(el)
-    observer.observe(inner)
-    return () => observer.disconnect()
-  }, [])
-
-  return (
-    <div
-      ref={scroller}
-      data-transcript
-      data-clip
-      onScroll={(event) => {
-        const el = event.currentTarget
-        stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP
-      }}
-      onClickCapture={(event) => {
-        if ((event.target as Element).closest('[aria-expanded]')) {
-          toggledAt.current = performance.now()
-        }
-      }}
-      className="min-h-0 flex-1 select-text overflow-y-auto scroll-stable scroll-fade px-3 py-4"
-    >
-      <div ref={content} className="flex flex-col gap-6">
-        {turnIds.map((id) => (
-          <TurnRow key={id} id={id} showRedo={meta.redoTurnIds[0] === id} />
-        ))}
-        {turnIds.length >= LONG_CHAT && !running && <LongChatHint />}
-      </div>
-    </div>
-  )
-}
-
-/** Each row observes its own turn; streaming does not rerender the transcript shell. */
-function TurnRow({ id, showRedo }: { id: string; showRedo: boolean }) {
-  const turn = useChat((s) => s.turnsById[id])
-  if (!turn) return null
-  return (
-    <ErrorBoundary resetKey={turn}>
-      <TurnView turn={turn} showRedo={showRedo} />
-    </ErrorBoundary>
-  )
-}
-
-/** Something to start from in an empty chat: building an app from nothing, or changing one. */
-const STARTERS = {
-  build: [
-    'Build a landing page for a coffee shop',
-    'Build a portfolio site with a project gallery',
-    'Build a sign-up form with friendly validation',
-  ],
-}
-
-/**
- * A few things to ask for, under the empty chat's message. Choosing one puts it in the
- * message box to edit or send, rather than sending it.
- */
-function StarterPrompts({ prompts }: { prompts: readonly string[] }) {
-  return (
-    <ul aria-label="Ideas to start with" className="flex flex-col items-start gap-1.5">
-      {prompts.map((prompt) => (
-        <li key={prompt}>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-auto py-1 text-left whitespace-normal"
-            onClick={() => {
-              setDraft(prompt)
-              document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
-            }}
-          >
-            {prompt}
-          </Button>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-function EmptyTranscript({ canSelect, picked }: { canSelect: boolean; picked: number }) {
-  // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
-  // still take a message, which needs no element.
-  if (!canSelect) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
-        <Message
-          className="m-auto shrink-0"
-          icon={<MessageSquare className="size-4" aria-hidden="true" />}
-          title="Ask about your project"
-        >
-          Once your app shows in the preview, you can point at any part of it to change. Until then,
-          your agent can still read and edit the code.
-        </Message>
-        <div className="mx-auto mb-auto w-full max-w-sm pt-4">
-          <StarterPrompts prompts={STARTERS.build} />
-        </div>
-      </div>
-    )
-  }
-  // Something's picked: the next step is the message, not picking again.
-  if (picked > 0) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
-        <Message
-          className="m-auto shrink-0"
-          icon={<MessageSquare className="size-4" aria-hidden="true" />}
-          title="Describe the change"
-        >
-          Say what {picked === 1 ? 'it' : 'they'} should look like or do, and send. Your agent edits
-          the code and the preview updates live.
-        </Message>
-      </div>
-    )
-  }
-  return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
-      <Message
-        className="m-auto w-full max-w-sm shrink-0"
-        icon={<MousePointer2 className="size-4" aria-hidden="true" />}
-        title="Select something to edit"
-        actions={
-          <Button
-            variant="primary"
-            icon={MousePointer2}
-            shortcut="selectElement"
-            onClick={() => gui.toggleSelect()}
-          >
-            Select element
-          </Button>
-        }
-      >
-        Pick something in the preview, then describe your edit below.
-      </Message>
-    </div>
   )
 }

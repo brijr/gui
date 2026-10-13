@@ -56,8 +56,18 @@ export function Disclosure({
 }
 
 /** Technical detail (exit codes, output, commands) one click away from a plain message. */
-export function TechnicalDetails({ text, className }: { text: string; className?: string }) {
-  const [open, setOpen] = useState(false)
+export function TechnicalDetails({
+  text,
+  className,
+  state,
+}: {
+  text: string
+  className?: string
+  /** A transcript can retain the disclosure while its virtual row is unmounted. */
+  state?: readonly [boolean, (open: boolean) => void]
+}) {
+  const local = useState(false)
+  const [open, setOpen] = state ?? local
   return (
     <div className={cn('flex flex-col items-start gap-1', className)}>
       <Disclosure open={open} onOpenChange={setOpen}>
