@@ -132,14 +132,15 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
 }
 
 async function setAside(file: string, error: unknown, source?: HistoryStamp) {
-  if (source) {
-    const current = await stat(file).catch((error: NodeJS.ErrnoException) => {
-      if (error.code !== 'ENOENT') throw error
-      return null
-    })
-    if (!current) return true
-    if (!sameHistoryStamp(source, historyStamp(current))) return false
-  }
+  // An open/stat failure identifies no file version: keep its path rather than moving a
+  // potentially unrelated replacement. Throw so an empty chat cannot later save over it.
+  if (!source) throw new Error(`That chat could not be read safely, so its file was kept. ${error}`)
+  const current = await stat(file).catch((error: NodeJS.ErrnoException) => {
+    if (error.code !== 'ENOENT') throw error
+    return null
+  })
+  if (!current) return true
+  if (!sameHistoryStamp(source, historyStamp(current))) return false
   const aside = asidePath(file)
   // Do not move a newer write while an older file is being parsed in the worker.
   try {

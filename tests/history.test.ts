@@ -5,7 +5,13 @@ import { dirname, join } from 'node:path'
 import type { SavedChat } from '../src/main/history'
 import { serializeHistory } from '../src/main/history-format'
 import { readHistory, readLastMessage } from '../src/main/history-reader'
-import { historyStamp, type LiveSummary, summaryFile } from '../src/main/history-summary'
+import {
+  historyStamp,
+  type LiveSummary,
+  lastMessageFor,
+  summarizeHistory,
+  summaryFile,
+} from '../src/main/history-summary'
 import { HistoryWriter } from '../src/main/history-writer'
 
 let userData = ''
@@ -117,6 +123,15 @@ test('stale, malformed and oversized summaries rebuild safely; empty/image-only 
   expect((await lastMessage(root))?.prompt.length).toBeLessThanOrEqual(200)
   await new HistoryWriter(file, () => ({ ...images, turns: [] })).close()
   expect(await lastMessage(root)).toBeNull()
+})
+
+test('legacy whitespace-only prompts have bounded previews and preserve empty/image fallback', () => {
+  const state = chat(' '.repeat(10_000_000))
+  expect(lastMessageFor(state)).toEqual({ prompt: 'Image', at: 1 })
+  expect(summarizeHistory(state)?.prompt).toBe('Image')
+  state.turns[0].prompt = `${' '.repeat(1000)}  Header   work  `
+  expect(lastMessageFor(state)).toEqual({ prompt: 'Header work', at: 1 })
+  expect(summarizeHistory(state)?.prompt).toBe('Header work')
 })
 
 test('worker loads settle interrupted turns and permissions, preserving large strings and special keys', async () => {

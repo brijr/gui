@@ -5,6 +5,8 @@ import type { SavedChat } from './history'
 export const CHAT_ID = /^[a-f0-9-]{36}$/
 const MAX_TITLE = 120
 export const MAX_PROMPT = 200
+/** Normal input is trimmed; legacy whitespace must not turn a preview into an unbounded scan. */
+const MAX_PROMPT_SCAN = 4096
 
 export interface LastMessage {
   prompt: string
@@ -63,7 +65,7 @@ function shortPrompt(value: unknown): string {
   if (typeof value !== 'string') return ''
   let text = ''
   let space = false
-  for (const character of value) {
+  for (const character of value.slice(0, MAX_PROMPT_SCAN)) {
     if (/\s/.test(character)) space = text.length > 0
     else {
       const next = (space ? ' ' : '') + character

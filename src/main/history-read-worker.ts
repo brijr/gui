@@ -13,11 +13,13 @@ let loaded: {
 } | null = null
 
 parentPort?.on('message', async (request: HistoryWorkerRequest) => {
-  const result = await read(request)
+  const result = await readHistoryInWorker(request)
   parentPort?.postMessage({ result })
 })
 
-async function read(request: HistoryWorkerRequest): Promise<HistoryWorkerResult> {
+export async function readHistoryInWorker(
+  request: HistoryWorkerRequest,
+): Promise<HistoryWorkerResult> {
   if (request.action === 'release') {
     if (loaded?.id === request.id) loaded = null
     return { status: 'missing' }
@@ -36,7 +38,7 @@ async function read(request: HistoryWorkerRequest): Promise<HistoryWorkerResult>
     return result
   }
   let text: string
-  let source: ReturnType<typeof historyStamp>
+  let source: ReturnType<typeof historyStamp> | undefined
   try {
     const handle = await open(request.file, 'r')
     try {
@@ -49,7 +51,7 @@ async function read(request: HistoryWorkerRequest): Promise<HistoryWorkerResult>
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'missing' }
-    return { status: 'error', kind: 'read', message: String(error) }
+    return { status: 'error', kind: 'read', message: String(error), ...(source ? { source } : {}) }
   }
   try {
     const parsed: unknown = JSON.parse(text)
