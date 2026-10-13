@@ -15,6 +15,11 @@ import {
 import { parseRepo } from './clone'
 import { developerTools } from './developer-tools'
 import { ScopedRequestCache } from './scoped-request-cache'
+import {
+  type CredentialLease,
+  CredentialScopeChanged,
+  SessionCredentialCache,
+} from './session-credential-cache'
 import { getShellEnv } from './shell-env'
 
 export async function connectGitHub() {
@@ -137,10 +142,15 @@ esac
  */
 export class CredentialUnavailable extends Error {}
 
-async function credential(id: number) {
-  let result: { token: string; fullName: string }
+interface GitHubCredential {
+  token: string
+  fullName: string
+}
+
+async function loadCredential(id: number, session: string | null) {
+  let result: GitHubCredential
   try {
-    result = await request(`/repositories/${id}/credential`, await savedSession(), 'POST')
+    result = await request(`/repositories/${id}/credential`, session, 'POST')
   } catch (error) {
     // Signed out or no longer connected is the user's to fix; anything else is the service's.
     if (error instanceof AccountError && error.status < 500) throw error
@@ -149,37 +159,51 @@ async function credential(id: number) {
   if (!/^[\w-]+\/[\w.-]+$/.test(result.fullName)) throw new Error('Invalid GitHub repository name.')
   return result
 }
-async function authenticatedGit(args: string[], env: NodeJS.ProcessEnv, cwd?: string) {
+const credential = (id: number) => credentials.fresh(id)
+
+async function authenticatedGit(
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  access: CredentialLease<GitHubCredential>,
+  cwd?: string,
+) {
   await developerTools.requireGit()
-  await new Promise<void>((resolve, reject) => {
-    execFile(
-      'git',
-      ['-c', 'credential.helper=', ...args],
-      { env, cwd, timeout: 10 * 60_000, maxBuffer: 8 * 1024 * 1024 },
-      (error) =>
-        error
-          ? reject(
-              new Error(
-                'GitHub could not complete this git operation. Check repository access and try again.',
-              ),
-            )
-          : resolve(),
-    )
-  })
+  await access.run(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        execFile(
+          'git',
+          ['-c', 'credential.helper=', ...args],
+          { env, cwd, timeout: 10 * 60_000, maxBuffer: 8 * 1024 * 1024 },
+          (error) =>
+            error
+              ? reject(
+                  new Error(
+                    'GitHub could not complete this git operation. Check repository access and try again.',
+                  ),
+                )
+              : resolve(),
+        )
+      }),
+  )
 }
 export async function cloneGitHub(id: number, parent: string): Promise<string> {
-  const { token, fullName } = await credential(id)
+  const access = await credential(id)
+  const { token, fullName } = access.value
   const repo = parseRepo(fullName)
   if (!repo) throw new Error('Invalid GitHub repository name.')
   const destination = join(parent, repo.name)
   await mkdir(destination)
   try {
-    await withGitHubToken(token, (env) =>
-      authenticatedGit(['clone', '--', repo.url, destination], env),
+    await access.run(() =>
+      withGitHubToken(token, (env) =>
+        authenticatedGit(['clone', '--', repo.url, destination], env, access),
+      ),
     )
     return destination
-  } catch {
+  } catch (error) {
     await rm(destination, { recursive: true, force: true })
+    if (error instanceof CredentialScopeChanged) throw error
     throw new Error(`Could not clone ${fullName}. Check repository access and try again.`)
   }
 }
@@ -213,15 +237,22 @@ async function assertNotRewritten(root: string, env: NodeJS.ProcessEnv, url: str
 
 export async function pushGitHub(id: number, fullName: string, root: string, branch: string) {
   const access = await credential(id)
-  if (access.fullName.toLowerCase() !== fullName.toLowerCase())
+  if (access.value.fullName.toLowerCase() !== fullName.toLowerCase())
     throw new Error('The connected GitHub repository changed. Refresh projects and try again.')
   // Push to the checked canonical endpoint, regardless of local pushurl overrides.
   const ref = `refs/heads/${branch}`
-  const url = `https://github.com/${access.fullName}.git`
-  await withGitHubToken(access.token, async (env) => {
-    await assertNotRewritten(root, env, url)
-    await authenticatedGit(['push', '--no-follow-tags', '--', url, `${ref}:${ref}`], env, root)
-  })
+  const url = `https://github.com/${access.value.fullName}.git`
+  await access.run(() =>
+    withGitHubToken(access.value.token, async (env) => {
+      await assertNotRewritten(root, env, url)
+      await authenticatedGit(
+        ['push', '--no-follow-tags', '--', url, `${ref}:${ref}`],
+        env,
+        access,
+        root,
+      )
+    }),
+  )
 }
 export async function pullGitHub(
   id: number,
@@ -249,36 +280,32 @@ export async function pullGitHub(
 
 /**
  * The connected repository's token, kept for a few minutes: the bar over the chat reads
- * pull request status every minute, and each credential costs the service a repository list.
+ * pull request status every minute. Mutations bypass this read cache for fresh authorization.
  */
 const CREDENTIAL_TTL = 5 * 60_000
-const credentials = new Map<number, { token: string; fullName: string; until: number }>()
-async function recentCredential(id: number) {
-  const kept = credentials.get(id)
-  if (kept && kept.until > Date.now()) return kept
-  const fresh = { ...(await credential(id)), until: Date.now() + CREDENTIAL_TTL }
-  credentials.set(id, fresh)
-  return fresh
-}
+const credentials = new SessionCredentialCache(savedSession, loadCredential, CREDENTIAL_TTL)
+const recentCredential = (id: number) => credentials.get(id)
 
 /** A GET on api.github.com as the connected user, for a repository they connected. */
 export async function readGitHub<T>(id: number, fullName: string, path: string): Promise<T> {
   const access = await recentCredential(id)
-  if (access.fullName.toLowerCase() !== fullName.toLowerCase())
+  if (access.value.fullName.toLowerCase() !== fullName.toLowerCase())
     throw new Error('The connected GitHub repository changed. Refresh projects and try again.')
-  const response = await fetch(`https://api.github.com/repos/${access.fullName}${path}`, {
-    redirect: 'error',
-    signal: AbortSignal.timeout(15_000),
-    headers: {
-      Authorization: `Bearer ${access.token}`,
-      Accept: 'application/vnd.github+json',
-      'User-Agent': 'Gui',
-      'X-GitHub-Api-Version': '2026-03-10',
-    },
+  return access.run(async (value) => {
+    const response = await fetch(`https://api.github.com/repos/${value.fullName}${path}`, {
+      redirect: 'error',
+      signal: AbortSignal.timeout(15_000),
+      headers: {
+        Authorization: `Bearer ${value.token}`,
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'Gui',
+        'X-GitHub-Api-Version': '2026-03-10',
+      },
+    })
+    if (response.status === 401) access.evict()
+    if (!response.ok) throw new Error('Could not read the pull request from GitHub.')
+    return (await response.json()) as T
   })
-  if (response.status === 401) credentials.delete(id)
-  if (!response.ok) throw new Error('Could not read the pull request from GitHub.')
-  return (await response.json()) as T
 }
 
 /** Updates the remote-tracking ref for `branch` from the connected repository. */
@@ -290,15 +317,18 @@ export async function fetchGitHub(
   branch: string,
 ) {
   const access = await recentCredential(id)
-  if (access.fullName.toLowerCase() !== fullName.toLowerCase())
+  if (access.value.fullName.toLowerCase() !== fullName.toLowerCase())
     throw new Error('The connected GitHub repository changed. Refresh projects and try again.')
-  const url = `https://github.com/${access.fullName}.git`
-  await withGitHubToken(access.token, async (env) => {
-    await assertNotRewritten(root, env, url)
-    await authenticatedGit(
-      ['fetch', '--no-tags', '--', url, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
-      env,
-      root,
-    )
-  })
+  const url = `https://github.com/${access.value.fullName}.git`
+  await access.run(() =>
+    withGitHubToken(access.value.token, async (env) => {
+      await assertNotRewritten(root, env, url)
+      await authenticatedGit(
+        ['fetch', '--no-tags', '--', url, `+refs/heads/${branch}:refs/remotes/${remote}/${branch}`],
+        env,
+        access,
+        root,
+      )
+    }),
+  )
 }
