@@ -11,15 +11,21 @@ import {
   type BoardCamera,
   type BoardFrameLayout,
   type BoardManifest,
+  type BoardSection,
   clampEdge,
   clampZoom,
   cleanName,
+  cleanSections,
   FRAMES_DIR,
   frameId,
   isFrameId,
   MAX_FRAMES,
   parseManifest,
   placeFrame,
+  regroupSections,
+  sectionBounds,
+  sectionId,
+  sectionOf,
   starterHtml,
 } from '../shared/board'
 import type { BoardFrame, BoardState } from '../shared/types'
@@ -65,6 +71,7 @@ const CONTENT_TYPES: Record<string, string> = {
 /** A board change the user made, and how to take it back: the layout and pages before it. */
 interface UndoEntry {
   frames: BoardFrameLayout[]
+  sections: BoardSection[]
   /** Pages of frames the change removed, to write back */
   files: Record<string, string>
 }
@@ -102,6 +109,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     name: 'Untitled canvas',
     createdAt: 0,
     frames: [],
+    sections: [],
     camera: null,
   }
   /** Bumped per frame each time its page or thumbnail changes */
@@ -120,7 +128,8 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   private saveTimer: NodeJS.Timeout | null = null
   private capturing: Promise<void> = Promise.resolve()
   private queued = new Set<string>()
-  private capturer: BrowserWindow | null = null
+  /** The offscreen windows frames are rendered in, by device scale factor */
+  private capturers = new Map<number, BrowserWindow>()
   private disposed = false
 
   constructor(root: string, id: string) {
@@ -154,6 +163,14 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   get frames(): readonly BoardFrameLayout[] {
     return this.manifest.frames
+  }
+
+  get sections(): readonly BoardSection[] {
+    return this.manifest.sections
+  }
+
+  section(id: string) {
+    return this.manifest.sections.find((section) => section.id === id) ?? null
   }
 
   get origin() {
@@ -205,6 +222,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
           captured: this.captured.has(frame.id),
         }),
       ),
+      sections: this.manifest.sections,
       selection: this.selection,
       open: this.openFrame,
       camera: this.manifest.camera,
@@ -237,23 +255,39 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.scheduleSave()
   }
 
-  /** Moves and resizes frames; one undo step for all of them. */
-  arrange(updates: { id: string; x: number; y: number; width?: number; height?: number }[]) {
+  /**
+   * Moves and resizes frames; one undo step for all of them. The user's (`regroup`) drags
+   * frames into and out of sections as they land; the agent's leave sections as they are.
+   */
+  arrange(
+    updates: { id: string; x: number; y: number; width?: number; height?: number }[],
+    regroup = false,
+  ) {
     const byId = new Map(updates.map((update) => [update.id, update]))
     if (![...byId.keys()].some((id) => this.has(id))) return
     this.remember()
+    const frames = this.manifest.frames.map((frame) => {
+      const update = byId.get(frame.id)
+      if (!update) return frame
+      return {
+        ...frame,
+        x: Math.round(update.x),
+        y: Math.round(update.y),
+        width: update.width === undefined ? frame.width : clampEdge(update.width),
+        height: update.height === undefined ? frame.height : clampEdge(update.height),
+      }
+    })
+    const moved = frames
+      .filter((frame, i) => {
+        const before = this.manifest.frames[i]
+        return frame.x !== before.x || frame.y !== before.y
+      })
+      .map((frame) => frame.id)
     this.setFrames(
-      this.manifest.frames.map((frame) => {
-        const update = byId.get(frame.id)
-        if (!update) return frame
-        return {
-          ...frame,
-          x: Math.round(update.x),
-          y: Math.round(update.y),
-          width: update.width === undefined ? frame.width : clampEdge(update.width),
-          height: update.height === undefined ? frame.height : clampEdge(update.height),
-        }
-      }),
+      frames,
+      regroup && moved.length
+        ? regroupSections(this.manifest.sections, frames, moved, this.manifest.frames)
+        : this.manifest.sections,
     )
     for (const update of updates) {
       if (update.width !== undefined || update.height !== undefined) this.queueCapture(update.id)
@@ -288,11 +322,22 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     const id = frameId(name, taken)
     const size = { width: clampEdge(spec.width), height: clampEdge(spec.height) }
     const after = (spec.after ?? []).flatMap((id) => this.frame(id) ?? [])
-    const at = spec.at ?? placeFrame(this.manifest.frames, size, after)
+    // Beside a frame in a section, it joins that section; otherwise it keeps out of them all.
+    const { sections } = this.manifest
+    const home = after.map((frame) => sectionOf(sections, frame.id)).find(Boolean) ?? null
+    const others = sections.flatMap((section) =>
+      section.id === home?.id ? [] : (sectionBounds(section, this.manifest.frames) ?? []),
+    )
+    const at = spec.at ?? placeFrame([...this.manifest.frames, ...others], size, after)
     const frame: BoardFrameLayout = { id, name, x: Math.round(at.x), y: Math.round(at.y), ...size }
     if (user) this.remember()
     // On the board before its file appears, so the watcher finds it already placed.
-    this.setFrames([...this.manifest.frames, frame])
+    this.setFrames(
+      [...this.manifest.frames, frame],
+      sections.map((section) =>
+        section.id === home?.id ? { ...section, frames: [...section.frames, id] } : section,
+      ),
+    )
     await this.save()
     await mkdir(join(this.root, FRAMES_DIR), { recursive: true })
     await writeFile(this.framePath(id), spec.html ?? starterHtml(name))
@@ -348,6 +393,55 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.emit('change')
   }
 
+  /**
+   * A new section around `ids`, taking them out of any they were in; named "Section 2" and
+   * so on unless given a name. The user's can be undone.
+   */
+  addSection(ids: string[], input?: string, user = true): BoardSection | null {
+    const members = [...new Set(ids.filter((id) => this.has(id)))]
+    if (!members.length) return null
+    const { sections } = this.manifest
+    const name = cleanName(input) ?? `Section ${sections.length + 1}`
+    const section = {
+      id: sectionId(name, new Set(sections.map((s) => s.id))),
+      name,
+      frames: members,
+    }
+    if (user) this.remember()
+    this.setFrames(this.manifest.frames, [
+      ...sections.map((s) => ({ ...s, frames: s.frames.filter((id) => !members.includes(id)) })),
+      section,
+    ])
+    return section
+  }
+
+  /** A section's new name and, for the agent, its frames (taken out of any others). */
+  updateSection(id: string, change: { name?: string; frames?: string[] }, user = true) {
+    const section = this.section(id)
+    if (!section) return
+    const name = change.name === undefined ? section.name : (cleanName(change.name) ?? section.name)
+    const members = change.frames?.filter((frame) => this.has(frame))
+    if (name === section.name && !members) return
+    if (user) this.remember()
+    this.setFrames(
+      this.manifest.frames,
+      this.manifest.sections.map((s) => {
+        if (s.id === id) return { ...s, name, frames: members ?? s.frames }
+        return members ? { ...s, frames: s.frames.filter((f) => !members.includes(f)) } : s
+      }),
+    )
+  }
+
+  /** The section goes; its frames stay where they are. The user's can be undone. */
+  removeSection(id: string, user = true) {
+    if (!this.section(id)) return
+    if (user) this.remember()
+    this.setFrames(
+      this.manifest.frames,
+      this.manifest.sections.filter((section) => section.id !== id),
+    )
+  }
+
   /** Takes back the user's last board change; false when there's none to take back. */
   async undo() {
     const entry = this.undoStack.pop()
@@ -358,7 +452,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       await writeFile(this.framePath(id), html)
       this.queueCapture(id)
     }
-    this.setFrames(entry.frames)
+    this.setFrames(entry.frames, entry.sections)
     this.selection = this.selection.filter((id) => kept.has(id))
     if (this.openFrame && !kept.has(this.openFrame)) this.openFrame = null
     await this.save()
@@ -386,12 +480,12 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   // Keeping in step with the files
 
   private remember(files: Record<string, string> = {}) {
-    this.undoStack.push({ frames: this.manifest.frames, files })
+    this.undoStack.push({ frames: this.manifest.frames, sections: this.manifest.sections, files })
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift()
   }
 
-  private setFrames(frames: BoardFrameLayout[]) {
-    this.manifest = { ...this.manifest, frames }
+  private setFrames(frames: BoardFrameLayout[], sections = this.manifest.sections) {
+    this.manifest = { ...this.manifest, frames, sections: cleanSections(sections, frames) }
     this.scheduleSave(0)
     this.emit('change')
   }
@@ -420,7 +514,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       frames.length !== this.manifest.frames.length ||
       frames.some((frame, i) => frame !== this.manifest.frames[i])
     if (!changed) return false
-    this.manifest = { ...this.manifest, frames }
+    this.manifest = {
+      ...this.manifest,
+      frames,
+      sections: cleanSections(this.manifest.sections, frames),
+    }
     // Undoing the user's earlier layout would now take these frames off the board too.
     this.undoStack = []
     this.selection = this.selection.filter((id) => files.has(id))
@@ -606,9 +704,12 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.emit('change')
   }
 
-  /** The frame's page as it looks at the frame's size, rendered offscreen; one at a time. */
-  screenshot(id: string): Promise<NativeImage> {
-    const shot = this.capturing.then(() => this.render(id))
+  /**
+   * The frame's page as it looks at the frame's size, rendered offscreen; one at a time. At
+   * `scale` 2 it's as sharp as on a Retina display, twice the frame's size in pixels.
+   */
+  screenshot(id: string, scale = 1): Promise<NativeImage> {
+    const shot = this.capturing.then(() => this.render(id, scale))
     this.capturing = shot.then(
       () => undefined,
       () => undefined,
@@ -619,10 +720,10 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     })
   }
 
-  private async render(id: string): Promise<NativeImage | null> {
+  private async render(id: string, scale = 1): Promise<NativeImage | null> {
     const frame = this.frame(id)
     if (!frame || !this.port || this.disposed) return null
-    const win = this.capturerWindow()
+    const win = this.capturerWindow(scale)
     const width = frame.width
     const height = Math.min(frame.height, CAPTURE_MAX_HEIGHT)
     win.setContentSize(width, height)
@@ -641,29 +742,31 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     return image.isEmpty() ? null : image
   }
 
-  private capturerWindow() {
-    if (this.capturer && !this.capturer.isDestroyed()) return this.capturer
-    this.capturer = new BrowserWindow({
+  private capturerWindow(scale: number) {
+    const existing = this.capturers.get(scale)
+    if (existing && !existing.isDestroyed()) return existing
+    const capturer = new BrowserWindow({
       show: false,
       width: 1440,
       height: 900,
       useContentSize: true,
       enableLargerThanScreen: true,
       webPreferences: {
-        offscreen: true,
+        offscreen: { deviceScaleFactor: scale },
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
         partition: PREVIEW_PARTITION,
       },
     })
-    const wc = this.capturer.webContents
+    this.capturers.set(scale, capturer)
+    const wc = capturer.webContents
     wc.setAudioMuted(true)
     wc.setWindowOpenHandler(() => ({ action: 'deny' }))
     wc.on('will-navigate', (event, url) => {
       if (!url.startsWith(`${this.origin}/${this.token}/`)) event.preventDefault()
     })
-    return this.capturer
+    return capturer
   }
 
   async dispose() {
@@ -673,8 +776,8 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     for (const timer of this.timers.values()) clearTimeout(timer)
     this.timers.clear()
     this.server?.close()
-    if (this.capturer && !this.capturer.isDestroyed()) this.capturer.destroy()
-    this.capturer = null
+    for (const capturer of this.capturers.values()) if (!capturer.isDestroyed()) capturer.destroy()
+    this.capturers.clear()
     await this.save().catch(() => undefined)
   }
 }

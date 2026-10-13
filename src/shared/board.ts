@@ -39,6 +39,21 @@ export interface BoardFrameLayout {
   height: number
 }
 
+/**
+ * A named area of the board holding some frames, like a section in Figma. It's sized to its
+ * frames (`sectionBounds`), so it moves and grows with them; a section always has a frame.
+ */
+export interface BoardSection {
+  id: string
+  name: string
+  /** Its frames' ids; a frame is in one section at most */
+  frames: string[]
+}
+
+/** The room around a section's frames, in board pixels; more above, for its name. */
+export const SECTION_PAD = 64
+export const SECTION_TOP = 112
+
 export interface BoardCamera {
   /** The board point at the view's top-left corner */
   x: number
@@ -51,6 +66,7 @@ export interface BoardManifest {
   name: string
   createdAt: number
   frames: BoardFrameLayout[]
+  sections: BoardSection[]
   camera: BoardCamera | null
 }
 
@@ -106,12 +122,24 @@ export function parseManifest(text: string | null, fallbackName: string): BoardM
     })
     if (frames.length >= MAX_FRAMES) break
   }
+  const sections: BoardSection[] = []
+  for (const value of Array.isArray(raw.sections) ? raw.sections : []) {
+    if (!value || typeof value !== 'object') continue
+    const section = value as Record<string, unknown>
+    if (!isFrameId(section.id) || !Array.isArray(section.frames)) continue
+    sections.push({
+      id: section.id,
+      name: cleanName(section.name) ?? section.id,
+      frames: section.frames.filter(isFrameId),
+    })
+  }
   const camera = raw.camera as Record<string, unknown> | undefined
   return {
     version: 1,
     name: cleanName(raw.name) ?? fallbackName,
     createdAt: finite(raw.createdAt) ? raw.createdAt : Date.now(),
     frames,
+    sections: cleanSections(sections, frames),
     camera:
       camera && finite(camera.x) && finite(camera.y) && finite(camera.zoom)
         ? { x: camera.x, y: camera.y, zoom: clampZoom(camera.zoom) }
@@ -173,6 +201,141 @@ export function frameId(name: string, taken: ReadonlySet<string>): string {
     const id = `${base}-${n}`
     if (!taken.has(id)) return id
   }
+}
+
+/**
+ * Sections as they can be: only frames on the board, each in one section at most (the first
+ * that has it), no two sections with one id, and none left empty.
+ */
+export function cleanSections(
+  sections: readonly BoardSection[],
+  frames: readonly { id: string }[],
+): BoardSection[] {
+  const onBoard = new Set(frames.map((frame) => frame.id))
+  const placed = new Set<string>()
+  const ids = new Set<string>()
+  const clean: BoardSection[] = []
+  for (const section of sections) {
+    if (ids.has(section.id)) continue
+    const members = section.frames.filter((id) => onBoard.has(id) && !placed.has(id))
+    if (!members.length) continue
+    for (const id of members) placed.add(id)
+    ids.add(section.id)
+    clean.push(members.length === section.frames.length ? section : { ...section, frames: members })
+  }
+  return clean
+}
+
+/** The area a section covers: around its frames, with room above them for its name. */
+export function sectionBounds(
+  section: BoardSection,
+  frames: readonly (Box & { id: string })[],
+): Box | null {
+  const area = boardBounds(frames.filter((frame) => section.frames.includes(frame.id)))
+  if (!area) return null
+  return {
+    x: area.x - SECTION_PAD,
+    y: area.y - SECTION_TOP,
+    width: area.width + SECTION_PAD * 2,
+    height: area.height + SECTION_TOP + SECTION_PAD,
+  }
+}
+
+/** The section a frame is in, if any. */
+export function sectionOf(sections: readonly BoardSection[], id: string) {
+  return sections.find((section) => section.frames.includes(id)) ?? null
+}
+
+/** A section id from its name, unique among `taken` (sections' ids are their own). */
+export const sectionId = (name: string, taken: ReadonlySet<string>) => frameId(name, taken)
+
+const contains = (box: Box, point: { x: number; y: number }) =>
+  point.x >= box.x &&
+  point.x <= box.x + box.width &&
+  point.y >= box.y &&
+  point.y <= box.y + box.height
+
+/**
+ * Sections after the user dropped `moved` frames (already at their new places in `frames`;
+ * `before` is where they were), as in Figma: a frame dropped on another section joins it,
+ * and one dragged out of its own (as it was before the drag) leaves it. A section whose
+ * frames all moved together just moved, and keeps them.
+ */
+export function regroupSections(
+  sections: readonly BoardSection[],
+  frames: readonly (Box & { id: string })[],
+  moved: readonly string[],
+  before: readonly (Box & { id: string })[],
+): BoardSection[] {
+  const dragged = new Set(moved)
+  const whole = new Set(
+    sections
+      .filter((section) => section.frames.every((id) => dragged.has(id)))
+      .map((section) => section.id),
+  )
+  // Where each section is without what's being dragged: what a frame is dropped on or out of.
+  const staying = sections.map((section) => ({
+    section,
+    box: sectionBounds(
+      { ...section, frames: section.frames.filter((id) => !dragged.has(id)) },
+      frames,
+    ),
+  }))
+  const next = sections.map((section) => ({ ...section, frames: [...section.frames] }))
+  for (const id of moved) {
+    const own = sectionOf(sections, id)
+    if (own && whole.has(own.id)) continue
+    const frame = frames.find((f) => f.id === id)
+    if (!frame) continue
+    const center = { x: frame.x + frame.width / 2, y: frame.y + frame.height / 2 }
+    const home = own && sectionBounds(own, before)
+    if (home && contains(home, center)) continue
+    const target = staying.find(
+      ({ section, box }) => box && section.id !== own?.id && contains(box, center),
+    )
+    const into = target?.section.id ?? null
+    // Out of its own section only when it has others left to stay without it.
+    if (!into && own && !staying.find((entry) => entry.section.id === own.id)?.box) continue
+    for (const section of next) section.frames = section.frames.filter((f) => f !== id)
+    if (into) next.find((section) => section.id === into)?.frames.push(id)
+  }
+  return cleanSections(next, frames)
+}
+
+/**
+ * Where each frame goes in an export folder, named for it: `summer-sale.png`. Frames from
+ * more than one section go in a folder per section, and frames in none at the top.
+ */
+export function exportPaths(
+  ids: readonly string[],
+  frames: readonly BoardFrameLayout[],
+  sections: readonly BoardSection[],
+  extension = 'png',
+): { id: string; path: string }[] {
+  const chosen = frames.filter((frame) => ids.includes(frame.id))
+  const groups = new Set(chosen.map((frame) => sectionOf(sections, frame.id)?.id ?? null))
+  const nested = groups.size > 1
+  const folders = new Map<string | null, string>()
+  const takenFolders = new Set<string>()
+  const taken = new Map<string, Set<string>>()
+  return chosen.map((frame) => {
+    const section = nested ? sectionOf(sections, frame.id) : null
+    let folder = ''
+    if (section) {
+      folder = folders.get(section.id) ?? frameId(section.name, takenFolders)
+      folders.set(section.id, folder)
+      takenFolders.add(folder)
+    }
+    const names = taken.get(folder) ?? new Set<string>()
+    taken.set(folder, names)
+    // Loose files share the top with the section folders.
+    const name = frameId(frame.name, folder ? names : new Set([...names, ...takenFolders]))
+    names.add(name)
+    return {
+      id: frame.id,
+      path: folder ? `${folder}/${name}.${extension}` : `${name}.${extension}`,
+    }
+  })
 }
 
 /** The board area around every frame, for "zoom to fit"; null for an empty board. */

@@ -196,6 +196,11 @@ export const Send = {
   boardAddFrame: 'board:add-frame',
   boardDuplicate: 'board:duplicate',
   boardDelete: 'board:delete',
+  boardExport: 'board:export',
+  boardAddSection: 'board:add-section',
+  boardRenameSection: 'board:rename-section',
+  boardDeleteSection: 'board:delete-section',
+  showSectionMenu: 'board:section-menu',
   boardRenameFrame: 'board:rename-frame',
   renameBoard: 'board:rename',
   boardCamera: 'board:camera',
@@ -239,6 +244,7 @@ export const Events = {
 /** What a menu in main asks the board to do: rename a frame or the canvas in place, zoom to fit. */
 export type BoardCommand =
   | { type: 'renameFrame'; id: string }
+  | { type: 'renameSection'; id: string }
   | { type: 'renameBoard' }
   | { type: 'fit' }
   /** View → Zoom In (1), Zoom Out (-1) or Actual Size (0), which on the board fits it */
@@ -367,6 +373,15 @@ export interface GuiApi {
   boardAddFrame(preset: FramePreset, at: { x: number; y: number } | null): void
   boardDuplicate(ids: string[]): void
   boardDelete(ids: string[]): void
+  /** Frames saved as PNGs at twice their size, where the user picks */
+  boardExport(ids: string[]): void
+  /** A new section around these frames, named in place next */
+  boardAddSection(ids: string[]): void
+  boardRenameSection(id: string, name: string): void
+  /** The section goes; its frames stay */
+  boardDeleteSection(id: string): void
+  /** A section's context menu on the board */
+  showSectionMenu(id: string): void
   boardRenameFrame(id: string, name: string): void
   renameBoard(name: string): void
   /** Where the board is looking, saved for next time */

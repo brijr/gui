@@ -966,6 +966,13 @@ function registerIpc() {
   })
   onBoard(Send.boardDuplicate, (tab, ids) => isIds(ids) && void tab.boardDuplicate(ids))
   onBoard(Send.boardDelete, (tab, ids) => isIds(ids) && void tab.boardDelete(ids))
+  onBoard(Send.boardExport, (tab, ids) => isIds(ids) && void tab.exportFrames(ids))
+  onBoard(Send.boardAddSection, (tab, ids) => isIds(ids) && tab.boardAddSection(ids))
+  onBoard(Send.boardRenameSection, (tab, id, name) => {
+    if (isString(id) && isString(name)) tab.boardSession?.updateSection(id, { name })
+  })
+  onBoard(Send.boardDeleteSection, (tab, id) => isString(id) && tab.boardSession?.removeSection(id))
+  onBoard(Send.showSectionMenu, (tab, id) => isString(id) && tab.showSectionMenu(id))
   onBoard(Send.boardRenameFrame, (tab, id, name) => {
     if (isString(id) && isString(name)) void tab.boardRenameFrame(id, name)
   })

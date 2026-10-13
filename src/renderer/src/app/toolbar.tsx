@@ -11,21 +11,25 @@ import {
   Check,
   ChevronDown,
   Folder,
+  Group,
+  Hand,
   type IconComponent,
   Laptop,
   MessageSquare,
   Minus,
   Monitor,
+  MousePointer,
   MousePointer2,
   Plus,
   RotateCw,
   Shapes,
+  Share,
   Smartphone,
   Tablet,
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
-import { useBoardView } from './board'
+import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 
@@ -46,6 +50,10 @@ const VIEWPORT_SEGMENTS = VIEWPORTS.map(({ id, name, size }) => {
     shortcut: VIEWPORT_SHORTCUTS[id],
   }
 })
+const BOARD_TOOLS = [
+  { value: 'move', label: 'Move', title: 'Move (V)', icon: MousePointer },
+  { value: 'hand', label: 'Hand', title: 'Hand (H, or hold Space)', icon: Hand },
+] satisfies { value: BoardTool; label: string; title: string; icon: IconComponent }[]
 const SCREENSHOT_DONE = { copied: 'Copied', saved: 'Saved', attached: 'Attached' } as const
 /** Between a button and the menu it opens under it. */
 const MENU_GAP = 4
@@ -171,6 +179,7 @@ function BoardToolbar({
   const open = board.frames.find((frame) => frame.id === board.open)
   const frameButton = useRef<HTMLButtonElement>(null)
   const boardView = useBoardView()
+  const boardTool = useBoardTool()
   const [renaming, setRenaming] = useState(false)
   useEffect(
     () =>
@@ -285,7 +294,46 @@ function BoardToolbar({
           >
             Frame
           </Button>
+          <IconButton
+            label="Add section"
+            title="Add a section around the selected frames (⌥⌘G)"
+            icon={Group}
+            disabled={!board.selection.length}
+            onClick={() => gui.boardAddSection(board.selection)}
+          />
+          <SegmentedControl
+            label="Tool"
+            segments={BOARD_TOOLS}
+            value={boardTool}
+            onChange={setBoardTool}
+            iconOnly
+          />
           <div className="flex-1" />
+          <div className="flex items-center gap-1">
+            <IconButton
+              label={
+                board.selection.length > 1
+                  ? `Export ${board.selection.length} frames as PNG`
+                  : 'Export as PNG'
+              }
+              icon={Share}
+              disabled={!board.selection.length}
+              onClick={() => gui.boardExport(board.selection)}
+            />
+            <IconButton
+              label="Select element"
+              shortcut="selectElement"
+              keys
+              icon={MousePointer2}
+              emphasis="strong"
+              // The frame ⌘D opens to pick in: the one selected, or the only one (tab.ts).
+              disabled={
+                board.selection.length !== 1 &&
+                !(!board.selection.length && board.frames.length === 1)
+              }
+              onClick={() => gui.toggleSelect()}
+            />
+          </div>
           {boardView.camera && (
             <div className="flex items-center gap-0.5">
               <IconButton label="Zoom out" icon={Minus} onClick={() => boardView.zoomBy(0.8)} />

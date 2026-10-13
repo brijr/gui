@@ -1,8 +1,8 @@
 import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
-import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -20,7 +20,13 @@ import {
   WebContentsView,
   type WebFrameMain,
 } from 'electron'
-import { type BoardCamera, FRAME_PRESETS, type FramePreset } from '../shared/board'
+import {
+  type BoardCamera,
+  exportPaths,
+  FRAME_PRESETS,
+  type FramePreset,
+  frameId,
+} from '../shared/board'
 import { type ChatMenuChoice, Events } from '../shared/ipc'
 import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
@@ -199,6 +205,8 @@ const APP_CHECK_DELAY_MS = 500
 /** What the dev server tools tell the agent in a canvas, which has none. */
 const BOARD_SERVER_STATUS =
   'This is a canvas: Gui serves its frames itself and there is no dev server to start, restart or configure. Use the canvas tools.'
+/** Frames export at this device scale factor: as sharp as on a Retina display. */
+const FRAME_EXPORT_SCALE = 2
 /** canvas_screenshot's images, within what agents accept many of (preview-tools.ts) */
 const BOARD_SHOT_MAX = { width: 1600, height: 1960 }
 /** Package scripts an install runs from the project's own package.json. */
@@ -798,7 +806,7 @@ export class ProjectTab {
   }
 
   boardArrange(updates: { id: string; x: number; y: number; width?: number; height?: number }[]) {
-    this.resources.board?.arrange(updates)
+    this.resources.board?.arrange(updates, true)
   }
 
   /** A frame the user adds, of a preset size, where they asked or beside what's selected. */
@@ -889,6 +897,7 @@ export class ProjectTab {
     return {
       name: board.name,
       frames: [...board.frames],
+      sections: [...board.sections],
       selection: [...board.selected],
       open: board.openId,
     }
@@ -964,6 +973,29 @@ export class ProjectTab {
         return id
           ? `Frame ${id} is open in the preview; the preview tools work on it.`
           : 'Back on the board.'
+      },
+      createSection: async (name, ids) => {
+        const found = ids.filter((id) => board.has(id))
+        if (!found.length) throw new Error('None of those frames are on the canvas.')
+        touched()
+        const section = board.addSection(found, name, false)
+        if (!section) throw new Error("Couldn't make the section.")
+        return `Created section ${section.id} "${section.name}" with ${section.frames.join(', ')}.`
+      },
+      updateSection: async (id, change) => {
+        if (!board.section(id)) throw new Error(`There's no section ${id}.`)
+        touched()
+        board.updateSection(id, change, false)
+        const section = board.section(id)
+        return section
+          ? `Section ${id} "${section.name}": ${section.frames.join(', ')}.`
+          : `Section ${id} has no frames left, so it's gone.`
+      },
+      removeSection: async (id) => {
+        if (!board.section(id)) throw new Error(`There's no section ${id}.`)
+        touched()
+        board.removeSection(id, false)
+        return `Deleted section ${id}; its frames stay on the canvas.`
       },
     }
   }
@@ -1592,7 +1624,25 @@ export class ProjectTab {
   // Selection
 
   async toggleSelect() {
+    const id = this.frameToPick()
+    if (id) {
+      await this.openFrame(id)
+      await this.setSelecting(true)
+      return
+    }
     await this.setSelecting(!this.state.preview.selecting)
+  }
+
+  /**
+   * On the board, ⌘D picks in a frame as it does in a project's preview: the one selected,
+   * or the only one there is, opens live to pick in. Null when no frame is that one.
+   */
+  private frameToPick() {
+    const board = this.resources.board
+    if (!board || board.openId) return null
+    if (board.selected.length === 1) return board.selected[0]
+    if (!board.selected.length && board.frames.length === 1) return board.frames[0].id
+    return null
   }
 
   async setSelecting(on: boolean) {
@@ -3606,6 +3656,7 @@ export class ProjectTab {
     if (!board.selected.includes(id)) board.select([id])
     const ids = board.selected.includes(id) ? [...board.selected] : [id]
     const many = ids.length > 1
+    const insection = ids.filter((f) => board.sections.some((s) => s.frames.includes(f)))
     const one = (label: string, click: () => unknown): MenuItemConstructorOptions => ({
       label,
       enabled: !many,
@@ -3616,7 +3667,7 @@ export class ProjectTab {
       one('Rename', () => this.send(Events.board, { type: 'renameFrame', id })),
       {
         label: many ? `Duplicate ${ids.length} Frames` : 'Duplicate',
-        accelerator: 'CmdOrCtrl+D',
+        accelerator: 'Alt+CmdOrCtrl+D',
         registerAccelerator: false,
         click: () => void board.duplicate(ids),
       },
@@ -3627,11 +3678,38 @@ export class ProjectTab {
         click: () => void board.remove(ids),
       },
       { type: 'separator' },
+      {
+        label: 'Add Section',
+        accelerator: 'Alt+CmdOrCtrl+G',
+        registerAccelerator: false,
+        click: () => this.boardAddSection(ids),
+      },
+      ...(insection.length
+        ? [
+            {
+              label: 'Remove from Section',
+              click: () => {
+                for (const section of board.sections)
+                  if (section.frames.some((f) => ids.includes(f)))
+                    board.updateSection(section.id, {
+                      frames: section.frames.filter((f) => !ids.includes(f)),
+                    })
+              },
+            },
+          ]
+        : []),
+      { type: 'separator' },
       one('Copy HTML', async () =>
         clipboard.writeText(await readFile(board.framePath(id), 'utf8')),
       ),
+      one('Copy as PNG', () => this.copyFrameImage(id)),
+      {
+        label: many ? `Export ${ids.length} Frames as PNG…` : 'Export as PNG…',
+        accelerator: 'Shift+CmdOrCtrl+E',
+        registerAccelerator: false,
+        click: () => void this.exportFrames(ids),
+      },
       one('Save as HTML…', () => this.exportFrame(id, 'html')),
-      one('Save Screenshot…', () => this.exportFrame(id, 'png')),
       { type: 'separator' },
       one('Turn into Project…', () => promote(id)),
       one('Reveal in Finder', () => shell.showItemInFolder(board.framePath(id))),
@@ -3639,13 +3717,42 @@ export class ProjectTab {
     Menu.buildFromTemplate(template).popup({ window: this.host.win })
   }
 
-  /** Saves a frame's page, or a screenshot of it, where the user picks. */
+  /** A new section around frames, then naming it in place on the board. */
+  boardAddSection(ids: string[]) {
+    const section = this.resources.board?.addSection(ids)
+    if (section) this.send(Events.board, { type: 'renameSection', id: section.id })
+  }
+
+  /** A section's context menu on the board: its name, its frames, exporting, deleting. */
+  showSectionMenu(id: string) {
+    const board = this.resources.board
+    const section = board?.section(id)
+    if (!board || !section) return
+    const count = section.frames.length
+    const template: MenuItemConstructorOptions[] = [
+      { label: 'Rename', click: () => this.send(Events.board, { type: 'renameSection', id }) },
+      { label: 'Select Frames', click: () => board.select(section.frames) },
+      {
+        label: count > 1 ? `Export ${count} Frames as PNG…` : 'Export as PNG…',
+        click: () => void this.exportFrames(section.frames),
+      },
+      { type: 'separator' },
+      { label: 'Delete Section', click: () => board.removeSection(id) },
+      {
+        label: `Delete Section and ${count > 1 ? `${count} Frames` : 'Frame'}`,
+        click: () => void board.remove(section.frames),
+      },
+    ]
+    Menu.buildFromTemplate(template).popup({ window: this.host.win })
+  }
+
+  /** Saves a frame's page where the user picks. */
   private async exportFrame(id: string, kind: 'html' | 'png') {
     const board = this.resources.board
     const frame = board?.frame(id)
     if (!board || !frame) return
     const { canceled, filePath } = await dialog.showSaveDialog(this.host.win, {
-      defaultPath: `${frame.id}.${kind}`,
+      defaultPath: `${frameId(frame.name, new Set())}.${kind}`,
       filters: [
         kind === 'html'
           ? { name: 'HTML', extensions: ['html'] }
@@ -3655,12 +3762,57 @@ export class ProjectTab {
     if (canceled || !filePath) return
     try {
       if (kind === 'html') await writeFile(filePath, await readFile(board.framePath(id)))
-      else await writeFile(filePath, (await board.screenshot(id)).toPNG())
+      else await writeFile(filePath, (await board.screenshot(id, FRAME_EXPORT_SCALE)).toPNG())
     } catch (error) {
-      dialog.showErrorBox(
-        "Couldn't save the frame",
-        error instanceof Error ? error.message : String(error),
-      )
+      frameError(error)
+    }
+  }
+
+  /**
+   * Frames as PNGs at twice their size, sharp on a Retina display: one where the user picks,
+   * or several into the folder they pick, each named for its frame.
+   */
+  async exportFrames(ids: string[]) {
+    const board = this.resources.board
+    const found = ids.filter((id) => board?.has(id))
+    if (!board || !found.length) return
+    if (found.length === 1) return this.exportFrame(found[0], 'png')
+    const { canceled, filePaths } = await dialog.showOpenDialog(this.host.win, {
+      title: `Export ${found.length} Frames`,
+      buttonLabel: 'Export',
+      properties: ['openDirectory', 'createDirectory'],
+    })
+    const dir = filePaths[0]
+    if (canceled || !dir) return
+    const files = exportPaths(found, board.frames, board.sections)
+    // Each frame renders in turn, a second or so apiece: the Dock icon shows how far it is.
+    const win = this.host.win
+    try {
+      for (const [i, { id, path }] of files.entries()) {
+        if (!win.isDestroyed()) win.setProgressBar(i / files.length)
+        const file = join(dir, ...path.split('/'))
+        await mkdir(dirname(file), { recursive: true })
+        await writeFile(file, (await board.screenshot(id, FRAME_EXPORT_SCALE)).toPNG())
+      }
+      shell.showItemInFolder(join(dir, files[0].path.split('/')[0]))
+    } catch (error) {
+      frameError(error)
+    } finally {
+      if (!win.isDestroyed()) win.setProgressBar(-1)
+    }
+  }
+
+  /** A frame's PNG on the clipboard, at twice its size. */
+  private async copyFrameImage(id: string) {
+    const board = this.resources.board
+    if (!board?.has(id)) return
+    try {
+      const png = new Uint8Array((await board.screenshot(id, FRAME_EXPORT_SCALE)).toPNG())
+      await clipboard.write([
+        new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) }),
+      ])
+    } catch (error) {
+      frameError(error)
     }
   }
 
@@ -3687,6 +3839,12 @@ export class ProjectTab {
     const template: MenuItemConstructorOptions[] = [
       { label: 'Rename Canvas', click: () => this.send(Events.board, { type: 'renameBoard' }) },
       { label: 'New Canvas', click: newBoard },
+      { type: 'separator' },
+      {
+        label: 'Export All Frames as PNG…',
+        enabled: board.frames.length > 0,
+        click: () => void this.exportFrames(board.frames.map((frame) => frame.id)),
+      },
       { type: 'separator' },
       {
         label: 'Reveal in Finder',
@@ -3923,4 +4081,11 @@ function fitImage(image: NativeImage, edge: number) {
 /** What the window says about Apple's developer tools: nothing until they're found missing. */
 function shownTools(status: DeveloperToolsStatus): WindowState['developerTools'] {
   return status === 'missing' || status === 'installing' ? status : null
+}
+
+function frameError(error: unknown) {
+  dialog.showErrorBox(
+    "Couldn't export the frame",
+    error instanceof Error ? error.message : String(error),
+  )
 }

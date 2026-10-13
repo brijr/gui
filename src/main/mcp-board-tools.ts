@@ -17,6 +17,9 @@ export const BOARD_TOOL_NAMES = [
   'canvas_delete_frames',
   'canvas_screenshot',
   'canvas_open_frame',
+  'canvas_create_section',
+  'canvas_update_section',
+  'canvas_delete_section',
 ] as const
 
 export interface BoardTools {
@@ -39,10 +42,20 @@ export interface BoardTools {
   screenshot: (id: string) => Promise<{ data: string; width: number; height: number }>
   /** Shows the frame in the preview (null: back to the board) */
   open: (id: string | null) => Promise<string>
+  createSection: (name: string, frames: string[]) => Promise<string>
+  /** `frames` replaces the section's frames, taking them out of any other */
+  updateSection: (id: string, change: { name?: string; frames?: string[] }) => Promise<string>
+  /** The section goes; its frames stay */
+  removeSection: (id: string) => Promise<string>
 }
 
 const frameIdSchema = z.string().min(1).max(64).describe('Frame id, as canvas_list_frames gives it')
 const edge = z.number().int().min(FRAME_MIN).max(FRAME_MAX)
+const sectionIdSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .describe('Section id, as canvas_list_frames gives it')
 
 export function registerBoardTools(server: McpServer, board: BoardTools) {
   const run =
@@ -60,7 +73,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
     {
       title: 'List canvas frames',
       description:
-        "The canvas's frames: each one's id, name, page file (relative to the canvas folder), position and size on the board in pixels, and which the user has selected or open. Read it before placing or editing frames.",
+        "The canvas's frames: each one's id, name, page file (relative to the canvas folder), position and size on the board in pixels, and which the user has selected or open; then its sections and their frames. Read it before placing or editing frames.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -178,5 +191,46 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
       inputSchema: { id: frameIdSchema.nullable() },
     },
     run(({ id }) => board.open(id)),
+  )
+
+  server.registerTool(
+    'canvas_create_section',
+    {
+      title: 'Create a canvas section',
+      description:
+        'Groups frames in a named section, an area of the board drawn around them that sizes itself to fit (like a section in Figma). Use one for each set of related frames: the sizes of one ad, the screens of a flow, the options for one idea. A frame is in one section at most, so these leave any other. Arrange the frames first; the section follows them.',
+      inputSchema: {
+        name: z.string().min(1).max(80).describe('Short name shown on the section'),
+        frames: z.array(frameIdSchema).min(1).max(60),
+      },
+    },
+    run(({ name, frames }) => board.createSection(name, frames)),
+  )
+
+  server.registerTool(
+    'canvas_update_section',
+    {
+      title: 'Rename a canvas section or change its frames',
+      description:
+        'Renames a section and/or sets which frames are in it (`frames` replaces the list; frames joining leave any other section). A section left with no frames is deleted. A new frame made beside one in a section joins it by itself.',
+      inputSchema: {
+        id: sectionIdSchema,
+        name: z.string().min(1).max(80).optional(),
+        frames: z.array(frameIdSchema).max(60).optional(),
+      },
+    },
+    run(({ id, name, frames }) => board.updateSection(id, { name, frames })),
+  )
+
+  server.registerTool(
+    'canvas_delete_section',
+    {
+      title: 'Delete a canvas section',
+      description:
+        'Removes a section from the board. Its frames stay where they are; delete them with canvas_delete_frames if that is what the user asked for.',
+      inputSchema: { id: sectionIdSchema },
+      annotations: { destructiveHint: true },
+    },
+    run(({ id }) => board.removeSection(id)),
   )
 }

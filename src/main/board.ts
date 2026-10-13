@@ -59,6 +59,7 @@ export async function createBoard(): Promise<string> {
     name: 'Untitled canvas',
     createdAt: Date.now(),
     frames: [],
+    sections: [],
     camera: null,
   })
   // Gui made it and only Gui and the agent write in it, like a new project.

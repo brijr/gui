@@ -97,6 +97,8 @@ export const Globe = icon(SYMBOLS.Globe, Lucide.Globe)
 // Lucide's dotted grip: the system's line.3.horizontal reads as a menu, not a drag handle.
 export const GripVertical: IconComponent = Lucide.GripVertical
 export const History = icon(SYMBOLS.History, Lucide.History)
+export const Group = icon(SYMBOLS.Group, Lucide.Group)
+export const Hand = icon(SYMBOLS.Hand, Lucide.Hand)
 export const HardDrive = icon(SYMBOLS.HardDrive, Lucide.HardDrive)
 export const ImageIcon = icon(SYMBOLS.ImageIcon, Lucide.ImageIcon)
 export const ImagePlus = icon(SYMBOLS.ImagePlus, Lucide.ImagePlus)
@@ -111,6 +113,8 @@ export const Monitor = icon(SYMBOLS.Monitor, Lucide.Monitor)
 // Lucide's outline pointer everywhere: the system's cursorarrow is a solid arrow, heavier than
 // the outline icons beside it in the toolbar.
 export const MousePointer2: IconComponent = Lucide.MousePointer2
+// The board's Move tool, as design tools draw it: an arrow with its tail.
+export const MousePointer: IconComponent = Lucide.MousePointer
 export const Package = icon(SYMBOLS.Package, Lucide.Package)
 export const Paperclip = icon(SYMBOLS.Paperclip, Lucide.Paperclip)
 export const Pencil = icon(SYMBOLS.Pencil, Lucide.Pencil)
@@ -123,6 +127,7 @@ export const Reply = icon(SYMBOLS.Reply, Lucide.Reply)
 export const RotateCw = icon(SYMBOLS.RotateCw, Lucide.RotateCw)
 export const Search = icon(SYMBOLS.Search, Lucide.Search)
 export const Shapes = icon(SYMBOLS.Shapes, Lucide.Shapes)
+export const Share = icon(SYMBOLS.Share, Lucide.Share)
 export const Shield = icon(SYMBOLS.Shield, Lucide.Shield)
 export const ShieldOff = icon(SYMBOLS.ShieldOff, Lucide.ShieldOff)
 export const Smartphone = icon(SYMBOLS.Smartphone, Lucide.Smartphone)

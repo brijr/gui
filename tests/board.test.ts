@@ -1,6 +1,8 @@
 import { expect, test } from 'bun:test'
 import {
   boardBounds,
+  cleanSections,
+  exportPaths,
   FRAME_GAP,
   FRAME_MAX,
   FRAME_MIN,
@@ -9,6 +11,10 @@ import {
   MAX_FRAMES,
   parseManifest,
   placeFrame,
+  regroupSections,
+  SECTION_PAD,
+  SECTION_TOP,
+  sectionBounds,
   ZOOM_MAX,
 } from '../src/shared/board'
 
@@ -31,6 +37,7 @@ test('a manifest round-trips as Gui writes it', () => {
     name: 'Pricing ideas',
     createdAt: 5,
     frames: [{ id: 'tiers', name: 'Three tiers', x: 10, y: 20, width: 1440, height: 900 }],
+    sections: [],
     camera: { x: -64, y: -64, zoom: 0.5 },
   })
   expect(parseManifest(JSON.stringify(manifest), 'Other')).toEqual(manifest)
@@ -119,4 +126,101 @@ test('zoom to fit shows every frame, never past 100%', () => {
   // The area's center is the view's center.
   expect(((area?.width ?? 0) / 2 - camera.x) * camera.zoom).toBeCloseTo(500)
   expect(fitCamera({ x: 0, y: 0, width: 100, height: 100 }, view).zoom).toBe(1)
+})
+
+const frame = (id: string, x: number, y = 0, name = id) => ({
+  id,
+  name,
+  x,
+  y,
+  width: 400,
+  height: 300,
+})
+
+test('sections keep only frames on the board, each in one section, and none empty', () => {
+  const frames = [frame('a', 0), frame('b', 500)]
+  expect(
+    cleanSections(
+      [
+        { id: 'one', name: 'One', frames: ['a', 'gone'] },
+        { id: 'two', name: 'Two', frames: ['a', 'b'] },
+        { id: 'one', name: 'Again', frames: ['b'] },
+        { id: 'empty', name: 'Empty', frames: ['gone'] },
+      ],
+      frames,
+    ),
+  ).toEqual([
+    { id: 'one', name: 'One', frames: ['a'] },
+    { id: 'two', name: 'Two', frames: ['b'] },
+  ])
+  const manifest = parseManifest(
+    JSON.stringify({
+      frames,
+      sections: [{ id: 'ads', name: 'Ads', frames: ['a', 'missing'] }, { id: 'bad id!' }],
+    }),
+    'Canvas',
+  )
+  expect(manifest.sections).toEqual([{ id: 'ads', name: 'Ads', frames: ['a'] }])
+})
+
+test('a section is sized to its frames, with room for its name', () => {
+  const frames = [frame('a', 0), frame('b', 500, 100)]
+  expect(sectionBounds({ id: 's', name: 'S', frames: ['a', 'b'] }, frames)).toEqual({
+    x: -SECTION_PAD,
+    y: -SECTION_TOP,
+    width: 900 + SECTION_PAD * 2,
+    height: 400 + SECTION_TOP + SECTION_PAD,
+  })
+  expect(sectionBounds({ id: 's', name: 'S', frames: ['missing'] }, frames)).toBeNull()
+})
+
+test('a frame dropped on a section joins it, and one dragged out of its own leaves it', () => {
+  const sections = [
+    { id: 'left', name: 'Left', frames: ['a', 'b'] },
+    { id: 'right', name: 'Right', frames: ['c'] },
+  ]
+  const start = [frame('a', 0), frame('b', 500), frame('c', 3000)]
+  const at = (moves: Record<string, number>) =>
+    start.map((f) => (moves[f.id] === undefined ? f : { ...f, x: moves[f.id] }))
+  const drop = (moves: Record<string, number>, ids: string[]) =>
+    regroupSections(sections, at(moves), ids, start)
+  // b onto c's section
+  expect(drop({ b: 3100 }, ['b'])).toEqual([
+    { id: 'left', name: 'Left', frames: ['a'] },
+    { id: 'right', name: 'Right', frames: ['c', 'b'] },
+  ])
+  // b out into empty board
+  expect(drop({ b: 1600 }, ['b'])).toEqual([
+    { id: 'left', name: 'Left', frames: ['a'] },
+    { id: 'right', name: 'Right', frames: ['c'] },
+  ])
+  // b nudged within its own section
+  expect(drop({ b: 300 }, ['b'])).toEqual(sections)
+  // A section's only frame can't leave it: it carries the section along.
+  expect(drop({ c: 6000 }, ['c'])).toEqual(sections)
+  // The whole section dragged, even over another, keeps its frames.
+  expect(drop({ a: 2900, b: 3400 }, ['a', 'b'])).toEqual(sections)
+})
+
+test('an export names files for their frames, in a folder per section when there are several', () => {
+  const frames = [
+    frame('a', 0, 0, 'Summer sale'),
+    frame('b', 500, 0, 'Summer sale'),
+    frame('c', 1000, 0, 'Story'),
+    frame('d', 1500, 0, 'Loose'),
+  ]
+  const sections = [
+    { id: 'feed', name: 'Feed ads', frames: ['a', 'b'] },
+    { id: 'stories', name: 'Stories', frames: ['c'] },
+  ]
+  expect(exportPaths(['a', 'b'], frames, sections)).toEqual([
+    { id: 'a', path: 'summer-sale.png' },
+    { id: 'b', path: 'summer-sale-2.png' },
+  ])
+  expect(exportPaths(['a', 'b', 'c', 'd'], frames, sections)).toEqual([
+    { id: 'a', path: 'feed-ads/summer-sale.png' },
+    { id: 'b', path: 'feed-ads/summer-sale-2.png' },
+    { id: 'c', path: 'stories/story.png' },
+    { id: 'd', path: 'loose.png' },
+  ])
 })

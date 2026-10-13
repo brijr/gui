@@ -114,9 +114,9 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
     'the move undone',
   )
 
-  // ⌘D on the board duplicates the selection.
+  // ⌥⌘D on the board duplicates the selection.
   await chrome.locator('[data-frame="desktop"]').last().click()
-  await chrome.keyboard.press('Meta+d')
+  await chrome.keyboard.press('Alt+Meta+d')
   await waitFor(
     async () => (await board(session)).frames.some((frame) => frame.id === 'desktop-copy'),
     'the copy',

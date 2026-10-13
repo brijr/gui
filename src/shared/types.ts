@@ -1,4 +1,4 @@
-import type { BoardCamera, BoardFrameLayout } from './board'
+import type { BoardCamera, BoardFrameLayout, BoardSection } from './board'
 
 /** A built-in agent's id, or `custom:<name>` for one the user added in agents.json */
 export type AgentId = string
@@ -432,6 +432,8 @@ export interface BoardState {
   id: string
   name: string
   frames: BoardFrame[]
+  /** Named areas holding frames, drawn behind them */
+  sections: BoardSection[]
   /** Frame ids, in the order they were selected */
   selection: string[]
   /** The frame shown in the preview, live; null on the board */
