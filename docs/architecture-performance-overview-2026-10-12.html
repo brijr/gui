@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Audit priorities</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { margin: 0; color: var(--foreground); font-family: var(--font-sans), system-ui, sans-serif; }
+  #gui-audit-overview { width: 100%; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  caption { text-align: left; font-weight: 500; padding: 0 96px 16px 0; }
+  th { text-align: left; font-weight: 500; color: var(--muted-foreground); }
+  th, td { padding: 13px 0; vertical-align: top; border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { width: 76px; padding-right: 14px; }
+  tr:last-child td { border-bottom: 0; }
+  .priority { font-weight: 500; }
+  .high { color: var(--destructive); }
+  .order, .source, .method { color: var(--muted-foreground); }
+  .order { display: block; margin-top: 5px; }
+  details { margin: 0; }
+  summary { font-weight: 500; }
+  summary:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+  .metric { margin-top: 7px; font-variant-numeric: tabular-nums; }
+  .next { margin-top: 7px; }
+  .source { margin-top: 10px; overflow-wrap: anywhere; }
+  .expanded { margin: 10px 0 12px; }
+  code { font-family: var(--font-mono), ui-monospace, monospace; }
+  .method { margin-top: 12px; }
+  @media (pointer: coarse) { summary { min-height: 44px; display: list-item; align-content: center; } }
+</style>
+</head>
+<body>
+<main id="gui-audit-overview">
+  <table aria-label="Architecture and performance audit priorities">
+    <caption>Audit priorities</caption>
+    <thead><tr><th scope="col">Priority</th><th scope="col">Finding, evidence, and next step</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="priority high">High</span><span class="order">1</span></td>
+        <td>
+          <details>
+            <summary>Canvas edits can overwrite each other</summary>
+            <div class="expanded">Controlled interleavings reproduced an older save overwriting a newer save, an unchanged retry being skipped after failure, and two concurrent creates receiving the same frame ID.</div>
+            <div class="source"><code>board-session.ts:314, 621</code> · <code>index.ts:963</code></div>
+          </details>
+          <div class="metric">3 consistency failures reproduced</div>
+          <div class="next">Serialize mutations and saves; record success after the write completes.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><span class="priority">Medium</span><span class="order">2</span></td>
+        <td>
+          <details>
+            <summary>Long transcripts mount every turn</summary>
+            <div class="expanded">50 turns mounted 2,501 descendants with a 72 ms renderer task. At 300 turns, the longest task reached 347 ms; a second run measured 344 ms.</div>
+            <div class="source"><code>chat-panel.tsx:757</code></div>
+          </details>
+          <div class="metric">300 turns · 15,005 nodes · 347 ms task</div>
+          <div class="next">Virtualize turns while preserving scroll anchors and permissions.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><span class="priority">Medium</span><span class="order">3</span></td>
+        <td>
+          <details>
+            <summary>Growing Markdown repeatedly blocks rendering</summary>
+            <div class="expanded">30 append updates at a nominal 40 ms cadence produced 20 renderer tasks of 51–169 ms for structured Markdown. The smaller 37 KB case had no tasks over 50 ms.</div>
+            <div class="source"><code>markdown.tsx:20</code> · <code>chat.ts:2107</code></div>
+          </details>
+          <div class="metric">225 KB response · 20 long tasks · 169 ms maximum</div>
+          <div class="next">Reuse completed blocks and bound work on the unfinished tail.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><span class="priority">Medium</span><span class="order">4</span></td>
+        <td>
+          <details>
+            <summary>Thumbnail renderers keep working while idle</summary>
+            <div class="expanded">After all thumbnails finished, the offscreen page generated 36 paints and 36 animation ticks in 600 ms. Interactive screenshots also wait behind the background capture queue.</div>
+            <div class="source"><code>board-session.ts:677, 710, 723</code></div>
+          </details>
+          <div class="metric">~60 idle paints/s · 8 thumbnails in 3.88 s</div>
+          <div class="next">Unload idle pages and prioritize interactive captures.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><span class="priority">Medium</span><span class="order">5</span></td>
+        <td>
+          <details>
+            <summary>Summary and archive paths still process whole histories</summary>
+            <div class="expanded">An approximately 80 MB source-level archive probe produced a 25.97 ms sampled timer gap. The existing worker-backed close benchmark measured 3.13 ms with the same data shape.</div>
+            <div class="source"><code>history.ts:115, 129, 472, 525</code></div>
+          </details>
+          <div class="metric">Whole-file reads for one recent-message summary</div>
+          <div class="next">Persist small summaries and use bounded archive/load work.</div>
+        </td>
+      </tr>
+      <tr>
+        <td><span class="priority">Medium</span><span class="order">6</span></td>
+        <td>
+          <details>
+            <summary>GitHub operations repeat serial repository discovery</summary>
+            <div class="expanded">Credential and pull-request authorization enumerate all installations and their repository pages. With 25 single-page installations, listing alone requires 26 serial requests. This is a code-derived count; production latency was not measured.</div>
+            <div class="source"><code>accounts/src/worker.ts:261, 989, 1020</code></div>
+          </details>
+          <div class="metric">Account-wide scan before a single-repository operation</div>
+          <div class="next">Bound concurrency and coalesce listings; retain fresh access checks.</div>
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  <div class="method">Synthetic local probes: production Electron for renderer/capture results; Bun for history and controlled save interleavings.</div>
+</main>
+<script>
+  const audit = document.getElementById('gui-audit-overview');
+  console.log(JSON.stringify({
+    auditRows: audit.querySelectorAll('tbody tr').length,
+    evidenceDetails: audit.querySelectorAll('details').length,
+    viewport: innerWidth,
+    horizontalOverflow: document.documentElement.scrollWidth > innerWidth
+  }));
+</script>
+</body>
+</html>
