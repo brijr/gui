@@ -120,7 +120,7 @@ test('source control saves selected files locally, then shares the saved commit'
         branch: 'should-not-exist',
         mode: 'commit',
         files,
-      }),
+      } satisfies ShipRequest),
     ).rejects.toThrow()
     expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe(branch)
     expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
