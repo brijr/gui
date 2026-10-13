@@ -11,23 +11,19 @@ export function createBoardTools(
 ): BoardTools {
   const where = (frame: { id: string; width: number; height: number; x: number; y: number }) =>
     `frames/${frame.id}.html, ${frame.width}×${frame.height} at (${frame.x}, ${frame.y})`
-  const touched = () => board.forgetUndo()
   return {
     list: () =>
       describeBoard(host.prompt() ?? { name: board.name, frames: [], selection: [], open: null }),
     create: async ({ name, width, height, html, after }) => {
-      await touched()
       const frame = await board.create({ name, width, height, html, after }, false)
       return `Created frame ${frame.id} "${frame.name}": ${where(frame)}.${html === undefined ? ' It has a placeholder page: write the whole page to that file.' : ''}`
     },
     duplicate: async (ids) => {
-      await touched()
       const made = await board.duplicate(ids, false)
       if (!made.length) throw new Error('None of those frames are on the canvas.')
       return made.map((frame) => `Created ${frame.id} "${frame.name}": ${where(frame)}`).join('\n')
     },
     arrange: async (moves) => {
-      await touched()
       const updates = moves.filter((move) => board.has(move.id))
       if (!updates.length) throw new Error('None of those frames are on the canvas.')
       await board.arrange(updates, false, false)
@@ -38,14 +34,12 @@ export function createBoardTools(
     },
     rename: async (id, name) => {
       if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
-      await touched()
       await board.rename(id, name, false)
       return `Renamed ${id} to "${board.frame(id)?.name ?? name}".`
     },
     remove: async (ids) => {
       const found = ids.filter((id) => board.has(id))
       if (!found.length) throw new Error('None of those frames are on the canvas.')
-      await touched()
       await board.remove(found, false)
       return `Deleted ${found.join(', ')}.`
     },
@@ -73,14 +67,12 @@ export function createBoardTools(
     createSection: async (name, ids) => {
       const found = ids.filter((id) => board.has(id))
       if (!found.length) throw new Error('None of those frames are on the canvas.')
-      await touched()
       const section = await board.addSection(found, name, false)
       if (!section) throw new Error("Couldn't make the section.")
       return `Created section ${section.id} "${section.name}" with ${section.frames.join(', ')}.`
     },
     updateSection: async (id, change) => {
       if (!board.section(id)) throw new Error(`There's no section ${id}.`)
-      await touched()
       await board.updateSection(id, change, false)
       const section = board.section(id)
       return section
@@ -89,7 +81,6 @@ export function createBoardTools(
     },
     removeSection: async (id) => {
       if (!board.section(id)) throw new Error(`There's no section ${id}.`)
-      await touched()
       await board.removeSection(id, false)
       return `Deleted section ${id}; its frames stay on the canvas.`
     },

@@ -62,6 +62,7 @@ mock.module('../../src/main/board-capture-renderer', () => ({
 }))
 
 const { BoardSession } = await import('../../src/main/board-session')
+const { createBoardTools } = await import('../../src/main/board-tool-workflow')
 const manifest = (frames: BoardManifest['frames'] = []): BoardManifest => ({
   version: 1,
   name: 'Canvas',
@@ -78,9 +79,10 @@ function deferred() {
   return { promise, resolve }
 }
 async function until(condition: () => boolean | Promise<boolean>) {
+  const caller = new Error().stack
   const deadline = Date.now() + 2000
   while (!(await condition())) {
-    assert.ok(Date.now() < deadline, 'Board operation did not settle')
+    assert.ok(Date.now() < deadline, `Board operation did not settle:\n${caller}`)
     await new Promise((done) => setTimeout(done, 1))
   }
 }
@@ -195,6 +197,31 @@ try {
   const orderedState = await persisted(orderedLayout.root)
   assert.equal(orderedState.frames.find((frame) => frame.id === 'b')?.x, 999)
   assert.deepEqual(orderedState.sections, [restoredSection])
+
+  // An agent edit and its undo boundary are one lane entry, even behind a user file write.
+  const agentBoundary = await board('agent-boundary', [
+    { id: 'b', name: 'B', x: 480, y: 0, width: 400, height: 300 },
+  ])
+  const pendingGate = deferred()
+  frameWrite = { path: agentBoundary.framePath('pending'), gate: pendingGate.promise, calls: 0 }
+  const userCreating = agentBoundary.create({ name: 'Pending', width: 400, height: 300 })
+  await until(() => frameWrite?.calls === 1)
+  const tools = createBoardTools(agentBoundary, { prompt: () => null, open: async () => {} })
+  const agentCreating = tools.create({ name: 'Agent', width: 400, height: 300 })
+  const userArranging = agentBoundary.arrange([{ id: 'b', x: 999, y: 0 }])
+  pendingGate.resolve()
+  await Promise.all([userCreating, agentCreating, userArranging])
+  frameWrite = null
+  assert.equal(agentBoundary.frame('b')?.x, 999)
+  assert.equal(await agentBoundary.undo(), true)
+  assert.equal(agentBoundary.frame('b')?.x, 480)
+  assert.deepEqual(
+    agentBoundary.frames.map((frame) => frame.id),
+    ['b', 'pending', 'agent'],
+    'Undoing a later user edit must preserve the preceding agent frame',
+  )
+  assert.equal(await agentBoundary.undo(), false, 'User undo cannot cross the agent edit')
+  await agentBoundary.dispose()
 
   const deleted = await board('deleted')
   await deleted.create({ name: 'Gone', width: 400, height: 300 })

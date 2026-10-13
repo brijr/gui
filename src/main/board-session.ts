@@ -277,7 +277,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   ) {
     const byId = new Map(updates.map((update) => [update.id, update]))
     if (![...byId.keys()].some((id) => this.has(id))) return
-    if (user) this.remember()
+    this.beginEdit(user)
     const frames = this.manifest.frames.map((frame) => {
       const update = byId.get(frame.id)
       if (!update) return frame
@@ -311,7 +311,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       const name = cleanName(input)
       const frame = this.frame(id)
       if (!name || !frame || frame.name === name) return
-      if (user) this.remember()
+      this.beginEdit(user)
       this.setFrames(this.manifest.frames.map((f) => (f.id === id ? { ...f, name } : f)))
     })
   }
@@ -329,10 +329,14 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** A new frame with its page written; the user's (undoable) or the agent's. */
   create(spec: NewFrame, user = true): Promise<BoardFrameLayout> {
-    return this.mutations.run(() => this.createFrame(spec, user))
+    return this.mutations.run(() => this.createFrame(spec, user, !user))
   }
 
-  private async createFrame(spec: NewFrame, user: boolean): Promise<BoardFrameLayout> {
+  private async createFrame(
+    spec: NewFrame,
+    user: boolean,
+    agent = false,
+  ): Promise<BoardFrameLayout> {
     if (this.manifest.frames.length >= MAX_FRAMES)
       throw new Error(`A canvas holds up to ${MAX_FRAMES} frames. Delete some first.`)
     const name = cleanName(spec.name) ?? 'Frame'
@@ -363,7 +367,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     )
     const at = spec.at ?? placeFrame([...this.manifest.frames, ...others], size, after)
     const frame: BoardFrameLayout = { id, name, x: Math.round(at.x), y: Math.round(at.y), ...size }
-    if (user) this.remember()
+    if (user || agent) this.beginEdit(user)
     // File reconciliation shares this mutation lane: the watcher sees this placement first.
     this.setFrames(
       [...this.manifest.frames, frame],
@@ -385,7 +389,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   private async duplicateFrames(ids: string[], user: boolean): Promise<BoardFrameLayout[]> {
     const sources = ids.flatMap((id) => this.frame(id) ?? [])
     if (!sources.length) return []
-    if (user) this.remember()
+    this.beginEdit(user)
     const made: BoardFrameLayout[] = []
     for (const source of sources) {
       const html = await readFile(this.framePath(source.id), 'utf8').catch(() => undefined)
@@ -419,7 +423,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       const html = await readFile(this.framePath(id), 'utf8').catch(() => null)
       if (html !== null) files[id] = html
     }
-    if (user) this.remember(files)
+    this.beginEdit(user, files)
     this.setFrames(
       this.manifest.frames.filter((frame) => !gone.has(frame.id)),
       this.manifest.sections,
@@ -456,7 +460,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       name,
       frames: members,
     }
-    if (user) this.remember()
+    this.beginEdit(user)
     this.setFrames(this.manifest.frames, [
       ...sections.map((s) => ({ ...s, frames: s.frames.filter((id) => !members.includes(id)) })),
       section,
@@ -475,7 +479,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     const name = change.name === undefined ? section.name : (cleanName(change.name) ?? section.name)
     const members = change.frames?.filter((frame) => this.has(frame))
     if (name === section.name && !members) return
-    if (user) this.remember()
+    this.beginEdit(user)
     this.setFrames(
       this.manifest.frames,
       this.manifest.sections.map((s) => {
@@ -489,7 +493,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   removeSection(id: string, user = true) {
     return this.mutations.run(async () => {
       if (!this.section(id)) return
-      if (user) this.remember()
+      this.beginEdit(user)
       this.setFrames(
         this.manifest.frames,
         this.manifest.sections.filter((section) => section.id !== id),
@@ -523,11 +527,18 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** The agent changed the canvas: what the user did before it can't be undone on its own. */
   forgetUndo() {
-    return this.mutations.run(async () => {
-      if (!this.undoStack.length) return
-      this.undoStack = []
-      this.emit('change')
-    })
+    return this.mutations.run(async () => this.clearUndo())
+  }
+
+  private clearUndo() {
+    if (!this.undoStack.length) return
+    this.undoStack = []
+    this.emit('change')
+  }
+
+  private beginEdit(user: boolean, files: Record<string, string> = {}) {
+    if (user) this.remember(files)
+    else this.clearUndo()
   }
 
   async captureNow(id: string) {
