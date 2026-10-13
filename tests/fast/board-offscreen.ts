@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 
 let readiness: Promise<unknown> | null = null
+let failedNavigation = false
 const events: string[] = []
 class Contents extends EventEmitter {
   url = ''
@@ -19,8 +20,9 @@ class Contents extends EventEmitter {
   }
   stop() {}
   async loadURL(url: string) {
-    this.url = url
     events.push(`load:${url}`)
+    if (failedNavigation && url !== 'about:blank') throw new Error('ERR_CONNECTION_REFUSED')
+    this.url = url
   }
   executeJavaScript(script: string) {
     this.readyCalls++
@@ -74,6 +76,14 @@ assert.equal(Window.all.length, 1, 'Same-scale captures reuse an unloaded worker
 await renderer.render(frame, url, 2, control.signal)
 assert.equal(Window.all.length, 2)
 assert.equal(Window.all[0].destroyed, true, 'Changing scale does not accumulate idle windows')
+
+failedNavigation = true
+const capturesBeforeFailure = events.filter((event) => event === 'capture').length
+assert.equal(await renderer.render(frame, url, 2, control.signal), null)
+assert.equal(events.filter((event) => event === 'capture').length, capturesBeforeFailure)
+assert.equal(Window.all[1].webContents.url, 'about:blank')
+assert.equal(Window.all[1].webContents.painting, false)
+failedNavigation = false
 
 readiness = new Promise(() => undefined)
 const pending = new AbortController()

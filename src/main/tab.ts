@@ -809,7 +809,7 @@ export class ProjectTab {
   }
 
   boardArrange(updates: { id: string; x: number; y: number; width?: number; height?: number }[]) {
-    this.resources.board?.arrange(updates, true)
+    return this.resources.board?.arrange(updates, true)
   }
 
   /** A frame the user adds, of a preset size, where they asked or beside what's selected. */
@@ -3596,7 +3596,7 @@ export class ProjectTab {
         label: 'Add Section',
         accelerator: 'Alt+CmdOrCtrl+G',
         registerAccelerator: false,
-        click: () => this.boardAddSection(ids),
+        click: () => void this.boardAddSection(ids),
       },
       ...(insection.length
         ? [
@@ -3605,7 +3605,7 @@ export class ProjectTab {
               click: () => {
                 for (const section of board.sections)
                   if (section.frames.some((f) => ids.includes(f)))
-                    board.updateSection(section.id, {
+                    void board.updateSection(section.id, {
                       frames: section.frames.filter((f) => !ids.includes(f)),
                     })
               },
@@ -3632,9 +3632,11 @@ export class ProjectTab {
   }
 
   /** A new section around frames, then naming it in place on the board. */
-  boardAddSection(ids: string[]) {
-    const section = this.resources.board?.addSection(ids)
-    if (section) this.send(Events.board, { type: 'renameSection', id: section.id })
+  async boardAddSection(ids: string[]) {
+    const board = this.resources.board
+    const section = await board?.addSection(ids)
+    if (section && this.resources.board === board)
+      this.send(Events.board, { type: 'renameSection', id: section.id })
   }
 
   /** A section's context menu on the board: its name, its frames, exporting, deleting. */
@@ -3651,7 +3653,7 @@ export class ProjectTab {
         click: () => void this.exportFrames(section.frames),
       },
       { type: 'separator' },
-      { label: 'Delete Section', click: () => board.removeSection(id) },
+      { label: 'Delete Section', click: () => void board.removeSection(id) },
       {
         label: `Delete Section and ${count > 1 ? `${count} Frames` : 'Frame'}`,
         click: () => void board.remove(section.frames),

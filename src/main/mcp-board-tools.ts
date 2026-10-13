@@ -35,7 +35,7 @@ export interface BoardTools {
   duplicate: (ids: string[]) => Promise<string>
   arrange: (
     moves: { id: string; x?: number; y?: number; width?: number; height?: number }[],
-  ) => string
+  ) => Promise<string>
   rename: (id: string, name: string) => Promise<string>
   remove: (ids: string[]) => Promise<string>
   /** The frame rendered at its size: PNG, base64 */

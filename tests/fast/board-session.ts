@@ -15,6 +15,7 @@ let manifestRead: { root: string; gate: Promise<void> } | null = null
 let writing: ((root: string, manifest: BoardManifest) => Promise<void>) | null = null
 let competingPage: { path: string; html: string } | null = null
 let failedPage: string | null = null
+let frameWrite: { path: string; gate: Promise<void>; calls: number } | null = null
 
 mock.module('node:fs/promises', () => ({
   ...nativeFs,
@@ -26,6 +27,10 @@ mock.module('node:fs/promises', () => ({
     return nativeFs.readdir(path, options)
   }) as typeof fs.readdir,
   writeFile: (async (path, data, options) => {
+    if (frameWrite?.path === path) {
+      frameWrite.calls++
+      await frameWrite.gate
+    }
     if (path === failedPage) throw new Error('Page write failed')
     if (competingPage && path === competingPage.path) {
       const external = competingPage
@@ -159,6 +164,38 @@ try {
   assert.equal(limited.frames.length, MAX_FRAMES)
   await limited.dispose()
 
+  // Layout and section requests accepted during an undo's file restore run after it.
+  const orderedLayout = await board('ordered-layout', [
+    { id: 'a', name: 'A', x: 0, y: 0, width: 400, height: 300 },
+    { id: 'b', name: 'B', x: 480, y: 0, width: 400, height: 300 },
+  ])
+  const originalSection = await orderedLayout.addSection(['a', 'b'], 'Original')
+  assert.ok(originalSection)
+  await orderedLayout.remove(['a'])
+  const undoGate = deferred()
+  frameWrite = { path: orderedLayout.framePath('a'), gate: undoGate.promise, calls: 0 }
+  const undoing = orderedLayout.undo()
+  await until(() => frameWrite?.calls === 1)
+  const arranging = orderedLayout.arrange([{ id: 'b', x: 999, y: 0 }])
+  const sectioning = orderedLayout.addSection(['a'], 'Restored')
+  const renamingSection = orderedLayout.updateSection(originalSection.id, { name: 'Renamed' })
+  const removingSection = orderedLayout.removeSection(originalSection.id)
+  const layoutDuringUndo = orderedLayout.frame('b')?.x
+  undoGate.resolve()
+  assert.equal(await undoing, true)
+  await Promise.all([arranging, renamingSection, removingSection])
+  const restoredSection = await sectioning
+  assert.equal(layoutDuringUndo, 480, 'Layout must wait for the active file mutation')
+  assert.ok(restoredSection, 'A section can refer to a frame restored by an earlier undo')
+  assert.equal(orderedLayout.frame('b')?.x, 999)
+  assert.equal(orderedLayout.section(originalSection.id), null)
+  assert.deepEqual(orderedLayout.sections, [restoredSection])
+  frameWrite = null
+  await orderedLayout.dispose()
+  const orderedState = await persisted(orderedLayout.root)
+  assert.equal(orderedState.frames.find((frame) => frame.id === 'b')?.x, 999)
+  assert.deepEqual(orderedState.sections, [restoredSection])
+
   const deleted = await board('deleted')
   await deleted.create({ name: 'Gone', width: 400, height: 300 })
   writing = async () => {
@@ -209,6 +246,7 @@ try {
   writing = null
   competingPage = null
   failedPage = null
+  frameWrite = null
   assert.equal((await persisted(saved.root)).camera?.x, 3)
   const external = { ...(await persisted(saved.root)), name: 'External', camera: null }
   await nativeFs.writeFile(join(saved.root, 'canvas.json'), JSON.stringify(external))

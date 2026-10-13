@@ -56,7 +56,7 @@ export function registerBoardIpc(
   onBoard(Send.boardSelect, (tab, value) => ids(value) && tab.boardSelect(value))
   onBoard(Send.boardArrange, (tab, frames) => {
     if (Array.isArray(frames) && frames.length <= 100 && frames.every(arrangement))
-      tab.boardArrange(frames)
+      void tab.boardArrange(frames)
   })
   onBoard(Send.boardAddFrame, (tab, preset, at) => {
     if (isFramePreset(preset) && (at === null || point(at))) void tab.boardAddFrame(preset, at)
@@ -64,11 +64,14 @@ export function registerBoardIpc(
   onBoard(Send.boardDuplicate, (tab, value) => ids(value) && void tab.boardDuplicate(value))
   onBoard(Send.boardDelete, (tab, value) => ids(value) && void tab.boardDelete(value))
   onBoard(Send.boardExport, (tab, value) => ids(value) && void tab.exportFrames(value))
-  onBoard(Send.boardAddSection, (tab, value) => ids(value) && tab.boardAddSection(value))
+  onBoard(Send.boardAddSection, (tab, value) => ids(value) && void tab.boardAddSection(value))
   onBoard(Send.boardRenameSection, (tab, id, name) => {
-    if (string(id) && string(name)) tab.boardSession?.updateSection(id, { name })
+    if (string(id) && string(name)) void tab.boardSession?.updateSection(id, { name })
   })
-  onBoard(Send.boardDeleteSection, (tab, id) => string(id) && tab.boardSession?.removeSection(id))
+  onBoard(
+    Send.boardDeleteSection,
+    (tab, id) => string(id) && void tab.boardSession?.removeSection(id),
+  )
   onBoard(Send.showSectionMenu, (tab, id) => string(id) && tab.showSectionMenu(id))
   onBoard(Send.boardRenameFrame, (tab, id, name) => {
     if (string(id) && string(name)) void tab.boardRenameFrame(id, name)

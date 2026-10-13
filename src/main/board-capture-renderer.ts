@@ -53,7 +53,12 @@ export class OffscreenBoardRenderer implements BoardCaptureRenderer {
     const alive = () => !this.disposed && !signal.aborted && !win.isDestroyed()
     try {
       wc.startPainting()
-      await settleWithin(wc.loadURL(url), LOAD_TIMEOUT_MS, signal)
+      const loaded = await settleWithin(
+        wc.loadURL(url).then(() => true),
+        LOAD_TIMEOUT_MS,
+        signal,
+      )
+      if (!loaded) return null
       if (!alive()) return null
       await settleWithin(wc.executeJavaScript(READY_SCRIPT), READY_TIMEOUT_MS, signal)
       if (!alive()) return null

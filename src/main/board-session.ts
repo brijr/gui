@@ -263,20 +263,28 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
    * frames into and out of sections as they land; the agent's leave sections as they are.
    */
   arrange(
-    updates: { id: string; x: number; y: number; width?: number; height?: number }[],
+    updates: { id: string; x?: number; y?: number; width?: number; height?: number }[],
     regroup = false,
+    user = true,
   ) {
-    if (this.disposed) return
+    return this.mutations.run(async () => this.arrangeFrames(updates, regroup, user))
+  }
+
+  private arrangeFrames(
+    updates: { id: string; x?: number; y?: number; width?: number; height?: number }[],
+    regroup: boolean,
+    user: boolean,
+  ) {
     const byId = new Map(updates.map((update) => [update.id, update]))
     if (![...byId.keys()].some((id) => this.has(id))) return
-    this.remember()
+    if (user) this.remember()
     const frames = this.manifest.frames.map((frame) => {
       const update = byId.get(frame.id)
       if (!update) return frame
       return {
         ...frame,
-        x: Math.round(update.x),
-        y: Math.round(update.y),
+        x: update.x === undefined ? frame.x : Math.round(update.x),
+        y: update.y === undefined ? frame.y : Math.round(update.y),
         width: update.width === undefined ? frame.width : clampEdge(update.width),
         height: update.height === undefined ? frame.height : clampEdge(update.height),
       }
@@ -434,8 +442,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
    * A new section around `ids`, taking them out of any they were in; named "Section 2" and
    * so on unless given a name. The user's can be undone.
    */
-  addSection(ids: string[], input?: string, user = true): BoardSection | null {
-    if (this.disposed) return null
+  addSection(ids: string[], input?: string, user = true): Promise<BoardSection | null> {
+    return this.mutations.run(async () => this.createSection(ids, input, user))
+  }
+
+  private createSection(ids: string[], input: string | undefined, user: boolean) {
     const members = [...new Set(ids.filter((id) => this.has(id)))]
     if (!members.length) return null
     const { sections } = this.manifest
@@ -455,7 +466,10 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** A section's new name and, for the agent, its frames (taken out of any others). */
   updateSection(id: string, change: { name?: string; frames?: string[] }, user = true) {
-    if (this.disposed) return
+    return this.mutations.run(async () => this.changeSection(id, change, user))
+  }
+
+  private changeSection(id: string, change: { name?: string; frames?: string[] }, user: boolean) {
     const section = this.section(id)
     if (!section) return
     const name = change.name === undefined ? section.name : (cleanName(change.name) ?? section.name)
@@ -473,13 +487,14 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** The section goes; its frames stay where they are. The user's can be undone. */
   removeSection(id: string, user = true) {
-    if (this.disposed) return
-    if (!this.section(id)) return
-    if (user) this.remember()
-    this.setFrames(
-      this.manifest.frames,
-      this.manifest.sections.filter((section) => section.id !== id),
-    )
+    return this.mutations.run(async () => {
+      if (!this.section(id)) return
+      if (user) this.remember()
+      this.setFrames(
+        this.manifest.frames,
+        this.manifest.sections.filter((section) => section.id !== id),
+      )
+    })
   }
 
   /** Takes back the user's last board change; false when there's none to take back. */
@@ -508,9 +523,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** The agent changed the canvas: what the user did before it can't be undone on its own. */
   forgetUndo() {
-    if (!this.undoStack.length) return
-    this.undoStack = []
-    this.emit('change')
+    return this.mutations.run(async () => {
+      if (!this.undoStack.length) return
+      this.undoStack = []
+      this.emit('change')
+    })
   }
 
   async captureNow(id: string) {
