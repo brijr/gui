@@ -43,6 +43,21 @@ export const noRequestArgs = (args: unknown[]) => args.length === 0
 export const stringRequestArgs = (count: number) => (args: unknown[]) =>
   args.length === count && args.every((arg) => typeof arg === 'string' && arg.length > 0)
 
+/** Window-level messages belong exclusively to the renderer that owns its chrome. */
+export function createWindowMessageRegistrar<
+  E extends { sender: unknown },
+  W extends { win: { webContents: unknown } },
+>(
+  transport: (channel: string, listener: (event: E, ...args: unknown[]) => void) => void,
+  windowFor: (event: E) => W | undefined,
+) {
+  return (channel: string, handler: (win: W, ...args: unknown[]) => void) =>
+    transport(channel, (event, ...args) => {
+      const win = windowFor(event)
+      if (win && win.win.webContents === event.sender) handler(win, ...args)
+    })
+}
+
 /** Legacy wire format, with the same public argument/result types as the preload. */
 export function createLegacyRegistrar<E>(
   transport: (channel: string, listener: (event: E, ...args: unknown[]) => unknown) => void,

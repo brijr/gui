@@ -17,10 +17,8 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { type BoardCamera, isFramePreset } from '../shared/board'
 import {
   Events,
-  type FrameArrangement,
   Invoke,
   MAX_TERMINAL_INPUT,
   type OutputChunk,
@@ -73,6 +71,7 @@ import {
   listBoards,
   registerThumbProtocol,
 } from './board'
+import { registerBoardIpc } from './board-ipc'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { developerTools } from './developer-tools'
@@ -81,6 +80,7 @@ import { flushHistorySync } from './history'
 import {
   createLegacyRegistrar,
   createRequestRegistrar,
+  createWindowMessageRegistrar,
   noRequestArgs,
   stringRequestArgs,
 } from './ipc-handler'
@@ -898,12 +898,10 @@ function registerIpc() {
     })
   }
   /** For the window, from its own chrome only: the canvas and the tab strip. */
-  const onWindow = (channel: string, handler: (win: ProjectWindow, ...args: unknown[]) => void) => {
-    ipcMain.on(channel, (event, ...args: unknown[]) => {
-      const win = windowFor(event)
-      if (win?.win.webContents === event.sender) handler(win, ...args)
-    })
-  }
+  const onWindow = createWindowMessageRegistrar<IpcMainEvent, ProjectWindow>(
+    (channel, listener) => ipcMain.on(channel, listener),
+    windowFor,
+  )
 
   on(Send.devServerStart, (tab) => tab.startDevServer())
   on(Send.devServerStop, (tab) => tab.stopDevServer())
@@ -927,59 +925,11 @@ function registerIpc() {
     ),
   )
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
-  // Canvases: the start screen's, then the board's, from the window's own chrome only.
-  onWindow(Send.newBoard, (win) => void newBoard(win))
-  onWindow(Send.openBoard, (win, id) => isString(id) && void openBoardIn(win, id))
-  onWindow(Send.showRecentBoardMenu, (win, id) => isString(id) && showRecentBoardMenu(win, id))
-  onWindow(Send.showBoardMenu, (win) => win.activeTab.showBoardMenu(() => void newBoard(win)))
-  onWindow(Send.showFrameMenu, (win, id) => {
-    const tab = win.activeTab
-    if (isString(id)) tab.showFrameMenu(id, (frame) => void promoteFrame(win, tab, frame))
-  })
-  onWindow(Send.showAddFrameMenu, (win, at) => {
-    if (isPoint(at)) win.activeTab.showAddFrameMenu(at)
-  })
-  const onBoard = (channel: string, handler: (tab: ProjectTab, ...args: unknown[]) => void) =>
-    onWindow(channel, (win, ...args) => {
-      if (win.activeTab.boardSession) handler(win.activeTab, ...args)
-    })
-  const isIds = (value: unknown): value is string[] =>
-    Array.isArray(value) && value.length <= 100 && value.every(isString)
-  const isArrangement = (value: unknown): value is FrameArrangement => {
-    if (!value || typeof value !== 'object') return false
-    const { id, x, y, width, height } = value as Record<string, unknown>
-    const size = (edge: unknown) => edge === undefined || isNumber(edge)
-    return isString(id) && isNumber(x) && isNumber(y) && size(width) && size(height)
-  }
-  const isCamera = (value: unknown): value is BoardCamera => {
-    if (!value || typeof value !== 'object') return false
-    const { x, y, zoom } = value as Record<string, unknown>
-    return isNumber(x) && isNumber(y) && isNumber(zoom) && zoom > 0
-  }
-  onBoard(Send.boardSelect, (tab, ids) => isIds(ids) && tab.boardSelect(ids))
-  onBoard(Send.boardArrange, (tab, frames) => {
-    if (Array.isArray(frames) && frames.length <= 100 && frames.every(isArrangement))
-      tab.boardArrange(frames)
-  })
-  onBoard(Send.boardAddFrame, (tab, preset, at) => {
-    if (isFramePreset(preset) && (at === null || isPoint(at))) void tab.boardAddFrame(preset, at)
-  })
-  onBoard(Send.boardDuplicate, (tab, ids) => isIds(ids) && void tab.boardDuplicate(ids))
-  onBoard(Send.boardDelete, (tab, ids) => isIds(ids) && void tab.boardDelete(ids))
-  onBoard(Send.boardExport, (tab, ids) => isIds(ids) && void tab.exportFrames(ids))
-  onBoard(Send.boardAddSection, (tab, ids) => isIds(ids) && tab.boardAddSection(ids))
-  onBoard(Send.boardRenameSection, (tab, id, name) => {
-    if (isString(id) && isString(name)) tab.boardSession?.updateSection(id, { name })
-  })
-  onBoard(Send.boardDeleteSection, (tab, id) => isString(id) && tab.boardSession?.removeSection(id))
-  onBoard(Send.showSectionMenu, (tab, id) => isString(id) && tab.showSectionMenu(id))
-  onBoard(Send.boardRenameFrame, (tab, id, name) => {
-    if (isString(id) && isString(name)) void tab.boardRenameFrame(id, name)
-  })
-  onBoard(Send.renameBoard, (tab, name) => isString(name) && void tab.renameBoard(name))
-  onBoard(Send.boardCamera, (tab, camera) => isCamera(camera) && tab.boardSetCamera(camera))
-  onBoard(Send.boardOpenFrame, (tab, id) => {
-    if (id === null || isString(id)) void tab.openFrame(id)
+  registerBoardIpc(onWindow, {
+    create: newBoard,
+    open: openBoardIn,
+    recentMenu: showRecentBoardMenu,
+    promote: promoteFrame,
   })
   onWindow(Send.newTab, (win) => win.newTab())
   onWindow(Send.selectTab, (win, id) => isString(id) && win.selectTab(id))

@@ -79,6 +79,7 @@ import { agentMenuItems } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
 import { boardIdOf, listBoards } from './board'
 import { BoardSession } from './board-session'
+import { createBoardTools } from './board-tool-workflow'
 import { availableModels, ChatController } from './chat'
 import {
   type Anchor,
@@ -105,7 +106,6 @@ import {
 import { Inspector } from './inspector'
 import { isLoopback } from './loopback'
 import { describeSourceControl, describeTurns, describeVersions } from './mcp-app-tools'
-import type { BoardTools } from './mcp-board-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
 import { Flight, type Point, prefersReducedMotion } from './panel-flight'
@@ -115,8 +115,9 @@ import { PreviewMorph } from './preview-morph'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { detectProject, readPackageJson } from './project'
+import { retireProject, waitForRetiredProject } from './project-handoff'
 import { ProjectResources } from './project-resources'
-import { describeBoard, type PromptBoard, type PromptViewport } from './prompt'
+import type { PromptBoard, PromptViewport } from './prompt'
 import {
   bringInLatest,
   CONFLICT_PROMPT_START,
@@ -207,8 +208,6 @@ const BOARD_SERVER_STATUS =
   'This is a canvas: Gui serves its frames itself and there is no dev server to start, restart or configure. Use the canvas tools.'
 /** Frames export at this device scale factor: as sharp as on a Retina display. */
 const FRAME_EXPORT_SCALE = 2
-/** canvas_screenshot's images, within what agents accept many of (preview-tools.ts) */
-const BOARD_SHOT_MAX = { width: 1600, height: 1960 }
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
@@ -670,7 +669,7 @@ export class ProjectTab {
   }
 
   async openProject(root: string) {
-    this.closeProject()
+    const closed = this.closeProject()
     if (this.disposed) return
     const generation = ++this.openGeneration
     this.opening = root
@@ -679,6 +678,8 @@ export class ProjectTab {
     const current = () => !this.disposed && resources.active && generation === this.openGeneration
     let file: string | null = null
     try {
+      await Promise.all([closed, waitForRetiredProject(root)])
+      if (!current()) return
       file = await claimHistoryFile(root)
       if (!resources.claim(file) || !current()) return
       const [{ project, apps, choosing }, env, saved] = await Promise.all([
@@ -740,7 +741,7 @@ export class ProjectTab {
   async openBoard(root: string) {
     const id = boardIdOf(root)
     if (!id) throw new Error('That folder is not one of Gui’s canvases.')
-    this.closeProject()
+    const closed = this.closeProject()
     if (this.disposed) return
     const generation = ++this.openGeneration
     this.opening = root
@@ -748,6 +749,8 @@ export class ProjectTab {
     this.resources = resources
     const current = () => !this.disposed && resources.active && generation === this.openGeneration
     try {
+      await Promise.all([closed, waitForRetiredProject(root)])
+      if (!current()) return
       const file = await claimHistoryFile(root)
       if (!resources.claim(file) || !current()) return
       const board = new BoardSession(root, id)
@@ -903,103 +906,6 @@ export class ProjectTab {
     }
   }
 
-  /** The canvas tools (mcp-board-tools.ts): what the agent does to the board, never undoable as the user's own. */
-  private boardTools(board: BoardSession): BoardTools {
-    const where = (frame: { id: string; width: number; height: number; x: number; y: number }) =>
-      `frames/${frame.id}.html, ${frame.width}×${frame.height} at (${frame.x}, ${frame.y})`
-    const touched = () => board.forgetUndo()
-    return {
-      list: () =>
-        describeBoard(
-          this.promptBoard() ?? { name: board.name, frames: [], selection: [], open: null },
-        ),
-      create: async ({ name, width, height, html, after }) => {
-        touched()
-        const frame = await board.create({ name, width, height, html, after }, false)
-        return `Created frame ${frame.id} "${frame.name}": ${where(frame)}.${html === undefined ? ' It has a placeholder page: write the whole page to that file.' : ''}`
-      },
-      duplicate: async (ids) => {
-        touched()
-        const made = await board.duplicate(ids, false)
-        if (!made.length) throw new Error('None of those frames are on the canvas.')
-        return made
-          .map((frame) => `Created ${frame.id} "${frame.name}": ${where(frame)}`)
-          .join('\n')
-      },
-      arrange: (moves) => {
-        touched()
-        const updates = moves.flatMap((move) => {
-          const frame = board.frame(move.id)
-          return frame ? [{ ...move, x: move.x ?? frame.x, y: move.y ?? frame.y }] : []
-        })
-        if (!updates.length) throw new Error('None of those frames are on the canvas.')
-        board.arrange(updates)
-        board.forgetUndo()
-        return updates
-          .map((update) => board.frame(update.id))
-          .map((frame) => (frame ? `${frame.id}: ${where(frame)}` : ''))
-          .join('\n')
-      },
-      rename: async (id, name) => {
-        if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
-        touched()
-        await board.rename(id, name, false)
-        return `Renamed ${id} to "${board.frame(id)?.name ?? name}".`
-      },
-      remove: async (ids) => {
-        const found = ids.filter((id) => board.has(id))
-        if (!found.length) throw new Error('None of those frames are on the canvas.')
-        touched()
-        await board.remove(found, false)
-        return `Deleted ${found.join(', ')}.`
-      },
-      screenshot: async (id) => {
-        if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
-        let image = await board.screenshot(id)
-        const { width, height } = image.getSize()
-        const scale = Math.min(1, BOARD_SHOT_MAX.width / width, BOARD_SHOT_MAX.height / height)
-        if (scale < 1)
-          image = image.resize({
-            width: Math.round(width * scale),
-            height: Math.round(height * scale),
-            quality: 'good',
-          })
-        const size = image.getSize()
-        return { data: image.toPNG().toString('base64'), ...size }
-      },
-      open: async (id) => {
-        if (id !== null && !board.has(id)) throw new Error(`There's no frame ${id}.`)
-        await this.openFrame(id)
-        return id
-          ? `Frame ${id} is open in the preview; the preview tools work on it.`
-          : 'Back on the board.'
-      },
-      createSection: async (name, ids) => {
-        const found = ids.filter((id) => board.has(id))
-        if (!found.length) throw new Error('None of those frames are on the canvas.')
-        touched()
-        const section = board.addSection(found, name, false)
-        if (!section) throw new Error("Couldn't make the section.")
-        return `Created section ${section.id} "${section.name}" with ${section.frames.join(', ')}.`
-      },
-      updateSection: async (id, change) => {
-        if (!board.section(id)) throw new Error(`There's no section ${id}.`)
-        touched()
-        board.updateSection(id, change, false)
-        const section = board.section(id)
-        return section
-          ? `Section ${id} "${section.name}": ${section.frames.join(', ')}.`
-          : `Section ${id} has no frames left, so it's gone.`
-      },
-      removeSection: async (id) => {
-        if (!board.section(id)) throw new Error(`There's no section ${id}.`)
-        touched()
-        board.removeSection(id, false)
-        return `Deleted section ${id}; its frames stay on the canvas.`
-      },
-    }
-  }
-
   /**
    * The agent's side of an opening project or canvas: preview tools, recordings, Gui's MCP
    * server, checkpoints and the chat. False when the opening was superseded meanwhile.
@@ -1057,7 +963,12 @@ export class ProjectTab {
         versions: (limit) => this.versionsForAgent(limit),
         turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
       },
-      board ? this.boardTools(board) : null,
+      board
+        ? createBoardTools(board, {
+            prompt: () => this.promptBoard(),
+            open: (id) => this.openFrame(id),
+          })
+        : null,
     ).catch((error: unknown) => {
       console.error('[gui] preview tools unavailable', error)
       return null
@@ -1244,18 +1155,20 @@ export class ProjectTab {
   }
 
   private disposeProjectResources() {
+    const root = this.projectRoot
     ++this.openGeneration
     this.opening = null
     this.stopWatchingForApp()
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.rehighlightTimer = null
-    this.resources.dispose()
+    const closed = retireProject(root, this.resources.dispose())
     this.apps = []
+    return closed
   }
 
   closeProject() {
-    this.disposeProjectResources()
+    const closed = this.disposeProjectResources()
     this.problems.clear()
     void this.inspector.clearHighlight()
     this.preview.setVisible(false)
@@ -1274,6 +1187,7 @@ export class ProjectTab {
       board: null,
       preview: { ...this.state.preview, url: null, error: null, visible: false, selecting: false },
     })
+    return closed
   }
 
   // Dev server
