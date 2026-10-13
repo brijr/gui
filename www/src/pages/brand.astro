@@ -1,17 +1,78 @@
 ---
 import Base from '../layouts/Base.astro'
+
 const assets = [
-  { name: 'Color mark', detail: 'The original six-tile mark.', file: 'gui-mark', surface: 'neutral', type: 'mark' },
-  { name: 'Logo · dark lettering', detail: 'For light backgrounds.', file: 'gui-logo-dark', surface: 'light', type: 'logo' },
-  { name: 'Logo · light lettering', detail: 'For dark backgrounds.', file: 'gui-logo-light', surface: 'dark', type: 'logo' },
-  { name: 'Wordmark · dark', detail: 'Outlined lettering, no font required.', file: 'gui-wordmark-dark', surface: 'light', type: 'wordmark' },
-  { name: 'Wordmark · light', detail: 'Outlined lettering, no font required.', file: 'gui-wordmark-light', surface: 'dark', type: 'wordmark' },
-  { name: 'Monochrome · dark', detail: 'For single-color applications.', file: 'gui-mark-dark', surface: 'light', type: 'mark' },
-  { name: 'Monochrome · light', detail: 'For single-color applications.', file: 'gui-mark-light', surface: 'dark', type: 'mark' },
-  { name: 'App icon · light', detail: '1024 × 1024 PNG and scalable SVG.', file: 'gui-app-icon-light', surface: 'neutral', type: 'icon' },
-  { name: 'App icon · dark', detail: '1024 × 1024 PNG and scalable SVG.', file: 'gui-app-icon-dark', surface: 'neutral', type: 'icon' },
+  {
+    name: 'Color mark',
+    detail: 'The original six-tile mark.',
+    file: 'gui-mark',
+    surface: 'neutral',
+    type: 'mark',
+  },
+  {
+    name: 'Logo · dark lettering',
+    detail: 'For light backgrounds.',
+    file: 'gui-logo-dark',
+    surface: 'light',
+    type: 'logo',
+  },
+  {
+    name: 'Logo · light lettering',
+    detail: 'For dark backgrounds.',
+    file: 'gui-logo-light',
+    surface: 'dark',
+    type: 'logo',
+  },
+  {
+    name: 'Wordmark · dark',
+    detail: 'Outlined lettering, no font required.',
+    file: 'gui-wordmark-dark',
+    surface: 'light',
+    type: 'wordmark',
+  },
+  {
+    name: 'Wordmark · light',
+    detail: 'Outlined lettering, no font required.',
+    file: 'gui-wordmark-light',
+    surface: 'dark',
+    type: 'wordmark',
+  },
+  {
+    name: 'Monochrome · dark',
+    detail: 'For single-color applications.',
+    file: 'gui-mark-dark',
+    surface: 'light',
+    type: 'mark',
+  },
+  {
+    name: 'Monochrome · light',
+    detail: 'For single-color applications.',
+    file: 'gui-mark-light',
+    surface: 'dark',
+    type: 'mark',
+  },
+  {
+    name: 'App icon · light',
+    detail: '1024 × 1024 PNG and scalable SVG.',
+    file: 'gui-app-icon-light',
+    surface: 'neutral',
+    type: 'icon',
+  },
+  {
+    name: 'App icon · dark',
+    detail: '1024 × 1024 PNG and scalable SVG.',
+    file: 'gui-app-icon-dark',
+    surface: 'neutral',
+    type: 'icon',
+  },
 ]
-const colors = [['Gui blue', '#0066FF'], ['Ink', '#111111'], ['Paper', '#FAFAFA'], ['Dark canvas', '#161616'], ['Light ink', '#F2F2F2']]
+const colors = [
+  ['Gui blue', '#0066FF'],
+  ['Ink', '#111111'],
+  ['Paper', '#FAFAFA'],
+  ['Dark canvas', '#161616'],
+  ['Light ink', '#F2F2F2'],
+]
 const extras = [
   ['Animated mark', 'SVG · plays once', 'gui-mark-animated.svg'],
   ['Adaptive favicon', 'SVG · light and dark mode', 'gui-favicon.svg'],

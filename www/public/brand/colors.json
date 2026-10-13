@@ -1,13 +1,6 @@
 {
   "blue": "#0066FF",
-  "tiles": [
-    "#0066FF",
-    "#1F78FF",
-    "#7CB0FF",
-    "#5A9CFF",
-    "#4590FF",
-    "#1E78FF"
-  ],
+  "tiles": ["#0066FF", "#1F78FF", "#7CB0FF", "#5A9CFF", "#4590FF", "#1E78FF"],
   "ink": "#111111",
   "paper": "#FAFAFA",
   "dark": "#161616",
