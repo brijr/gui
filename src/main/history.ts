@@ -1,25 +1,32 @@
-import { createHash, randomUUID } from 'node:crypto'
-import { readdir, readFile, realpath, rename, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { renameSync } from 'node:fs'
+import { readdir, readFile, realpath, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app } from 'electron'
-import { parseCommands } from '../shared/commands'
-import {
-  type AgentCommand,
-  type AgentId,
-  type ChatSummary,
-  DEFAULT_AGENT_ID,
-  type FollowUp,
-  type ImageAttachment,
-  isAgentId,
-  type Picked,
-  type QueuedMessage,
-  type RecordingAttachment,
-  type Turn,
-  type TurnItem,
-  type Version,
+import type {
+  AgentCommand,
+  AgentId,
+  ChatSummary,
+  ImageAttachment,
+  Picked,
+  QueuedMessage,
+  Turn,
+  Version,
 } from '../shared/types'
 import { asidePath, writeFileAtomic } from './atomic-file'
-import { serializeHistory, settleVersions } from './history-format'
+import { snapshotHistory } from './history-format'
+import { readHistory, readLastMessage } from './history-reader'
+import {
+  CHAT_ID,
+  cleanTitle,
+  type HistoryStamp,
+  historyStamp,
+  isSummary,
+  sameHistoryStamp,
+  summarizeHistory,
+  summaryFile,
+} from './history-summary'
+import { writeHistorySnapshot } from './history-writer'
 import type { PromptViewport } from './prompt'
 
 /** Everything needed to reopen a project's chat where it left off, including undo. */
@@ -108,84 +115,41 @@ export function claimedHistoryFiles() {
   return [...claimed]
 }
 
-/**
- * A project's last message, for the start screen: a light read that leaves the file alone,
- * unlike loadHistory. Null with no chat, or one it can't read.
- */
-export async function lastMessage(root: string): Promise<{ prompt: string; at: number } | null> {
-  try {
-    const saved = JSON.parse(await readFile(await historyFile(root), 'utf8')) as Partial<SavedChat>
-    const turns = Array.isArray(saved.turns) ? saved.turns : []
-    const last = turns.at(-1)
-    if (!last || typeof last.startedAt !== 'number') return null
-    // A message of images alone has no text; the last one with some stands for the chat.
-    const text = turns.findLast((turn) => typeof turn.prompt === 'string' && turn.prompt.trim())
-    return { prompt: text?.prompt.trim() ?? 'Image', at: last.startedAt }
-  } catch {
-    return null
-  }
+/** The start screen reads a durable, bounded summary rather than the transcript. */
+export async function lastMessage(root: string) {
+  return readLastMessage(await historyFile(root))
 }
 
 export async function loadHistory(file: string): Promise<SavedChat | null> {
-  const text = await readHistory(file)
-  if (text === null) return null
-  try {
-    const parsed = JSON.parse(text) as Partial<SavedChat> | null
-    if (parsed?.version !== 1 || !Array.isArray(parsed.turns)) throw new Error('unknown format')
-    const checkpoints = parsed.checkpoints ?? {}
-    return {
-      version: 1,
-      id: typeof parsed.id === 'string' && CHAT_ID.test(parsed.id) ? parsed.id : randomUUID(),
-      createdAt:
-        typeof parsed.createdAt === 'number'
-          ? parsed.createdAt
-          : (parsed.turns[0]?.startedAt ?? Date.now()),
-      ...(typeof parsed.title === 'string' && parsed.title.trim()
-        ? { title: cleanTitle(parsed.title) }
-        : {}),
-      agentId: isAgentId(parsed.agentId) ? parsed.agentId : DEFAULT_AGENT_ID,
-      sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : null,
-      primed: parsed.primed === true,
-      primedWithTools: parsed.primedWithTools === true,
-      primedVersion: typeof parsed.primedVersion === 'number' ? parsed.primedVersion : undefined,
-      turns: parsed.turns.map((turn) => settleTurn(turn, checkpoints[turn.id]?.before ?? null)),
-      checkpoints,
-      redo: parsed.redo ?? null,
-      commands: settleCommands(parsed.commands),
-      queue: settleQueue(parsed.queue),
-      versions: settleVersions(parsed.versions),
-    }
-  } catch (error) {
-    // Keep what's there for recovery instead of letting the next save overwrite it.
-    await setAside(file, error)
-    return null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const result = await readHistory({ action: 'load', file })
+    if (result.status === 'ok' && result.action === 'load') return result.chat
+    if (result.status === 'error' && result.kind === 'worker') throw new Error(result.message)
+    if (result.status !== 'error' || (await setAside(file, result.message, result.source)))
+      return null
   }
+  throw new Error('That chat changed while it was being read, so its file was kept.')
 }
 
-/**
- * The file's text, or null without one. A file that's there but can't be read (too many
- * open files, permissions) gets a few tries, then is set aside: the chat starting empty
- * must not save over it.
- */
-async function readHistory(file: string): Promise<string | null> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await readFile(file, 'utf8')
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-      if (attempt === 3) {
-        await setAside(file, error)
-        return null
-      }
-      await new Promise((resolve) => setTimeout(resolve, 100 * attempt))
-    }
+async function setAside(file: string, error: unknown, source?: HistoryStamp) {
+  if (source) {
+    const current = await stat(file).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+      return null
+    })
+    if (!current) return true
+    if (!sameHistoryStamp(source, historyStamp(current))) return false
   }
-}
-
-async function setAside(file: string, error: unknown) {
   const aside = asidePath(file)
+  // Do not move a newer write while an older file is being parsed in the worker.
+  try {
+    renameSync(file, aside)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
   console.error(`[gui] unreadable chat history, moved to ${aside}`, error)
-  await rename(file, aside).catch(() => undefined)
+  await rm(summaryFile(file), { force: true }).catch(() => undefined)
+  return true
 }
 
 /** What a project's saved chats still refer to, kept until no chat does. */
@@ -202,37 +166,26 @@ export async function chatReferences(root: string): Promise<ChatReferences | nul
   const real = await realpath(root).catch(() => root)
   const name = historyName(real)
   const own = new RegExp(`^${name}(-\\d+)?\\.json$`)
+  const recovery = new RegExp(`^${name}(-\\d+)?\\.corrupt-\\d+\\.json$`)
   const found: ChatReferences = { checkpoints: new Set(), recordings: new Set() }
   const add = async (file: string) => {
-    try {
-      const saved = JSON.parse(await readFile(file, 'utf8')) as Partial<SavedChat>
-      for (const point of Object.values(saved.checkpoints ?? {})) {
-        if (typeof point?.before === 'string') found.checkpoints.add(point.before)
-        if (typeof point?.after === 'string') found.checkpoints.add(point.after)
-      }
-      if (typeof saved.redo?.sha === 'string') found.checkpoints.add(saved.redo.sha)
-      for (const version of Array.isArray(saved.versions) ? saved.versions : []) {
-        if (typeof version?.sha === 'string') found.checkpoints.add(version.sha)
-      }
-      const queued = Array.isArray(saved.queue) ? saved.queue.map((entry) => entry?.message) : []
-      for (const turn of [...(Array.isArray(saved.turns) ? saved.turns : []), ...queued]) {
-        for (const clip of Array.isArray(turn?.recordings) ? turn.recordings : []) {
-          if (typeof clip?.id === 'string') found.recordings.add(clip.id)
-        }
-      }
-      return true
-    } catch (error) {
-      // Gone since it was listed (archived or deleted) is fine; anything else isn't known.
-      return (error as NodeJS.ErrnoException).code === 'ENOENT'
-    }
+    const result = await readHistory({ action: 'references', file })
+    if (result.status === 'missing') return true
+    if (result.status !== 'ok' || result.action !== 'references') return false
+    for (const sha of result.references.checkpoints) found.checkpoints.add(sha)
+    for (const id of result.references.recordings) found.recordings.add(id)
+    return true
   }
-  const names = await readdir(dir()).catch(() => [] as string[])
+  const names = await referenceFiles(dir())
+  if (!names || names.some((entry) => recovery.test(entry))) return null
   for (const entry of names.filter((entry) => own.test(entry))) {
     if (!(await add(join(dir(), entry)))) return null
   }
   // Listed after the live files were read, so one archived meanwhile is read here.
   const folder = join(dir(), name)
-  const archived = await readdir(folder).catch(() => [] as string[])
+  const archived = await referenceFiles(folder)
+  if (!archived || archived.some((entry) => /^[a-f0-9-]{36}\.corrupt-\d+\.json$/.test(entry)))
+    return null
   for (const entry of archived) {
     if (!CHAT_ID.test(entry.replace(/\.json$/, '')) || !entry.endsWith('.json')) continue
     if (!(await add(join(folder, entry)))) return null
@@ -240,175 +193,11 @@ export async function chatReferences(root: string): Promise<ChatReferences | nul
   return found
 }
 
-/** Nothing was running when the app quit, so open permission prompts can't be answered. */
-function settleTurn(turn: Turn, before: string | null): Turn {
-  const items = turn.items.map(settleItem)
-  const attachments = settleAttachments(turn.attachments)
-  const context = settleContext(turn.context)
-  const recordings = settleRecordings(turn.recordings)
-  if (turn.status !== 'running') return { ...turn, items, attachments, context, recordings }
-  return {
-    ...turn,
-    items,
-    attachments,
-    context,
-    recordings,
-    status: 'cancelled',
-    endedAt: turn.startedAt,
-    // Its edits were never diffed, but its starting checkpoint can still undo them.
-    ...(before && turn.changes === null ? { changesUnknown: true } : {}),
-  }
-}
-
-/** Turns saved before several things could be picked hold one element, or null. */
-function settleContext(value: unknown): Picked[] {
-  if (Array.isArray(value)) return value as Picked[]
-  return value && typeof value === 'object' ? [value as Picked] : []
-}
-
-/** Each agent's saved command list, checked like one the agent sent. */
-function settleCommands(value: unknown): Record<string, AgentCommand[]> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  const commands: Record<string, AgentCommand[]> = {}
-  for (const [agentId, list] of Object.entries(value)) {
-    if (isAgentId(agentId)) commands[agentId] = parseCommands(list)
-  }
-  return commands
-}
-
-/** Same limits main puts on attachments when they're sent (see `isImage` in index.ts). */
-const THUMBNAIL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
-const MAX_THUMBNAIL = 256 * 1024
-const MAX_NAME = 200
-
-type Attachment = NonNullable<Turn['attachments']>[number]
-
-function isAttachment(value: unknown): value is Attachment {
-  if (!value || typeof value !== 'object') return false
-  const { name, thumbnail } = value as Record<string, unknown>
-  return (
-    typeof name === 'string' &&
-    name.length <= MAX_NAME &&
-    typeof thumbnail === 'string' &&
-    thumbnail.length <= MAX_THUMBNAIL &&
-    THUMBNAIL.test(thumbnail)
-  )
-}
-
-/**
- * History only ever holds thumbnails, but the file is just JSON on disk: keep the
- * attachments that are exactly that and drop anything else.
- */
-function settleAttachments(value: unknown): Turn['attachments'] {
-  if (!Array.isArray(value)) return undefined
-  const valid = value.filter(isAttachment).map(({ name, thumbnail }) => ({ name, thumbnail }))
-  return valid.length ? valid : undefined
-}
-
-function settleRecordings(value: unknown): RecordingAttachment[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const valid = value
-    .filter((clip): clip is RecordingAttachment => {
-      if (!clip || typeof clip !== 'object') return false
-      const data: Record<string, unknown> = clip
-      return (
-        typeof data.id === 'string' &&
-        /^[a-f0-9-]{36}$/.test(data.id) &&
-        typeof data.url === 'string' &&
-        /^gui-recording:\/\/[a-f0-9]{32}\/[a-f0-9-]{36}\/video\.webm$/.test(data.url) &&
-        data.url.endsWith(`/${data.id}/video.webm`) &&
-        ['durationMs', 'width', 'height', 'frameCount'].every(
-          (key) =>
-            typeof data[key] === 'number' && Number.isFinite(data[key]) && Number(data[key]) > 0,
-        ) &&
-        Number(data.durationMs) <= 61000 &&
-        Number(data.width) <= 1920 &&
-        Number(data.height) <= 1920 &&
-        Number.isInteger(data.frameCount) &&
-        Number(data.frameCount) <= 1830 &&
-        isAttachment(data)
-      )
-    })
-    .slice(0, 3)
-  return valid.length ? valid : undefined
-}
-
-const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-/** As main accepts them when they're sent (`MAX_IMAGE_BASE64` in index.ts) */
-const MAX_IMAGE_BASE64 = 7 * 1024 * 1024
-
-function isImage(value: unknown): value is ImageAttachment {
-  if (!isAttachment(value)) return false
-  const { mimeType, data } = value as unknown as Record<string, unknown>
-  return (
-    typeof mimeType === 'string' &&
-    IMAGE_TYPES.has(mimeType) &&
-    typeof data === 'string' &&
-    data.length <= MAX_IMAGE_BASE64 &&
-    /^[A-Za-z0-9+/]+={0,2}$/.test(data)
-  )
-}
-
-function isViewport(value: unknown): value is PromptViewport {
-  if (!value || typeof value !== 'object') return false
-  const { name, width, height, fixed } = value as Record<string, unknown>
-  return (
-    typeof name === 'string' &&
-    typeof width === 'number' &&
-    typeof height === 'number' &&
-    typeof fixed === 'boolean'
-  )
-}
-
-function isFollowUp(value: unknown): value is FollowUp {
-  if (!value || typeof value !== 'object') return false
-  const { turnId, number, prompt } = value as Record<string, unknown>
-  return typeof turnId === 'string' && typeof number === 'number' && typeof prompt === 'string'
-}
-
-/** The saved queue, keeping only messages that are whole. */
-function settleQueue(value: unknown): SavedQueued[] | undefined {
-  if (!Array.isArray(value)) return undefined
-  const queue = value.flatMap((entry): SavedQueued[] => {
-    if (!entry || typeof entry !== 'object') return []
-    const { message, images, selection, viewport, fix } = entry as Record<string, unknown>
-    if (!message || typeof message !== 'object') return []
-    const { id, prompt, context, attachments, recordings, followUp } = message as Record<
-      string,
-      unknown
-    >
-    if (typeof id !== 'string' || !CHAT_ID.test(id) || typeof prompt !== 'string' || !prompt)
-      return []
-    const picked = settleContext(context)
-    return [
-      {
-        message: {
-          id,
-          prompt,
-          context: picked,
-          attachments: settleAttachments(attachments) ?? [],
-          recordings: settleRecordings(recordings) ?? [],
-          ...(isFollowUp(followUp) ? { followUp } : {}),
-        },
-        images: Array.isArray(images) ? images.filter(isImage) : [],
-        selection: Array.isArray(selection) ? settleContext(selection) : picked,
-        viewport: isViewport(viewport) ? viewport : null,
-        ...(fix === 'startup' ? { fix } : {}),
-      },
-    ]
-  })
-  return queue.length ? queue : undefined
-}
-
-function settleItem(item: TurnItem): TurnItem {
-  if (item.kind !== 'permission') return item
-  // Saved before prompts described the action; fill in what the transcript expects.
-  return {
-    ...item,
-    toolKind: item.toolKind ?? 'other',
-    locations: item.locations ?? [],
-    sensitive: item.sensitive ?? false,
-    resolved: item.resolved ?? 'cancelled',
+async function referenceFiles(folder: string): Promise<string[] | null> {
+  try {
+    return await readdir(folder)
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? [] : null
   }
 }
 
@@ -419,15 +208,9 @@ export { flushHistorySync, HistoryWriter } from './history-writer'
 // chats it replaced sit in a folder beside it named the same, one file per chat, with an
 // index of what the list shows so it never reads whole transcripts.
 
-const CHAT_ID = /^[a-f0-9-]{36}$/
 const INDEX = 'index.json'
-const MAX_TITLE = 120
-const MAX_PROMPT = 200
 
-/** A title as the user typed it, on one line and cut short. */
-export function cleanTitle(title: string) {
-  return title.replace(/\s+/g, ' ').trim().slice(0, MAX_TITLE)
-}
+export { cleanTitle }
 
 async function archiveDir(root: string) {
   const real = await realpath(root).catch(() => root)
@@ -436,52 +219,27 @@ async function archiveDir(root: string) {
 
 const archivedFile = (folder: string, id: string) => join(folder, `${id}.json`)
 
-/** What the list shows for a chat; null for one with no turns, which isn't worth keeping. */
-function summarize(saved: SavedChat): ChatSummary | null {
-  const first = saved.turns[0]
-  const last = saved.turns.at(-1)
-  if (!first || !last) return null
-  const text = saved.turns.find((turn) => typeof turn.prompt === 'string' && turn.prompt.trim())
-  return {
-    id: saved.id,
-    title: saved.title ?? null,
-    prompt: text ? text.prompt.replace(/\s+/g, ' ').trim().slice(0, MAX_PROMPT) : 'Image',
-    agentId: saved.agentId,
-    turns: saved.turns.length,
-    startedAt: saved.createdAt,
-    lastAt: last.endedAt ?? last.startedAt,
-  }
-}
-
-function isSummary(value: unknown): value is ChatSummary {
-  if (!value || typeof value !== 'object') return false
-  const entry = value as Record<string, unknown>
-  return (
-    typeof entry.id === 'string' &&
-    CHAT_ID.test(entry.id) &&
-    (entry.title === null || typeof entry.title === 'string') &&
-    typeof entry.prompt === 'string' &&
-    isAgentId(entry.agentId) &&
-    typeof entry.turns === 'number' &&
-    typeof entry.startedAt === 'number' &&
-    typeof entry.lastAt === 'number'
-  )
-}
-
 /** The index as the files are: read when the index is missing or unreadable. */
 async function rebuildIndex(folder: string): Promise<ChatSummary[]> {
   const names = await readdir(folder).catch(() => [] as string[])
-  const summaries = await Promise.all(
-    names
-      .filter((name) => CHAT_ID.test(name.replace(/\.json$/, '')) && name.endsWith('.json'))
-      .map(async (name) => {
-        const saved = await loadHistory(join(folder, name))
-        if (!saved) return null
+  const summaries: ChatSummary[] = []
+  // One read at a time, with summaries produced in the worker. Never fan out transcripts.
+  for (const name of names) {
+    if (!CHAT_ID.test(name.replace(/\.json$/, '')) || !name.endsWith('.json')) continue
+    const file = join(folder, name)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const result = await readHistory({ action: 'summary', file })
+      if (result.status === 'error' && result.kind === 'worker') throw new Error(result.message)
+      if (result.status === 'error' && !(await setAside(file, result.message, result.source)))
+        continue
+      if (result.status === 'ok' && result.action === 'summary' && result.summary) {
         // The file's name is the chat's id, whatever an edited file says.
-        return summarize({ ...saved, id: name.replace(/\.json$/, '') })
-      }),
-  )
-  return summaries.filter((summary) => summary !== null)
+        summaries.push({ ...result.summary, id: name.replace(/\.json$/, '') })
+      }
+      break
+    }
+  }
+  return summaries
 }
 
 /** The index; `stored` is false when it had to be rebuilt, so it's written out again. */
@@ -507,27 +265,34 @@ async function readIndex(folder: string): Promise<{ list: ChatSummary[]; stored:
 /** Index changes per folder, one at a time, so two never read the same list and drop one's change. */
 const indexQueue = new Map<string, Promise<unknown>>()
 
-function updateIndex(folder: string, update: (list: ChatSummary[]) => ChatSummary[]) {
+function updateIndex(
+  folder: string,
+  update: (list: ChatSummary[]) => ChatSummary[] | Promise<ChatSummary[]>,
+) {
   const task = (indexQueue.get(folder) ?? Promise.resolve()).then(async () => {
     const { list, stored } = await readIndex(folder)
-    const next = update(list).sort((a, b) => b.lastAt - a.lastAt)
+    const next = (await update(list)).sort((a, b) => b.lastAt - a.lastAt)
     if (next !== list || !stored) await writeFileAtomic(join(folder, INDEX), JSON.stringify(next))
     return next
   })
-  indexQueue.set(
-    folder,
-    task.catch(() => undefined),
-  )
+  const settled = task.catch(() => undefined)
+  indexQueue.set(folder, settled)
+  void settled.then(() => {
+    if (indexQueue.get(folder) === settled) indexQueue.delete(folder)
+  })
   return task
 }
 
 /** Puts a chat in its project's archive; null when it had no turns and so wasn't kept. */
 export async function archiveChat(root: string, saved: SavedChat): Promise<ChatSummary | null> {
-  const summary = summarize(saved)
+  const snapshot = snapshotHistory(saved)
+  const summary = summarizeHistory(snapshot)
   if (!summary) return null
   const folder = await archiveDir(root)
-  await writeFileAtomic(archivedFile(folder, saved.id), serializeHistory(saved))
-  await updateIndex(folder, (list) => [summary, ...list.filter((entry) => entry.id !== saved.id)])
+  await updateIndex(folder, async (list) => {
+    await writeHistorySnapshot(archivedFile(folder, snapshot.id), snapshot)
+    return [summary, ...list.filter((entry) => entry.id !== snapshot.id)]
+  })
   return summary
 }
 
@@ -546,17 +311,26 @@ export async function loadArchived(root: string, id: string): Promise<SavedChat 
 export async function removeArchived(root: string, id: string) {
   if (!CHAT_ID.test(id)) return
   const folder = await archiveDir(root)
-  await rm(archivedFile(folder, id), { force: true })
-  await updateIndex(folder, (list) => list.filter((entry) => entry.id !== id))
+  await updateIndex(folder, async (list) => {
+    await rm(archivedFile(folder, id), { force: true })
+    return list.filter((entry) => entry.id !== id)
+  })
 }
 
 /** Names an archived chat; an empty title goes back to its first message. */
 export async function renameArchived(root: string, id: string, title: string) {
-  const saved = await loadArchived(root, id)
-  if (!saved) throw new Error('That chat is no longer in the archive.')
-  const { title: _old, ...rest } = saved
-  const named = cleanTitle(title)
-  await archiveChat(root, named ? { ...rest, title: named } : rest)
+  if (!CHAT_ID.test(id)) throw new Error('That chat is no longer in the archive.')
+  const folder = await archiveDir(root)
+  await updateIndex(folder, async (list) => {
+    const saved = await loadHistory(archivedFile(folder, id))
+    if (!saved) throw new Error('That chat is no longer in the archive.')
+    const { title: _old, ...rest } = saved
+    const named = cleanTitle(title)
+    const snapshot = snapshotHistory({ ...rest, id, ...(named ? { title: named } : {}) })
+    const summary = summarizeHistory(snapshot)
+    await writeHistorySnapshot(archivedFile(folder, id), snapshot)
+    return [...(summary ? [summary] : []), ...list.filter((entry) => entry.id !== id)]
+  })
 }
 
 /**
@@ -566,10 +340,13 @@ export async function renameArchived(root: string, id: string, title: string) {
 export async function archiveStoredChat(root: string) {
   const file = await historyFile(root)
   if (claimed.has(file)) return false
-  const saved = await loadHistory(file)
-  if (saved) await archiveChat(root, saved)
-  await rm(file, { force: true })
-  return true
+  claimed.add(file)
+  try {
+    await archiveFile(root, file)
+    return true
+  } finally {
+    releaseHistoryFile(file)
+  }
 }
 
 /**
@@ -590,7 +367,16 @@ export async function retireHistoryFile(root: string, file: string) {
 async function archiveFile(root: string, file: string) {
   const saved = await loadHistory(file)
   if (saved) await archiveChat(root, saved)
+  else {
+    // A failed recovery rename must never lead to deleting the only surviving file.
+    const exists = await stat(file).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+      return null
+    })
+    if (exists) throw new Error('That chat could not be read, so its file was kept.')
+  }
   await rm(file, { force: true })
+  await rm(summaryFile(file), { force: true })
 }
 
 /** Numbered chat files no tab holds, left by a quit before their tab could archive them. */
@@ -601,8 +387,13 @@ async function archiveStrays(root: string) {
   for (const name of names) {
     const file = join(dir(), name)
     if (!stray.test(name) || claimed.has(file)) continue
-    await archiveFile(root, file).catch((error: unknown) => {
+    claimed.add(file)
+    try {
+      await archiveFile(root, file)
+    } catch (error) {
       console.error('[gui] failed to archive a leftover chat', error)
-    })
+    } finally {
+      releaseHistoryFile(file)
+    }
   }
 }

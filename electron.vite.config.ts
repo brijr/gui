@@ -34,6 +34,7 @@ export default defineConfig({
           index: resolve('src/main/index.ts'),
           'source-map-worker': resolve('src/main/source-map-worker.ts'),
           'history-worker': resolve('src/main/history-worker.ts'),
+          'history-read-worker': resolve('src/main/history-read-worker.ts'),
         },
       },
     },

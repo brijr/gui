@@ -1,5 +1,6 @@
 import type { FileChange, Version } from '../shared/types'
 import type { SavedChat } from './history'
+import type { LastMessage } from './history-summary'
 
 /** Query strings and fragments can carry tokens; history only needs the page. */
 function withoutQuery(url: string) {
@@ -156,4 +157,7 @@ export function settleVersions(value: unknown): Version[] | undefined {
 export type HistoryWriteRequest =
   | { action: 'begin'; id: string; file: string }
   | { action: 'append'; id: string; text: string }
-  | { action: 'finish' | 'abort'; id: string }
+  | { action: 'finish'; id: string; recent?: LastMessage | null }
+  | { action: 'abort'; id: string }
+
+export type HistoryWriteResult = { file: string; summary?: string } | null

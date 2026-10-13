@@ -99,5 +99,6 @@ test('a recent chat archives from the start screen', async ({ launch }) => {
   await expect(session.chrome.getByRole('heading', { name: 'Recent chats' })).toBeHidden()
   await expect(session.chrome.getByRole('heading', { name: 'Recent' })).toBeVisible()
   expect(existsSync(`${folder}.json`)).toBe(false)
+  expect(existsSync(`${folder}.summary.json`)).toBe(false)
   expect(readdirSync(folder).filter((name) => name !== 'index.json')).toHaveLength(1)
 })

@@ -1,17 +1,19 @@
 import { randomUUID } from 'node:crypto'
-import { renameSync } from 'node:fs'
+import { renameSync, statSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { writeFileAtomicSync } from './atomic-file'
 import { BackgroundWorker } from './background-worker'
 import type { SavedChat } from './history'
 import {
   type HistoryWriteRequest,
+  type HistoryWriteResult,
   historyChunks,
   serializeHistory,
   snapshotHistory,
 } from './history-format'
+import { historyStamp, type LiveSummary, lastMessageFor, summaryFile } from './history-summary'
 
-const worker = new BackgroundWorker<HistoryWriteRequest, string | null>(
+const worker = new BackgroundWorker<HistoryWriteRequest, HistoryWriteResult>(
   new URL(
     import.meta.url.endsWith('.ts') ? './history-worker.ts' : './history-worker.js',
     import.meta.url,
@@ -20,6 +22,51 @@ const worker = new BackgroundWorker<HistoryWriteRequest, string | null>(
   16,
 )
 const writers = new Set<HistoryWriter>()
+
+/** Archive snapshots use the same yielding serialization and bounded disk worker as live saves. */
+export function writeHistorySnapshot(file: string, snapshot: SavedChat) {
+  return persistSnapshot(file, snapshot, false, () => false)
+}
+
+async function persistSnapshot(
+  file: string,
+  snapshot: SavedChat,
+  withSummary: boolean,
+  stopped: () => boolean,
+) {
+  const id = randomUUID()
+  let tmp: string | null = null
+  let summary: string | null = null
+  try {
+    tmp = (await worker.run({ action: 'begin', id, file }))?.file ?? null
+    if (!tmp) throw new Error('History temporary file unavailable.')
+    for await (const text of historyChunks(snapshot)) {
+      if (stopped()) break
+      await worker.run({ action: 'append', id, text })
+    }
+    const finished = await worker.run(
+      stopped()
+        ? { action: 'abort', id }
+        : { action: 'finish', id, ...(withSummary ? { recent: lastMessageFor(snapshot) } : {}) },
+    )
+    summary = finished?.summary ?? null
+    // No async gap between the final-save guard and either rename.
+    if (!stopped()) {
+      renameSync(tmp, file)
+      tmp = null
+      if (summary) {
+        renameSync(summary, summaryFile(file))
+        summary = null
+      }
+    }
+  } finally {
+    if (tmp) {
+      await worker.run({ action: 'abort', id }).catch(() => undefined)
+      await rm(tmp, { force: true }).catch(() => undefined)
+    }
+    if (summary) await rm(summary, { force: true }).catch(() => undefined)
+  }
+}
 
 /** App quit's fallback also includes saves from tabs already closed asynchronously. */
 export function flushHistorySync() {
@@ -65,7 +112,14 @@ export class HistoryWriter {
     this.closed = true
     this.dirty = false
     try {
-      writeFileAtomicSync(this.file, serializeHistory(this.finalChat ?? this.read()))
+      const saved = this.finalChat ?? this.read()
+      writeFileAtomicSync(this.file, serializeHistory(saved))
+      const summary: LiveSummary = {
+        version: 1,
+        source: historyStamp(statSync(this.file)),
+        recent: lastMessageFor(saved),
+      }
+      writeFileAtomicSync(summaryFile(this.file), JSON.stringify(summary))
     } catch (error) {
       console.error('[gui] failed to save chat history', error)
     }
@@ -83,26 +137,11 @@ export class HistoryWriter {
   private async drain() {
     while (this.dirty && !this.syncFinished) {
       this.dirty = false
-      let tmp: string | null = null
-      const id = randomUUID()
       try {
         const snapshot = this.finalChat ?? snapshotHistory(this.read())
-        tmp = await worker.run({ action: 'begin', id, file: this.file })
-        if (!tmp) throw new Error('History temporary file unavailable.')
-        for await (const text of historyChunks(snapshot)) {
-          if (this.syncFinished) break
-          await worker.run({ action: 'append', id, text })
-        }
-        await worker.run({ action: this.syncFinished ? 'abort' : 'finish', id })
-        // The synchronous check and rename prevent quit's final save being overwritten.
-        if (this.syncFinished) await rm(tmp, { force: true })
-        else renameSync(tmp, this.file)
+        await persistSnapshot(this.file, snapshot, true, () => this.syncFinished)
       } catch (error) {
         console.error('[gui] failed to save chat history', error)
-        if (tmp) {
-          await worker.run({ action: 'abort', id }).catch(() => undefined)
-          await rm(tmp, { force: true }).catch(() => undefined)
-        }
         // Ordinary close must still persist if its worker failed or the bounded queue filled.
         if (this.closed && !this.syncFinished) this.saveSync()
       }

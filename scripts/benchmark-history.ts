@@ -1,9 +1,11 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SavedChat } from '../src/main/history'
-import { serializeHistory } from '../src/main/history-format'
-import { HistoryWriter } from '../src/main/history-writer'
+import { serializeHistory, snapshotHistory } from '../src/main/history-format'
+import { readHistory, readLastMessage } from '../src/main/history-reader'
+import { summaryFile } from '../src/main/history-summary'
+import { HistoryWriter, writeHistorySnapshot } from '../src/main/history-writer'
 
 /** Synthetic scaling measurement, not a timing assertion or a claim about typical chats. */
 async function measure(run: () => unknown | Promise<unknown>) {
@@ -56,9 +58,45 @@ try {
     const synchronousSerialization = await measure(() => {
       bytes = Buffer.byteLength(serializeHistory(chat))
     })
-    const writer = new HistoryWriter(join(directory, `${count}.json`), () => chat)
+    const file = join(directory, `${count}.json`)
+    const writer = new HistoryWriter(file, () => chat)
     const backgroundSave = await measure(() => writer.close())
-    console.log(JSON.stringify({ turns: count, bytes, synchronousSerialization, backgroundSave }))
+    const summaryBytes = (await stat(summaryFile(file))).size
+    const summaryRead = await measure(async () => {
+      if (!(await readLastMessage(file))) throw new Error('Saved summary unavailable.')
+    })
+    await rm(summaryFile(file))
+    const summaryMigration = await measure(async () => {
+      if (!(await readLastMessage(file))) throw new Error('Legacy summary unavailable.')
+    })
+    const backgroundLoad = await measure(async () => {
+      const result = await readHistory({ action: 'load', file })
+      if (result.status !== 'ok' || result.action !== 'load' || result.chat.turns.length !== count)
+        throw new Error('History did not load completely.')
+    })
+    const archive = join(directory, `${count}-archived.json`)
+    const archiveSnapshot = await measure(() =>
+      writeHistorySnapshot(archive, snapshotHistory(chat)),
+    )
+    const archiveSummary = await measure(async () => {
+      const result = await readHistory({ action: 'summary', file: archive })
+      if (result.status !== 'ok' || result.action !== 'summary' || result.summary?.turns !== count)
+        throw new Error('Archive summary unavailable.')
+    })
+    console.log(
+      JSON.stringify({
+        turns: count,
+        bytes,
+        summaryBytes,
+        synchronousSerialization,
+        backgroundSave,
+        summaryRead,
+        summaryMigration,
+        backgroundLoad,
+        archiveSnapshot,
+        archiveSummary,
+      }),
+    )
   }
 } finally {
   await rm(directory, { recursive: true, force: true })

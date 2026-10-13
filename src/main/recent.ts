@@ -36,7 +36,9 @@ export const recentSoFar = () => lastWithChats
 /** The list with each project's last message, for the start screen's recent chats. */
 export async function withChats(recent: RecentProject[]): Promise<RecentProject[]> {
   lastWithChats = await Promise.all(
-    recent.map(async (project) => ({ ...project, chat: await lastMessage(project.root) })),
+    recent
+      .slice(0, MAX_RECENT)
+      .map(async (project) => ({ ...project, chat: await lastMessage(project.root) })),
   )
   return lastWithChats
 }

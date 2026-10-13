@@ -1,18 +1,19 @@
-import { type FileHandle, open, rm } from 'node:fs/promises'
+import { type FileHandle, open, rm, stat } from 'node:fs/promises'
 import { parentPort } from 'node:worker_threads'
 import { writeTemp } from './atomic-file'
-import type { HistoryWriteRequest } from './history-format'
+import type { HistoryWriteRequest, HistoryWriteResult } from './history-format'
+import { historyStamp, type LiveSummary, summaryFile } from './history-summary'
 
-const writes = new Map<string, { file: string; handle: FileHandle }>()
+const writes = new Map<string, { file: string; target: string; handle: FileHandle }>()
 parentPort?.on('message', async (request: HistoryWriteRequest) => {
   try {
-    let result: string | null = null
+    let result: HistoryWriteResult = null
     if (request.action === 'begin') {
       const file = await writeTemp(request.file, '')
       try {
         const handle = await open(file, 'a')
-        writes.set(request.id, { file, handle })
-        result = file
+        writes.set(request.id, { file, target: request.file, handle })
+        result = { file }
       } catch (error) {
         await rm(file, { force: true })
         throw error
@@ -29,7 +30,17 @@ parentPort?.on('message', async (request: HistoryWriteRequest) => {
           await write.handle.close()
         }
         if (request.action === 'abort') await rm(write.file, { force: true })
-        else result = write.file
+        else {
+          result = { file: write.file }
+          if (request.recent !== undefined) {
+            const summary: LiveSummary = {
+              version: 1,
+              source: historyStamp(await stat(write.file)),
+              recent: request.recent,
+            }
+            result.summary = await writeTemp(summaryFile(write.target), JSON.stringify(summary))
+          }
+        }
       }
     }
     parentPort?.postMessage({ result })

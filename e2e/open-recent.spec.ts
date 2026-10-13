@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, realpathSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { sleep, waitFor } from './helpers/env'
 import { devServerPids } from './helpers/processes'
@@ -88,6 +88,12 @@ test('the start screen lists recent chats by their last message', async ({ launc
   await expect(row).toBeVisible()
   await expect(row).toContainText('2 hours ago')
   await expect(session.chrome.getByRole('heading', { name: 'Recent chats' })).toBeVisible()
+  const summary = file.replace(/\.json$/, '.summary.json')
+  await expect.poll(() => existsSync(summary)).toBe(true)
+  expect(JSON.parse(readFileSync(summary, 'utf8')).recent).toEqual({
+    prompt: 'Use a softer blue for the buttons',
+    at: now - 2 * 3600_000,
+  })
   await session.shot('start-screen-chats', true)
 
   await row.click()

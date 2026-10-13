@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { SourceMapGenerator } from 'source-map-js'
 import { BackgroundWorker } from '../src/main/background-worker'
 import type { SavedChat } from '../src/main/history'
+import { readLastMessage } from '../src/main/history-reader'
 import { HistoryWriter } from '../src/main/history-writer'
 import { resolveFrame } from '../src/main/source-resolver'
 
@@ -60,7 +61,8 @@ test('normal history close saves final state before completing and cannot be cha
   writer.save()
   await completion
   expect(JSON.parse(await readFile(file, 'utf8')).turns[0].prompt).toBe('final')
-  expect(await readdir(root)).toEqual(['history.json'])
+  expect((await readdir(root)).sort()).toEqual(['history.json', 'history.summary.json'])
+  expect(await readLastMessage(file)).toEqual({ prompt: 'final', at: 1 })
 })
 
 test('shutdown final save wins over an older worker write and repeated disposal', async () => {
@@ -75,7 +77,8 @@ test('shutdown final save wins over an older worker write and repeated disposal'
   // Let the older worker result return and be discarded before checking.
   await new Promise((resolve) => setTimeout(resolve, 100))
   expect(JSON.parse(await readFile(file, 'utf8')).turns[0].prompt).toBe('shutdown final state')
-  expect(await readdir(root)).toEqual(['history.json'])
+  expect((await readdir(root)).sort()).toEqual(['history.json', 'history.summary.json'])
+  expect(await readLastMessage(file)).toEqual({ prompt: 'shutdown final state', at: 1 })
 })
 
 test('worker source maps resolve precise positions and preserve approximate fallback', async () => {

@@ -18,6 +18,7 @@ export class BackgroundWorker<Input, Output> {
     private readonly url: URL,
     private readonly timeoutMs = 10_000,
     private readonly maxQueued = 32,
+    private readonly maxOldGenerationSizeMb = 192,
   ) {}
 
   run(input: Input): Promise<Output> {
@@ -39,7 +40,7 @@ export class BackgroundWorker<Input, Output> {
       let worker: Worker
       try {
         worker = new Worker(this.url, {
-          resourceLimits: { maxOldGenerationSizeMb: 192 },
+          resourceLimits: { maxOldGenerationSizeMb: this.maxOldGenerationSizeMb },
         })
       } catch (error) {
         this.queue.shift()?.reject(error instanceof Error ? error : new Error(String(error)))
