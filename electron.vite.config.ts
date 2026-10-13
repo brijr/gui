@@ -48,7 +48,17 @@ export default defineConfig({
   },
   preload: {
     // Sandboxed preloads must be CommonJS.
-    build: { externalizeDeps: true, rollupOptions: { output: { format: 'cjs' } } },
+    // `preview` is the preview's own, for editing its text in place (src/preload/preview.ts).
+    build: {
+      externalizeDeps: true,
+      rollupOptions: {
+        input: {
+          index: resolve('src/preload/index.ts'),
+          preview: resolve('src/preload/preview.ts'),
+        },
+        output: { format: 'cjs' },
+      },
+    },
   },
   renderer: {
     // Keep Gui's own UI server off 5173/3000 so it never collides with the projects it previews.

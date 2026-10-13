@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
 import { readFile, writeFile } from 'node:fs/promises'
-import { basename, join, posix } from 'node:path'
+import { basename, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import {
   app,
   BrowserWindow,
@@ -123,7 +123,7 @@ import {
 import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
 import { RecordingTrace } from './recording-trace'
 import { Recordings } from './recordings'
-import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
+import { guardAppContents, loadRenderer, PRELOAD, PREVIEW_PRELOAD } from './renderer'
 import {
   createEnvFile,
   detectEnv,
@@ -139,6 +139,7 @@ import { resolveProject, saveStartCommand, validateStartCommand } from './start-
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
 import { PREVIEW_PARTITION } from './storage'
 import { Terminals } from './terminals'
+import { collapseText, rewriteText } from './text-edit'
 import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
@@ -349,6 +350,8 @@ export class ProjectTab {
   private highlightedPick: string | null = null
   /** The pick whose chip the pointer is over in the composer */
   private hoveredPick: string | null = null
+  /** Text double-clicked in the page and being edited there (`startTextEdit`) */
+  private textEdit: { id: string; before: string; node: Promise<number | null> } | null = null
   /**
    * Where the floating panel sits: by one of its corners, from the canvas's same corner, so it
    * stays there as the window and the logs resize. Letting go of it picks a corner of the
@@ -470,6 +473,7 @@ export class ProjectTab {
 
     this.preview = new WebContentsView({
       webPreferences: {
+        preload: PREVIEW_PRELOAD,
         sandbox: true,
         contextIsolation: true,
         nodeIntegration: false,
@@ -522,6 +526,11 @@ export class ProjectTab {
       .then(withChats)
       .then((recent) => this.patch({ recent }))
     void listBoards().then((recentBoards) => this.patch({ recentBoards }))
+  }
+
+  /** The page in this tab's preview, which only its own preload speaks for. */
+  ownsPreview(wc: WebContents) {
+    return wc === this.preview.webContents
   }
 
   /** The chat panel is the tab's own page; the chrome belongs to the window. */
@@ -1480,6 +1489,8 @@ export class ProjectTab {
     wc.on('did-start-navigation', (event) => {
       if (!event.isMainFrame || event.isSameDocument) return
       this.loadFailed = false
+      // An edit in place goes with its page.
+      this.textEdit = null
       this.keyboardBeforeLoad = this.keyboardOwner()
     })
     // Loading a new document takes the keyboard from whichever view had it (such as the
@@ -1524,6 +1535,8 @@ export class ProjectTab {
     })
     wc.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || input.key !== 'Escape') return
+      // Esc in text being edited in place puts it back; the page has it (src/preload/preview.ts).
+      if (this.textEdit) return
       // Picking ends first; then focus mode. The page gets Esc once neither is on.
       if (this.state.preview.selecting) {
         event.preventDefault()
@@ -1644,6 +1657,63 @@ export class ProjectTab {
 
   pickWheel(at: Point, deltaX: number, deltaY: number) {
     if (this.picker.picking || this.picker.guiding) this.picker.wheel(at, deltaX, deltaY)
+  }
+
+  // Editing the page's text in place (src/preload/preview.ts)
+
+  /**
+   * Text was double-clicked in the page, at `at` (its CSS pixels in the viewport): it may be
+   * edited there when it's the app's (or a canvas frame's) and the user isn't picking. The
+   * element under `at` is found now, before typing moves it. An id for the edit, or null.
+   */
+  startTextEdit(at: Point, before: string): string | null {
+    if (!this.state.project || !this.resources.chat || this.picker.picking) return null
+    if (!this.state.preview.selectable || this.textEdit) return null
+    const id = randomUUID()
+    this.textEdit = { id, before, node: this.inspector.nodeAt(at) }
+    return id
+  }
+
+  /**
+   * The edit ended, with the text as typed (null: put back, or unchanged). It's written to
+   * the source when the text is there plainly, in the file that rendered the element (a
+   * canvas frame's own page); otherwise the agent is asked to make the change, with the
+   * element picked.
+   */
+  endTextEdit(id: string, after: string | null) {
+    const edit = this.textEdit
+    if (edit?.id !== id) return
+    this.textEdit = null
+    const before = collapseText(edit.before)
+    if (after === null || !before || collapseText(after) === before) return
+    const project = this.state.project
+    const chat = this.resources.chat
+    if (!project || !chat) return
+    this.queuePick(async () => {
+      const node = await edit.node
+      const element =
+        node === null
+          ? null
+          : await this.inspectElement(node, project, { screenshot: false }).catch(() => null)
+      if (chat !== this.resources.chat) return
+      const board = this.resources.board
+      const file = board?.openId
+        ? board.framePath(board.openId)
+        : element?.source && sourceInProject(project.root, element.source.file)
+      const line = board?.openId ? null : (element?.source?.line ?? null)
+      // During a turn, the change would be the agent's to undo; it waits its turn instead.
+      if (file && !chat.busy && (await rewriteText(file, before, after, line))) return
+      // The user's own picks stay for their next message.
+      const picked = chat.meta.selection
+      const nodes = [...this.pickedNodes]
+      if (node !== null && element) {
+        this.pickedNodes.set(element.id, node)
+        chat.setSelection([{ ...element, kind: 'element' }])
+      }
+      chat.send(`Change the text “${before}” to “${collapseText(after)}”.`)
+      for (const [pick, pickNode] of nodes) this.pickedNodes.set(pick, pickNode)
+      chat.setSelection(picked)
+    })
   }
 
   // The agent's walkthrough (preview_point), drawn by the pick overlay
@@ -3757,6 +3827,14 @@ function cancelledShipInfo(): ShipInfo {
 }
 
 /** Where the dev server runs: a monorepo app's folder, or the project root. */
+/** A source path the inspector found, relative to the repo, as a file to edit; null outside it. */
+function sourceInProject(root: string, file: string) {
+  const path = resolve(root, file)
+  const inside = relative(root, path)
+  if (!inside || inside.startsWith('..') || isAbsolute(inside)) return null
+  return inside.split(sep).includes('node_modules') ? null : path
+}
+
 function appRoot(project: ProjectInfo) {
   return project.appDir ? join(project.root, project.appDir) : project.root
 }

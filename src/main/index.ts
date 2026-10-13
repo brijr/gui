@@ -33,6 +33,7 @@ import {
   type LegacyChannel,
   type LegacyResult,
 } from '../shared/ipc-requests'
+import { MAX_PREVIEW_TEXT, PreviewText } from '../shared/preview-text'
 import {
   SHORTCUTS,
   type ShortcutId,
@@ -1104,6 +1105,21 @@ function registerIpc() {
     if (isPoint(at) && isNumber(dx) && isNumber(dy)) tab.pickWheel(at, dx, dy)
   })
   on(Send.endGuide, (tab) => tab.endGuide())
+  /** From a preview's own preload, in its page's top frame: the tab whose preview it is. */
+  const previewTab = (event: IpcMainEvent | IpcMainInvokeEvent) =>
+    event.senderFrame === event.sender.mainFrame
+      ? allTabs().find((tab) => tab.ownsPreview(event.sender))
+      : undefined
+  const isPreviewText = (value: unknown): value is string =>
+    isString(value) && value.length <= MAX_PREVIEW_TEXT
+  ipcMain.handle(PreviewText.start, (event, at: unknown, text: unknown) => {
+    const tab = previewTab(event)
+    return tab && isPoint(at) && isPreviewText(text) ? tab.startTextEdit(at, text) : null
+  })
+  ipcMain.on(PreviewText.end, (event, id: unknown, text: unknown) => {
+    if (isString(id) && (text === null || isPreviewText(text)))
+      previewTab(event)?.endTextEdit(id, text)
+  })
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   onWindow(Send.setFocusMode, (win, on) => typeof on === 'boolean' && win.setFocusMode(on))
   onWindow(Send.setShortcutsOpen, (win, open) => {

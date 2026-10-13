@@ -5,6 +5,8 @@ export type RendererPage = 'index' | 'chat' | 'settings' | 'pick'
 
 /** Preload for Gui's own UI; the preview never gets it. */
 export const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')
+/** The preview's own preload: it only edits page text in place (src/preload/preview.ts). */
+export const PREVIEW_PRELOAD = join(import.meta.dirname, '../preload/preview.cjs')
 
 function rendererUrl(page: RendererPage) {
   // Never honor the dev-server override in packaged builds: it would load remote
