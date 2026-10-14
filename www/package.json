@@ -8,7 +8,10 @@
     "build": "astro build",
     "preview": "astro preview",
     "deploy": "astro build && wrangler deploy",
-    "test": "astro build && playwright test"
+    "test": "astro build && playwright test",
+    "migrate": "wrangler d1 migrations apply gui-www --remote",
+    "migrate:local": "wrangler d1 migrations apply gui-www --local",
+    "stats": "wrangler d1 execute gui-www --remote --file scripts/stats.sql"
   },
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.3.0",

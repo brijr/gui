@@ -11,6 +11,15 @@
   },
   // Gui's builds and update feed, published by scripts/release.sh.
   "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "gui-releases" }],
+  // The Windows and Linux waitlist, and a row for each download.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gui-www",
+      "database_id": "d7043f1c-53b5-44e5-a6c0-7cb1b3355e83",
+      "migrations_dir": "migrations"
+    }
+  ],
   "routes": [
     { "pattern": "usegui.com", "custom_domain": true },
     { "pattern": "www.usegui.com", "custom_domain": true }

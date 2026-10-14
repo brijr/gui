@@ -137,13 +137,14 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 ---
 
 <Base title={title} description={description} path="/" structuredData={structuredData}>
-  <div class="brand">
+  <div class="brand wide">
     <img class="mark" src="/mark-animated.svg" alt="" width="40" height="40" />
     <span class="wordmark">Gui</span>
+    <span class="pill">Alpha</span>
   </div>
 
   <h1 class="lede">
-    An agent harness for web design and UI design.<br />
+    An agent harness for web design and UI design.{' '}<br />
     Design on your <span data-demo-target>real app</span>, not on a mockup.
   </h1>
   <p class="sub">Iterate the details with the agent harness built for designers and visual engineers.</p>
@@ -153,7 +154,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
         <path d="M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5" />
       </svg>
-      Download now
+      Download for Mac
     </a>
     <button class="try-button" type="button" data-demo-open aria-haspopup="dialog">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -164,6 +165,34 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       Try it now
     </button>
   </div>
+
+  <section class="waitlist" id="waitlist" aria-labelledby="waitlist-title">
+    <p id="waitlist-title">
+      Windows and Linux are coming soon. Sign up for the waitlist, and we send you an email when
+      Gui is available.
+    </p>
+    <form class="waitlist-form" action="/waitlist" method="post" data-waitlist>
+      <input
+        class="waitlist-email"
+        type="email"
+        name="email"
+        required
+        maxlength="254"
+        autocomplete="email"
+        placeholder="you@example.com"
+        aria-label="Email address"
+      />
+      <select class="waitlist-platform" name="platform" aria-label="Platform">
+        <option value="windows">Windows</option>
+        <option value="linux">Linux</option>
+      </select>
+      <!-- People don't see this field; bots fill it in, and the worker does not save them. -->
+      <input class="waitlist-trap" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <button class="waitlist-submit" type="submit">Sign up</button>
+    </form>
+    <p class="waitlist-status" role="status" data-waitlist-status></p>
+    <p class="waitlist-joined" id="waitlist-joined">You are on the waitlist. We send you an email when Gui is available.</p>
+  </section>
 
   <figure class="wide">
     <HeroVideo
@@ -274,6 +303,31 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   <Demo slot="after" />
 </Base>
 
+<script>
+  // Signs up without leaving the page. Without this script, the form posts to /waitlist and the
+  // worker sends the browser back here.
+  const form = document.querySelector<HTMLFormElement>('[data-waitlist]')
+  const status = document.querySelector<HTMLElement>('[data-waitlist-status]')
+  form?.addEventListener('submit', async (event) => {
+    event.preventDefault()
+    const button = form.querySelector('button')!
+    button.disabled = true
+    const response = await fetch(form.action, {
+      method: 'POST',
+      body: new FormData(form),
+      headers: { accept: 'application/json' },
+    }).catch(() => null)
+    const result = (await response?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (result?.ok) {
+      form.hidden = true
+      status!.textContent = 'You are on the waitlist. We send you an email when Gui is available.'
+    } else {
+      status!.textContent = result?.error ?? 'Gui could not save your address. Try again.'
+      button.disabled = false
+    }
+  })
+</script>
+
 <style>
   .brand {
     display: flex;
@@ -290,6 +344,16 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     line-height: 1;
     letter-spacing: -0.055em;
     animation: wordmark-reveal 350ms ease-out 725ms both;
+  }
+  .pill {
+    margin-left: auto;
+    padding: var(--s-1) var(--s-3);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.2;
+    color: var(--muted);
   }
   @keyframes wordmark-reveal {
     from { opacity: 0; }
@@ -334,6 +398,87 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     align-items: center;
     gap: var(--s-2) var(--s-3);
     margin-top: var(--s-4);
+  }
+  .waitlist {
+    margin-top: var(--s-4);
+    color: var(--muted);
+    font-size: 1rem;
+  }
+  .waitlist-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2);
+    margin-top: var(--s-3);
+  }
+  .waitlist-form[hidden],
+  .waitlist:has(.waitlist-joined:target) .waitlist-form {
+    display: none;
+  }
+  .waitlist-email,
+  .waitlist-platform,
+  .waitlist-submit {
+    height: 2.5rem;
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--fg);
+    font: inherit;
+    font-size: 1rem;
+  }
+  .waitlist-email {
+    flex: 1 1 14rem;
+    min-width: 0;
+    padding: 0 var(--s-3);
+  }
+  .waitlist-email::placeholder {
+    color: var(--muted);
+  }
+  .waitlist-platform {
+    padding: 0 var(--s-3);
+  }
+  .waitlist-submit {
+    padding: 0 1.125rem;
+    border-color: transparent;
+    background: var(--fg);
+    color: var(--bg);
+    font-weight: 420;
+    cursor: pointer;
+    transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .waitlist-submit:hover {
+    opacity: 0.86;
+  }
+  .waitlist-submit:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  .waitlist-email:focus-visible,
+  .waitlist-platform:focus-visible,
+  .waitlist-submit:focus-visible {
+    outline: 2px solid var(--fg);
+    outline-offset: 2px;
+  }
+  .waitlist-trap {
+    position: absolute;
+    left: -9999px;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+  }
+  .waitlist-status:empty {
+    display: none;
+  }
+  .waitlist-status,
+  .waitlist-joined {
+    margin-top: var(--s-2);
+    color: var(--fg);
+  }
+  /* Without the script, the form posts and the worker sends the browser back to #waitlist-joined. */
+  .waitlist-joined {
+    display: none;
+  }
+  .waitlist-joined:target {
+    display: block;
   }
   .try-button {
     display: inline-flex;
