@@ -30,6 +30,7 @@ import { cn } from '../lib/cn'
 import {
   ChevronDown,
   Ellipsis,
+  GitBranch,
   Maximize2,
   MessageSquare,
   Minus,
@@ -419,6 +420,7 @@ function Header({ meta }: { meta: ChatMeta }) {
   const titleBar = meta.docked || meta.popped
   const shipping = useShipSheet((s) => s.open)
   const shipBusy = useShipSheet((s) => s.busy)
+  const versionsBusy = useVersions((s) => s.busy)
   return (
     <PanelHeader
       onPointerDown={titleBar ? undefined : onDragStart}
@@ -465,6 +467,17 @@ function Header({ meta }: { meta: ChatMeta }) {
               onClick={() => gui.togglePopOut()}
             />
           )}
+          <IconButton
+            size="sm"
+            label="Source control"
+            icon={GitBranch}
+            pressed={shipping}
+            disabled={shipBusy || versionsBusy !== null}
+            onClick={() => {
+              closeVersions()
+              toggleShipSheet()
+            }}
+          />
           <MoreButton shipping={shipping} shipBusy={shipBusy} />
           {!meta.docked && !meta.popped && (
             <IconButton
