@@ -910,13 +910,14 @@ export interface ShipFile {
   status: 'added' | 'modified' | 'deleted' | 'renamed'
 }
 
-/** What "Create pull request" would do with the project's uncommitted changes */
+/** Repository status and editable suggestions for the Source control workspace. */
 export interface ShipInfo {
-  /** Why it can't ship (not a git repo, nothing changed, agent busy); null when it can */
+  workspace?: import('./source-control').SourceControlWorkspace
+  /** Why repository status is unavailable; action restrictions live in workspace. */
   blocked: string | null
   /** Current branch; null when detached */
   branch: string | null
-  /** On the repository's default branch, so shipping starts a new branch */
+  /** The checked-out branch is the repository's default branch. */
   onDefaultBranch: boolean
   /** Current branch has saved commits that can be pushed without committing more files. */
   pendingCommits?: boolean

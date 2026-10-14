@@ -50,7 +50,7 @@ export function registerAppTools(server: McpServer, app: AppTools) {
     {
       title: 'Propose a commit or pull request',
       description:
-        'When the user asks to commit, save, ship, push or open a pull request, propose it with this instead of running git yourself. When your turn ends, Gui opens its Source Control sheet filled in with your title, description, branch and files; the user reviews it and commits or opens the pull request with one click. `share` pushes and opens a pull request (or updates the open one); `commit` saves a local commit only. Omit `branch` to let Gui choose (a new branch when on the default one) and `files` to include every changed file. Write the title as a short summary of the change and the description as a few bullets of what changed and why.',
+        'When the user asks to commit, save, ship, push or open a pull request, propose it with this instead of running git yourself. When your turn ends, Gui opens its Source Control sheet filled in with your title, description, branch and files; the user reviews it, explicitly chooses or creates a branch, commits locally, and separately pushes or opens a pull request. `share` proposes that complete workflow; `commit` proposes a local commit. Omit `branch` to use the current branch and `files` to include every changed file. Write the title as a short summary of the change and the description as a few bullets of what changed and why.',
       inputSchema: {
         mode: z
           .enum(['share', 'commit'])
@@ -130,7 +130,8 @@ export function registerAppTools(server: McpServer, app: AppTools) {
 /** source_control_status: what the Source Control sheet and the bar over it would show. */
 export function describeSourceControl(info: ShipInfo, proposal: Proposal | null): string {
   const lines: string[] = []
-  if (info.blocked) lines.push(`Can't commit right now: ${info.blocked}`)
+  if (info.blocked || info.workspace?.writeBlocked)
+    lines.push(`Can't commit right now: ${info.blocked ?? info.workspace?.writeBlocked}`)
   const onDefault = info.onDefaultBranch ? ' (the default branch)' : ''
   lines.push(`Branch: ${info.branch ?? '(detached)'}${onDefault}`)
   if (proposal?.defaultBranch) lines.push(`Default branch: ${proposal.defaultBranch}`)
@@ -145,7 +146,8 @@ export function describeSourceControl(info: ShipInfo, proposal: Proposal | null)
   for (const file of info.files.slice(0, 200)) lines.push(`- ${file.status} ${file.path}`)
   if (info.files.length > 200) lines.push(`- …and ${info.files.length - 200} more`)
   if (info.skipped.length) lines.push(`Skipped as possible secrets: ${info.skipped.join(', ')}`)
-  if (proposal?.ahead) lines.push(`Commits not pushed yet: ${proposal.ahead}`)
+  if (info.workspace?.ahead) lines.push(`Commits not pushed yet: ${info.workspace.ahead}`)
+  else if (proposal?.ahead) lines.push(`Commits not pushed yet: ${proposal.ahead}`)
   else if (info.pendingCommits) lines.push('There are commits not pushed yet.')
   if (proposal?.behind) lines.push(`Behind the default branch by ${proposal.behind} commits`)
   if (proposal?.merge)

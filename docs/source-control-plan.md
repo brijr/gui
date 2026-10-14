@@ -1,12 +1,14 @@
 # Source control redesign plan
 
-Status: proposed. This is a plan and a sample-data interaction concept; application code is unchanged.
+Status: implemented in the repository. The interactive concept remains a design reference; the application now uses the persistent workspace described below. Commit drafts and file selections stay editable during agent runs, while repository mutations wait for the agent to finish. Incoming agent proposals preserve an edited draft until the user explicitly accepts them.
+
+Verification: production build and `bun run check` pass. Fourteen focused Electron checks pass and cover the source control workspace, legacy shipping, agent proposals, Versions publishing, and permission shortcuts using disposable local repositories. State regressions cover refresh selection, project changes, and late operation results; the connected GitHub credential checks cover pushes pinned to the approved commit. Visual inspection covers light/dark floating panels, branch dialogs, and a 320px sidebar. No live hosted pull request was created during verification.
 
 ## Direction
 
 Make Source control a persistent workspace for the repository. The default sequence is **choose a branch → select files → commit → push**. Creating a pull request is a separate action. Keep Gui's existing compact panel, shared controls, typography, and GitHub/GitLab support.
 
-The current implementation centers on a combined shipping request: the branch is a text field behind a disclosure, changing it takes effect during submission, and `shipInfo()` blocks the entire screen when there are no changes or outgoing commits. File selection already commits exactly the selected working-tree paths, preserving excluded staged files. Retain that behavior.
+The previous implementation centered on a combined shipping request: the branch is a text field behind a disclosure, changing it takes effect during submission, and `shipInfo()` blocks the entire screen when there are no changes or outgoing commits. File selection already commits exactly the selected working-tree paths, preserving excluded staged files. Retain that behavior.
 
 ## Screen and interaction
 

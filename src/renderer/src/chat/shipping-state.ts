@@ -1,8 +1,13 @@
 import { create } from 'zustand'
+import type {
+  SourceControlAction,
+  SourceControlRequest,
+  SourceControlResult,
+} from '../../../shared/source-control'
 import type { ShipDraft, ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
-import { useProposal } from './proposal-state'
+import { refreshProposal } from './proposal-state'
 
 type Loaded =
   | { kind: 'loading' }
@@ -12,29 +17,36 @@ type Loaded =
 interface ShipSheetStore {
   open: boolean
   loaded: Loaded
-  /** The form; lives here so it survives the panel remounting on dock/float/minimize */
   draft: ShipRequest | null
-  /** What the agent proposed (source_control_propose), filled in over Gui's suggestion */
   proposed: ShipDraft | null
   busy: boolean
+  action: SourceControlRequest['kind'] | null
   error: string | null
-  done: { result: ShipResult; info: ShipInfo } | null
+  notice: string | null
+  createOpen: boolean
+  reviewDraft: { title: string; body: string } | null
+  pendingProposal: ShipDraft | null
+  edited: boolean
+  root: string | null
 }
-
 const CLOSED: ShipSheetStore = {
   open: false,
   loaded: { kind: 'loading' },
   draft: null,
   proposed: null,
   busy: false,
+  action: null,
   error: null,
-  done: null,
+  notice: null,
+  createOpen: false,
+  reviewDraft: null,
+  pendingProposal: null,
+  edited: false,
+  root: null,
 }
-
 export const useShipSheet = create<ShipSheetStore>(() => CLOSED)
-
-/** Bumped on close so a slow load can't fill a sheet that was closed and reopened. */
 let generation = 0
+let reads = 0
 
 export function toggleShipSheet() {
   const { open, busy } = useShipSheet.getState()
@@ -42,23 +54,25 @@ export function toggleShipSheet() {
   generation++
   useShipSheet.setState(open ? CLOSED : { ...CLOSED, open: true })
 }
-
-/** Opens the sheet afresh with the agent's proposal, unless a ship is underway. */
 export function openShipSheet(proposed: ShipDraft) {
-  if (useShipSheet.getState().busy) return
+  const state = useShipSheet.getState()
+  if (state.busy || (state.open && state.edited)) {
+    useShipSheet.setState({ pendingProposal: proposed })
+    return
+  }
   generation++
   useShipSheet.setState({ ...CLOSED, open: true, proposed })
 }
-
 export function closeShipSheet() {
   if (useShipSheet.getState().busy) return
   generation++
   useShipSheet.setState(CLOSED)
 }
 
-/** Fetches what would be shipped; the draft is only filled from the suggestion once. */
+/** Refresh status without overwriting typing or including newly discovered files. */
 export async function loadShipInfo() {
   const current = generation
+  const read = ++reads
   let loaded: Loaded
   try {
     const info = await gui.getShipInfo()
@@ -68,74 +82,136 @@ export async function loadShipInfo() {
   } catch (error) {
     loaded = { kind: 'blocked', message: readableError(error) }
   }
-  if (current !== generation) return
-  useShipSheet.setState(({ draft, proposed }) => {
+  if (current !== generation || read !== reads) return
+  const previous = useShipSheet.getState()
+  if (loaded.kind === 'ready' && previous.root && previous.root !== loaded.info.workspace?.root) {
+    generation++
+    useShipSheet.setState({ ...CLOSED, open: previous.open })
+  }
+  useShipSheet.setState(({ draft, proposed, loaded: before }) => {
     if (loaded.kind !== 'ready') return { loaded }
+    const info = loaded.info
+    const paths = new Set(info.files.map((file) => file.path))
     if (!draft)
-      return { loaded, draft: withProposal(suggestionFor(loaded.info), proposed, loaded.info) }
-    // A failed push may have saved the selected files already. Keep other edits excluded
-    // and allow retrying just the push, rather than accidentally committing those edits.
-    const paths = new Set(loaded.info.files.map((file) => file.path))
-    const files = draft.files?.filter((path) => paths.has(path))
-    return { loaded, draft: { ...draft, files } }
+      return {
+        loaded,
+        root: info.workspace?.root ?? null,
+        draft: {
+          ...info.suggestion,
+          mode: proposed?.mode ?? 'commit',
+          branch: proposed?.branch?.trim() || info.branch || info.suggestion.branch,
+          title: proposed?.title.trim() || info.suggestion.title,
+          body: proposed?.body.trim() ?? info.suggestion.body,
+          files:
+            proposed?.files === undefined
+              ? [...paths]
+              : proposed.files.filter((path) => paths.has(path)),
+        },
+        error: proposed?.files?.some((path) => !paths.has(path))
+          ? 'Some proposed files are no longer changed. Review the selection before committing.'
+          : null,
+      }
+    const changedBranch = before.kind === 'ready' && before.info.branch !== info.branch
+    return {
+      loaded,
+      root: info.workspace?.root ?? null,
+      draft: {
+        ...draft,
+        branch: changedBranch ? (info.branch ?? info.suggestion.branch) : draft.branch,
+        files: changedBranch ? [] : (draft.files ?? []).filter((path) => paths.has(path)),
+      },
+    }
   })
 }
-
-/**
- * Only pushing to a pull request that's already open (after bringing in the latest, say):
- * nothing gets committed, so its own title is the one to show.
- */
-function suggestionFor(info: ShipInfo): ShipRequest {
-  const pull = useProposal.getState().proposal?.pull
-  const open = pull && (pull.state === 'open' || pull.state === 'draft')
-  if (!open || info.files.length > 0 || info.suggestion.branch !== info.branch)
-    return info.suggestion
-  return { ...info.suggestion, title: pull.title, body: '' }
-}
-
-/**
- * The agent's title, description and mode over Gui's suggestion; its branch and files
- * where they still apply (files it named that aren't changed are dropped, and naming none
- * that are leaves every file in).
- */
-function withProposal(suggestion: ShipRequest, proposed: ShipDraft | null, info: ShipInfo) {
-  if (!proposed) return suggestion
-  const paths = new Set(info.files.map((file) => file.path))
-  const files = proposed.files?.filter((path) => paths.has(path))
-  return {
-    mode: info.remote ? proposed.mode : 'commit',
-    title: proposed.title.trim() || suggestion.title,
-    body: proposed.body.trim(),
-    branch: proposed.branch?.trim() || suggestion.branch,
-    files: files?.length ? files : undefined,
-  } satisfies ShipRequest
-}
-
 export function setShipDraft(patch: Partial<ShipRequest>) {
-  useShipSheet.setState(({ draft }) => (draft ? { draft: { ...draft, ...patch } } : {}))
+  useShipSheet.setState(({ draft }) =>
+    draft ? { draft: { ...draft, ...patch }, edited: true } : {},
+  )
+}
+export function acceptShipProposal() {
+  const { pendingProposal, busy } = useShipSheet.getState()
+  if (!pendingProposal || busy) return
+  generation++
+  useShipSheet.setState({
+    draft: null,
+    proposed: pendingProposal,
+    pendingProposal: null,
+    edited: false,
+    error: null,
+    notice: null,
+  })
+  void loadShipInfo()
+}
+export function setCreateBranchOpen(createOpen: boolean) {
+  useShipSheet.setState({ createOpen, error: null })
 }
 
-export async function submitShip(info: ShipInfo) {
-  const { draft, busy } = useShipSheet.getState()
-  if (!draft || busy) return
-  const request = {
-    mode: info.remote ? (draft.mode ?? 'share') : 'commit',
-    files: draft.files,
-    branch: draft.branch.trim(),
-    title: draft.title.trim(),
-    body: draft.body.trim(),
-  }
-  useShipSheet.setState({ busy: true, error: null })
+/** Main owns validation, operation locks, and confirmation of a shared-branch push. */
+export async function performSourceControl(action: SourceControlAction) {
+  const state = useShipSheet.getState()
+  if (state.busy || state.loaded.kind !== 'ready' || !state.loaded.info.workspace) return
+  const expected = state.loaded.info.workspace
+  const current = generation
+  useShipSheet.setState({ busy: true, action: action.kind, error: null, notice: null })
   try {
-    const result = await gui.ship(request)
-    // The pull request isn't open until they finish it in the browser, so go there now.
-    if (opensByItself(result) && result.url) openExternal(result.url)
-    useShipSheet.setState({ busy: false, done: { result, info } })
+    const result = await gui.sourceControl({ ...action, expected })
+    if (current !== generation) return
+    applyResult(result, state.draft)
+    if ((result.outcome === 'created' || result.outcome === 'compare') && result.url)
+      openExternal(result.url)
   } catch (error) {
-    useShipSheet.setState({ busy: false, error: readableError(error) })
-    // A failed push still committed: refresh so the sheet says what's left to do.
-    void loadShipInfo()
+    if (current === generation) useShipSheet.setState({ error: readableError(error) })
+  } finally {
+    if (current === generation) {
+      await loadShipInfo()
+      useShipSheet.setState({ busy: false, action: null })
+      void refreshProposal()
+    }
   }
+}
+function applyResult(result: SourceControlResult, before: ShipRequest | null) {
+  if (result.outcome === 'branch-required') {
+    useShipSheet.setState({ createOpen: true })
+    return
+  }
+  if (result.outcome === 'cancelled') {
+    useShipSheet.setState({ notice: 'Push cancelled.' })
+    return
+  }
+  if (result.outcome === 'switched' || result.outcome === 'created-branch') {
+    useShipSheet.setState(({ draft }) => ({
+      createOpen: false,
+      proposed: null,
+      draft: draft ? { ...draft, branch: result.branch ?? '', files: [] } : null,
+      notice: `${result.outcome === 'switched' ? 'Switched to' : 'Created'} ${result.branch}.`,
+    }))
+  } else if (result.outcome === 'committed') {
+    useShipSheet.setState(({ draft }) => ({
+      draft: draft ? { ...draft, title: '', body: '', files: [] } : null,
+      proposed: null,
+      reviewDraft: before ? { title: before.title, body: before.body } : null,
+      notice: `Commit saved · ${result.commit} on ${result.branch}.`,
+    }))
+  } else if (result.outcome === 'pushed') {
+    useShipSheet.setState({
+      notice: `Pushed saved commits from ${result.branch}. Uncommitted edits stay here.`,
+    })
+  } else {
+    useShipSheet.setState({
+      notice: `Pull request ${result.outcome === 'created' ? 'created' : 'ready to finish in your browser'}.`,
+      draft: before,
+    })
+  }
+}
+export async function submitShip(info: ShipInfo) {
+  const { draft } = useShipSheet.getState()
+  if (!draft || !info.workspace) return
+  return performSourceControl({
+    kind: 'commit',
+    files: draft.files ?? [],
+    title: draft.title,
+    body: draft.body,
+  })
 }
 
 /** The chat window hands window.open to the system browser (guardAppContents in window.ts). */

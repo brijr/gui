@@ -211,7 +211,13 @@ try {
   assert.equal(await github.cloneGitHub(6, validParent), join(validParent, 'private'))
   await github.pushGitHub(6, 'owner/private', base, 'topic')
   assert.equal(count(6), 3, 'Clone and push perform fresh authorization despite a cached read')
-  assert.equal((await git()).length, 2)
+  const approvedCommit = 'a'.repeat(40)
+  await github.pushGitHub(6, 'owner/private', base, 'topic', approvedCommit)
+  assert.ok(
+    (await git()).at(-1)?.args?.includes(`${approvedCommit}:refs/heads/topic`),
+    'A reviewed push stays pinned to the approved commit',
+  )
+  assert.equal((await git()).length, 3)
   assert.ok((await git()).every((operation) => operation.token === credentialFor(session, 6).token))
 
   const responseGate = deferred<Response>()

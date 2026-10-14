@@ -196,6 +196,7 @@ const api: GuiApi = {
   onChatAttach: (cb) => subscribe(Events.chatAttach, cb),
   getShipInfo: () => legacyInvoke(Invoke.shipInfo),
   ship: (request) => legacyInvoke(Invoke.ship, request),
+  sourceControl: (request) => legacyInvoke(Invoke.sourceControl, request),
   getProposal: (refresh) => legacyInvoke(Invoke.getProposal, refresh === true),
   startFresh: () => invokeOrThrow(Invoke.startFresh),
   bringInLatest: () => invokeOrThrow(Invoke.bringInLatest),

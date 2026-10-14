@@ -11,12 +11,17 @@ import {
   hasHook,
   isSafeName,
   openRepo,
+  outgoingCount,
+  parseRemoteUrl,
+  pushDestination,
   type Remote,
   type Repo,
   readChanges,
   readError,
+  readWorkspace,
   run,
   tail,
+  withGitMutation,
 } from './git'
 import { findLeak, leakMessage, localEnvValues, secretIn } from './ship-secrets'
 
@@ -81,16 +86,8 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
 
   const files = repo.changes.map((change) => change.file)
   const newBranch = startsNewBranch(repo)
-  const pendingCommits = repo.branch !== null && (await aheadOfRemote(repo, repo.branch))
-  let blocked = repo.problem
-  if (!blocked && files.length === 0) {
-    // Committed earlier but the push failed: shipping again just pushes.
-    if (!pendingCommits) blocked = NOTHING_TO_SHIP
-  }
-  // Said up front rather than after the user writes a title; ship() checks again.
-  if (!blocked && files.length > 0) {
-    blocked = await findLeak(repo, repo.changes, await localEnvValues(repo))
-  }
+  const workspace = await readWorkspace(repo)
+  const pendingCommits = workspace.ahead > 0
 
   const fresh = await unshippedPrompts(repo, prompts)
   const cleaned = fresh.map(cleanPrompt).filter(Boolean)
@@ -105,7 +102,8 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
       : repo.branch
 
   return {
-    blocked,
+    blocked: null,
+    workspace,
     branch: repo.branch,
     onDefaultBranch: repo.branch !== null && repo.branch === repo.defaultBranch,
     pendingCommits,
@@ -116,7 +114,19 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
   }
 }
 
-export async function ship(root: string, request: ShipRequest): Promise<ShipResult> {
+export async function ship(
+  root: string,
+  request: ShipRequest,
+  actions?: ShipActions,
+): Promise<ShipResult> {
+  return withGitMutation(root, () => shipUnlocked(root, request, actions))
+}
+
+async function shipUnlocked(
+  root: string,
+  request: ShipRequest,
+  actions?: ShipActions,
+): Promise<ShipResult> {
   let repo: Repo
   try {
     repo = await openRepo(root)
@@ -124,6 +134,7 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
     throw new Error(readError(error))
   }
   if (repo.problem) throw new Error(repo.problem)
+  actions?.assertAvailable()
   if (request.mode === 'commit' && repo.changes.length === 0) {
     throw new Error('No changes to commit. Choose Share for review to push saved commits.')
   }
@@ -188,6 +199,7 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
     }
     await unstage(repo, stagedSecrets)
     try {
+      actions?.assertAvailable()
       await commitChanges(repo, changes, title, body)
     } catch (error) {
       await undo()
@@ -203,11 +215,98 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
   if (!remote || request.mode === 'commit')
     return { branch, commit, outcome: 'committed', url: null }
 
-  let pushOutput: string
+  const base = pullRequestBase(repo, remote, start, branch)
+  const current = await openRepo(root)
+  const output = await pushSavedCommits(current, branch, branch, actions)
+  return openPullRequest(current, branch, base, title, body, output)
+}
+
+export async function connectedFor(repo: Repo) {
+  return repo.remote?.host === 'github' && repo.remote.web === 'github.com'
+    ? connectedGitHub(repo.remote.repo).catch(() => null)
+    : null
+}
+
+export interface PushWarning {
+  remote: string
+  branch: string
+  count: number
+}
+
+export interface ShipActions {
+  assertAvailable(): void
+  confirmPush(warning: PushWarning): Promise<'push' | 'cancel' | 'branch'>
+}
+
+export class PushCancelled extends Error {
+  constructor(readonly choice: 'cancel' | 'branch') {
+    super(choice === 'branch' ? 'Create a branch before pushing.' : 'Push cancelled.')
+  }
+}
+
+export function isSharedBranch(branch: string, defaultBranch: string | null) {
+  return branch === 'main' || branch === 'master' || branch === defaultBranch
+}
+
+/** One gate for legacy Share, independent Push, and connected-account pushes. */
+export async function pushSavedCommits(
+  repo: Repo,
+  branch: string,
+  destination: string,
+  actions?: ShipActions,
+) {
+  const remote = repo.remote
+  if (!remote) throw new Error('This project has no remote configured.')
+  if (!repo.head) throw new Error('There are no saved commits to push.')
+  await assertBranchName(repo, destination)
+  const snapshot = async () => {
+    const fresh = await openRepo(repo.top)
+    const urls = await git(fresh, ['remote', 'get-url', '--push', '--all', '--', remote.name])
+    const tracking = await pushDestination(fresh, branch)
+    return {
+      fresh,
+      urls,
+      key: JSON.stringify([
+        fresh.branch,
+        fresh.head,
+        fresh.defaultBranch,
+        fresh.remote,
+        urls,
+        tracking,
+      ]),
+    }
+  }
+  const before = await snapshot()
+  if (before.fresh.branch !== branch || before.fresh.head !== repo.head)
+    throw new Error('The branch changed. Refresh Source control before pushing.')
+  const connected = await connectedFor(repo)
+  if (isSharedBranch(destination, repo.defaultBranch)) {
+    if (!actions) throw new Error('Pushing to the shared branch requires confirmation in Gui.')
+    const count = await outgoingCount(repo, { remote: remote.name, branch: destination })
+    const choice = await actions.confirmPush({ remote: remote.name, branch: destination, count })
+    if (choice !== 'push') throw new PushCancelled(choice)
+  }
+  const after = await snapshot()
+  if (before.key !== after.key)
+    throw new Error('The repository changed while preparing the push. Refresh and confirm again.')
+  actions?.assertAvailable()
+  const matchingUrls = after.urls
+    .trim()
+    .split('\n')
+    .every((url) => {
+      const target = parseRemoteUrl(url)
+      return (
+        target.host === 'github' &&
+        target.web === remote.web &&
+        target.repo.toLowerCase() === remote.repo.toLowerCase()
+      )
+    })
   try {
     const pushedConnected =
       connected &&
-      (await pushGitHub(connected.repository.id, remote.repo, repo.top, branch).then(
+      matchingUrls &&
+      branch === destination &&
+      (await pushGitHub(connected.repository.id, remote.repo, repo.top, branch, repo.head).then(
         () => true,
         (error: unknown) => {
           if (error instanceof CredentialUnavailable) return false
@@ -215,19 +314,35 @@ export async function ship(root: string, request: ShipRequest): Promise<ShipResu
         },
       ))
     if (pushedConnected) {
-      await gitAsUser(repo, [
-        'update-ref',
-        `refs/remotes/${remote.name}/${branch}`,
-        `refs/heads/${branch}`,
-      ])
+      await gitAsUser(repo, ['update-ref', `refs/remotes/${remote.name}/${branch}`, repo.head])
       await gitAsUser(repo, ['branch', `--set-upstream-to=${remote.name}/${branch}`, '--', branch])
-      pushOutput = ''
-    } else pushOutput = await push(repo, remote, branch)
+      return ''
+    }
+    const output = await push(repo, remote, branch, destination)
+    await gitAsUser(repo, [
+      'branch',
+      `--set-upstream-to=${remote.name}/${destination}`,
+      '--',
+      branch,
+    ])
+    return output
   } catch (error) {
-    throw new Error(await pushError(repo, remote, branch, error))
+    throw new Error(await pushError(repo, remote, destination, error))
   }
+}
 
-  const base = pullRequestBase(repo, remote, start, branch)
+export async function openPullRequest(
+  repo: Repo,
+  branch: string,
+  base: string | null,
+  title: string,
+  body: string,
+  pushOutput = '',
+): Promise<ShipResult> {
+  const remote = repo.remote
+  if (!remote) throw new Error('This project has no remote configured.')
+  const commit = repo.head?.slice(0, 8) ?? ''
+  const connected = await connectedFor(repo)
   // Committed straight onto the base branch: there's nothing to review.
   if (base === branch) return { branch, commit, outcome: 'pushed', url: null }
 
@@ -401,7 +516,7 @@ function blockedInfo(message: string): ShipInfo {
 }
 
 /** Takes secret files back out of the index, so the user's next commit leaves them out too. */
-async function unstage(repo: Repo, paths: string[]): Promise<void> {
+export async function unstage(repo: Repo, paths: string[]): Promise<void> {
   if (paths.length === 0) return
   // Before the first commit there's no HEAD to restore from; dropping them is the same.
   const args = repo.hasHead
@@ -413,7 +528,7 @@ async function unstage(repo: Repo, paths: string[]): Promise<void> {
 
 // Branch, commit, push
 
-async function assertBranchName(repo: Repo, branch: string): Promise<void> {
+export async function assertBranchName(repo: Repo, branch: string): Promise<void> {
   const invalid = `“${branch}” can’t be used as a branch name. Try letters, numbers, dashes and slashes.`
   if (!branch) throw new Error('Add a branch name first.')
   if (branch.startsWith('-') || branch === 'HEAD' || branch.includes('@{')) {
@@ -475,7 +590,7 @@ async function undoSwitch(
   }
 }
 
-function selectChanges(
+export function selectChanges(
   changes: Change[],
   files: string[] | undefined,
   allowEmpty = false,
@@ -492,7 +607,7 @@ function selectChanges(
   return selected
 }
 
-async function commitChanges(repo: Repo, changes: Change[], title: string, body: string) {
+export async function commitChanges(repo: Repo, changes: Change[], title: string, body: string) {
   const list = (paths: string[]) => paths.map((path) => `${path}\0`).join('')
   const untracked = changes.filter((change) => change.untracked).flatMap((change) => change.paths)
   const fromStdin = ['--pathspec-from-file=-', '--pathspec-file-nul']
@@ -508,7 +623,12 @@ async function commitChanges(repo: Repo, changes: Change[], title: string, body:
   })
 }
 
-async function push(repo: Repo, remote: Remote, branch: string): Promise<string> {
+async function push(
+  repo: Repo,
+  remote: Remote,
+  branch: string,
+  destination = branch,
+): Promise<string> {
   const env = { ...repo.env }
   // Never wait on an ssh passphrase or host-key prompt nobody can see. A user's own
   // GIT_SSH_COMMAND or core.sshCommand is how they push from Terminal, so it's kept.
@@ -516,10 +636,10 @@ async function push(repo: Repo, remote: Remote, branch: string): Promise<string>
     const configured = await gitOrNull(repo, ['config', '--get', 'core.sshCommand'])
     if (!configured) env.GIT_SSH_COMMAND = 'ssh -o BatchMode=yes'
   }
-  const ref = `refs/heads/${branch}`
+  const ref = repo.head ?? `refs/heads/${branch}`
   const { stdout, stderr } = await run(
     'git',
-    ['push', '--set-upstream', '--no-follow-tags', '--', remote.name, `${ref}:${ref}`],
+    ['push', '--no-follow-tags', '--', remote.name, `${ref}:refs/heads/${destination}`],
     { cwd: repo.top, env, timeout: HOOK_TIMEOUT },
   )
   return `${stderr}\n${stdout}`

@@ -2,6 +2,7 @@ import type { AccountProfile, AccountState } from './account'
 import type { BoardCamera, FramePreset } from './board'
 import type { ChatTurnUpdate } from './chat-transport'
 import type { GitHubRepository, GitHubState } from './github'
+import type { SourceControlRequest, SourceControlResult } from './source-control'
 import type { SymbolImages } from './symbols'
 import type {
   AgentId,
@@ -87,6 +88,7 @@ export const Invoke = {
   finishRecording: 'recording:finish',
   discardRecording: 'recording:discard',
   ship: 'ship:run',
+  sourceControl: 'source-control:run',
   getProposal: 'proposal:get',
   startFresh: 'proposal:start-fresh',
   bringInLatest: 'proposal:bring-in-latest',
@@ -667,6 +669,7 @@ export interface GuiApi {
   getShipInfo(): Promise<ShipInfo | null>
   /** Commits, pushes and opens the PR; rejects with a readable message */
   ship(request: ShipRequest): Promise<ShipResult>
+  sourceControl(request: SourceControlRequest): Promise<SourceControlResult>
   /**
    * Where the work stands as a pull request; null without a project or before Gui may run
    * Git there. `refresh` also gets the latest from the remote (at most every few minutes).

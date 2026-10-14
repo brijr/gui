@@ -235,7 +235,13 @@ async function assertNotRewritten(root: string, env: NodeJS.ProcessEnv, url: str
   }
 }
 
-export async function pushGitHub(id: number, fullName: string, root: string, branch: string) {
+export async function pushGitHub(
+  id: number,
+  fullName: string,
+  root: string,
+  branch: string,
+  commit?: string,
+) {
   const access = await credential(id)
   if (access.value.fullName.toLowerCase() !== fullName.toLowerCase())
     throw new Error('The connected GitHub repository changed. Refresh projects and try again.')
@@ -246,7 +252,7 @@ export async function pushGitHub(id: number, fullName: string, root: string, bra
     withGitHubToken(access.value.token, async (env) => {
       await assertNotRewritten(root, env, url)
       await authenticatedGit(
-        ['push', '--no-follow-tags', '--', url, `${ref}:${ref}`],
+        ['push', '--no-follow-tags', '--', url, `${commit ?? ref}:${ref}`],
         env,
         access,
         root,

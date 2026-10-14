@@ -139,9 +139,9 @@ test('the agent reads source control, versions and earlier turns, and proposes a
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(head)
 
   await session.chat
-    .getByRole('button', { name: 'Save commit', exact: true })
+    .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
-  await expect(session.chat.getByText('Commit saved', { exact: true })).toBeVisible()
+  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
   expect(git(root, 'log', '-1', '--format=%s').trim()).toBe('Note the agent proposal')
   expect(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim()).toBe(
     'src/App.tsx',

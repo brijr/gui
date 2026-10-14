@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access } from 'node:fs/promises'
+import { access, realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { GitHubProfile } from '../shared/github'
+import type { SourceControlWorkspace } from '../shared/source-control'
 import type { ShipFile, ShipInfo } from '../shared/types'
 import { developerTools, GIT_TOOLS_MISSING } from './developer-tools'
 import { mayHoldSecrets } from './secret-files'
@@ -40,6 +41,7 @@ export interface Repo {
   branch: string | null
   /** False on a branch with no commits yet */
   hasHead: boolean
+  head: string | null
   defaultBranch: string | null
   /** Local branches and remote-tracking refs, e.g. `refs/heads/main` */
   refs: Set<string>
@@ -120,6 +122,7 @@ export async function openRepo(root: string): Promise<Repo> {
     env,
     branch,
     hasHead: head !== null,
+    head,
     defaultBranch,
     refs: refSet,
     remote,
@@ -130,14 +133,122 @@ export async function openRepo(root: string): Promise<Repo> {
   }
 }
 
+const mutations = new Set<string>()
+
+/** All app-owned repository writes share the common Git directory, including worktrees. */
+export async function withGitMutation<T>(root: string, action: (repo: Repo) => Promise<T>) {
+  const repo = await openRepo(root)
+  const common = (await git(repo, ['rev-parse', '--git-common-dir'])).trim()
+  const key = await realpath(resolve(repo.top, common))
+  if (mutations.has(key)) throw new Error('Another Git action is running. Wait for it to finish.')
+  mutations.add(key)
+  try {
+    return await action(await openRepo(root))
+  } finally {
+    mutations.delete(key)
+  }
+}
+
 export interface At {
   top: string
   env: NodeJS.ProcessEnv
 }
 
+/** Explicit push refspecs use the upstream branch on this remote, otherwise the local name. */
+export async function pushDestination(repo: Repo, branch: string) {
+  const remote = repo.remote
+  if (!remote) return null
+  const [trackingRemote, merge] = await Promise.all([
+    gitOrNull(repo, ['config', '--get', `branch.${branch}.remote`]),
+    gitOrNull(repo, ['config', '--get', `branch.${branch}.merge`]),
+  ])
+  return {
+    remote: remote.name,
+    branch:
+      trackingRemote === remote.name && merge?.startsWith('refs/heads/')
+        ? merge.slice('refs/heads/'.length)
+        : branch,
+  }
+}
+
+export async function outgoingCount(
+  repo: Repo,
+  destination: { remote: string; branch: string } | null,
+) {
+  if (!destination || !repo.hasHead) return 0
+  const tracking = `refs/remotes/${destination.remote}/${destination.branch}`
+  const defaultRef = `refs/remotes/${destination.remote}/${repo.defaultBranch}`
+  const against = repo.refs.has(tracking) ? tracking : repo.refs.has(defaultRef) ? defaultRef : null
+  const args = against ? [`${against}..HEAD`] : ['HEAD']
+  const count = await gitOrNull(repo, ['rev-list', '--count', ...args, '--'])
+  return Number(count) || 0
+}
+
+export async function readWorkspace(repo: Repo): Promise<SourceControlWorkspace> {
+  const [worktrees, remoteNames, destination] = await Promise.all([
+    git(repo, ['worktree', 'list', '--porcelain', '-z']),
+    git(repo, ['remote']),
+    repo.branch ? pushDestination(repo, repo.branch) : null,
+  ])
+  const occupied = new Set<string>()
+  let tree = ''
+  for (const field of worktrees.split('\0')) {
+    if (field.startsWith('worktree ')) tree = field.slice(9)
+    if (field.startsWith('branch refs/heads/') && resolve(tree) !== resolve(repo.top))
+      occupied.add(field.slice('branch refs/heads/'.length))
+  }
+  const names = remoteNames
+    .split('\n')
+    .filter(Boolean)
+    .sort((a, b) => b.length - a.length)
+  const branches: SourceControlWorkspace['branches'] = []
+  for (const ref of repo.refs) {
+    if (ref.startsWith('refs/heads/')) {
+      const name = ref.slice('refs/heads/'.length)
+      branches.push({ name, remote: null, checkedOutElsewhere: occupied.has(name) })
+    } else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) {
+      const path = ref.slice('refs/remotes/'.length)
+      const remote = names.find((name) => path.startsWith(`${name}/`))
+      if (remote)
+        branches.push({ name: path.slice(remote.length + 1), remote, checkedOutElsewhere: false })
+    }
+  }
+  if (
+    repo.branch &&
+    !branches.some((branch) => branch.remote === null && branch.name === repo.branch)
+  )
+    branches.push({ name: repo.branch, remote: null, checkedOutElsewhere: false })
+  branches.sort(
+    (a, b) => Number(a.remote !== null) - Number(b.remote !== null) || a.name.localeCompare(b.name),
+  )
+  return {
+    root: repo.top,
+    branch: repo.branch,
+    head: repo.head,
+    defaultBranch: repo.defaultBranch,
+    branches,
+    destination,
+    ahead: await outgoingCount(repo, destination),
+    published: Boolean(
+      destination && repo.refs.has(`refs/remotes/${destination.remote}/${destination.branch}`),
+    ),
+    writeBlocked: repo.problem,
+  }
+}
+
 async function readRemote(at: At): Promise<Remote | null> {
   const names = (await git(at, ['remote'])).split('\n').filter(Boolean)
-  const name = names.includes('origin') ? 'origin' : names.length === 1 ? names[0] : null
+  const branch = await gitOrNull(at, ['symbolic-ref', '--quiet', '--short', 'HEAD'])
+  const [pushRemote, pushDefault, upstream] = await Promise.all([
+    branch ? gitOrNull(at, ['config', '--get', `branch.${branch}.pushRemote`]) : null,
+    gitOrNull(at, ['config', '--get', 'remote.pushDefault']),
+    branch ? gitOrNull(at, ['config', '--get', `branch.${branch}.remote`]) : null,
+  ])
+  const configured = [pushRemote, pushDefault, upstream].find(
+    (name) => name && names.includes(name),
+  )
+  const name =
+    configured ?? (names.includes('origin') ? 'origin' : names.length === 1 ? names[0] : null)
   // Push would read a name like `--receive-pack=…` (only hand-edited config has one) as an option.
   if (!name || !isSafeName(name)) return null
   // get-url applies `insteadOf` shorthands, so `gh:owner/repo` style remotes resolve too.

@@ -8,6 +8,7 @@ import {
   Check,
   CircleDot,
   ExternalLink,
+  GitBranch,
   GitPullRequest,
   type IconComponent,
   MessageSquare,
@@ -134,9 +135,37 @@ export function ProposalBar() {
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
   if (!proposal) return null
 
-  const bar = barFor(proposal, comments.length, busy, agentBusy)
+  const bar =
+    proposal.pull || proposal.merge || (proposal.behind ?? 0) > 0
+      ? barFor(proposal, comments.length, busy, agentBusy)
+      : null
   return (
     <>
+      <Banner
+        icon={GitBranch}
+        actions={
+          <Button size="sm" variant="ghost" onClick={toggleShipSheet}>
+            Source control
+          </Button>
+        }
+      >
+        <Button
+          size="sm"
+          variant="ghost"
+          className="min-w-0 justify-start px-0"
+          title={proposal.branch ?? 'Detached HEAD'}
+          onClick={toggleShipSheet}
+        >
+          <span className="truncate font-mono">{proposal.branch ?? 'Detached HEAD'}</span>
+        </Button>
+        <span className="shrink-0 text-caption text-muted">
+          {proposal.changes > 0
+            ? `${proposal.changes} changed`
+            : proposal.ahead > 0
+              ? `${proposal.ahead} to push`
+              : 'Clean'}
+        </span>
+      </Banner>
       {bar}
       {error && (
         <Banner

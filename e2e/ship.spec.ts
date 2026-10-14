@@ -24,6 +24,7 @@ test('retrying a failed push keeps excluded edits out of the saved commit', asyn
   git(root, 'push', '--quiet', '-u', 'origin', 'main')
   git(root, 'remote', 'set-head', 'origin', 'main')
   git(root, 'remote', 'set-url', 'origin', join(base, 'unavailable.git'))
+  git(root, 'switch', '--quiet', '-c', 'feature/retry')
   appendFileSync(join(root, 'src/App.tsx'), `${MARKER}\n`)
   appendFileSync(join(root, 'src/index.css'), '\n/* Exclude this edit */\n')
   git(root, 'add', 'src/index.css')
@@ -32,8 +33,11 @@ test('retrying a failed push keeps excluded edits out of the saved commit', asyn
   await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
   await session.chat.getByRole('checkbox', { name: 'Include src/index.css' }).dispatchEvent('click')
   await session.chat
-    .getByRole('button', { name: 'Commit and push', exact: true })
+    .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
+  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
+  await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
+  await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
   await expect(session.chat.getByRole('alert')).toBeVisible()
   await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
   await expect(
@@ -47,7 +51,7 @@ test('retrying a failed push keeps excluded edits out of the saved commit', asyn
 
   git(root, 'remote', 'set-url', 'origin', origin)
   await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
-  await expect(session.chat.getByText('Pushed', { exact: true })).toBeVisible()
+  await expect(session.chat.getByText(/^Pushed saved commits/)).toBeVisible()
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
   expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
   expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
@@ -68,6 +72,7 @@ test('source control saves selected files locally, then shares the saved commit'
   git(root, 'remote', 'add', 'origin', origin)
   git(root, 'push', '--quiet', '-u', 'origin', 'main')
   git(root, 'remote', 'set-head', 'origin', 'main')
+  git(root, 'switch', '--quiet', '-c', 'feature/local-commit')
   const before = git(root, 'rev-parse', 'HEAD').trim()
 
   appendFileSync(join(root, 'src/App.tsx'), `${MARKER}\n`)
@@ -78,15 +83,15 @@ test('source control saves selected files locally, then shares the saved commit'
   const info = await waitFor(() => session.chat.evaluate(getShipInfo), 'ship info')
   await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
   await expect(session.chat.getByRole('checkbox', { name: 'Include src/App.tsx' })).toBeChecked()
-  await session.chat.getByRole('radio', { name: /^Save a commit/ }).dispatchEvent('click')
   await session.chat.getByRole('checkbox', { name: 'Include src/index.css' }).dispatchEvent('click')
   await session.chat.getByRole('textbox', { name: 'Commit message' }).fill('Save only the app edit')
   await session.chat
-    .getByRole('button', { name: 'Save commit', exact: true })
+    .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
-  await expect(session.chat.getByText('Commit saved', { exact: true })).toBeVisible()
+  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
 
-  const branch = info.suggestion.branch
+  const branch = info.branch
+  if (!branch) throw new Error('No current branch')
   const saved = git(root, 'rev-parse', 'HEAD').trim()
   expect(saved).not.toBe(before)
   expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe(branch)
@@ -99,14 +104,11 @@ test('source control saves selected files locally, then shares the saved commit'
 
   expect((await session.chat.evaluate(() => window.gui.getProposal(false)))?.ahead).toBe(1)
   // Share just the saved commit while the excluded file remains staged.
-  await session.chat.getByRole('button', { name: 'Back to chat' }).first().dispatchEvent('click')
-  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
-  await session.chat.getByRole('button', { name: 'Clear selection' }).dispatchEvent('click')
   await expect(
-    session.chat.getByText('Only saved commits will be pushed. Unselected edits stay here.'),
+    session.chat.getByText('Only saved commits are pushed. Uncommitted edits stay here.'),
   ).toBeVisible()
   await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
-  await expect(session.chat.getByText('Pushed', { exact: true })).toBeVisible()
+  await expect(session.chat.getByText(/^Pushed saved commits/)).toBeVisible()
   expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
   expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
@@ -209,7 +211,8 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
   expect(readFileSync(join(root, '.env.local'), 'utf8')).toContain(SECRET)
 
   const after = await session.chat.evaluate(getShipInfo)
-  expect(after?.blocked).toBe('No changes to share yet.')
+  expect(after?.blocked).toBeNull()
+  expect(after?.files).toEqual([])
 
   // Committed: without a remote the commit stays local, on the branch it's already on.
   git(root, 'remote', 'remove', 'origin')
@@ -237,10 +240,12 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
  */
 async function checkSheet(app: ElectronApplication, chat: Page, info: ShipInfo) {
   await chooseFromChatMenu(app, chat, 'Source Control…')
-  await expect.soft(chat.getByRole('textbox', { name: 'Title' })).toHaveValue(info.suggestion.title)
+  await expect
+    .soft(chat.getByRole('textbox', { name: 'Commit message' }))
+    .toHaveValue(info.suggestion.title)
   // A remote Gui can't link: no pull request page, so the action is a plain push.
-  await expect.soft(chat.getByRole('button', { name: 'Commit and push' })).toHaveCount(1)
+  await expect.soft(chat.getByRole('button', { name: 'Commit 1 file' })).toHaveCount(1)
   const back = chat.getByRole('button', { name: 'Back to chat' })
   if ((await back.count()) > 0) await back.first().dispatchEvent('click')
-  await expect.soft(chat.getByRole('textbox', { name: 'Title' })).toHaveCount(0)
+  await expect.soft(chat.getByRole('textbox', { name: 'Commit message' })).toHaveCount(0)
 }

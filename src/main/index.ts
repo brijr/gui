@@ -38,6 +38,7 @@ import {
   type ShortcutSpec,
   VIEWPORT_SHORTCUTS,
 } from '../shared/shortcuts'
+import { isSourceControlRequest } from '../shared/source-control'
 import {
   type CustomAgentEntry,
   type ImageAttachment,
@@ -807,6 +808,12 @@ function registerIpc() {
     const tab = tabFor(event)
     if (!tab) throw new Error('No project is open.')
     return tab.ship(request)
+  })
+  handleLegacy(Invoke.sourceControl, (event, request: unknown) => {
+    if (!isSourceControlRequest(request)) throw new Error('Invalid source control request')
+    const tab = tabFor(event)
+    if (!tab) throw new Error('No project is open.')
+    return tab.sourceControl(request)
   })
   handleLegacy(Invoke.getProposal, async (event, refresh: unknown) => {
     try {

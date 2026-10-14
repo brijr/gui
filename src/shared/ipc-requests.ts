@@ -55,6 +55,7 @@ export interface AllIpcRequests {
   [Invoke.finishRecording]: Contract<'finishRecording'>
   [Invoke.discardRecording]: Contract<'discardRecording'>
   [Invoke.ship]: Contract<'ship'>
+  [Invoke.sourceControl]: Contract<'sourceControl'>
   [Invoke.getProposal]: Contract<'getProposal'>
   [Invoke.startFresh]: Contract<'startFresh'>
   [Invoke.bringInLatest]: Contract<'bringInLatest'>

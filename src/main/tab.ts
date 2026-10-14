@@ -32,6 +32,7 @@ import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/lay
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import { reviewTitle } from '../shared/review'
 import { SHORTCUTS } from '../shared/shortcuts'
+import type { SourceControlRequest } from '../shared/source-control'
 import {
   type AgentId,
   agentName,
@@ -93,6 +94,7 @@ import {
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
+import { withGitMutation } from './git'
 import {
   chatReferences,
   claimHistoryFile,
@@ -141,7 +143,8 @@ import {
   settleSetup,
 } from './setup'
 import { getShellEnv } from './shell-env'
-import { ship, shipInfo } from './ship'
+import { type ShipActions, ship, shipInfo } from './ship'
+import { sourceControl } from './source-control'
 import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
 import { PREVIEW_PARTITION } from './storage'
@@ -1095,7 +1098,7 @@ export class ProjectTab {
   private async confirmGit(root: string) {
     if (await isTrusted(root)) return true
     return this.askToTrust(root, {
-      message: 'Create a pull request?',
+      message: 'Use source control?',
       detail:
         "Gui runs Git in this project, which also runs the project's own Git hooks. Only continue for projects you trust.",
       buttons: ['Continue', 'Cancel'],
@@ -1922,18 +1925,21 @@ export class ProjectTab {
   async getShipInfo(): Promise<ShipInfo | null> {
     const root = this.state.project?.root
     const chat = this.resources.chat
-    if (!root || !chat) return null
+    if (!root) return null
     if (!(await this.confirmGit(root))) return cancelledShipInfo()
-    if (chat !== this.resources.chat) return null
-    const prompts = chat
-      .snapshot()
-      .turns.filter((turn) => turn.status === 'done' && !turn.reverted)
+    if (this.state.project?.root !== root) return null
+    const prompts = (chat?.snapshot().turns ?? [])
+      .filter((turn) => turn.status === 'done' && !turn.reverted)
       .map((turn) => turn.prompt)
       .filter((prompt) => !prompt.startsWith(CONFLICT_PROMPT_START))
       .map((prompt) => reviewTitle(prompt) ?? prompt)
     const info = await shipInfo(root, prompts)
-    if (chat.busy && !info.blocked)
-      return { ...info, blocked: 'Wait for the agent to finish first.' }
+    if (this.disposed || this.state.project?.root !== root) return null
+    if (this.resources.chat?.busy && info.workspace)
+      return {
+        ...info,
+        workspace: { ...info.workspace, writeBlocked: 'Wait for the agent to finish first.' },
+      }
     return info
   }
 
@@ -1943,7 +1949,35 @@ export class ProjectTab {
     if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
     if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
     if (this.state.project?.root !== root) throw new Error('No project is open.')
-    return ship(root, request)
+    return ship(root, request, this.gitActions(root))
+  }
+
+  async sourceControl(request: SourceControlRequest) {
+    const root = await this.gitRootForAction()
+    return sourceControl(root, request, this.gitActions(root))
+  }
+
+  private gitActions(root: string): ShipActions {
+    return {
+      assertAvailable: () => {
+        if (this.disposed || this.state.project?.root !== root)
+          throw new Error('The project changed.')
+        if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
+      },
+      confirmPush: async ({ remote, branch, count }) => {
+        const owner = this.popout ?? this.host.win
+        const { response } = await dialog.showMessageBox(owner, {
+          type: 'warning',
+          message: `Push ${count} ${count === 1 ? 'commit' : 'commits'} directly to ${remote}/${branch}?`,
+          detail: 'This updates the shared branch immediately and skips pull request review.',
+          buttons: ['Cancel', 'Create a branch', `Push to ${branch}`],
+          defaultId: 0,
+          cancelId: 0,
+          noLink: true,
+        })
+        return response === 2 ? 'push' : response === 1 ? 'branch' : 'cancel'
+      },
+    }
   }
 
   /** source_control_status: never asks to run Git; says so when the user hasn't allowed it. */
@@ -1984,21 +2018,24 @@ export class ProjectTab {
 
   async startFresh() {
     const root = await this.gitRootForAction()
-    await startFresh(root)
+    await withGitMutation(root, () => startFresh(root))
     // The finished idea's chat goes to the archive; the next one starts empty.
     if (this.state.project?.root === root) this.newChat()
   }
 
   async bringInLatest() {
-    await bringInLatest(await this.gitRootForAction())
+    const root = await this.gitRootForAction()
+    await withGitMutation(root, () => bringInLatest(root))
   }
 
   async finishMerge() {
-    await finishMerge(await this.gitRootForAction())
+    const root = await this.gitRootForAction()
+    await withGitMutation(root, () => finishMerge(root))
   }
 
   async cancelMerge() {
-    await cancelMerge(await this.gitRootForAction())
+    const root = await this.gitRootForAction()
+    await withGitMutation(root, () => cancelMerge(root))
   }
 
   /** Hands the conflicts to the agent as a message the user sees in the chat. */
