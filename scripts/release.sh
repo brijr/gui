@@ -28,7 +28,8 @@ case "$version" in
   *) channel=latest ;;
 esac
 
-[ -z "$(git status --porcelain)" ] || fail "Commit or stash your changes first: a release is built from a commit."
+# The site (www/) isn't part of the app, so work on it can be in progress.
+[ -z "$(git status --porcelain -- . ':!www')" ] || fail "Commit or stash your changes first: a release is built from a commit."
 [ "$(git branch --show-current)" = main ] || fail "Release from main."
 if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
   fail "$tag is already released. Bump \"version\" in package.json."
