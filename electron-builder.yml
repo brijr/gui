@@ -107,6 +107,11 @@ mac:
         LSItemContentTypes:
           - public.folder
 
+# Gatekeeper checks the downloaded DMG as well as the app, and rejects one with no signature
+# even when it's notarized. scripts/release.sh notarizes and staples it after this.
+dmg:
+  sign: true
+
 electronFuses:
   # The agent adapters run on Electron's bundled Node via ELECTRON_RUN_AS_NODE.
   runAsNode: true
