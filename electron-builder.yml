@@ -12,7 +12,8 @@
 #   APPLE_ID + APPLE_APP_SPECIFIC_PASSWORD + APPLE_TEAM_ID
 #   APPLE_API_KEY (path to AuthKey_XXXX.p8) + APPLE_API_KEY_ID + APPLE_API_ISSUER
 #   APPLE_KEYCHAIN_PROFILE (+ APPLE_KEYCHAIN)   # from `xcrun notarytool store-credentials`
-# Without any of them notarization is skipped with a warning.
+# Without any of them notarization is skipped with a warning. `bun run release` (scripts/
+# release.sh) refuses to publish a build that isn't signed, notarized and stapled.
 
 appId: dev.gui.app
 productName: Gui
@@ -49,6 +50,13 @@ extraResources:
   - from: bin/gui
     to: bin/gui
 
+# Where installed copies look for updates (src/main/updates.ts): an R2 bucket served by the
+# usegui.com worker (www/worker.js). A prerelease version publishes to its own channel, so
+# 0.1.0-alpha.N writes alpha-mac.yml and only alpha installs follow it.
+publish:
+  provider: generic
+  url: https://usegui.com/releases
+
 asar: true
 # The agent adapters are spawned as `Gui -e "import('…/app.asar.unpacked/node_modules/…')"`
 # with ELECTRON_RUN_AS_NODE (src/main/agent.ts), and Node resolves their imports by walking
@@ -71,6 +79,7 @@ mac:
   # Composer.app/Contents/Executables/ictool" build/icon.icon --export-image --output-file
   # dark.png --platform macOS --rendition Dark --width 1024 --height 1024 --scale 1
   icon: build/icon.icon
+  artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: dmg
       arch: arm64

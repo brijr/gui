@@ -1,7 +1,7 @@
 {
   "name": "gui",
   "productName": "Gui",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.1",
   "description": "Design real interfaces with your own AI agents",
   "author": "Bridger Tower <bridgertower@gmail.com>",
   "private": true,
@@ -22,7 +22,8 @@
     "check:architecture": "bun scripts/check-architecture.ts",
     "check": "bun run typecheck && bun run lint && bun run check:architecture && bun run test:fast && bun run --cwd accounts typecheck && bun run test:accounts",
     "dist": "electron-vite build && bunx --bun electron-builder --mac",
-    "install-app": "sh scripts/install-app.sh"
+    "install-app": "sh scripts/install-app.sh",
+    "release": "sh scripts/release.sh"
   },
   "trustedDependencies": [
     "electron",
@@ -37,6 +38,7 @@
     "@fix-webm-duration/fix": "^1.0.1",
     "@modelcontextprotocol/sdk": "^1.32.0",
     "amp-acp": "0.9.0",
+    "electron-updater": "^6.8.9",
     "node-pty": "^1.1.0",
     "pi-acp": "0.0.34",
     "source-map-js": "^1.2.2",

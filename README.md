@@ -131,6 +131,7 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 - `bun run build` — production bundle in `out/`
 - `bun run dist` — packaged macOS app in `release/` (see below)
 - `bun run install-app` — builds Gui and installs it as `/Applications/Gui.app` (quits and reopens a running Gui) and the `gui` terminal command. To update, `git pull && bun run install-app`
+- `bun run release` — builds, signs, notarizes and publishes the version in `package.json` (see Packaging)
 - `bun run test:e2e` — end-to-end tests against real dev servers (agent turns run only with `GUI_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, `grok`, `kiro`, `opencode`, `pi`, `muse`, `amp`, `devin`, or `cursor`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
 - `bun run check` — type checks, lint, architecture boundaries/cycles, fast desktop checks, and account-service tests
@@ -139,6 +140,8 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 ## Packaging
 
 `CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist` builds an unsigned arm64 `.app`, `.dmg`, and `.zip` (the agent CLIs aren't included; see Agents above). For a signed, notarized build, put a Developer ID Application certificate in your keychain (or set `CSC_LINK` + `CSC_KEY_PASSWORD`) and one set of notarization credentials (`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or an App Store Connect API key) before `bun run dist`. `electron-builder.yml` explains each fuse and entitlement. Unsigned builds get a new ad-hoc signature each time, so macOS asks for keychain access on first launch.
+
+`bun run release` publishes a version: bump `version` in `package.json` (`0.1.0-alpha.2`, …), commit on main, and run it. It runs `bun run check`, builds, verifies the signature, notarization and Gatekeeper, notarizes the DMG, uploads the build to the `gui-releases` R2 bucket, and tags `v<version>`. The setup it needs is at the top of `scripts/release.sh`. Installed copies check `usegui.com/releases` at launch and every 4 hours, download a new version in the background, and offer to restart into it (**Gui → Check for Updates…** checks now). A prerelease version publishes to its own channel (`alpha-mac.yml`), and `usegui.com/download` serves the newest alpha DMG.
 
 ## Security model
 

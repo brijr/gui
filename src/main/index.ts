@@ -113,6 +113,7 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
+import { checkForUpdatesByHand, startUpdates } from './updates'
 import {
   allTabs,
   allWindows,
@@ -1400,6 +1401,7 @@ function buildMenu() {
       label: app.name,
       submenu: [
         { role: 'about' },
+        { label: 'Check for Updates…', click: () => void checkForUpdatesByHand() },
         { type: 'separator' },
         ...item('settings', { click: () => openSettings() }),
         { label: "Install 'gui' Command…", click: () => void installCli() },
@@ -1617,6 +1619,7 @@ if (!app.requestSingleInstanceLock()) {
     void agentHealth.checkOnLaunch(getPrefs().agentId)
     const initial = process.env.GUI_OPEN
     if (initial) openSafely(win, resolve(initial))
+    startUpdates()
   })
 
   app.on('before-quit', shutdown)

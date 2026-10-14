@@ -9,6 +9,8 @@
     "run_worker_first": true,
     "not_found_handling": "404-page"
   },
+  // Gui's builds and update feed, published by scripts/release.sh.
+  "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "gui-releases" }],
   "routes": [
     { "pattern": "usegui.com", "custom_domain": true },
     { "pattern": "www.usegui.com", "custom_domain": true }
