@@ -28,7 +28,7 @@ export const PRESS = 'active:opacity-70 active:transition-none'
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ControlSize = 'sm' | 'md' | 'lg'
 
-const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] disabled:pointer-events-none ${PRESS}`
+const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
 
 /** Disabled, a control fades; a primary one goes neutral instead (VARIANT), as a pale accent still reads as live. */
 const FADE = 'disabled:opacity-40'
@@ -40,10 +40,11 @@ const BUTTON_SIZE: Record<ControlSize, string> = {
 }
 
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: 'bg-accent text-accent-fg hover:bg-accent-hover disabled:bg-fill disabled:text-subtle',
-  secondary: `border border-line-strong bg-raised text-fg shadow-control hover:tint ${FADE}`,
-  ghost: `text-muted hover:bg-hover hover:text-fg ${FADE}`,
-  danger: `bg-danger-soft text-danger hover:tint ${FADE}`,
+  primary:
+    'bg-accent text-accent-fg enabled:hover:bg-accent-hover disabled:bg-fill disabled:text-subtle',
+  secondary: `border border-line-strong bg-raised text-fg shadow-control enabled:hover:tint ${FADE}`,
+  ghost: `text-muted enabled:hover:bg-hover enabled:hover:text-fg ${FADE}`,
+  danger: `bg-danger-soft text-danger enabled:hover:tint ${FADE}`,
 }
 
 interface ButtonProps extends ComponentProps<'button'> {
@@ -73,15 +74,21 @@ export function Button({
   loading = false,
   shortcut,
   disabled,
+  title,
   className,
   children,
   ...props
 }: ButtonProps) {
+  // Shortcut-only controls still need a tooltip naming the action. Native titles can
+  // appear over the preview's WebContentsView, where an HTML tooltip would be covered.
+  const iconOnly = Icon && (children === undefined || children === null || children === false)
+  const tooltip = title ?? (iconOnly ? props['aria-label'] : undefined)
   return (
     <button
       type="button"
       disabled={disabled || loading}
       aria-busy={loading || undefined}
+      title={tooltip && shortcut ? withShortcut(tooltip, shortcut) : tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       className={cn(CONTROL, BUTTON_SIZE[size], VARIANT[variant], className)}
       {...props}
@@ -366,12 +373,13 @@ export function Switch({
       role="switch"
       aria-checked={checked}
       aria-labelledby={labelledBy ? `${labelledBy} ${labelId}` : labelId}
+      title={labelHidden && typeof label === 'string' ? label : undefined}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
         'no-drag flex h-7 shrink-0 items-center gap-2 rounded-md transition-[color,opacity]',
         PRESS,
-        'disabled:pointer-events-none disabled:opacity-40',
+        'disabled:opacity-40',
         className,
       )}
     >

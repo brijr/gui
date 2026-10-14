@@ -1,6 +1,5 @@
 import { fixWebmDuration } from '@fix-webm-duration/fix'
 import { useEffect, useRef, useState } from 'react'
-import { withShortcut } from '../../../shared/shortcuts'
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -227,10 +226,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         icon={recording ? Square : CircleDot}
         disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
         onClick={() => (recording ? stop.current?.() : void start())}
-        title={withShortcut(
-          recording ? 'Stop preview recording' : 'Record preview',
-          'recordPreview',
-        )}
+        title={recording ? 'Stop preview recording' : 'Record preview'}
         aria-label={recording ? 'Stop preview recording' : 'Record preview'}
         // Its keys after the icon, like the toolbar's other tools.
         shortcut="recordPreview"

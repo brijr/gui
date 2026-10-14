@@ -36,6 +36,7 @@ export function RecordingClip({
         <button
           type="button"
           aria-label={`Play ${clip.name}`}
+          title={`Play ${clip.name}`}
           onClick={() => setPreviewing(true)}
           className={`flex min-w-0 flex-1 items-center gap-2 rounded-sm p-0.5 text-left transition-[background-color,opacity] hover:bg-hover ${PRESS}`}
         >

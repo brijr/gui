@@ -443,7 +443,7 @@ export function Thumbnail({
         <button
           type="button"
           aria-label={removeLabel ?? 'Remove'}
-          title="Remove"
+          title={removeLabel ?? 'Remove'}
           onClick={onRemove}
           className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] hover:text-fg hover:tint ${PRESS}`}
         >
