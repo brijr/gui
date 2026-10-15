@@ -166,33 +166,52 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     </button>
   </div>
 
-  <section class="waitlist" id="waitlist" aria-labelledby="waitlist-title">
-    <p id="waitlist-title">
-      Windows and Linux are coming soon. Sign up for the waitlist, and we send you an email when
-      Gui is available.
+  <section class="waitlist" id="waitlist">
+    <p>
+      Windows and Linux are coming soon.{' '}
+      <button class="waitlist-open" type="button" commandfor="waitlist-dialog" command="show-modal">
+        Sign up for the waitlist
+      </button>
     </p>
-    <form class="waitlist-form" action="/waitlist" method="post" data-waitlist>
-      <input
-        class="waitlist-email"
-        type="email"
-        name="email"
-        required
-        maxlength="254"
-        autocomplete="email"
-        placeholder="you@example.com"
-        aria-label="Email address"
-      />
-      <select class="waitlist-platform" name="platform" aria-label="Platform">
-        <option value="windows">Windows</option>
-        <option value="linux">Linux</option>
-      </select>
-      <!-- People don't see this field; bots fill it in, and the worker does not save them. -->
-      <input class="waitlist-trap" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
-      <button class="waitlist-submit" type="submit">Sign up</button>
-    </form>
-    <p class="waitlist-status" role="status" data-waitlist-status></p>
     <p class="waitlist-joined" id="waitlist-joined">You are on the waitlist. We send you an email when Gui is available.</p>
   </section>
+
+  <dialog class="waitlist-dialog" id="waitlist-dialog" closedby="any" aria-labelledby="waitlist-title">
+    <button class="waitlist-close" type="button" commandfor="waitlist-dialog" command="close" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+    </button>
+    <h2 id="waitlist-title">Gui for Windows and Linux</h2>
+    <form class="waitlist-form" action="/waitlist" method="post" data-waitlist>
+      <p>Sign up for the waitlist. We send you one email when Gui is available on your platform.</p>
+      <label class="waitlist-field">
+        <span>Email</span>
+        <input
+          type="email"
+          name="email"
+          required
+          maxlength="254"
+          autocomplete="email"
+          placeholder="you@example.com"
+          autofocus
+        />
+      </label>
+      <fieldset class="waitlist-field">
+        <legend>Platform</legend>
+        <div class="waitlist-platforms">
+          <label><input type="radio" name="platform" value="windows" checked />Windows</label>
+          <label><input type="radio" name="platform" value="linux" />Linux</label>
+        </div>
+      </fieldset>
+      <!-- People don't see this field; bots fill it in, and the worker does not save them. -->
+      <input class="waitlist-trap" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
+      <p class="waitlist-status" role="status" data-waitlist-status></p>
+      <button class="waitlist-submit" type="submit">Sign up</button>
+    </form>
+    <div class="waitlist-done" data-waitlist-done hidden>
+      <p>You are on the waitlist. We send you an email when Gui is available.</p>
+      <button class="waitlist-submit" type="button" commandfor="waitlist-dialog" command="close">Done</button>
+    </div>
+  </dialog>
 
   <figure class="wide">
     <HeroVideo
@@ -256,6 +275,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       dark={agentsDark}
       widths={[760, 1520]}
       sizes="(min-width: 42rem) 38rem, calc(100vw - 3rem)"
+      framed
       alt="The Agents settings in Gui. Claude Code, Codex, Grok Build, OpenCode, Pi, and Muse Code show the status Ready. Kiro, Amp, and Devin are not installed."
     />
     <figcaption>Gui finds each agent on your computer and shows its status.</figcaption>
@@ -276,6 +296,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       dark={mobileDark}
       widths={[960, 1440, 2880]}
       sizes={wide}
+      framed
       alt="The same website in the Mobile frame of Gui, at 390 × 844 pixels. The chat is open next to the frame."
     />
     <figcaption>Examine the page at the size of a phone. The chat stays open.</figcaption>
@@ -305,25 +326,51 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
 <script>
   // Signs up without leaving the page. Without this script, the form posts to /waitlist and the
-  // worker sends the browser back here.
-  const form = document.querySelector<HTMLFormElement>('[data-waitlist]')
-  const status = document.querySelector<HTMLElement>('[data-waitlist-status]')
-  form?.addEventListener('submit', async (event) => {
+  // worker sends the browser back to #waitlist-joined.
+  const dialog = document.querySelector<HTMLDialogElement>('#waitlist-dialog')!
+  const form = dialog.querySelector<HTMLFormElement>('[data-waitlist]')!
+  const done = dialog.querySelector<HTMLElement>('[data-waitlist-done]')!
+  const status = dialog.querySelector<HTMLElement>('[data-waitlist-status]')!
+
+  // Browsers without invoker commands (commandfor) open and close the dialog here instead.
+  if (!('command' in HTMLButtonElement.prototype)) {
+    document.querySelectorAll<HTMLButtonElement>('[commandfor="waitlist-dialog"]').forEach((button) =>
+      button.addEventListener('click', () =>
+        button.getAttribute('command') === 'show-modal' ? dialog.showModal() : dialog.close(),
+      ),
+    )
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close()
+    })
+  }
+
+  form.addEventListener('submit', async (event) => {
     event.preventDefault()
-    const button = form.querySelector('button')!
+    const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!
     button.disabled = true
+    status.textContent = ''
     const response = await fetch(form.action, {
       method: 'POST',
       body: new FormData(form),
       headers: { accept: 'application/json' },
     }).catch(() => null)
     const result = (await response?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    button.disabled = false
     if (result?.ok) {
       form.hidden = true
-      status!.textContent = 'You are on the waitlist. We send you an email when Gui is available.'
+      done.hidden = false
+      done.querySelector('button')!.focus()
     } else {
-      status!.textContent = result?.error ?? 'Gui could not save your address. Try again.'
-      button.disabled = false
+      status.textContent = result?.error ?? 'Gui could not save your address. Try again.'
+    }
+  })
+
+  // The next time the dialog opens, it starts with an empty form.
+  dialog.addEventListener('close', () => {
+    if (form.hidden) {
+      form.reset()
+      form.hidden = false
+      done.hidden = true
     }
   })
 </script>
@@ -404,43 +451,163 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     color: var(--muted);
     font-size: 1rem;
   }
-  .waitlist-form {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--s-2);
-    margin-top: var(--s-3);
+  .waitlist-open {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--fg);
+    font: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--muted);
+    text-underline-offset: 0.15em;
+    text-decoration-thickness: 1px;
+    cursor: pointer;
+  }
+  .waitlist-open:hover {
+    text-decoration-color: currentColor;
+  }
+  /* Without the script, the form posts and the worker sends the browser back to #waitlist-joined. */
+  .waitlist-joined {
+    display: none;
+    margin-top: var(--s-2);
+    color: var(--fg);
+  }
+  .waitlist-joined:target {
+    display: block;
+  }
+
+  .waitlist-dialog {
+    /* The global reset removes the margin that centers a modal dialog. */
+    margin: auto;
+    width: min(26rem, calc(100vw - 2 * var(--s-4)));
+    padding: var(--s-4);
+    border: 1px solid var(--rule);
+    border-radius: 1rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-size: 1rem;
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+  }
+  .waitlist-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.32);
+  }
+  .waitlist-dialog[open] {
+    animation: waitlist-in 160ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  @keyframes waitlist-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.98);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .waitlist-dialog[open] {
+      animation: none;
+    }
+  }
+  .waitlist-dialog h2 {
+    padding-right: var(--s-5);
+    font-size: 1.25rem;
+    font-weight: 400;
+    letter-spacing: -0.015em;
+  }
+  .waitlist-dialog h2::before {
+    content: none;
+  }
+  .waitlist-dialog p {
+    color: var(--muted);
+  }
+  .waitlist-close {
+    position: absolute;
+    top: var(--s-3);
+    right: var(--s-3);
+    display: grid;
+    place-items: center;
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border: 0;
+    border-radius: 999px;
+    background: none;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .waitlist-close:hover {
+    background: var(--rule);
+    color: var(--fg);
+  }
+  .waitlist-close svg {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.75;
+    stroke-linecap: round;
+  }
+  .waitlist-form,
+  .waitlist-done {
+    display: grid;
+    gap: var(--s-3);
+    margin-top: var(--s-2);
   }
   .waitlist-form[hidden],
-  .waitlist:has(.waitlist-joined:target) .waitlist-form {
+  .waitlist-done[hidden] {
     display: none;
   }
-  .waitlist-email,
-  .waitlist-platform,
-  .waitlist-submit {
+  .waitlist-field {
+    display: grid;
+    gap: var(--s-1);
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .waitlist-field > span,
+  .waitlist-field legend {
+    padding: 0;
+    margin-bottom: var(--s-1);
+    font-size: 0.875rem;
+    font-weight: 400;
+  }
+  .waitlist-field input[type='email'] {
     height: 2.5rem;
+    padding: 0 var(--s-3);
     border: 1px solid var(--rule);
     border-radius: 999px;
     background: transparent;
     color: var(--fg);
     font: inherit;
-    font-size: 1rem;
   }
-  .waitlist-email {
-    flex: 1 1 14rem;
-    min-width: 0;
-    padding: 0 var(--s-3);
-  }
-  .waitlist-email::placeholder {
+  .waitlist-field input[type='email']::placeholder {
     color: var(--muted);
   }
-  .waitlist-platform {
+  .waitlist-platforms {
+    display: flex;
+    gap: var(--s-2);
+  }
+  .waitlist-platforms label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    height: 2.5rem;
     padding: 0 var(--s-3);
+    border: 1px solid var(--rule);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .waitlist-platforms label:has(:checked) {
+    border-color: var(--fg);
+  }
+  .waitlist-platforms input {
+    margin: 0;
+    accent-color: var(--fg);
   }
   .waitlist-submit {
-    padding: 0 1.125rem;
-    border-color: transparent;
+    justify-self: start;
+    height: 2.5rem;
+    padding: 0 1.25rem;
+    border: 0;
+    border-radius: 999px;
     background: var(--fg);
     color: var(--bg);
+    font: inherit;
     font-weight: 420;
     cursor: pointer;
     transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1);
@@ -452,11 +619,13 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     opacity: 0.5;
     cursor: default;
   }
-  .waitlist-email:focus-visible,
-  .waitlist-platform:focus-visible,
-  .waitlist-submit:focus-visible {
+  .waitlist-dialog :is(input, button):focus-visible,
+  .waitlist-open:focus-visible {
     outline: 2px solid var(--fg);
     outline-offset: 2px;
+  }
+  .waitlist-platforms input:focus-visible {
+    outline-offset: 1px;
   }
   .waitlist-trap {
     position: absolute;
@@ -468,17 +637,8 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .waitlist-status:empty {
     display: none;
   }
-  .waitlist-status,
-  .waitlist-joined {
-    margin-top: var(--s-2);
-    color: var(--fg);
-  }
-  /* Without the script, the form posts and the worker sends the browser back to #waitlist-joined. */
-  .waitlist-joined {
-    display: none;
-  }
-  .waitlist-joined:target {
-    display: block;
+  .waitlist-dialog .waitlist-status {
+    color: #d93025;
   }
   .try-button {
     display: inline-flex;

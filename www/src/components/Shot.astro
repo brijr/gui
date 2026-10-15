@@ -10,9 +10,17 @@ interface Props {
   widths: number[]
   sizes: string
   eager?: boolean
+  /** Draw the window's edge: a 1px line that follows its rounded corners. */
+  framed?: boolean
 }
 
-const { light, dark, alt, widths, sizes, eager = false } = Astro.props
+const { light, dark, alt, widths, sizes, eager = false, framed = false } = Astro.props
+
+// The window's corner radius in the 2x screenshots, as a percentage of the image so it scales.
+const CORNER = 35
+const radius = framed
+  ? `${((CORNER / light.width) * 100).toFixed(3)}% / ${((CORNER / light.height) * 100).toFixed(3)}%`
+  : undefined
 
 async function srcset(src: ImageMetadata, format: 'avif' | 'webp') {
   const images = await Promise.all(widths.map((width) => getImage({ src, width, format })))
@@ -43,5 +51,13 @@ const fallback = await getImage({
     loading={eager ? 'eager' : 'lazy'}
     fetchpriority={eager ? 'high' : undefined}
     decoding="async"
+    class:list={{ framed }}
+    style={radius && `border-radius: ${radius}`}
   />
 </picture>
+
+<style>
+  .framed {
+    border: 1px solid var(--rule);
+  }
+</style>
