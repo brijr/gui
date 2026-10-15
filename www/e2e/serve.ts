@@ -1,4 +1,4 @@
-// Serves dist/ for the tests, as the Worker would: a directory gets its index.html.
+// Serves dist/ for the tests, as the Worker would: /brand gets brand.html, / gets index.html.
 const root = new URL('../dist/', import.meta.url).pathname
 
 Bun.serve({
@@ -6,7 +6,7 @@ Bun.serve({
   hostname: '127.0.0.1',
   async fetch(request) {
     const path = decodeURIComponent(new URL(request.url).pathname)
-    for (const candidate of [path, `${path}/index.html`, `${path}index.html`]) {
+    for (const candidate of [path, `${path}.html`, `${path}index.html`]) {
       const file = Bun.file(root + candidate.replace(/^\/+/, ''))
       if (!candidate.endsWith('/') && (await file.exists())) return new Response(file)
     }

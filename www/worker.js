@@ -1,8 +1,8 @@
-// Sends www.usegui.com to usegui.com, so search engines see one site. /releases/ is the app's
-// update feed and builds, from the gui-releases R2 bucket (scripts/release.sh publishes
-// there), and /download is the newest DMG, counted in the gui-www D1 database. /waitlist adds
-// an address to the Windows and Linux waitlist in the same database. Everything else is the
-// static site in dist/ (with dist/404.html for pages that don't exist).
+// Sends www.usegui.com and http:// to https://usegui.com, so search engines see one site.
+// /releases/ is the app's update feed and builds, from the gui-releases R2 bucket
+// (scripts/release.sh publishes there), and /download is the newest DMG, counted in the gui-www
+// D1 database. /waitlist adds an address to the Windows and Linux waitlist in the same database.
+// Everything else is the static site in dist/ (with dist/404.html for pages that don't exist).
 
 /** The channel /download serves: alpha until Gui has a stable release. */
 const DOWNLOAD = 'Gui-alpha-arm64.dmg'
@@ -18,8 +18,9 @@ export default {
   /** @param {Request} request @param {Env} env @param {Context} ctx */
   async fetch(request, env, ctx) {
     const url = new URL(request.url)
-    if (url.hostname.startsWith('www.')) {
-      url.hostname = url.hostname.slice(4)
+    if (url.hostname.startsWith('www.') || url.protocol === 'http:') {
+      url.hostname = url.hostname.replace(/^www\./, '')
+      url.protocol = 'https:'
       return Response.redirect(url.toString(), 301)
     }
     if (url.pathname === '/download') {
@@ -35,8 +36,18 @@ export default {
     if (url.pathname === '/waitlist' && request.method === 'POST') return waitlist(request, env)
     const file = url.pathname.match(/^\/releases\/([\w.-]+)$/)?.[1]
     if (file) return release(env, file)
-    return env.ASSETS.fetch(request)
+    return secure(await env.ASSETS.fetch(request))
   },
+}
+
+/** The site's pages and files, with the headers that keep browsers on HTTPS and off frames. */
+function secure(/** @type {Response} */ asset) {
+  const response = new Response(asset.body, asset)
+  response.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains')
+  response.headers.set('x-content-type-options', 'nosniff')
+  response.headers.set('x-frame-options', 'DENY')
+  response.headers.set('referrer-policy', 'strict-origin-when-cross-origin')
+  return response
 }
 
 /** @param {{ RELEASES: R2Bucket }} env @param {string} key @param {string} [filename] */
@@ -53,9 +64,15 @@ async function release(env, key, filename) {
   return new Response(object.body, { headers })
 }
 
-/** A GET from the first byte: not a HEAD, and not a resumed download asking for the rest. */
+/** Crawlers and link previews, which fetch /download but are not people downloading Gui. */
+const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|headless/i
+
+/**
+ * A person's GET from the first byte: not a HEAD, not a resumed download asking for the rest,
+ * and not a crawler or link preview.
+ */
 function startsDownload(/** @type {Request} */ request) {
-  if (request.method !== 'GET') return false
+  if (request.method !== 'GET' || BOT.test(request.headers.get('user-agent') ?? '')) return false
   const range = request.headers.get('range')
   return !range || /^bytes=0-/.test(range)
 }

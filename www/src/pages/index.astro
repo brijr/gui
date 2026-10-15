@@ -92,7 +92,7 @@ const questions = [
   },
   {
     q: 'Which computer do I need?',
-    a: 'A Mac. Gui is a macOS app.',
+    a: 'A Mac with Apple silicon (M1 or later) and macOS 13 or later.',
   },
 ]
 
@@ -110,7 +110,9 @@ const structuredData = {
       '@type': 'Organization',
       '@id': `${site}/#wip`,
       name: 'WIP',
+      legalName: 'Work In Progress LLC',
       url: 'https://wip.is',
+      email: 'hello@usegui.com',
     },
     {
       '@type': 'SoftwareApplication',
@@ -119,6 +121,7 @@ const structuredData = {
       description,
       applicationCategory: 'DesignApplication',
       operatingSystem: 'macOS',
+      downloadUrl: `${site}/download`,
       image: `${site}/og.jpg`,
       publisher: { '@id': `${site}/#wip` },
     },
@@ -171,7 +174,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
   <section class="waitlist" id="waitlist">
     <p>
-      Windows and Linux are coming soon.{' '}
+      For Macs with Apple silicon and macOS 13 or later. Windows and Linux are coming soon.{' '}
       <button class="waitlist-open" type="button" commandfor="waitlist-dialog" command="show-modal">
         Sign up for the waitlist
       </button>
@@ -338,7 +341,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
   <footer>
     <a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.
-    <a class="brand-link" href="/brand">Brand assets</a>
+    <a class="footer-link" href="/brand">Brand assets</a>
+    <a class="footer-link" href="/privacy">Privacy</a>
+    <a class="footer-link" href="/terms">Terms</a>
   </footer>
 
   <Demo slot="after" />
@@ -879,7 +884,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   footer {
     margin-top: var(--s-6);
   }
-  .brand-link {
+  .footer-link {
     margin-left: var(--s-3);
   }
 </style>

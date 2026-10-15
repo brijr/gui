@@ -1,4 +1,7 @@
 User-agent: *
 Allow: /
+# The DMG and the app's update feed: files, not pages.
+Disallow: /download
+Disallow: /releases/
 
 Sitemap: https://usegui.com/sitemap.xml

@@ -155,4 +155,4 @@ Before shipping a signed build, note that the `runAsNode` fuse is on because the
 
 ## Not yet
 
-Drawing on a picked area, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, auto-update, and parallel variations. Source-map fetching, parsing, and lookup run in a bounded background worker, so large maps do not block the main process while picking.
+Drawing on a picked area, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, and parallel variations. Source-map fetching, parsing, and lookup run in a bounded background worker, so large maps do not block the main process while picking.
