@@ -128,6 +128,19 @@ function withTimeout<T>(promise: Promise<T>, message: string, ms: number) {
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+/** Resolves when `wc` next stops loading, or after `ms`. */
+function stoppedLoading(wc: WebContents, ms: number) {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      wc.off('did-stop-loading', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    wc.on('did-stop-loading', done)
+  })
+}
+
 /** About how long a walkthrough caption takes to read, and the pointer to land. */
 const readingTime = (caption: string | null) =>
   caption ? Math.min(8000, 1400 + caption.length * 45) : 900
@@ -166,6 +179,12 @@ export class PreviewTools {
    */
   async screenshot(options: ScreenshotOptions): Promise<FramedScreenshot> {
     this.assertLoaded()
+    // An edit that just landed can reload the page (Astro, or HMR giving up); mid-reload
+    // it's blank, so wait for the new page to load and paint.
+    if (this.deps.wc.isLoading()) {
+      await stoppedLoading(this.deps.wc, RELOAD_TIMEOUT_MS)
+      await sleep(300)
+    }
     return this.deps.inspector.exclusive((session) =>
       session.withoutHighlight(() => {
         this.assertLoaded()
@@ -209,16 +228,9 @@ export class PreviewTools {
   async reload() {
     this.assertLoaded()
     const { wc } = this.deps
-    await new Promise<void>((resolve) => {
-      const done = () => {
-        clearTimeout(timer)
-        wc.off('did-stop-loading', done)
-        resolve()
-      }
-      const timer = setTimeout(done, RELOAD_TIMEOUT_MS)
-      wc.on('did-stop-loading', done)
-      wc.reload()
-    })
+    const loaded = stoppedLoading(wc, RELOAD_TIMEOUT_MS)
+    wc.reload()
+    await loaded
     return this.deps.currentUrl()
   }
 
