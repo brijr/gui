@@ -1,7 +1,8 @@
 // Sends www.usegui.com and http:// to https://usegui.com, so search engines see one site.
 // /releases/ is the app's update feed and builds, from the gui-releases R2 bucket
 // (scripts/release.sh publishes there), and /download is the newest DMG, counted in the gui-www
-// D1 database. /waitlist adds an address to the Windows and Linux waitlist in the same database.
+// D1 database. /waitlist adds an address to the Windows and Linux waitlist in the same database,
+// and /crash keeps the crash reports installed copies send (src/main/crash-reports.ts).
 // Everything else is the static site in dist/ (with dist/404.html for pages that don't exist).
 
 /** The channel /download serves: alpha until Gui has a stable release. */
@@ -34,6 +35,7 @@ export default {
       return response
     }
     if (url.pathname === '/waitlist' && request.method === 'POST') return waitlist(request, env)
+    if (url.pathname === '/crash' && request.method === 'POST') return crash(request, env)
     const file = url.pathname.match(/^\/releases\/([\w.-]+)$/)?.[1]
     if (file) return release(env, file)
     return secure(await env.ASSETS.fetch(request))
@@ -121,6 +123,47 @@ async function waitlist(request, env) {
   }
   if (json) return Response.json({ ok: true })
   return Response.redirect(new URL('/#waitlist-joined', request.url).toString(), 303)
+}
+
+/** The app's report is a few kilobytes; anything much larger isn't one. */
+const MAX_CRASH = 16_000
+const CRASH_KINDS = new Set(['main', 'rejection', 'renderer', 'window', 'process'])
+
+/** Keeps a crash report from Gui. @param {Request} request @param {Env} env */
+async function crash(request, env) {
+  const text = await request.text()
+  if (text.length > MAX_CRASH) return new Response(null, { status: 413 })
+  /** @type {Record<string, unknown> | null} */
+  const report = (() => {
+    try {
+      return JSON.parse(text)
+    } catch {
+      return null
+    }
+  })()
+  const field = (/** @type {string} */ key, /** @type {number} */ max) =>
+    typeof report?.[key] === 'string' ? report[key].slice(0, max) : null
+  const kind = field('kind', 20)
+  const message = field('message', 1000)
+  const version = field('version', 40)
+  if (!kind || !CRASH_KINDS.has(kind) || !message || !version) {
+    return new Response(null, { status: 400 })
+  }
+  await env.DB.prepare(
+    'INSERT INTO crashes (kind, message, stack, version, os, arch, country, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  )
+    .bind(
+      kind,
+      message,
+      field('stack', 8000),
+      version,
+      field('os', 40),
+      field('arch', 20),
+      country(request),
+      now(),
+    )
+    .run()
+  return new Response(null, { status: 204 })
 }
 
 /** The two-letter country Cloudflare gives each request, if any. */
