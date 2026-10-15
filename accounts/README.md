@@ -1,6 +1,6 @@
 # Gui accounts
 
-Gui requires an account before it opens a project. People sign in on WorkOS AuthKit's hosted page, which offers Google, Apple, GitHub, and email; which of these appear, and the page's look, are set in the WorkOS dashboard. The worker turns the WorkOS user into a Gui account, so a verified email that matches an existing account joins it (that's how GitHub users from before keep their accounts). GitHub can also be connected to an account for repositories, cloning, and pull requests; that's Gui's own GitHub App, separate from signing in with GitHub. The service stores the name, the email, and a product-update choice that is off until the person turns it on.
+Gui requires an account before it opens a project. People sign in on WorkOS AuthKit's hosted page, which offers Google, Apple, GitHub, and email; which of these appear, and the page's look, are set in the WorkOS dashboard. The worker turns the WorkOS user into a Gui account, so a verified email that matches an existing account joins it (that's how GitHub users from before keep their accounts). GitHub can also be connected to an account for repositories, cloning, and pull requests; that's Gui's own GitHub App, separate from signing in with GitHub. The service stores the name, the email, and a product-update choice that starts on for new accounts with an email, as the terms say.
 
 ## Sign-in flow
 
@@ -54,7 +54,7 @@ The existing shipping sheet reviews a branch, title, description, and files befo
 
 ## Contact information
 
-Authorized operators can read contact information using the database's existing access controls. There is no public customer export endpoint. For a product-update recipient list, select only `name`, `email`, and `preference_changed_at` from `accounts` where `updates = 1 AND email IS NOT NULL`. Do not export provider tokens or Gui sessions. Preferences default to off, are offered at sign-in and in Settings → Account, and survive repeat sign-in.
+Authorized operators can read contact information using the database's existing access controls. There is no public customer export endpoint. For a product-update recipient list, select only `name`, `email`, and `preference_changed_at` from `accounts` where `updates = 1 AND email IS NOT NULL`. Do not export provider tokens or Gui sessions. New accounts with an email start subscribed; people turn updates off in Settings → Account, and the choice survives repeat sign-in. Accounts made before this change keep their own choice.
 
 An account keeps its first email and name. Sign-in only fills them if they are missing. Signing out in Settings → Account ends that device's session. Disconnecting GitHub removes the GitHub tokens. Sessions last 180 days, and active use extends them. The authenticated `DELETE /account` endpoint removes the account, its identities, its GitHub connection, and all Gui sessions. GitHub authorization itself must be revoked on GitHub separately.
 
