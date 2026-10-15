@@ -1066,6 +1066,8 @@ export interface SettingsState {
   trustedProjects: string[]
   /** Projects started with a command set in Gui rather than the one it detected */
   startCommands: { root: string; start: StartCommand }[]
+  /** Projects where the user chose to stay on the main branch instead of a Gui branch */
+  defaultBranchProjects: string[]
   recentProjects: RecentProject[]
   storage: StorageUsage
   /** Project roots open in a tab of any window; clearing storage keeps their data */

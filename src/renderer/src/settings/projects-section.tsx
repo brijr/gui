@@ -14,9 +14,10 @@ function recentLabel(count: number) {
 }
 
 export function ProjectsSection({ settings }: { settings: SettingsState }) {
-  const { trustedProjects, startCommands, recentProjects, home } = settings
+  const { trustedProjects, startCommands, defaultBranchProjects, recentProjects, home } = settings
   const trustedId = useId()
   const startId = useId()
+  const branchId = useId()
   const recentId = useId()
   const clear = useAction()
   const count = recentProjects.length
@@ -54,6 +55,23 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
           <List>
             {startCommands.map(({ root, start }) => (
               <StartCommandRow key={root} root={root} start={start} home={home} />
+            ))}
+          </List>
+        </section>
+      )}
+
+      {defaultBranchProjects.length > 0 && (
+        <section aria-labelledby={branchId} className="flex flex-col gap-2">
+          <GroupLabel as="h2" id={branchId}>
+            Working on the main branch
+          </GroupLabel>
+          <p className="text-pretty text-small text-muted">
+            In these projects the agent works on the main branch without asking. Ask again to be
+            offered a new branch the next time you send a message there.
+          </p>
+          <List>
+            {defaultBranchProjects.map((root) => (
+              <DefaultBranchRow key={root} root={root} home={home} />
             ))}
           </List>
         </section>
@@ -116,6 +134,27 @@ function StartCommandRow({
       }
     >
       {reset.error && <InlineError>{reset.error}</InlineError>}
+    </ListItem>
+  )
+}
+
+function DefaultBranchRow({ root, home }: { root: string; home: string }) {
+  const ask = useAction()
+  return (
+    <ListItem
+      title={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
+      detail={<PathText path={root} home={home} className="select-text text-caption text-subtle" />}
+      trailing={
+        <Button
+          aria-label={`Ask about a branch again for ${root}`}
+          disabled={ask.pending}
+          onClick={() => void ask.run(() => gui.askAboutBranch(root))}
+        >
+          Ask again
+        </Button>
+      }
+    >
+      {ask.error && <InlineError>{ask.error}</InlineError>}
     </ListItem>
   )
 }

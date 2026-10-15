@@ -218,6 +218,7 @@ const api: GuiApi = {
   openCustomAgentsFile: send(Send.openCustomAgentsFile),
   untrustProject: (root) => legacyInvoke(Invoke.untrustProject, root),
   resetStartCommand: (root) => legacyInvoke(Invoke.resetStartCommand, root),
+  askAboutBranch: (root) => legacyInvoke(Invoke.askAboutBranch, root),
   clearRecent: () => legacyInvoke(Invoke.clearRecent),
   clearStorage: (kind) => legacyInvoke(Invoke.clearStorage, kind),
 }

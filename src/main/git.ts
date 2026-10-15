@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
-import { access, realpath } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { access, lstat, realpath } from 'node:fs/promises'
+import { dirname, join, resolve } from 'node:path'
 import type { GitHubProfile } from '../shared/github'
 import type { SourceControlWorkspace } from '../shared/source-control'
 import type { ShipFile, ShipInfo } from '../shared/types'
@@ -97,6 +97,20 @@ export async function applyConnectedIdentity(repo: At, profile: GitHubProfile) {
 }
 
 // Reading the repository
+
+/** Whether `root` is inside a repository, without running Git (which waits for trust). */
+export async function inRepository(root: string): Promise<boolean> {
+  for (let dir = resolve(root); ; dir = dirname(dir)) {
+    if (
+      await lstat(join(dir, '.git')).then(
+        () => true,
+        () => false,
+      )
+    )
+      return true
+    if (dirname(dir) === dir) return false
+  }
+}
 
 export async function openRepo(root: string): Promise<Repo> {
   const env = await commandEnv()

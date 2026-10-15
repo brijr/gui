@@ -118,6 +118,7 @@ async function buildState(): Promise<SettingsState> {
     customAgentsError: custom.error,
     trustedProjects,
     startCommands,
+    defaultBranchProjects: prefs.defaultBranchRoots,
     recentProjects,
     storage,
     openProjects: openRoots(),
@@ -202,6 +203,14 @@ export async function resetStartCommand(root: string) {
   for (const tab of allTabs()) {
     if (tab.projectRoot === root && tab.getState().project?.custom) void tab.retryStartup()
   }
+  await refreshSettings()
+}
+
+/** The next message sent on the project's main branch asks about a Gui branch again. */
+export async function askAboutBranch(root: string) {
+  const roots = getPrefs().defaultBranchRoots
+  if (roots.includes(root))
+    setPrefs({ defaultBranchRoots: roots.filter((saved) => saved !== root) })
   await refreshSettings()
 }
 

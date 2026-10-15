@@ -94,6 +94,7 @@ import { loadRecent } from './recent'
 import { type Recordings, registerRecordingProtocol } from './recordings'
 import {
   archiveRecentChat,
+  askAboutBranch,
   clearRecent,
   confirmAndClear,
   deleteCustom,
@@ -796,7 +797,7 @@ function registerIpc() {
         new Set(ids).size !== ids.length
       )
         return false
-      return tabFor(event)?.sendChatMessage(text, attached, ids, followUp ?? null) ?? false
+      return tabFor(event)?.sendFromComposer(text, attached, ids, followUp ?? null) ?? false
     },
   )
   handleLegacy(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
@@ -1021,6 +1022,9 @@ function registerIpc() {
   )
   handleSettings(Invoke.resetStartCommand, (_event, root) =>
     isString(root) ? resetStartCommand(root) : undefined,
+  )
+  handleSettings(Invoke.askAboutBranch, (_event, root) =>
+    isString(root) ? askAboutBranch(root) : undefined,
   )
   handleSettings(Invoke.clearRecent, () => clearRecent())
   handleLegacy(Invoke.removeRecent, (event, root: unknown) =>

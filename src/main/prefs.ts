@@ -29,6 +29,8 @@ export interface Prefs {
   agentSettings: Record<AgentId, Record<string, string>>
   /** Project roots the user switched Auto mode off for; every other project is in Auto (see ChatMeta.autoApprove) */
   askRoots: string[]
+  /** Project roots where the user chose to work on the default branch rather than a Gui branch */
+  defaultBranchRoots: string[]
 }
 
 const DEFAULTS: Prefs = {
@@ -42,6 +44,7 @@ const DEFAULTS: Prefs = {
   disabledAgents: [],
   agentSettings: {},
   askRoots: [],
+  defaultBranchRoots: [],
 }
 /** Anything outside this isn't a size a window could have set. */
 const MAX_LENGTH = 10_000
@@ -126,6 +129,7 @@ export function getPrefs(): Prefs {
         : [],
       agentSettings: agentSettings(parsed.agentSettings),
       askRoots: roots(parsed.askRoots),
+      defaultBranchRoots: roots(parsed.defaultBranchRoots),
     }
   } catch (error) {
     // A damaged file would otherwise be replaced by defaults on the next save, losing (among

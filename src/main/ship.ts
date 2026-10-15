@@ -35,6 +35,7 @@ export {
   gitAsUser,
   gitOrNull,
   HOOK_TIMEOUT,
+  inRepository,
   isSafeName,
   openRepo,
   parseRemoteUrl,
@@ -379,6 +380,37 @@ function startsNewBranch(repo: Repo): boolean {
   if (repo.branch === null) return true
   if (!repo.hasHead) return false // the repository's first commit
   return repo.branch === repo.defaultBranch || SHARED_BRANCHES.has(repo.branch)
+}
+
+/**
+ * Before the agent edits a project checked out on a shared branch: that branch, and a new
+ * Gui branch named for `prompt` to work on instead. Null when there's nothing to choose
+ * (another branch, detached HEAD, no commits yet, a merge underway, or not a repository).
+ */
+export async function workBranchChoice(
+  root: string,
+  prompt: string,
+): Promise<{ current: string; suggested: string } | null> {
+  const repo = await openRepo(root).catch(() => null)
+  if (!repo?.branch || repo.problem || !startsNewBranch(repo)) return null
+  return {
+    current: repo.branch,
+    suggested: uniqueBranch(`gui/${slugify(cleanPrompt(prompt))}`, repo),
+  }
+}
+
+/** Creates `branch` from HEAD and switches to it; uncommitted edits come along. */
+export async function startWorkBranch(root: string, from: string, branch: string) {
+  await withGitMutation(root, async (repo) => {
+    if (repo.branch !== from) throw new Error(`The project is no longer on ${from}.`)
+    await assertBranchName(repo, branch)
+    try {
+      await gitAsUser(repo, ['switch', '--quiet', `--create=${branch}`])
+    } catch (error) {
+      if (!(error instanceof CommandError)) throw error
+      throw new Error(tail(error.output, 4))
+    }
+  })
 }
 
 // Suggestions

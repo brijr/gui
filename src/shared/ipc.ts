@@ -100,6 +100,7 @@ export const Invoke = {
   deleteCustomAgent: 'settings:delete-custom-agent',
   untrustProject: 'settings:untrust-project',
   resetStartCommand: 'settings:reset-start-command',
+  askAboutBranch: 'settings:ask-about-branch',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
 } as const
@@ -703,6 +704,8 @@ export interface GuiApi {
   untrustProject(root: string): Promise<void>
   /** The project starts with the command Gui detects again */
   resetStartCommand(root: string): Promise<void>
+  /** Sending on the project's main branch asks about a Gui branch again */
+  askAboutBranch(root: string): Promise<void>
   clearRecent(): Promise<void>
   /** Asks to confirm, then clears; false when the user cancelled */
   clearStorage(kind: StorageKind): Promise<boolean>

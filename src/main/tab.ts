@@ -143,7 +143,14 @@ import {
   settleSetup,
 } from './setup'
 import { getShellEnv } from './shell-env'
-import { type ShipActions, ship, shipInfo } from './ship'
+import {
+  inRepository,
+  type ShipActions,
+  ship,
+  shipInfo,
+  startWorkBranch,
+  workBranchChoice,
+} from './ship'
 import { sourceControl } from './source-control'
 import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
@@ -416,6 +423,8 @@ export class ProjectTab {
   private shipSheetOpen = false
   /** source_control_propose's draft, held until the agent's turn ends */
   private shipProposal: ShipDraft | null = null
+  /** The project whose Git the user said Not Now to when sending; not asked again this tab. */
+  private gitDeclined: string | null = null
   private disposed = false
   /** Bumped per openProject; async steps of a superseded open must not touch the window. */
   private openGeneration = 0
@@ -1916,6 +1925,81 @@ export class ProjectTab {
       if (accepted) recordings.retain(ids)
       return accepted
     } catch {
+      return false
+    }
+  }
+
+  /** The composer's message; on a shared branch like main, the user first picks a branch. */
+  async sendFromComposer(
+    text: string,
+    images: ImageAttachment[],
+    ids: string[],
+    followUp: string | null,
+  ) {
+    if (!(await this.chooseWorkBranch(text))) return false
+    return this.sendChatMessage(text, images, ids, followUp)
+  }
+
+  /** Trust to run Git, so it can check the branch before the agent edits. */
+  private confirmBranchCheck(root: string) {
+    return this.askToTrust(root, {
+      message: 'Use source control?',
+      detail:
+        "Before the agent edits files, Gui checks whether this project is on its main branch so it can offer a separate one. Gui runs Git in this project, which also runs the project's own Git hooks. Only continue for projects you trust.",
+      buttons: ['Continue', 'Not Now'],
+    })
+  }
+
+  /**
+   * The agent edits the checked-out files, so a commit from a terminal lands on whatever
+   * branch that is. On a shared branch, asks once whether to move to a new Gui branch;
+   * staying is remembered for the project. False keeps the draft: cancelled, or failed.
+   */
+  private async chooseWorkBranch(prompt: string) {
+    const root = this.state.project?.root
+    // A busy chat queues the message; the branch was settled when its turn started.
+    if (!root || !this.resources.chat || this.resources.chat.busy) return true
+    if (getPrefs().defaultBranchRoots.includes(root) || this.gitDeclined === root) return true
+    if (!(await isTrusted(root))) {
+      // Not a repository: nothing to ask about, and `git init` later should still be asked.
+      if (!(await inRepository(root)) || this.state.project?.root !== root) return true
+      if (!(await this.confirmBranchCheck(root))) {
+        this.gitDeclined = root
+        return true
+      }
+    }
+    if (this.resources.chat?.busy) return true
+    const choice = await workBranchChoice(root, prompt)
+    if (!choice || this.disposed || this.state.project?.root !== root) return true
+    const current = promptName(choice.current)
+    const owner = this.popout ?? this.host.win
+    const { response } = await dialog.showMessageBox(owner, {
+      type: 'question',
+      message: `Work on a new branch instead of ${current}?`,
+      detail: `Gui edits the files checked out here, so commits made from a terminal go to ${current}. A new branch leaves ${current} as it is until you merge.\n\nIf you stay on ${current}, Gui won’t ask again for this project.`,
+      buttons: [`Create ${choice.suggested}`, `Stay on ${current}`, 'Cancel'],
+      defaultId: 0,
+      cancelId: 2,
+      noLink: true,
+    })
+    if (response === 2 || this.disposed || this.state.project?.root !== root) return false
+    if (response === 1) {
+      const roots = getPrefs().defaultBranchRoots
+      if (!roots.includes(root)) setPrefs({ defaultBranchRoots: [...roots, root] })
+      return true
+    }
+    try {
+      await startWorkBranch(root, choice.current, choice.suggested)
+      return true
+    } catch (error) {
+      if (!owner.isDestroyed())
+        await dialog.showMessageBox(owner, {
+          type: 'warning',
+          message: `Couldn’t create ${choice.suggested}`,
+          detail: error instanceof Error ? error.message : String(error),
+          buttons: ['OK'],
+          noLink: true,
+        })
       return false
     }
   }

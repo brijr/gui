@@ -67,6 +67,7 @@ export interface AllIpcRequests {
   [Invoke.deleteCustomAgent]: Contract<'deleteCustomAgent'>
   [Invoke.untrustProject]: Contract<'untrustProject'>
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
+  [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
 }
