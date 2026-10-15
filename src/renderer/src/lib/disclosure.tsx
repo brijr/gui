@@ -36,7 +36,9 @@ export function Disclosure({
       aria-expanded={open}
       onClick={() => onOpenChange(!open)}
       className={cn(
-        '-ml-1 flex h-6 min-w-0 max-w-full items-center gap-1 rounded-sm px-1 text-left transition-[color,background-color,opacity] hover:bg-hover hover:text-fg',
+        // As wide as the parent plus the margin it hangs into: just max-w-full would cut those
+        // 4px off a parent sized to fit it (a SectionHeader's label) and wrap the label.
+        '-ml-1 flex h-6 min-w-0 max-w-[calc(100%+0.25rem)] items-center gap-1 rounded-sm px-1 text-left transition-[color,background-color,opacity] hover:bg-hover hover:text-fg',
         PRESS,
         tone === 'default' ? 'text-small text-muted' : 'text-caption font-medium text-subtle',
         className,
