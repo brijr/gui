@@ -339,8 +339,18 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
         button.getAttribute('command') === 'show-modal' ? dialog.showModal() : dialog.close(),
       ),
     )
+  }
+  // And without closedby="any", a click on the backdrop closes it here. A click on the backdrop
+  // and a click on the dialog's padding both target the dialog, so the click's position decides.
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
     dialog.addEventListener('click', (event) => {
-      if (event.target === dialog) dialog.close()
+      const box = dialog.getBoundingClientRect()
+      const inside =
+        event.clientX >= box.left &&
+        event.clientX <= box.right &&
+        event.clientY >= box.top &&
+        event.clientY <= box.bottom
+      if (event.target === dialog && !inside) dialog.close()
     })
   }
 
@@ -463,8 +473,10 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     text-decoration-thickness: 1px;
     cursor: pointer;
   }
-  .waitlist-open:hover {
-    text-decoration-color: currentColor;
+  @media (hover: hover) {
+    .waitlist-open:hover {
+      text-decoration-color: currentColor;
+    }
   }
   /* Without the script, the form posts and the worker sends the browser back to #waitlist-joined. */
   .waitlist-joined {
@@ -487,6 +499,16 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     color: var(--fg);
     font-size: 1rem;
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
+  }
+  /* The page behind the open dialog does not scroll. */
+  :global(html:has(.waitlist-dialog[open])) {
+    overflow: hidden;
+  }
+  /* On a phone, the dialog sits near the top, so the keyboard does not cover the email field. */
+  @media (max-width: 40rem) {
+    .waitlist-dialog {
+      margin-top: var(--s-5);
+    }
   }
   .waitlist-dialog::backdrop {
     background: rgba(0, 0, 0, 0.32);
@@ -519,12 +541,12 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   }
   .waitlist-close {
     position: absolute;
-    top: var(--s-3);
-    right: var(--s-3);
+    top: var(--s-2);
+    right: var(--s-2);
     display: grid;
     place-items: center;
-    width: 2rem;
-    height: 2rem;
+    width: 2.5rem;
+    height: 2.5rem;
     padding: 0;
     border: 0;
     border-radius: 999px;
@@ -532,9 +554,14 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     color: var(--muted);
     cursor: pointer;
   }
-  .waitlist-close:hover {
-    background: var(--rule);
-    color: var(--fg);
+  @media (hover: hover) {
+    .waitlist-close:hover {
+      background: var(--rule);
+      color: var(--fg);
+    }
+    .waitlist-submit:hover {
+      opacity: 0.86;
+    }
   }
   .waitlist-close svg {
     fill: none;
@@ -567,6 +594,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     font-weight: 400;
   }
   .waitlist-field input[type='email'] {
+    /* WebKit gives an email field a minimum width that is wider than a phone's dialog. */
+    width: 100%;
+    min-width: 0;
     height: 2.5rem;
     padding: 0 var(--s-3);
     border: 1px solid var(--rule);
@@ -611,9 +641,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     font-weight: 420;
     cursor: pointer;
     transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1);
-  }
-  .waitlist-submit:hover {
-    opacity: 0.86;
   }
   .waitlist-submit:disabled {
     opacity: 0.5;
