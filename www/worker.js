@@ -23,6 +23,11 @@ export default {
       return Response.redirect(url.toString(), 301)
     }
     if (url.pathname === '/download') {
+      // Gui is a Mac app. A phone goes back to the page, which says so, and is not counted.
+      // (iPadOS says it is a Mac; the page's script handles it.)
+      if (/iPhone|iPod|Android/.test(request.headers.get('user-agent') ?? '')) {
+        return Response.redirect(new URL('/#mac-only', request.url).toString(), 303)
+      }
       const response = await release(env, DOWNLOAD, 'Gui.dmg')
       if (response.ok && startsDownload(request)) ctx.waitUntil(countDownload(request, env))
       return response

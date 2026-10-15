@@ -166,6 +166,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     </button>
   </div>
 
+  <!-- Phones are sent here by the worker when there is no script to open the dialog. -->
+  <p class="mac-only" id="mac-only">Gui is a Mac app. Open usegui.com on your Mac to download it.</p>
+
   <section class="waitlist" id="waitlist">
     <p>
       Windows and Linux are coming soon.{' '}
@@ -176,8 +179,25 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     <p class="waitlist-joined" id="waitlist-joined">You are on the waitlist. We send you an email when Gui is available.</p>
   </section>
 
-  <dialog class="waitlist-dialog" id="waitlist-dialog" closedby="any" aria-labelledby="waitlist-title">
-    <button class="waitlist-close" type="button" commandfor="waitlist-dialog" command="close" aria-label="Close">
+  <dialog class="dialog" id="mac-dialog" closedby="any" aria-labelledby="mac-title" autofocus>
+    <button class="dialog-close" type="button" commandfor="mac-dialog" command="close" aria-label="Close">
+      <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
+    </button>
+    <h2 id="mac-title">Gui is a Mac app</h2>
+    <div class="dialog-body">
+      <p>You cannot install Gui on this device. Open usegui.com on your Mac to download it.</p>
+      <button class="dialog-button" type="button" data-share>Send the link to your Mac</button>
+      <p class="dialog-note">
+        Windows and Linux are coming soon.{' '}
+        <button class="waitlist-open" type="button" commandfor="waitlist-dialog" command="show-modal" data-mac-waitlist>
+          Sign up for the waitlist
+        </button>
+      </p>
+    </div>
+  </dialog>
+
+  <dialog class="dialog" id="waitlist-dialog" closedby="any" aria-labelledby="waitlist-title">
+    <button class="dialog-close" type="button" commandfor="waitlist-dialog" command="close" aria-label="Close">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
     </button>
     <h2 id="waitlist-title">Gui for Windows and Linux</h2>
@@ -205,11 +225,11 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       <!-- People don't see this field; bots fill it in, and the worker does not save them. -->
       <input class="waitlist-trap" type="text" name="website" tabindex="-1" autocomplete="off" aria-hidden="true" />
       <p class="waitlist-status" role="status" data-waitlist-status></p>
-      <button class="waitlist-submit" type="submit">Sign up</button>
+      <button class="dialog-button" type="submit">Sign up</button>
     </form>
     <div class="waitlist-done" data-waitlist-done hidden>
       <p>You are on the waitlist. We send you an email when Gui is available.</p>
-      <button class="waitlist-submit" type="button" commandfor="waitlist-dialog" command="close">Done</button>
+      <button class="dialog-button" type="button" commandfor="waitlist-dialog" command="close">Done</button>
     </div>
   </dialog>
 
@@ -332,27 +352,57 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   const done = dialog.querySelector<HTMLElement>('[data-waitlist-done]')!
   const status = dialog.querySelector<HTMLElement>('[data-waitlist-status]')!
 
-  // Browsers without invoker commands (commandfor) open and close the dialog here instead.
+  const macDialog = document.querySelector<HTMLDialogElement>('#mac-dialog')!
+
+  // Browsers without invoker commands (commandfor) open and close the dialogs here instead.
   if (!('command' in HTMLButtonElement.prototype)) {
-    document.querySelectorAll<HTMLButtonElement>('[commandfor="waitlist-dialog"]').forEach((button) =>
+    document.querySelectorAll<HTMLButtonElement>('button[commandfor]').forEach((button) => {
+      const target = document.getElementById(button.getAttribute('commandfor')!) as HTMLDialogElement
       button.addEventListener('click', () =>
-        button.getAttribute('command') === 'show-modal' ? dialog.showModal() : dialog.close(),
-      ),
-    )
-  }
-  // And without closedby="any", a click on the backdrop closes it here. A click on the backdrop
-  // and a click on the dialog's padding both target the dialog, so the click's position decides.
-  if (!('closedBy' in HTMLDialogElement.prototype)) {
-    dialog.addEventListener('click', (event) => {
-      const box = dialog.getBoundingClientRect()
-      const inside =
-        event.clientX >= box.left &&
-        event.clientX <= box.right &&
-        event.clientY >= box.top &&
-        event.clientY <= box.bottom
-      if (event.target === dialog && !inside) dialog.close()
+        button.getAttribute('command') === 'show-modal' ? target.showModal() : target.close(),
+      )
     })
   }
+  // And without closedby="any", a click on the backdrop closes them here. A click on the backdrop
+  // and a click on the dialog's padding both target the dialog, so the click's position decides.
+  if (!('closedBy' in HTMLDialogElement.prototype)) {
+    document.querySelectorAll<HTMLDialogElement>('dialog.dialog').forEach((target) =>
+      target.addEventListener('click', (event) => {
+        const box = target.getBoundingClientRect()
+        const inside =
+          event.clientX >= box.left &&
+          event.clientX <= box.right &&
+          event.clientY >= box.top &&
+          event.clientY <= box.bottom
+        if (event.target === target && !inside) target.close()
+      }),
+    )
+  }
+
+  // Gui is a Mac app: on a phone or tablet, the download button explains that instead of
+  // downloading a DMG. iPadOS says it is a Mac, but a Mac has no touch screen.
+  const ua = navigator.userAgent
+  const notMac = /iPhone|iPad|iPod|Android/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1)
+  if (notMac) {
+    document.querySelector('.download-button')!.addEventListener('click', (event) => {
+      event.preventDefault()
+      macDialog.showModal()
+    })
+  }
+  // The share sheet sends the link to the Mac (AirDrop, Messages, Mail). Without it, copy the link.
+  const share = macDialog.querySelector<HTMLButtonElement>('[data-share]')!
+  if (!navigator.share) share.textContent = 'Copy the link'
+  share.addEventListener('click', async () => {
+    const url = 'https://usegui.com/'
+    if (navigator.share) {
+      await navigator.share({ title: 'Gui', text: 'Gui for Mac', url }).catch(() => {})
+    } else {
+      await navigator.clipboard.writeText(url).catch(() => {})
+      share.textContent = 'Link copied'
+    }
+  })
+  // One dialog at a time: the waitlist replaces this one.
+  macDialog.querySelector('[data-mac-waitlist]')!.addEventListener('click', () => macDialog.close())
 
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
@@ -456,6 +506,16 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     gap: var(--s-2) var(--s-3);
     margin-top: var(--s-4);
   }
+  .mac-only {
+    display: none;
+    margin-top: var(--s-3);
+  }
+  .mac-only:target {
+    display: block;
+  }
+  .dialog-note {
+    font-size: 0.875rem;
+  }
   .waitlist {
     margin-top: var(--s-4);
     color: var(--muted);
@@ -488,7 +548,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     display: block;
   }
 
-  .waitlist-dialog {
+  .dialog {
     /* The global reset removes the margin that centers a modal dialog. */
     margin: auto;
     width: min(26rem, calc(100vw - 2 * var(--s-4)));
@@ -501,19 +561,23 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
   }
   /* The page behind the open dialog does not scroll. */
-  :global(html:has(.waitlist-dialog[open])) {
+  :global(html:has(dialog.dialog[open])) {
     overflow: hidden;
   }
   /* On a phone, the dialog sits near the top, so the keyboard does not cover the email field. */
   @media (max-width: 40rem) {
-    .waitlist-dialog {
+    .dialog {
       margin-top: var(--s-5);
     }
   }
-  .waitlist-dialog::backdrop {
+  /* A dialog with no field takes the focus itself (autofocus), so no button opens with a ring. */
+  .dialog:focus {
+    outline: none;
+  }
+  .dialog::backdrop {
     background: rgba(0, 0, 0, 0.32);
   }
-  .waitlist-dialog[open] {
+  .dialog[open] {
     animation: waitlist-in 160ms cubic-bezier(0.2, 0, 0, 1);
   }
   @keyframes waitlist-in {
@@ -523,23 +587,23 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     }
   }
   @media (prefers-reduced-motion: reduce) {
-    .waitlist-dialog[open] {
+    .dialog[open] {
       animation: none;
     }
   }
-  .waitlist-dialog h2 {
+  .dialog h2 {
     padding-right: var(--s-5);
     font-size: 1.25rem;
     font-weight: 400;
     letter-spacing: -0.015em;
   }
-  .waitlist-dialog h2::before {
+  .dialog h2::before {
     content: none;
   }
-  .waitlist-dialog p {
+  .dialog p {
     color: var(--muted);
   }
-  .waitlist-close {
+  .dialog-close {
     position: absolute;
     top: var(--s-2);
     right: var(--s-2);
@@ -555,20 +619,21 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     cursor: pointer;
   }
   @media (hover: hover) {
-    .waitlist-close:hover {
+    .dialog-close:hover {
       background: var(--rule);
       color: var(--fg);
     }
-    .waitlist-submit:hover {
+    .dialog-button:hover {
       opacity: 0.86;
     }
   }
-  .waitlist-close svg {
+  .dialog-close svg {
     fill: none;
     stroke: currentColor;
     stroke-width: 1.75;
     stroke-linecap: round;
   }
+  .dialog-body,
   .waitlist-form,
   .waitlist-done {
     display: grid;
@@ -629,7 +694,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     margin: 0;
     accent-color: var(--fg);
   }
-  .waitlist-submit {
+  .dialog-button {
     justify-self: start;
     height: 2.5rem;
     padding: 0 1.25rem;
@@ -642,11 +707,11 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     cursor: pointer;
     transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
-  .waitlist-submit:disabled {
+  .dialog-button:disabled {
     opacity: 0.5;
     cursor: default;
   }
-  .waitlist-dialog :is(input, button):focus-visible,
+  .dialog :is(input, button):focus-visible,
   .waitlist-open:focus-visible {
     outline: 2px solid var(--fg);
     outline-offset: 2px;
@@ -664,7 +729,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .waitlist-status:empty {
     display: none;
   }
-  .waitlist-dialog .waitlist-status {
+  .dialog .waitlist-status {
     color: #d93025;
   }
   .try-button {
