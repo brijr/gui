@@ -75,6 +75,7 @@ import {
 import { registerBoardIpc } from './board-ipc'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
+import { errorReport, sendCrashReport } from './crash-reports'
 import { developerTools } from './developer-tools'
 import { cloneGitHub } from './github'
 import { flushHistorySync } from './history'
@@ -92,6 +93,7 @@ import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
 import { type Recordings, registerRecordingProtocol } from './recordings'
+import { isAppContents } from './renderer'
 import {
   archiveRecentChat,
   askAboutBranch,
@@ -107,6 +109,7 @@ import {
   setAgentEnabled,
   setChatDocked,
   setChatSidebarSide,
+  setCrashReports,
   setDefaultAgent,
   untrustProject,
   watchSettings,
@@ -1056,7 +1059,14 @@ function registerIpc() {
   onSettings(Send.setChatSidebarSide, (side) => {
     if (side === 'left' || side === 'right') setChatSidebarSide(side)
   })
+  onSettings(Send.setCrashReports, (on) => typeof on === 'boolean' && setCrashReports(on))
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
+  ipcMain.on(Send.reportError, (event, error: unknown) => {
+    if (!isAppContents(event.sender) || !error || typeof error !== 'object') return
+    const { message, stack } = error as Record<string, unknown>
+    if (!isString(message)) return
+    sendCrashReport({ kind: 'window', message, stack: isString(stack) ? stack : undefined })
+  })
   on(Send.navigate, (tab, url) => isString(url) && tab.navigate(url))
   on(Send.back, (tab) => tab.back())
   on(Send.forward, (tab) => tab.forward())
@@ -1549,10 +1559,21 @@ function buildMenu() {
         ...item('keyboardShortcuts', {
           click: withTabs((w) => w.setShortcutsOpen(!w.shortcutsOpen)),
         }),
+        { type: 'separator' },
+        { label: 'Contact Support', click: () => void shell.openExternal(supportMail()) },
+        { label: 'Gui Website', click: () => void shell.openExternal('https://usegui.com') },
+        { label: 'Privacy', click: () => void shell.openExternal('https://usegui.com/privacy') },
+        { label: 'Terms', click: () => void shell.openExternal('https://usegui.com/terms') },
       ],
     },
   ]
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/** An email to support that already says which Gui and which macOS. */
+function supportMail() {
+  const body = `\n\n—\nGui ${app.getVersion()}, macOS ${process.getSystemVersion()} (${process.arch})`
+  return `mailto:hello@usegui.com?subject=${encodeURIComponent('Gui support')}&body=${encodeURIComponent(body)}`
 }
 
 function focusExistingWindow() {
@@ -1575,8 +1596,21 @@ function shutdown() {
   killStoppedAgents()
 }
 
-// A rejected promise nothing awaited is logged rather than lost.
-process.on('unhandledRejection', (reason) => console.error('[gui] unhandled rejection', reason))
+// A rejected promise nothing awaited is logged rather than lost, and reported.
+process.on('unhandledRejection', (reason) => {
+  console.error('[gui] unhandled rejection', reason)
+  sendCrashReport(errorReport('rejection', reason))
+})
+// A monitor, not a handler: Electron still shows its error dialog as before.
+process.on('uncaughtExceptionMonitor', (error) => sendCrashReport(errorReport('main', error)))
+// Helper processes (GPU, network, utility); renderers are reported in renderer.ts.
+app.on('child-process-gone', (_event, details) => {
+  if (details.reason === 'clean-exit' || details.reason === 'killed') return
+  sendCrashReport({
+    kind: 'process',
+    message: `${details.type} process gone (${details.reason}, exit code ${details.exitCode})${details.name ? ` ${details.name}` : ''}`,
+  })
+})
 
 // One Gui per data folder: two would delete each other's live shadow-repo lock and
 // overwrite each other's history. The lock is keyed on userData, so a dev build or a

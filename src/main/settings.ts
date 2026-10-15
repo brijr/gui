@@ -123,6 +123,7 @@ async function buildState(): Promise<SettingsState> {
     storage,
     openProjects: openRoots(),
     home: app.getPath('home'),
+    crashReports: prefs.crashReports,
   }
 }
 
@@ -159,6 +160,10 @@ export function setChatSidebarSide(side: 'left' | 'right') {
 
 export function setChatDocked(docked: boolean) {
   setPrefs({ chatSidebar: docked })
+}
+
+export function setCrashReports(on: boolean) {
+  setPrefs({ crashReports: on })
 }
 
 export async function saveCustom(originalName: string | null, entry: CustomAgentEntry) {

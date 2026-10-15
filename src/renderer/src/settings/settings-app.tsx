@@ -104,6 +104,6 @@ function SectionContent({ section, settings }: SectionContentProps) {
     case 'storage':
       return <StorageSection settings={settings} />
     case 'account':
-      return <AccountSection />
+      return <AccountSection settings={settings} />
   }
 }

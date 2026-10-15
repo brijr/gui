@@ -1074,4 +1074,6 @@ export interface SettingsState {
   openProjects: string[]
   /** The user's home folder, so paths can show it as ~ */
   home: string
+  /** Gui sends a report when it fails */
+  crashReports: boolean
 }

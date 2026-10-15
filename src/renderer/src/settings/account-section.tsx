@@ -1,17 +1,53 @@
 import { useEffect, useId, useState } from 'react'
 import type { AccountProfile } from '../../../shared/account'
+import type { SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
-import { Card, GroupLabel, List, Message } from '../lib/surface'
-import { Button, Checkbox, Spinner } from '../lib/ui'
+import { Card, GroupLabel, List, ListItem, Message } from '../lib/surface'
+import { Button, Checkbox, Spinner, Switch } from '../lib/ui'
 import { useAccount } from '../lib/use-account'
 
+/** Settings → Account: the Gui account, and the crash reports Gui sends (signed in or not). */
+export function AccountSection({ settings }: { settings: SettingsState }) {
+  return (
+    <>
+      <AccountDetails />
+      <CrashReports on={settings.crashReports} />
+    </>
+  )
+}
+
+function CrashReports({ on }: { on: boolean }) {
+  const headingId = useId()
+  return (
+    <section aria-labelledby={headingId} className="flex flex-col gap-2">
+      <GroupLabel as="h2" id={headingId}>
+        Privacy
+      </GroupLabel>
+      <List>
+        <ListItem
+          title="Send crash reports"
+          detail="When Gui has an error, it sends the error and the Gui and macOS versions to WIP. Never your code, files, or chats."
+          trailing={
+            <Switch
+              checked={on}
+              onCheckedChange={(value) => gui.setCrashReports(value)}
+              label="Send crash reports"
+              labelHidden
+            />
+          }
+        />
+      </List>
+    </section>
+  )
+}
+
 /**
- * Settings → Account: who's signed in, the product-update emails (off until chosen),
- * and signing out, after which the start screen asks to sign in again.
+ * Who's signed in, the product-update emails, and signing out, after which the start screen
+ * asks to sign in again.
  */
-export function AccountSection() {
+function AccountDetails() {
   const state = useAccount()
   const [profile, setProfile] = useState<AccountProfile | null>(null)
   const [loading, setLoading] = useState(true)

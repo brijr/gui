@@ -143,6 +143,8 @@ The preview is a native view, so HTML can't overlay it — the chat panel is its
 
 `bun run release` publishes a version: bump `version` in `package.json` (`0.1.0-alpha.2`, …), commit on main, and run it. It runs `bun run check`, builds, verifies the signature, notarization and Gatekeeper, notarizes the DMG, uploads the build to the `gui-releases` R2 bucket, and tags `v<version>`. The setup it needs is at the top of `scripts/release.sh`. Installed copies check `usegui.com/releases` at launch and every 4 hours, download a new version in the background, and offer to restart into it (**Gui → Check for Updates…** checks now). A prerelease version publishes to its own channel (`alpha-mac.yml`), and `usegui.com/download` serves the newest alpha DMG.
 
+Installed copies also send crash reports (`src/main/crash-reports.ts`): uncaught errors in main, errors that stop one of Gui's windows drawing, and crashed renderer and helper processes, with home folders removed from paths. They go to `usegui.com/crash`, which keeps them in the `gui-www` D1 database; `bun run --cwd www crashes` lists the last 7 days. **Settings → Account → Send crash reports** turns them off, and development builds never send them.
+
 ## Security model
 
 The preview runs your app plus whatever third-party scripts it loads, so it is treated as semi-trusted: it has no preload or IPC access, its session denies permission requests (camera, clipboard reads, devices, external protocols) by default, and element picking only works on local origins.

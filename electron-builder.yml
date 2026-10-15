@@ -85,6 +85,8 @@ mac:
       arch: arm64
     - target: zip
       arch: arm64
+  # Electron's own minimum, made explicit: macOS does not open Gui on an older version.
+  minimumSystemVersion: "13.0"
   hardenedRuntime: true
   # osx-sign signs every file that looks binary, data included, and codesign stores a data
   # file's signature in extended attributes. Notarization then rejects the main executable

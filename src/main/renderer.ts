@@ -1,5 +1,6 @@
 import { join } from 'node:path'
 import { app, shell, type WebContents } from 'electron'
+import { sendCrashReport } from './crash-reports'
 
 export type RendererPage = 'index' | 'chat' | 'settings' | 'pick'
 
@@ -22,8 +23,16 @@ export function loadRenderer(wc: WebContents, page: RendererPage) {
   return wc.loadFile(join(import.meta.dirname, `../renderer/${page}.html`))
 }
 
+/** Gui's own pages, which have the privileged preload; previews never are. */
+const appContents = new WeakSet<WebContents>()
+
+export function isAppContents(wc: WebContents) {
+  return appContents.has(wc)
+}
+
 /** App UI never navigates or opens windows; web links go to the user's browser. */
 export function guardAppContents(wc: WebContents) {
+  appContents.add(wc)
   const openExternal = (url: string) => {
     if (/^https?:/.test(url)) shell.openExternal(url).catch(() => undefined)
   }
@@ -53,6 +62,12 @@ function reloadAfterCrash(wc: WebContents) {
     const now = Date.now()
     reloads = reloads.filter((at) => now - at < 60_000)
     console.error(`[gui] ${wc.getURL()} renderer gone (${details.reason})`)
+    // Which page, not its full address: a file URL names the user's folders.
+    const page = wc.getURL().split('/').pop()?.split(/[?#]/)[0] ?? 'unknown'
+    sendCrashReport({
+      kind: 'renderer',
+      message: `${page} renderer gone (${details.reason}, exit code ${details.exitCode})`,
+    })
     if (reloads.length >= MAX_CRASH_RELOADS) return
     reloads.push(now)
     wc.reload()

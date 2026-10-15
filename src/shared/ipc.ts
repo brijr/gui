@@ -187,6 +187,8 @@ export const Send = {
   setDefaultAgent: 'settings:default-agent',
   setChatDocked: 'settings:chat-docked',
   setChatSidebarSide: 'settings:chat-sidebar-side',
+  setCrashReports: 'settings:crash-reports',
+  reportError: 'app:report-error',
   openCustomAgentsFile: 'settings:open-agents-file',
   newBoard: 'board:new',
   openBoard: 'board:open',
@@ -695,6 +697,9 @@ export interface GuiApi {
   setDefaultAgent(agentId: AgentId): void
   setChatDocked(docked: boolean): void
   setChatSidebarSide(side: 'left' | 'right'): void
+  setCrashReports(on: boolean): void
+  /** An error in one of Gui's own windows, for a crash report (main decides whether to send it) */
+  reportError(error: { message: string; stack?: string }): void
   /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */
   saveCustomAgent(originalName: string | null, entry: CustomAgentEntry): Promise<void>
   deleteCustomAgent(name: string): Promise<void>

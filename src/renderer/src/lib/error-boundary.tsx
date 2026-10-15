@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { reportError } from './crash-reports'
 import { Button } from './ui'
 
 interface Props {
@@ -23,6 +24,7 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
 
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[gui] render failed', error, info.componentStack)
+    reportError(error)
   }
 
   componentDidUpdate(previous: Props) {

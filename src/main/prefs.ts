@@ -31,6 +31,8 @@ export interface Prefs {
   askRoots: string[]
   /** Project roots where the user chose to work on the default branch rather than a Gui branch */
   defaultBranchRoots: string[]
+  /** Installed copies send a report when Gui itself fails (crash-reports.ts) */
+  crashReports: boolean
 }
 
 const DEFAULTS: Prefs = {
@@ -45,6 +47,7 @@ const DEFAULTS: Prefs = {
   agentSettings: {},
   askRoots: [],
   defaultBranchRoots: [],
+  crashReports: true,
 }
 /** Anything outside this isn't a size a window could have set. */
 const MAX_LENGTH = 10_000
@@ -130,6 +133,8 @@ export function getPrefs(): Prefs {
       agentSettings: agentSettings(parsed.agentSettings),
       askRoots: roots(parsed.askRoots),
       defaultBranchRoots: roots(parsed.defaultBranchRoots),
+      crashReports:
+        typeof parsed.crashReports === 'boolean' ? parsed.crashReports : DEFAULTS.crashReports,
     }
   } catch (error) {
     // A damaged file would otherwise be replaced by defaults on the next save, losing (among
