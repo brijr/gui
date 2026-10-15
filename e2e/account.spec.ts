@@ -98,10 +98,8 @@ test('a new user signs in before Gui opens a project, then the project opens', a
     await expect(chrome.getByRole('button', { name: 'Open project…' })).toHaveCount(0)
     await chrome.screenshot({ path: test.info().outputPath('sign-in.png') })
 
-    // Product updates are a choice, off until made.
-    const updates = chrome.getByRole('checkbox', { name: 'Email me about new Gui features' })
-    await expect(updates).not.toBeChecked()
-    await updates.check()
+    // Signing up agrees to product emails, so there's nothing to tick.
+    await expect(chrome.getByRole('checkbox')).toHaveCount(0)
     await chrome.getByRole('button', { name: 'Sign in or create an account' }).click()
     await expect(chrome.getByText('Finish signing in in your browser…')).toBeVisible()
     const opened = await session.app.evaluate(
@@ -113,7 +111,6 @@ test('a new user signs in before Gui opens a project, then the project opens', a
     const landing = await fetch(`http://127.0.0.1:${fake.service.loopback}/callback?code=one-time`)
     expect(await landing.text()).toContain('You’re signed in to Gui')
     await session.waitForPreview()
-    await expect.poll(() => fake.service.updates).toBe(true)
     const userData = await session.app.evaluate(({ app }) => app.getPath('userData'))
     expect(existsSync(join(userData, 'github-session'))).toBe(true)
   } finally {
@@ -155,7 +152,7 @@ test('a sign-in that fails says so; cancelling and signing out ask again', async
     await signIn.click()
     await fetch(`http://127.0.0.1:${fake.service.loopback}/callback?code=one-time`)
     await expect(chrome.getByRole('button', { name: 'Open project…' })).toBeVisible()
-    // Nobody asked for updates, so none were turned on.
+    // The app leaves product updates to the account service.
     expect(fake.service.updates).toBe(false)
 
     // Settings → Account signs out, and the start screen asks again.

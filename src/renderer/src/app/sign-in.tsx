@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { GuiMark } from '../lib/gui-mark'
-import { Button, Checkbox, Spinner } from '../lib/ui'
+import { Button, Spinner } from '../lib/ui'
 
 const CANCELLED = 'Sign-in was cancelled.'
 
@@ -14,25 +14,16 @@ const CANCELLED = 'Sign-in was cancelled.'
  */
 export function SignIn() {
   const [waiting, setWaiting] = useState(false)
-  const [updates, setUpdates] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The product-update choice, for when signing in finishes in the browser.
-  const wantsUpdates = useRef(updates)
-  wantsUpdates.current = updates
 
   const signIn = () => {
     setError(null)
     setWaiting(true)
-    gui.accountSignIn().then(
-      () => {
-        if (wantsUpdates.current) void gui.setAccountUpdates(true).catch(() => undefined)
-      },
-      (err: unknown) => {
-        const message = readableError(err)
-        if (message !== CANCELLED) setError(message)
-        setWaiting(false)
-      },
-    )
+    gui.accountSignIn().catch((err: unknown) => {
+      const message = readableError(err)
+      if (message !== CANCELLED) setError(message)
+      setWaiting(false)
+    })
   }
 
   const cancel = () => {
@@ -73,12 +64,7 @@ export function SignIn() {
 
       {error && <InlineError>{error}</InlineError>}
 
-      <div className="flex flex-col gap-2 border-t border-line pt-4">
-        <Checkbox
-          label="Email me about new Gui features"
-          checked={updates}
-          onChange={(event) => setUpdates(event.target.checked)}
-        />
+      <div className="border-t border-line pt-4">
         <p className="text-pretty text-small text-subtle">
           By continuing, you agree to Gui’s{' '}
           <a
@@ -98,7 +84,7 @@ export function SignIn() {
           >
             Privacy Policy
           </a>
-          .
+          , and to get emails from us about Gui. You can turn them off in Settings.
         </p>
       </div>
     </div>

@@ -20,7 +20,7 @@ The Electron main process stores the device session using secure storage, checks
 
 Repository access is the intersection of the user's access and the installed app's access. Credentials and PR creation recheck the connected repository ID. Pushes target the verified GitHub HTTPS endpoint, and branch protection still applies. GitHub App permissions are Contents, Pull requests, and Administration write, plus Metadata and account Email read. Administration is broader than creation, but Gui exposes no deletion or collaborator-management endpoint.
 
-The GitHub name, handle, and verified primary email refresh when GitHub is connected or used to sign in. Product updates default to off, and survive repeat sign-in. Email campaigns require a separate provider and authorization. Authorized Cloudflare operators can query opted-in contact fields; there is no public export endpoint.
+The GitHub name, handle, and verified primary email refresh when GitHub is connected or used to sign in. New accounts with an email start subscribed to product updates, as the terms and privacy page say; people turn them off in **Settings → Account**, and the choice survives repeat sign-in. Email campaigns require a separate provider and authorization. Authorized Cloudflare operators can query opted-in contact fields; there is no public export endpoint.
 
 ## Activation and evidence
 
