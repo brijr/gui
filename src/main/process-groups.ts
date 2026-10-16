@@ -1,6 +1,6 @@
-import { execFileSync } from 'node:child_process'
 import { basename } from 'node:path'
 import type { IPty } from 'node-pty'
+import { execFileSync } from './process'
 
 interface ProcessRow {
   pid: number

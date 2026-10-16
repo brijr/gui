@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
 import { access, mkdir, readdir, readFile, rename, rm } from 'node:fs/promises'
@@ -8,6 +7,7 @@ import { app } from 'electron'
 import type { AgentBinaries, AgentBinary } from '../../scripts/agent-binaries'
 import { type AgentBinarySource, type AgentId, agentName } from '../shared/types'
 import { type DownloadProgress, download } from './download'
+import { execFile } from './process'
 import { getShellEnv } from './shell-env'
 
 declare const __GUI_AGENT_BINARIES__: AgentBinaries

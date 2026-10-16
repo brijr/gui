@@ -1,4 +1,3 @@
-import { type ChildProcess, spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, join } from 'node:path'
 import { Readable, Writable } from 'node:stream'
@@ -23,6 +22,14 @@ import {
 } from './agents'
 import { DetailedError } from './errors'
 import { GUI_TOOL_NAMES, MCP_SERVER_NAME } from './mcp-server'
+import {
+  type ChildProcess,
+  killLeftoverProcesses,
+  killProcessGroup,
+  registerLiveGroup,
+  spawnProcess,
+  unregisterLiveGroup,
+} from './process'
 import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
@@ -357,12 +364,13 @@ export class AgentSession {
     if (this.disposed) throw new Error('Agent was stopped')
     // The user sees the app in Gui's preview, so dev servers and tools the agent starts
     // (`vite --open`, Create React App, Python's webbrowser) shouldn't open their browser.
-    // Sign-in still needs it.
-    const browser = authenticate ? {} : { BROWSER: 'none' }
-    // Own process group, so dispose() can stop the agent and everything it started.
-    const child = spawn(spec.command, spec.args, {
+    // Sign-in still needs it. Own process group, so dispose() can stop the agent and
+    // everything it started.
+    const child = spawnProcess(spec.command, spec.args, {
       cwd: this.cwd,
-      env: { ...shellEnv, ...browser, ...spec.env },
+      env: shellEnv,
+      extra: spec.env,
+      browser: authenticate ? false : 'none',
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     })
@@ -677,11 +685,11 @@ export class AgentSession {
     // Even once the adapter itself has exited, what it started (the CLI, its MCP servers,
     // commands it ran) can still be in its group.
     const leaderAlive = child.exitCode === null && child.signalCode === null
-    killGroup(pid, 'SIGTERM', leaderAlive)
-    liveGroups.add(pid)
+    killProcessGroup(pid, 'SIGTERM', leaderAlive)
+    registerLiveGroup(pid)
     setTimeout(() => {
-      liveGroups.delete(pid)
-      killGroup(pid, 'SIGKILL', child.exitCode === null && child.signalCode === null)
+      unregisterLiveGroup(pid)
+      killProcessGroup(pid, 'SIGKILL', child.exitCode === null && child.signalCode === null)
     }, 2000).unref()
   }
 
@@ -793,31 +801,10 @@ export class AgentSession {
   }
 }
 
-/** Agent process groups sent SIGTERM and not yet past their SIGKILL grace period. */
-const liveGroups = new Set<number>()
-
 /**
  * Kills what's left of every stopped agent's group now. Quitting can't wait out the grace
  * period: the timer that would send SIGKILL dies with the app.
  */
 export function killStoppedAgents() {
-  for (const pid of liveGroups) killGroup(pid, 'SIGKILL', false)
-  liveGroups.clear()
-}
-
-/**
- * Signals the agent's process group. Only while the leader is alive is its own pid a fallback:
- * once it has exited, the pid may belong to some other process.
- */
-function killGroup(pid: number, signal: NodeJS.Signals, leaderAlive: boolean) {
-  try {
-    process.kill(-pid, signal)
-  } catch {
-    if (!leaderAlive) return
-    try {
-      process.kill(pid, signal)
-    } catch {
-      // already gone
-    }
-  }
+  killLeftoverProcesses()
 }

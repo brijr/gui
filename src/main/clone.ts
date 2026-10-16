@@ -1,7 +1,7 @@
-import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { developerTools } from './developer-tools'
+import { execFile } from './process'
 import { getShellEnv } from './shell-env'
 
 export interface RepoRef {

@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { access, constants, mkdir, readdir, rename, rm } from 'node:fs/promises'
@@ -8,6 +7,7 @@ import { findExecutable } from './agents'
 import { download } from './download'
 import { describeError } from './errors'
 import { NODE, nodeBinDir, nodeRoot } from './node-paths'
+import { execFile } from './process'
 import { addToPath, getShellEnv } from './shell-env'
 
 /** Download progress is pushed to every window; a 30 MB download has thousands of chunks. */

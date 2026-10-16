@@ -1,4 +1,3 @@
-import { type ChildProcess, spawn } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -18,6 +17,8 @@ import {
 import { type AgentDefinition, listAgents } from './agents'
 import { describeError } from './errors'
 import { getPrefs, isAgentEnabled, prefsEvents } from './prefs'
+import type { ChildProcess } from './process'
+import { killProcessGroup, spawnProcess } from './process'
 import { getShellEnv } from './shell-env'
 import { runInTerminal } from './terminal'
 
@@ -57,11 +58,7 @@ function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
 
 function killGroup(child: ChildProcess) {
   if (child.pid === undefined || child.exitCode !== null) return
-  try {
-    process.kill(-child.pid, 'SIGTERM')
-  } catch {
-    child.kill('SIGTERM')
-  }
+  killProcessGroup(child.pid, 'SIGTERM', true)
 }
 
 const unchecked = (
@@ -359,7 +356,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     const binary = await requireAgentBinary(id)
     const env = await getShellEnv()
     if (this.disposed) return
-    const child = spawn(binary.path, args[0] === '--cli' ? args.slice(1) : args, {
+    const child = spawnProcess(binary.path, args[0] === '--cli' ? args.slice(1) : args, {
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: true,

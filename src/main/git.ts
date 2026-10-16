@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process'
 import { constants } from 'node:fs'
 import { access, lstat, realpath } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
@@ -6,6 +5,7 @@ import type { GitHubProfile } from '../shared/github'
 import type { SourceControlWorkspace } from '../shared/source-control'
 import type { ShipFile, ShipInfo } from '../shared/types'
 import { developerTools, GIT_TOOLS_MISSING } from './developer-tools'
+import { execFile } from './process'
 import { mayHoldSecrets } from './secret-files'
 import { getShellEnv } from './shell-env'
 

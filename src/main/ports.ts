@@ -1,5 +1,5 @@
-import { execFile } from 'node:child_process'
 import { connect } from 'node:net'
+import { execFile } from './process'
 
 export interface Listener {
   pid: number

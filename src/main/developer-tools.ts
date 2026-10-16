@@ -1,8 +1,8 @@
-import { execFile } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { findExecutable } from './agents'
+import { execFile } from './process'
 import { getShellEnv } from './shell-env'
 
 /** What the user sees when Gui needs git and this Mac can't run it yet. */
