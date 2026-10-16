@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "lint": "biome check .",
     "format": "biome check --write .",
-    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true",
+    "postinstall": "chmod +x node_modules/node-pty/prebuilds/*/spawn-helper 2>/dev/null || true; git config core.hooksPath .githooks 2>/dev/null || true",
     "test:e2e": "electron-vite build && playwright test",
     "test:fast": "bun test tests && bun tests/fast/chat-store.ts && bun scripts/test-chat-transport.ts",
     "test:accounts": "bun test --cwd accounts",

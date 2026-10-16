@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RecordingAttachment } from '../src/shared/types'
-import { electronExecutable, waitFor } from './helpers/env'
+import { electronExecutable, sleep, waitFor } from './helpers/env'
 import { type GuiSession, launchGui } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -97,9 +97,9 @@ async function record(
   await expect(
     session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }),
   ).toBeVisible()
-  await session.chrome.waitForTimeout(600)
+  await sleep(600)
   await during?.()
-  await session.chrome.waitForTimeout(1200)
+  await sleep(1200)
   await session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }).click()
   await expect(
     session.chat
@@ -291,7 +291,7 @@ test('⌥⌘R starts and stops a recording, as the toolbar button does', async (
   expect(await recordMenu()).toBe('Alt+CmdOrCtrl+R')
   const stop = session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true })
   await expect(stop).toBeVisible()
-  await session.chrome.waitForTimeout(1200)
+  await sleep(1200)
   await recordMenu()
   await expect(
     session.chat
@@ -320,7 +320,7 @@ test('switching tabs stops capture and attaches the clip to its original project
   await expect(
     session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }),
   ).toBeVisible()
-  await session.chrome.waitForTimeout(800)
+  await sleep(800)
   await session.chrome.evaluate(() => window.gui.newTab())
   const clip = await attached
   expect(clip.frameCount).toBeGreaterThan(0)

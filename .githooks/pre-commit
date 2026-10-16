@@ -1,0 +1,7 @@
+#!/bin/sh
+# Format and lint staged files with Biome so a fix doesn't land in a follow-up commit.
+if ! command -v bun >/dev/null 2>&1; then
+  echo "pre-commit: bun is not on PATH; skip biome (run bun run check before you push)." >&2
+  exit 0
+fi
+bunx biome check --write --staged --no-errors-on-unmatched

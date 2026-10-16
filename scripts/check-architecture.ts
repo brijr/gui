@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
-import { dirname, join, relative, resolve } from 'node:path'
+import { dirname, join, relative, resolve, sep } from 'node:path'
 import { parse } from '@babel/parser'
 
 const root = resolve(import.meta.dirname, '..')
@@ -125,10 +125,46 @@ function visit(file: string) {
   active.delete(file)
 }
 for (const file of files) visit(file)
+
+const processModule = join(source, 'main', 'process.ts')
+for (const file of files) {
+  if (file === processModule) continue
+  const contents = readFileSync(file, 'utf8')
+  if (
+    /from ['"]node:child_process['"]/.test(contents) ||
+    /from ['"]child_process['"]/.test(contents)
+  )
+    failures.push(
+      `${name(file)} imports child_process; spawn and exec go through src/main/process.ts`,
+    )
+  if (contents.includes('DOM.getNodeForLocation') && !file.endsWith(`${sep}inspector.ts`))
+    failures.push(`${name(file)} looks up nodes by location; that stays in inspector.ts`)
+}
+
+const specs: string[] = []
+function collectSpecs(directory: string) {
+  if (!existsSync(directory)) return
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'fixtures' || entry.name === 'node_modules') continue
+      collectSpecs(path)
+    } else if (entry.name.endsWith('.spec.ts')) specs.push(path)
+  }
+}
+collectSpecs(join(root, 'e2e'))
+for (const file of specs) {
+  const contents = readFileSync(file, 'utf8')
+  if (contents.includes('waitForTimeout'))
+    failures.push(
+      `${name(file)} uses waitForTimeout; wait for a condition (e2e/helpers/env.ts waitFor) or see .cursor/skills/e2e-motion`,
+    )
+}
+
 if (failures.length) {
   for (const failure of new Set(failures)) console.error(failure)
   process.exitCode = 1
 } else
   console.log(
-    `Architecture boundaries and runtime import cycles checked across ${files.length} TypeScript modules.`,
+    `Architecture boundaries, spawn, e2e waits, and runtime import cycles checked across ${files.length} TypeScript modules and ${specs.length} e2e specs.`,
   )
