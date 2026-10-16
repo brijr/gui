@@ -1,18 +1,15 @@
-import { execFile } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
+import { basename, dirname, join, posix } from 'node:path'
 import {
   app,
-  BrowserWindow,
   ClipboardItem,
   clipboard,
   dialog,
   Menu,
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
-  type NativeImage,
   nativeImage,
   screen,
   shell,
@@ -28,15 +25,12 @@ import {
   frameId,
 } from '../shared/board'
 import { type ChatMenuChoice, Events } from '../shared/ipc'
-import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
-import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import { reviewTitle } from '../shared/review'
 import { SHORTCUTS } from '../shared/shortcuts'
 import type { SourceControlRequest } from '../shared/source-control'
 import {
   type AgentId,
   agentName,
-  type ChatFloat,
   type ChatForm,
   type ChatGrab,
   type ChatSnapshot,
@@ -51,7 +45,7 @@ import {
   type NodeSetup,
   type PanelEdge,
   type Picked,
-  type PreviewFrame,
+  type Point,
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
@@ -72,7 +66,6 @@ import {
   type Viewport,
   type ViewportFrame,
   viewportSpec,
-  type WindowState,
   type WorkspaceApp,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
@@ -82,15 +75,6 @@ import { boardIdOf, listBoards } from './board'
 import { BoardSession } from './board-session'
 import { createBoardTools } from './board-tool-workflow'
 import { availableModels, ChatController } from './chat'
-import {
-  type Anchor,
-  anchorFor,
-  cornerPoint,
-  fadeIn,
-  inCorner,
-  maxFloatingSize,
-  PANEL_MARGIN,
-} from './chat-presentation'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
@@ -110,12 +94,12 @@ import { isLoopback } from './loopback'
 import { describeSourceControl, describeTurns, describeVersions } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
-import { Flight, type Point, prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
-import { type ChatSize, getPrefs, setPrefs } from './prefs'
+import { getPrefs, setPrefs } from './prefs'
 import { PreviewMorph } from './preview-morph'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
+import { execFile } from './process'
 import { detectProject, readPackageJson } from './project'
 import { retireProject, waitForRetiredProject } from './project-handoff'
 import { ProjectResources } from './project-resources'
@@ -155,50 +139,29 @@ import { sourceControl } from './source-control'
 import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
 import { PREVIEW_PARTITION } from './storage'
+import { ChatPanel, type ChatPanelOwner } from './tab-chat-panel'
+import {
+  appRoot,
+  cancelledShipInfo,
+  chatImage,
+  frameError,
+  inCanvas,
+  originOf,
+  previewFrame,
+  screenshotName,
+  shownTools,
+  sourceInProject,
+} from './tab-helpers'
+import type { TabHost, TabState } from './tab-host'
 import { Terminals } from './terminals'
 import { collapseText, rewriteText } from './text-edit'
-import { followSurface, surfaceColor } from './theme'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
-import { focusWindow, showWindow } from './window-presentation'
+import { focusWindow } from './window-presentation'
 
-const PANEL_MIN = { width: 320, height: 360 }
-/** Below this the panel can't show its header, a line of transcript and the composer. */
-const PANEL_SHORTEST = 200
+export type { TabHost, TabState } from './tab-host'
 
-const DOCK_MIN_WIDTH = 320
-/** The docked panel leaves the preview at least the rest of the canvas. */
-const DOCK_MAX_SHARE = 0.6
-/** A screenshot attached to the chat, sized like the composer's images (images.ts). */
-const ATTACH_EDGE = 1568
-const ATTACH_THUMBNAIL_EDGE = 160
-const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
-/**
- * Letting go of the floating panel faster than this (px/s) throws it: it lands on a slightly
- * bouncy spring. Slower, it settles into the nearest corner without overshooting.
- */
-const THROW_SPEED = 500
-/** Faster than any real flick; a glitch in the pointer's history beyond it is capped. */
-const MAX_THROW_SPEED = 8000
-/**
- * A grab mid-flight puts the panel back where the pointer found it, unless that's further
- * than this from where it's drawn: then the report doesn't match the view, so it stays put.
- */
-const GRAB_SLOP = 240
-/**
- * The floating view shrinks to a smaller form once the chat reports its morph done; if it
- * doesn't in this long (its page isn't drawing), it shrinks anyway.
- */
-const MORPH_TIMEOUT_MS = 700
-/**
- * How long after the keyboard leaves the floating chat it tucks into its bubble: long enough
- * that a quick look at the page doesn't set the panel moving, so it reads as getting out of
- * the way once the user has moved on.
- */
-const TUCK_DELAY_MS = 2500
-/** The floating forms by size: the view grows to a larger one at once. */
-const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
 /** The id a pick goes by in the overlay while it's read, before it has its own */
@@ -223,39 +186,6 @@ const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
 
 type ScreenshotAction = 'copy' | 'copy-full-page' | 'save' | 'attach'
 type ScreenshotResult = 'copied' | 'saved' | 'attached'
-
-/** What the window shows for its active tab, without the window's own tab strip. */
-export type TabState = Omit<
-  WindowState,
-  'tabs' | 'activeTab' | 'focusMode' | 'shortcutsOpen' | 'fullScreen'
->
-
-/** The window a tab is in (window.ts), as the tab sees it. */
-export interface TabHost {
-  readonly win: BrowserWindow
-  /** Where the chrome renderer's canvas is, which the active tab lays out over. */
-  readonly canvas: Rect
-  /** The window's chrome above the canvas: the toolbar, and the tab row while it shows. */
-  readonly chromeHeight: number
-  /** Focus mode: the preview alone, without the chat (WindowState.focusMode). */
-  readonly focusMode: boolean
-  /**
-   * The chrome's shortcuts sheet is over the window, open or still fading out, where the tab's
-   * views would hide it.
-   */
-  readonly sheetShown: boolean
-  setFocusMode(on: boolean): void
-  /** The tab whose views are in the window; only it lays out and talks to the chrome. */
-  isActive(tab: ProjectTab): boolean
-  /** The tab's state changed (`stateChanged`), or only what its tab in the strip shows. */
-  tabChanged(tab: ProjectTab, stateChanged: boolean): void
-  /** Main → the chrome renderer, dropped unless `tab` is the active tab. */
-  sendChrome(tab: ProjectTab, channel: string, payload: unknown): void
-  /** A project was added to the recent list: every tab's project menu lists it. */
-  shareRecent(recent: RecentProject[]): void
-  /** The canvases changed (one made, renamed or deleted): every start screen lists them. */
-  shareBoards(boards: RecentBoard[]): void
-}
 
 let lastTabId = 0
 
@@ -286,25 +216,26 @@ const boardProject = (root: string, name: string): ProjectInfo => ({
  * inspector, preview tools and problems, plus where its chat panel sits. Only the window's
  * active tab has its views in the window; the others keep running out of sight.
  */
-export class ProjectTab {
+export class ProjectTab implements ChatPanelOwner {
   readonly id = `tab-${++lastTabId}`
-  private host: TabHost
+  host: TabHost
   private readonly preview: WebContentsView
-  private readonly chatView: WebContentsView
+  readonly chatView: WebContentsView
   private readonly inspector: Inspector
   /** The page at its viewport's size: a device frame's or zoomed Desktop's; none at 100%. */
   private readonly emulation: ViewportEmulation
   /** Each viewport's zoom, Desktop's at 100% and the frames fitting until the user zooms. */
   private zooms: Record<Viewport, Zoom> = { desktop: 1, laptop: null, tablet: null, mobile: null }
   /** Resizes the live preview into a new layout, like a window being resized (preview-morph.ts). */
-  private readonly morph: PreviewMorph
+  readonly morph: PreviewMorph
+  private readonly panel: ChatPanel
   /**
    * Where the preview is laid out, in the window: the view's bounds, except mid-morph, when
    * the view is out of sight. What picks, the chat's dodge and prompts measure against.
    */
   private placement: Rect = { x: 0, y: 0, width: 0, height: 0 }
-  private state: TabState
-  private resources = this.createProjectResources()
+  state: TabState
+  resources = this.createProjectResources()
 
   private createProjectResources() {
     return new ProjectResources({
@@ -351,8 +282,8 @@ export class ProjectTab {
   attachRecording(recording: import('../shared/types').RecordingAttachment) {
     if (!this.resources.chat) return
     this.sendChat(Events.recordingAttach, recording)
-    focusWindow(this.popout ?? this.host.win)
-    this.focusChat()
+    focusWindow(this.panel.popoutWindow ?? this.host.win)
+    this.panel.focusChat()
   }
   private readonly problems = new Problems()
   /** Picking over the preview: the overlay Gui draws it in, over the page. */
@@ -369,54 +300,6 @@ export class ProjectTab {
   private hoveredPick: string | null = null
   /** Text double-clicked in the page and being edited there (`startTextEdit`) */
   private textEdit: { id: string; before: string; node: Promise<number | null> } | null = null
-  /**
-   * Where the floating panel sits: by one of its corners, from the canvas's same corner, so it
-   * stays there as the window and the logs resize. Letting go of it picks a corner of the
-   * canvas, at the standard margin; a drag and a resize move it freely from its corner.
-   */
-  private anchor: Anchor = { ...getPrefs().chatCorner, dx: PANEL_MARGIN, dy: PANEL_MARGIN }
-  /**
-   * The floating panel springing to its anchor after a drop, a throw or a dodge: its anchored
-   * corner's point is on a spring per axis. Null at rest.
-   */
-  private flight: Flight | null = null
-  /**
-   * The docked panel sliding in from the canvas's right edge, covering the preview as its morph
-   * narrows it: off to the right (no flight yet) until the morph starts moving, then on a spring
-   * of main's, from the same moment as the chrome's.
-   */
-  private dockSlide: { flight: Flight | null } | null = null
-  /** The floating panel's size as the user left it; drawn smaller when the window is. */
-  private panelSize: ChatSize = getPrefs().chatSize
-  private dockWidth = getPrefs().chatSidebarWidth
-  /** Which size the resize in progress changes, to remember it when it ends. */
-  private resizing: 'floating' | 'docked' | null = null
-  /** What the chat view was last told to draw (Events.chatFloat); null until it's told. */
-  private floatShown: ChatFloat | null = null
-  /**
-   * The form the floating view is sized to. It grows to a larger form at once, and shrinks to a
-   * smaller one only once the chat has morphed into it (`chatMorphed`), so the morph isn't cut
-   * off by the view's edge.
-   */
-  private viewForm: ChatForm = 'panel'
-  /**
-   * The smaller form the view waits to shrink to (as of float `seq`), and the fallback that
-   * shrinks it anyway.
-   */
-  private morphing: { form: ChatForm; seq: number; timer: NodeJS.Timeout } | null = null
-  /** Counts changes of the floating form, so a report of a morph that has since turned around is ignored. */
-  private formSeq = 0
-  private lastForm: ChatForm = 'panel'
-  /** A permission card came up while the user picked over the bubble; shown when picking ends. */
-  private attentionWaiting = false
-  /**
-   * The floating panel is tucked into its bubble: the user went back to the page (or the
-   * toolbar), so it gets out of the way until they want it again (`untuck`).
-   */
-  private tucked = false
-  private tuckTimer: NodeJS.Timeout | null = null
-  /** The chat's own window while it's popped out of this one (`togglePopOut`); null otherwise. */
-  private popout: BrowserWindow | null = null
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
   /** "Create pull request" has the chat, and ⌘↩ with it (`permissionAnswer`). */
@@ -425,9 +308,7 @@ export class ProjectTab {
   private shipProposal: ShipDraft | null = null
   /** The project whose Git the user said Not Now to when sending; not asked again this tab. */
   private gitDeclined: string | null = null
-  private disposed = false
-  /** Bumped per openProject; async steps of a superseded open must not touch the window. */
-  private openGeneration = 0
+  disposed = false
   private opening: string | null = null
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
   private rehighlightTimer: NodeJS.Timeout | null = null
@@ -519,9 +400,10 @@ export class ProjectTab {
         this.preview.setBounds(rect)
         this.emulation.set(emulation)
       },
-      moving: (reduced) => this.slideDock(reduced),
-      ended: () => this.landDock(),
+      moving: (reduced) => this.panel.slideDock(reduced),
+      ended: () => this.panel.landDock(),
     })
+    this.panel = new ChatPanel(this)
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
     this.problems.on('change', (problems) => this.resources.chat?.setProblems(problems))
     agentHealth.on('change', this.onAgentHealth)
@@ -532,12 +414,12 @@ export class ProjectTab {
     guardAppContents(this.chatView.webContents)
     // A reloaded chat page starts from what main tells it next.
     this.chatView.webContents.on('did-start-loading', () => {
-      this.floatShown = null
+      this.panel.clearFloatShown()
     })
     // The keyboard leaving the floating panel tucks it away; coming back (a click on the
     // bubble, ⌘L) brings it out.
-    this.chatView.webContents.on('blur', () => this.scheduleTuck())
-    this.chatView.webContents.on('focus', () => this.untuck())
+    this.chatView.webContents.on('blur', () => this.panel.scheduleTuck())
+    this.chatView.webContents.on('focus', () => this.panel.untuck())
     loadRenderer(this.chatView.webContents, 'chat').catch((error) =>
       console.error('[gui] failed to load chat', error),
     )
@@ -578,12 +460,12 @@ export class ProjectTab {
     contentView.addChildView(this.preview)
     contentView.addChildView(this.picker.view)
     // Popped out, the chat is in its own window, which shows again with its tab.
-    if (this.popout) this.popout.showInactive()
+    if (this.panel.popoutWindow) this.panel.popoutWindow.showInactive()
     else contentView.addChildView(this.chatView)
     this.layout()
     // A permission card that came up in the background is what the user switched here for
     // (in a focused window: focusing the chat would raise it).
-    if (this.resources.chat?.awaitingPermission && this.host.win.isFocused()) this.focusChat()
+    if (this.resources.chat?.awaitingPermission && this.host.win.isFocused()) this.panel.focusChat()
   }
 
   /**
@@ -595,15 +477,12 @@ export class ProjectTab {
     // A morph of the preview ends too, in its new layout, with the docked chat in its place
     // (the view is placed again when the tab is back).
     this.morph.finish(false)
-    this.landDock()
-    // A panel still landing is where it was going when the tab comes back, in its new form.
-    this.flight?.finish()
-    this.settleForm(this.wantedForm())
+    this.panel.deactivate()
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
     contentView.removeChildView(this.picker.view)
     // A background tab's popped-out chat hides, so the one in sight is the tab in sight's.
-    if (this.popout) this.popout.hide()
+    if (this.panel.popoutWindow) this.panel.popoutWindow.hide()
     else contentView.removeChildView(this.chatView)
     this.syncDrawerOutput()
   }
@@ -635,7 +514,7 @@ export class ProjectTab {
   }
 
   getChat(): ChatSnapshot {
-    if (this.resources.chat) return { ...this.resources.chat.snapshot(), float: this.float() }
+    if (this.resources.chat) return { ...this.resources.chat.snapshot(), float: this.panel.float() }
     return {
       meta: {
         agentId: this.state.agentId,
@@ -666,7 +545,7 @@ export class ProjectTab {
         autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
       },
       turns: [],
-      float: this.float(),
+      float: this.panel.float(),
     }
   }
 
@@ -683,11 +562,11 @@ export class ProjectTab {
   async openProject(root: string) {
     const closed = this.closeProject()
     if (this.disposed) return
-    const generation = ++this.openGeneration
     this.opening = root
     const resources = this.createProjectResources()
     this.resources = resources
-    const current = () => !this.disposed && resources.active && generation === this.openGeneration
+    const generation = resources.generation
+    const current = () => !this.disposed && resources.stillCurrent(generation)
     let file: string | null = null
     try {
       await Promise.all([closed, waitForRetiredProject(root)])
@@ -740,7 +619,7 @@ export class ProjectTab {
       else void resources.dispose()
       throw error
     } finally {
-      if (generation === this.openGeneration) this.opening = null
+      if (this.resources === resources) this.opening = null
       // Failed or superseded openings share the same disposal path as normal close.
       if (!resources.historyFile) resources.dispose()
     }
@@ -755,11 +634,11 @@ export class ProjectTab {
     if (!id) throw new Error('That folder is not one of Gui’s canvases.')
     const closed = this.closeProject()
     if (this.disposed) return
-    const generation = ++this.openGeneration
     this.opening = root
     const resources = this.createProjectResources()
     this.resources = resources
-    const current = () => !this.disposed && resources.active && generation === this.openGeneration
+    const generation = resources.generation
+    const current = () => !this.disposed && resources.stillCurrent(generation)
     try {
       await Promise.all([closed, waitForRetiredProject(root)])
       if (!current()) return
@@ -792,7 +671,7 @@ export class ProjectTab {
       else void resources.dispose()
       throw error
     } finally {
-      if (generation === this.openGeneration) this.opening = null
+      if (this.resources === resources) this.opening = null
       if (!resources.historyFile) resources.dispose()
     }
   }
@@ -1035,7 +914,7 @@ export class ProjectTab {
       }
     })
     chat.on('attention', () => {
-      this.onAttention()
+      this.panel.onAttention()
       this.host.tabChanged(this, false)
     })
     chat.on('turnEnd', (turn) => {
@@ -1168,7 +1047,6 @@ export class ProjectTab {
 
   private disposeProjectResources() {
     const root = this.projectRoot
-    ++this.openGeneration
     this.opening = null
     this.stopWatchingForApp()
     this.cancelRehighlight()
@@ -1416,7 +1294,7 @@ export class ProjectTab {
    * Ends the window's focus mode for something that needs the chrome or the chat; only from
    * the tab it shows (a card in a background tab waits there).
    */
-  private leaveFocusMode() {
+  leaveFocusMode() {
     if (this.host.isActive(this)) this.host.setFocusMode(false)
   }
 
@@ -1750,15 +1628,15 @@ export class ProjectTab {
       if (add) chat.addToSelection(picked)
       else chat.setSelection([picked])
       if (!add) {
-        this.focusChat()
-        this.dodge(picked.rect)
+        this.panel.focusChat()
+        this.panel.dodge(picked.rect, this.placement, this.emulation.scale)
       }
     } catch (error) {
       if (chat !== this.resources.chat) return
       const message = error instanceof Error ? error.message : String(error)
       const what = pending.kind === 'region' ? 'area' : 'element'
       chat.setSelectionError(`Couldn't read that ${what}: ${message}`)
-      if (!add) this.focusChat()
+      if (!add) this.panel.focusChat()
     } finally {
       this.pendingPick = null
       this.picker.setBusy(false)
@@ -1972,7 +1850,7 @@ export class ProjectTab {
     const choice = await workBranchChoice(root, prompt)
     if (!choice || this.disposed || this.state.project?.root !== root) return true
     const current = promptName(choice.current)
-    const owner = this.popout ?? this.host.win
+    const owner = this.panel.popoutWindow ?? this.host.win
     const { response } = await dialog.showMessageBox(owner, {
       type: 'question',
       message: `Work on a new branch instead of ${current}?`,
@@ -2049,7 +1927,7 @@ export class ProjectTab {
         if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
       },
       confirmPush: async ({ remote, branch, count }) => {
-        const owner = this.popout ?? this.host.win
+        const owner = this.panel.popoutWindow ?? this.host.win
         const { response } = await dialog.showMessageBox(owner, {
           type: 'warning',
           message: `Push ${count} ${count === 1 ? 'commit' : 'commits'} directly to ${remote}/${branch}?`,
@@ -2460,7 +2338,7 @@ export class ProjectTab {
   /** ⇧⌘M: shows the chat and opens the composer's model picker, searching. */
   chooseModel() {
     if (!this.resources.chat?.meta.models) return shell.beep()
-    this.focusChat()
+    this.panel.focusChat()
     this.sendChat(Events.command, 'chooseModel')
   }
 
@@ -2540,7 +2418,7 @@ export class ProjectTab {
   async openChat(id: string) {
     if (!this.resources.chat) throw new Error('No project is open.')
     await this.resources.chat.openArchived(id)
-    this.focusChat()
+    this.panel.focusChat()
   }
 
   async renameChat(id: string, title: string) {
@@ -2571,15 +2449,15 @@ export class ProjectTab {
 
   toggleDock() {
     if (!this.resources.chat) return
-    if (this.popout) return this.popIn()
+    if (this.panel.popoutWindow) return this.panel.togglePopOut()
     this.leaveFocusMode()
-    this.untuck()
+    this.panel.untuck()
     this.morphLayout('dock')
     const docked = !this.resources.chat.meta.docked
     setPrefs({ chatSidebar: docked })
     this.resources.chat.setDocked(docked)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
-    if (docked) this.holdDock()
+    if (docked) this.panel.holdDock()
     this.layout()
   }
 
@@ -2593,7 +2471,7 @@ export class ProjectTab {
 
   fixProblems() {
     const sent = this.resources.chat?.fixProblems() ?? false
-    if (sent) this.focusChat()
+    if (sent) this.panel.focusChat()
     return sent
   }
 
@@ -2605,7 +2483,7 @@ export class ProjectTab {
       this.patch({ chatVisible: true })
       this.layout()
     }
-    this.focusChat()
+    this.panel.focusChat()
     return true
   }
 
@@ -2668,19 +2546,7 @@ export class ProjectTab {
 
   /** ⌘B and the toolbar's chat button: shows or hides the chat, in whichever form it takes. */
   toggleChat() {
-    // Popped out, it's in a window of its own: ⌘B brings that forward rather than hiding it.
-    if (this.popout) return this.focusChat()
-    // In focus mode the chat is out of sight whatever its setting: bring everything back.
-    if (this.host.focusMode) return this.focusChat()
-    // Docked, it takes its column from the preview, or gives it back.
-    if (this.docked) this.morphLayout('dock')
-    this.patch({ chatVisible: !this.state.chatVisible })
-    if (this.state.chatVisible && this.docked) this.holdDock()
-    this.layout()
-    // While the user picks, showing the chat brings back its bubble and leaves the pick alone.
-    if (this.state.chatVisible && !this.bubbled) this.focusChat()
-    // Hidden, typing goes to the chrome, not to the panel that just left.
-    else if (!this.state.chatVisible && this.host.win.isFocused()) this.host.win.webContents.focus()
+    this.panel.toggleChat()
   }
 
   /**
@@ -2688,316 +2554,50 @@ export class ProjectTab {
    * its bubble, or ending a pick). It never hides the chat: ⌘B does (`toggleChat`).
    */
   focusMessageBox() {
-    if (!this.hasProject) return
-    this.focusChat()
+    this.panel.focusMessageBox()
   }
 
   setMinimized(minimized: boolean) {
-    this.cancelTuck()
-    this.tucked = false
-    this.resources.chat?.setMinimized(minimized)
-    this.layout()
+    this.panel.setMinimized(minimized)
   }
 
   /** The tucked bubble was clicked: the panel comes back, ready to type in. */
   expandChat() {
-    this.focusChat()
+    this.panel.expandChat()
   }
 
   /** The chat's own window while popped out, so menus and ⌘W can tell it's this tab's. */
   get popoutWindow() {
-    return this.popout
+    return this.panel.popoutWindow
   }
 
   /** ⌥⌘L and the chat's header button: into a window of its own, or back into this one. */
   togglePopOut() {
-    if (!this.hasProject || !this.resources.chat) return
-    if (this.popout) this.popIn()
-    else this.popOut()
+    this.panel.togglePopOut()
   }
 
-  /**
-   * Moves the chat's view into a window of its own, beside this one: the same page, so the
-   * conversation, a draft and where it was scrolled to come along. The preview takes the
-   * sidebar's room, or the floating panel's place, until it comes back (`popIn`).
-   */
-  private popOut() {
-    this.leaveFocusMode()
-    if (this.state.preview.selecting) void this.setSelecting(false)
-    this.cancelTuck()
-    this.tucked = false
-    this.flight?.finish()
-    if (this.sidebarShown) this.morphLayout('dock')
-    const bounds = this.popoutBounds()
-    const win = new BrowserWindow({
-      ...bounds,
-      minWidth: DOCK_MIN_WIDTH,
-      minHeight: PANEL_MIN.height,
-      show: false,
-      title: `${this.title ?? 'Chat'} — Chat`,
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: TRAFFIC_LIGHTS,
-      fullscreenable: false,
-      backgroundColor: surfaceColor(),
-    })
-    followSurface(win)
-    // Its own page is never used; the chat's view covers it.
-    win.webContents.loadURL('about:blank').catch(() => undefined)
-    this.popout = win
-    if (this.host.isActive(this)) this.host.win.contentView.removeChildView(this.chatView)
-    win.contentView.addChildView(this.chatView)
-    this.chatView.setVisible(true)
-    this.layoutPopout()
-    win.on('resize', () => this.layoutPopout())
-    // Closing it (its button, ⌘W) brings the chat back rather than losing it.
-    win.on('close', (event) => {
-      if (this.popout !== win) return
-      event.preventDefault()
-      this.popIn()
-    })
-    win.on('page-title-updated', (event) => event.preventDefault())
-    this.resources.chat?.setPopped(true)
-    if (!this.state.chatVisible) this.patch({ chatVisible: true })
-    this.layout()
-    win.once('ready-to-show', () => {
-      if (this.popout !== win || !this.host.isActive(this)) return
-      fadeIn(win, this.chatView.webContents)
-      showWindow(win)
-      this.focusChat()
-    })
-  }
-
-  /** Back into this window, as the sidebar or the floating panel it was before. */
-  private popIn() {
-    if (!this.popout) return
-    this.closePopout()
-    this.resources.chat?.setPopped(false)
-    if (this.host.isActive(this)) {
-      this.host.win.contentView.addChildView(this.chatView)
-      if (this.docked) {
-        this.morphLayout('dock')
-        this.holdDock()
-      }
-    }
-    if (!this.state.chatVisible) this.patch({ chatVisible: true })
-    this.layout()
-    focusWindow(this.host.win)
-    this.focusChat()
-  }
-
-  /** Takes the chat's view out of its window and closes the window, view untouched. */
-  private closePopout() {
-    const win = this.popout
-    if (!win) return
-    this.popout = null
-    if (!win.isDestroyed()) {
-      win.contentView.removeChildView(this.chatView)
-      win.destroy()
-    }
-  }
-
-  /** The chat fills its window; the traffic lights sit in its header, as in the sidebar. */
-  private layoutPopout() {
-    const win = this.popout
-    if (!win || win.isDestroyed()) return
-    const [width, height] = win.getContentSize()
-    this.chatView.setBounds({ x: 0, y: 0, width, height })
-    this.resources.chat?.setTrafficLights(true)
-  }
-
-  /**
-   * Where the popped-out window opens: as tall as this window and as wide as the chat was,
-   * beside it on the right if the screen has room, else on the left, else over its edge.
-   */
-  private popoutBounds() {
-    const main = this.host.win.getBounds()
-    const { workArea } = screen.getDisplayMatching(main)
-    const width = Math.max(DOCK_MIN_WIDTH, this.docked ? this.dockedWidth() : this.panelSize.width)
-    const height = Math.min(main.height, workArea.height)
-    const gap = 8
-    const right = main.x + main.width + gap
-    const left = main.x - gap - width
-    const x =
-      right + width <= workArea.x + workArea.width
-        ? right
-        : left >= workArea.x
-          ? left
-          : Math.max(workArea.x, main.x + main.width - width)
-    return { x: Math.round(x), y: Math.max(workArea.y, main.y), width, height }
-  }
-
-  /** Tucks the floating panel into its bubble shortly, unless the keyboard comes back. */
-  private scheduleTuck() {
-    this.cancelTuck()
-    this.tuckTimer = setTimeout(() => {
-      this.tuckTimer = null
-      if (!this.shouldTuck()) return
-      this.tucked = true
-      this.layout()
-    }, TUCK_DELAY_MS)
-  }
-
-  /**
-   * Only the open floating panel tucks, and only for something else in this window (not a
-   * trip to another app). It stays out while it's being moved or resized, while the user
-   * picks (that has its own bubble), and while a permission card waits for an answer.
-   */
-  private shouldTuck() {
-    return (
-      !this.tucked &&
-      !this.disposed &&
-      this.chatShown &&
-      !this.docked &&
-      !this.resources.chat?.meta.minimized &&
-      !this.resources.chat?.awaitingPermission &&
-      !this.state.preview.selecting &&
-      !this.resizing &&
-      !this.flight &&
-      this.host.isActive(this) &&
-      this.host.win.isFocused() &&
-      !this.chatView.webContents.isFocused()
-    )
-  }
-
-  private cancelTuck() {
-    if (this.tuckTimer) clearTimeout(this.tuckTimer)
-    this.tuckTimer = null
-  }
-
-  private untuck() {
-    this.cancelTuck()
-    if (!this.tucked) return
-    this.tucked = false
-    this.layout()
-  }
-
-  /**
-   * The pointer pressed the panel's header (or the pill) to drag it. Still landing from a
-   * throw, it stops where it was when pressed, so the drag carries on with the pointer where it
-   * grabbed: main's timer may have moved it a step or two since.
-   */
   grabChat(at: ChatGrab) {
-    if (!this.flight) return
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const drawn = this.floatingRect(contentWidth, contentHeight)
-    const view = this.floatingBounds(contentWidth, contentHeight, this.viewForm)
-    // Where the view was under the pointer: the pointer, less where it was in the view's page.
-    const content = this.host.win.getContentBounds()
-    const zoom = this.chatView.webContents.getZoomFactor()
-    const dx = Math.round(at.screenX - content.x - at.clientX * zoom) - view.x
-    const dy = Math.round(at.screenY - content.y - at.clientY * zoom) - view.y
-    const near = Math.abs(dx) <= GRAB_SLOP && Math.abs(dy) <= GRAB_SLOP
-    this.holdFlight(near ? { ...drawn, x: drawn.x + dx, y: drawn.y + dy } : drawn)
-    this.layoutChat()
+    this.panel.grabChat(at)
   }
 
   dragChat(dx: number, dy: number) {
-    // A drag without a grab (from a script) takes over a landing panel just the same.
-    this.holdFlight()
-    // From where the panel is on screen, so dragging back from past an edge moves it at once.
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const rect = this.floatingRect(contentWidth, contentHeight)
-    const area = this.anchorArea(contentWidth, contentHeight)
-    this.anchor = anchorFor({ ...rect, x: rect.x + dx, y: rect.y + dy }, area, this.anchor)
-    this.layoutChat()
+    this.panel.dragChat(dx, dy)
   }
 
-  /**
-   * Lets go of the panel: it springs into a corner of the canvas. Which one is chosen from
-   * where its momentum would carry it (`project`), so a flick lands where it was thrown, and
-   * the spring starts at the pointer's velocity. A throw lands on a slightly bouncy spring; a
-   * slow drop settles without overshooting.
-   */
-  endDragChat(release: Point = { x: 0, y: 0 }) {
-    this.holdFlight()
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const rect = this.floatingRect(contentWidth, contentHeight)
-    const area = this.anchorArea(contentWidth, contentHeight)
-    const speed = Math.hypot(release.x, release.y)
-    const cap = speed > MAX_THROW_SPEED ? MAX_THROW_SPEED / speed : 1
-    const velocity = { x: release.x * cap, y: release.y * cap }
-    const landing = {
-      x: project(rect.x + rect.width / 2, velocity.x),
-      y: project(rect.y + rect.height / 2, velocity.y),
-    }
-    this.anchor = {
-      x: landing.x < area.x + area.width / 2 ? 'left' : 'right',
-      y: landing.y < area.y + area.height / 2 ? 'top' : 'bottom',
-      dx: PANEL_MARGIN,
-      dy: PANEL_MARGIN,
-    }
-    // Later tabs start in the corner it was put in.
-    setPrefs({ chatCorner: { x: this.anchor.x, y: this.anchor.y } })
-    this.fly(rect, velocity, speed > THROW_SPEED ? SPRINGS.thrown : SPRINGS.default)
+  endDragChat(release: { x: number; y: number } = { x: 0, y: 0 }) {
+    this.panel.endDragChat(release)
   }
 
-  /** The chat has morphed into `form` (float `seq`): the view can shrink to it now. */
   chatMorphed(form: ChatForm, seq: number) {
-    if (this.morphing?.form !== form || this.morphing.seq !== seq) return
-    this.settleForm(form)
-    this.layoutChat()
+    this.panel.chatMorphed(form, seq)
   }
 
-  /**
-   * Chat panel resizing by a pointer delta from one of its edges or corners: the dragged edges
-   * follow the pointer and the opposite ones stay where they are. As the sidebar, only its
-   * edge facing the preview resizes it.
-   */
   resizeChat(edge: PanelEdge, dx: number, dy: number) {
-    if (!this.state.chatVisible || !this.hasProject) return
-    if (this.docked) {
-      const left = getPrefs().chatSidebarSide === 'left'
-      if (edge !== (left ? 'right' : 'left')) return
-      const width = this.dockedWidth() + (left ? dx : -dx)
-      const [contentWidth] = this.host.win.getContentSize()
-      this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
-      this.resizing = 'docked'
-    } else {
-      if (this.resources.chat?.meta.minimized || this.bubbled) return
-      // Resizing follows the pointer 1:1: a panel still landing stops where it is.
-      this.holdFlight()
-      const [contentWidth, contentHeight] = this.host.win.getContentSize()
-      const area = this.anchorArea(contentWidth, contentHeight)
-      const max = maxFloatingSize(contentWidth, area)
-      // From the panel on screen, which may be smaller than the remembered size.
-      const panel = this.floatingRect(contentWidth, contentHeight)
-      let left = panel.x
-      let top = panel.y
-      let right = panel.x + panel.width
-      let bottom = panel.y + panel.height
-      // In whole pixels, each dragged edge stopping at the panel's smallest and largest size,
-      // at the window's edges, below the toolbar and above the logs.
-      const [moveX, moveY] = [Math.round(dx), Math.round(dy)]
-      if (edge.includes('left')) {
-        const leftmost = Math.max(0, right - max.width)
-        left = clamp(left + moveX, leftmost, right - PANEL_MIN.width)
-      } else if (edge.includes('right')) {
-        const rightmost = Math.min(contentWidth, left + max.width)
-        right = clamp(right + moveX, left + PANEL_MIN.width, rightmost)
-      }
-      if (edge.startsWith('top')) {
-        const highest = Math.max(this.host.chromeHeight, bottom - max.height)
-        top = clamp(top + moveY, highest, bottom - PANEL_MIN.height)
-      } else if (edge.startsWith('bottom')) {
-        const lowest = Math.min(area.y + area.height, top + max.height)
-        bottom = clamp(bottom + moveY, top + PANEL_MIN.height, lowest)
-      }
-      this.panelSize = { width: right - left, height: bottom - top }
-      this.anchor = anchorFor({ x: left, y: top, ...this.panelSize }, area, this.anchor)
-      this.resizing = 'floating'
-    }
-    this.layout()
+    this.panel.resizeChat(edge, dx, dy)
   }
 
-  /** Remembers the new size for this and later tabs. */
   endResizeChat() {
-    if (this.resizing === 'docked') {
-      setPrefs({ chatSidebarWidth: this.dockWidth })
-    } else if (this.resizing === 'floating') {
-      setPrefs({ chatSize: this.panelSize })
-      this.settleAnchor()
-    }
-    this.resizing = null
+    this.panel.endResizeChat()
   }
 
   /**
@@ -3094,7 +2694,7 @@ export class ProjectTab {
     if (!this.resources.chat) return false
     const image = nativeImage.createFromBuffer(png)
     if (image.isEmpty()) throw new Error("Couldn't read the captured image")
-    this.focusChat()
+    this.panel.focusChat()
     this.sendChat(Events.chatAttach, chatImage(image, name))
     return true
   }
@@ -3112,69 +2712,6 @@ export class ProjectTab {
     if (!this.host.isActive(this) || !this.host.win.isFocused()) return
     owner.focus()
   }
-
-  private focusChat() {
-    this.leaveFocusMode()
-    this.cancelTuck()
-    this.tucked = false
-    // Popped out: its window comes forward, with the cursor in the message box.
-    if (this.popout) {
-      if (!this.host.isActive(this)) return
-      focusWindow(this.popout)
-      this.chatView.webContents.focus()
-      this.sendChat(Events.chatFocus, null)
-      return
-    }
-    // The floating panel is wanted in full, so picking over it ends first.
-    if (this.state.preview.selecting && this.hasProject && !this.docked) {
-      void this.setSelecting(false).then(() => {
-        if (!this.state.preview.selecting) this.focusChat()
-      })
-      return
-    }
-    if (!this.state.chatVisible) {
-      if (this.docked) {
-        this.morphLayout('dock')
-        this.holdDock()
-      }
-      this.patch({ chatVisible: true })
-    }
-    if (this.resources.chat?.meta.minimized) this.resources.chat.setMinimized(false)
-    this.layout()
-    // In a background tab the panel is ready for when the user switches to it.
-    if (!this.host.isActive(this)) return
-    this.chatView.webContents.focus()
-    this.sendChat(Events.chatFocus, null)
-  }
-
-  /**
-   * Something needs the user, such as a permission card. While they pick over the floating
-   * panel it stays a bubble, with a badge, rather than cover the page; the card shows when
-   * picking ends.
-   */
-  private onAttention() {
-    if (!this.state.preview.selecting || this.docked) return this.focusChat()
-    this.attentionWaiting = true
-    if (!this.state.chatVisible) {
-      this.patch({ chatVisible: true })
-      this.layout()
-    }
-  }
-
-  /** Docked to the side: the chat's own setting, or the saved one while a project opens. */
-  private get docked() {
-    return this.resources.chat?.meta.docked ?? getPrefs().chatSidebar
-  }
-
-  /**
-   * While the user picks an element, the floating panel is drawn as a bubble at its anchored
-   * corner, out of the way. Its size, place and minimized state stay as they were.
-   */
-  private get bubbled() {
-    return this.state.preview.selecting && this.chatShown && !this.docked
-  }
-
-  // Layout
 
   /** Places the tab's views over the canvas; only the active tab's are in the window. */
   layout() {
@@ -3210,7 +2747,23 @@ export class ProjectTab {
     // Mid-morph the chrome draws the device frame where the view is; this one shows once it rests.
     const rect = inCanvas(bounds, this.host.canvas)
     this.showFrame(frame ? { viewport, rect, scale: frame.scale } : null)
-    this.layoutChat()
+    this.panel.layoutChat()
+  }
+
+  /** Tells the chrome where the device frame is, to draw its edge and label, when that changes. */
+  private showFrame(frame: ViewportFrame | null) {
+    const shown = this.state.preview.frame
+    const same =
+      frame === shown ||
+      (frame !== null &&
+        shown !== null &&
+        frame.viewport === shown.viewport &&
+        frame.scale === shown.scale &&
+        frame.rect.x === shown.rect.x &&
+        frame.rect.y === shown.rect.y &&
+        frame.rect.width === shown.rect.width &&
+        frame.rect.height === shown.rect.height)
+    if (!same) this.patchPreview({ frame })
   }
 
   /**
@@ -3230,363 +2783,14 @@ export class ProjectTab {
     this.morph.request(kind, eligible)
   }
 
-  /**
-   * Places the chat view: docked, or floating at its anchor (or where its flight has got to) as
-   * the panel, the pill or the bubble.
-   */
-  private layoutChat() {
-    if (this.disposed || !this.host.isActive(this)) return
-    this.syncSidebarWidth()
-    if (this.popout) return
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const showChat = this.chatShown
-    // While a project opens there's no chat yet; the panel renders from prefs meanwhile.
-    const docked = showChat && this.docked
-    const covered = this.host.sheetShown
-    const float = this.float()
-    const { form } = float
-    // Hidden or docked, a panel still landing is simply there, already in its new form; the
-    // chat page is told too, so it isn't still morphing when it's floating in sight again.
-    if (!showChat || docked) {
-      this.flight?.finish()
-      this.settleForm(form)
-      this.showFloat(float)
-    }
-    this.chatView.setVisible(showChat && !covered)
-    this.resources.chat?.setTrafficLights(
-      docked && getPrefs().chatSidebarSide === 'left' && !this.host.win.isFullScreen(),
-    )
-    if (docked) {
-      const dockWidth = this.dockedWidth()
-      // Still off past the window's left edge while it slides in (`holdDock`).
-      const slide = this.dockSlide ? (this.dockSlide.flight?.point.x ?? dockWidth) : 0
-      this.chatView.setBounds({
-        x:
-          getPrefs().chatSidebarSide === 'left'
-            ? -Math.round(slide)
-            : contentWidth - dockWidth + Math.round(slide),
-        y: 0,
-        width: dockWidth,
-        height: Math.max(0, contentHeight),
-      })
-      return
-    }
-    if (!showChat) return
-    // Growing, the view makes room first and the chat morphs into it; shrinking, the chat
-    // morphs first (the smaller form drawn in the view's anchored corner) and says when.
-    if (FORM_SIZE[form] > FORM_SIZE[this.viewForm]) this.settleForm(form)
-    else if (form !== this.viewForm) this.awaitMorph(form)
-    else this.settleForm(form)
-    this.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, this.viewForm))
-    this.showFloat(float)
-  }
-
-  /** What the floating chat should be drawn as now. */
-  private wantedForm(): ChatForm {
-    if (this.bubbled) return 'bubble'
-    if (this.tucked && this.chatShown && !this.docked && !this.resources.chat?.meta.minimized)
-      return 'bubble'
-    return this.resources.chat?.meta.minimized ? 'pill' : 'panel'
-  }
-
-  private float(): ChatFloat {
-    const form = this.wantedForm()
-    if (form !== this.lastForm) {
-      this.lastForm = form
-      this.formSeq++
-    }
-    return { form, corner: { x: this.anchor.x, y: this.anchor.y }, seq: this.formSeq }
-  }
-
-  /** The view is sized to `form` from now on; any wait to shrink is over. */
-  private settleForm(form: ChatForm) {
-    this.viewForm = form
-    if (this.morphing) clearTimeout(this.morphing.timer)
-    this.morphing = null
-  }
-
-  /** Waits for the chat to morph into `form` before shrinking the view to it. */
-  private awaitMorph(form: ChatForm) {
-    if (this.morphing?.form === form && this.morphing.seq === this.formSeq) return
-    if (this.morphing) clearTimeout(this.morphing.timer)
-    const seq = this.formSeq
-    const timer = setTimeout(() => this.chatMorphed(form, seq), MORPH_TIMEOUT_MS)
-    this.morphing = { form, seq, timer }
-  }
-
-  /**
-   * The floating view for `form`: the panel, or the pill while minimized, at its anchor (or
-   * mid-flight); the bubble sits in the anchored corner of either.
-   */
-  private floatingBounds(contentWidth: number, contentHeight: number, form: ChatForm): Rect {
-    const base =
-      form === 'bubble'
-        ? this.floatingRect(contentWidth, contentHeight)
-        : this.floatingRect(contentWidth, contentHeight, form)
-    const { x, y, width, height } = form === 'bubble' ? inCorner(base, BUBBLE, this.anchor) : base
-    return {
-      x: x - PANEL_SHADOW_MARGIN,
-      y: y - PANEL_SHADOW_MARGIN,
-      width: width + PANEL_SHADOW_MARGIN * 2,
-      height: height + PANEL_SHADOW_MARGIN * 2,
-    }
-  }
-
-  /**
-   * The floating panel, or the pill while minimized, as drawn: at its anchor, or mid-flight
-   * with its anchored corner where the flight has got to. Kept inside the window below the
-   * toolbar, and above the logs drawer when it's open.
-   */
-  private floatingRect(
-    contentWidth: number,
-    contentHeight: number,
-    shape: 'panel' | 'pill' = this.resources.chat?.meta.minimized ? 'pill' : 'panel',
-    /** Where it rests at its anchor, even mid-flight */
-    atRest = false,
-  ): Rect {
-    const { width, height } =
-      shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight)
-    const area = this.anchorArea(contentWidth, contentHeight)
-    const { x, y, dx, dy } = this.anchor
-    // The anchored corner's point: the flight's, or the anchor's.
-    const corner = (!atRest && this.flight?.point) || {
-      x: x === 'left' ? area.x + dx : area.x + area.width - dx,
-      y: y === 'top' ? area.y + dy : area.y + area.height - dy,
-    }
-    const left = x === 'left' ? corner.x : corner.x - width
-    const top = y === 'top' ? corner.y : corner.y - height
-    return {
-      x: Math.round(clamp(left, 0, contentWidth - width)),
-      y: Math.round(clamp(top, this.host.chromeHeight, area.y + area.height - height)),
-      width,
-      height,
-    }
-  }
-
-  /** Where the floating panel's anchored corner is when at rest at its anchor. */
-  private restingCorner(): Point {
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    return cornerPoint(this.floatingRect(contentWidth, contentHeight, undefined, true), this.anchor)
-  }
-
-  /**
-   * Springs the floating panel from `from` (as drawn) to its anchor, starting at `velocity`
-   * (px/s). With Reduce motion on, or out of sight, it's there at once.
-   */
-  private fly(from: Rect, velocity: Point, config: SpringConfig) {
-    this.flight?.stop()
-    this.flight = null
-    if (prefersReducedMotion() || !this.host.isActive(this) || !this.chatShown) {
-      this.layoutChat()
-      return
-    }
-    const flight: Flight = new Flight({
-      frames: this.host.win.webContents,
-      from: cornerPoint(from, this.anchor),
-      velocity,
-      config,
-      target: () => this.restingCorner(),
-      frame: () => this.layoutChat(),
-      rest: () => {
-        if (this.flight === flight) this.flight = null
-        this.layoutChat()
-      },
-    })
-    this.flight = flight
-    this.layoutChat()
-  }
-
-  /**
-   * Stops a landing panel where it is (or at `at`): anchored from there, as a drag leaves it,
-   * so the user can take it over mid-flight.
-   */
-  private holdFlight(at?: Rect) {
-    if (!this.flight) return
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const rect = at ?? this.floatingRect(contentWidth, contentHeight)
-    this.flight.stop()
-    this.flight = null
-    this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
-  }
-
-  /**
-   * The sidebar coming into sight with a morph of the preview (docking, or showing it docked)
-   * waits past the window's left edge until the morph moves. Without a morph it's simply there.
-   */
-  private holdDock() {
-    this.dockSlide?.flight?.stop()
-    this.dockSlide = this.morph.active ? { flight: null } : null
-  }
-
-  /** The preview's morph starts moving: the docked panel slides in with it (or, reduced, is there). */
-  private slideDock(reduced: boolean) {
-    const slide = this.dockSlide
-    if (!slide || slide.flight) return
-    if (reduced || !this.chatShown || !this.docked || !this.host.isActive(this)) {
-      this.dockSlide = null
-      this.layoutChat()
-      return
-    }
-    const flight: Flight = new Flight({
-      frames: this.host.win.webContents,
-      from: { x: this.dockedWidth(), y: 0 },
-      velocity: { x: 0, y: 0 },
-      config: SPRINGS.default,
-      target: () => ({ x: 0, y: 0 }),
-      frame: () => this.layoutChat(),
-      rest: () => {
-        if (this.dockSlide?.flight === flight) this.dockSlide = null
-        this.layoutChat()
-      },
-    })
-    slide.flight = flight
-  }
-
-  /** The morph is over: the docked panel is in its place. */
-  private landDock() {
-    const slide = this.dockSlide
-    if (!slide) return
-    if (slide.flight) return slide.flight.finish()
-    this.dockSlide = null
-    this.layoutChat()
-  }
-
-  /** What the anchor is a corner of: the canvas, or the window below the toolbar until then. */
-  private anchorArea(contentWidth: number, contentHeight: number): Rect {
-    const { canvas, chromeHeight } = this.host
-    if (canvas.width > 0 && canvas.height > 0) return canvas
-    return { x: 0, y: chromeHeight, width: contentWidth, height: contentHeight - chromeHeight }
-  }
-
-  /**
-   * After a resize, which leaves the panel where the user put its edges: anchors it there by
-   * its corner nearest the canvas's same corner.
-   */
-  private settleAnchor() {
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const rect = this.floatingRect(contentWidth, contentHeight)
-    const area = this.anchorArea(contentWidth, contentHeight)
-    this.anchor = anchorFor(rect, area, {
-      x: rect.x + rect.width / 2 < area.x + area.width / 2 ? 'left' : 'right',
-      y: rect.y + rect.height / 2 < area.y + area.height / 2 ? 'top' : 'bottom',
-    })
-  }
-
-  /** Tells the chrome where the device frame is, to draw its edge and label, when that changes. */
-  private showFrame(frame: ViewportFrame | null) {
-    const shown = this.state.preview.frame
-    const same =
-      frame === shown ||
-      (frame !== null &&
-        shown !== null &&
-        frame.viewport === shown.viewport &&
-        frame.scale === shown.scale &&
-        frame.rect.x === shown.rect.x &&
-        frame.rect.y === shown.rect.y &&
-        frame.rect.width === shown.rect.width &&
-        frame.rect.height === shown.rect.height)
-    if (!same) this.patchPreview({ frame })
-  }
-
-  /** Tells the chat view what to draw and where it's anchored, when that changes. */
-  private showFloat(float: ChatFloat) {
-    const shown = this.floatShown
-    const same =
-      shown?.form === float.form &&
-      shown.corner.x === float.corner.x &&
-      shown.corner.y === float.corner.y
-    if (same) return
-    this.floatShown = float
-    this.sendChat(Events.chatFloat, float)
-  }
-
-  /**
-   * The chat shows: the user hasn't hidden it, there's a project to chat about, and the window
-   * isn't in focus mode.
-   */
-  /** The chat shows in this window: the sidebar or the floating panel (not popped out). */
-  private get chatShown() {
-    return this.state.chatVisible && this.hasProject && !this.host.focusMode && !this.popout
-  }
-
   /** The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). */
   private previewArea(): Rect {
     return this.host.canvas
   }
 
-  /** The sidebar's width: the remembered one, within its share of the window. */
-  private dockedWidth() {
-    const [contentWidth] = this.host.win.getContentSize()
-    return Math.round(clamp(this.dockWidth, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
-  }
-
   /** The chat shows as the window's sidebar. */
   get sidebarShown() {
-    return this.chatShown && this.docked
-  }
-
-  /**
-   * Tells the chrome how much room to leave beside the chat: it lays out the tab row, toolbar,
-   * canvas and drawer, and reports the canvas back (`setCanvasRect`).
-   */
-  private syncSidebarWidth() {
-    const width = this.sidebarShown ? this.dockedWidth() : 0
-    const side = getPrefs().chatSidebarSide
-    if (width !== this.state.sidebarWidth || side !== this.state.sidebarSide) {
-      this.patch({ sidebarWidth: width, sidebarSide: side })
-    }
-  }
-
-  /** The floating panel's size: the remembered one, within the window and the canvas's height. */
-  private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
-    const max = maxFloatingSize(contentWidth, this.anchorArea(contentWidth, contentHeight))
-    // A canvas shorter than the panel's minimum (a short window with the logs open) wins over
-    // it, so the panel never hangs over the logs; the remembered size returns with the room.
-    const height = Math.min(clamp(this.panelSize.height, PANEL_MIN.height, max.height), max.height)
-    return {
-      width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
-      height: Math.round(Math.max(height, PANEL_SHORTEST)),
-    }
-  }
-
-  /** Moves the floating panel to the other side if it covers the element just picked. */
-  private dodge(rect: Rect) {
-    // Picking again already: the view is the bubble, not the panel to move.
-    if (!this.resources.chat || this.resources.chat.meta.docked || !this.chatShown || this.bubbled)
-      return
-    // Page coordinates, which a device frame or a zoom draws at its scale, in the window.
-    const previewBounds = this.placement
-    const scale = this.emulation.scale
-    const element = {
-      x: previewBounds.x + rect.x * scale,
-      y: previewBounds.y + rect.y * scale,
-      width: rect.width * scale,
-      height: rect.height * scale,
-    }
-    const view = this.chatView.getBounds()
-    const panel = {
-      x: view.x + PANEL_SHADOW_MARGIN,
-      y: view.y + PANEL_SHADOW_MARGIN,
-      width: view.width - PANEL_SHADOW_MARGIN * 2,
-      height: view.height - PANEL_SHADOW_MARGIN * 2,
-    }
-    const overlaps =
-      element.x < panel.x + panel.width &&
-      element.x + element.width > panel.x &&
-      element.y < panel.y + panel.height &&
-      element.y + element.height > panel.y
-    if (!overlaps) return
-    const [contentWidth, contentHeight] = this.host.win.getContentSize()
-    const area = this.anchorArea(contentWidth, contentHeight)
-    const elementCenter = element.x + element.width / 2
-    // Put the panel against whichever side of the canvas is farther from the element: it
-    // springs there from where it is, still moving if it was landing.
-    const x = elementCenter > area.x + area.width / 2 ? 'left' : 'right'
-    // (Landing, the anchor is already where it was going.)
-    const from = this.floatingRect(contentWidth, contentHeight)
-    const velocity = this.flight?.velocity ?? { x: 0, y: 0 }
-    this.anchor = { ...this.anchor, x, dx: PANEL_MARGIN }
-    this.fly(from, velocity, SPRINGS.default)
+    return this.panel.sidebarShown
   }
 
   // Native menus
@@ -3639,7 +2843,10 @@ export class ProjectTab {
     ]
     const menu = Menu.buildFromTemplate(template)
     // From a popped-out chat, in its window.
-    const window = sender === this.chatView.webContents && this.popout ? this.popout : this.host.win
+    const window =
+      sender === this.chatView.webContents && this.panel.popoutWindow
+        ? this.panel.popoutWindow
+        : this.host.win
     menu.popup({ window, ...(at && this.inWindow(sender, at)) })
   }
 
@@ -3660,13 +2867,13 @@ export class ProjectTab {
       { label: 'Archived Chats', click: () => choose('archive') },
       { type: 'separator' },
       {
-        label: this.popout ? 'Back to Window' : 'Pop Out Chat',
+        label: this.panel.popoutWindow ? 'Back to Window' : 'Pop Out Chat',
         accelerator: SHORTCUTS.popOutChat.accelerator,
         registerAccelerator: false,
         click: () => this.togglePopOut(),
       },
     ]
-    const window = this.popout ?? this.host.win
+    const window = this.panel.popoutWindow ?? this.host.win
     Menu.buildFromTemplate(template).popup({
       window,
       ...this.inWindow(this.chatView.webContents, at),
@@ -3678,7 +2885,7 @@ export class ProjectTab {
    * or fills its own when popped out.
    */
   private inWindow(sender: WebContents | null, at: { x: number; y: number }) {
-    const inChat = sender === this.chatView.webContents && !this.popout
+    const inChat = sender === this.chatView.webContents && !this.panel.popoutWindow
     const view = inChat ? this.chatView.getBounds() : { x: 0, y: 0 }
     return { x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) }
   }
@@ -3935,7 +3142,7 @@ export class ProjectTab {
 
   // Plumbing
 
-  private patch(patch: Partial<TabState>) {
+  patch(patch: Partial<TabState>) {
     this.state = { ...this.state, ...patch }
     this.syncDrawerOutput()
     this.host.tabChanged(this, true)
@@ -3959,17 +3166,17 @@ export class ProjectTab {
       this.syncHighlight()
     }
     this.resources.chat?.setSelecting(preview.selecting)
-    const attention = this.attentionWaiting
-    this.attentionWaiting = false
+    const attention = this.panel.takeAttention()
     // A permission card that came up while the user picked shows now, as it would have then.
-    if (!preview.selecting && attention && this.resources.chat?.awaitingPermission) this.focusChat()
+    if (!preview.selecting && attention && this.resources.chat?.awaitingPermission)
+      this.panel.focusChat()
   }
 
   private send(channel: string, payload: unknown) {
     this.host.sendChrome(this, channel, payload)
   }
 
-  private sendChat(channel: string, payload: unknown) {
+  sendChat(channel: string, payload: unknown) {
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.send(channel, payload)
   }
 
@@ -3985,15 +3192,11 @@ export class ProjectTab {
   dispose() {
     if (this.disposed) return
     this.disposed = true
-    this.cancelTuck()
-    this.closePopout()
+    this.panel.dispose()
     agentHealth.off('change', this.onAgentHealth)
     nodeRuntime.off('change', this.onNodeRuntime)
     developerTools.off('change', this.onDeveloperTools)
-    this.flight?.stop()
     this.morph.dispose()
-    this.dockSlide?.flight?.stop()
-    if (this.morphing) clearTimeout(this.morphing.timer)
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.clearGuideEnd()
     this.problems.dispose()
@@ -4004,125 +3207,4 @@ export class ProjectTab {
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()
   }
-}
-
-/** App UI never navigates; links open in the user's browser instead. */
-
-/** What the ship sheet shows when the user didn't let Gui run Git. */
-function cancelledShipInfo(): ShipInfo {
-  return {
-    blocked: 'Cancelled.',
-    branch: null,
-    onDefaultBranch: false,
-    files: [],
-    skipped: [],
-    remote: null,
-    suggestion: { branch: '', title: '', body: '' },
-  }
-}
-
-/** Where the dev server runs: a monorepo app's folder, or the project root. */
-/** A source path the inspector found, relative to the repo, as a file to edit; null outside it. */
-function sourceInProject(root: string, file: string) {
-  const path = resolve(root, file)
-  const inside = relative(root, path)
-  if (!inside || inside.startsWith('..') || isAbsolute(inside)) return null
-  return inside.split(sep).includes('node_modules') ? null : path
-}
-
-function appRoot(project: ProjectInfo) {
-  return project.appDir ? join(project.root, project.appDir) : project.root
-}
-
-function originOf(url: string) {
-  try {
-    return new URL(url).origin
-  } catch {
-    return null
-  }
-}
-
-/** `rect` (window coordinates) in the canvas's own. */
-function inCanvas(rect: Rect, canvas: Rect): Rect {
-  return { ...rect, x: rect.x - canvas.x, y: rect.y - canvas.y }
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), Math.max(min, max))
-}
-
-/**
- * Where the before image sits in a larger after image, when the element changed size
- * (page coordinates in, the after image's own coordinates out). Null when both show the
- * same area, or the after image doesn't cover the before one.
- */
-function previewFrame(before: Rect, after: Rect): PreviewFrame | null {
-  const same =
-    Math.abs(before.width - after.width) <= 1 && Math.abs(before.height - after.height) <= 1
-  const covers =
-    before.x >= after.x - 1 &&
-    before.y >= after.y - 1 &&
-    before.x + before.width <= after.x + after.width + 1 &&
-    before.y + before.height <= after.y + after.height + 1
-  if (same || !covers) return null
-  return {
-    width: after.width,
-    height: after.height,
-    before: { ...before, x: before.x - after.x, y: before.y - after.y },
-  }
-}
-
-/** "<project> 2026-10-03 at 14.05.09", the way macOS names screenshots. */
-function screenshotName(project: string, date = new Date()) {
-  const pad = (value: number) => String(value).padStart(2, '0')
-  const day = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-  const time = `${pad(date.getHours())}.${pad(date.getMinutes())}.${pad(date.getSeconds())}`
-  // Project names come from package.json, which can hold path separators ("@scope/app").
-  const base =
-    project
-      .replace(/[\p{Cc}/\\:]/gu, '-')
-      .trim()
-      .slice(0, 100) || 'Screenshot'
-  return `${base} ${day} at ${time}`
-}
-
-/**
- * A screenshot as the composer attaches images: downscaled for the agent, a PNG unless
- * that's photo-sized, plus a small thumbnail for the transcript.
- */
-function chatImage(source: NativeImage, name: string): ImageAttachment {
-  const image = fitImage(source, ATTACH_EDGE)
-  const png = image.toPNG()
-  const jpeg = png.length > ATTACH_MAX_PNG_BYTES
-  const thumbnail = fitImage(source, ATTACH_THUMBNAIL_EDGE).toPNG()
-  return {
-    name: `${name}.${jpeg ? 'jpg' : 'png'}`,
-    mimeType: jpeg ? 'image/jpeg' : 'image/png',
-    data: (jpeg ? image.toJPEG(85) : png).toString('base64'),
-    thumbnail: `data:image/png;base64,${thumbnail.toString('base64')}`,
-  }
-}
-
-/** Scales an image down so its long side is at most `edge`. */
-function fitImage(image: NativeImage, edge: number) {
-  const { width, height } = image.getSize()
-  const scale = Math.min(1, edge / Math.max(width, height))
-  if (scale === 1) return image
-  return image.resize({
-    width: Math.max(1, Math.round(width * scale)),
-    height: Math.max(1, Math.round(height * scale)),
-    quality: 'best',
-  })
-}
-
-/** What the window says about Apple's developer tools: nothing until they're found missing. */
-function shownTools(status: DeveloperToolsStatus): WindowState['developerTools'] {
-  return status === 'missing' || status === 'installing' ? status : null
-}
-
-function frameError(error: unknown) {
-  dialog.showErrorBox(
-    "Couldn't export the frame",
-    error instanceof Error ? error.message : String(error),
-  )
 }

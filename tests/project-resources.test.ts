@@ -85,6 +85,17 @@ describe('project lifetime', () => {
     ])
   })
 
+  test('late async work is dropped after dispose bumps the generation', async () => {
+    const { resources } = fixture()
+    const generation = resources.generation
+    expect(resources.stillCurrent(generation)).toBe(true)
+    expect(resources.ifCurrent(generation, () => 'ok')).toBe('ok')
+    await resources.dispose()
+    expect(resources.stillCurrent(generation)).toBe(false)
+    expect(resources.ifCurrent(generation, () => 'ok')).toBeUndefined()
+    expect(resources.generation).not.toBe(generation)
+  })
+
   test('late claims and MCP listeners are released instead of attaching', async () => {
     const { resources, events } = fixture()
     await resources.dispose()

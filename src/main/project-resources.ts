@@ -26,11 +26,28 @@ export class ProjectResources {
   private claimedFile: string | null = null
   private disposed = false
   private completion: Promise<void> | null = null
+  /** Bumped on dispose so a captured token from this opening fails `stillCurrent`. */
+  private gen = 0
 
   constructor(private readonly history: HistoryClaims) {}
 
   get active() {
     return !this.disposed
+  }
+
+  get generation() {
+    return this.gen
+  }
+
+  /** False once this opening has been closed or replaced. */
+  stillCurrent(generation: number) {
+    return this.active && generation === this.gen
+  }
+
+  /** Runs `fn` only while this opening is still the live one; otherwise drops the result. */
+  ifCurrent<T>(generation: number, fn: () => T): T | undefined {
+    if (!this.stillCurrent(generation)) return undefined
+    return fn()
   }
 
   /** A claim that finishes after close is immediately returned to the history pool. */
@@ -61,6 +78,7 @@ export class ProjectResources {
 
   dispose(): Promise<void> {
     if (this.completion) return this.completion
+    this.gen++
     this.disposed = true
     let complete!: () => void
     this.completion = new Promise<void>((resolve) => {
