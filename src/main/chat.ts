@@ -1,17 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import type { Stats } from 'node:fs'
-import { lstat, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve as resolvePath,
-  sep,
-} from 'node:path'
+import { basename, isAbsolute, relative, resolve as resolvePath } from 'node:path'
 import type {
   ContentBlock,
   McpServer,
@@ -24,7 +15,6 @@ import { invokedCommand, parseCommands } from '../shared/commands'
 import {
   type AgentCommand,
   type AgentId,
-  type AgentSetting,
   agentName,
   type ChatMeta,
   type ChatSnapshot,
@@ -56,6 +46,9 @@ import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
 import type { PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
+import { availableModels, chosenValue, offersChoice, withChoices } from './chat-models'
+import { type EditScope, isOutside, projectEditPath } from './chat-paths'
+import { GUI_TOOL_LABELS, previewTool } from './chat-tools'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
 import {
@@ -67,7 +60,6 @@ import {
   type SavedChat,
   type SavedQueued,
 } from './history'
-import { MCP_SERVER_NAME } from './mcp-server'
 import { getPrefs, prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
 import {
   buildPrompt,
@@ -154,17 +146,6 @@ interface Baseline {
   complete: boolean
 }
 
-/** Where a request's paths may be approved without asking; see `projectEditPath`. */
-export interface EditScope {
-  /** The project root as the agent was given it */
-  root: string
-  realRoot: string
-  /** Real home folder: its dotfiles and dot-folders, and ~/Library, always ask. */
-  home: string
-  /** Other real folders whose files always ask, like Gui's own data */
-  protectedDirs: string[]
-}
-
 const START_TIMEOUT_MS = 60_000
 /** A model or effort change the agent doesn't answer counts as refused. */
 const SETTING_TIMEOUT_MS = 10_000
@@ -194,52 +175,6 @@ const imagePrompt = (count: number) =>
 /** What a message asks the agent; empty when there's nothing to send. */
 const messagePrompt = (text: string, images: ImageAttachment[]) =>
   text.trim() || (images.length ? imagePrompt(images.length) : '')
-
-/** Readable labels for Gui's own tools, which agents report by raw MCP name. */
-const GUI_TOOL_LABELS: Record<string, string> = {
-  preview_screenshot: 'Screenshot the preview',
-  recording_info: 'Read recording timing',
-  recording_frame: 'Inspect a recorded frame',
-  recording_frames: 'Inspect recorded animation',
-  recording_timeline: 'Read recording timeline',
-  preview_inspect: 'Inspect element',
-  preview_snapshot: 'Read preview page',
-  preview_click: 'Click in preview',
-  preview_hover: 'Hover in preview',
-  preview_type: 'Type in preview',
-  preview_press: 'Press key in preview',
-  preview_scroll: 'Scroll preview',
-  preview_point: 'Point out in preview',
-  preview_console: 'Check preview errors',
-  preview_navigate: 'Open page in preview',
-  preview_reload: 'Reload preview',
-  dev_server_logs: 'Read dev server logs',
-  dev_server_status: 'Check dev server',
-  dev_server_restart: 'Restart dev server',
-  set_start_command: 'Change start command',
-  source_control_status: 'Check source control',
-  source_control_propose: 'Propose changes to ship',
-  chat_turns: 'Read earlier turns',
-}
-const PREVIEW_TOOLS = Object.keys(GUI_TOOL_LABELS).join('|')
-/**
- * Exact MCP identities for Gui's tools, anchored at both ends: shell command titles
- * are model-written text and must never be mistaken for a preview tool. Claude reports
- * `mcp__gui__<tool>` (never as `execute`); Codex reports every MCP call as an
- * `execute` titled `mcp.gui.<tool>`. Labels only: nothing is approved by title.
- */
-const CLAUDE_TOOL = new RegExp(`^mcp__${MCP_SERVER_NAME}__(${PREVIEW_TOOLS})$`)
-const CODEX_TOOL = new RegExp(`^mcp\\.${MCP_SERVER_NAME}\\.(${PREVIEW_TOOLS})$`)
-const ANY_TOOL = new RegExp(
-  `^(?:mcp__${MCP_SERVER_NAME}__|mcp\\.${MCP_SERVER_NAME}\\.|${MCP_SERVER_NAME}[_.])(${PREVIEW_TOOLS})$`,
-)
-
-function previewTool(agentId: AgentId, title: string, kind: string | undefined) {
-  if (agentId === 'codex') return title.match(CODEX_TOOL)?.[1]
-  // Other agents name MCP calls their own way, but a shell command (`execute`) is never one.
-  if (kind === 'execute') return undefined
-  return title.match(agentId === 'claude' ? CLAUDE_TOOL : ANY_TOOL)?.[1]
-}
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
@@ -273,6 +208,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private lock: object | null = null
   /** Bumped by reset; work started in an older epoch must not touch current state. */
   private epoch = 0
+  /** False after dispose or a reset that bumped `epoch`; late async work must not apply. */
+  private live(epoch = this.epoch) {
+    return !this.disposed && this.epoch === epoch
+  }
   /** After dispose, nothing snapshots, saves, or emits. */
   private disposed = false
   private permissions = new Map<string, PermissionResolver>()
@@ -900,7 +839,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const current = await this.checkpoints.snapshot(message)
       const { paths, inferred } = await this.changedPaths(undone, current)
       if (!(await this.confirmOverwrite(baseline, current, paths, inferred, 'Undo'))) return
-      if (epoch !== this.epoch) return
+      if (!this.live(epoch)) return
       // Record the way back first, so a restore that fails halfway can still be redone. Taken
       // again because files may have been saved while the confirmation was open.
       const latest = await this.checkpoints.snapshot(message)
@@ -960,7 +899,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         const current = await this.checkpoints.snapshot('before redo')
         const baseline = { sha: restored, complete: true }
         if (!(await this.confirmOverwrite(baseline, current, point.paths, [], 'Redo'))) return
-        if (epoch !== this.epoch) return
+        if (!this.live(epoch)) return
       }
       await this.checkpoints.restore(point.sha, point.paths)
       for (const r of this.records) {
@@ -1047,7 +986,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       await this.requireCheckpoints([version.sha], "so this version can't be restored")
       const current = await this.checkpoints.snapshot(`before restoring ${version.name}`)
       const paths = await this.pathsBetween(version.sha, current)
-      if (paths.length === 0 || epoch !== this.epoch) return
+      if (paths.length === 0 || !this.live(epoch)) return
       // Record the way back before touching a file, so even a restore that stops
       // halfway can be taken back from the safety version.
       this.keepVersion({
@@ -2177,124 +2116,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 }
 
-/** The agent's models before a session starts: its last check's list, with the user's choices. */
-export function availableModels(agentId: AgentId): ModelSettings | null {
-  const models = agentHealth.list().find((agent) => agent.id === agentId)?.models ?? null
-  return models && withChoices(models, agentId, null)
-}
-
-/** Whether `value` is one of the choices `models` lists for its setting `settingId`. */
-export function offersChoice(models: ModelSettings | null, settingId: string, value: string) {
-  const setting = [models?.model, models?.effort].find((s) => s?.id === settingId)
-  return setting?.options.some((option) => option.value === value) ?? false
-}
-
-/** `models` with the user's saved choices for `agentId` applied, where they still apply. */
-function withChoices(
-  models: ModelSettings,
-  agentId: AgentId,
-  refused: Map<string, string> | null,
-): ModelSettings {
-  const saved = savedAgentSettings(agentId)
-  const apply = (setting: AgentSetting) => ({
-    ...setting,
-    value: chosenValue(setting, saved, refused) ?? setting.value,
-  })
-  return { model: apply(models.model), effort: models.effort && apply(models.effort) }
-}
-
-/** The user's saved choice for `setting`, when it's still on offer and wasn't refused. */
-function chosenValue(
-  setting: AgentSetting,
-  saved: Record<string, string>,
-  refused: Map<string, string> | null,
-) {
-  const value = Object.hasOwn(saved, setting.id) ? saved[setting.id] : undefined
-  if (value === undefined || refused?.get(setting.id) === value) return null
-  return setting.options.some((option) => option.value === value) ? value : null
-}
-
-/** A relative path that climbs out of the folder it's relative to (or isn't relative at all). */
-const isOutside = (rel: string) => rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
-
-/** `path` relative to `dir`, or null when it isn't inside `dir` (or `dir` itself). */
-function within(dir: string, path: string) {
-  const rel = relative(dir, path)
-  return isOutside(rel) ? null : rel
-}
-
-const isMissing = (error: unknown) =>
-  typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
-
-/** The real path of `path`'s deepest existing folder (or itself), with the rest put back. */
-async function realLocation(path: string) {
-  const rest: string[] = []
-  let current = path
-  for (;;) {
-    try {
-      return join(await realpath(current), ...rest)
-    } catch (error) {
-      const parent = dirname(current)
-      if (!isMissing(error) || parent === current) throw error
-      rest.unshift(basename(current))
-      current = parent
-    }
-  }
-}
-
-/**
- * Where an edit to `path` lands, relative to the project root, when it may be approved
- * without asking; otherwise null. That's never outside the project, never through a
- * symlink inside it (a link can point anywhere, Gui's own data included), only to a plain
- * file or one that doesn't exist yet, and never in the home folder's dotfiles, ~/Library
- * or `protectedDirs`, for projects that contain those. With `folders` (for reads and
- * searches), it may also be a folder, the project root ('') included.
- */
-export async function projectEditPath(
-  path: string,
-  scope: EditScope,
-  folders = false,
-): Promise<string | null> {
-  // `..` after a symlink climbs out of where the link points, not where it sits.
-  if (path.includes('\0') || path.split(/[\\/]/).includes('..')) return null
-  const target = resolvePath(scope.root, path)
-  const rel = [scope.root, scope.realRoot]
-    .map((root) => relative(root, target))
-    .find((candidate) => (candidate !== '' || folders) && !isOutside(candidate))
-  if (rel === undefined) return null
-
-  // Walks down from the real root; what doesn't exist yet can't be a link.
-  const parts = rel === '' ? [] : rel.split(sep)
-  let current = scope.realRoot
-  for (const [index, part] of parts.entries()) {
-    current = join(current, part)
-    let stats: Stats
-    try {
-      stats = await lstat(current)
-    } catch (error) {
-      if (isMissing(error)) break
-      return null
-    }
-    if (stats.isSymbolicLink()) return null
-    const last = index === parts.length - 1
-    const allowed = stats.isDirectory() ? !last || folders : last && stats.isFile()
-    if (!allowed) return null
-    // A file with other hard links is also a file somewhere else.
-    if (stats.isFile() && stats.nlink > 1) return null
-  }
-
-  // Where it really lands, as macOS resolves it (realpath also settles letter case).
-  const real = await realLocation(join(scope.realRoot, rel)).catch(() => null)
-  if (real === null || within(scope.realRoot, real) === null) return null
-  if (scope.protectedDirs.some((dir) => within(dir, real) !== null)) return null
-  // ~/Library and home dotfiles only matter when the project is the home folder (or one
-  // above it): projects in iCloud Drive or Dropbox live under ~/Library themselves.
-  if (within(scope.realRoot, scope.home) !== null) {
-    if (within(join(scope.home, 'Library'), real) !== null) return null
-    if (within(scope.home, real)?.startsWith('.')) return null
-  }
-  return rel
-}
+export { availableModels, offersChoice } from './chat-models'
+export { type EditScope, projectEditPath } from './chat-paths'
 
 /** A version's name on one line, cut short. */
 function versionName(text: string): string {
