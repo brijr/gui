@@ -29,6 +29,8 @@ interface ChatStore {
   followUp: string | null
   /** Why an image wasn't attached; the composer shows it briefly */
   notice: string | null
+  /** The errors whose bar the user closed (by id); a new error brings the bar back */
+  dismissedProblems: string[]
   /** ⇧⌘M asked for the model picker; the composer's model button opens it and clears this */
   pickModel: boolean
   /** What the floating chat is drawn as, and its anchored corner (main sizes the view) */
@@ -45,6 +47,7 @@ export const useChat = create<ChatStore>(() => ({
   recordings: [],
   followUp: null,
   notice: null,
+  dismissedProblems: [],
   pickModel: false,
   float: { form: 'panel', corner: { x: 'right', y: 'bottom' }, seq: 0 },
 }))
@@ -87,6 +90,10 @@ export function setFollowUp(followUp: string | null) {
 
 export function setNotice(notice: string | null) {
   useChat.setState({ notice })
+}
+
+export function dismissProblems(ids: string[]) {
+  useChat.setState({ dismissedProblems: ids })
 }
 
 export function addAttachments(images: DraftImage[]) {

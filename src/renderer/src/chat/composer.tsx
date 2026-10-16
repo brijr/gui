@@ -34,6 +34,7 @@ import { QueuedMessages } from './queue'
 import { RecordingClip } from './recording-clip'
 import {
   addAttachments,
+  dismissProblems,
   noteSend,
   removeAttachments,
   removeRecordings,
@@ -56,6 +57,8 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
   const recordings = useChat((s) => s.recordings)
   // A turn that's gone (a new session) has nothing to follow up on.
   const followUp = useChat((s) => s.turnsById[s.followUp ?? ''] ?? null)
+  const dismissed = useChat((s) => s.dismissedProblems)
+  const unseenProblem = meta.problems.some((problem) => !dismissed.includes(problem.id))
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   /** Images still being downscaled; a ref so overlapping pastes count each other. */
@@ -212,7 +215,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       ) : (
         <AgentStatus meta={meta} />
       )}
-      {meta.problems.length > 0 && <ProblemsBar meta={meta} running={running} />}
+      {unseenProblem && <ProblemsBar meta={meta} running={running} />}
       <QueuedMessages meta={meta} running={running} />
       {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}
       {meta.selection.length > 0 && <Selection selection={meta.selection} />}
@@ -374,8 +377,8 @@ const PLACE = 'motion-safe:animate-place-in motion-reduce:animate-row-fade'
 function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const latest = meta.problems.at(-1)
   return (
-    // A compact card: a line (two, with the latest error) and a button.
-    <Card tone="inset" className={cn(ARRIVE, 'flex items-center gap-2 py-2 pr-2 pl-3')}>
+    // A compact card: a line (two, with the latest error), Fix, and an X that hides it until a new error.
+    <Card tone="inset" className={cn(ARRIVE, 'flex items-center gap-2 py-2 pr-1.5 pl-3')}>
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="text-small font-medium">{problemsTitle(meta.problems)}</p>
@@ -393,6 +396,13 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
       >
         Fix
       </Button>
+      <IconButton
+        size="sm"
+        label="Dismiss errors"
+        title="Dismiss"
+        icon={X}
+        onClick={() => dismissProblems(meta.problems.map((problem) => problem.id))}
+      />
     </Card>
   )
 }
