@@ -269,9 +269,13 @@ function TurnRow({
   useLayoutEffect(() => {
     const el = row.current
     if (!el) return
-    const observer = new ResizeObserver(() => measure(id, el.getBoundingClientRect().height))
+    // The layout height, not getBoundingClientRect's: while the panel grows in (morph.ts) it's
+    // scaled, and growing doesn't resize the row, so a scaled height would never be corrected.
+    // Observing reports the row once to start.
+    const observer = new ResizeObserver(([entry]) => {
+      measure(id, entry.borderBoxSize[0]?.blockSize ?? el.offsetHeight)
+    })
     observer.observe(el)
-    measure(id, el.getBoundingClientRect().height)
     return () => observer.disconnect()
   }, [id, measure])
   if (!turn) return null
