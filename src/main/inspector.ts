@@ -3,6 +3,14 @@ import { EventEmitter } from 'node:events'
 import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { nativeTheme, type WebContents } from 'electron'
+import {
+  pageFromViewport,
+  pagePoint,
+  pageRectFromViewport,
+  viewportPointFrom,
+  viewportRect,
+  viewRectFromViewport,
+} from '../shared/coords'
 import { ACCENT, FILL } from '../shared/theme'
 import type { ElementContext, Point, Rect, SourceLocation } from '../shared/types'
 import { normalizeSourcePath, projectRelativePath, resolveStack } from './source-resolver'
@@ -441,11 +449,15 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       const { cssLayoutViewport: scroll } = await this.cmd<{
         cssLayoutViewport: { pageX: number; pageY: number }
       }>('Page.getLayoutMetrics')
+      const onPage = pageFromViewport(
+        viewportPointFrom(point),
+        pagePoint(scroll.pageX, scroll.pageY),
+      )
       const { backendNodeId } = await this.cmd<{ backendNodeId?: number }>(
         'DOM.getNodeForLocation',
         {
-          x: Math.round(point.x + scroll.pageX),
-          y: Math.round(point.y + scroll.pageY),
+          x: Math.round(onPage.x),
+          y: Math.round(onPage.y),
           includeUserAgentShadowDOM: false,
           ignorePointerEventsNone: true,
         },
@@ -467,7 +479,8 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     const { cssVisualViewport } = await this.cmd<{
       cssVisualViewport: { pageX: number; pageY: number }
     }>('Page.getLayoutMetrics')
-    return { x: cssVisualViewport.pageX, y: cssVisualViewport.pageY }
+    const scroll = pagePoint(cssVisualViewport.pageX, cssVisualViewport.pageY)
+    return { x: scroll.x, y: scroll.y }
   }
 
   /**
@@ -724,16 +737,21 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     // The view shows the page at its frame's scale. At least a pixel: an empty rect would
     // capture the whole view.
     const scale = this.viewScale()
+    const view = viewRectFromViewport(viewportRect(x, y, width, height), scale)
     const image = await this.wc.capturePage({
-      x: Math.round(x * scale),
-      y: Math.round(y * scale),
-      width: Math.max(1, Math.round(width * scale)),
-      height: Math.max(1, Math.round(height * scale)),
+      x: Math.round(view.x),
+      y: Math.round(view.y),
+      width: Math.max(1, Math.round(view.width)),
+      height: Math.max(1, Math.round(view.height)),
     })
     if (image.isEmpty()) return null
     const size = image.getSize()
     const scaled = size.width > 1200 ? image.resize({ width: 1200, quality: 'good' }) : image
-    const onPage = (box: Rect) => ({ ...box, x: box.x + scroll.pageX, y: box.y + scroll.pageY })
+    const origin = pagePoint(scroll.pageX, scroll.pageY)
+    const onPage = (box: Rect) => {
+      const page = pageRectFromViewport(viewportRect(box.x, box.y, box.width, box.height), origin)
+      return { x: page.x, y: page.y, width: page.width, height: page.height }
+    }
     return {
       dataUrl: scaled.toDataURL(),
       crop: { area: onPage({ x, y, width, height }), element: onPage(rect) },

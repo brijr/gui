@@ -1,9 +1,10 @@
-import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { lstat, mkdir, realpath, rm, rmdir, stat, writeFile } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { MAX_CHECKPOINT_FILE_BYTES } from '../shared/bounded'
 import { developerTools } from './developer-tools'
+import { execFile } from './process'
 import { mayHoldSecrets } from './secret-files'
 
 export interface FileChange {
@@ -71,7 +72,7 @@ const SHA_RE = /^[0-9a-f]{4,64}$/i
  * Bigger new or changed files aren't kept: a video or database rewritten every turn would
  * add its whole size to the store each time. Undo leaves them as they are.
  */
-const MAX_FILE_BYTES = 10 * 1024 * 1024
+const MAX_FILE_BYTES = MAX_CHECKPOINT_FILE_BYTES
 /** Each checkpoint is a commit of its own under this prefix, so one nothing needs can go. */
 const KEEP_REF = 'refs/gui/checkpoints/'
 /** How often a project's store is pruned, at most. */

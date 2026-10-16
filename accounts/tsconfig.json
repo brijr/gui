@@ -9,5 +9,10 @@
     "skipLibCheck": true,
     "types": []
   },
-  "include": ["src/**/*.ts", "../src/shared/github.ts", "../src/shared/account.ts"]
+  "include": [
+    "src/**/*.ts",
+    "../src/shared/github.ts",
+    "../src/shared/account.ts",
+    "../src/shared/tokens.ts"
+  ]
 }

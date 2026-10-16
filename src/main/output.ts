@@ -1,7 +1,8 @@
+import { MAX_OUTPUT_BYTES } from '../shared/bounded'
 import type { OutputChunk } from '../shared/ipc'
 
 /** Output kept per terminal and for the dev server, to draw it again after switching tabs. */
-const MAX_OUTPUT = 512 * 1024
+const MAX_OUTPUT = MAX_OUTPUT_BYTES
 /** Trimmed back to `MAX_OUTPUT` only past this much more, so a flood isn't copied per read. */
 const TRIM_SLACK = 64 * 1024
 /** Output waits this long to go out with what follows it: about a frame. */

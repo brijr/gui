@@ -1,3 +1,4 @@
+import { MAX_HISTORY_VERSIONS } from '../shared/bounded'
 import type { FileChange, Version } from '../shared/types'
 import type { SavedChat } from './history'
 import type { LastMessage } from './history-summary'
@@ -104,7 +105,7 @@ export async function* historyChunks(chat: SavedChat, chunkBytes = 128 * 1024) {
 const VERSION_ID = /^[a-f0-9-]{36}$/
 const VERSION_SHA = /^[0-9a-f]{4,64}$/i
 /** How many named and pre-restore versions a chat keeps */
-export const MAX_VERSIONS = 100
+export const MAX_VERSIONS = MAX_HISTORY_VERSIONS
 const MAX_VERSION_NAME = 200
 const MAX_VERSION_CHANGES = 5000
 

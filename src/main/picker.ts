@@ -1,4 +1,17 @@
 import { type WebContents, WebContentsView } from 'electron'
+import {
+  pagePoint,
+  pageRectFrom,
+  viewFromViewport,
+  viewPointFrom,
+  viewportFromView,
+  viewportPointFrom,
+  viewportRectFrom,
+  viewportRectFromPage,
+  viewportRectFromView,
+  viewRectFrom,
+  viewRectFromViewport,
+} from '../shared/coords'
 import { Events } from '../shared/ipc'
 import type { GuideOverlay, PickOverlayState, Point, Rect } from '../shared/types'
 import type { Inspector } from './inspector'
@@ -194,13 +207,8 @@ export class Picker {
 
   /** The overlay's `rect` as the viewport's, in CSS pixels. */
   toPageRect(rect: Rect): Rect {
-    const scale = this.scale()
-    return {
-      x: rect.x / scale,
-      y: rect.y / scale,
-      width: rect.width / scale,
-      height: rect.height / scale,
-    }
+    const page = viewportRectFromView(viewRectFrom(rect), this.scale())
+    return { x: page.x, y: page.y, width: page.width, height: page.height }
   }
 
   /**
@@ -229,18 +237,13 @@ export class Picker {
   }
 
   private toPage(at: Point): Point {
-    const scale = this.scale()
-    return { x: at.x / scale, y: at.y / scale }
+    const point = viewportFromView(viewPointFrom(at), this.scale())
+    return { x: point.x, y: point.y }
   }
 
   private toView(rect: Rect): Rect {
-    const scale = this.scale()
-    return {
-      x: rect.x * scale,
-      y: rect.y * scale,
-      width: rect.width * scale,
-      height: rect.height * scale,
-    }
+    const view = viewRectFromViewport(viewportRectFrom(rect), this.scale())
+    return { x: view.x, y: view.y, width: view.width, height: view.height }
   }
 
   /** Measures again soon: now, unless a measure is running (then right after it). */
@@ -325,7 +328,7 @@ export class Picker {
     if (!guided) return null
     const box = guided.node === null ? null : await this.inspector.box(guided.node)
     const scale = this.scale()
-    const cursor = guided.cursor && { x: guided.cursor.x * scale, y: guided.cursor.y * scale }
+    const cursor = guided.cursor && viewFromViewport(viewportPointFrom(guided.cursor), scale)
     return {
       rect: box && this.toView(box),
       // Once its element is gone (navigation, hot reload), the caption no longer points at it.
@@ -344,7 +347,9 @@ export class Picker {
       this.outlined.map(async (picked) => {
         if (picked.kind === 'region') {
           const { area } = picked
-          return picked.fixed ? area : { ...area, x: area.x - scroll.x, y: area.y - scroll.y }
+          if (picked.fixed) return area
+          const viewport = viewportRectFromPage(pageRectFrom(area), pagePoint(scroll.x, scroll.y))
+          return { x: viewport.x, y: viewport.y, width: viewport.width, height: viewport.height }
         }
         return this.inspector.box(picked.node)
       }),

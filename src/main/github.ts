@@ -1,9 +1,9 @@
-import { execFile } from 'node:child_process'
 import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app, shell } from 'electron'
 import type { GitHubProfile, GitHubRepository, GitHubState } from '../shared/github'
+import { asRepoToken, type RepoToken } from '../shared/tokens'
 import {
   AccountError,
   accountEvents,
@@ -14,6 +14,7 @@ import {
 } from './account'
 import { parseRepo } from './clone'
 import { developerTools } from './developer-tools'
+import { execFile } from './process'
 import { ScopedRequestCache } from './scoped-request-cache'
 import {
   type CredentialLease,
@@ -93,7 +94,10 @@ export async function createGitHub(name: string): Promise<GitHubRepository> {
   return repository
 }
 
-async function withGitHubToken<T>(token: string, action: (env: NodeJS.ProcessEnv) => Promise<T>) {
+async function withGitHubToken<T>(
+  token: RepoToken,
+  action: (env: NodeJS.ProcessEnv) => Promise<T>,
+) {
   const credentials = await mkdtemp(join(tmpdir(), 'gui-github-'))
   try {
     await chmod(credentials, 0o700)
@@ -143,7 +147,7 @@ esac
 export class CredentialUnavailable extends Error {}
 
 interface GitHubCredential {
-  token: string
+  token: RepoToken
   fullName: string
 }
 
@@ -157,7 +161,7 @@ async function loadCredential(id: number, session: string | null) {
     throw new CredentialUnavailable('Could not reach Gui accounts.', { cause: error })
   }
   if (!/^[\w-]+\/[\w.-]+$/.test(result.fullName)) throw new Error('Invalid GitHub repository name.')
-  return result
+  return { token: asRepoToken(result.token), fullName: result.fullName }
 }
 const credential = (id: number) => credentials.fresh(id)
 

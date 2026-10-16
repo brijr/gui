@@ -1,5 +1,11 @@
 import type { AccountErrorCode } from '../../src/shared/account'
 import type { GitHubProfile } from '../../src/shared/github'
+import {
+  asRepoToken,
+  asUserGitHubToken,
+  type RepoToken,
+  type UserGitHubToken,
+} from '../../src/shared/tokens'
 import { type ConnectedRepository, GitHubRepositories } from './github-repositories'
 
 // Only the D1 operations this service uses. Bun's SQLite test adapter implements the same contract.
@@ -208,8 +214,9 @@ async function connection(env: Env, account: Account) {
     )
   return user
 }
-async function accessToken(env: Env, user: User) {
-  if (user.token_expires_at > now() + 60) return decrypt(env, user.github_token)
+async function accessToken(env: Env, user: User): Promise<UserGitHubToken> {
+  if (user.token_expires_at > now() + 60)
+    return asUserGitHubToken(await decrypt(env, user.github_token))
   if (!user.refresh_token)
     throw new HttpError(
       403,
@@ -229,7 +236,8 @@ async function accessToken(env: Env, user: User) {
       .bind(user.github_id)
       .first<User>()
     if (!fresh) throw new HttpError(403, 'Reconnect GitHub.', 'github_reconnect_required')
-    if (fresh.token_expires_at > now() + 60) return decrypt(env, fresh.github_token)
+    if (fresh.token_expires_at > now() + 60)
+      return asUserGitHubToken(await decrypt(env, fresh.github_token))
     if (!fresh.refresh_token)
       throw new HttpError(403, 'Reconnect GitHub.', 'github_reconnect_required')
     const data = await gitHubOAuth('login/oauth/access_token', {
@@ -254,7 +262,7 @@ async function accessToken(env: Env, user: User) {
         user.github_id,
       )
       .run()
-    return data.access_token
+    return asUserGitHubToken(data.access_token)
   } finally {
     await env.DB.prepare('UPDATE users SET refresh_lock_until = 0 WHERE github_id = ?')
       .bind(user.github_id)
@@ -272,7 +280,7 @@ const repositories = new GitHubRepositories(
  * repository with every permission the app has (administration among them), and which git
  * hooks in the project could read from the push's environment.
  */
-async function repositoryToken(env: Env, repo: ConnectedRepository) {
+async function repositoryToken(env: Env, repo: ConnectedRepository): Promise<RepoToken> {
   if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY)
     throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
   const jwt = await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY)
@@ -286,7 +294,7 @@ async function repositoryToken(env: Env, repo: ConnectedRepository) {
       throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
     throw error
   })
-  return token
+  return asRepoToken(token)
 }
 
 /** The GitHub App's JWT (RS256), for minting installation tokens. */
