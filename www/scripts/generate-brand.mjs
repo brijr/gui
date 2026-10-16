@@ -73,7 +73,7 @@ for (const [source, target] of [
   await copyFile(new URL(`../public/${source}`, import.meta.url), new URL(target, directory))
 await writeFile(
   new URL('colors.json', directory),
-  JSON.stringify(
+  `${JSON.stringify(
     {
       blue: '#0066FF',
       tiles: colors,
@@ -84,7 +84,7 @@ await writeFile(
     },
     null,
     2,
-  ) + '\n',
+  )}\n`,
 )
 await writeFile(
   new URL('README.txt', directory),
