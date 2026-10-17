@@ -83,6 +83,7 @@ const api: GuiApi = {
   boardRenameFrame: send(Send.boardRenameFrame),
   renameBoard: send(Send.renameBoard),
   boardCamera: send(Send.boardCamera),
+  boardChatCover: () => legacyInvoke(Invoke.boardChatCover),
   boardOpenFrame: send(Send.boardOpenFrame),
   onBoardCommand: (cb) => subscribe(Events.board, cb),
   setAgent: send(Send.setAgent),

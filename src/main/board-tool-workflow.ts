@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises'
+import { randomBytes } from 'node:crypto'
+import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
 import type { BoardSession } from './board-session'
@@ -34,10 +35,48 @@ export function assetName(name: string) {
   return `${stem || 'screenshot'}.png`
 }
 
-/** Canvas tool workflows depend on their board and two composition callbacks. */
+/**
+ * Canvas tool workflows depend on their board and its tab's callbacks. `live` is false once
+ * the canvas closed: a tool call still in flight then changes nothing.
+ */
 export function createBoardTools(
   board: BoardSession,
-  host: { prompt: () => PromptBoard | null; open: (id: string | null) => Promise<void> },
+  host: {
+    prompt: () => PromptBoard | null
+    open: (id: string | null) => Promise<void>
+    live: () => boolean
+  },
+): BoardTools {
+  const tools = boardTools(board, host)
+  const guarded = {} as Record<string, unknown>
+  for (const [name, tool] of Object.entries(tools)) {
+    guarded[name] = (...args: unknown[]) => {
+      if (!host.live()) throw new Error('The canvas closed.')
+      return (tool as (...args: unknown[]) => unknown)(...args)
+    }
+  }
+  return guarded as unknown as BoardTools
+}
+
+/** Written beside its final name, then moved there: never through a link planted at it. */
+async function writeAsset(path: string, data: Buffer) {
+  const temp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+  try {
+    await writeFile(temp, data, { flag: 'wx' })
+    await rename(temp, path)
+  } catch (error) {
+    await rm(temp, { force: true })
+    throw error
+  }
+}
+
+function boardTools(
+  board: BoardSession,
+  host: {
+    prompt: () => PromptBoard | null
+    open: (id: string | null) => Promise<void>
+    live: () => boolean
+  },
 ): BoardTools {
   const where = (frame: { id: string; width: number; height: number; x: number; y: number }) =>
     `frames/${frame.id}.html, ${frame.width}×${frame.height} at (${frame.x}, ${frame.y})`
@@ -80,12 +119,13 @@ export function createBoardTools(
     screenshotUrl: async ({ saveAs, ...options }) => {
       // Loaded on first use: it starts browser windows, which the board itself never needs.
       const { captureWebPage, WEB_CAPTURE_MAX_HEIGHT } = await import('./web-capture')
-      const shot = await captureWebPage(options)
+      const shot = await captureWebPage(options, host.live)
+      if (!host.live()) throw new Error('The canvas closed.')
       let saved: string | null = null
       if (saveAs) {
         saved = `assets/${assetName(saveAs)}`
         await mkdir(join(board.root, 'assets'), { recursive: true })
-        await writeFile(join(board.root, saved), shot.image.toPNG())
+        await writeAsset(join(board.root, saved), shot.image.toPNG())
       }
       return {
         ...fitForAgent(shot.image),

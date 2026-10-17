@@ -12,7 +12,11 @@ import {
   type CaptureJob,
 } from './board-capture-queue'
 
-const THUMB_WIDTH = 720
+/**
+ * A thumbnail's widest, in pixels: a desktop frame's own width, so the board stays sharp on a
+ * Retina screen up to about 50%.
+ */
+const THUMB_WIDTH = 1440
 
 export interface BoardCaptureRenderer {
   render(
@@ -38,6 +42,8 @@ interface CachedThumbnail {
   page: string
   width: number
   height: number
+  /** THUMB_WIDTH when it was made; thumbnails from a smaller limit are made again */
+  thumbWidth?: number
 }
 
 interface ThumbnailRequest {
@@ -105,7 +111,8 @@ export class BoardCaptures {
           cached?.assets !== assets ||
           cached.page !== page ||
           cached.width !== frame.width ||
-          cached.height !== frame.height
+          cached.height !== frame.height ||
+          cached.thumbWidth !== THUMB_WIDTH
         )
           void this.thumbnail(frame.id)
       }),
@@ -215,7 +222,13 @@ export class BoardCaptures {
       if (!current()) return
       await rename(temp, this.path(id))
       if (!current()) return
-      this.cache[id] = { assets, page, width: frame.width, height: frame.height }
+      this.cache[id] = {
+        assets,
+        page,
+        width: frame.width,
+        height: frame.height,
+        thumbWidth: THUMB_WIDTH,
+      }
       await writeFileAtomic(this.cachePath, JSON.stringify(this.cache))
       if (!current()) return
       this.captured.add(id)

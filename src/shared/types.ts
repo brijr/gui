@@ -751,6 +751,8 @@ export interface ChatMeta {
   selecting: boolean
   /** The preview shows the local app, so there's an element to pick */
   canSelect: boolean
+  /** The chat is a canvas's: the agent makes frames rather than editing an app */
+  canvas: boolean
   minimized: boolean
   /** The window's sidebar, top to bottom, instead of floating over the preview */
   docked: boolean

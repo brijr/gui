@@ -70,6 +70,7 @@ export interface AllIpcRequests {
   [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
+  [Invoke.boardChatCover]: Contract<'boardChatCover'>
 }
 
 export interface IpcRequests {

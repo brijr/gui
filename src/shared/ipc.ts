@@ -103,6 +103,7 @@ export const Invoke = {
   askAboutBranch: 'settings:ask-about-branch',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
+  boardChatCover: 'board:chat-cover',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -391,7 +392,10 @@ export interface GuiApi {
   boardRenameFrame(id: string, name: string): void
   renameBoard(name: string): void
   /** Where the board is looking, saved for next time */
-  boardCamera(camera: BoardCamera): void
+  /** Where a canvas's view rests; `board` names the canvas, so a late one can't land on another */
+  boardCamera(camera: BoardCamera, board?: string): void
+  /** Where the floating chat covers the window's content (CSS px), or null when it doesn't */
+  boardChatCover(): Promise<Rect | null>
   /** Shows a frame live in the preview; null goes back to the board */
   boardOpenFrame(id: string | null): void
   onBoardCommand(cb: (command: BoardCommand) => void): Unsubscribe

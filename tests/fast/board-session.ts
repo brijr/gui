@@ -233,7 +233,11 @@ try {
   frameWrite = { path: agentBoundary.framePath('pending'), gate: pendingGate.promise, calls: 0 }
   const userCreating = agentBoundary.create({ name: 'Pending', width: 400, height: 300 })
   await until(() => frameWrite?.calls === 1)
-  const tools = createBoardTools(agentBoundary, { prompt: () => null, open: async () => {} })
+  const tools = createBoardTools(agentBoundary, {
+    prompt: () => null,
+    open: async () => {},
+    live: () => true,
+  })
   const agentCreating = tools.create({ name: 'Agent', width: 400, height: 300 })
   const userArranging = agentBoundary.arrange([{ id: 'b', x: 999, y: 0 }])
   pendingGate.resolve()
@@ -321,7 +325,71 @@ try {
     ),
   )
   assert.equal((await persisted(saved.root)).name, 'External')
+  // A broken manifest (a bad hand edit, a half-written file) keeps the board, and is repaired.
+  await saved.create({ name: 'Kept', width: 400, height: 300 })
+  await saved.arrange([{ id: 'kept', x: 777, y: 55 }])
+  await saved.save()
+  const layoutBefore = JSON.stringify(saved.frames)
+  await nativeFs.writeFile(join(saved.root, 'canvas.json'), '{ "frames": [ { "id": "x"')
+  emitWatch(saved.root, 'canvas.json')
+  await until(() =>
+    nativeFs
+      .readFile(join(saved.root, 'canvas.json'), 'utf8')
+      .then((text) => text.startsWith('{') && text.endsWith('}')),
+  )
+  assert.equal(saved.name, 'External', 'A broken manifest must not reset the board')
+  assert.equal(JSON.stringify(saved.frames), layoutBefore)
+  assert.deepEqual((await persisted(saved.root)).frames, [
+    { id: 'kept', name: 'Kept', x: 777, y: 55, width: 400, height: 300 },
+  ])
   await saved.dispose()
+
+  // Someone else rewriting a page (the agent, by hand) ends what ⌘Z can undo on the board, so
+  // undoing the frame's creation can't delete what they wrote. The board's own writes don't.
+  const outside = await board('outside')
+  await outside.create({ name: 'Mine', width: 400, height: 300 })
+  emitWatch(outside.root, 'frames/mine.html')
+  await new Promise((done) => setTimeout(done, 400))
+  assert.equal(outside.state().canUndo, true, "The board's own page write keeps undo")
+  await nativeFs.writeFile(outside.framePath('mine'), '<h1>The agent wrote this</h1>')
+  emitWatch(outside.root, 'frames/mine.html')
+  await until(() => !outside.state().canUndo)
+  assert.equal(await outside.undo(), false)
+  assert.equal(
+    await nativeFs.readFile(outside.framePath('mine'), 'utf8'),
+    '<h1>The agent wrote this</h1>',
+  )
+
+  // Undoing a resize renders the frame again at the size it gets back.
+  const captures = (outside as unknown as { captures: { thumbnail(id: string): Promise<void> } })
+    .captures
+  const thumbnail = captures.thumbnail.bind(captures)
+  const rendered: string[] = []
+  captures.thumbnail = (id) => {
+    rendered.push(id)
+    return thumbnail(id)
+  }
+  await outside.arrange([{ id: 'mine', width: 900, height: 900 }])
+  rendered.length = 0
+  assert.equal(await outside.undo(), true)
+  assert.equal(outside.frame('mine')?.width, 400)
+  assert.deepEqual(rendered, ['mine'], 'An undone resize needs a new thumbnail')
+
+  // A canvas tool call that arrives after the canvas closed changes nothing.
+  let live = true
+  const late = createBoardTools(outside, {
+    prompt: () => null,
+    open: async () => {},
+    live: () => live,
+  })
+  live = false
+  assert.throws(() => late.list(), /The canvas closed/)
+  assert.throws(() => late.create({ name: 'Late', width: 400, height: 300 }), /The canvas closed/)
+  assert.deepEqual(
+    outside.frames.map((frame) => frame.id),
+    ['mine'],
+  )
+  await outside.dispose()
 
   const closing = await board('closing')
   const closeGate = deferred()

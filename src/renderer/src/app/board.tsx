@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -16,7 +17,7 @@ import {
   regroupSections,
   sectionBounds,
 } from '../../../shared/board'
-import type { BoardFrame, BoardState } from '../../../shared/types'
+import type { BoardFrame, BoardState, Rect } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Card, GroupLabel } from '../lib/surface'
@@ -30,6 +31,8 @@ const GRID = 24
 const DRAG_SLOP = 3
 /** A section's name sits this far inside its top-left corner, in screen pixels. */
 const SECTION_INSET = 10
+/** A frame narrower than this on screen shows its name above it without its size. */
+const SIZE_LABEL_MIN = 140
 /** The resize handle's size, in screen pixels. */
 const HANDLE = 10
 /** Each ⌘+ or ⌘− step. */
@@ -38,6 +41,12 @@ const ZOOM_STEP = 1.25
 const DOUBLE_CLICK_MS = 400
 /** Where the camera rests, saved this long after the last pan or zoom. */
 const SAVE_CAMERA_MS = 400
+/** A pinch's ⌃-wheel deltas are small; a mouse wheel's are ~100 a notch. One notch, one step. */
+const PINCH_DELTA_MAX = 22
+/** The floating chat is framed around only when what it leaves clear is at least this wide. */
+const CLEAR_MIN_WIDTH = 320
+/** macOS turns ⌃-click into a right-click: its menu, not a drag. */
+const MAC = navigator.platform.toLowerCase().includes('mac')
 
 /** Prompts for an empty canvas: the kinds of thing a board is good for. */
 const STARTERS = [
@@ -113,6 +122,10 @@ type Gesture =
       kind: 'move'
       start: { x: number; y: number }
       ids: string[]
+      /** The frame pressed, which a double-click opens */
+      hit: string | null
+      /** It was one of several selected, without ⇧: a click (no drag) selects it alone */
+      narrow: boolean
       moved: boolean
       /** The press was on a frame already selected, with ⇧: a click deselects it */
       toggle: string | null
@@ -140,12 +153,22 @@ export function Board({ board }: { board: BoardState }) {
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   const [camera, setCamera] = useState<BoardCamera | null>(board.camera)
   const [overrides, setOverrides] = useState<Record<string, Override>>({})
-  const [gesture, setGesture] = useState<Gesture | null>(null)
+  const [gesture, setGestureState] = useState<Gesture | null>(null)
+  /** The gesture under way, for listeners that run between renders (pointer-up, the wheel) */
+  const gestureRef = useRef<Gesture | null>(null)
+  const setGesture = (next: Gesture | null) => {
+    gestureRef.current = next
+    setGestureState(next)
+  }
+  /** Arrow keys held: the frames move as drawn, and land as one change when the key comes up */
+  const nudge = useRef<{ ids: string[]; dx: number; dy: number } | null>(null)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renamingSection, setRenamingSection] = useState<string | null>(null)
   /** The section picked by its name, while its frames are what's selected */
   const [pickedSection, setPickedSection] = useState<string | null>(null)
   const [space, setSpace] = useState(false)
+  /** What's selected, said to a screen reader as it changes */
+  const [announcement, setAnnouncement] = useState('')
   // Space held is the Hand for as long as it's held.
   const hand = useBoardTool() === 'hand' || space
   const frames = board.frames.map((frame) => ({ ...frame, ...overrides[frame.id] }))
@@ -165,10 +188,35 @@ export function Board({ board }: { board: BoardState }) {
   const lastClick = useRef<{ id: string; at: number } | null>(null)
   // Every state from main is a new object; this changes only when the layout does.
   const layout = JSON.stringify(board.frames.map((f) => [f.id, f.x, f.y, f.width, f.height]))
+  const selection = board.selection.join('\n')
 
-  // What main has now replaces what was drawn ahead of it.
+  // What main has now replaces what was drawn ahead of it, unless a drag or a nudge is still
+  // going: dropping its frames back mid-gesture (the agent moved something) would lose it.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new layout from main is the trigger.
-  useEffect(() => setOverrides({}), [layout])
+  useEffect(() => {
+    if (!gestureRef.current && !nudge.current) setOverrides({})
+  }, [layout])
+
+  // A section stays picked only while its frames are exactly what's selected; selecting them
+  // again some other way later (a marquee, ⌘A) selects frames, not the section.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new selection is the trigger.
+  useEffect(() => {
+    setPickedSection((current) => {
+      const section = board.sections.find((s) => s.id === current)
+      const same =
+        section?.frames.length === board.selection.length &&
+        section.frames.every((id) => board.selection.includes(id))
+      return same ? current : null
+    })
+    const names = board.selection.flatMap((id) => board.frames.find((f) => f.id === id)?.name ?? [])
+    setAnnouncement(
+      names.length === 0
+        ? ''
+        : names.length === 1
+          ? `${names[0]} selected`
+          : `${names.length} frames selected`,
+    )
+  }, [selection])
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -183,10 +231,15 @@ export function Board({ board }: { board: BoardState }) {
   // The latest of what the board's listeners read, without subscribing them again each render.
   const latest = useRef({ frames: board.frames, sections: board.sections, camera, size })
   latest.current = { frames: board.frames, sections: board.sections, camera, size }
+  // Everything in sight, around the floating chat when it covers part of the board.
   const fit = () => {
-    const { frames, sections, size } = latest.current
-    const areas = sections.flatMap((section) => sectionBounds(section, frames) ?? [])
-    setCamera(fitCamera(boardBounds([...frames, ...areas]), size))
+    const el = ref.current
+    if (!el) return
+    void clearArea(el, latest.current.size).then((area) => {
+      const { frames, sections } = latest.current
+      const areas = sections.flatMap((section) => sectionBounds(section, frames) ?? [])
+      setCamera(fitCameraIn(boardBounds([...frames, ...areas]), area))
+    })
   }
   const zoomAt = (factor: number, at: { x: number; y: number }) =>
     setCamera((current) => {
@@ -199,6 +252,17 @@ export function Board({ board }: { board: BoardState }) {
         y: current.y + at.y / current.zoom - at.y / zoom,
       }
     })
+  /** Brings a frame into sight, at the zoom there is, unless most of it shows already. */
+  const reveal = (frame: Override) => {
+    const { camera, size } = latest.current
+    if (!camera) return
+    if (shownShare(boardToScreen(frame, camera), { left: 0, top: 0, ...size }) >= 0.5) return
+    setCamera({
+      ...camera,
+      x: frame.x + frame.width / 2 - size.width / 2 / camera.zoom,
+      y: frame.y + frame.height / 2 - size.height / 2 / camera.zoom,
+    })
+  }
 
   // Opened without a saved camera: everything in sight, once the board has a size.
   // biome-ignore lint/correctness/useExhaustiveDependencies: fit reads the latest frames itself.
@@ -206,34 +270,57 @@ export function Board({ board }: { board: BoardState }) {
     if (!camera && size.width) fit()
   }, [camera, size.width])
 
-  // The agent's new frames come into sight when they land off screen.
+  // The board takes the keyboard as it opens (Delete, arrows, H and V work at once), unless
+  // something else in the window has it.
+  const hasCamera = camera !== null
+  useEffect(() => {
+    if (hasCamera && document.activeElement === document.body)
+      ref.current?.focus({ preventScroll: true })
+  }, [hasCamera])
+
+  // New frames (the agent's, or added from the menu) come into sight when they land out of
+  // it, or under the floating chat.
   const known = useRef(new Set(board.frames.map((frame) => frame.id)))
   // biome-ignore lint/correctness/useExhaustiveDependencies: the layout is the trigger; the rest is read as it is.
   useEffect(() => {
     const { frames, camera, size } = latest.current
     const added = frames.filter((frame) => !known.current.has(frame.id))
     known.current = new Set(frames.map((frame) => frame.id))
-    if (!added.length || !camera || !size.width) return
-    const visible = added.some((frame) => {
-      const left = (frame.x - camera.x) * camera.zoom
-      const top = (frame.y - camera.y) * camera.zoom
-      return left < size.width && top < size.height && left + frame.width * camera.zoom > 0
-    })
-    const area = boardBounds(added)
-    if (visible || !area) return
-    setCamera({
-      ...camera,
-      x: area.x + area.width / 2 - size.width / 2 / camera.zoom,
-      y: area.y + area.height / 2 - size.height / 2 / camera.zoom,
+    const el = ref.current
+    if (!added.length || !el || !camera || !size.width) return
+    void clearArea(el, size).then((area) => {
+      const camera = latest.current.camera
+      if (!camera) return
+      const inSight = added.some((frame) => shownShare(boardToScreen(frame, camera), area) >= 0.5)
+      const bounds = boardBounds(added)
+      if (inSight || !bounds) return
+      setCamera({
+        ...camera,
+        x: bounds.x + bounds.width / 2 - (area.left + area.width / 2) / camera.zoom,
+        y: bounds.y + bounds.height / 2 - (area.top + area.height / 2) / camera.zoom,
+      })
     })
   }, [layout])
 
-  // Saved once it rests, for the next time the canvas opens.
+  // Saved once it rests, for the next time the canvas opens, and as the board goes (opening a
+  // frame, another tab): main keeps it only for this canvas.
+  const unsaved = useRef<BoardCamera | null>(null)
   useEffect(() => {
     if (!camera) return
-    const timer = setTimeout(() => gui.boardCamera(camera), SAVE_CAMERA_MS)
+    unsaved.current = camera
+    const timer = setTimeout(() => {
+      unsaved.current = null
+      gui.boardCamera(camera, board.id)
+    }, SAVE_CAMERA_MS)
     return () => clearTimeout(timer)
-  }, [camera])
+  }, [camera, board.id])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only as the board goes.
+  useEffect(
+    () => () => {
+      if (unsaved.current) gui.boardCamera(unsaved.current, board.id)
+    },
+    [],
+  )
 
   // The toolbar's zoom controls.
   // biome-ignore lint/correctness/useExhaustiveDependencies: zoomAt and fit read the latest state themselves.
@@ -270,16 +357,24 @@ export function Board({ board }: { board: BoardState }) {
     [],
   )
 
-  // Scrolling pans; ⌘ or a pinch (which arrives as ⌃-wheel) zooms around the pointer.
+  // Scrolling pans; ⌘ or a pinch (which arrives as ⌃-wheel) zooms around the pointer. Bound
+  // again only when the board's element is (it's another before the camera is known).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: zoomAt and setCamera only update the camera.
   useEffect(() => {
     const el = ref.current
     if (!el) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
+      // Mid-drag, the drag's offsets would come apart from the pointer.
+      if (gestureRef.current) return
       const box = el.getBoundingClientRect()
       const at = { x: event.clientX - box.left, y: event.clientY - box.top }
       if (event.ctrlKey || event.metaKey) {
-        zoomAt(Math.exp(-event.deltaY * (event.ctrlKey ? 0.01 : 0.002)), at)
+        // A mouse wheel with ⌃ held turns in big notches: each is one step, as ⌘+ is.
+        const delta = event.ctrlKey
+          ? Math.max(-PINCH_DELTA_MAX, Math.min(PINCH_DELTA_MAX, event.deltaY))
+          : event.deltaY
+        zoomAt(Math.exp(-delta * (event.ctrlKey ? 0.01 : 0.002)), at)
         return
       }
       setCamera((current) =>
@@ -294,12 +389,15 @@ export function Board({ board }: { board: BoardState }) {
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  })
+  }, [hasCamera])
 
-  // Space held: dragging pans, as in every design tool.
+  // Space held: dragging pans, as in every design tool. Only for the board (or nothing
+  // focused): Space still presses the toolbar's buttons.
   useEffect(() => {
+    const forBoard = (target: EventTarget | null) =>
+      target === document.body || (!!ref.current && target === ref.current)
     const down = (event: KeyboardEvent) => {
-      if (event.code === 'Space' && !isTyping(event.target)) {
+      if (event.code === 'Space' && forBoard(event.target)) {
         event.preventDefault()
         setSpace(true)
       }
@@ -307,29 +405,45 @@ export function Board({ board }: { board: BoardState }) {
     const up = (event: KeyboardEvent) => {
       if (event.code === 'Space') setSpace(false)
     }
+    // Let go while in another app: no keyup comes.
+    const blur = () => setSpace(false)
     window.addEventListener('keydown', down)
     window.addEventListener('keyup', up)
+    window.addEventListener('blur', blur)
     return () => {
       window.removeEventListener('keydown', down)
       window.removeEventListener('keyup', up)
+      window.removeEventListener('blur', blur)
     }
   }, [])
 
   if (!camera) return <div ref={ref} className="absolute inset-0" />
 
-  const toScreen = (frame: Override) => ({
-    left: (frame.x - camera.x) * camera.zoom,
-    top: (frame.y - camera.y) * camera.zoom,
-    width: frame.width * camera.zoom,
-    height: frame.height * camera.zoom,
-  })
+  const toScreen = (frame: Override) => boardToScreen(frame, camera)
   const local = (event: { clientX: number; clientY: number }) => {
     const box = ref.current?.getBoundingClientRect()
     return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) }
   }
 
+  /** The arrow keys' moves land: one change, so one ⌘Z, however long they were held. */
+  const commitNudge = () => {
+    const held = nudge.current
+    nudge.current = null
+    if (!held || (!held.dx && !held.dy)) return
+    gui.boardArrange(
+      board.frames
+        .filter((frame) => held.ids.includes(frame.id))
+        .map((frame) => ({ id: frame.id, x: frame.x + held.dx, y: frame.y + held.dy })),
+    )
+  }
+
   const onPointerDown = (event: ReactPointerEvent) => {
     if (event.button === 2) return
+    // ⌃-click on a Mac is a right-click: its menu opens, and nothing drags.
+    if (MAC && event.ctrlKey && event.button === 0) return
+    // Another finger or button while one gesture is going doesn't start a second.
+    if (gestureRef.current) return
+    commitNudge()
     ref.current?.focus({ preventScroll: true })
     const at = local(event)
     event.currentTarget.setPointerCapture(event.pointerId)
@@ -350,6 +464,8 @@ export function Board({ board }: { board: BoardState }) {
         kind: 'move',
         start: at,
         ids: section.frames,
+        hit: null,
+        narrow: false,
         moved: false,
         toggle: null,
         section: section.id,
@@ -369,51 +485,63 @@ export function Board({ board }: { board: BoardState }) {
         else ids = [...ids, frameId]
       } else if (!selected.has(frameId)) ids = [frameId]
       if (ids !== board.selection) gui.boardSelect(ids)
-      setGesture({ kind: 'move', start: at, ids, moved: false, toggle })
+      // Pressing one of several selected frames drags them all; a click selects it alone.
+      const narrow = !event.shiftKey && selected.has(frameId) && board.selection.length > 1
+      setGesture({ kind: 'move', start: at, ids, hit: frameId, narrow, moved: false, toggle })
       return
     }
     setGesture({ kind: 'marquee', start: at, now: at, add: event.shiftKey ? board.selection : [] })
   }
 
   const onPointerMove = (event: ReactPointerEvent) => {
-    if (!gesture) return
+    const current = gestureRef.current
+    if (!current) return
+    // The button came up where the board didn't hear it (a menu took the release): it ends.
+    if (event.buttons === 0) {
+      finish()
+      return
+    }
     const at = local(event)
-    const dx = (at.x - gesture.start.x) / camera.zoom
-    const dy = (at.y - gesture.start.y) / camera.zoom
-    if (gesture.kind === 'pan') {
-      setCamera({ ...gesture.from, x: gesture.from.x - dx, y: gesture.from.y - dy })
-    } else if (gesture.kind === 'move') {
-      const far = Math.hypot(at.x - gesture.start.x, at.y - gesture.start.y) > DRAG_SLOP
-      if (!gesture.moved && !far) return
-      if (!gesture.moved) setGesture({ ...gesture, moved: true })
+    const dx = (at.x - current.start.x) / camera.zoom
+    const dy = (at.y - current.start.y) / camera.zoom
+    if (current.kind === 'pan') {
+      setCamera({ ...current.from, x: current.from.x - dx, y: current.from.y - dy })
+    } else if (current.kind === 'move') {
+      const far = Math.hypot(at.x - current.start.x, at.y - current.start.y) > DRAG_SLOP
+      if (!current.moved && !far) return
+      if (!current.moved) setGesture({ ...current, moved: true })
       const next: Record<string, Override> = {}
       for (const frame of board.frames) {
-        if (!gesture.ids.includes(frame.id)) continue
+        if (!current.ids.includes(frame.id)) continue
         next[frame.id] = { ...frame, x: Math.round(frame.x + dx), y: Math.round(frame.y + dy) }
       }
       setOverrides(next)
-    } else if (gesture.kind === 'resize') {
+    } else if (current.kind === 'resize') {
       const edge = (value: number) => Math.round(Math.min(FRAME_MAX, Math.max(FRAME_MIN, value)))
       setOverrides({
-        [gesture.id]: {
-          ...gesture.from,
-          width: edge(gesture.from.width + dx),
-          height: edge(gesture.from.height + dy),
+        [current.id]: {
+          ...current.from,
+          width: edge(current.from.width + dx),
+          height: edge(current.from.height + dy),
         },
       })
     } else {
-      setGesture({ ...gesture, now: at })
+      setGesture({ ...current, now: at })
     }
   }
 
-  const onPointerUp = () => {
-    const done = gesture
-    setGesture(null)
+  /** The gesture ends: what it did lands. Once, however many events say so. */
+  const finish = () => {
+    const done = gestureRef.current
     if (!done) return
+    setGesture(null)
     if (done.kind === 'move') {
       if (done.moved) {
         gui.boardArrange(
-          Object.entries(overrides).map(([id, frame]) => ({ id, x: frame.x, y: frame.y })),
+          done.ids.flatMap((id) => {
+            const frame = overrides[id]
+            return frame ? [{ id, x: frame.x, y: frame.y }] : []
+          }),
         )
       } else if (done.toggle) {
         gui.boardSelect(board.selection.filter((id) => id !== done.toggle))
@@ -427,9 +555,10 @@ export function Board({ board }: { board: BoardState }) {
           lastClick.current = null
           setRenamingSection(done.section)
         }
-      } else if (done.ids.length) {
-        // A second click on the same frame soon after: open it.
-        const id = done.ids.at(-1) ?? ''
+      } else if (done.hit) {
+        // A second click on the same frame soon after: open it, the one clicked.
+        const id = done.hit
+        if (done.narrow) gui.boardSelect([id])
         const now = performance.now()
         const last = lastClick.current
         lastClick.current = { id, at: now }
@@ -457,16 +586,18 @@ export function Board({ board }: { board: BoardState }) {
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (isTyping(event.target)) return
     const command = event.metaKey || event.ctrlKey
+    // Keys with ⌘, ⌃ or ⌥ that the board doesn't use go on to the menu (⌘⌫ is Don't Allow).
+    const plain = !command && !event.altKey
     const ids = board.selection
-    const nudge = event.shiftKey ? 10 : 1
+    const step = event.shiftKey ? 10 : 1
     const arrows: Record<string, [number, number]> = {
-      ArrowLeft: [-nudge, 0],
-      ArrowRight: [nudge, 0],
-      ArrowUp: [0, -nudge],
-      ArrowDown: [0, nudge],
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
     }
     let handled = true
-    const deleting = event.key === 'Backspace' || event.key === 'Delete'
+    const deleting = plain && (event.key === 'Backspace' || event.key === 'Delete')
     // A section picked by its name goes on its own; its frames stay.
     if (deleting && picked) gui.boardDeleteSection(picked.id)
     else if (deleting && ids.length) gui.boardDelete(ids)
@@ -475,22 +606,39 @@ export function Board({ board }: { board: BoardState }) {
     // ⌘D is Select Element, as everywhere in Gui (the menu's); ⌥⌘D duplicates.
     else if (command && event.altKey && event.code === 'KeyD' && ids.length) gui.boardDuplicate(ids)
     else if (command && event.shiftKey && event.code === 'KeyE' && ids.length) gui.boardExport(ids)
-    else if (command && event.key === 'a') gui.boardSelect(board.frames.map((frame) => frame.id))
+    else if (command && !event.altKey && !event.shiftKey && event.code === 'KeyA')
+      gui.boardSelect(board.frames.map((frame) => frame.id))
     else if (command && event.key === '0') fit()
     else if (command && (event.key === '=' || event.key === '+'))
       zoomAt(ZOOM_STEP, { x: size.width / 2, y: size.height / 2 })
     else if (command && event.key === '-')
       zoomAt(1 / ZOOM_STEP, { x: size.width / 2, y: size.height / 2 })
-    else if (!command && !event.altKey && event.code === 'KeyH') setBoardTool('hand')
-    else if (!command && !event.altKey && event.code === 'KeyV') setBoardTool('move')
-    else if (event.key === 'Enter' && ids.length === 1) gui.boardOpenFrame(ids[0])
+    else if (plain && event.code === 'KeyH') setBoardTool('hand')
+    else if (plain && event.code === 'KeyV') setBoardTool('move')
+    else if (plain && event.key === 'Enter' && ids.length === 1) gui.boardOpenFrame(ids[0])
     else if (event.key === 'Escape' && ids.length) gui.boardSelect([])
-    else if (arrows[event.key] && ids.length && !command) {
+    else if (plain && event.key === 'Tab' && board.frames.length) {
+      // Tab and ⇧Tab step through the frames; past the last, focus leaves the board.
+      const at = ids.length === 1 ? board.frames.findIndex((frame) => frame.id === ids[0]) : -1
+      const next = event.shiftKey ? (at === -1 ? board.frames.length - 1 : at - 1) : at + 1
+      const frame = board.frames[next]
+      if (frame) {
+        gui.boardSelect([frame.id])
+        reveal(frame)
+      } else handled = false
+    } else if (arrows[event.key] && ids.length && !command && !event.altKey) {
       const [dx, dy] = arrows[event.key]
-      gui.boardArrange(
-        board.frames
-          .filter((frame) => ids.includes(frame.id))
-          .map((frame) => ({ id: frame.id, x: frame.x + dx, y: frame.y + dy })),
+      if (nudge.current && nudge.current.ids.join('\n') !== ids.join('\n')) commitNudge()
+      const held = nudge.current ?? { ids, dx: 0, dy: 0 }
+      held.dx += dx
+      held.dy += dy
+      nudge.current = held
+      setOverrides(
+        Object.fromEntries(
+          board.frames
+            .filter((frame) => ids.includes(frame.id))
+            .map((frame) => [frame.id, { ...frame, x: frame.x + held.dx, y: frame.y + held.dy }]),
+        ),
       )
     } else handled = false
     if (handled) event.preventDefault()
@@ -499,6 +647,22 @@ export function Board({ board }: { board: BoardState }) {
   const grid = GRID * camera.zoom
   const marquee = gesture?.kind === 'marquee' ? marqueeBox(gesture.start, gesture.now) : null
   const single = board.selection.length === 1 ? board.selection[0] : null
+  // What's drawn: frames and sections near the view, in board pixels. The margin keeps a pan
+  // from adding and dropping them at every step.
+  const reach = {
+    x: camera.x - size.width / camera.zoom / 2,
+    y: camera.y - size.height / camera.zoom / 2 - LABEL_HEIGHT / camera.zoom,
+    width: (size.width / camera.zoom) * 2,
+    height: (size.height / camera.zoom) * 2 + LABEL_HEIGHT / camera.zoom,
+  }
+  const near = (area: Override) =>
+    area.x <= reach.x + reach.width &&
+    area.y <= reach.y + reach.height &&
+    area.x + area.width >= reach.x &&
+    area.y + area.height >= reach.y
+  const shown = frames.filter(near)
+  const count = board.frames.length
+  const zoom = camera.zoom
 
   return (
     // The board is one control: it takes the keyboard when pressed, and names what's selected.
@@ -507,9 +671,9 @@ export function Board({ board }: { board: BoardState }) {
       // biome-ignore lint/a11y/noNoninteractiveTabindex: role="application" handles its own keys.
       tabIndex={0}
       role="application"
-      aria-label={`Canvas ${board.name}, ${board.frames.length} frames`}
+      aria-label={`Canvas ${board.name}, ${count} ${count === 1 ? 'frame' : 'frames'}. Tab steps through frames; arrows move them; Enter opens one.`}
       className={cn(
-        'absolute inset-0 overflow-hidden bg-canvas outline-none select-none',
+        'absolute inset-0 overflow-hidden bg-canvas outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
       )}
       style={{
@@ -520,13 +684,21 @@ export function Board({ board }: { board: BoardState }) {
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerUp={finish}
+      onPointerCancel={finish}
+      onLostPointerCapture={finish}
       onKeyDown={onKeyDown}
+      onKeyUp={(event) => {
+        if (event.key.startsWith('Arrow')) commitNudge()
+      }}
+      onBlur={(event) => {
+        if (event.target === event.currentTarget) commitNudge()
+      }}
       onContextMenu={(event) => {
         const target = event.target as HTMLElement
         const section = target.closest<HTMLElement>('[data-section]')?.dataset.section
-        const id = target.closest<HTMLElement>('[data-frame]')?.dataset.frame
+        const named = target.closest<HTMLElement>('[data-frame-label]')?.dataset.frameLabel
+        const id = target.closest<HTMLElement>('[data-frame]')?.dataset.frame ?? named
         if (section) {
           event.preventDefault()
           setPickedSection(section)
@@ -537,34 +709,93 @@ export function Board({ board }: { board: BoardState }) {
         }
       }}
     >
-      {sections.map((section) => {
-        const area = sectionBounds(section, frames)
-        if (!area) return null
-        const box = toScreen(area)
-        if (
-          box.left > size.width ||
-          box.top > size.height ||
-          box.left + box.width < 0 ||
-          box.top + box.height < 0
-        )
-          return null
-        const isPicked = picked?.id === section.id
-        return (
-          <div key={section.id}>
+      {/*
+        The board itself, in board pixels: one layer the camera moves and scales, so a pan or
+        zoom changes it alone and none of the frames inside. Names in it are drawn at screen
+        size (`pinned`); lines are a screen pixel wide (--board-px).
+      */}
+      <div
+        className="absolute top-0 left-0 origin-top-left"
+        style={
+          {
+            transform: `translate(${-camera.x * zoom}px, ${-camera.y * zoom}px) scale(${zoom})`,
+            '--board-px': `${1 / zoom}px`,
+          } as CSSProperties
+        }
+      >
+        {sections.map((section) => {
+          const area = sectionBounds(section, frames)
+          if (!area || !near(area)) return null
+          return (
             <div
+              key={section.id}
               aria-hidden="true"
               className={cn(
-                'pointer-events-none absolute rounded-xl border bg-fill/60',
-                isPicked ? 'border-accent' : 'border-line',
+                'pointer-events-none absolute border-solid bg-fill/60',
+                picked?.id === section.id ? 'border-accent' : 'border-line',
               )}
-              style={box}
+              style={{
+                left: area.x,
+                top: area.y,
+                width: area.width,
+                height: area.height,
+                borderWidth: 'var(--board-px)',
+                borderRadius: 'calc(12 * var(--board-px))',
+              }}
             />
+          )
+        })}
+
+        {shown.map((frame) => (
+          <div
+            key={frame.id}
+            data-frame={frame.id}
+            className={cn(
+              'absolute overflow-hidden bg-raised shadow-raised outline-solid outline-line',
+              !hand && !selected.has(frame.id) && 'hover:outline-accent',
+            )}
+            style={{
+              left: frame.x,
+              top: frame.y,
+              width: frame.width,
+              height: frame.height,
+              outlineWidth: 'var(--board-px)',
+              outlineOffset: 'calc(-1 * var(--board-px))',
+            }}
+          >
+            {frame.captured ? (
+              // As wide as the frame, from its top: a page taller than its capture leaves the
+              // rest of the frame blank rather than stretching.
+              <img
+                src={`${board.thumbs}/${frame.id}?v=${frame.version}`}
+                alt=""
+                draggable={false}
+                className="pointer-events-none block h-auto w-full"
+              />
+            ) : (
+              <div
+                className="p-3 text-caption whitespace-nowrap text-subtle"
+                style={pinned({ x: 0, y: 0 }, zoom)}
+              >
+                Rendering…
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Names after every frame: no frame hides a section's name, or another frame's. */}
+        {sections.map((section) => {
+          const area = sectionBounds(section, frames)
+          if (!area || !near(area)) return null
+          return (
             <SectionLabel
+              key={section.id}
               name={section.name}
               id={section.id}
-              at={{ left: box.left + SECTION_INSET, top: box.top + SECTION_INSET }}
-              maxWidth={Math.max(box.width - SECTION_INSET * 2, 120)}
-              picked={isPicked}
+              at={{ x: area.x, y: area.y }}
+              zoom={zoom}
+              maxWidth={Math.max(area.width * zoom - SECTION_INSET * 2, 120)}
+              picked={picked?.id === section.id}
               hand={hand}
               renaming={renamingSection === section.id}
               onDone={(name) => {
@@ -572,25 +803,15 @@ export function Board({ board }: { board: BoardState }) {
                 if (name && name !== section.name) gui.boardRenameSection(section.id, name)
               }}
             />
-          </div>
-        )
-      })}
-
-      {frames.map((frame) => {
-        const box = toScreen(frame)
-        if (
-          box.left > size.width ||
-          box.top - LABEL_HEIGHT > size.height ||
-          box.left + box.width < 0 ||
-          box.top + box.height < 0
-        )
-          return null
-        const isSelected = selected.has(frame.id)
-        return (
-          <div key={frame.id}>
+          )
+        })}
+        {shown.map((frame) => {
+          const isSelected = selected.has(frame.id)
+          return (
             <FrameLabel
+              key={frame.id}
               frame={frame}
-              box={box}
+              zoom={zoom}
               selected={isSelected}
               renaming={renaming === frame.id}
               hand={hand}
@@ -604,34 +825,20 @@ export function Board({ board }: { board: BoardState }) {
                 if (name && name !== frame.name) gui.boardRenameFrame(frame.id, name)
               }}
             />
-            <div
-              data-frame={frame.id}
-              className={cn(
-                'absolute overflow-hidden bg-raised shadow-raised',
-                isSelected
-                  ? 'outline-2 outline-accent'
-                  : cn('outline-1 -outline-offset-1 outline-line', !hand && 'hover:outline-accent'),
-              )}
-              style={box}
-            >
-              {frame.captured ? (
-                <img
-                  src={`${board.thumbs}/${frame.id}?v=${frame.version}`}
-                  alt=""
-                  draggable={false}
-                  className="pointer-events-none block w-full object-cover object-top"
-                  style={{ height: '100%' }}
-                />
-              ) : (
-                <div className="flex h-full items-start p-3 text-caption text-subtle">
-                  Rendering…
-                </div>
-              )}
-            </div>
+          )
+        })}
+      </div>
+
+      {/* What's selected, above everything on the board, in screen pixels. */}
+      {shown.map((frame) => {
+        if (!selected.has(frame.id)) return null
+        const box = toScreen(frame)
+        return (
+          <div key={frame.id} aria-hidden="true">
+            <div className="pointer-events-none absolute outline-2 outline-accent" style={box} />
             {single === frame.id && !hand && (
               <div
                 data-resize={frame.id}
-                aria-hidden="true"
                 className="absolute cursor-nwse-resize rounded-sm border-2 border-accent bg-raised"
                 style={{
                   left: box.left + box.width - HANDLE / 2,
@@ -658,15 +865,37 @@ export function Board({ board }: { board: BoardState }) {
         />
       )}
 
+      <p aria-live="polite" className="sr-only">
+        {announcement}
+      </p>
+
       {!board.frames.length && <EmptyBoard />}
     </div>
   )
 }
 
+/**
+ * Where something drawn at screen size sits in the board layer: its top-left at board point
+ * `at`, then moved by `shift` screen pixels. Undoes the layer's zoom, so a pan never changes it.
+ */
+function pinned(
+  at: { x: number; y: number },
+  zoom: number,
+  shift: { x: number; y: number } = { x: 0, y: 0 },
+): CSSProperties {
+  return {
+    position: 'absolute',
+    left: at.x,
+    top: at.y,
+    transformOrigin: '0 0',
+    transform: `scale(${1 / zoom}) translate(${shift.x}px, ${shift.y}px)`,
+  }
+}
+
 /** A frame's name above it, and its size; double-click renames it in place. */
 function FrameLabel({
   frame,
-  box,
+  zoom,
   selected,
   renaming,
   onSelect,
@@ -675,7 +904,7 @@ function FrameLabel({
   hand,
 }: {
   frame: BoardFrame
-  box: { left: number; top: number; width: number }
+  zoom: number
   selected: boolean
   renaming: boolean
   onSelect: (add: boolean) => void
@@ -684,11 +913,12 @@ function FrameLabel({
   /** The Hand is on: a press here pans the board like anywhere else */
   hand: boolean
 }) {
+  const width = frame.width * zoom
   const style = {
-    left: box.left,
-    top: box.top - LABEL_HEIGHT,
+    ...pinned({ x: frame.x, y: frame.y }, zoom, { x: 0, y: -LABEL_HEIGHT }),
     height: LABEL_HEIGHT,
-    maxWidth: Math.max(box.width, 120),
+    // No wider than the frame: zoomed out, neighbours' names would run into each other.
+    maxWidth: Math.max(width, 24),
   }
   if (renaming)
     return (
@@ -697,8 +927,8 @@ function FrameLabel({
         autoFocus
         aria-label="Frame name"
         defaultValue={frame.name}
-        className="absolute rounded-sm border border-accent bg-raised px-1 text-caption text-fg outline-none"
-        style={{ ...style, width: Math.max(box.width, 160) }}
+        className="rounded-sm border border-accent bg-raised px-1 text-caption text-fg outline-none"
+        style={{ ...style, width: Math.max(width, 160) }}
         onFocus={(event) => event.currentTarget.select()}
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
@@ -711,9 +941,9 @@ function FrameLabel({
     )
   return (
     <p
-      data-frame={frame.id}
+      data-frame-label={frame.id}
       className={cn(
-        'absolute flex items-center gap-1.5 truncate text-caption whitespace-nowrap',
+        'flex items-center gap-1.5 truncate text-caption whitespace-nowrap',
         selected ? 'text-accent-text' : 'text-muted',
       )}
       style={style}
@@ -726,9 +956,12 @@ function FrameLabel({
       onDoubleClick={hand ? undefined : onRename}
     >
       <span className="truncate font-medium">{frame.name}</span>
-      <span className="shrink-0 text-subtle tabular-nums">
-        {frame.width} × {frame.height}
-      </span>
+      {/* Narrow on screen, the name matters more than the size. */}
+      {width >= SIZE_LABEL_MIN && (
+        <span className="shrink-0 text-subtle tabular-nums">
+          {frame.width} × {frame.height}
+        </span>
+      )}
     </p>
   )
 }
@@ -741,6 +974,7 @@ function SectionLabel({
   id,
   name,
   at,
+  zoom,
   maxWidth,
   picked,
   hand,
@@ -749,14 +983,21 @@ function SectionLabel({
 }: {
   id: string
   name: string
-  at: { left: number; top: number }
+  /** The section's top-left corner, in board pixels */
+  at: { x: number; y: number }
+  zoom: number
+  /** In screen pixels */
   maxWidth: number
   picked: boolean
   hand: boolean
   renaming: boolean
   onDone: (name: string | null) => void
 }) {
-  const style = { left: at.left, top: at.top, height: LABEL_HEIGHT + 2, maxWidth }
+  const style = {
+    ...pinned(at, zoom, { x: SECTION_INSET, y: SECTION_INSET }),
+    height: LABEL_HEIGHT + 2,
+    maxWidth,
+  }
   if (renaming)
     return (
       <input
@@ -764,7 +1005,7 @@ function SectionLabel({
         autoFocus
         aria-label="Section name"
         defaultValue={name}
-        className="absolute rounded-md border border-accent bg-raised px-2 text-small font-medium text-fg outline-none"
+        className="rounded-md border border-accent bg-raised px-2 text-small font-medium text-fg outline-none"
         style={{ ...style, width: Math.min(maxWidth, 240) }}
         onFocus={(event) => event.currentTarget.select()}
         onPointerDown={(event) => event.stopPropagation()}
@@ -780,7 +1021,7 @@ function SectionLabel({
     <p
       data-section={id}
       className={cn(
-        'absolute flex items-center truncate rounded-md px-2 text-small font-medium whitespace-nowrap',
+        'flex items-center truncate rounded-md px-2 text-small font-medium whitespace-nowrap',
         picked ? 'bg-accent text-accent-fg' : 'bg-raised text-fg shadow-raised',
         !hand && 'cursor-default',
       )}
@@ -824,6 +1065,63 @@ function EmptyBoard() {
       </Card>
     </div>
   )
+}
+
+/** A board area (a frame, a section) in the board element's own pixels. */
+interface ScreenBox {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/** Board pixels to the board element's: where the camera looks, at its zoom. */
+function boardToScreen(area: Override, camera: BoardCamera): ScreenBox {
+  return {
+    left: (area.x - camera.x) * camera.zoom,
+    top: (area.y - camera.y) * camera.zoom,
+    width: area.width * camera.zoom,
+    height: area.height * camera.zoom,
+  }
+}
+
+/** How much of `box` shows in `area`: 1 when all of it does, or when it fills the area. */
+function shownShare(box: ScreenBox, area: ScreenBox) {
+  const width =
+    Math.min(box.left + box.width, area.left + area.width) - Math.max(box.left, area.left)
+  const height =
+    Math.min(box.top + box.height, area.top + area.height) - Math.max(box.top, area.top)
+  if (width <= 0 || height <= 0) return 0
+  const whole = Math.min(box.width * box.height, area.width * area.height)
+  return whole > 0 ? (width * height) / whole : 0
+}
+
+/**
+ * The part of the board the floating chat leaves clear, in the board element's pixels: all of
+ * it unless the chat covers a good share of its height, and leaves a wide enough side.
+ */
+async function clearArea(el: HTMLElement, size: Size): Promise<ScreenBox> {
+  const all = { left: 0, top: 0, width: size.width, height: size.height }
+  const cover: Rect | null = await gui.boardChatCover().catch(() => null)
+  if (!cover) return all
+  const box = el.getBoundingClientRect()
+  const left = cover.x - box.left
+  const right = left + cover.width
+  const top = Math.max(0, cover.y - box.top)
+  const bottom = Math.min(size.height, cover.y - box.top + cover.height)
+  if (right <= 0 || left >= size.width || bottom - top < size.height / 3) return all
+  const before = Math.max(0, left)
+  const after = Math.max(0, size.width - right)
+  if (Math.max(before, after) < CLEAR_MIN_WIDTH) return all
+  return after > before
+    ? { left: size.width - after, top: 0, width: after, height: size.height }
+    : { left: 0, top: 0, width: before, height: size.height }
+}
+
+/** fitCamera, within `area` of the board element rather than all of it. */
+function fitCameraIn(bounds: ReturnType<typeof boardBounds>, area: ScreenBox): BoardCamera {
+  const camera = fitCamera(bounds, area)
+  return { ...camera, x: camera.x - area.left / camera.zoom, y: camera.y - area.top / camera.zoom }
 }
 
 function marqueeBox(a: { x: number; y: number }, b: { x: number; y: number }) {

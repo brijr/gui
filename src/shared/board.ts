@@ -93,6 +93,25 @@ export function cleanName(value: unknown, max = 80): string | null {
 }
 
 /**
+ * Whether a manifest someone else wrote can be taken as the board: JSON with a list of
+ * frames. Anything less (a half-written file, a bad hand edit) is a mistake to repair, not a
+ * board with nothing on it.
+ */
+export function isReadableManifest(text: string): boolean {
+  try {
+    const parsed: unknown = JSON.parse(text)
+    return (
+      !!parsed &&
+      typeof parsed === 'object' &&
+      !Array.isArray(parsed) &&
+      Array.isArray((parsed as Record<string, unknown>).frames)
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
  * Reads a manifest as written by Gui, or by hand, or half-written: anything malformed in it
  * is dropped or repaired rather than failing the whole canvas.
  */

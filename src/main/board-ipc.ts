@@ -77,7 +77,11 @@ export function registerBoardIpc(
     if (string(id) && string(name)) void tab.boardRenameFrame(id, name)
   })
   onBoard(Send.renameBoard, (tab, name) => string(name) && void tab.renameBoard(name))
-  onBoard(Send.boardCamera, (tab, value) => camera(value) && tab.boardSetCamera(value))
+  onBoard(Send.boardCamera, (tab, value, board) => {
+    // Sent as a canvas's board goes away, the tab may show another canvas by now.
+    if (board !== undefined && board !== tab.boardSession?.id) return
+    if (camera(value)) tab.boardSetCamera(value)
+  })
   onBoard(Send.boardOpenFrame, (tab, id) => {
     if (id === null || string(id)) void tab.openFrame(id)
   })

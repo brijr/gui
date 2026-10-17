@@ -109,6 +109,16 @@ export class ChatPanel {
     )
   }
 
+  /**
+   * Where the floating chat lies over the window's content, for the board to frame its view
+   * around it; null when the chat is docked, hidden, popped out or tucked away.
+   */
+  coverRect(): Rect | null {
+    if (!this.chatShown || this.docked || this.bubbled || this.tucked) return null
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    return this.floatingRect(contentWidth, contentHeight, undefined, true)
+  }
+
   clearFloatShown() {
     this.floatShown = null
   }

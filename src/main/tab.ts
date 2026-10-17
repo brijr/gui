@@ -509,6 +509,11 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /** The dev server's output, for the drawer to draw it from. */
+  /** Where the floating chat covers the canvas, for the board to fit its frames around it. */
+  chatCover() {
+    return this.panel.coverRect()
+  }
+
   logsOutput() {
     return this.resources.devServer?.output.snapshot()
   }
@@ -531,6 +536,7 @@ export class ProjectTab implements ChatPanelOwner {
         selectionError: null,
         selecting: this.state.preview.selecting,
         canSelect: this.canSelect,
+        canvas: !!this.resources.board,
         minimized: false,
         docked: getPrefs().chatSidebar,
         sidebarSide: getPrefs().chatSidebarSide,
@@ -858,6 +864,7 @@ export class ProjectTab implements ChatPanelOwner {
         ? createBoardTools(board, {
             prompt: () => this.promptBoard(),
             open: (id) => this.openFrame(id),
+            live: current,
           })
         : null,
     ).catch((error: unknown) => {

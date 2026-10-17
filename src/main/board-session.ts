@@ -19,6 +19,7 @@ import {
   FRAMES_DIR,
   frameId,
   isFrameId,
+  isReadableManifest,
   MAX_FRAMES,
   parseManifest,
   placeFrame,
@@ -114,6 +115,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   private selection: string[] = []
   private openFrame: string | null = null
   private undoStack: UndoEntry[] = []
+  /**
+   * Each page as this session last wrote it, to tell its own writes from someone else's
+   * (the agent editing the file) when the watcher reports them.
+   */
+  private written = new Map<string, string>()
   private server: Server | null = null
   private token = randomBytes(16).toString('hex')
   private port = 0
@@ -349,7 +355,9 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     while (true) {
       try {
         // An external file can appear after readdir. Never replace a page we did not create.
-        await writeFile(this.framePath(id), spec.html ?? starterHtml(name), { flag: 'wx' })
+        const html = spec.html ?? starterHtml(name)
+        await writeFile(this.framePath(id), html, { flag: 'wx' })
+        this.written.set(id, html)
         break
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
@@ -429,7 +437,10 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       this.manifest.sections,
       false,
     )
-    for (const id of gone) this.captures.forget(id)
+    for (const id of gone) {
+      this.captures.forget(id)
+      this.written.delete(id)
+    }
     this.selection = this.selection.filter((id) => !gone.has(id))
     if (this.openFrame && gone.has(this.openFrame)) this.openFrame = null
     await Promise.all(
@@ -513,10 +524,23 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     const added = this.manifest.frames.filter((frame) => !kept.has(frame.id))
     for (const [id, html] of Object.entries(entry.files)) {
       await writeFile(this.framePath(id), html)
+      this.written.set(id, html)
     }
+    const sizes = new Map(this.manifest.frames.map((frame) => [frame.id, frame]))
     this.setFrames(entry.frames, entry.sections, false)
-    for (const id of Object.keys(entry.files)) this.queueCapture(id)
-    for (const frame of added) this.captures.forget(frame.id)
+    // Pages put back, and frames whose size changes back, need new thumbnails.
+    for (const frame of entry.frames) {
+      const now = sizes.get(frame.id)
+      if (
+        frame.id in entry.files ||
+        (now && (now.width !== frame.width || now.height !== frame.height))
+      )
+        this.queueCapture(frame.id)
+    }
+    for (const frame of added) {
+      this.captures.forget(frame.id)
+      this.written.delete(frame.id)
+    }
     this.selection = this.selection.filter((id) => kept.has(id))
     if (this.openFrame && !kept.has(this.openFrame)) this.openFrame = null
     await Promise.all(added.map((frame) => rm(this.framePath(frame.id), { force: true })))
@@ -526,10 +550,6 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   }
 
   /** The agent changed the canvas: what the user did before it can't be undone on its own. */
-  forgetUndo() {
-    return this.mutations.run(async () => this.clearUndo())
-  }
-
   private clearUndo() {
     if (!this.undoStack.length) return
     this.undoStack = []
@@ -660,6 +680,13 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       return
     }
     if (!exists) return
+    // Someone else rewrote the page (the agent, by hand): undoing the user's earlier board
+    // changes could now delete or overwrite what they wrote, so ⌘Z goes to the agent's turn.
+    const html = await readFile(this.framePath(id), 'utf8').catch(() => null)
+    if (html !== null && html !== this.written.get(id)) {
+      this.written.delete(id)
+      this.clearUndo()
+    }
     this.queueCapture(id)
     this.emit('frameChanged', id)
   }
@@ -676,7 +703,9 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       this.settle('manifest', () => this.onManifestFile())
       return
     }
-    if (text === null) {
+    // Gone, half-written or broken by a bad hand edit: the board stays as it is, and a good
+    // copy goes back, rather than every frame's place, size and name being lost.
+    if (text === null || !isReadableManifest(text)) {
       this.writer.invalidate()
       await this.save()
       return
@@ -762,10 +791,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     const rest = path.slice(prefix.length)
     // Only inside the canvas's folder, symbolic links included, and never its manifest.
     const file = resolve(this.root, rest)
-    if (!file.startsWith(this.root + sep) || rest === BOARD_MANIFEST) return notFound
+    if (!file.startsWith(this.root + sep) || file === join(this.root, BOARD_MANIFEST))
+      return notFound
     const real = await realpath(file).catch(() => null)
     const root = await realpath(this.root).catch(() => this.root)
-    if (!real?.startsWith(root + sep)) return notFound
+    if (!real?.startsWith(root + sep) || real === join(root, BOARD_MANIFEST)) return notFound
     const info = await stat(real).catch(() => null)
     if (!info?.isFile()) return notFound
     const type = CONTENT_TYPES[extname(real).toLowerCase()] ?? 'application/octet-stream'

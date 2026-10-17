@@ -295,6 +295,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       selectionError: null,
       selecting: false,
       canSelect: false,
+      canvas: !!options.board,
       minimized: false,
       docked: options.docked,
       sidebarSide: getPrefs().chatSidebarSide,
