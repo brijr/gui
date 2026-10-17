@@ -68,16 +68,24 @@ function packageDir(name: string) {
 }
 
 /**
+ * Gui's tools that reach outside Gui (loading any website), so Claude asks for them as it
+ * does for its own web fetches: a page's address can carry data out.
+ */
+const ASK_FIRST_TOOLS = new Set<string>(['canvas_screenshot_url'])
+
+/**
  * `_meta` for session/new and session/load. Claude asks before calling MCP tools; Gui's
  * own tools work inside the preview or wait for the user (a new start command, a proposed
- * commit), so allow them up front by exact name. (Codex
+ * commit), so allow them up front by exact name, all but ASK_FIRST_TOOLS. (Codex
  * reviews these calls itself.) Agents that take Ask or Auto only as a session starts
  * (Grok) get it here.
  */
 function sessionMeta(agent: AgentDefinition, policy: PermissionPolicy | undefined) {
   const permissions = policy ? agent.permissions?.sessionMeta?.[policy] : undefined
   if (agent.id !== 'claude') return permissions
-  const allowedTools = GUI_TOOL_NAMES.map((tool) => `mcp__${MCP_SERVER_NAME}__${tool}`)
+  const allowedTools = GUI_TOOL_NAMES.filter((tool) => !ASK_FIRST_TOOLS.has(tool)).map(
+    (tool) => `mcp__${MCP_SERVER_NAME}__${tool}`,
+  )
   return { ...permissions, claudeCode: { options: { allowedTools } } }
 }
 
