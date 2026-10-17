@@ -1,8 +1,38 @@
+import { mkdir, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { NativeImage } from 'electron'
 import type { BoardSession } from './board-session'
 import type { BoardTools } from './mcp-board-tools'
 import { describeBoard, type PromptBoard } from './prompt'
 
 const BOARD_SHOT_MAX = { width: 1600, height: 1960 }
+
+/** Scaled down to what the agent's image input takes. */
+function fitForAgent(image: NativeImage) {
+  const { width, height } = image.getSize()
+  const scale = Math.min(1, BOARD_SHOT_MAX.width / width, BOARD_SHOT_MAX.height / height)
+  const fitted =
+    scale < 1
+      ? image.resize({
+          width: Math.round(width * scale),
+          height: Math.round(height * scale),
+          quality: 'good',
+        })
+      : image
+  return { data: fitted.toPNG().toString('base64'), ...fitted.getSize() }
+}
+
+/** "Stripe Home.png" → "stripe-home.png": a plain file name, never a path. */
+export function assetName(name: string) {
+  const stem = name
+    .trim()
+    .replace(/\.png$/i, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60)
+  return `${stem || 'screenshot'}.png`
+}
 
 /** Canvas tool workflows depend on their board and two composition callbacks. */
 export function createBoardTools(
@@ -45,17 +75,29 @@ export function createBoardTools(
     },
     screenshot: async (id) => {
       if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
-      let image = await board.screenshot(id)
-      const { width, height } = image.getSize()
-      const scale = Math.min(1, BOARD_SHOT_MAX.width / width, BOARD_SHOT_MAX.height / height)
-      if (scale < 1)
-        image = image.resize({
-          width: Math.round(width * scale),
-          height: Math.round(height * scale),
-          quality: 'good',
-        })
-      const size = image.getSize()
-      return { data: image.toPNG().toString('base64'), ...size }
+      return fitForAgent(await board.screenshot(id))
+    },
+    screenshotUrl: async ({ saveAs, ...options }) => {
+      // Loaded on first use: it starts browser windows, which the board itself never needs.
+      const { captureWebPage, WEB_CAPTURE_MAX_HEIGHT } = await import('./web-capture')
+      const shot = await captureWebPage(options)
+      let saved: string | null = null
+      if (saveAs) {
+        saved = `assets/${assetName(saveAs)}`
+        await mkdir(join(board.root, 'assets'), { recursive: true })
+        await writeFile(join(board.root, saved), shot.image.toPNG())
+      }
+      return {
+        ...fitForAgent(shot.image),
+        url: shot.url,
+        title: shot.title,
+        pageHeight: shot.pageHeight,
+        cutAt:
+          options.fullPage && shot.pageHeight > WEB_CAPTURE_MAX_HEIGHT
+            ? WEB_CAPTURE_MAX_HEIGHT
+            : null,
+        saved,
+      }
     },
     open: async (id) => {
       if (id !== null && !board.has(id)) throw new Error(`There's no frame ${id}.`)
