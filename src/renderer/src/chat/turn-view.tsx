@@ -807,12 +807,18 @@ function Permission({
               onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
               className={cn(
                 'min-w-0',
+                // `!`: Button's own fixed height would win otherwise (cn doesn't merge).
                 stacked
-                  ? 'h-auto min-h-7 justify-start py-1 text-left whitespace-normal'
+                  ? 'h-auto! min-h-7 py-1 text-left'
                   : index === 0 && options.length % 2 === 1 && 'col-span-2',
               )}
             >
-              <span className={cn('min-w-0', stacked ? 'flex-1 break-words' : 'truncate')}>
+              <span
+                className={cn(
+                  'min-w-0',
+                  stacked ? 'flex-1 break-words whitespace-normal' : 'truncate',
+                )}
+              >
                 {optionLabel(option)}
               </span>
             </Button>
