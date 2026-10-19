@@ -71,7 +71,12 @@ export class ChatPanel {
    */
   private anchor: Anchor = { ...getPrefs().chatCorner, dx: PANEL_MARGIN, dy: PANEL_MARGIN }
   private flight: Flight | null = null
-  private dockSlide: { flight: Flight | null } | null = null
+  /**
+   * The sidebar sliding in (or, `leaving`, out) at the window's edge with the preview's morph:
+   * how far out of the window it is, from `from` (held there until the preview moves) to 0 in,
+   * or its width out.
+   */
+  private dockSlide: { flight: Flight | null; from: number; leaving: boolean } | null = null
   private panelSize: ChatSize = getPrefs().chatSize
   private dockWidth = getPrefs().chatSidebarWidth
   private resizing: 'floating' | 'docked' | null = null
@@ -129,7 +134,10 @@ export class ChatPanel {
     if (this.tab.host.focusMode) return this.focusChat()
     if (this.docked) this.tab.morphLayout('dock')
     this.tab.patch({ chatVisible: !this.tab.state.chatVisible })
-    if (this.tab.state.chatVisible && this.docked) this.holdDock()
+    if (this.docked) {
+      if (this.tab.state.chatVisible) this.holdDock()
+      else this.holdDock(true)
+    }
     this.tab.layout()
     if (this.tab.state.chatVisible && !this.bubbled) this.focusChat()
     else if (!this.tab.state.chatVisible && this.tab.host.win.isFocused())
@@ -449,7 +457,9 @@ export class ChatPanel {
     if (this.popout) return
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const showChat = this.chatShown
-    const docked = showChat && this.docked
+    // Hidden, the sidebar stays on screen until it has slid out of the window.
+    const leaving = !showChat && this.docked && !!this.dockSlide?.leaving
+    const docked = (showChat || leaving) && this.docked
     const covered = this.tab.host.sheetShown
     const float = this.float()
     const { form } = float
@@ -458,7 +468,7 @@ export class ChatPanel {
       this.settleForm(form)
       this.showFloat(float)
     }
-    this.tab.chatView.setVisible(showChat && !covered)
+    this.tab.chatView.setVisible((showChat || leaving) && !covered)
     this.tab.resources.chat?.setTrafficLights(
       docked && getPrefs().chatSidebarSide === 'left' && !this.tab.host.win.isFullScreen(),
     )
@@ -466,7 +476,7 @@ export class ChatPanel {
     this.tab.resources.chat?.setTabRow(docked && this.tab.host.chromeHeight > TOOLBAR_HEIGHT)
     if (docked) {
       const dockWidth = this.dockedWidth()
-      const slide = this.dockSlide ? (this.dockSlide.flight?.point.x ?? dockWidth) : 0
+      const slide = this.dockOffset()
       this.tab.chatView.setBounds({
         x:
           getPrefs().chatSidebarSide === 'left'
@@ -591,25 +601,38 @@ export class ChatPanel {
     this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
   }
 
-  holdDock() {
-    this.dockSlide?.flight?.stop()
-    this.dockSlide = this.tab.morph.active ? { flight: null } : null
+  /** How far the docked sidebar is out of the window now: 0 in place, its width out of sight. */
+  private dockOffset() {
+    const slide = this.dockSlide
+    return slide ? (slide.flight?.point.x ?? slide.from) : 0
+  }
+
+  /**
+   * Holds the sidebar where it is (out of sight, coming in) until the preview's morph moves,
+   * then `slideDock` slides it in, or with `leaving`, out. Mid-slide, it turns from where it is.
+   */
+  holdDock(leaving = false) {
+    const slide = this.dockSlide
+    const from = slide ? this.dockOffset() : leaving ? 0 : this.dockedWidth()
+    slide?.flight?.stop()
+    this.dockSlide = this.tab.morph.active ? { flight: null, from, leaving } : null
   }
 
   slideDock(reduced: boolean) {
     const slide = this.dockSlide
     if (!slide || slide.flight) return
-    if (reduced || !this.chatShown || !this.docked || !this.tab.host.isActive(this.tab)) {
+    const wanted = slide.leaving ? !this.chatShown : this.chatShown
+    if (reduced || !wanted || !this.docked || !this.tab.host.isActive(this.tab)) {
       this.dockSlide = null
       this.layoutChat()
       return
     }
     const flight: Flight = new Flight({
       frames: this.tab.host.win.webContents,
-      from: { x: this.dockedWidth(), y: 0 },
+      from: { x: slide.from, y: 0 },
       velocity: { x: 0, y: 0 },
       config: SPRINGS.default,
-      target: () => ({ x: 0, y: 0 }),
+      target: () => ({ x: slide.leaving ? this.dockedWidth() : 0, y: 0 }),
       frame: () => this.layoutChat(),
       rest: () => {
         if (this.dockSlide?.flight === flight) this.dockSlide = null
