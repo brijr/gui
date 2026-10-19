@@ -662,6 +662,9 @@ const OPTION_ORDER: Record<string, number> = {
   allow_once: 4,
 }
 
+/** Past this many characters, an option won't fit half a narrow card: the options stack. */
+const LONG_OPTION = 24
+
 function optionLabel(option: PermissionChoice) {
   return OPTION_LABELS[option.kind] ?? option.name
 }
@@ -757,6 +760,7 @@ function Permission({
   const asked = toolKind === 'question'
   const question = asked ? item.title : permissionQuestion(toolKind, locations)
   const options = [...item.options].sort(byOptionOrder)
+  const stacked = options.some((option) => optionLabel(option).length > LONG_OPTION)
   const many = locations.length > 1
   const why = many
     ? 'These files control how the project builds or runs.'
@@ -785,9 +789,15 @@ function Permission({
       {item.sensitive && <p className="sr-only">{why}</p>}
       {/* One row, the default last, where the card is wide enough. Narrower, two columns that
           share the width, so the default never ends up alone on a line under the others: with
-          an odd count, the first one takes a line of its own instead. */}
+          an odd count, the first one takes a line of its own instead. An agent's own wording
+          can run long ("Allow search via Exa, Firecrawl, …"): then each takes a full-width
+          line, left-aligned, and wraps. */}
       <div className="@container">
-        <div className="grid grid-cols-2 gap-2 @sm:flex @sm:justify-end">
+        <div
+          className={
+            stacked ? 'flex flex-col gap-2' : 'grid grid-cols-2 gap-2 @sm:flex @sm:justify-end'
+          }
+        >
           {options.map((option, index) => (
             <Button
               key={option.optionId}
@@ -795,9 +805,16 @@ function Permission({
               title={option.name}
               shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
               onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
-              className={cn(index === 0 && options.length % 2 === 1 && 'col-span-2')}
+              className={cn(
+                'min-w-0',
+                stacked
+                  ? 'h-auto min-h-7 justify-start py-1 text-left whitespace-normal'
+                  : index === 0 && options.length % 2 === 1 && 'col-span-2',
+              )}
             >
-              {optionLabel(option)}
+              <span className={cn('min-w-0', stacked ? 'flex-1 break-words' : 'truncate')}>
+                {optionLabel(option)}
+              </span>
             </Button>
           ))}
         </div>
