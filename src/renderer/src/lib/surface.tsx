@@ -1,4 +1,4 @@
-import { type ComponentProps, type ReactNode, useState } from 'react'
+import { type ComponentProps, type CSSProperties, type ReactNode, useState } from 'react'
 import { cn } from './cn'
 import { Check, type IconComponent, X } from './icons'
 import { PRESS } from './ui'
@@ -198,6 +198,8 @@ interface BannerProps {
   edge?: 'top' | 'bottom'
   role?: 'status' | 'alert'
   className?: string
+  /** For a height from shared layout, e.g. lining up with the window's toolbar */
+  style?: CSSProperties
   children: ReactNode
 }
 
@@ -212,11 +214,13 @@ export function Banner({
   edge = 'top',
   role,
   className,
+  style,
   children,
 }: BannerProps) {
   return (
     <div
       role={role}
+      style={style}
       className={cn(
         'flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3 text-small',
         edge === 'top' ? 'border-b border-line' : 'border-t border-line',

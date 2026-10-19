@@ -541,6 +541,7 @@ export class ProjectTab implements ChatPanelOwner {
         docked: getPrefs().chatSidebar,
         sidebarSide: getPrefs().chatSidebarSide,
         trafficLights: false,
+        tabRow: false,
         popped: false,
         redoTurnIds: [],
         archived: null,
@@ -2793,11 +2794,6 @@ export class ProjectTab implements ChatPanelOwner {
   /** The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). */
   private previewArea(): Rect {
     return this.host.canvas
-  }
-
-  /** The chat shows as the window's sidebar. */
-  get sidebarShown() {
-    return this.panel.sidebarShown
   }
 
   // Native menus

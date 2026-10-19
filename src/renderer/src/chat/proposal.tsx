@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect } from 'react'
+import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -133,6 +134,8 @@ export function ProposalBar() {
   const error = useProposal((s) => s.error)
   const comments = useOpenComments()
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
+  // Under a header as tall as the tab row, as tall as the toolbar: both edges line up.
+  const tabRow = useChat((s) => s.meta?.tabRow ?? false)
   if (!proposal) return null
 
   const bar =
@@ -143,6 +146,7 @@ export function ProposalBar() {
     <>
       <Banner
         icon={GitBranch}
+        style={tabRow ? { height: TOOLBAR_HEIGHT } : undefined}
         actions={
           <Button size="sm" variant="ghost" onClick={toggleShipSheet}>
             Source control
@@ -152,7 +156,8 @@ export function ProposalBar() {
         <Button
           size="sm"
           variant="ghost"
-          className="min-w-0 justify-start px-0"
+          // `!`: flush with the icon; the sm size's padding would win otherwise (cn doesn't merge).
+          className="min-w-0 justify-start pl-0!"
           title={proposal.branch ?? 'Detached HEAD'}
           onClick={toggleShipSheet}
         >

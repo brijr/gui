@@ -12,6 +12,7 @@ import {
   BUBBLE,
   MINI,
   PANEL_SHADOW_MARGIN,
+  TAB_ROW_HEIGHT,
   TOOLBAR_HEIGHT,
   TRAFFIC_LIGHTS_INSET,
 } from '../../../shared/layout'
@@ -425,18 +426,25 @@ function Header({ meta }: { meta: ChatMeta }) {
     <PanelHeader
       onPointerDown={titleBar ? undefined : onDragStart}
       // As the sidebar (or popped out) it's the window's title bar: as tall as the toolbar,
-      // with the traffic lights at its start (outside full screen), and what the window is
-      // dragged by. The name still starts the line, after them.
+      // or the tab row beside it while that shows, with the traffic lights at its start
+      // (outside full screen), and what the window is dragged by. The name still starts the
+      // line, after them.
       style={
         titleBar
           ? {
-              height: TOOLBAR_HEIGHT,
+              height: meta.tabRow ? TAB_ROW_HEIGHT : TOOLBAR_HEIGHT,
               paddingLeft: meta.trafficLights ? TRAFFIC_LIGHTS_INSET : undefined,
             }
           : undefined
       }
       className={titleBar ? 'drag' : 'cursor-grab active:cursor-grabbing'}
-      leading={<StatusDot status={agentStatus(meta, running)} />}
+      // In an icon's 14px box, so the dot and the name sit over the source control bar's
+      // branch icon and branch name.
+      leading={
+        <span className="mr-0.5 flex size-3.5 shrink-0 items-center justify-center">
+          <StatusDot status={agentStatus(meta, running)} />
+        </span>
+      }
       actions={
         <>
           <IconButton

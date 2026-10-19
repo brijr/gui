@@ -300,6 +300,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       docked: options.docked,
       sidebarSide: getPrefs().chatSidebarSide,
       trafficLights: false,
+      tabRow: false,
       popped: false,
       redoTurnIds: saved?.redo?.turnIds ?? [],
       archived: null,
@@ -546,6 +547,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setTrafficLights(trafficLights: boolean) {
     if (trafficLights !== this.meta.trafficLights) this.patchMeta({ trafficLights })
+  }
+
+  setTabRow(tabRow: boolean) {
+    if (tabRow !== this.meta.tabRow) this.patchMeta({ tabRow })
   }
 
   setSidebarSide(sidebarSide: 'left' | 'right') {

@@ -444,16 +444,16 @@ export class ProjectWindow implements TabHost {
   }
 
   /**
-   * In focus mode's title bar, the chat sidebar's header while it shows (as tall as the
-   * toolbar), the tab row while it shows, or the toolbar.
+   * In focus mode's title bar, the tab row's height while it shows (in the tab row, or the
+   * chat sidebar's header, which is then as tall), or the toolbar's.
    */
   private syncTrafficLights() {
     const tabbed = this.list.length > 1
     const lights = this.focus
       ? FOCUS_TRAFFIC_LIGHTS
-      : (this.active.sidebarShown && this.active.getState().sidebarSide === 'left') || !tabbed
-        ? TRAFFIC_LIGHTS
-        : TAB_ROW_TRAFFIC_LIGHTS
+      : tabbed
+        ? TAB_ROW_TRAFFIC_LIGHTS
+        : TRAFFIC_LIGHTS
     if (lights === this.lights) return
     this.lights = lights
     this.win.setWindowButtonPosition(lights)

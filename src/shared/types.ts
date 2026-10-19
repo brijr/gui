@@ -759,6 +759,11 @@ export interface ChatMeta {
   sidebarSide: 'left' | 'right'
   /** The window's traffic lights sit in the chat's header (the sidebar, outside full screen) */
   trafficLights: boolean
+  /**
+   * Docked beside the window's tab row: the header is as tall as the tab row and the bar
+   * under it as tall as the toolbar, so their edges line up across the window
+   */
+  tabRow: boolean
   /** Popped out into a window of its own, which it fills */
   popped: boolean
   /** Turns the pending redo would bring back; empty when there's nothing to redo */

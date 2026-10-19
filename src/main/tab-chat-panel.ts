@@ -1,7 +1,7 @@
 import { BrowserWindow, screen, type WebContentsView } from 'electron'
 import { viewportRectFrom, viewRectFromViewport } from '../shared/coords'
 import { Events } from '../shared/ipc'
-import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TRAFFIC_LIGHTS } from '../shared/layout'
+import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TOOLBAR_HEIGHT, TRAFFIC_LIGHTS } from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import type {
   ChatFloat,
@@ -462,6 +462,8 @@ export class ChatPanel {
     this.tab.resources.chat?.setTrafficLights(
       docked && getPrefs().chatSidebarSide === 'left' && !this.tab.host.win.isFullScreen(),
     )
+    // Taller chrome than the toolbar alone: the tab row is showing beside the sidebar.
+    this.tab.resources.chat?.setTabRow(docked && this.tab.host.chromeHeight > TOOLBAR_HEIGHT)
     if (docked) {
       const dockWidth = this.dockedWidth()
       const slide = this.dockSlide ? (this.dockSlide.flight?.point.x ?? dockWidth) : 0
