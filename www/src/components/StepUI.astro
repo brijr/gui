@@ -7,7 +7,7 @@ import { svg } from './demo/icons'
 // 532 × 399 and scales with its card (--u is one of those pixels), as a picture would, but stays
 // sharp and follows the visitor's appearance.
 interface Props {
-  kind: 'select' | 'describe' | 'watch' | 'compare'
+  kind: 'select' | 'describe' | 'watch' | 'compare' | 'narrate' | 'check'
   /** What the stage shows, for screen readers */
   label: string
 }
@@ -145,10 +145,109 @@ const foot = (stop: boolean) =>
                 <span class="diffstat">
                   <span class="plus">+3</span> <span class="minus">−1</span>
                 </span>
-                <span class="button">
-                  <Fragment set:html={svg('undo')} />
-                  Undo
+                <span class="buttons">
+                  <span class="button">
+                    <Fragment set:html={svg('reply')} />
+                    Follow up
+                  </span>
+                  <span class="button">
+                    <Fragment set:html={svg('undo')} />
+                    Undo
+                  </span>
                 </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
+
+    {
+      kind === 'narrate' && (
+        <div class="panel">
+          <Fragment set:html={head(false)} />
+          <div class="empty">
+            <span class="empty-icon" set:html={svg('message', 16)} />
+            <b>Describe the change</b>
+            <span>Say what it should look like, and send. Your agent edits the code.</span>
+          </div>
+          <div class="context">
+            <span class="clip">
+              <span class="clip-card" />
+              <span class="clip-play" set:html={svg('play', 9)} />
+            </span>
+            <span class="context-text">
+              <span>Recording 1</span>
+              <span class="path">
+                <span class="nums">14.2s</span> · Narrated
+              </span>
+            </span>
+            <span class="x" set:html={svg('x', 12)} />
+          </div>
+          <div class="composer is-focused">
+            <p>
+              This card slides in too fast. And here, at the end, the shadow comes in after the card stops.
+              <span class="caret" />
+            </p>
+            <Fragment set:html={foot(false)} />
+          </div>
+        </div>
+      )
+    }
+
+    {
+      kind === 'check' && (
+        <div class="panel">
+          <Fragment set:html={head(true)} />
+          <div class="transcript">
+            <div class="you">
+              <span class="chip">
+                <Fragment set:html={svg('pointer', 11)} />
+                <b>div</b> plans
+              </span>
+              <p>Put the three plans in one row.</p>
+            </div>
+            <div class="step is-done">
+              <span class="step-icon" set:html={svg('check', 12)} />
+              Edit <code>src/components/Plans.tsx</code>
+              <span class="diffstat">
+                <span class="plus">+6</span> <span class="minus">−2</span>
+              </span>
+            </div>
+            <div class="step is-done">
+              <span class="step-icon" set:html={svg('check', 12)} />
+              Screenshot at 1440 × 900
+            </div>
+            <div class="step is-done">
+              <span class="step-icon" set:html={svg('check', 12)} />
+              Screenshot at 390 × 844
+            </div>
+            <div class="step is-done">
+              <span class="step-icon" set:html={svg('check', 12)} />
+              Edit <code>src/components/Plans.tsx</code>
+              <span class="diffstat">
+                <span class="plus">+2</span> <span class="minus">−0</span>
+              </span>
+            </div>
+            <div class="card">
+              <p class="reply">The plans are in one row. They did not fit on a phone, so they stack there.</p>
+              <div class="sizes">
+                <figure>
+                  <span class="nums">1440</span> wide
+                  <div class="mini mini-row">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                </figure>
+                <figure>
+                  <span class="nums">390</span> wide
+                  <div class="mini mini-stack">
+                    <i />
+                    <i />
+                    <i />
+                  </div>
+                </figure>
               </div>
             </div>
           </div>
@@ -615,6 +714,93 @@ const foot = (stop: boolean) =>
   .card-foot .diffstat {
     margin-left: 0;
   }
+  .buttons {
+    display: flex;
+    gap: 0.46em;
+    margin-left: auto;
+  }
+  .buttons .button {
+    margin-left: 0;
+  }
+  .nums {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 5. A narrated clip in the composer, its transcript as the message */
+  .clip {
+    position: relative;
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 3.4em;
+    height: 2.6em;
+    overflow: hidden;
+    border-radius: 0.3em;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .clip-card {
+    position: absolute;
+    left: 0.5em;
+    top: 0.55em;
+    width: 1.9em;
+    height: 1.5em;
+    border-radius: 0.2em;
+    background: var(--raised);
+    box-shadow: 0 0.1em 0.35em rgb(0 0 0 / 0.18);
+  }
+  .clip-play {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 1.38em;
+    height: 1.38em;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--accent-fg);
+  }
+  .clip-play :global(svg) {
+    width: 0.7em;
+    height: 0.7em;
+  }
+
+  /* 6. The agent's own screenshots, at two sizes */
+  [data-kind='check'] .transcript {
+    gap: 0.62em;
+  }
+  [data-kind='check'] .reply {
+    margin-bottom: 0.62em;
+  }
+  .sizes {
+    display: grid;
+    grid-template-columns: 1.6fr 1fr;
+    gap: 0.62em;
+  }
+  .mini {
+    display: flex;
+    gap: 0.3em;
+    height: 3.4em;
+    margin-top: 0.36em;
+    padding: 0.4em;
+    border-radius: 0.5em;
+    background: var(--bg);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .mini i {
+    flex: 1;
+    border-radius: 0.2em;
+    background: var(--fill);
+  }
+  .mini i:nth-child(2) {
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .mini-stack {
+    flex-direction: column;
+    gap: 0.2em;
+    width: 2.6em;
+  }
+
   .button {
     display: inline-flex;
     align-items: center;

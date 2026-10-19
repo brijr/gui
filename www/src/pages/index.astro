@@ -1,6 +1,8 @@
 ---
 import agents from '../assets/agents.png'
 import agentsDark from '../assets/agents-dark.png'
+import canvas from '../assets/canvas.png'
+import canvasDark from '../assets/canvas-dark.png'
 import heroStillDark from '../assets/hero-start-dark.png'
 import heroStillLight from '../assets/hero-start-light.png'
 import mobile from '../assets/mobile.png'
@@ -13,6 +15,8 @@ import Base from '../layouts/Base.astro'
 
 // The copy on this page is written in ASD-STE100 Simplified Technical English.
 const site = 'https://usegui.com'
+// Where feedback goes: a direct message on X.
+const feedback = 'https://x.com/bridgertower'
 const title = 'Gui — Web design and UI design with your AI agent, on Mac'
 const description =
   'Gui is a Mac app for web design and UI design. Select an element in your real app and tell your AI agent what to change. The agent changes the code.'
@@ -31,12 +35,11 @@ const agentNames = [
 ]
 
 const tools = [
-  'Select an element, or drag around an area of the page.',
+  'Select an element, or drag around an area of the page. Hold Shift to select more than one.',
   'Paste or drag a reference image into the chat. The agent sees it.',
-  'Compare each change before and after.',
-  'Undo a change, or redo it.',
-  'Examine the page at desktop, laptop, tablet, and phone sizes.',
-  'Record the page and send the clip to the agent.',
+  'Send more messages while the agent works. They wait in a queue.',
+  'Copy or save a screenshot of the page, or attach it to the chat.',
+  'Hide all of Gui except the page, with focus mode.',
 ]
 
 // Each step is drawn with Gui's own interface (StepUI), in the session of the "Try it now" demo.
@@ -61,15 +64,23 @@ const steps = [
       'The chat shows the agent at work: it read and edited src/pages/index.astro, and a timer counts.',
   },
   {
-    name: 'Compare before and after, then keep or undo',
-    text: 'The page shows the change. Compare it before and after, then keep it or undo it.',
+    name: 'Compare before and after, then keep, undo, or follow up',
+    text: 'The page shows the change. Compare it before and after. Keep it, undo it, or click Follow up to ask for more.',
     kind: 'compare',
     label:
-      'The chat shows “real app” before the change, light, and after it, semi-bold, with an Undo button.',
+      'The chat shows “real app” before the change, light, and after it, semi-bold, with Follow up and Undo buttons.',
   },
 ] as const
 
 const questions = [
+  {
+    q: 'How is Gui different from the browser in Claude Code, Codex, or Cursor?',
+    a: 'In those apps, the browser is a panel next to the chat. In Gui, your app fills the window and the chat floats on it, and you can use each of those agents. Gui is for many small design changes: each change shows before and after, with Undo and Follow up. Gui also records the page with your voice, and has a canvas for designs without a project.',
+  },
+  {
+    q: 'Do I need a project to start?',
+    a: 'No. Open a canvas and ask the agent for a design. When a frame is satisfactory, make it into a Vite project.',
+  },
   {
     q: 'Do I have to write code?',
     a: 'No. You select the element and write the change in your words. The agent finds the correct file and writes the code.',
@@ -91,8 +102,12 @@ const questions = [
     a: 'Gui puts the changes on a new branch and opens a pull request. A developer can then examine the changes. Gui does not commit env files or keys.',
   },
   {
+    q: 'Does Gui listen to my microphone all the time?',
+    a: 'No. Gui uses the microphone only while you record with Narrate on. Your Mac makes the transcript, so your voice does not go to a server. Your web app cannot use the microphone.',
+  },
+  {
     q: 'Which computer do I need?',
-    a: 'A Mac with Apple silicon (M1 or later) and macOS 13 or later.',
+    a: 'A Mac with Apple silicon (M1 or later) and macOS 13 or later. Recordings with your voice need macOS 26 or later.',
   },
 ]
 
@@ -150,7 +165,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     An agent harness for web design and UI design.{' '}<br />
     Design on your <span data-demo-target>real app</span>, not on a mockup.
   </h1>
-  <p class="sub">Iterate the details with the agent harness built for designers and visual engineers.</p>
+  <p class="sub">Your app fills the window and the chat floats on it. Make many small changes fast, with the agent that you use now.</p>
 
   <div class="try">
     <a class="try-button download-button" href="/download">
@@ -264,6 +279,100 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   </section>
 
   <section>
+    <h2>Your app is the workspace</h2>
+    <p>
+      In most agent apps, the browser is a panel next to the chat. In Gui, your app fills the
+      window and the chat floats on it. You look at the design, not at the code.
+    </p>
+    <p>
+      Open a project folder. Gui installs the dependencies, starts the dev server, and shows the
+      real page, with real data and real states. In a monorepo, Gui asks which app to show. You do
+      not have to configure Gui. When the design is satisfactory, Gui opens a pull request for
+      your team.
+    </p>
+  </section>
+
+  <section>
+    <h2>Show the agent how it moves</h2>
+    <p>
+      Some changes are difficult to write, for example an animation. Record the page, and speak
+      while you point at the problem. Gui writes down what you said. You can correct the text
+      before you send it.
+    </p>
+    <p>
+      The agent gets the clip, your words, and the position of your pointer when you spoke. It
+      can examine each frame of the animation.
+    </p>
+  </section>
+
+  <figure class="narrow">
+    <StepUI
+      kind="narrate"
+      label="The composer shows Recording 1, 14.2 seconds, narrated. The message is what the user said: This card slides in too fast. And here, at the end, the shadow comes in after the card stops."
+    />
+    <figcaption>Gui puts what you said in the message. Correct it, then send it.</figcaption>
+  </figure>
+
+  <section>
+    <h2>The agent examines its work</h2>
+    <p>
+      After each change, the agent makes screenshots of the page and examines them. It clicks,
+      types, and scrolls in the page that you see. When a change is not correct, the agent fixes
+      it before it replies.
+    </p>
+    <p>
+      The agent knows which size you look at: desktop, laptop, tablet, or phone. Errors from the
+      console and the build show above the chat, with a Fix button.
+    </p>
+  </section>
+
+  <figure class="narrow">
+    <StepUI
+      kind="check"
+      label="The user asked: Put the three plans in one row. The agent edited Plans.tsx, made screenshots at 1440 by 900 and 390 by 844, and edited the file again. It replied: The plans are in one row. They did not fit on a phone, so they stack there. Two small screenshots show the row at 1440 wide and the stack at 390 wide."
+    />
+    <figcaption>The agent found a problem at the phone size and fixed it before it replied.</figcaption>
+  </figure>
+
+  <figure class="wide">
+    <Shot
+      light={mobile}
+      dark={mobileDark}
+      widths={[960, 1440, 2880]}
+      sizes={wide}
+      framed
+      alt="The same website in the Mobile frame of Gui, at 390 × 844 pixels. The chat is open next to the frame."
+    />
+    <figcaption>Examine the page at the size of a phone. The chat stays open.</figcaption>
+  </figure>
+
+  <section>
+    <h2>Design on a canvas</h2>
+    <p>
+      Open a canvas to design without a project, a folder, or a dev server. Ask the agent for a
+      page, or for some versions of a page. Each version is a frame on the board, as artboards are
+      in Figma.
+    </p>
+    <p>
+      Move, resize, and compare the frames, and put related frames in a section. Export frames as
+      PNG files, or make a frame into a Vite project. The agent can also make a screenshot of a
+      different website, for example “make it feel like linear.app”, and use it as a reference.
+    </p>
+  </section>
+
+  <figure class="wide">
+    <Shot
+      light={canvas}
+      dark={canvasDark}
+      widths={[960, 1440, 2880]}
+      sizes={wide}
+      framed
+      alt="A canvas in Gui with four frames, as artboards: three desktop versions of a landing page for Kiln, a booking app for pottery studios, and a phone version. One frame is selected. In the chat, the user asked Claude Code for three versions of the page with the same text, and a phone version of the first."
+    />
+    <figcaption>Ask for some versions of a page, then compare them on one board.</figcaption>
+  </figure>
+
+  <section>
     <h2>For designers</h2>
     <p>
       You know how the interface must look. Gui lets you make that change in the product, not
@@ -277,8 +386,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   <section>
     <h2>Bring your own agent</h2>
     <p>
-      Gui does not include an AI model. Gui uses the coding agent that is on your computer. The
-      agent uses your login, your plan, and your configuration.
+      Gui does not include an AI model, and it does not lock you in to one agent. Gui uses the
+      coding agent that is on your computer. The agent uses your login, your plan, and your
+      configuration.
     </p>
     <ul class="agents">
       {agentNames.map((name) => <li>{name}</li>)}
@@ -305,27 +415,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   </figure>
 
   <section>
-    <h2>Your real app</h2>
-    <p>
-      Gui starts the dev server of your project and shows the real page, with real data and real
-      states. The agent writes each change in your code. When the design is satisfactory, Gui
-      opens a pull request for your team.
-    </p>
-  </section>
-
-  <figure class="wide">
-    <Shot
-      light={mobile}
-      dark={mobileDark}
-      widths={[960, 1440, 2880]}
-      sizes={wide}
-      framed
-      alt="The same website in the Mobile frame of Gui, at 390 × 844 pixels. The chat is open next to the frame."
-    />
-    <figcaption>Examine the page at the size of a phone. The chat stays open.</figcaption>
-  </figure>
-
-  <section>
     <h2>Questions</h2>
     <dl class="faq">
       {
@@ -337,6 +426,14 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
         ))
       }
     </dl>
+  </section>
+
+  <section>
+    <h2>Tell us what to fix</h2>
+    <p>
+      Gui is in alpha. Tell us what is wrong or what is missing, and we fix it.{' '}
+      <a href={feedback} target="_blank" rel="noopener">Send a message on X</a>.
+    </p>
   </section>
 
   <footer>
