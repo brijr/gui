@@ -356,7 +356,9 @@ function Hint({ shown }: { shown: boolean }) {
     <div
       aria-live="polite"
       className={cn(
-        'pointer-events-none absolute top-2 left-2 flex items-center gap-3 rounded-lg border border-line bg-raised px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel)',
+        // As wide as its words, up to the overlay's width less the margins (a phone frame is
+        // narrow): then whole phrases wrap to a second row, never a phrase across two.
+        'pointer-events-none absolute top-2 right-2 left-2 flex w-fit flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-raised px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel) *:whitespace-nowrap',
         shown ? 'opacity-100' : 'opacity-0',
       )}
     >
