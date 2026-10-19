@@ -30,8 +30,16 @@ const GAP = 4
 const WIDTH = 336
 /** In a tall panel the list stops growing here and scrolls. */
 const MAX_HEIGHT = 440
-/** Effort levels side by side up to this many; more go one per row. */
-const SEGMENTS_MAX = 6
+/**
+ * Whether the effort levels fit side by side in a picker this wide without cutting any
+ * label short; if not, they go one per row. A cautious estimate of the 12px medium text,
+ * 7.5px a character, plus each segment's padding and gap, inside the section's padding.
+ */
+function segmentsFit(labels: string[], width: number) {
+  const text = labels.reduce((sum, label) => sum + label.length * 7.5, 0)
+  return text + labels.length * 14 <= width - 20
+}
+
 /**
  * At most this many frames for the panel to settle before ⇧⌘M opens the picker: the view to
  * stop resizing, and the panel to finish growing out of the pill or the bubble.
@@ -494,7 +502,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
           <GroupLabel id={effortId} className="px-1">
             Effort
           </GroupLabel>
-          {effort.options.length <= SEGMENTS_MAX ? (
+          {segmentsFit(effort.options.map(effortLabel), placement.width) ? (
             <SegmentedControl
               labelledBy={effortId}
               segments={effort.options.map((choice) => ({
