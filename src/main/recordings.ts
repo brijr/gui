@@ -405,7 +405,14 @@ function isWav(audio: Uint8Array) {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'gui-recording',
-    privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true },
+    // corsEnabled: a narrated clip's player loads its captions, and so its video, with CORS.
+    privileges: {
+      standard: true,
+      secure: true,
+      stream: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+    },
   },
   // A canvas's frame thumbnails, for its board (main/board.ts).
   { scheme: 'gui-thumb', privileges: { standard: true, secure: true } },
