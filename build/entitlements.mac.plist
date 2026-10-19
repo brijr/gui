@@ -16,5 +16,8 @@
     <!-- V8 JIT in the main process and in the RunAsNode agent adapter processes. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
+    <!-- Narrated preview recordings: the microphone, under the hardened runtime. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>

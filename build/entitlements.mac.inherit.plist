@@ -10,5 +10,8 @@
     <!-- V8 JIT in renderer processes. -->
     <key>com.apple.security.cs.allow-jit</key>
     <true/>
+    <!-- Narrated preview recordings: Chromium captures the microphone in a helper process. -->
+    <key>com.apple.security.device.audio-input</key>
+    <true/>
   </dict>
 </plist>

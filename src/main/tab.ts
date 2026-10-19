@@ -24,6 +24,7 @@ import {
   type FramePreset,
   frameId,
 } from '../shared/board'
+import { viewPointFrom } from '../shared/coords'
 import { type ChatMenuChoice, Events } from '../shared/ipc'
 import { reviewTitle } from '../shared/review'
 import { SHORTCUTS } from '../shared/shortcuts'
@@ -114,6 +115,7 @@ import {
   startFresh,
 } from './proposal'
 import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
+import { type CursorFrame, CursorTrack } from './recording-cursor'
 import { RecordingTrace } from './recording-trace'
 import { Recordings } from './recordings'
 import { guardAppContents, loadRenderer, PRELOAD, PREVIEW_PRELOAD } from './renderer'
@@ -252,10 +254,23 @@ export class ProjectTab implements ChatPanelOwner {
     return this.preview.webContents.mainFrame
   }
 
-  /** Traces what happens in the preview while it's recorded (recording-trace.ts). */
-  traceRecording() {
+  /**
+   * Traces what happens in the preview while it's recorded (recording-trace.ts), and where the
+   * pointer goes (recording-cursor.ts), sent to `onCursor` as it moves for the recorder to draw.
+   */
+  traceRecording(onCursor: (frame: CursorFrame) => void) {
     const contents = this.preview.webContents
     const trace = new RecordingTrace(contents)
+    const cursor = new CursorTrack(contents, {
+      pointer: () => {
+        const at = this.cursorOverPreview()
+        return at && viewPointFrom(at)
+      },
+      size: () => ({ width: this.placement.width, height: this.placement.height }),
+      scale: () => this.emulation.scale,
+      locate: (x, y) => trace.locate(x, y),
+      onFrame: onCursor,
+    })
     const onStart = (details: { isMainFrame: boolean; isSameDocument: boolean }) => {
       if (details.isMainFrame && !details.isSameDocument) void trace.navigating()
     }
@@ -270,10 +285,12 @@ export class ProjectTab implements ChatPanelOwner {
     return {
       finish: async (startedAt: number, durationMs: number) => {
         detach()
-        return trace.finish(startedAt, durationMs)
+        const pointer = await cursor.finish(startedAt, durationMs)
+        return { timeline: await trace.finish(startedAt, durationMs), cursor: pointer }
       },
       dispose: () => {
         detach()
+        cursor.dispose()
         trace.dispose()
       },
     }
@@ -844,7 +861,11 @@ export class ProjectTab implements ChatPanelOwner {
       },
     })
     this.resources.previewTools = tools
-    const recordings = new Recordings(root)
+    // A narrated clip's transcript comes in after it's attached: the composer updates it.
+    const recordings = new Recordings(root, (clip) => {
+      if (current() && this.resources.recordings === recordings)
+        this.sendChat(Events.recordingUpdate, clip)
+    })
     resources.recordings = recordings
     recordings.retain(
       saved?.turns.flatMap((turn) => turn.recordings?.map((clip) => clip.id) ?? []) ?? [],

@@ -8,6 +8,7 @@ export const GUI_TOOL_LABELS: Record<string, string> = {
   recording_frame: 'Inspect a recorded frame',
   recording_frames: 'Inspect recorded animation',
   recording_timeline: 'Read recording timeline',
+  recording_narration: 'Read what you said',
   preview_inspect: 'Inspect element',
   preview_snapshot: 'Read preview page',
   preview_click: 'Click in preview',

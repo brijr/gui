@@ -42,6 +42,8 @@ export const SYMBOLS = {
   Link: 'link',
   Maximize2: 'arrow.up.left.and.arrow.down.right',
   MessageSquare: 'bubble',
+  Mic: 'mic',
+  MicOff: 'mic.slash',
   Minus: 'minus',
   Monitor: 'display',
   Package: 'shippingbox',

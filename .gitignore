@@ -21,3 +21,6 @@ e2e/fixtures/*/next-env.d.ts
 # Account service local secrets and Wrangler state
 .dev.vars*
 .wrangler/
+
+# Native helpers built by scripts/build-native.sh
+native/.build/

@@ -108,6 +108,8 @@ export const Laptop = icon(SYMBOLS.Laptop, Lucide.Laptop)
 export const Link = icon(SYMBOLS.Link, Lucide.Link)
 export const Maximize2 = icon(SYMBOLS.Maximize2, Lucide.Maximize2)
 export const MessageSquare = icon(SYMBOLS.MessageSquare, Lucide.MessageSquare)
+export const Mic = icon(SYMBOLS.Mic, Lucide.Mic)
+export const MicOff = icon(SYMBOLS.MicOff, Lucide.MicOff)
 export const Minus = icon(SYMBOLS.Minus, Lucide.Minus)
 export const Monitor = icon(SYMBOLS.Monitor, Lucide.Monitor)
 // Lucide's outline pointer everywhere: the system's cursorarrow is a solid arrow, heavier than

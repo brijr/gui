@@ -269,6 +269,13 @@ const TRACER = String.raw`(() => {
 
   globalThis.__guiTrace = {
     stopped: false,
+    // What's under the pointer at a viewport point, for a narrated recording's cursor: the
+    // control it's in when there is one, else the element itself.
+    at(x, y) {
+      const el = document.elementFromPoint(x, y)
+      if (!el) return null
+      return describe(el.closest('a,button,[role],input,select,textarea,label,summary') ?? el)
+    },
     // Entries still changing (a scroll or typing burst, a run of style updates) stay until
     // they settle, unless this is the last drain.
     drain(final) {
@@ -310,6 +317,15 @@ export class RecordingTrace {
   navigated(url: string) {
     this.add([{ kind: 'navigate', at: performance.timeOrigin + performance.now(), url }])
     void this.inject()
+  }
+
+  /** The element at a viewport point, described like the log's targets; null when none. */
+  async locate(x: number, y: number): Promise<string | null> {
+    if (this.stopped || !Number.isFinite(x) || !Number.isFinite(y)) return null
+    const found = await this.run(
+      `globalThis.__guiTrace?.at(${Math.round(x)}, ${Math.round(y)}) ?? null`,
+    )
+    return typeof found === 'string' && found ? found.slice(0, 200) : null
   }
 
   /** Everything traced, with times relative to `startedAt` (epoch ms) */

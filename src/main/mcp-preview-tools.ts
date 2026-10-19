@@ -1,8 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
+import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_FRAMES } from '../shared/bounded'
 import { failure, text, untrusted } from './mcp-results'
 import { PREVIEW_KEYS } from './preview-interactions'
 import type { PreviewTools } from './preview-tools'
+import { formatNarration } from './recording-narration'
 import { formatTimeline } from './recording-trace'
 import type { Recordings } from './recordings'
 
@@ -31,6 +33,7 @@ export const PREVIEW_TOOL_NAMES = [
   'recording_frame',
   'recording_frames',
   'recording_timeline',
+  'recording_narration',
 ] as const
 
 export function registerPreviewTools(
@@ -369,6 +372,7 @@ export function registerPreviewTools(
   )
 
   const recordingId = z.string().uuid().describe('Recording ID from the user message')
+  const MAX_CLIP_MS = MAX_NARRATED_RECORDING_MS + 1000
   server.registerTool(
     'recording_info',
     {
@@ -403,7 +407,14 @@ export function registerPreviewTools(
       title: 'Inspect an exact recorded frame',
       description:
         'Retrieve one exact captured frame by its zero-based index. Use neighboring indexes to examine animation progression, jumps, easing, or flicker.',
-      inputSchema: { recordingId, index: z.number().int().min(0).max(1829) },
+      inputSchema: {
+        recordingId,
+        index: z
+          .number()
+          .int()
+          .min(0)
+          .max(MAX_RECORDING_FRAMES - 1),
+      },
       annotations: { readOnlyHint: true },
     },
     async ({ recordingId, index }) => {
@@ -422,8 +433,8 @@ export function registerPreviewTools(
         'Retrieve timestamped frames in a time range, sampled at up to 30 fps. At most 12 images per call; inspect short ranges for animations. For every captured frame without sampling, use the indexes from recording_info with recording_frame.',
       inputSchema: {
         recordingId,
-        startMs: z.number().min(0).max(61000),
-        endMs: z.number().min(0).max(61000),
+        startMs: z.number().min(0).max(MAX_CLIP_MS),
+        endMs: z.number().min(0).max(MAX_CLIP_MS),
         fps: z.number().min(0.1).max(30).default(10),
       },
       annotations: { readOnlyHint: true },
@@ -438,6 +449,39 @@ export function registerPreviewTools(
     },
   )
   server.registerTool(
+    'recording_narration',
+    {
+      title: 'Read what the user said during a recording',
+      description:
+        'Read a narrated recording\'s transcript, sentence by sentence with times in ms on the frames\' clock, each with where the mouse pointer was meanwhile: the element it held still on or moved over, its viewport position, and clicks. Use it to resolve words like "this" and "here" to elements, then recording_frames around those times to see them. Speech recognition can mishear names; trust the frames when they disagree. For a clip that wasn\'t narrated, lists where the pointer held still.',
+      inputSchema: {
+        recordingId,
+        startMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
+        endMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async ({ recordingId, startMs, endMs }) => {
+      try {
+        const [transcript, cursor, timeline] = await Promise.all([
+          recordings.transcript(recordingId),
+          recordings.cursor(recordingId),
+          recordings.timeline(recordingId),
+        ])
+        const narration = formatNarration(transcript, cursor, timeline, { startMs, endMs })
+        return narration
+          ? untrusted('recording_narration', narration)
+          : text(
+              transcript || cursor
+                ? 'Nothing was said, and the pointer never held still, in this range.'
+                : 'This recording has no narration or pointer track.',
+            )
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+  server.registerTool(
     'recording_timeline',
     {
       title: 'Read what happened during a recording',
@@ -445,8 +489,8 @@ export function registerPreviewTools(
         "Read a text log of what happened in the preview page while it was recorded, with times in ms on the same clock as the frames: the user's clicks, keys and scrolls; every CSS transition, CSS animation and element.animate() with its target element, duration, delay, easing and keyframe values; inline styles changed by script (JS-driven motion); class changes; added and removed elements; layout shifts; and slow frames (jank). Use it to find which element and code drive an animation, and its exact timing. It cannot tell what anything looks like, nor see inside canvas or WebGL.",
       inputSchema: {
         recordingId,
-        startMs: z.number().min(0).max(61000).optional(),
-        endMs: z.number().min(0).max(61000).optional(),
+        startMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
+        endMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
       },
       annotations: { readOnlyHint: true },
     },

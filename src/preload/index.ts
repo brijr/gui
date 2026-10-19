@@ -185,12 +185,14 @@ const api: GuiApi = {
   setAutoApprove: send(Send.setAutoApprove),
   setAgentSetting: send(Send.setAgentSetting),
   loadCommands: () => legacyInvoke(Invoke.loadCommands),
-  startRecording: () => legacyInvoke(Invoke.startRecording),
+  startRecording: (narrate) => legacyInvoke(Invoke.startRecording, narrate === true),
   saveRecordingFrame: (id, at, jpeg) => legacyInvoke(Invoke.recordingFrame, id, at, jpeg),
-  finishRecording: (id, duration, video, startedAt) =>
-    legacyInvoke(Invoke.finishRecording, id, duration, video, startedAt),
+  finishRecording: (id, duration, video, startedAt, audio) =>
+    legacyInvoke(Invoke.finishRecording, id, duration, video, startedAt, audio ?? null),
   discardRecording: (id) => legacyInvoke(Invoke.discardRecording, id),
+  onRecordingCursor: (cb) => subscribe(Events.recordingCursor, cb),
   onRecordingAttach: (cb) => subscribe(Events.recordingAttach, cb),
+  onRecordingUpdate: (cb) => subscribe(Events.recordingUpdate, cb),
   takeScreenshot: (at) => legacyInvoke(Invoke.takeScreenshot, at),
   resizeChat: send(Send.resizeChat),
   endResizeChat: send(Send.endResizeChat),

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { type Ref, useRef, useState } from 'react'
 import type { RecordingAttachment } from '../../../shared/types'
 import { Dialog } from '../lib/dialog'
 import { Play, X } from '../lib/icons'
@@ -7,6 +7,49 @@ import { IconButton, PRESS } from '../lib/ui'
 /** Said in place of the video when its file can't be played (moved, or deleted). */
 function Unavailable() {
   return <p className="text-small text-muted">Recording is unavailable.</p>
+}
+
+/** A narrated clip's transcript as it's being made, or what went wrong. */
+function narrationNote(clip: RecordingAttachment) {
+  const narration = clip.narration
+  if (!narration) return null
+  if (narration.status === 'transcribing') return 'Transcribing…'
+  if (narration.status === 'failed') return narration.error ?? 'No transcript'
+  return 'Narrated'
+}
+
+/** The player: with sound and captions when the user talked over it. */
+function Player({
+  clip,
+  className,
+  preload,
+  onError,
+  videoRef,
+}: {
+  clip: RecordingAttachment
+  className: string
+  preload: 'none' | 'metadata'
+  onError: () => void
+  videoRef?: Ref<HTMLVideoElement>
+}) {
+  const captions = clip.narration?.status === 'done' ? clip.narration.captions : undefined
+  return (
+    // biome-ignore lint/a11y/useMediaCaption: Silent clips have no audio; narrated ones carry captions.
+    <video
+      ref={videoRef}
+      controls
+      preload={preload}
+      poster={clip.thumbnail}
+      src={clip.url}
+      // Its captions come from Gui's recording scheme, which a <track> loads with CORS.
+      crossOrigin={captions ? 'anonymous' : undefined}
+      aria-label={clip.name}
+      className={className}
+      onError={onError}
+    >
+      {captions && <track kind="captions" src={captions} srcLang="en" label="Narration" default />}
+    </video>
+  )
 }
 
 export function RecordingClip({
@@ -48,8 +91,9 @@ export function RecordingClip({
           </span>
           <span className="min-w-0">
             <span className="block truncate text-small font-medium">{clip.name}</span>
-            <span className="block text-caption text-subtle">
-              <span className="tabular-nums">{duration}</span> · Click to play
+            <span className="block truncate text-caption text-subtle">
+              <span className="tabular-nums">{duration}</span> ·{' '}
+              {narrationNote(clip) ?? 'Click to play'}
             </span>
           </span>
         </button>
@@ -71,14 +115,10 @@ export function RecordingClip({
           {failed ? (
             <Unavailable />
           ) : (
-            // biome-ignore lint/a11y/useMediaCaption: Preview recordings contain no audio.
-            <video
-              ref={video}
-              controls
+            <Player
+              clip={clip}
+              videoRef={video}
               preload="none"
-              poster={clip.thumbnail}
-              src={clip.url}
-              aria-label={clip.name}
               className="block w-full bg-canvas"
               onError={() => setFailed(true)}
             />
@@ -94,13 +134,9 @@ export function RecordingClip({
           <Unavailable />
         </div>
       ) : (
-        // biome-ignore lint/a11y/useMediaCaption: Preview recordings contain no audio.
-        <video
-          controls
+        <Player
+          clip={clip}
           preload="metadata"
-          poster={clip.thumbnail}
-          src={clip.url}
-          aria-label={clip.name}
           className="block max-h-48 w-full"
           onError={() => setFailed(true)}
         />
@@ -109,6 +145,7 @@ export function RecordingClip({
         <span className="flex min-w-0 gap-1">
           <span className="truncate">{clip.name}</span>
           <span className="shrink-0 tabular-nums">· {duration}</span>
+          {clip.narration && <span className="truncate">· {narrationNote(clip)}</span>}
         </span>
         {onRemove && <IconButton icon={X} label="Remove recording" onClick={onRemove} />}
       </div>

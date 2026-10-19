@@ -13,9 +13,11 @@ import {
   type MenuItemConstructorOptions,
   session,
   shell,
+  systemPreferences,
   type WebContents,
   webContents,
 } from 'electron'
+import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_MS } from '../shared/bounded'
 import {
   Events,
   Invoke,
@@ -628,6 +630,9 @@ const captures = new Map<
     source: import('electron').WebFrameMain
     trace: ReturnType<NonNullable<ReturnType<typeof tabFor>>['traceRecording']>
     armed: boolean
+    /** A narrated clip may open the microphone, once */
+    mic: boolean
+    narrated: boolean
     timer: NodeJS.Timeout
   }
 >()
@@ -644,7 +649,7 @@ function registerIpc() {
     return tab
   }
 
-  handleLegacy(Invoke.startRecording, async (event) => {
+  handleLegacy(Invoke.startRecording, async (event, narrate: unknown) => {
     const win = windowFor(event)
     const tab = tabFor(event)
     if (
@@ -656,19 +661,50 @@ function registerIpc() {
     )
       throw new Error('Preview is unavailable for recording.')
     const store = tab.recordings
-    const id = await store.start()
-    if (tab.recordings !== store) {
+    // macOS asks once; after a no, only System Settings can turn it on.
+    let notice: string | null = null
+    let narrated = narrate === true
+    if (narrated && process.platform === 'darwin') {
+      const status = systemPreferences.getMediaAccessStatus('microphone')
+      const granted =
+        status === 'granted' ||
+        (status === 'not-determined' && (await systemPreferences.askForMediaAccess('microphone')))
+      if (!granted) {
+        narrated = false
+        notice =
+          'Gui can’t use the microphone. Turn it on in System Settings → Privacy & Security → Microphone.'
+      }
+    }
+    const id = await store.start(narrated)
+    if (tab.recordings !== store || captures.has(event.sender.id)) {
       await store.discard(id)
       throw new Error('Project closed.')
     }
     const owner = event.sender.id
-    const trace = tab.traceRecording()
-    const timer = setTimeout(() => {
-      captures.delete(owner)
-      trace.dispose()
-      void store.discard(id).catch(console.error)
-    }, 65_000)
-    captures.set(owner, { id, store, tab, source: tab.recordingSource, trace, armed: true, timer })
+    const sender = event.sender
+    const trace = tab.traceRecording((frame) => {
+      if (!sender.isDestroyed() && captures.get(owner)?.id === id)
+        sender.send(Events.recordingCursor, { id, ...frame })
+    })
+    const timer = setTimeout(
+      () => {
+        captures.delete(owner)
+        trace.dispose()
+        void store.discard(id).catch(console.error)
+      },
+      (narrated ? MAX_NARRATED_RECORDING_MS : MAX_RECORDING_MS) + 5000,
+    )
+    captures.set(owner, {
+      id,
+      store,
+      tab,
+      source: tab.recordingSource,
+      trace,
+      armed: true,
+      mic: narrated,
+      narrated,
+      timer,
+    })
     if (!captureOwners.has(event.sender)) {
       captureOwners.add(event.sender)
       event.sender.once('destroyed', () => {
@@ -680,7 +716,7 @@ function registerIpc() {
         void capture.store.discard(capture.id).catch(console.error)
       })
     }
-    return id
+    return { id, narrated, notice }
   })
   handleLegacy(Invoke.recordingFrame, (event, id: unknown, at: unknown, jpeg: unknown) => {
     const capture = captures.get(event.sender.id)
@@ -697,18 +733,35 @@ function registerIpc() {
   })
   handleLegacy(
     Invoke.finishRecording,
-    async (event, id: unknown, duration: unknown, video: unknown, startedAt: unknown) => {
+    async (
+      event,
+      id: unknown,
+      duration: unknown,
+      video: unknown,
+      startedAt: unknown,
+      audio: unknown,
+    ) => {
       const capture = captures.get(event.sender.id)
-      if (!capture || id !== capture.id || !isNumber(duration) || !(video instanceof Uint8Array))
+      if (
+        !capture ||
+        id !== capture.id ||
+        !isNumber(duration) ||
+        !(video instanceof Uint8Array) ||
+        (audio !== undefined && audio !== null && !(audio instanceof Uint8Array))
+      )
         throw new Error('Recording is unavailable.')
       clearTimeout(capture.timer)
       captures.delete(event.sender.id)
       try {
         // Without the recorder's start time the events can't be put on the frames' clock.
-        let timeline: Awaited<ReturnType<typeof capture.trace.finish>> = []
-        if (isNumber(startedAt)) timeline = await capture.trace.finish(startedAt, duration)
+        let traced: Awaited<ReturnType<typeof capture.trace.finish>> | null = null
+        if (isNumber(startedAt)) traced = await capture.trace.finish(startedAt, duration)
         else capture.trace.dispose()
-        const clip = await capture.store.finish(capture.id, duration, video, timeline)
+        const clip = await capture.store.finish(capture.id, duration, video, {
+          timeline: traced?.timeline ?? [],
+          cursor: traced?.cursor ?? null,
+          audio: capture.narrated && audio instanceof Uint8Array ? audio : null,
+        })
         if (capture.tab?.recordings !== capture.store) {
           await capture.store.discard(capture.id)
           return
@@ -1184,22 +1237,26 @@ function lockDownSessions() {
     callback()
   })
   // Only an explicitly started preview recording may request display media from Gui's UI.
+  // A narrated one may also open the microphone, once, and never a camera.
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
-    const armed = !!wc && captures.get(wc.id)?.armed === true
+    const capture = wc ? captures.get(wc.id) : undefined
+    const types = 'mediaTypes' in details ? (details.mediaTypes ?? []) : []
+    if (capture?.mic && permission === 'media' && types.length === 1 && types[0] === 'audio') {
+      capture.mic = false
+      callback(true)
+      return
+    }
     callback(
-      armed &&
-        (permission === 'display-capture' ||
-          (permission === 'media' &&
-            'mediaTypes' in details &&
-            (details.mediaTypes?.length ?? 0) === 0)),
+      capture?.armed === true &&
+        (permission === 'display-capture' || (permission === 'media' && types.length === 0)),
     )
   })
-  session.defaultSession.setPermissionCheckHandler(
-    (wc, permission) =>
-      !!wc &&
-      captures.get(wc.id)?.armed === true &&
-      (permission === 'media' || permission === 'display-capture'),
-  )
+  session.defaultSession.setPermissionCheckHandler((wc, permission, _origin, details) => {
+    const capture = wc ? captures.get(wc.id) : undefined
+    if (!capture) return false
+    if (capture.mic && permission === 'media' && details.mediaType === 'audio') return true
+    return capture.armed && (permission === 'media' || permission === 'display-capture')
+  })
   session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
     const wc = request.frame && webContents.fromFrame(request.frame)
     const capture = wc && captures.get(wc.id)

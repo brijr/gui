@@ -22,6 +22,7 @@ import type {
   ProjectTemplate,
   Proposal,
   RecordingAttachment,
+  RecordingCursor,
   Rect,
   SettingsSection,
   SettingsState,
@@ -235,6 +236,8 @@ export const Events = {
   chatShipDraft: 'chat:ship-draft',
   chatAttach: 'chat:attach',
   recordingAttach: 'recording:attach',
+  recordingUpdate: 'recording:update',
+  recordingCursor: 'recording:cursor',
   chatFloat: 'chat:float',
   morph: 'layout:morph',
   /** Main's motion needs the page's frames (true) or is done with them (false) */
@@ -651,17 +654,31 @@ export interface GuiApi {
    * preview, at the pointer or with its top-left corner at `at` (CSS pixels in the calling
    * page); resolves with what was done, or null when dismissed or nothing is loaded.
    */
-  startRecording(): Promise<string>
+  /**
+   * Arms a capture of the preview. `narrate` also asks for the microphone; `narrated` says
+   * whether it was given, and `notice` why not.
+   */
+  startRecording(
+    narrate?: boolean,
+  ): Promise<{ id: string; narrated: boolean; notice: string | null }>
   saveRecordingFrame(id: string, timestampMs: number, jpeg: Uint8Array): Promise<boolean>
-  /** `startedAt` is when the clip's time 0 was, in epoch ms (`timeOrigin + now`) */
+  /**
+   * `startedAt` is when the clip's time 0 was, in epoch ms (`timeOrigin + now`); `audio` is a
+   * narrated clip's voice as 16 kHz mono WAV.
+   */
   finishRecording(
     id: string,
     durationMs: number,
     video: Uint8Array,
     startedAt: number,
+    audio?: Uint8Array | null,
   ): Promise<void>
   discardRecording(id: string): Promise<void>
+  /** Where the pointer is over the preview while recording `id`, for the recorder to draw */
+  onRecordingCursor(cb: (cursor: RecordingCursor) => void): Unsubscribe
   onRecordingAttach(cb: (recording: RecordingAttachment) => void): Unsubscribe
+  /** An attached clip changed: its transcript came in */
+  onRecordingUpdate(cb: (recording: RecordingAttachment) => void): Unsubscribe
   takeScreenshot(at?: { x: number; y: number }): Promise<'copied' | 'saved' | 'attached' | null>
   /**
    * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged

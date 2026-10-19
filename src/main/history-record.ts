@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_FRAMES } from '../shared/bounded'
 import { parseCommands } from '../shared/commands'
 import {
   type AgentCommand,
@@ -8,6 +9,7 @@ import {
   isAgentId,
   type Picked,
   type RecordingAttachment,
+  type RecordingNarration,
   type Turn,
   type TurnItem,
 } from '../shared/types'
@@ -149,16 +151,37 @@ function settleRecordings(value: unknown): RecordingAttachment[] | undefined {
           (key) =>
             typeof data[key] === 'number' && Number.isFinite(data[key]) && Number(data[key]) > 0,
         ) &&
-        Number(data.durationMs) <= 61000 &&
+        Number(data.durationMs) <= MAX_NARRATED_RECORDING_MS + 1000 &&
         Number(data.width) <= 1920 &&
         Number(data.height) <= 1920 &&
         Number.isInteger(data.frameCount) &&
-        Number(data.frameCount) <= 1830 &&
+        Number(data.frameCount) <= MAX_RECORDING_FRAMES &&
         isAttachment(data)
       )
     })
+    .map((clip) => {
+      const narration = settleNarration(clip.narration, clip.id)
+      const { narration: _narration, ...rest } = clip
+      return narration ? { ...rest, narration } : rest
+    })
     .slice(0, 3)
   return valid.length ? valid : undefined
+}
+
+/** A narrated clip's transcript as saved; one still being made counts as lost. */
+function settleNarration(value: unknown, id: string): RecordingNarration | undefined {
+  if (!value || typeof value !== 'object') return undefined
+  const data = value as Record<string, unknown>
+  const text = typeof data.text === 'string' ? data.text.slice(0, 4000) : undefined
+  const captions =
+    typeof data.captions === 'string' &&
+    /^gui-recording:\/\/[a-f0-9]{32}\/[a-f0-9-]{36}\/captions\.vtt$/.test(data.captions) &&
+    data.captions.endsWith(`/${id}/captions.vtt`)
+      ? data.captions
+      : undefined
+  if (data.status === 'done' && text) return { status: 'done', text, captions }
+  const error = typeof data.error === 'string' ? data.error.slice(0, 300) : undefined
+  return { status: 'failed', error: error ?? "The recording wasn't transcribed." }
 }
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])

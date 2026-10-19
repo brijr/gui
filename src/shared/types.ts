@@ -899,6 +899,31 @@ export interface RecordingAttachment {
   width: number
   height: number
   frameCount: number
+  /** The user talked over the clip; absent on silent ones */
+  narration?: RecordingNarration
+}
+
+/** Where the pointer is over the preview as it's recorded, for the recorder to draw. */
+export interface RecordingCursor {
+  /** The recording it's for */
+  id: string
+  /** Fractions of the preview's width and height */
+  x: number
+  y: number
+  down: boolean
+  /** Over the preview, rather than where it was last seen there */
+  inside: boolean
+}
+
+/** A narrated clip's transcript: being made, made, or why there isn't one. */
+export interface RecordingNarration {
+  status: 'transcribing' | 'done' | 'failed'
+  /** What was said, as plain text (done) */
+  text?: string
+  /** Why there's no transcript (failed); the clip still has its sound */
+  error?: string
+  /** WebVTT captions for the player (done) */
+  captions?: string
 }
 
 /** An image the user pasted or dropped into the composer, already downscaled */

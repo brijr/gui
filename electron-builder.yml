@@ -49,6 +49,10 @@ files:
 extraResources:
   - from: bin/gui
     to: bin/gui
+  # On-device transcription for narrated preview recordings (scripts/build-native.sh). osx-sign
+  # signs it like every other Mach-O in the bundle, with the hardened runtime.
+  - from: native/.build/gui-transcribe
+    to: bin/gui-transcribe
 
 # Where installed copies look for updates (src/main/updates.ts): an R2 bucket served by the
 # usegui.com worker (www/worker.js). A prerelease version publishes to its own channel, so
@@ -100,6 +104,10 @@ mac:
     # Agents run arbitrary commands (osascript etc.); macOS attributes their Apple Events
     # to Gui and denies them unless Gui declares why it sends them.
     NSAppleEventsUsageDescription: Commands run by your coding agent may control other apps.
+    # Narrated preview recordings: the user talks while recording, and Gui transcribes it on
+    # this Mac (native/transcribe) for the agent.
+    NSMicrophoneUsageDescription: Gui records your voice when you narrate a preview recording.
+    NSSpeechRecognitionUsageDescription: Gui transcribes your narration on this Mac for your coding agent.
     # Folders open in Gui (the `gui` command, a folder dropped on the Dock icon) without
     # Gui becoming the default app for folders.
     CFBundleDocumentTypes:

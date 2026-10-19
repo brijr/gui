@@ -101,6 +101,20 @@ export function addAttachments(images: DraftImage[]) {
   useChat.setState(({ attachments }) => ({ attachments: [...attachments, ...images] }))
 }
 
+/**
+ * A narrated clip's transcript came in. With nothing typed yet, what was said becomes the
+ * message, to read over (and fix a misheard word) before sending.
+ */
+function updateRecording(clip: RecordingAttachment) {
+  const { recordings, draft } = useChat.getState()
+  if (!recordings.some((other) => other.id === clip.id)) return
+  const said = clip.narration?.status === 'done' ? (clip.narration.text ?? '') : ''
+  useChat.setState({
+    recordings: recordings.map((other) => (other.id === clip.id ? clip : other)),
+    ...(said && draft.trim() === '' ? { draft: said } : {}),
+  })
+}
+
 export function removeRecordings(ids: string[], discard = false) {
   useChat.setState(({ recordings }) => ({
     recordings: recordings.filter((clip) => !ids.includes(clip.id)),
@@ -563,6 +577,7 @@ export function connectChat() {
         void gui.discardRecording(clip.id)
       } else useChat.setState(({ recordings }) => ({ recordings: [...recordings, clip] }))
     }),
+    gui.onRecordingUpdate(updateRecording),
     gui.onChatFloat((float) => {
       floatReceived = true
       applyInOrder(() => useChat.setState({ float }))

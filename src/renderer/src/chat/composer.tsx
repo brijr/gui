@@ -86,8 +86,12 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     return () => clearTimeout(timer)
   }, [notice])
 
+  // A narrated clip goes out with what was said, once it's transcribed (a second or two).
+  const transcribing = recordings.some((clip) => clip.narration?.status === 'transcribing')
   const canSend =
-    (text.trim() !== '' || attachments.length > 0 || recordings.length > 0) && pending === 0
+    (text.trim() !== '' || attachments.length > 0 || recordings.length > 0) &&
+    pending === 0 &&
+    !transcribing
 
   /** One at a time, in order: decoding several large images at once can spike memory. */
   const attach = async (files: Iterable<File>) => {
