@@ -1,7 +1,7 @@
 {
   "name": "gui",
   "productName": "Gui",
-  "version": "0.1.0-alpha.5",
+  "version": "0.1.0-alpha.6",
   "description": "Design real interfaces with your own AI agents",
   "author": "Bridger Tower <bridgertower@gmail.com>",
   "private": true,
