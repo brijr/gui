@@ -11,7 +11,7 @@ import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { CircleDot, Mic, MicOff, Square, X } from '../lib/icons'
-import { Button, IconButton } from '../lib/ui'
+import { Button, PRESS } from '../lib/ui'
 import { PointerOverlay } from './recording-pointer'
 import { captureVoice, type Voice } from './recording-voice'
 
@@ -321,61 +321,83 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
   }, [])
 
   const recording = phase === 'recording'
+  const label = recording
+    ? 'Stop preview recording'
+    : narrate
+      ? 'Record preview with your voice'
+      : 'Record preview'
+  const idle = phase === 'idle'
   return (
     <div ref={root} className="relative no-drag flex items-center">
-      <Button
-        variant="ghost"
-        icon={recording ? Square : CircleDot}
-        disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
-        onClick={() => (recording ? stop.current?.() : void start())}
-        title={recording ? 'Stop preview recording' : 'Record preview'}
-        aria-label={recording ? 'Stop preview recording' : 'Record preview'}
-        // Its keys after the icon, like the toolbar's other tools.
-        shortcut="recordPreview"
-        // The seconds count up in place rather than shifting the button's width.
-        // Spaced like the toolbar's other tools: the icon, then its keys.
-        className={cn('pr-1.5 pl-2', recording && 'text-danger tabular-nums')}
-      >
-        {recording
-          ? `${Math.floor(elapsed / 1000)}s`
-          : phase === 'saving'
-            ? 'Saving…'
-            : phase === 'starting'
-              ? 'Starting…'
-              : null}
-      </Button>
-      {recording && level !== null ? (
-        // The mic is hearing them: a level that moves as they talk.
-        <span
-          role="img"
-          aria-label="Microphone on"
-          title="Recording your voice"
-          className="mr-1 flex h-7 items-center gap-1 text-danger"
+      {/* Record and its mic are one control, highlighted together on hover. The mic shows
+          whether recordings are narrated: tinted while on, struck through while off. */}
+      <div className="group/record flex h-7 items-center rounded-md transition-colors has-[button:enabled:hover]:bg-hover">
+        <Button
+          variant="ghost"
+          icon={recording ? Square : CircleDot}
+          disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
+          onClick={() => (recording ? stop.current?.() : void start())}
+          title={label}
+          aria-label={label}
+          // Its keys after the icon, like the toolbar's other tools.
+          shortcut="recordPreview"
+          // The seconds count up in place rather than shifting the button's width.
+          className={cn(
+            'pr-1.5 pl-2 enabled:hover:bg-transparent group-has-[button:enabled:hover]/record:text-fg',
+            recording && 'text-danger tabular-nums',
+          )}
         >
-          <Mic className="size-3.5" aria-hidden="true" />
-          <span className="h-1 w-6 overflow-hidden rounded-full bg-hover">
-            <span
-              className="block h-full rounded-full bg-current transition-[width] duration-100"
-              style={{ width: `${Math.round(Math.max(0.08, level) * 100)}%` }}
-            />
-          </span>
-        </span>
-      ) : (
-        !recording && (
-          <IconButton
-            icon={narrate ? Mic : MicOff}
-            label={narrate ? 'Narrate recordings: on' : 'Narrate recordings: off'}
+          {recording
+            ? `${Math.floor(elapsed / 1000)}s`
+            : phase === 'saving'
+              ? 'Saving…'
+              : phase === 'starting'
+                ? 'Starting…'
+                : null}
+        </Button>
+        {!recording && (
+          <button
+            type="button"
+            aria-label="Narrate recordings"
+            aria-pressed={narrate}
             title={
               narrate
-                ? 'Recordings include your voice, transcribed for the agent. Click to record without it.'
+                ? 'Recordings include your voice, transcribed for the agent. Click to turn off.'
                 : 'Talk while you record: your voice is transcribed for the agent. Click to turn on.'
             }
-            pressed={narrate}
-            disabled={phase !== 'idle'}
+            disabled={!idle}
             onClick={toggleNarrate}
-          />
-        )
-      )}
+            className={cn(
+              'mr-0.5 -ml-0.5 flex size-6 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-40',
+              PRESS,
+              narrate ? 'bg-accent-soft text-accent-text' : 'text-subtle hover:text-fg',
+            )}
+          >
+            {narrate ? (
+              <Mic className="size-3.5" aria-hidden="true" />
+            ) : (
+              <MicOff className="size-3.5" aria-hidden="true" />
+            )}
+          </button>
+        )}
+        {recording && level !== null && (
+          // The mic is hearing them: a level that moves as they talk.
+          <span
+            role="img"
+            aria-label="Microphone on"
+            title="Recording your voice"
+            className="mr-1 flex h-7 items-center gap-1 text-danger"
+          >
+            <Mic className="size-3.5" aria-hidden="true" />
+            <span className="h-1 w-6 overflow-hidden rounded-full bg-hover">
+              <span
+                className="block h-full rounded-full bg-current transition-[width] duration-100"
+                style={{ width: `${Math.round(Math.max(0.08, level) * 100)}%` }}
+              />
+            </span>
+          </span>
+        )}
+      </div>
       {/* In the toolbar itself: anything hanging below it would sit under the preview, a
           native view drawn over this page. The reason is announced and in the tooltip. */}
       {shown && (
