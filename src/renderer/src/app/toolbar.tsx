@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import { TOOLBAR_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
+import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
 import { type BoardState, VIEWPORTS, type Viewport, type WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -30,6 +30,7 @@ import {
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
 import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
+import { sidebarBarStyle } from './layout-morph'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 
@@ -72,8 +73,8 @@ export function Toolbar({ state }: { state: WindowState }) {
   // With two or more tabs the traffic lights sit in the tab row above (tab-strip.tsx), and
   // with the chat sidebar in its header.
   const tabbed = state.tabs.length > 1
-  const lights =
-    !tabbed && !state.fullScreen && (state.sidebarWidth === 0 || state.sidebarSide === 'right')
+  // The chat sidebar on their side takes them over (sidebarBarStyle).
+  const bar = { height: TOOLBAR_HEIGHT, ...sidebarBarStyle(!tabbed && !state.fullScreen) }
   // Picking and screenshots only work on the local app.
   const capturable = preview.visible && preview.selectable
 
@@ -81,7 +82,7 @@ export function Toolbar({ state }: { state: WindowState }) {
     return (
       <header
         className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface pr-2 pl-2"
-        style={{ height: TOOLBAR_HEIGHT, paddingLeft: lights ? TRAFFIC_LIGHTS_INSET : undefined }}
+        style={bar}
       >
         <BoardToolbar state={state} board={state.board} named={!tabbed} />
       </header>
@@ -90,7 +91,7 @@ export function Toolbar({ state }: { state: WindowState }) {
   return (
     <header
       className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface pr-2 pl-2"
-      style={{ height: TOOLBAR_HEIGHT, paddingLeft: lights ? TRAFFIC_LIGHTS_INSET : undefined }}
+      style={bar}
     >
       <ProjectMenuButton state={state} named={!tabbed} />
 

@@ -1,5 +1,12 @@
-import { type RefObject, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { FRAME_LABEL_HEIGHT } from '../../../shared/layout'
+import {
+  type CSSProperties,
+  type RefObject,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
+import { FRAME_LABEL_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
 import { Spring } from '../../../shared/motion'
 import { frameLabel, type MorphEvent, type Viewport } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -271,4 +278,98 @@ export function useLayoutSlide(
   }, [shown, ref, edge, keep, fade])
 
   return leaving
+}
+
+/**
+ * The chat sidebar's room beside the bars, as CSS variables on `ref`: `--sidebar-left` and
+ * `--sidebar-right` are where it ends up, the `-shown` ones where it is as it slides. Opening
+ * or closing, the shown ones follow the sidebar on main's spring, starting when the preview's
+ * morph does; resizing it, or another tab's, they're there at once.
+ */
+export function useSidebarSlide(
+  ref: RefObject<HTMLElement | null>,
+  { left, right, tab }: { left: number; right: number; tab: string | null },
+) {
+  const slide = useRef<{
+    left: Spring
+    right: Spring
+    tab: string | null
+    stop: (() => void) | null
+    wait: (() => void) | null
+  } | null>(null)
+
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.setProperty('--sidebar-left', `${left}px`)
+    el.style.setProperty('--sidebar-right', `${right}px`)
+    const draw = (l: number, r: number) => {
+      el.style.setProperty('--sidebar-left-shown', `${Math.max(0, l)}px`)
+      el.style.setProperty('--sidebar-right-shown', `${Math.max(0, r)}px`)
+    }
+    slide.current ??= {
+      left: new Spring(left),
+      right: new Spring(right),
+      tab,
+      stop: null,
+      wait: null,
+    }
+    const current = slide.current
+    const opening = (spring: Spring, to: number) => (spring.target === 0) !== (to === 0)
+    const moves =
+      current.tab === tab && (opening(current.left, left) || opening(current.right, right))
+    current.tab = tab
+    if (!moves || prefersReducedMotion()) {
+      for (const [spring, to] of [
+        [current.left, left],
+        [current.right, right],
+      ] as const) {
+        spring.retarget(to)
+        spring.finish()
+      }
+      draw(left, right)
+      return
+    }
+    const { left: l, right: r } = current
+    draw(l.value, r.value)
+    l.retarget(left)
+    r.retarget(right)
+    // One spring drives the frames; both sides settle together (only one moves at a time).
+    const driver = l.value !== left ? l : r
+    const other = driver === l ? r : l
+    current.wait = whenMorphMoves(() => {
+      current.wait = null
+      other.finish()
+      current.stop = animateSpring(driver, {
+        precision: 0.5,
+        update: () => draw(l.value, r.value),
+        rest: () => {
+          current.stop = null
+          draw(left, right)
+        },
+      })
+    })
+    return () => {
+      current.wait?.()
+      current.wait = null
+      current.stop?.()
+      current.stop = null
+    }
+  }, [ref, left, right, tab])
+}
+
+/**
+ * A bar's style beside the chat sidebar: it runs under the sidebar (a view drawn over this
+ * page) to the window's edges, its content kept clear of the sidebar as it slides. `lights`:
+ * the traffic lights are in this bar while the sidebar isn't on their side.
+ */
+export function sidebarBarStyle(lights: boolean): CSSProperties {
+  return {
+    marginLeft: 'calc(-1 * var(--sidebar-left, 0px))',
+    marginRight: 'calc(-1 * var(--sidebar-right, 0px))',
+    paddingLeft: lights
+      ? `calc(var(--sidebar-left-shown, 0px) + max(8px, ${TRAFFIC_LIGHTS_INSET}px - var(--sidebar-left-shown, 0px)))`
+      : 'calc(var(--sidebar-left-shown, 0px) + 8px)',
+    paddingRight: 'calc(var(--sidebar-right-shown, 0px) + 8px)',
+  }
 }

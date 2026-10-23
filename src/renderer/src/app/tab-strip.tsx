@@ -1,5 +1,5 @@
 import { type PointerEvent, useLayoutEffect, useRef, useState } from 'react'
-import { TAB_ROW_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
+import { TAB_ROW_HEIGHT } from '../../../shared/layout'
 import { Spring } from '../../../shared/motion'
 import type { TabInfo, TabStatus, WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -9,6 +9,7 @@ import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../l
 import { StatusDot } from '../lib/status'
 import { rovingTabKeyDown, TAB_LABEL, TabCloseButton, tabClass } from '../lib/tabs'
 import { IconButton, PRESS, Spinner } from '../lib/ui'
+import { sidebarBarStyle } from './layout-morph'
 
 /** How far a pressed tab moves before it's dragged rather than clicked. */
 const DRAG_THRESHOLD = 4
@@ -272,13 +273,7 @@ export function TabStrip({ state }: { state: WindowState }) {
       className="drag flex shrink-0 items-center gap-1 border-b border-line bg-surface pr-2 pl-2"
       // The traffic lights sit in this row, left of the tabs, unless the chat sidebar has them;
       // full screen hides them.
-      style={{
-        height: TAB_ROW_HEIGHT,
-        paddingLeft:
-          state.fullScreen || (state.sidebarWidth > 0 && state.sidebarSide === 'left')
-            ? undefined
-            : TRAFFIC_LIGHTS_INSET,
-      }}
+      style={{ height: TAB_ROW_HEIGHT, ...sidebarBarStyle(!state.fullScreen) }}
     >
       <div
         ref={list}

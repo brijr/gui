@@ -7,7 +7,7 @@ import { Button } from '../lib/ui'
 import { useWindowState } from '../lib/use-window-state'
 import { Canvas, DeveloperToolsBanner, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
-import { useLayoutMorphs, useLayoutSlide } from './layout-morph'
+import { useLayoutMorphs, useLayoutSlide, useSidebarSlide } from './layout-morph'
 import { ShortcutsSheet } from './shortcuts-sheet'
 import { TabStrip } from './tab-strip'
 import { focusAddressBar, Toolbar } from './toolbar'
@@ -26,6 +26,12 @@ export function App() {
     fade: true,
   })
   useLayoutMorphs(morphs, state?.activeTab ?? null)
+  // The bars' content moves over with the chat sidebar as it slides in and out.
+  useSidebarSlide(bars, {
+    left: state?.sidebarSide === 'left' ? state.sidebarWidth : 0,
+    right: state?.sidebarSide === 'right' ? state.sidebarWidth : 0,
+    tab: state?.activeTab ?? null,
+  })
   // Here rather than in the toolbar, which may only be on its way.
   useEffect(
     () =>
