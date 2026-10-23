@@ -213,9 +213,19 @@ const INDEX = 'index.json'
 
 export { cleanTitle }
 
-async function archiveDir(root: string) {
-  const real = await realpath(root).catch(() => root)
-  return join(dir(), historyName(real))
+let archiveDirs: Promise<unknown> = Promise.resolve()
+
+/**
+ * The project's archive folder. Resolved one call at a time, so archive changes reach the
+ * index queue (`updateIndex`) in the order they were asked for.
+ */
+function archiveDir(root: string): Promise<string> {
+  const folder = archiveDirs.then(async () => {
+    const real = await realpath(root).catch(() => root)
+    return join(dir(), historyName(real))
+  })
+  archiveDirs = folder.catch(() => undefined)
+  return folder
 }
 
 const archivedFile = (folder: string, id: string) => join(folder, `${id}.json`)
