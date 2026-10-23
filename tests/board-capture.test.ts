@@ -82,16 +82,20 @@ test('interactive screenshots overtake queued thumbnails and active stale result
   })
   await owner.open()
   await until(() => rendered.length === 1)
-  const replacement = owner.thumbnail('a')
-  const coalesced = owner.thumbnail('a')
-  const shot = owner.screenshot('c', 2)
+  // Opening queues the thumbnails in whatever order their files are read, so hold whichever
+  // went first and screenshot another.
+  const first = rendered[0].split(':')[0]
+  const other = ['a', 'b', 'c'].find((id) => id !== first) ?? ''
+  const replacement = owner.thumbnail(first)
+  const coalesced = owner.thumbnail(first)
+  const shot = owner.screenshot(other, 2)
   gate.resolve()
-  expect((await shot).toJPEG(82).toString()).toBe('c')
-  expect(rendered.slice(0, 2)).toEqual(['a:1', 'c:2'])
+  expect((await shot).toJPEG(82).toString()).toBe(other)
+  expect(rendered.slice(0, 2)).toEqual([`${first}:1`, `${other}:2`])
   await Promise.all([replacement, coalesced])
   await until(() => f.changed.length === 3)
-  expect(rendered.filter((value) => value === 'a:1')).toHaveLength(2)
-  expect(f.changed.filter((id) => id === 'a')).toHaveLength(1)
+  expect(rendered.filter((value) => value === `${first}:1`)).toHaveLength(2)
+  expect(f.changed.filter((id) => id === first)).toHaveLength(1)
 })
 
 test('the shared capture budget is bounded and waiting visible work can be promoted', async () => {
