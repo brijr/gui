@@ -48,6 +48,7 @@ import { Composer } from './composer'
 import { Morph } from './morph'
 import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
 import { openShipSheet, ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
+import { showSourceControl } from './shipping-state'
 import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
 import { Transcript } from './transcript'
 import { closeVersions, toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
@@ -481,6 +482,14 @@ function Header({ meta }: { meta: ChatMeta }) {
             icon={GitBranch}
             pressed={shipping}
             disabled={shipBusy || versionsBusy !== null}
+            // Disabled, its tooltip says why.
+            title={
+              shipBusy
+                ? 'Wait for source control to finish'
+                : versionsBusy !== null
+                  ? 'Wait for the version to finish restoring'
+                  : undefined
+            }
             onClick={() => {
               closeVersions()
               toggleShipSheet()
@@ -525,7 +534,12 @@ function MoreButton({ shipping, shipBusy }: { shipping: boolean; shipBusy: boole
         else if (choice === 'pullRequest') {
           closeVersions()
           toggleShipSheet()
-        } else setArchive(true)
+        } else if (choice === 'archive') setArchive(true)
+        else {
+          // The toolbar's branch menu
+          closeVersions()
+          showSourceControl(choice)
+        }
       }),
     [],
   )

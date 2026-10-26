@@ -1,0 +1,170 @@
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { waitFor } from './helpers/env'
+import { git } from './helpers/fixtures'
+import type { GuiSession } from './helpers/session'
+import { expect, test } from './helpers/test'
+
+// Opening a project on main asks where to work, in place of the start screen's open buttons:
+// on main, on a new branch named from the first message, or in a new worktree beside main.
+// The fixture is a fresh repository on its main branch, already trusted.
+
+function onMain(root: string) {
+  git(root, 'branch', '-M', 'main')
+}
+
+async function asked(session: GuiSession) {
+  await expect(
+    session.chrome.getByRole('heading', { name: 'Where do you want to work?' }),
+  ).toBeVisible()
+  expect((await session.state()).project).toBeNull()
+}
+
+async function opened(session: GuiSession, root: string) {
+  return waitFor(async () => {
+    const state = await session.state()
+    return state.project?.root === root ? state : null
+  }, `${root} to open`)
+}
+
+/** Answers the next native question with its button numbered `response`. */
+async function answerDialogs(session: GuiSession, response: number) {
+  await session.app.evaluate(({ dialog }, response) => {
+    dialog.showMessageBox = (async () => ({ response, checkboxChecked: false })) as never
+  }, response)
+}
+
+test('opening on main asks where to work, and On main opens it as it is', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root } = session.fixture
+  onMain(root)
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.shot('where-to-work')
+  await session.chrome.getByRole('button', { name: /^On main/ }).click()
+  const state = await opened(session, root)
+  expect(state.whereToWork).toBeNull()
+  expect(state.branch).toEqual({ branch: 'main', worktree: null })
+  await expect(session.chrome.getByRole('button', { name: 'Branch main' })).toBeVisible()
+  expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main')
+})
+
+test('Cancel leaves the start screen as it was', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root } = session.fixture
+  onMain(root)
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: 'Cancel' }).click()
+  await waitFor(async () => (await session.state()).whereToWork === null, 'the question to close')
+  expect((await session.state()).project).toBeNull()
+  await expect(session.chrome.getByRole('button', { name: 'Open project…' })).toBeVisible()
+})
+
+test('Always open on main is remembered, and the project opens', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root, userData } = session.fixture
+  onMain(root)
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: /Always open .* on main/ }).click()
+  await opened(session, root)
+  await waitFor(() => {
+    const prefs = JSON.parse(readFileSync(join(userData, 'prefs.json'), 'utf8'))
+    return prefs.defaultBranchRoots?.includes(realpathSync(root))
+  }, 'the choice to be saved')
+})
+
+test('On a new branch names the branch from the first message, without asking', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root } = session.fixture
+  onMain(root)
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: /^On a new branch/ }).click()
+  await opened(session, root)
+  expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main')
+  // Sent whether or not an agent takes it: the branch comes first.
+  await session.chat.evaluate(() => window.gui.send('Make the header sticky please'))
+  await waitFor(
+    () => git(root, 'symbolic-ref', '--short', 'HEAD').trim() === 'gui/make-the-header-sticky',
+    'the new branch',
+  )
+  await waitFor(
+    async () => (await session.state()).branch?.branch === 'gui/make-the-header-sticky',
+    'the toolbar to show it',
+  )
+})
+
+test('a new worktree opens beside main, and removing it never loses work', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root, base } = session.fixture
+  onMain(root)
+  writeFileSync(join(root, 'uncommitted.txt'), 'stays on main\n')
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: /^In a new worktree/ }).click()
+  await expect(session.chrome.getByText(/Your 1 uncommitted change stays on main/)).toBeVisible()
+  await session.chrome.getByLabel(/What are you working on/).fill('Pricing page')
+  await session.shot('where-to-work-worktree')
+  await session.chrome.getByRole('button', { name: 'Create worktree' }).click()
+
+  const folder = join(realpathSync(base), 'worktrees', 'fixture-vite', 'pricing-page')
+  const state = await opened(session, folder)
+  expect(state.branch).toEqual({
+    branch: 'gui/pricing-page',
+    worktree: { of: 'fixture-vite', name: 'pricing-page' },
+  })
+  expect(git(folder, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('gui/pricing-page')
+  expect(existsSync(join(folder, 'uncommitted.txt'))).toBe(false)
+  expect(existsSync(join(root, 'uncommitted.txt'))).toBe(true)
+  // Its own install, then its own preview.
+  await session.waitForPreview()
+
+  // Uncommitted work blocks removal, before any question.
+  writeFileSync(join(folder, 'draft.txt'), 'not committed\n')
+  await expect(session.chat.evaluate(() => window.gui.removeWorktree())).rejects.toThrow(
+    /pricing-page has 1 uncommitted change/,
+  )
+  expect(existsSync(join(folder, 'draft.txt'))).toBe(true)
+
+  // Committed, it goes once confirmed; the branch and its commit stay.
+  git(folder, 'add', 'draft.txt')
+  git(folder, 'commit', '--quiet', '-m', 'Draft')
+  const commit = git(folder, 'rev-parse', 'HEAD').trim()
+  await answerDialogs(session, 0)
+  await session.chat.evaluate(() => window.gui.removeWorktree())
+  await waitFor(() => !existsSync(folder), 'the worktree folder to go')
+  expect(git(root, 'rev-parse', 'gui/pricing-page').trim()).toBe(commit)
+  await waitFor(async () => (await session.state()).project === null, 'the start screen')
+  const recent = (await session.state()).recent ?? []
+  expect(recent.some((project) => project.root === folder)).toBe(false)
+})
+
+test('a worktree deleted outside Gui shows as missing and can be cleared', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root, base } = session.fixture
+  onMain(root)
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: /^In a new worktree/ }).click()
+  await session.chrome.getByLabel(/What are you working on/).fill('Gone soon')
+  await session.chrome.getByRole('button', { name: 'Create worktree' }).click()
+  const folder = join(realpathSync(base), 'worktrees', 'fixture-vite', 'gone-soon')
+  await opened(session, folder)
+  await session.chrome.evaluate(() => window.gui.newTab())
+  git(root, 'worktree', 'remove', '--force', folder)
+  // A fresh start screen reads the recents again.
+  await session.chrome.evaluate(() => window.gui.newTab())
+  await expect(session.chrome.getByText('Folder missing')).toBeVisible()
+
+  await answerDialogs(session, 0)
+  await session.chrome.evaluate((folder) => window.gui.openRecent(folder), folder)
+  await waitFor(
+    async () => !((await session.state()).recent ?? []).some((p) => p.root === folder),
+    'the missing worktree to leave recents',
+  )
+  expect(git(root, 'branch', '--list', 'gui/gone-soon')).toContain('gui/gone-soon')
+})

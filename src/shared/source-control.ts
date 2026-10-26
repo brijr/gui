@@ -9,6 +9,8 @@ export interface GitBranchInfo {
   name: string
   remote: string | null
   checkedOutElsewhere: boolean
+  /** The worktree folder it's checked out in, when that's another one that still exists */
+  worktree: string | null
 }
 
 export interface SourceControlWorkspace extends GitContext {
@@ -19,6 +21,8 @@ export interface SourceControlWorkspace extends GitContext {
   published: boolean
   /** Repository problems restrict actions without hiding status or the draft. */
   writeBlocked: string | null
+  /** This is a worktree: its folder, and the main checkout's; null in the main checkout */
+  worktree: { path: string; main: string } | null
 }
 
 export type SourceControlAction =

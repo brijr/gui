@@ -68,7 +68,7 @@ export function VersionsSheet() {
         }
       />
       {blocked ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center px-8">
+        <div className="flex min-h-0 flex-1 items-center px-8">
           <Message
             icon={<Info className="size-4" aria-hidden="true" />}
             actions={<Button onClick={closeVersions}>Back to chat</Button>}
@@ -97,7 +97,7 @@ export function VersionsSheet() {
                   tone="accent"
                   title="No versions yet"
                 >
-                  Gui saves a version after each turn. Save the current files above to make the
+                  Gui saves a version after each message. Save the current files above to make the
                   first one now.
                 </Message>
               </div>
@@ -139,7 +139,7 @@ function SaveVersion({ disabled, saving }: { disabled: boolean; saving: boolean 
       <Field
         label="Save a version"
         htmlFor={`${id}-name`}
-        hint="Gui also saves one after every turn."
+        hint="Gui also saves one after every message."
       >
         <div className="flex items-start gap-1.5">
           <Input

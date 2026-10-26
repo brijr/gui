@@ -34,6 +34,8 @@ export const SYMBOLS = {
   Group: 'rectangle.dashed',
   Hand: 'hand.raised',
   HardDrive: 'externaldrive',
+  // Saves the frame as an image: a picture with a down arrow, not Share's box and up arrow.
+  ImageDown: 'photo.badge.arrow.down',
   ImageIcon: 'photo',
   ImagePlus: 'photo.badge.plus',
   Info: 'info.circle',
@@ -66,6 +68,8 @@ export const SYMBOLS = {
   SquareArrowOutDownLeft: 'arrow.down.left.square',
   SquareArrowOutUpRight: 'arrow.up.right.square',
   SquarePen: 'square.and.pencil',
+  // A worktree: a second copy of the project beside the first.
+  SquareStack: 'square.on.square',
   SquareTerminal: 'terminal',
   Tablet: 'ipad',
   Trash2: 'trash',

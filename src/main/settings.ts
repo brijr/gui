@@ -211,7 +211,7 @@ export async function resetStartCommand(root: string) {
   await refreshSettings()
 }
 
-/** The next message sent on the project's main branch asks about a Gui branch again. */
+/** The next time the project opens on its main branch, it asks where to work again. */
 export async function askAboutBranch(root: string) {
   const roots = getPrefs().defaultBranchRoots
   if (roots.includes(root))
@@ -251,11 +251,12 @@ export async function archiveRecentChat(root: string) {
 const CLEAR_PROMPTS: Record<StorageKind, { message: string; detail: string }> = {
   chats: {
     message: 'Clear chat history?',
-    detail: 'Saved transcripts, archived chats, and resumable agent sessions are deleted.',
+    detail:
+      'Your chats and archived chats are deleted, and agents can no longer pick them back up.',
   },
   checkpoints: {
-    message: 'Clear checkpoints?',
-    detail: 'Turns in past chats can no longer be undone.',
+    message: 'Clear versions?',
+    detail: 'You can no longer undo changes from past chats.',
   },
   previewData: {
     message: 'Clear preview data?',

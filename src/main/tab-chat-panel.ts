@@ -11,6 +11,7 @@ import type {
   PanelEdge,
   Point,
   Rect,
+  SidebarSlide,
 } from '../shared/types'
 import {
   type Anchor,
@@ -54,6 +55,8 @@ export interface ChatPanelOwner {
   readonly state: TabState
   patch(patch: Partial<TabState>): void
   sendChat(channel: string, payload: unknown): void
+  /** To the window's chrome, while this tab is the one it shows */
+  sendChrome(channel: string, payload: unknown): void
   leaveFocusMode(): void
   setSelecting(on: boolean): Promise<void>
   morphLayout(kind: MorphKind): void
@@ -77,6 +80,8 @@ export class ChatPanel {
    * or its width out.
    */
   private dockSlide: { flight: Flight | null; from: number; leaving: boolean } | null = null
+  /** The last `SidebarSlide` the chrome was sent, as JSON, so a resting sidebar sends nothing */
+  private slideSent = 'null'
   private panelSize: ChatSize = getPrefs().chatSize
   private dockWidth = getPrefs().chatSidebarWidth
   private resizing: 'floating' | 'docked' | null = null
@@ -203,6 +208,8 @@ export class ChatPanel {
     this.tab.resources.chat?.setPopped(true)
     if (!this.tab.state.chatVisible) this.tab.patch({ chatVisible: true })
     this.tab.layout()
+    // Out, ⌘B brings it forward rather than hiding it: the View menu says Show Chat.
+    this.tab.host.tabChanged(this.tab, false)
     win.once('ready-to-show', () => {
       if (this.popout !== win || !this.tab.host.isActive(this.tab)) return
       fadeIn(win, this.tab.chatView.webContents)
@@ -224,6 +231,7 @@ export class ChatPanel {
     }
     if (!this.tab.state.chatVisible) this.tab.patch({ chatVisible: true })
     this.tab.layout()
+    this.tab.host.tabChanged(this.tab, false)
     focusWindow(this.tab.host.win)
     this.focusChat()
   }
@@ -367,7 +375,7 @@ export class ChatPanel {
       this.holdFlight()
       const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
       const area = this.anchorArea(contentWidth, contentHeight)
-      const max = maxFloatingSize(contentWidth, area)
+      const max = maxFloatingSize(contentWidth, area, PANEL_MIN.height)
       const panel = this.floatingRect(contentWidth, contentHeight)
       let left = panel.x
       let top = panel.y
@@ -453,6 +461,8 @@ export class ChatPanel {
 
   layoutChat() {
     if (this.tab.disposed || !this.tab.host.isActive(this.tab)) return
+    // Before the sidebar's new width: the bars then hold where the sidebar is as it arrives.
+    this.sendSlide()
     this.syncSidebarWidth()
     if (this.popout) return
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
@@ -608,6 +618,27 @@ export class ChatPanel {
   }
 
   /**
+   * Tells the chrome how much of the sliding sidebar is in the window, from the same offset
+   * that places its view, so the bars beside it move with it frame for frame (renderer
+   * app/layout-morph.ts). Null once it rests; snapped, it never slides.
+   */
+  private sendSlide() {
+    const slide = this.dockSlide
+    let payload: SidebarSlide = null
+    if (slide && this.docked && !this.popout) {
+      const shown = Math.max(0, this.dockedWidth() - Math.round(this.dockOffset()))
+      payload =
+        getPrefs().chatSidebarSide === 'left'
+          ? { left: shown, right: 0 }
+          : { left: 0, right: shown }
+    }
+    const json = JSON.stringify(payload)
+    if (json === this.slideSent) return
+    this.slideSent = json
+    this.tab.sendChrome(Events.sidebarSlide, payload)
+  }
+
+  /**
    * Holds the sidebar where it is (out of sight, coming in) until the preview's morph moves,
    * then `slideDock` slides it in, or with `leaving`, out. Mid-slide, it turns from where it is.
    */
@@ -691,7 +722,11 @@ export class ChatPanel {
   }
 
   private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
-    const max = maxFloatingSize(contentWidth, this.anchorArea(contentWidth, contentHeight))
+    const max = maxFloatingSize(
+      contentWidth,
+      this.anchorArea(contentWidth, contentHeight),
+      PANEL_MIN.height,
+    )
     const height = Math.min(clamp(this.panelSize.height, PANEL_MIN.height, max.height), max.height)
     return {
       width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
@@ -739,6 +774,8 @@ export class ChatPanel {
 
   deactivate() {
     this.landDock()
+    // The chrome drops a slide when the tab goes; this one starts over when it's back.
+    this.slideSent = 'null'
     this.flight?.finish()
     this.settleForm(this.wantedForm())
   }

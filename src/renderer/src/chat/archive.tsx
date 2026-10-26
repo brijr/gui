@@ -294,7 +294,7 @@ function ArchivedRow({
         <Button size="sm" variant="ghost" onClick={onCancelDelete}>
           Cancel
         </Button>
-        <Button size="sm" variant="danger" onClick={onDelete}>
+        <Button size="sm" variant="danger" aria-label={`Delete ${name}`} onClick={onDelete}>
           Delete
         </Button>
       </li>
@@ -308,7 +308,8 @@ function ArchivedRow({
         title={`Open “${name}”`}
         disabled={disabled}
         onClick={onOpen}
-        className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left outline-none disabled:opacity-60"
+        // The focus ring inside the row, where the list's edge can't clip it.
+        className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left focus-visible:-outline-offset-2 disabled:opacity-60"
       >
         <span className="w-full truncate text-small text-fg">{name}</span>
         <span className="w-full truncate text-caption text-subtle">{detail}</span>

@@ -1,4 +1,4 @@
-import { lookup } from 'node:dns/promises'
+import { lookup, Resolver } from 'node:dns/promises'
 import { isIP } from 'node:net'
 
 /**
@@ -107,10 +107,47 @@ export async function isPublicHost(
   return addresses.length > 0 && addresses.every((address) => !isPrivateIp(address))
 }
 
-/** Every address the system's resolver gives a name. */
-export async function defaultResolve(host: string) {
-  const found = await lookup(host, { all: true, verbatim: true })
-  return found.map((entry) => entry.address)
+/** How long a name's addresses are reused: a page asks for the same few names many times. */
+const DNS_TTL_MS = 60_000
+const DNS_CACHE_MAX = 500
+const resolver = new Resolver({ timeout: 2500, tries: 2 })
+const dnsCache = new Map<string, { at: number; addresses: Promise<string[]> }>()
+
+/**
+ * Asks DNS directly, apart from the system's getaddrinfo. That one runs on libuv's small
+ * thread pool, where a page's dozens of lookups made the app's file reads and writes wait.
+ * A name DNS can't answer (one only the system knows) falls back to the system.
+ */
+async function resolveFresh(host: string) {
+  const [v4, v6] = await Promise.allSettled([resolver.resolve4(host), resolver.resolve6(host)])
+  const found = [
+    ...(v4.status === 'fulfilled' ? v4.value : []),
+    ...(v6.status === 'fulfilled' ? v6.value : []),
+  ]
+  if (found.length) return found
+  const system = await lookup(host, { all: true, verbatim: true })
+  return system.map((entry) => entry.address)
+}
+
+/** Every address a name has, reused for a minute. Failures aren't kept. */
+export function defaultResolve(host: string): Promise<string[]> {
+  const name = host.toLowerCase().replace(/\.$/, '')
+  const now = Date.now()
+  const cached = dnsCache.get(name)
+  if (cached && now - cached.at < DNS_TTL_MS) return cached.addresses
+  const addresses = resolveFresh(name)
+  const entry = { at: now, addresses }
+  dnsCache.delete(name)
+  dnsCache.set(name, entry)
+  if (dnsCache.size > DNS_CACHE_MAX) {
+    const oldest = dnsCache.keys().next().value
+    if (oldest !== undefined) dnsCache.delete(oldest)
+  }
+  const forget = () => {
+    if (dnsCache.get(name) === entry) dnsCache.delete(name)
+  }
+  addresses.then((found) => found.length || forget(), forget)
+  return addresses
 }
 
 /** http(s) only: no file://, data:, or Chromium's own pages. A bare `host:port` is https. */

@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import type { Proposal, ProposalPull, ReviewComment } from '../shared/types'
 import {
   applyConnectedIdentity,
@@ -18,6 +18,7 @@ import {
   tail,
 } from './git'
 import { connectedGitHub, fetchGitHub, readGitHub } from './github'
+import { readHead } from './worktree-registry'
 
 /**
  * Where the project's work stands as a pull request, and the moves around it a designer
@@ -37,13 +38,14 @@ export async function readProposal(root: string, refresh = false): Promise<Propo
   })
   const connected = await connectedFor(repo)
   if (refresh) await fetchDefault(repo, connected).catch(() => undefined)
-  const [behind, ahead, merge, pull] = await Promise.all([
+  const [behind, ahead, merge, pull, head] = await Promise.all([
     behindLatest(repo),
     aheadOfShared(repo),
     mergeState(repo),
     repo.branch && repo.branch !== repo.defaultBranch
       ? findPull(repo, connected, repo.branch).catch(() => null)
       : null,
+    readHead(repo.top),
   ])
   return {
     branch: repo.branch,
@@ -54,6 +56,7 @@ export async function readProposal(root: string, refresh = false): Promise<Propo
     behind,
     merge,
     pull,
+    worktree: head?.mainTop ? basename(head.top) : null,
   }
 }
 

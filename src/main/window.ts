@@ -135,6 +135,8 @@ export class ProjectWindow implements TabHost {
     this.win.on('page-title-updated', (event) => event.preventDefault())
     this.win.on('focus', () => {
       lastFocused = this
+      // A branch switched in Terminal meanwhile shows in the toolbar.
+      void this.active.refreshBranch()
     })
     this.win.once('ready-to-show', () => showWindow(this.win))
     this.win.on('closed', () => this.dispose())
@@ -388,10 +390,10 @@ export class ProjectWindow implements TabHost {
     if (!this.byId(id)) return
     const others = this.list.length > 1
     Menu.buildFromTemplate([
-      { label: 'Close tab', click: () => this.closeTab(id) },
-      { label: 'Close other tabs', enabled: others, click: () => this.closeOtherTabs(id) },
+      { label: 'Close Tab', click: () => this.closeTab(id) },
+      { label: 'Close Other Tabs', enabled: others, click: () => this.closeOtherTabs(id) },
       { type: 'separator' },
-      { label: 'Move tab to new window', enabled: others, click: () => this.moveToNewWindow(id) },
+      { label: 'Move Tab to New Window', enabled: others, click: () => this.moveToNewWindow(id) },
     ]).popup({ window: this.win })
   }
 

@@ -1,6 +1,7 @@
-import type { KeyboardEvent } from 'react'
+import { type KeyboardEvent, type RefObject, useEffect, useLayoutEffect, useRef } from 'react'
 import { cn } from './cn'
 import { X } from './icons'
+import { prefersReducedMotion } from './motion'
 import { IconButton } from './ui'
 
 /*
@@ -49,6 +50,73 @@ export function tabClass(look: TabLook, selected: boolean) {
  */
 export const TAB_LABEL =
   'flex h-full min-w-0 items-center gap-1.5 rounded-md text-left text-small font-medium transition-opacity'
+
+/**
+ * A tablist whose tabs can outgrow it: it scrolls sideways (the trackpad, or the mouse wheel
+ * with useScrollingTabs) with no scrollbar, and fades at an edge with more tabs past it. Tabs
+ * are laid out from it (`relative`), so scrolling doesn't move their slots.
+ */
+export const SCROLLING_TABLIST =
+  'relative flex min-w-0 items-center gap-1 overflow-x-auto overscroll-x-contain scrollbar-none scroll-fade-x'
+
+/** How far inside the list's edge a revealed tab lands, clear of the fade. */
+const REVEAL_INSET = 24
+
+/**
+ * For a SCROLLING_TABLIST: keeps the selected tab in view (`selected` names it, so a change
+ * scrolls to it), and turns the mouse wheel's up and down into the list's sideways scroll.
+ */
+export function useScrollingTabs(ref: RefObject<HTMLElement | null>, selected: string | null) {
+  const placed = useRef(false)
+  useLayoutEffect(() => {
+    if (selected === null) return
+    // The first time, it's just there; after, it glides unless Reduce motion is on.
+    revealSelected(ref.current, !placed.current || prefersReducedMotion())
+    placed.current = true
+  }, [ref, selected])
+
+  const shown = selected !== null
+  useEffect(() => {
+    const list = ref.current
+    if (!list || !shown) return
+    const onWheel = (event: WheelEvent) => {
+      // A trackpad scrolls sideways itself; a wheel only goes up and down.
+      if (event.deltaX !== 0 || list.scrollWidth <= list.clientWidth) return
+      event.preventDefault()
+      list.scrollLeft += event.deltaY
+    }
+    // The window narrowing keeps the selected tab in the row.
+    const resized = new ResizeObserver(() => revealSelected(list, true))
+    list.addEventListener('wheel', onWheel, { passive: false })
+    resized.observe(list)
+    return () => {
+      list.removeEventListener('wheel', onWheel)
+      resized.disconnect()
+    }
+  }, [ref, shown])
+}
+
+/** Scrolls `list` as little as it takes to show its selected tab, clear of the faded edges. */
+function revealSelected(list: HTMLElement | null, instant: boolean) {
+  const tab = list
+    ?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')
+    ?.closest<HTMLElement>('[role="presentation"]')
+  if (!list || !tab) return
+  const left = tab.offsetLeft - REVEAL_INSET
+  const right = tab.offsetLeft + tab.offsetWidth + REVEAL_INSET - list.clientWidth
+  // As far as the tabs' own slots reach. A tab sliding into place is drawn past its slot, which
+  // the list could scroll to; following it there would jolt the whole row as it lands.
+  const end = Math.max(
+    0,
+    ...[...list.children].map((child) =>
+      child instanceof HTMLElement ? child.offsetLeft + child.offsetWidth : 0,
+    ),
+  )
+  const most = Math.max(0, end - list.clientWidth)
+  const to = Math.min(most, Math.max(right, Math.min(left, list.scrollLeft)))
+  if (Math.abs(to - list.scrollLeft) < 1) return
+  list.scrollTo({ left: to, behavior: instant ? 'instant' : 'smooth' })
+}
 
 interface TabKeys {
   /** The focused tab's place in the tablist */

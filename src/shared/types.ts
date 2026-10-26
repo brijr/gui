@@ -1,4 +1,5 @@
 import type { BoardCamera, BoardFrameLayout, BoardSection } from './board'
+import type { ShortcutId } from './shortcuts'
 
 /** A built-in agent's id, or `custom:<name>` for one the user added in agents.json */
 export type AgentId = string
@@ -180,6 +181,60 @@ export interface RecentProject {
   openedAt: number
   /** Its chat's last message and when it was sent; absent with no chat (or in the saved list) */
   chat?: { prompt: string; at: number } | null
+  /** A worktree Gui made: the project it's of, and its branch (read as the list is read) */
+  worktree?: { of: string; branch: string } | null
+  /** Its folder is gone (a worktree deleted outside Gui) */
+  missing?: boolean
+}
+
+/** The branch a project is on, read from Git's HEAD file. */
+export interface BranchStatus {
+  /** Null when no branch is checked out */
+  branch: string | null
+  /** In a worktree: the main project's folder name and this worktree's */
+  worktree: { of: string; name: string } | null
+}
+
+/**
+ * Opening a project on a shared branch like main asks where to work first: on main, on a new
+ * branch (named from the first message), or in a new worktree. The start screen shows it.
+ */
+export interface WhereToWorkPrompt {
+  root: string
+  /** The project's folder name */
+  name: string
+  /** The shared branch it's on */
+  branch: string
+  /** Uncommitted changes that stay behind in a new worktree; null until read */
+  uncommitted: number | null
+  /** Making the worktree */
+  creating: boolean
+  error: string | null
+}
+
+export type WhereToWorkAnswer =
+  | { kind: 'main'; always: boolean }
+  | { kind: 'branch' }
+  /** The worktree row opened: asks for trust if needed, then reads what stays behind */
+  | { kind: 'prepare-worktree' }
+  | { kind: 'worktree'; name: string }
+  | { kind: 'cancel' }
+
+export function isWhereToWorkAnswer(value: unknown): value is WhereToWorkAnswer {
+  if (!value || typeof value !== 'object') return false
+  const answer = value as Record<string, unknown>
+  switch (answer.kind) {
+    case 'main':
+      return typeof answer.always === 'boolean'
+    case 'worktree':
+      return typeof answer.name === 'string' && answer.name.length <= 200
+    case 'branch':
+    case 'prepare-worktree':
+    case 'cancel':
+      return true
+    default:
+      return false
+  }
 }
 
 /** An archived chat, as a project's list of them shows it */
@@ -362,6 +417,30 @@ export type MorphEvent =
   | { type: 'end'; id: number }
 
 /**
+ * Main → the chrome, while the chat sidebar slides in or out: how much of it is in the window
+ * on each side now, in px, as main last placed it. Null once it rests where `sidebarWidth`
+ * says. The bars beside it follow this rather than a spring of their own, so they can't drift.
+ */
+export type SidebarSlide = { left: number; right: number } | null
+
+/**
+ * An item in the toolbar's overflow ("…") menu: a tool that gave up its place in the toolbar
+ * for want of room. Main shows them as a native menu and answers with the chosen `id`.
+ */
+export type ToolbarMenuItem =
+  | { type: 'separator' }
+  | {
+      type?: 'normal' | 'checkbox' | 'radio'
+      id: string
+      /** Title Case, as in every native menu */
+      label: string
+      /** Its keys, shown at the item's end (they work from the app menu already) */
+      shortcut?: ShortcutId
+      enabled?: boolean
+      checked?: boolean
+    }
+
+/**
  * What a tab shows next to its name: its agent working, a permission card waiting for the
  * user, or something that failed (the agent, the install or the dev server).
  */
@@ -395,6 +474,10 @@ export interface WindowState {
   home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
+  /** Asking where to work before the project opens; null otherwise */
+  whereToWork: WhereToWorkPrompt | null
+  /** The open project's branch; null outside a repository */
+  branch: BranchStatus | null
   /**
    * Git can't run until Apple's developer tools are installed ('missing'), or the user is
    * installing them; null when it can (or hasn't been needed yet). Undo and sharing need git.
@@ -753,6 +836,8 @@ export interface ChatMeta {
   canSelect: boolean
   /** The chat is a canvas's: the agent makes frames rather than editing an app */
   canvas: boolean
+  /** The canvas has no frames yet, so the canvas itself says what to ask for */
+  canvasEmpty: boolean
   minimized: boolean
   /** The window's sidebar, top to bottom, instead of floating over the preview */
   docked: boolean
@@ -1043,6 +1128,8 @@ export interface Proposal {
   merge: { files: string[]; marked: string[] } | null
   /** This branch's newest pull request; null when there isn't one or Gui can't read the host */
   pull: ProposalPull | null
+  /** In a worktree: its folder name. Finishing removes it rather than starting something new */
+  worktree: string | null
 }
 
 export interface ProposalPull {
@@ -1098,7 +1185,7 @@ export interface SettingsState {
   trustedProjects: string[]
   /** Projects started with a command set in Gui rather than the one it detected */
   startCommands: { root: string; start: StartCommand }[]
-  /** Projects where the user chose to stay on the main branch instead of a Gui branch */
+  /** Projects the user chose to always open on their main branch, without asking */
   defaultBranchProjects: string[]
   recentProjects: RecentProject[]
   storage: StorageUsage

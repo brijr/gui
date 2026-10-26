@@ -28,6 +28,7 @@ export class ProjectResources {
   private completion: Promise<void> | null = null
   /** Bumped on dispose so a captured token from this opening fails `stillCurrent`. */
   private gen = 0
+  private closing = new AbortController()
 
   constructor(private readonly history: HistoryClaims) {}
 
@@ -37,6 +38,11 @@ export class ProjectResources {
 
   get generation() {
     return this.gen
+  }
+
+  /** Aborts on dispose, for long work (a website capture) that can stop part way. */
+  get signal() {
+    return this.closing.signal
   }
 
   /** False once this opening has been closed or replaced. */
@@ -80,6 +86,7 @@ export class ProjectResources {
     if (this.completion) return this.completion
     this.gen++
     this.disposed = true
+    this.closing.abort()
     let complete!: () => void
     this.completion = new Promise<void>((resolve) => {
       complete = resolve

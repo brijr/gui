@@ -5,9 +5,9 @@ import { ErrorBoundary } from '../lib/error-boundary'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { Archive, MessageSquare, MousePointer2, SquarePen } from '../lib/icons'
-import { Message } from '../lib/surface'
+import { Card, Message } from '../lib/surface'
 import { Button } from '../lib/ui'
-import { setDraft, useChat } from './store'
+import { setDraft, useChat, waitingCard } from './store'
 import { type TurnHeight, TurnLayout } from './turn-layout'
 import { TurnPresentation, TurnPresentationProvider } from './turn-presentation'
 import { TurnView } from './turn-view'
@@ -19,6 +19,7 @@ export function Transcript({ turnIds, meta }: { turnIds: string[]; meta: ChatMet
         <EmptyTranscript
           canSelect={meta.canSelect}
           canvas={meta.canvas}
+          canvasEmpty={meta.canvasEmpty}
           picked={meta.selection.length}
         />
         {meta.archived && <ArchivedNotice archived={meta.archived} />}
@@ -36,10 +37,16 @@ function toEnd(el: HTMLElement | null) {
 const STICK_SLOP = 48
 /** How long after a disclosure is toggled its change in height is the user's, not new content. */
 const TOGGLE_WINDOW = 150
+/**
+ * How long after the user's own wheel, touch or key a scroll counts as theirs. Other scrolls
+ * come from layout (the panel growing clamps the position) and never let go of the end.
+ */
+const INTENT_WINDOW = 250
 
 /** After New chat: the chat it replaced is in the archive, and can come straight back. */
 function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived']> }) {
   const [error, setError] = useState<string | null>(null)
+  const [opening, setOpening] = useState(false)
   return (
     <div className="flex shrink-0 flex-col gap-1 border-t border-line px-3 py-2">
       <div className="flex items-center gap-2">
@@ -50,9 +57,16 @@ function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived
         <Button
           size="sm"
           variant="ghost"
-          onClick={() =>
-            void gui.openChat(archived.id).catch((err: unknown) => setError(readableError(err)))
-          }
+          loading={opening}
+          onClick={() => {
+            setOpening(true)
+            setError(null)
+            // Opened, this chat is replaced and the notice goes with it.
+            gui
+              .openChat(archived.id)
+              .catch((err: unknown) => setError(readableError(err)))
+              .finally(() => setOpening(false))
+          }}
         >
           Reopen
         </Button>
@@ -67,14 +81,14 @@ const LONG_CHAT = 150
 
 function LongChatHint() {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-line px-3 py-2">
+    <Card tone="inset" className="flex items-center gap-2 px-3 py-2">
       <p className="min-w-0 flex-1 text-small text-muted">
         This chat is long. Agents stay sharper in a fresh one; this one stays in the archive.
       </p>
       <Button size="sm" icon={SquarePen} onClick={() => gui.newSession()}>
         New chat
       </Button>
-    </div>
+    </Card>
   )
 }
 
@@ -83,7 +97,9 @@ function LongChatHint() {
  * in them grows (a permission card, an image loading), and as the composer's stack (queue,
  * problems, the picked element) grows or shrinks under it. A new turn is the user's own
  * message, so it always comes into view and the transcript follows from there, wherever they
- * had scrolled to.
+ * had scrolled to. So does a new permission question: the agent can't go on until it's
+ * answered, so its buttons come into view. Only the user's own scrolling lets go of the end;
+ * a scroll the layout caused (a row not measured yet, the panel resizing) never does.
  */
 const TRANSCRIPT_INSET = 16
 
@@ -92,7 +108,12 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
   const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const toggledAt = useRef(Number.NEGATIVE_INFINITY)
+  /** When the user last wheeled, touched or pressed a key over the transcript. */
+  const intentAt = useRef(Number.NEGATIVE_INFINITY)
+  /** The pointer is down on the transcript: it may be dragging the scrollbar. */
+  const held = useRef(false)
   const newest = turnIds.at(-1)
+  const waiting = useChat((s) => waitingCard(s.turns)?.item.id ?? null)
   const running = useChat((s) => s.turnsById[newest ?? '']?.status === 'running')
   // Running turns stay mounted even when the user reads far back. This also retains waiting
   // permission cards and their view-transition counterparts without mounting archived turns.
@@ -163,14 +184,20 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
 
   // A sent/queued message must already be in view when the store's transition takes its
   // after snapshot. Layout effects restore the bottom and mounted window before paint.
-  useLayoutEffect(() => {
-    if (newest === undefined) return
+  // A new message, or a new question from the agent: back to the end, wherever the user was.
+  const pin = useCallback(() => {
     stick.current = true
     toggledAt.current = Number.NEGATIVE_INFINITY
     anchor.current = null
     toEnd(scroller.current)
     readViewport()
-  }, [newest, readViewport])
+  }, [readViewport])
+  useLayoutEffect(() => {
+    if (newest !== undefined) pin()
+  }, [newest, pin])
+  useLayoutEffect(() => {
+    if (waiting !== null) pin()
+  }, [waiting, pin])
   useLayoutEffect(() => {
     currentLayout.current = layout
     currentWidth.current = viewport.width
@@ -198,8 +225,31 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
     })
     observer.observe(el)
     observer.observe(inner)
+    // What the user does to scroll, so onScroll can tell their scrolling from the layout's.
+    const intend = () => {
+      intentAt.current = performance.now()
+    }
+    const hold = () => {
+      held.current = true
+    }
+    const release = () => {
+      held.current = false
+    }
+    const passive = { passive: true }
+    el.addEventListener('wheel', intend, passive)
+    el.addEventListener('touchmove', intend, passive)
+    el.addEventListener('keydown', intend)
+    el.addEventListener('pointerdown', hold)
+    window.addEventListener('pointerup', release)
+    window.addEventListener('pointercancel', release)
     return () => {
       observer.disconnect()
+      el.removeEventListener('wheel', intend)
+      el.removeEventListener('touchmove', intend)
+      el.removeEventListener('keydown', intend)
+      el.removeEventListener('pointerdown', hold)
+      window.removeEventListener('pointerup', release)
+      window.removeEventListener('pointercancel', release)
       if (measureFrame.current !== null) cancelAnimationFrame(measureFrame.current)
       if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
     }
@@ -222,7 +272,10 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
         onScroll={(event) => {
           const el = event.currentTarget
           anchor.current = null
-          stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP
+          if (el.scrollHeight - el.scrollTop - el.clientHeight < STICK_SLOP) stick.current = true
+          else if (held.current || performance.now() - intentAt.current < INTENT_WINDOW) {
+            stick.current = false
+          }
           if (scrollFrame.current !== null) return
           scrollFrame.current = requestAnimationFrame(() => {
             scrollFrame.current = null
@@ -330,22 +383,26 @@ function StarterPrompts({ prompts }: { prompts: readonly string[] }) {
 function EmptyTranscript({
   canSelect,
   canvas,
+  canvasEmpty,
   picked,
 }: {
   canSelect: boolean
   canvas: boolean
+  canvasEmpty: boolean
   picked: number
 }) {
-  // On a canvas's board there's no app to point at: the board itself says what to ask for.
+  // An empty canvas says what to ask for itself: the chat doesn't say it again.
+  if (canvasEmpty && !canSelect) return <div className="min-h-0 flex-1" />
+  // On a canvas's frames there's no app to point at until one is open.
   if (canvas && !canSelect) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
         <Message
-          className="m-auto shrink-0"
+          className="my-auto shrink-0"
           icon={<MessageSquare className="size-4" aria-hidden="true" />}
           title="Design on the canvas"
         >
-          Ask for a page, or a few versions of one, and each lands on the board as a frame. Open a
+          Ask for a page, or a few versions of one, and each lands on the canvas as a frame. Open a
           frame to point at any part of it to change.
         </Message>
       </div>
@@ -355,16 +412,16 @@ function EmptyTranscript({
   // still take a message, which needs no element.
   if (!canSelect) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
         <Message
-          className="m-auto shrink-0"
+          className="my-auto shrink-0"
           icon={<MessageSquare className="size-4" aria-hidden="true" />}
           title="Ask about your project"
         >
           Once your app shows in the preview, you can point at any part of it to change. Until then,
           your agent can still read and edit the code.
         </Message>
-        <div className="mx-auto mb-auto w-full max-w-sm pt-4">
+        <div className="mb-auto w-full max-w-sm pt-4">
           <StarterPrompts prompts={STARTERS.build} />
         </div>
       </div>
@@ -373,9 +430,9 @@ function EmptyTranscript({
   // Something's picked: the next step is the message, not picking again.
   if (picked > 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
         <Message
-          className="m-auto shrink-0"
+          className="my-auto shrink-0"
           icon={<MessageSquare className="size-4" aria-hidden="true" />}
           title="Describe the change"
         >
@@ -386,9 +443,9 @@ function EmptyTranscript({
     )
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
       <Message
-        className="m-auto w-full max-w-sm shrink-0"
+        className="my-auto w-full max-w-sm shrink-0"
         icon={<MousePointer2 className="size-4" aria-hidden="true" />}
         title="Select something to edit"
         actions={

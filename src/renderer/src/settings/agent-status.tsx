@@ -3,12 +3,13 @@ import { cn } from '../lib/cn'
 import { Check } from '../lib/icons'
 import { Spinner } from '../lib/ui'
 
-const LABEL = 'flex shrink-0 items-center gap-1 text-small font-medium'
+const LABEL = 'flex shrink-0 items-center text-small font-medium'
 
 /**
  * An agent's status in a word or two, beside its name, the same on the start screen and in
- * Settings: one weight whatever the state, and the color says which. An agent that hasn't
- * been checked yet was found on PATH, so it reads as installed; Settings puts a "Check now"
+ * Settings: one weight whatever the state, and the color says which. The words are the
+ * glossary's (docs/glossary.md): Ready, Not checked, Not installed, Off, Unavailable. An
+ * agent Gui found but hasn't checked yet reads "Not checked"; Settings puts a "Check now"
  * after it. An error's message is the tooltip here, and said in full where the agent is
  * shown on its own (its next step, its Settings row).
  */
@@ -16,7 +17,7 @@ export function AgentStatusLabel({ health }: { health: AgentHealth }) {
   switch (health.status) {
     case 'ready':
       return (
-        <span className={cn(LABEL, 'text-success')}>
+        <span className={cn(LABEL, 'gap-1 text-success')}>
           <Check className="size-3" aria-hidden="true" />
           Ready
         </span>
@@ -45,8 +46,13 @@ export function AgentStatusLabel({ health }: { health: AgentHealth }) {
     case 'not-installed':
       return <span className={cn(LABEL, 'text-subtle')}>Not installed</span>
     case 'unknown':
-      return <span className={cn(LABEL, 'text-subtle')}>Installed</span>
+      return <span className={cn(LABEL, 'text-subtle')}>Not checked</span>
     default:
       return null
   }
+}
+
+/** An agent switched off in Settings: it isn't checked, so it has no other status. */
+export function AgentOffLabel() {
+  return <span className={cn(LABEL, 'text-subtle')}>Off</span>
 }

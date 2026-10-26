@@ -50,9 +50,12 @@ export interface AllIpcRequests {
   [Invoke.connectAgent]: Contract<'connectAgent'>
   [Invoke.shipInfo]: Contract<'getShipInfo'>
   [Invoke.takeScreenshot]: Contract<'takeScreenshot'>
+  [Invoke.showToolbarMenu]: Contract<'showToolbarMenu'>
   [Invoke.startRecording]: Contract<'startRecording'>
   [Invoke.recordingFrame]: Contract<'saveRecordingFrame'>
+  [Invoke.recordingVideo]: Contract<'saveRecordingVideo'>
   [Invoke.finishRecording]: Contract<'finishRecording'>
+  [Invoke.prepareNarration]: Contract<'prepareNarration'>
   [Invoke.discardRecording]: Contract<'discardRecording'>
   [Invoke.ship]: Contract<'ship'>
   [Invoke.sourceControl]: Contract<'sourceControl'>
@@ -68,6 +71,10 @@ export interface AllIpcRequests {
   [Invoke.untrustProject]: Contract<'untrustProject'>
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
   [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
+  [Invoke.answerWhereToWork]: Contract<'answerWhereToWork'>
+  [Invoke.createWorktree]: Contract<'createWorktree'>
+  [Invoke.removeWorktree]: Contract<'removeWorktree'>
+  [Invoke.openWorktree]: Contract<'openWorktree'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
   [Invoke.boardChatCover]: Contract<'boardChatCover'>
@@ -134,6 +141,9 @@ export type LegacyErrorChannel =
   | typeof Invoke.finishMerge
   | typeof Invoke.cancelMerge
   | typeof Invoke.resolveConflicts
+  | typeof Invoke.createWorktree
+  | typeof Invoke.removeWorktree
+  | typeof Invoke.openWorktree
   | typeof Invoke.saveCustomAgent
   | typeof Invoke.deleteCustomAgent
 export type LegacyChannel = Exclude<keyof AllIpcRequests, RequestChannel>

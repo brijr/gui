@@ -259,7 +259,9 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
         ).cloneInspection,
     )
     expect(pushInspection.argv).toContain('https://github.com/gui-tester/private-project.git')
-    expect(pushInspection.argv).toContain('refs/heads/gui/design-test:refs/heads/gui/design-test')
+    // The exact commit Gui checked goes up, so a commit made meanwhile can't ride along.
+    const shipped = git(root, 'rev-parse', 'gui/design-test').trim()
+    expect(pushInspection.argv).toContain(`${shipped}:refs/heads/gui/design-test`)
     expect(pushInspection.argv.join(' ')).not.toContain('test-provider-secret')
     expect(existsSync(pushInspection.askpass)).toBe(false)
     // A project's untrusted preview cannot call account methods through IPC.
@@ -277,7 +279,7 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
       session.chrome.getByRole('button', { name: 'Clone by URL', exact: true }),
     ).toBeVisible()
     await session.chrome.screenshot({ path: test.info().outputPath('github-start-screen.png') })
-    await session.chrome.getByRole('button', { name: 'Connect GitHub', exact: true }).click()
+    await session.chrome.getByRole('button', { name: 'Connect GitHub…', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
   } finally {
     if (previous === undefined) delete process.env.GUI_ACCOUNTS_URL

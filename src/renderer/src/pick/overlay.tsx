@@ -180,7 +180,7 @@ export function PickOverlay() {
           <Outline rect={state.hover.rect} kind="hover" />
           <Label rect={state.hover.rect}>
             {state.hover.name && <span className="font-medium">{state.hover.name}</span>}
-            <span className="opacity-80 tabular-nums">{state.hover.size}</span>
+            <span className="tabular-nums">{state.hover.size}</span>
           </Label>
         </>
       )}
@@ -270,7 +270,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
           >
             <path
               d="M2 1.5v16.2l4.6-4.3 3.1 6.9 3-1.3-3-6.8 6.3-.3z"
-              className="fill-accent stroke-white"
+              className="fill-accent stroke-knob"
               strokeWidth="1.5"
               strokeLinejoin="round"
             />

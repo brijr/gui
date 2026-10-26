@@ -237,6 +237,7 @@ try {
     prompt: () => null,
     open: async () => {},
     live: () => true,
+    closed: new AbortController().signal,
   })
   const agentCreating = tools.create({ name: 'Agent', width: 400, height: 300 })
   const userArranging = agentBoundary.arrange([{ id: 'b', x: 999, y: 0 }])
@@ -381,6 +382,7 @@ try {
     prompt: () => null,
     open: async () => {},
     live: () => live,
+    closed: new AbortController().signal,
   })
   live = false
   assert.throws(() => late.list(), /The canvas closed/)

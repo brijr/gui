@@ -25,10 +25,10 @@ import type { IconComponent } from './icons'
  */
 export const PRESS = 'active:opacity-70 active:transition-none'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'plain' | 'live'
 type ControlSize = 'sm' | 'md' | 'lg'
 
-const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
+const CONTROL = `no-drag inline-flex items-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
 
 /** Disabled, a control fades; a primary one goes neutral instead (VARIANT), as a pale accent still reads as live. */
 const FADE = 'disabled:opacity-40'
@@ -45,13 +45,17 @@ const VARIANT: Record<ButtonVariant, string> = {
   secondary: `border border-line-strong bg-raised text-fg shadow-control enabled:hover:tint ${FADE}`,
   ghost: `text-muted enabled:hover:bg-hover enabled:hover:text-fg ${FADE}`,
   danger: `bg-danger-soft text-danger enabled:hover:tint ${FADE}`,
+  plain: `text-muted enabled:hover:text-fg ${FADE}`,
+  live: `text-danger ${FADE}`,
 }
 
 interface ButtonProps extends ComponentProps<'button'> {
   /**
    * primary: the one thing to do next (at most one per view). secondary: the default, for
    * other actions and retries. ghost: quiet actions next to a primary or in headers.
-   * danger: confirming something destructive.
+   * danger: confirming something destructive. plain: ghost with no fill of its own, for a
+   * control inside a group that highlights as a whole (Record and its mic). live: something
+   * running that this stops (Record while it records), in danger text with no fill.
    */
   variant?: ButtonVariant
   size?: ControlSize
@@ -90,7 +94,8 @@ export function Button({
       aria-busy={loading || undefined}
       title={tooltip && shortcut ? withShortcut(tooltip, shortcut) : tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
-      className={cn(CONTROL, BUTTON_SIZE[size], VARIANT[variant], className)}
+      // A label starts at the left, even in a button wider than it (text in Gui is never centered).
+      className={cn(CONTROL, 'justify-start', BUTTON_SIZE[size], VARIANT[variant], className)}
       {...props}
     >
       {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
@@ -119,8 +124,11 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   title?: string
   icon: IconComponent
   size?: 'sm' | 'md'
-  /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
-  variant?: 'ghost' | 'primary' | 'secondary'
+  /**
+   * ghost, the default; primary for Send; secondary for a bordered one like Stop; plain for
+   * one inside a group that highlights as a whole (Button's `plain`)
+   */
+  variant?: 'ghost' | 'primary' | 'secondary' | 'plain'
   /** Makes it a toggle: aria-pressed, and accent-soft with accent text while pressed */
   pressed?: boolean
   /** Turns the icon while something loads (Reload) */
@@ -165,7 +173,7 @@ export function IconButton({
       aria-pressed={pressed}
       className={cn(
         CONTROL,
-        'shrink-0',
+        'shrink-0 justify-center',
         showKeys ? 'h-7 gap-1.5 pr-1.5 pl-2' : size === 'sm' ? 'size-6' : 'size-7',
         strong
           ? VARIANT.primary
@@ -201,6 +209,8 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
   emphasis?: 'soft' | 'strong'
   /** Its keyboard shortcut, named after the tooltip (`title`) */
   shortcut?: ShortcutId
+  /** md, the default; sm in a row of sm buttons (a turn's Follow up) */
+  size?: 'sm' | 'md'
 }
 
 /** A labelled on/off control (aria-pressed). Its weight never changes with its state. */
@@ -209,6 +219,7 @@ export function Toggle({
   icon: Icon,
   emphasis = 'soft',
   shortcut,
+  size = 'md',
   title,
   className,
   children,
@@ -222,8 +233,8 @@ export function Toggle({
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       className={cn(
         CONTROL,
-        BUTTON_SIZE.md,
-        'shrink-0',
+        BUTTON_SIZE[size],
+        'shrink-0 justify-start',
         !pressed && VARIANT.ghost,
         pressed && emphasis === 'soft' && `bg-accent-soft text-accent-text ${FADE}`,
         pressed && emphasis === 'strong' && VARIANT.primary,
@@ -258,6 +269,8 @@ interface SegmentedControlProps<T extends string> {
   iconOnly?: boolean
   /** Segments share the width and truncate (effort levels) */
   stretch?: boolean
+  /** Shown but not choosable, e.g. while what it sets is switched off */
+  disabled?: boolean
   className?: string
 }
 
@@ -273,14 +286,16 @@ export function SegmentedControl<T extends string>({
   labelledBy,
   iconOnly = false,
   stretch = false,
+  disabled = false,
   className,
 }: SegmentedControlProps<T>) {
   return (
     <fieldset
       aria-label={label}
       aria-labelledby={labelledBy}
+      disabled={disabled}
       className={cn(
-        'no-drag flex min-w-0 items-center gap-0.5 rounded-md bg-fill p-0.5',
+        'no-drag flex min-w-0 items-center gap-0.5 rounded-md bg-fill p-0.5 disabled:opacity-40',
         className,
       )}
     >
@@ -302,7 +317,9 @@ export function SegmentedControl<T extends string>({
               PRESS,
               iconOnly ? 'w-6' : stretch ? 'px-1.5' : 'px-2',
               stretch && 'min-w-0 flex-auto',
-              on ? 'bg-accent-soft text-accent-text' : 'text-muted hover:bg-hover hover:text-fg',
+              on
+                ? 'bg-accent-soft text-accent-text'
+                : 'text-muted enabled:hover:bg-hover enabled:hover:text-fg',
             )}
           >
             {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}

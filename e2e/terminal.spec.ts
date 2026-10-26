@@ -135,8 +135,8 @@ test('⌘J opens a terminal at the project root; it takes keys, copy and paste, 
   // Nothing runs in a terminal until the user opens one.
   expect(state.drawer).toEqual({ open: false, tab: null, terminals: [] })
 
-  // View → Toggle Terminal (⌘J): the first time, a new terminal, with the keyboard in it.
-  await clickMenu(session, 'Toggle Terminal')
+  // View → Show Terminal (⌘J): the first time, a new terminal, with the keyboard in it.
+  await clickMenu(session, 'Show Terminal')
   const opened = await drawerWith(session, 1)
   const first = opened.terminals[0]?.id
   if (!first) throw new Error('No terminal')
@@ -217,7 +217,7 @@ test('⌘J opens a terminal at the project root; it takes keys, copy and paste, 
 test('a second terminal, closing one, exit and restart, other tabs, and ⌘W', async ({ launch }) => {
   const session = await launch({ fixture: 'vite', env: SHELL })
   const { activeTab: projectTab } = await session.waitForPreview()
-  await clickMenu(session, 'Toggle Terminal')
+  await clickMenu(session, 'Show Terminal')
   const first = (await drawerWith(session, 1)).terminals[0]?.id
   if (!first) throw new Error('No terminal')
   await waitForFocus(session, first)
@@ -402,7 +402,7 @@ test('a flood of output keeps Gui responsive, ⌃C stops it, and what follows is
 }) => {
   const session = await launch({ fixture: 'vite', env: SHELL })
   await session.waitForPreview()
-  await clickMenu(session, 'Toggle Terminal')
+  await clickMenu(session, 'Show Terminal')
   const id = (await drawerWith(session, 1)).terminals[0]?.id
   if (!id) throw new Error('No terminal')
   await waitForFocus(session, id)

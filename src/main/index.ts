@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
 import { mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
   app,
@@ -51,6 +51,7 @@ import {
   isProjectTemplate,
   isTerminalId,
   isViewport,
+  isWhereToWorkAnswer,
   type ProjectTemplate,
   type Rect,
   type SettingsSection,
@@ -88,6 +89,7 @@ import {
   stringRequestArgs,
 } from './ipc-handler'
 import { isLoopback } from './loopback'
+import { chatWillHide, terminalWillHide } from './menu-toggles'
 import { createProject, createProjectFromFrame, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
@@ -119,6 +121,8 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
+import { showToolbarMenu, toolbarMenuItems } from './toolbar-menu'
+import { prepareTranscription } from './transcribe'
 import { checkForUpdatesByHand, startUpdates } from './updates'
 import {
   allTabs,
@@ -133,6 +137,8 @@ import {
   shareBoards,
   windowEvents,
 } from './window'
+import { findWorktree, type WorktreeRecord } from './worktree-registry'
+import { forgetWorktree } from './worktrees'
 
 app.setName('Gui')
 keepInBackground()
@@ -211,7 +217,11 @@ const canonical = (path: string) => realpath(path).catch(() => path)
  * no window given, the focused one (or the one focused last) is used. A folder already open
  * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
-async function openProjectIn(target: ProjectWindow | undefined, root: string) {
+async function openProjectIn(
+  target: ProjectWindow | undefined,
+  root: string,
+  { ask = true }: { ask?: boolean } = {},
+) {
   // Gui needs an account first: the start screen asks for it, and the folder opens after.
   if (mustSignIn()) {
     waitingForAccount.push({ target, root })
@@ -221,7 +231,10 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
     return
   }
   if (!(await isDirectory(root))) {
-    dialog.showErrorBox('Project not found', `${root} is not a folder.`)
+    // A worktree Gui made, deleted outside it: say so, and offer to clear it out of Gui.
+    const worktree = await findWorktree(root)
+    if (worktree) await offerToForget(target, worktree)
+    else dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
   // A monorepo app's folder opens the monorepo with that app chosen, so installs, the
@@ -233,11 +246,54 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   try {
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    await tabToOpenIn(target).openProject(real)
+    const tab = tabToOpenIn(target)
+    // On a shared branch like main, the start screen asks where to work first.
+    const choice = ask ? await tab.chooseWhereToWork(real) : { root: real, branchOnSend: null }
+    if (!choice) return
+    await tab.openProject(choice.root, { branchOnSend: choice.branchOnSend })
   } finally {
     opening.delete(real)
     syncMenuItems()
   }
+}
+
+/**
+ * A worktree whose folder was deleted outside Gui. Removing it from Gui clears Git's stale
+ * record of it, the recents row and the registry; its branch is untouched.
+ */
+async function offerToForget(target: ProjectWindow | undefined, worktree: WorktreeRecord) {
+  const parent = target?.win ?? lastFocusedWindow()?.win
+  const name = basename(worktree.top)
+  const options = {
+    type: 'warning' as const,
+    message: `The worktree ${name} is gone`,
+    detail: `Its folder, ${worktree.top}, was deleted outside Gui. The branch ${worktree.branch} and its commits are untouched.`,
+    buttons: ['Remove from Gui', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options)
+  if (response !== 0) return
+  await forgetWorktree(worktree.path)
+  await removeRecent(worktree.path)
+}
+
+/**
+ * One of a repository's worktrees: the tab it's open in, shown, or a new tab. It opens as it
+ * is, without asking where to work: the user picked this checkout.
+ */
+async function openWorktreeIn(target: ProjectWindow | undefined, root: string) {
+  const open = allTabs().find((tab) => tab.projectRoot === root)
+  const shown = open && allWindows().find((win) => win.tabs.includes(open))
+  if (open && shown) {
+    shown.showTab(open)
+    focusWindow(shown.win, { steal: true })
+    return
+  }
+  await openProjectIn(target, root, { ask: false })
 }
 
 /** Folders asked for while signed out, in order. */
@@ -718,6 +774,8 @@ function registerIpc() {
           'Gui can’t use the microphone. Turn it on in System Settings → Privacy & Security → Microphone.'
       }
     }
+    // The speech model downloads while they talk, not after they stop.
+    if (narrated) prepareTranscription()
     const id = await store.start(narrated)
     if (tab.recordings !== store || captures.has(event.sender.id)) {
       await store.discard(id)
@@ -774,22 +832,28 @@ function registerIpc() {
       return false
     return capture.store.frame(capture.id, at, jpeg)
   })
+  handleLegacy(Invoke.recordingVideo, (event, id: unknown, chunk: unknown) => {
+    const capture = captures.get(event.sender.id)
+    if (
+      !capture ||
+      id !== capture.id ||
+      !(chunk instanceof Uint8Array) ||
+      capture.tab?.recordings !== capture.store
+    )
+      return false
+    return capture.store.video(capture.id, chunk)
+  })
+  handleLegacy(Invoke.prepareNarration, () => {
+    prepareTranscription()
+  })
   handleLegacy(
     Invoke.finishRecording,
-    async (
-      event,
-      id: unknown,
-      duration: unknown,
-      video: unknown,
-      startedAt: unknown,
-      audio: unknown,
-    ) => {
+    async (event, id: unknown, duration: unknown, startedAt: unknown, audio: unknown) => {
       const capture = captures.get(event.sender.id)
       if (
         !capture ||
         id !== capture.id ||
         !isNumber(duration) ||
-        !(video instanceof Uint8Array) ||
         (audio !== undefined && audio !== null && !(audio instanceof Uint8Array))
       )
         throw new Error('Recording is unavailable.')
@@ -800,7 +864,7 @@ function registerIpc() {
         let traced: Awaited<ReturnType<typeof capture.trace.finish>> | null = null
         if (isNumber(startedAt)) traced = await capture.trace.finish(startedAt, duration)
         else capture.trace.dispose()
-        const clip = await capture.store.finish(capture.id, duration, video, {
+        const clip = await capture.store.finish(capture.id, duration, {
           timeline: traced?.timeline ?? [],
           cursor: traced?.cursor ?? null,
           audio: capture.narrated && audio instanceof Uint8Array ? audio : null,
@@ -858,7 +922,7 @@ function registerIpc() {
     authorize: fromAppUi,
     clone: async (event, id) => {
       const target = windowFor(event)
-      const folder = await pickParent(target, 'Clone GitHub project', 'Clone here')
+      const folder = await pickParent(target, 'Clone GitHub project', 'Clone Here')
       if (folder) openSafely(target, await cloneGitHub(id, folder))
     },
   })
@@ -901,6 +965,13 @@ function registerIpc() {
     },
   )
   handleLegacy(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
+  handleLegacy(Invoke.showToolbarMenu, async (event, items: unknown, at: unknown) => {
+    const win = windowFor(event)
+    const valid = toolbarMenuItems(items)
+    // The window's own chrome only, where the toolbar is.
+    if (!win || win.win.webContents !== event.sender || !valid || !isPoint(at)) return null
+    return showToolbarMenu(win.win, valid, at)
+  })
   handleLegacy(Invoke.takeScreenshot, (event, at: unknown) => {
     const tab = tabFor(event)
     return tab?.screenshotMenu(event.sender, isPoint(at) ? at : null) ?? null
@@ -938,6 +1009,30 @@ function registerIpc() {
   )
   handleLegacy(Invoke.resolveConflicts, (event) =>
     reportError(async () => requireTab(event).resolveConflicts()),
+  )
+  handleLegacy(Invoke.answerWhereToWork, async (event, answer: unknown) => {
+    // The start screen is the window's chrome, answering for its own tab.
+    const win = windowFor(event)
+    if (!win || win.win.webContents !== event.sender || !isWhereToWorkAnswer(answer)) return false
+    return win.activeTab.answerWhereToWork(answer)
+  })
+  handleLegacy(Invoke.createWorktree, (event, name: unknown) =>
+    reportError(async () => {
+      if (!isString(name) || name.length > 200) throw new Error('Use a shorter name.')
+      const root = await requireTab(event).createWorktree(name)
+      await openWorktreeIn(windowFor(event), root)
+    }),
+  )
+  handleLegacy(Invoke.removeWorktree, (event) =>
+    reportError(async () => requireTab(event).removeWorktree()),
+  )
+  handleLegacy(Invoke.openWorktree, (event, path: unknown) =>
+    reportError(async () => {
+      if (!isString(path) || path.length > 4096) throw new Error('That worktree is unavailable.')
+      const root = await requireTab(event).worktreeRoot(path)
+      if (!root) throw new Error('That worktree is no longer there. Refresh the branch list.')
+      await openWorktreeIn(windowFor(event), root)
+    }),
   )
   handleLegacy(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
@@ -1033,6 +1128,22 @@ function registerIpc() {
       (root) => openSafely(win, root),
     ),
   )
+  onWindow(
+    Send.showBranchMenu,
+    (win) =>
+      void win.activeTab.showBranchMenu((root) => {
+        openWorktreeIn(win, root).catch((error: unknown) =>
+          dialog.showErrorBox(
+            "Couldn't open the worktree",
+            error instanceof Error ? error.message : String(error),
+          ),
+        )
+      }),
+  )
+  on(Send.revealProject, (tab) => {
+    const root = tab.getState().project?.root
+    if (root) shell.showItemInFolder(root)
+  })
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
   registerBoardIpc(onWindow, {
     create: newBoard,
@@ -1370,21 +1481,36 @@ const MOVE_TAB_ITEM = 'move-tab'
 const ALLOW_ITEM = 'allow'
 const DONT_ALLOW_ITEM = 'dont-allow'
 const FOCUS_MODE_ITEM = 'focus-mode'
+const SHOW_CHAT_ITEM = 'show-chat'
+const HIDE_CHAT_ITEM = 'hide-chat'
+const SHOW_TERMINAL_ITEM = 'show-terminal'
+const HIDE_TERMINAL_ITEM = 'hide-terminal'
 
-type SyncedItem = Pick<MenuItemConstructorOptions, 'checked' | 'enabled'>
+type SyncedItem = Pick<MenuItemConstructorOptions, 'checked' | 'enabled' | 'visible'>
 
 /**
  * Menu items that follow the window menus act on: View → Focus Mode is checked while the
  * window's in it; Agent → Auto Mode is checked when the project it would change is in Auto
  * mode; Allow and Don't Allow answer a permission card
  * that's waiting (see `permissionAnswer`); Window → Move Tab to New Window needs a second tab.
+ * View → Show Chat or Hide Chat, and Show Terminal or Hide Terminal, say what ⌘B and ⌘J
+ * will do (menu-toggles.ts).
  *
  * Their keys reach a page first: ⌘⌫ deletes typing in a text field, and the chat panel
  * answers ⌘↩ and ⌘⌫ itself (chat-panel.tsx), so only keys nothing else took get here.
  */
 function syncedItemStates(): Record<string, SyncedItem> {
   const tab = menuTab()
+  const focusMode = menuWindow()?.focusMode ?? false
+  const hideChat =
+    !!tab &&
+    chatWillHide({ chatVisible: tab.state.chatVisible, poppedOut: !!tab.popoutWindow, focusMode })
+  const hideTerminal = !!tab && terminalWillHide({ drawerOpen: tab.state.drawer.open, focusMode })
   return {
+    [SHOW_CHAT_ITEM]: { visible: !hideChat },
+    [HIDE_CHAT_ITEM]: { visible: hideChat },
+    [SHOW_TERMINAL_ITEM]: { visible: !hideTerminal },
+    [HIDE_TERMINAL_ITEM]: { visible: hideTerminal },
     [FOCUS_MODE_ITEM]: { checked: menuWindow()?.focusMode ?? false },
     [AUTO_MODE_ITEM]: { checked: tab?.autoApprove ?? false },
     [ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(true) },
@@ -1395,11 +1521,12 @@ function syncedItemStates(): Record<string, SyncedItem> {
 
 function syncMenuItems() {
   const menu = Menu.getApplicationMenu()
-  for (const [id, { checked, enabled }] of Object.entries(syncedItemStates())) {
+  for (const [id, { checked, enabled, visible }] of Object.entries(syncedItemStates())) {
     const item = menu?.getMenuItemById(id)
     if (!item) continue
     if (checked !== undefined && item.checked !== checked) item.checked = checked
     if (enabled !== undefined && item.enabled !== enabled) item.enabled = enabled
+    if (visible !== undefined && item.visible !== visible) item.visible = visible
   }
 }
 
@@ -1511,6 +1638,32 @@ function buildMenu() {
     )
     return [visible, ...hidden]
   }
+  /**
+   * A show-or-hide shortcut's two items on the same keys ("Show Chat", "Hide Chat"), only one
+   * of them shown (`syncMenuItems`). The hidden one's keys don't work: a keystroke runs the
+   * item the menu shows.
+   */
+  const showOrHide = (
+    id: ShortcutId,
+    showId: string,
+    hideId: string,
+    fn: (tab: ProjectTab) => void,
+  ): MenuItemConstructorOptions[] => {
+    const { menuLabels }: ShortcutSpec = SHORTCUTS[id]
+    if (!menuLabels) throw new Error(`${id} has no Show and Hide labels`)
+    return [
+      { id: showId, label: menuLabels.show },
+      { id: hideId, label: menuLabels.hide },
+    ].flatMap(({ id: itemId, label }) =>
+      item(id, {
+        id: itemId,
+        label,
+        ...synced[itemId],
+        acceleratorWorksWhenHidden: false,
+        click: withWindow(fn),
+      }),
+    )
+  }
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
@@ -1567,12 +1720,14 @@ function buildMenu() {
       submenu: [
         ...item('selectElement', { click: withWindow((w) => void w.toggleSelect()) }),
         // ⌘B shows or hides the chat, like a sidebar; ⌘L puts the cursor in it (Cursor's ⌘L).
-        ...item('toggleChat', { click: withWindow((w) => w.toggleChat()) }),
+        ...showOrHide('toggleChat', SHOW_CHAT_ITEM, HIDE_CHAT_ITEM, (w) => w.toggleChat()),
         ...item('focusMessageBox', { click: withWindow((w) => w.focusMessageBox()) }),
         ...item('dockChat', { click: withWindow((w) => w.toggleDock()) }),
         ...item('popOutChat', { click: withWindow((w) => w.togglePopOut()) }),
         // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
-        ...item('toggleTerminal', { click: withWindow((w) => w.toggleDrawer()) }),
+        ...showOrHide('toggleTerminal', SHOW_TERMINAL_ITEM, HIDE_TERMINAL_ITEM, (w) =>
+          w.toggleDrawer(),
+        ),
         { type: 'separator' },
         ...item('focusAddress', { click: withTabs((w) => w.focusAddress()) }),
         ...item('reload', { click: withWindow((w) => w.reload()) }),

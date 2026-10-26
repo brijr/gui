@@ -24,6 +24,11 @@ export type ShortcutMenu = 'app' | 'file' | 'edit' | 'view' | 'agent' | 'window'
 export interface ShortcutSpec {
   /** The menu item's label, in title case like the rest of the menu bar */
   label: string
+  /**
+   * For a key that shows or hides something: the menu says which it will do, with one of
+   * these in place of `label` ("Show Chat", "Hide Chat"). The sheet still shows `label`.
+   */
+  menuLabels?: { show: string; hide: string }
   /** Electron's accelerator for it: shown in the menu, and what the key does */
   accelerator: string
   /** Other keys for the same command, hidden from the menu (Safari's ⇧⌘] for the next tab) */
@@ -228,7 +233,8 @@ export const SHORTCUTS = {
   },
 
   toggleChat: {
-    label: 'Toggle Chat',
+    label: 'Show or Hide Chat',
+    menuLabels: { show: 'Show Chat', hide: 'Hide Chat' },
     accelerator: 'CmdOrCtrl+B',
     menu: 'view',
     group: 'chat',
@@ -313,7 +319,8 @@ export const SHORTCUTS = {
   },
 
   toggleTerminal: {
-    label: 'Toggle Terminal',
+    label: 'Show or Hide Terminal',
+    menuLabels: { show: 'Show Terminal', hide: 'Hide Terminal' },
     accelerator: 'CmdOrCtrl+J',
     menu: 'view',
     group: 'terminal',

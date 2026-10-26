@@ -1,5 +1,4 @@
-import { type ReactNode, useEffect } from 'react'
-import { TOOLBAR_HEIGHT } from '../../../shared/layout'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -9,16 +8,16 @@ import {
   Check,
   CircleDot,
   ExternalLink,
-  GitBranch,
   GitPullRequest,
   type IconComponent,
   MessageSquare,
   RotateCw,
   SquarePen,
+  Trash2,
   TriangleAlert,
 } from '../lib/icons'
 import { Badge } from '../lib/status'
-import { Banner, Message, PanelHeader } from '../lib/surface'
+import { Banner, Card, Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, IconButton, TextButton } from '../lib/ui'
 import { Markdown } from './markdown'
@@ -53,15 +52,23 @@ export function useOpenComments(): ReviewComment[] {
 }
 
 /**
- * Keeps the bar current: on open, every minute (main fetches at most every two), when the
- * window comes back, when the agent finishes a turn, and when the PR sheet closes.
+ * Keeps the bar current: on open, every minute while its tab is in front (main fetches at most
+ * every two), when the tab or the window comes back, when the agent finishes a turn, and when
+ * the PR sheet closes. A tab behind another doesn't check its pull request.
  */
 export function useProposalUpdates() {
   useEffect(() => {
+    let active = true
     void refreshProposal(true)
-    const timer = setInterval(() => void refreshProposal(true), 60_000)
+    const timer = setInterval(() => {
+      if (active) void refreshProposal(true)
+    }, 60_000)
     const onFocus = () => void refreshProposal(true)
     window.addEventListener('focus', onFocus)
+    const offActive = gui.onTabActive((now) => {
+      if (now && !active) void refreshProposal(true)
+      active = now
+    })
     const offTurns = useChat.subscribe((chat, before) => {
       // The first read can come before the project is open, which reads as none: read again
       // as the chat changes, until there's something to show.
@@ -80,6 +87,7 @@ export function useProposalUpdates() {
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
+      offActive()
       offTurns()
       offSheet()
       offVersions()
@@ -127,50 +135,22 @@ function openExternal(url: string) {
   if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener')
 }
 
-/** Over the transcript; absent when there's nothing to say (no repo, nothing changed). */
+/**
+ * Over the transcript; absent when there's nothing to say (no repo, nothing changed). The
+ * branch itself is in the toolbar, whose branch menu opens Source Control.
+ */
 export function ProposalBar() {
   const proposal = useProposal((s) => s.proposal)
   const busy = useProposal((s) => s.busy)
   const error = useProposal((s) => s.error)
+  const shipBusy = useShipSheet((s) => s.busy)
   const comments = useOpenComments()
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
-  // Under a header as tall as the tab row, as tall as the toolbar: both edges line up.
-  const tabRow = useChat((s) => s.meta?.tabRow ?? false)
   if (!proposal) return null
 
-  const bar =
-    proposal.pull || proposal.merge || (proposal.behind ?? 0) > 0
-      ? barFor(proposal, comments.length, busy, agentBusy)
-      : null
+  const bar = barFor(proposal, comments.length, busy, agentBusy, shipBusy)
   return (
     <>
-      <Banner
-        icon={GitBranch}
-        style={tabRow ? { height: TOOLBAR_HEIGHT } : undefined}
-        actions={
-          <Button size="sm" variant="ghost" onClick={toggleShipSheet}>
-            Source control
-          </Button>
-        }
-      >
-        <Button
-          size="sm"
-          variant="ghost"
-          // `!`: flush with the icon; the sm size's padding would win otherwise (cn doesn't merge).
-          className="min-w-0 justify-start pl-0!"
-          title={proposal.branch ?? 'Detached HEAD'}
-          onClick={toggleShipSheet}
-        >
-          <span className="truncate font-mono">{proposal.branch ?? 'Detached HEAD'}</span>
-        </Button>
-        <span className="shrink-0 text-caption text-muted">
-          {proposal.changes > 0
-            ? `${proposal.changes} changed`
-            : proposal.ahead > 0
-              ? `${proposal.ahead} to push`
-              : 'Clean'}
-        </span>
-      </Banner>
       {bar}
       {error && (
         <Banner
@@ -196,6 +176,7 @@ function barFor(
   openComments: number,
   busy: Action | null,
   agentBusy: boolean,
+  shipBusy: boolean,
 ): ReactNode {
   const { pull, merge } = proposal
   const latest = proposal.defaultBranch ?? 'main'
@@ -253,23 +234,37 @@ function barFor(
     )
   }
 
-  // Done with this one: the next idea starts from the latest, in a new chat.
+  // Done with this one: the next idea starts from the latest, in a new chat. A worktree can't
+  // switch to main (it's checked out beside it), so it's removed instead: the branch stays.
   if (pull && (pull.state === 'merged' || pull.state === 'closed')) {
     return (
       <Strip
         icon={pull.state === 'merged' ? Check : GitPullRequest}
         role="status"
         actions={
-          <Button
-            size="sm"
-            variant="primary"
-            icon={SquarePen}
-            disabled={disabled}
-            loading={busy === 'fresh'}
-            onClick={() => void act('fresh', () => gui.startFresh())}
-          >
-            Start something new
-          </Button>
+          proposal.worktree ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={Trash2}
+              disabled={disabled}
+              loading={busy === 'removeWorktree'}
+              onClick={() => void act('removeWorktree', () => gui.removeWorktree())}
+            >
+              Remove worktree
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={SquarePen}
+              disabled={disabled}
+              loading={busy === 'fresh'}
+              onClick={() => void act('fresh', () => gui.startFresh())}
+            >
+              Start something new
+            </Button>
+          )
         }
       >
         <PullTitle pull={pull} />
@@ -316,10 +311,10 @@ function barFor(
               <Button
                 size="sm"
                 variant={openComments > 0 ? 'secondary' : 'primary'}
-                disabled={useShipSheet.getState().busy}
+                disabled={shipBusy}
                 onClick={toggleShipSheet}
               >
-                Update
+                Update pull request
               </Button>
             )}
           </>
@@ -430,19 +425,32 @@ export function ReviewSheet() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const fix = async (picked: ReviewComment[]) => {
-    if (!pull || picked.length === 0) return
-    const accepted = await gui.send(fixPrompt(pull, picked))
-    if (!accepted) {
-      useProposal.setState({ error: 'The agent couldn’t take this. Try again.' })
-      return
+  /** The comments being sent ('all' for Fix all), until main answers. */
+  const [sending, setSending] = useState<string | null>(null)
+  // A ref as well, so a second click before the rerender can't send them twice.
+  const inFlight = useRef(false)
+  const fix = async (picked: ReviewComment[], which: string) => {
+    if (!pull || picked.length === 0 || inFlight.current) return
+    inFlight.current = true
+    setSending(which)
+    try {
+      // Not taken: the user cancelled the branch question (or main already said why, as
+      // when a branch can't be created). The comments stay here to try again, as a draft
+      // stays in the composer, with no error of its own.
+      if (!(await gui.send(fixPrompt(pull, picked)))) return
+      markHandled(
+        pull,
+        picked.map((comment) => comment.id),
+      )
+      openReview(false)
+    } finally {
+      inFlight.current = false
+      setSending(null)
     }
-    markHandled(
-      pull,
-      picked.map((comment) => comment.id),
-    )
-    openReview(false)
   }
+  const busyReason = agentBusy ? 'Wait for the agent to finish' : undefined
+  // One primary: Fix all when there's more than one comment, otherwise the comment's own Fix this.
+  const several = comments.length > 1
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -482,53 +490,67 @@ export function ReviewSheet() {
         <>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable p-3">
             {comments.map((comment) => (
-              <li
-                key={comment.id}
-                className="flex flex-col gap-2 rounded-lg border border-line p-3"
-              >
-                <div className="flex min-w-0 items-center gap-1.5 text-small">
-                  <span className="font-medium">{comment.author}</span>
-                  {comment.path && (
-                    <Badge mono title={comment.path}>
-                      <span className="truncate">
-                        {comment.path.split('/').at(-1)}
-                        {comment.line ? `:${comment.line}` : ''}
-                      </span>
-                    </Badge>
-                  )}
-                  <span className="ml-auto shrink-0 text-caption text-subtle">
-                    {timeAgo(Date.parse(comment.createdAt))}
-                  </span>
-                </div>
-                <div className="text-small">
-                  <Markdown text={comment.body} />
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={agentBusy}
-                    onClick={() => void fix([comment])}
-                  >
-                    Fix this
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => markHandled(pull, [comment.id])}>
-                    Put aside
-                  </Button>
-                  <TextButton
-                    tone="muted"
-                    className="ml-auto text-caption"
-                    onClick={() => openExternal(comment.url)}
-                  >
-                    Reply on GitHub
-                  </TextButton>
-                </div>
+              <li key={comment.id}>
+                <Card tone="inset" className="flex flex-col gap-2 p-3">
+                  <div className="flex min-w-0 items-center gap-1.5 text-small">
+                    <span className="font-medium">{comment.author}</span>
+                    {comment.path && (
+                      <Badge mono title={comment.path}>
+                        <span className="truncate">
+                          {comment.path.split('/').at(-1)}
+                          {comment.line ? `:${comment.line}` : ''}
+                        </span>
+                      </Badge>
+                    )}
+                    <span className="ml-auto shrink-0 text-caption text-subtle">
+                      {timeAgo(Date.parse(comment.createdAt))}
+                    </span>
+                  </div>
+                  <div className="text-small">
+                    <Markdown text={comment.body} />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant={several ? 'secondary' : 'primary'}
+                      disabled={agentBusy || (sending !== null && sending !== comment.id)}
+                      loading={sending === comment.id}
+                      title={busyReason}
+                      aria-label={`Fix this: ${comment.author}’s comment`}
+                      onClick={() => void fix([comment], comment.id)}
+                    >
+                      Fix this
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={sending !== null}
+                      aria-label={`Put aside: ${comment.author}’s comment`}
+                      onClick={() => markHandled(pull, [comment.id])}
+                    >
+                      Put aside
+                    </Button>
+                    <TextButton
+                      tone="muted"
+                      className="ml-auto text-caption"
+                      onClick={() => openExternal(comment.url)}
+                    >
+                      Reply on GitHub
+                    </TextButton>
+                  </div>
+                </Card>
               </li>
             ))}
           </ul>
-          {comments.length > 1 && (
+          {several && (
             <div className="flex shrink-0 items-center gap-2 border-t border-line p-2">
-              <Button variant="primary" disabled={agentBusy} onClick={() => void fix(comments)}>
+              <Button
+                variant="primary"
+                disabled={agentBusy || (sending !== null && sending !== 'all')}
+                loading={sending === 'all'}
+                title={busyReason}
+                onClick={() => void fix(comments, 'all')}
+              >
                 Fix all {comments.length}
               </Button>
             </div>
