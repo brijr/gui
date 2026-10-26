@@ -11,7 +11,14 @@ import { cn } from '../lib/cn'
 import { ChevronDown, Info, Plus, SquareTerminal, TriangleAlert } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Banner, PanelHeader } from '../lib/surface'
-import { rovingTabKeyDown, TAB_LABEL, TabCloseButton, tabClass } from '../lib/tabs'
+import {
+  rovingTabKeyDown,
+  SCROLLING_TABLIST,
+  TAB_LABEL,
+  TabCloseButton,
+  tabClass,
+  useScrollingTabs,
+} from '../lib/tabs'
 import { Button, IconButton, PRESS } from '../lib/ui'
 import { FixStartupButton } from './fix-startup'
 import { useLayoutSlide } from './layout-morph'
@@ -52,6 +59,9 @@ export function Drawer({ state }: { state: WindowState }) {
   // down; while it goes it's still drawn open, over the canvas that already has its room.
   const leaving = useLayoutSlide(open, section, { edge: 'bottom' })
   const drawn = open || leaving
+  const tabList = useRef<HTMLDivElement>(null)
+  // More terminals than fit: the row scrolls, and the one shown is always in it.
+  useScrollingTabs(tabList, drawn ? (state.drawer.tab ?? 'server') : null)
 
   const { project, drawer } = state
   if (!project) return null
@@ -131,9 +141,10 @@ export function Drawer({ state }: { state: WindowState }) {
              * assistive tech; from the keyboard, Delete on its tab ends it.
              */}
             <div
+              ref={tabList}
               role="tablist"
               aria-label="Terminal tabs"
-              className="flex min-w-0 shrink items-center gap-1 overflow-hidden"
+              className={cn(SCROLLING_TABLIST, 'shrink')}
             >
               {tabs.map((entry, index) => {
                 const selected = entry.tab === shown
@@ -144,7 +155,8 @@ export function Drawer({ state }: { state: WindowState }) {
                     role="presentation"
                     className={cn(
                       tabClass('segment', selected),
-                      'transition-[color,background-color]',
+                      // They narrow to this, then the row scrolls.
+                      'min-w-20 transition-[color,background-color]',
                     )}
                   >
                     <button

@@ -3410,6 +3410,10 @@ export class ProjectTab implements ChatPanelOwner {
     this.host.sendChrome(this, channel, payload)
   }
 
+  sendChrome(channel: string, payload: unknown) {
+    this.send(channel, payload)
+  }
+
   sendChat(channel: string, payload: unknown) {
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.send(channel, payload)
   }

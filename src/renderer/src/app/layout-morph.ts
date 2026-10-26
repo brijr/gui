@@ -1,14 +1,13 @@
-import {
-  type CSSProperties,
-  type RefObject,
-  useLayoutEffect,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react'
+import { type RefObject, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { FRAME_LABEL_HEIGHT, TRAFFIC_LIGHTS_INSET } from '../../../shared/layout'
 import { Spring } from '../../../shared/motion'
-import { frameLabel, type MorphEvent, type Viewport } from '../../../shared/types'
+import {
+  frameLabel,
+  type MorphEvent,
+  type SidebarSlide,
+  type Viewport,
+  type WindowState,
+} from '../../../shared/types'
 import { gui } from '../lib/api'
 import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
 
@@ -280,96 +279,99 @@ export function useLayoutSlide(
   return leaving
 }
 
-/**
- * The chat sidebar's room beside the bars, as CSS variables on `ref`: `--sidebar-left` and
- * `--sidebar-right` are where it ends up, the `-shown` ones where it is as it slides. Opening
- * or closing, the shown ones follow the sidebar on main's spring, starting when the preview's
- * morph does; resizing it, or another tab's, they're there at once.
- */
-export function useSidebarSlide(
-  ref: RefObject<HTMLElement | null>,
-  { left, right, tab }: { left: number; right: number; tab: string | null },
-) {
-  const slide = useRef<{
-    left: Spring
-    right: Spring
-    tab: string | null
-    stop: (() => void) | null
-    wait: (() => void) | null
-  } | null>(null)
+// The chat sidebar's slide. Its view is main's, placed on main's spring (tab-chat-panel.ts);
+// main sends where it has put it on every frame (`SidebarSlide`), and the bars beside it take
+// that as their padding, so they can't drift from it. When it snaps (no preview change to move
+// with, Reduce motion, another tab) nothing is sent and the bars snap too.
 
+/** How much of the sliding sidebar is in the window on each side; null at rest. */
+let slide: SidebarSlide = null
+const slideListeners = new Set<() => void>()
+
+function setSlide(next: SidebarSlide) {
+  slide = next
+  for (const listener of [...slideListeners]) listener()
+}
+
+function subscribeSlide(listener: () => void) {
+  slideListeners.add(listener)
+  return () => {
+    slideListeners.delete(listener)
+  }
+}
+
+/** True while the chat sidebar slides in or out. */
+export function useSidebarSliding() {
+  return useSyncExternalStore(subscribeSlide, () => slide !== null)
+}
+
+/** Follows main's sidebar slides for the window's active `tab`; another tab starts at rest. */
+export function useSidebarSlides(tab: string | null) {
   useLayoutEffect(() => {
-    const el = ref.current
-    if (!el) return
-    el.style.setProperty('--sidebar-left', `${left}px`)
-    el.style.setProperty('--sidebar-right', `${right}px`)
-    const draw = (l: number, r: number) => {
-      el.style.setProperty('--sidebar-left-shown', `${Math.max(0, l)}px`)
-      el.style.setProperty('--sidebar-right-shown', `${Math.max(0, r)}px`)
-    }
-    slide.current ??= {
-      left: new Spring(left),
-      right: new Spring(right),
-      tab,
-      stop: null,
-      wait: null,
-    }
-    const current = slide.current
-    const opening = (spring: Spring, to: number) => (spring.target === 0) !== (to === 0)
-    const moves =
-      current.tab === tab && (opening(current.left, left) || opening(current.right, right))
-    current.tab = tab
-    if (!moves || prefersReducedMotion()) {
-      for (const [spring, to] of [
-        [current.left, left],
-        [current.right, right],
-      ] as const) {
-        spring.retarget(to)
-        spring.finish()
-      }
-      draw(left, right)
-      return
-    }
-    const { left: l, right: r } = current
-    draw(l.value, r.value)
-    l.retarget(left)
-    r.retarget(right)
-    // One spring drives the frames; both sides settle together (only one moves at a time).
-    const driver = l.value !== left ? l : r
-    const other = driver === l ? r : l
-    current.wait = whenMorphMoves(() => {
-      current.wait = null
-      other.finish()
-      current.stop = animateSpring(driver, {
-        precision: 0.5,
-        update: () => draw(l.value, r.value),
-        rest: () => {
-          current.stop = null
-          draw(left, right)
-        },
-      })
-    })
+    if (tab === null) return
+    const off = gui.onSidebarSlide(setSlide)
     return () => {
-      current.wait?.()
-      current.wait = null
-      current.stop?.()
-      current.stop = null
+      off()
+      setSlide(null)
     }
-  }, [ref, left, right, tab])
+  }, [tab])
+}
+
+export interface BarOptions {
+  /** Where the sidebar rests: its width on its side, 0 on the other */
+  left: number
+  right: number
+  /** The traffic lights are in this bar while the sidebar isn't on their side */
+  lights: boolean
 }
 
 /**
- * A bar's style beside the chat sidebar: it runs under the sidebar (a view drawn over this
- * page) to the window's edges, its content kept clear of the sidebar as it slides. `lights`:
- * the traffic lights are in this bar while the sidebar isn't on their side.
+ * A bar beside the chat sidebar: it runs under the sidebar (a view drawn over this page) to
+ * the window's edges, its content kept clear of the sidebar as it slides. Only the bar's own
+ * padding changes per frame, set here rather than through React or inherited variables, so a
+ * frame restyles this one element.
  */
-export function sidebarBarStyle(lights: boolean): CSSProperties {
+export function useSidebarBar(ref: RefObject<HTMLElement | null>, options: BarOptions) {
+  const { left, right, lights } = options
+  // After every render, as the bar may only just have mounted (the tab row, at a second tab).
+  useLayoutEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.marginLeft = `${-left}px`
+    el.style.marginRight = `${-right}px`
+    const draw = () => {
+      const padding = barPadding(slide ?? { left, right }, lights)
+      el.style.paddingLeft = `${padding.left}px`
+      el.style.paddingRight = `${padding.right}px`
+    }
+    draw()
+    return subscribeSlide(draw)
+  })
+}
+
+/** The bars' inset from the window's edge, or from the sidebar's */
+const BAR_INSET = 8
+
+/**
+ * A bar's padding with `sidebar` px of the chat sidebar in the window on each side: clear of
+ * it, and of the traffic lights while they're in the bar (the sidebar covers them on its side).
+ */
+export function barPadding(sidebar: { left: number; right: number }, lights: boolean) {
+  const { left, right } = sidebar
   return {
-    marginLeft: 'calc(-1 * var(--sidebar-left, 0px))',
-    marginRight: 'calc(-1 * var(--sidebar-right, 0px))',
-    paddingLeft: lights
-      ? `calc(var(--sidebar-left-shown, 0px) + max(8px, ${TRAFFIC_LIGHTS_INSET}px - var(--sidebar-left-shown, 0px)))`
-      : 'calc(var(--sidebar-left-shown, 0px) + 8px)',
-    paddingRight: 'calc(var(--sidebar-right-shown, 0px) + 8px)',
+    left: left + (lights ? Math.max(BAR_INSET, TRAFFIC_LIGHTS_INSET - left) : BAR_INSET),
+    right: right + BAR_INSET,
+  }
+}
+
+/** Where the chat sidebar rests beside the bars in `state`, and whether `lights` are in them. */
+export function sidebarRoom(
+  state: Pick<WindowState, 'sidebarSide' | 'sidebarWidth'>,
+  lights: boolean,
+): BarOptions {
+  return {
+    left: state.sidebarSide === 'left' ? state.sidebarWidth : 0,
+    right: state.sidebarSide === 'right' ? state.sidebarWidth : 0,
+    lights,
   }
 }

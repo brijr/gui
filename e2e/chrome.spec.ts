@@ -125,12 +125,13 @@ test('the start tab offers project actions; a project fills the toolbar, without
   await expect(address(session)).toHaveValue(state.preview.url ?? '')
   const bar = toolbar(session)
   await expect(bar.getByRole('button', { name: 'gui-e2e-vite' })).toBeVisible()
-  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Toggle chat']) {
+  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Hide chat']) {
     await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
   }
   // Each names its shortcut in its tooltip, and to assistive tech.
-  const chat = bar.getByRole('button', { name: 'Toggle chat', exact: true })
-  await expect(chat).toHaveAttribute('title', 'Toggle chat (⌘B)')
+  // The chat shows, so its button says what a click does: hide it.
+  const chat = bar.getByRole('button', { name: 'Hide chat', exact: true })
+  await expect(chat).toHaveAttribute('title', 'Hide chat (⌘B)')
   await expect(chat).toHaveAttribute('aria-keyshortcuts', 'Meta+B')
   await expect(bar.getByRole('group', { name: 'Viewport' })).toBeVisible()
   await expect(bar.getByRole('button', { name: 'Select element', exact: true })).toBeVisible()
@@ -294,7 +295,7 @@ test('⌘B shows and hides the chat; ⌘L puts the cursor in its message box', a
   }
 
   // Hidden (with the toolbar's button): ⌘L shows it, with the cursor in the message box.
-  await toolbar(session).getByRole('button', { name: 'Toggle chat', exact: true }).click()
+  await toolbar(session).getByRole('button', { name: 'Hide chat', exact: true }).click()
   await waitFor(async () => !(await visible()), 'the chat to hide')
   await clickMenu(session, 'Focus Message Box')
   await waitFor(visible, 'the chat to show')

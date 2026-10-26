@@ -445,6 +445,55 @@
     calc(100% - 24px) 100%;
 }
 
+/* The same sideways, for a row of tabs that scrolls (SCROLLING_TABLIST in lib/tabs.tsx). */
+@property --fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes fade-left {
+  from {
+    --fade-left: 0px;
+  }
+  to {
+    --fade-left: 16px;
+  }
+}
+@keyframes fade-right {
+  from {
+    --fade-right: 16px;
+  }
+  to {
+    --fade-right: 0px;
+  }
+}
+@utility scroll-fade-x {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-left),
+    #000 calc(100% - var(--fade-right)),
+    transparent
+  );
+  animation:
+    fade-left linear both,
+    fade-right linear both;
+  animation-timeline: scroll(self inline), scroll(self inline);
+  animation-range:
+    0 24px,
+    calc(100% - 24px) 100%;
+}
+
+/* A scroller with no scrollbar of its own: a row of tabs, with its fading edges to say there's more. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+}
+
 /* Code inside running text (commands, file names): a step smaller than the text around it.
    Used by the Code primitive and by agent markdown. */
 @utility inline-code {

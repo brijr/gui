@@ -30,9 +30,11 @@ import type {
   ShipInfo,
   ShipRequest,
   ShipResult,
+  SidebarSlide,
   StartCommandInput,
   StorageKind,
   TerminalId,
+  ToolbarMenuItem,
   Version,
   Viewport,
   WhereToWorkAnswer,
@@ -85,6 +87,7 @@ export const Invoke = {
   connectAgent: 'agents:connect',
   shipInfo: 'ship:info',
   takeScreenshot: 'preview:screenshot',
+  showToolbarMenu: 'toolbar:overflow-menu',
   startRecording: 'recording:start',
   recordingFrame: 'recording:frame',
   finishRecording: 'recording:finish',
@@ -257,6 +260,8 @@ export const Events = {
   recordingCursor: 'recording:cursor',
   chatFloat: 'chat:float',
   morph: 'layout:morph',
+  /** The chat sidebar mid-slide (`SidebarSlide`) */
+  sidebarSlide: 'layout:sidebar-slide',
   /** Main's motion needs the page's frames (true) or is done with them (false) */
   displayFrames: 'motion:frames',
   pickState: 'pick:state',
@@ -519,6 +524,8 @@ export interface GuiApi {
    * live view as it resizes, under the toolbar and the drawer.
    */
   onMorph(cb: (event: MorphEvent) => void): Unsubscribe
+  /** Where the chat sidebar is as it slides (`SidebarSlide`), for the bars beside it */
+  onSidebarSlide(cb: (slide: SidebarSlide) => void): Unsubscribe
   /** Focus mode on or off (see `WindowState.focusMode`) */
   setFocusMode(on: boolean): void
   /** Shows or closes the Keyboard Shortcuts sheet (`WindowState.shortcutsOpen`) */
@@ -720,6 +727,11 @@ export interface GuiApi {
   /** An attached clip changed: its transcript came in */
   onRecordingUpdate(cb: (recording: RecordingAttachment) => void): Unsubscribe
   takeScreenshot(at?: { x: number; y: number }): Promise<'copied' | 'saved' | 'attached' | null>
+  /**
+   * The toolbar's overflow menu, under `at` in the chrome's page: the tools there wasn't room
+   * for. Resolves with the chosen item's id, or null when it closes without a choice.
+   */
+  showToolbarMenu(items: ToolbarMenuItem[], at: { x: number; y: number }): Promise<string | null>
   /**
    * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged
    * edges move and the opposite ones stay put. Docked, only its edge facing the preview resizes it.

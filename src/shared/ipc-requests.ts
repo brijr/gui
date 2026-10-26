@@ -50,6 +50,7 @@ export interface AllIpcRequests {
   [Invoke.connectAgent]: Contract<'connectAgent'>
   [Invoke.shipInfo]: Contract<'getShipInfo'>
   [Invoke.takeScreenshot]: Contract<'takeScreenshot'>
+  [Invoke.showToolbarMenu]: Contract<'showToolbarMenu'>
   [Invoke.startRecording]: Contract<'startRecording'>
   [Invoke.recordingFrame]: Contract<'saveRecordingFrame'>
   [Invoke.finishRecording]: Contract<'finishRecording'>

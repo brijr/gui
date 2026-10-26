@@ -1,4 +1,5 @@
 import type { BoardCamera, BoardFrameLayout, BoardSection } from './board'
+import type { ShortcutId } from './shortcuts'
 
 /** A built-in agent's id, or `custom:<name>` for one the user added in agents.json */
 export type AgentId = string
@@ -414,6 +415,30 @@ export type MorphEvent =
       opacity: number
     }
   | { type: 'end'; id: number }
+
+/**
+ * Main → the chrome, while the chat sidebar slides in or out: how much of it is in the window
+ * on each side now, in px, as main last placed it. Null once it rests where `sidebarWidth`
+ * says. The bars beside it follow this rather than a spring of their own, so they can't drift.
+ */
+export type SidebarSlide = { left: number; right: number } | null
+
+/**
+ * An item in the toolbar's overflow ("…") menu: a tool that gave up its place in the toolbar
+ * for want of room. Main shows them as a native menu and answers with the chosen `id`.
+ */
+export type ToolbarMenuItem =
+  | { type: 'separator' }
+  | {
+      type?: 'normal' | 'checkbox' | 'radio'
+      id: string
+      /** Title Case, as in every native menu */
+      label: string
+      /** Its keys, shown at the item's end (they work from the app menu already) */
+      shortcut?: ShortcutId
+      enabled?: boolean
+      checked?: boolean
+    }
 
 /**
  * What a tab shows next to its name: its agent working, a permission card waiting for the

@@ -34,6 +34,8 @@ export const SYMBOLS = {
   Group: 'rectangle.dashed',
   Hand: 'hand.raised',
   HardDrive: 'externaldrive',
+  // Saves the frame as an image: a picture with a down arrow, not Share's box and up arrow.
+  ImageDown: 'photo.badge.arrow.down',
   ImageIcon: 'photo',
   ImagePlus: 'photo.badge.plus',
   Info: 'info.circle',
