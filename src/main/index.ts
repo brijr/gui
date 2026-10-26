@@ -94,6 +94,7 @@ import { createProject, createProjectFromFrame, projectName } from './new-projec
 import { nodeRuntime } from './node-runtime'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { execFile } from './process'
+import { finishEndingSync } from './process-groups'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
 import { type Recordings, registerRecordingProtocol } from './recordings'
@@ -1847,6 +1848,8 @@ function focusExistingWindow() {
 /** Stops agent processes that would otherwise outlive the app. */
 function shutdown() {
   for (const win of allWindows()) win.destroy()
+  // Terminals and dev servers stop in the background; nothing runs after this to finish it.
+  finishEndingSync()
   flushHistorySync()
   agentHealth.dispose()
   nodeRuntime.dispose()

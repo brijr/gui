@@ -4,7 +4,7 @@ import { type IPty, spawn as spawnPty } from 'node-pty'
 import type { TerminalOutput } from '../shared/ipc'
 import type { TerminalId, TerminalInfo } from '../shared/types'
 import { Output } from './output'
-import { groupAlive, processGroupsOf, signalGroups, sleepSync } from './process-groups'
+import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 
 /** How long hung-up shells and their jobs get to exit before what's left is killed. */
@@ -42,7 +42,8 @@ export interface TerminalsEvents {
 export class Terminals extends EventEmitter<TerminalsEvents> {
   /** In tab order */
   private readonly shells = new Map<TerminalId, Shell>()
-  private disposed = false
+  /** Settles once every shell, and everything they started, has exited */
+  private ended: Promise<void> | null = null
 
   constructor(private readonly cwd: string) {
     super()
@@ -138,24 +139,27 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
     if (!shell) return
     this.shells.delete(id)
     shell.output.dispose()
-    end([shell])
+    void end([shell])
     this.emit('change')
   }
 
-  /** Ends every shell; the project or its tab closed, or Gui is quitting. */
-  dispose() {
-    if (this.disposed) return
-    this.disposed = true
+  /**
+   * Ends every shell; the project or its tab closed, or Gui is quitting. They're gone from
+   * here at once, and the returned promise settles once their processes have exited.
+   */
+  dispose(): Promise<void> {
+    if (this.ended) return this.ended
     for (const shell of this.shells.values()) shell.output.dispose()
-    end([...this.shells.values()])
+    this.ended = end([...this.shells.values()])
     this.shells.clear()
     this.removeAllListeners()
+    return this.ended
   }
 
   private async start(shell: Shell) {
     const run = ++shell.run
     const env = await getShellEnv()
-    if (this.disposed || run !== shell.run || this.shells.get(shell.id) !== shell) return
+    if (this.ended || run !== shell.run || this.shells.get(shell.id) !== shell) return
 
     let proc: IPty
     try {
@@ -209,23 +213,14 @@ function terminalEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /**
  * Ends shells and everything they started, as closing a terminal window does: hangs up on
  * their process groups (the shell's, and each job's, which job control gives a group of its
- * own), then kills whatever is still there after a moment. Waits for that here rather than
- * on a timer, so it's done before Gui quits.
+ * own), then kills whatever is still there after a moment. Runs in the background; a quit
+ * meanwhile finishes it before Gui exits.
  */
-function end(shells: Shell[]) {
+function end(shells: Shell[]): Promise<void> {
   const procs = shells.flatMap((shell) => (shell.proc ? [shell.proc] : []))
   for (const shell of shells) {
     shell.run++
     shell.proc = null
   }
-  if (procs.length === 0) return
-  const groups = processGroupsOf(procs)
-  signalGroups(groups, 'SIGHUP')
-  const deadline = Date.now() + HANGUP_GRACE_MS
-  let alive = groups.filter(groupAlive)
-  while (alive.length > 0 && Date.now() < deadline) {
-    sleepSync(20)
-    alive = alive.filter(groupAlive)
-  }
-  signalGroups(alive, 'SIGKILL')
+  return endProcessGroups(procs, 'SIGHUP', HANGUP_GRACE_MS)
 }

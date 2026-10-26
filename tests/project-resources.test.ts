@@ -85,6 +85,35 @@ describe('project lifetime', () => {
     ])
   })
 
+  test('completion waits until terminals and the dev server have exited', async () => {
+    const { resources, events } = fixture()
+    let serverGone!: () => void
+    let terminalsGone!: () => void
+    resources.devServer = {
+      dispose: () => new Promise<void>((resolve) => (serverGone = resolve)),
+    } as never
+    resources.terminals = {
+      dispose: () => new Promise<void>((resolve) => (terminalsGone = resolve)),
+    } as never
+    resources.claim('chat.json')
+    let finished = false
+    const completion = resources.dispose().then(() => {
+      finished = true
+    })
+    // Disposing returns at once; their processes stop in the background.
+    expect(resources.devServer).toBeNull()
+    expect(resources.terminals).toBeNull()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(events).toEqual(['release:chat.json'])
+    expect(finished).toBe(false)
+    serverGone()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(finished).toBe(false)
+    terminalsGone()
+    await completion
+    expect(finished).toBe(true)
+  })
+
   test('late async work is dropped after dispose bumps the generation', async () => {
     const { resources } = fixture()
     const generation = resources.generation
