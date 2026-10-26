@@ -1,4 +1,4 @@
-import { readFileSync, realpathSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { waitFor } from './helpers/env'
 import { git } from './helpers/fixtures'
@@ -6,7 +6,7 @@ import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // Opening a project on main asks where to work, in place of the start screen's open buttons:
-// on main, or on a new branch named from the first message.
+// on main, on a new branch named from the first message, or in a new worktree beside main.
 // The fixture is a fresh repository on its main branch, already trusted.
 
 function onMain(root: string) {
@@ -37,6 +37,7 @@ test('opening on main asks where to work, and On main opens it as it is', async 
   await session.chrome.getByRole('button', { name: /^On main/ }).click()
   const state = await opened(session, root)
   expect(state.whereToWork).toBeNull()
+  expect(state.branch).toEqual({ branch: 'main', worktree: null })
   expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main')
 })
 
@@ -83,4 +84,32 @@ test('On a new branch names the branch from the first message, without asking', 
     () => git(root, 'symbolic-ref', '--short', 'HEAD').trim() === 'gui/make-the-header-sticky',
     'the new branch',
   )
+})
+
+test('a new worktree opens beside main, with its own branch, install and preview', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root, base } = session.fixture
+  onMain(root)
+  writeFileSync(join(root, 'uncommitted.txt'), 'stays on main\n')
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: /^In a new worktree/ }).click()
+  await expect(session.chrome.getByText(/Your 1 uncommitted change stays on main/)).toBeVisible()
+  await session.chrome.getByLabel(/What are you working on/).fill('Pricing page')
+  await session.shot('where-to-work-worktree')
+  await session.chrome.getByRole('button', { name: 'Create worktree' }).click()
+
+  const folder = join(realpathSync(base), 'worktrees', 'fixture-vite', 'pricing-page')
+  const state = await opened(session, folder)
+  expect(state.branch).toEqual({
+    branch: 'gui/pricing-page',
+    worktree: { of: 'fixture-vite', name: 'pricing-page' },
+  })
+  expect(git(folder, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('gui/pricing-page')
+  expect(existsSync(join(folder, 'uncommitted.txt'))).toBe(false)
+  expect(existsSync(join(root, 'uncommitted.txt'))).toBe(true)
+  // Its own install, then its own preview.
+  await session.waitForPreview()
 })

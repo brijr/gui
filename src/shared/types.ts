@@ -180,11 +180,21 @@ export interface RecentProject {
   openedAt: number
   /** Its chat's last message and when it was sent; absent with no chat (or in the saved list) */
   chat?: { prompt: string; at: number } | null
+  /** A worktree Gui made: the project it's of, and its branch (read as the list is read) */
+  worktree?: { of: string; branch: string } | null
+}
+
+/** The branch a project is on, read from Git's HEAD file. */
+export interface BranchStatus {
+  /** Null when no branch is checked out */
+  branch: string | null
+  /** In a worktree: the main project's folder name and this worktree's */
+  worktree: { of: string; name: string } | null
 }
 
 /**
- * Opening a project on a shared branch like main asks where to work first: on main, or on a
- * new branch (named from the first message). The start screen shows it.
+ * Opening a project on a shared branch like main asks where to work first: on main, on a new
+ * branch (named from the first message), or in a new worktree. The start screen shows it.
  */
 export interface WhereToWorkPrompt {
   root: string
@@ -192,11 +202,19 @@ export interface WhereToWorkPrompt {
   name: string
   /** The shared branch it's on */
   branch: string
+  /** Uncommitted changes that stay behind in a new worktree; null until read */
+  uncommitted: number | null
+  /** Making the worktree */
+  creating: boolean
+  error: string | null
 }
 
 export type WhereToWorkAnswer =
   | { kind: 'main'; always: boolean }
   | { kind: 'branch' }
+  /** The worktree row opened: asks for trust if needed, then reads what stays behind */
+  | { kind: 'prepare-worktree' }
+  | { kind: 'worktree'; name: string }
   | { kind: 'cancel' }
 
 export function isWhereToWorkAnswer(value: unknown): value is WhereToWorkAnswer {
@@ -205,7 +223,10 @@ export function isWhereToWorkAnswer(value: unknown): value is WhereToWorkAnswer 
   switch (answer.kind) {
     case 'main':
       return typeof answer.always === 'boolean'
+    case 'worktree':
+      return typeof answer.name === 'string' && answer.name.length <= 200
     case 'branch':
+    case 'prepare-worktree':
     case 'cancel':
       return true
     default:
@@ -428,6 +449,8 @@ export interface WindowState {
   setup: ProjectSetup | null
   /** Asking where to work before the project opens; null otherwise */
   whereToWork: WhereToWorkPrompt | null
+  /** The open project's branch; null outside a repository */
+  branch: BranchStatus | null
   /**
    * Git can't run until Apple's developer tools are installed ('missing'), or the user is
    * installing them; null when it can (or hasn't been needed yet). Undo and sharing need git.

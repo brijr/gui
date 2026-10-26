@@ -1,17 +1,28 @@
 import { mock } from 'bun:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 
-// Whether opening a project asks where to work, read from Git's files in real repositories.
+// Where to work, worktree naming, the registry, and making a worktree in a real repository. Git runs for real; Electron, the shell's environment and GitHub are stood in for.
 
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'gui-worktrees-')))
 const userData = join(base, 'user-data')
 const projects = join(base, 'projects')
 mkdirSync(userData)
 mkdirSync(projects)
+process.env.GUI_WORKTREES_DIR = join(base, 'worktrees')
 
 const gitEnv = {
   ...process.env,
@@ -46,7 +57,21 @@ mock.module('electron', () => ({
   dialog: {},
   shell: {},
 }))
+mock.module('../../src/main/developer-tools', () => ({
+  developerTools: { requireGit: async () => undefined },
+  GIT_TOOLS_MISSING: 'Git is missing.',
+}))
+mock.module('../../src/main/shell-env', () => ({ getShellEnv: async () => gitEnv }))
+mock.module('../../src/main/github', () => ({
+  CredentialUnavailable: class extends Error {},
+  connectedGitHub: async () => null,
+  pullGitHub: async () => null,
+  pushGitHub: async () => undefined,
+}))
+
 const registry = await import('../../src/main/worktree-registry')
+const worktrees = await import('../../src/main/worktrees')
+const { trust, isTrusted } = await import('../../src/main/trust')
 
 try {
   // Asking where to work: a main checkout on a shared branch with commits, read from files.
@@ -77,6 +102,54 @@ try {
   git(packed, 'pack-refs', '--all')
   assert.ok(!existsSync(join(packed, '.git/refs/heads/main')))
   assert.deepEqual(await registry.whereToWorkCheck(packed), { branch: 'main' })
+
+  // Naming
+  assert.equal(registry.worktreeSlug('Pricing page'), 'pricing-page')
+  assert.equal(registry.worktreeSlug('  ', new Date(2026, 9, 25)), 'oct-25')
+  const used = new Set(['pricing-page', 'pricing-page-2'])
+  assert.equal(
+    await registry.uniqueSlug('pricing-page', async (slug) => used.has(slug)),
+    'pricing-page-3',
+  )
+
+  // The registry
+  const record = { path: '/x/y', top: '/x/y', main: '/x', branch: 'gui/y', created: 1 }
+  await registry.registerWorktree(record)
+  assert.deepEqual(await registry.findWorktree('/x/y'), record)
+  await registry.unregisterWorktree('/x/y')
+  assert.equal(await registry.findWorktree('/x/y'), null)
+
+  // Making a worktree from a trusted project: its own branch and folder, trusted, with the
+  // ignored env files (and only those) copied, permissions kept.
+  writeFileSync(join(main, '.gitignore'), '.env.local\n')
+  git(main, 'add', '.gitignore')
+  git(main, 'commit', '--quiet', '-m', 'ignore env')
+  writeFileSync(join(main, '.env.local'), 'SECRET=1\n')
+  chmodSync(join(main, '.env.local'), 0o600)
+  writeFileSync(join(main, '.env'), 'NOT_IGNORED=1\n')
+  await trust(main)
+  const made = await worktrees.createWorktree(main, 'Pricing page')
+  assert.equal(made.branch, 'gui/pricing-page')
+  assert.equal(made.path, realpathSync(join(base, 'worktrees', basename(main), 'pricing-page')))
+  assert.equal(made.main, main)
+  assert.equal(git(made.path, 'symbolic-ref', '--short', 'HEAD'), 'gui/pricing-page')
+  assert.equal(readFileSync(join(made.path, '.env.local'), 'utf8'), 'SECRET=1\n')
+  assert.equal(statSync(join(made.path, '.env.local')).mode & 0o777, 0o600)
+  assert.ok(!existsSync(join(made.path, '.env')), 'an env file Git would show is left alone')
+  assert.ok(await isTrusted(made.path))
+  assert.deepEqual(await registry.findWorktree(made.path), made)
+  const head = await registry.readHead(made.path)
+  assert.equal(head?.linked, true)
+  assert.equal(head?.mainTop, main)
+  assert.equal(await registry.whereToWorkCheck(made.path), null, 'a worktree never asks')
+  assert.deepEqual(await registry.branchStatus(made.path), {
+    branch: 'gui/pricing-page',
+    worktree: { of: 'my-app', name: 'pricing-page' },
+  })
+
+  // The same name again gets the next free one; no name gets the date.
+  assert.equal((await worktrees.createWorktree(main, 'Pricing page')).branch, 'gui/pricing-page-2')
+  assert.match((await worktrees.createWorktree(main, '')).branch, /^gui\/[a-z]{3}-\d{1,2}$/)
 
   console.log('worktrees passed')
 } finally {

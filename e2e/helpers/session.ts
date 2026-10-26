@@ -493,6 +493,8 @@ export async function launchGui(
       GUI_OPEN: options.open === 'recent' ? '' : copy.root,
       GUI_AGENT_STAND_INS: standInsFile(copy),
       GUI_E2E_REDUCED_MOTION: reducedMotion === 'reduce' ? '1' : '0',
+      // Worktrees a spec makes go with the fixture's copy when it's removed.
+      GUI_WORKTREES_DIR: join(copy.base, 'worktrees'),
     }),
     colorScheme: options.colorScheme ?? 'light',
     timeout: 60_000,

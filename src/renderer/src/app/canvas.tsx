@@ -46,6 +46,7 @@ import { useAction } from '../settings/use-action'
 import { Board } from './board'
 import { FixStartupButton } from './fix-startup'
 import { useMorphDrawsFrame } from './layout-morph'
+import { recentDetail, recentTitle } from './recent-labels'
 import { crashed, stoppedOutside } from './server-status'
 import { SignIn } from './sign-in'
 import { focusAddressBar } from './toolbar'
@@ -1042,7 +1043,7 @@ function StartScreen({ state }: { state: WindowState }) {
                 title={project.chat.prompt}
                 detail={
                   <span title={project.root}>
-                    {project.name} · {timeAgo(project.chat.at)}
+                    {recentTitle(project, project.name)} · {timeAgo(project.chat.at)}
                   </span>
                 }
               />
@@ -1097,8 +1098,8 @@ function StartScreen({ state }: { state: WindowState }) {
                 key={project.root}
                 root={project.root}
                 kind="project"
-                title={project.name}
-                detail={<PathText path={project.root} home={state.home} />}
+                title={recentTitle(project, project.name)}
+                detail={recentDetail(project, <PathText path={project.root} home={state.home} />)}
               />
             ))}
           </List>

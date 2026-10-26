@@ -80,7 +80,7 @@ import { availableModels, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
-import { withGitMutation } from './git'
+import { openRepo, withGitMutation } from './git'
 import {
   chatReferences,
   claimHistoryFile,
@@ -155,7 +155,8 @@ import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { focusWindow } from './window-presentation'
-import { whereToWorkCheck } from './worktree-registry'
+import { branchStatus, whereToWorkCheck } from './worktree-registry'
+import { createWorktree } from './worktrees'
 
 export type { TabHost, TabState } from './tab-host'
 
@@ -391,6 +392,7 @@ export class ProjectTab implements ChatPanelOwner {
       agents: agentHealth.list(),
       setup: null,
       whereToWork: null,
+      branch: null,
       developerTools: shownTools(developerTools.state),
       board: null,
       recentBoards: null,
@@ -466,6 +468,9 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** The tab strip's name for it: the project's, or the folder opening; null on the start screen. */
   get title() {
+    // A worktree reads "my-app · pricing-page", so it's told apart from the project it's of.
+    const worktree = this.state.project && this.state.branch?.worktree
+    if (worktree) return `${worktree.of} · ${worktree.name}`
     return this.state.project?.name ?? (this.opening ? basename(this.opening) : null)
   }
 
@@ -624,17 +629,25 @@ export class ProjectTab implements ChatPanelOwner {
           root,
           name: basename(root),
           branch: check.branch,
+          uncommitted: null,
+          creating: false,
+          error: null,
         },
       })
     })
   }
 
-  /** The start screen's answer; false when it didn't go ahead (trust declined). */
+  /** The start screen's answer; false when it didn't go ahead (trust declined, or it failed). */
   async answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean> {
     const pending = this.whereToWork
-    if (!pending) return false
+    const prompt = this.state.whereToWork
+    if (!pending || !prompt || prompt.creating) return false
     const { root, branch } = pending
     const live = () => this.whereToWork === pending && !this.disposed
+    const update = (patch: Partial<typeof prompt>) => {
+      const now = this.state.whereToWork
+      if (live() && now) this.patch({ whereToWork: { ...now, ...patch } })
+    }
     switch (answer.kind) {
       case 'cancel':
         pending.finish(null)
@@ -651,6 +664,27 @@ export class ProjectTab implements ChatPanelOwner {
         if (!(await this.confirmGit(root)) || !live()) return false
         pending.finish({ root, branchOnSend: branch })
         return true
+      case 'prepare-worktree': {
+        if (!(await this.confirmGit(root)) || !live()) return false
+        const repo = await openRepo(root).catch(() => null)
+        update({ uncommitted: repo ? repo.changes.length + repo.skipped.length : 0, error: null })
+        return true
+      }
+      case 'worktree': {
+        if (!(await this.confirmGit(root)) || !live()) return false
+        update({ creating: true, error: null })
+        try {
+          const made = await createWorktree(root, answer.name)
+          // Made just as the tab closed or the question was cancelled: the worktree stays,
+          // listed under the project's worktrees and in the registry, never half-deleted.
+          if (!live()) return false
+          pending.finish({ root: made.path, branchOnSend: null })
+          return true
+        } catch (error) {
+          update({ creating: false, error: error instanceof Error ? error.message : String(error) })
+          return false
+        }
+      }
     }
   }
 
@@ -699,6 +733,7 @@ export class ProjectTab implements ChatPanelOwner {
         setup,
         devServer: devServer.state,
         drawer: closedDrawer(),
+        branch: await branchStatus(root),
       })
       this.layout()
 
@@ -1177,6 +1212,7 @@ export class ProjectTab implements ChatPanelOwner {
       devServer: idleDevServer(),
       drawer: closedDrawer(),
       board: null,
+      branch: null,
       preview: { ...this.state.preview, url: null, error: null, visible: false, selecting: false },
     })
     return closed

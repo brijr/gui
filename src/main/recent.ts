@@ -1,9 +1,10 @@
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { app } from 'electron'
 import type { RecentProject } from '../shared/types'
 import { writeFileAtomic } from './atomic-file'
 import { lastMessage } from './history'
+import { loadWorktrees } from './worktree-registry'
 
 const MAX_RECENT = 12
 const file = () => join(app.getPath('userData'), 'recent-projects.json')
@@ -33,12 +34,21 @@ let lastWithChats: RecentProject[] | null = null
 
 export const recentSoFar = () => lastWithChats
 
-/** The list with each project's last message, for the start screen's recent chats. */
+/**
+ * The list with each project's last message, for the start screen's recent chats, and for a
+ * worktree Gui made, what it's a worktree of.
+ */
 export async function withChats(recent: RecentProject[]): Promise<RecentProject[]> {
+  const worktrees = new Map((await loadWorktrees()).map((record) => [record.path, record]))
   lastWithChats = await Promise.all(
-    recent
-      .slice(0, MAX_RECENT)
-      .map(async (project) => ({ ...project, chat: await lastMessage(project.root) })),
+    recent.slice(0, MAX_RECENT).map(async (project) => {
+      const record = worktrees.get(project.root)
+      return {
+        ...project,
+        chat: await lastMessage(project.root),
+        worktree: record ? { of: basename(record.main), branch: record.branch } : null,
+      }
+    }),
   )
   return lastWithChats
 }
