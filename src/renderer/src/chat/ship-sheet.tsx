@@ -171,6 +171,8 @@ function Workspace({
     if (canCommit) void submitShip(info)
   }
   const requested = draft.branch && draft.branch !== info.branch ? draft.branch : ''
+  // Nothing to commit: the commit draft would only be in the way.
+  const clean = info.files.length === 0 && info.skipped.length === 0
   const proposedTarget = workspace.branches.find((branch) => branch.name === requested)
   return (
     <>
@@ -242,101 +244,114 @@ function Workspace({
               </div>
             )}
           </section>
-          <section className="flex flex-col gap-2" aria-label="Changed files">
-            <div className="flex flex-wrap items-center justify-between gap-1 text-small">
-              <h3 className="font-medium">
-                Changes{' '}
-                <span className="text-caption text-muted">
-                  {count} of {info.files.length} selected
-                </span>
-              </h3>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy || info.files.length === 0}
-                onClick={() =>
-                  setShipDraft({
-                    files: count === info.files.length ? [] : info.files.map((file) => file.path),
-                  })
-                }
-              >
-                {count === info.files.length && count > 0 ? 'Clear selection' : 'Select all'}
-              </Button>
-            </div>
-            {info.files.length > 0 ? (
-              <FileList
-                files={info.files}
-                selected={selected}
-                busy={busy}
-                onToggle={(path) => {
-                  const next = new Set(selected)
-                  if (next.has(path)) next.delete(path)
-                  else next.add(path)
-                  setShipDraft({ files: [...next] })
-                }}
-              />
-            ) : (
-              <p className="py-2 text-small text-muted">
-                Working tree clean. You can still switch or create a branch.
+          {clean ? (
+            <section className="flex flex-col gap-0.5" aria-label="Changed files">
+              <h3 className="text-small font-medium">No uncommitted changes</h3>
+              <p className="text-pretty text-caption text-muted">
+                Changes the agent makes show here to commit. You can still switch or create a
+                branch, and push the commits below.
               </p>
-            )}
-            {info.files.length > 0 && (
-              <p className="text-caption text-subtle">
-                Checked files include their current contents, including unstaged edits.
-              </p>
-            )}
-            {info.skipped.length > 0 && (
-              <p className="text-caption text-subtle">
-                Excluded as possible secrets: <PathList paths={info.skipped} />
-              </p>
-            )}
-          </section>
-          <section className="flex flex-col gap-2" aria-label="Commit draft">
-            <Field
-              label="Commit message"
-              htmlFor={`${id}-message`}
-              hint={
-                draft.title && draft.title === info.suggestion.title
-                  ? 'Suggested message. Edit it before committing.'
-                  : undefined
-              }
-            >
-              <Input
-                id={`${id}-message`}
-                value={draft.title}
-                disabled={busy}
-                maxLength={500}
-                placeholder="Describe this change"
-                onChange={(event) => setShipDraft({ title: event.target.value })}
-                aria-describedby={
-                  draft.title && draft.title === info.suggestion.title
-                    ? `${id}-message-hint`
-                    : undefined
-                }
-              />
-            </Field>
-            <Disclosure
-              open={description}
-              onOpenChange={setDescription}
-              title="Description (optional)"
-            >
-              Description (optional)
-            </Disclosure>
-            {description && (
-              <Textarea
-                aria-label="Commit description"
-                value={draft.body}
-                disabled={busy}
-                maxLength={20_000}
-                rows={3}
-                placeholder="What changed, and why"
-                onChange={(event) => setShipDraft({ body: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.metaKey && event.key === 'Enter') submit(event)
-                }}
-              />
-            )}
-          </section>
+            </section>
+          ) : (
+            <>
+              <section className="flex flex-col gap-2" aria-label="Changed files">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-small">
+                  <h3 className="font-medium">
+                    Changes{' '}
+                    <span className="text-caption text-muted">
+                      {count} of {info.files.length} selected
+                    </span>
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || info.files.length === 0}
+                    onClick={() =>
+                      setShipDraft({
+                        files:
+                          count === info.files.length ? [] : info.files.map((file) => file.path),
+                      })
+                    }
+                  >
+                    {count === info.files.length && count > 0 ? 'Clear selection' : 'Select all'}
+                  </Button>
+                </div>
+                {info.files.length > 0 ? (
+                  <FileList
+                    files={info.files}
+                    selected={selected}
+                    busy={busy}
+                    onToggle={(path) => {
+                      const next = new Set(selected)
+                      if (next.has(path)) next.delete(path)
+                      else next.add(path)
+                      setShipDraft({ files: [...next] })
+                    }}
+                  />
+                ) : (
+                  <p className="py-2 text-small text-muted">
+                    Nothing here can be committed. You can still switch or create a branch.
+                  </p>
+                )}
+                {info.files.length > 0 && (
+                  <p className="text-caption text-subtle">
+                    Checked files include their current contents, including unstaged edits.
+                  </p>
+                )}
+                {info.skipped.length > 0 && (
+                  <p className="text-caption text-subtle">
+                    Excluded as possible secrets: <PathList paths={info.skipped} />
+                  </p>
+                )}
+              </section>
+              <section className="flex flex-col gap-2" aria-label="Commit draft">
+                <Field
+                  label="Commit message"
+                  htmlFor={`${id}-message`}
+                  hint={
+                    draft.title && draft.title === info.suggestion.title
+                      ? 'Suggested message. Edit it before committing.'
+                      : undefined
+                  }
+                >
+                  <Input
+                    id={`${id}-message`}
+                    value={draft.title}
+                    disabled={busy}
+                    maxLength={500}
+                    placeholder="Describe this change"
+                    onChange={(event) => setShipDraft({ title: event.target.value })}
+                    aria-describedby={
+                      draft.title && draft.title === info.suggestion.title
+                        ? `${id}-message-hint`
+                        : undefined
+                    }
+                  />
+                </Field>
+                <Disclosure
+                  open={description}
+                  onOpenChange={setDescription}
+                  title="Description (optional)"
+                >
+                  Description (optional)
+                </Disclosure>
+                {description && (
+                  <Textarea
+                    aria-label="Commit description"
+                    value={draft.body}
+                    disabled={busy}
+                    maxLength={20_000}
+                    rows={3}
+                    placeholder="What changed, and why"
+                    onChange={(event) => setShipDraft({ body: event.target.value })}
+                    onKeyDown={(event) => {
+                      if (event.metaKey && event.key === 'Enter') submit(event)
+                    }}
+                  />
+                )}
+              </section>
+            </>
+          )}
           <section
             className="flex flex-col gap-2 border-t border-line pt-3"
             aria-label="Remote actions"
@@ -402,18 +417,20 @@ function Workspace({
               {notice}
             </p>
           )}
-          {reason && <p className="text-caption text-muted">{reason}</p>}
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!canCommit}
-            loading={action === 'commit'}
-            className="w-full"
-          >
-            {action === 'commit'
-              ? 'Committing…'
-              : `Commit ${count} ${count === 1 ? 'file' : 'files'}`}
-          </Button>
+          {!clean && reason && <p className="text-caption text-muted">{reason}</p>}
+          {!clean && (
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canCommit}
+              loading={action === 'commit'}
+              className="w-full"
+            >
+              {action === 'commit'
+                ? 'Committing…'
+                : `Commit ${count} ${count === 1 ? 'file' : 'files'}`}
+            </Button>
+          )}
         </div>
       </form>
       <CreateBranchDialog
