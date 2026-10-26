@@ -836,6 +836,8 @@ export interface ChatMeta {
   canSelect: boolean
   /** The chat is a canvas's: the agent makes frames rather than editing an app */
   canvas: boolean
+  /** The canvas has no frames yet, so the canvas itself says what to ask for */
+  canvasEmpty: boolean
   minimized: boolean
   /** The window's sidebar, top to bottom, instead of floating over the preview */
   docked: boolean

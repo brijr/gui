@@ -20,8 +20,10 @@ import {
 import type { BoardFrame, BoardState, Rect } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { readableError } from '../lib/errors'
+import { FIELD_LOOK, InlineError } from '../lib/field'
 import { Card, GroupLabel } from '../lib/surface'
-import { Button } from '../lib/ui'
+import { Button, Spinner } from '../lib/ui'
 
 /** The frame label's height above a frame, in screen pixels. */
 const LABEL_HEIGHT = 22
@@ -47,6 +49,9 @@ const PINCH_DELTA_MAX = 22
 const CLEAR_MIN_WIDTH = 320
 /** macOS turns ⌃-click into a right-click: its menu, not a drag. */
 const MAC = navigator.platform.toLowerCase().includes('mac')
+
+/** How long a sent starter waits to see the agent start before the starters come back. */
+const SENT_WAIT_MS = 10_000
 
 /** Prompts for an empty canvas: the kinds of thing a board is good for. */
 const STARTERS = [
@@ -148,7 +153,7 @@ type Gesture =
  * resize them, across empty board to select several; double-click opens one live, as ⌘D does
  * to pick in it.
  */
-export function Board({ board }: { board: BoardState }) {
+export function Board({ board, working = false }: { board: BoardState; working?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   const [camera, setCamera] = useState<BoardCamera | null>(board.camera)
@@ -869,7 +874,7 @@ export function Board({ board }: { board: BoardState }) {
         {announcement}
       </p>
 
-      {!board.frames.length && <EmptyBoard />}
+      {!board.frames.length && <EmptyBoard working={working} />}
     </div>
   )
 }
@@ -927,7 +932,7 @@ function FrameLabel({
         autoFocus
         aria-label="Frame name"
         defaultValue={frame.name}
-        className="rounded-sm border border-accent bg-raised px-1 text-caption text-fg outline-none"
+        className={`${FIELD_LOOK} px-1 text-caption`}
         style={{ ...style, width: Math.max(width, 160) }}
         onFocus={(event) => event.currentTarget.select()}
         onPointerDown={(event) => event.stopPropagation()}
@@ -1005,7 +1010,7 @@ function SectionLabel({
         autoFocus
         aria-label="Section name"
         defaultValue={name}
-        className="rounded-md border border-accent bg-raised px-2 text-small font-medium text-fg outline-none"
+        className={`${FIELD_LOOK} px-2 text-small font-medium`}
         style={{ ...style, width: Math.min(maxWidth, 240) }}
         onFocus={(event) => event.currentTarget.select()}
         onPointerDown={(event) => event.stopPropagation()}
@@ -1032,10 +1037,38 @@ function SectionLabel({
   )
 }
 
-/** An empty canvas: what to ask for, rather than a blank void. */
-function EmptyBoard() {
+/**
+ * An empty canvas: what to ask for, rather than a blank void. A starter goes to the chat once:
+ * the starters wait while it's sending and while the agent works on it.
+ */
+function EmptyBoard({ working }: { working: boolean }) {
+  const [sending, setSending] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Sent, until the agent is seen working on it: the tab's status comes a moment later. If
+  // it never does (the message waits for setup), the starters come back after a while.
+  const [sent, setSent] = useState(false)
+  useEffect(() => {
+    if (working) setSent(false)
+    if (!sent || working) return
+    const timer = setTimeout(() => setSent(false), SENT_WAIT_MS)
+    return () => clearTimeout(timer)
+  }, [sent, working])
+  const busy = working || sent || sending !== null
+  const start = async (prompt: string) => {
+    if (busy) return
+    setSending(prompt)
+    setError(null)
+    try {
+      if (await gui.send(prompt)) setSent(true)
+      else setError("Gui couldn't send that to your agent. Try again, or ask in the chat.")
+    } catch (err) {
+      setError(readableError(err))
+    } finally {
+      setSending(null)
+    }
+  }
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-start p-8">
       <Card
         className="pointer-events-auto flex w-full max-w-md flex-col gap-4 p-5"
         onPointerDown={(event) => event.stopPropagation()}
@@ -1054,13 +1087,22 @@ function EmptyBoard() {
               <Button
                 key={prompt}
                 size="sm"
+                loading={sending === prompt}
+                disabled={busy}
                 className="h-auto max-w-full justify-start py-1.5 text-left whitespace-normal"
-                onClick={() => void gui.send(prompt)}
+                onClick={() => void start(prompt)}
               >
                 {prompt}
               </Button>
             ))}
           </div>
+          {(working || sent) && (
+            <p role="status" className="flex items-center gap-1.5 text-small text-muted">
+              <Spinner />
+              Your agent is on it. Frames land here as it makes them.
+            </p>
+          )}
+          {error && <InlineError>{error}</InlineError>}
         </div>
       </Card>
     </div>

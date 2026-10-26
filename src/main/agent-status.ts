@@ -259,7 +259,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
       }
       this.set(id, {
         status: 'signing-in',
-        message: 'Finish signing in in your browser…',
+        message: 'Continue in your browser to sign in…',
         detail: null,
       })
       try {
@@ -342,7 +342,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     this.awaitingTerminal.add(id)
     this.set(id, {
       status: 'signing-in',
-      message: 'Finish signing in in Terminal, then come back to Gui.',
+      message: 'Continue in Terminal to sign in, then come back to Gui.',
       detail: null,
     })
   }
@@ -430,7 +430,7 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
     if (!pinned && this.health.get(id)?.status === 'not-installed') return
     this.set(id, {
       status: authenticate ? 'signing-in' : 'checking',
-      message: authenticate ? 'Finish signing in in your browser…' : null,
+      message: authenticate ? 'Continue in your browser to sign in…' : null,
       detail: null,
     })
     if (pinned) {

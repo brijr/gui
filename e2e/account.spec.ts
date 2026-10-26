@@ -101,7 +101,7 @@ test('a new user signs in before Gui opens a project, then the project opens', a
     // Signing up agrees to product emails, so there's nothing to tick.
     await expect(chrome.getByRole('checkbox')).toHaveCount(0)
     await chrome.getByRole('button', { name: 'Sign in or create an account' }).click()
-    await expect(chrome.getByText('Finish signing in in your browser…')).toBeVisible()
+    await expect(chrome.getByText('Continue in your browser to sign in…')).toBeVisible()
     const opened = await session.app.evaluate(
       () => (globalThis as unknown as { opened: string[] }).opened,
     )
@@ -144,7 +144,7 @@ test('a sign-in that fails says so; cancelling and signing out ask again', async
 
     // A code the service refuses ends the attempt with its message.
     await signIn.click()
-    await expect(chrome.getByText('Finish signing in in your browser…')).toBeVisible()
+    await expect(chrome.getByText('Continue in your browser to sign in…')).toBeVisible()
     const refused = await fetch(`http://127.0.0.1:${fake.service.loopback}/callback?code=stale`)
     expect(await refused.text()).toContain('Sign-in didn’t finish')
     await expect(chrome.getByRole('alert')).toContainText('Sign-in did not finish')

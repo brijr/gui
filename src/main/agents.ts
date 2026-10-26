@@ -95,7 +95,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     installUrl: 'https://cursor.com/docs/cli/installation',
     terminalSignIn: {
       command: 'cursor-agent login',
-      hint: 'Finish signing in in your browser.',
+      hint: 'Continue in your browser to sign in.',
     },
   },
   amp: {
@@ -103,7 +103,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     signIn: 'Sign in from Settings → Agents, or run `amp login` in a terminal.',
     inAppSignIn: false,
     installUrl: 'https://ampcode.com/docs/cli',
-    terminalSignIn: { command: 'amp login', hint: 'Finish signing in in your browser.' },
+    terminalSignIn: { command: 'amp login', hint: 'Continue in your browser to sign in.' },
     // Keep Amp's configured permissions. The adapter's Bypass option overrides them.
   },
   devin: {
@@ -111,7 +111,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     signIn: 'Sign in from Settings → Agents, or run `devin auth login` in a terminal.',
     inAppSignIn: false,
     installUrl: 'https://docs.devin.ai/cli',
-    terminalSignIn: { command: 'devin auth login', hint: 'Finish signing in in your browser.' },
+    terminalSignIn: { command: 'devin auth login', hint: 'Continue in your browser to sign in.' },
   },
   claude: {
     launch: adapter('@agentclientprotocol/claude-agent-acp'),
@@ -143,7 +143,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
       sessionMeta: { ask: { yoloMode: false, autoMode: false }, auto: { autoMode: true } },
     },
     installUrl: 'https://x.ai/build',
-    terminalSignIn: { command: 'grok login', hint: 'Finish signing in in your browser.' },
+    terminalSignIn: { command: 'grok login', hint: 'Continue in your browser to sign in.' },
   },
   kiro: {
     launch: cli('kiro-cli', 'acp'),

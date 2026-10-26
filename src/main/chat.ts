@@ -295,6 +295,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       selecting: false,
       canSelect: false,
       canvas: !!options.board,
+      canvasEmpty: false,
       minimized: false,
       docked: options.docked,
       sidebarSide: getPrefs().chatSidebarSide,
@@ -536,6 +537,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (canSelect !== this.meta.canSelect) this.patchMeta({ canSelect })
   }
 
+  setCanvasEmpty(canvasEmpty: boolean) {
+    if (canvasEmpty !== this.meta.canvasEmpty) this.patchMeta({ canvasEmpty })
+  }
+
   setMinimized(minimized: boolean) {
     this.patchMeta({ minimized })
   }
@@ -608,6 +613,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.disposed) return false
     const waiting = this.meta.queue.some((item) => this.queued.get(item.id)?.fix === 'startup')
     if (waiting) return true
+    // Already on it: a second click doesn't ask again.
+    const last = this.records.at(-1)
+    if (last?.fix === 'startup' && last.turn.status === 'running') return true
     if (this.lock) return this.enqueueStartup()
     if (needsSetup(this.meta.agent)) {
       this.enqueueStartup()

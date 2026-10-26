@@ -372,7 +372,7 @@ export class ChatPanel {
       this.holdFlight()
       const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
       const area = this.anchorArea(contentWidth, contentHeight)
-      const max = maxFloatingSize(contentWidth, area)
+      const max = maxFloatingSize(contentWidth, area, PANEL_MIN.height)
       const panel = this.floatingRect(contentWidth, contentHeight)
       let left = panel.x
       let top = panel.y
@@ -719,7 +719,11 @@ export class ChatPanel {
   }
 
   private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
-    const max = maxFloatingSize(contentWidth, this.anchorArea(contentWidth, contentHeight))
+    const max = maxFloatingSize(
+      contentWidth,
+      this.anchorArea(contentWidth, contentHeight),
+      PANEL_MIN.height,
+    )
     const height = Math.min(clamp(this.panelSize.height, PANEL_MIN.height, max.height), max.height)
     return {
       width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
