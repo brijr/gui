@@ -213,7 +213,7 @@ test('a failed install says so in the address bar and offers its output', async 
   expect(failed.drawer.open).toBe(false)
   await expect(session.chrome.getByText("Couldn't install dependencies")).toHaveCount(1)
   await session.shot('install-failed')
-  await session.chrome.getByRole('button', { name: 'Show output' }).click()
+  await session.chrome.getByRole('button', { name: 'Show logs' }).click()
   await waitFor(async () => (await session.state()).drawer.open, 'the output to open')
   await expect(
     session.chrome.getByRole('tab', { name: 'Dev server', selected: true }),

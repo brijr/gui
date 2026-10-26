@@ -387,7 +387,7 @@ function SignInAgain() {
         {state === 'pending' ? 'Signing in…' : 'Sign in'}
       </Button>
       {state === 'pending' && (
-        <p className="text-small text-muted">Finish signing in in your browser.</p>
+        <p className="text-small text-muted">Continue in your browser to sign in.</p>
       )}
       {state === 'failed' && (
         <InlineError>Not signed in yet. Try again, or sign in from Settings → Agents.</InlineError>

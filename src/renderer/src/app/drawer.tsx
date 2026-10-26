@@ -297,9 +297,7 @@ function StoppedBar({ crashed, agentId }: { crashed: boolean; agentId: AgentId }
         }
       >
         <span className="truncate">
-          {crashed
-            ? "Your app stopped with an error, so the preview won't update."
-            : "Your app was stopped outside Gui, so the preview won't update."}
+          {crashed ? 'Your app stopped with an error.' : 'Your app was stopped outside Gui.'}
         </span>
       </Banner>
     </div>
