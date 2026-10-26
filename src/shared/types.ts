@@ -1099,6 +1099,8 @@ export interface Proposal {
   merge: { files: string[]; marked: string[] } | null
   /** This branch's newest pull request; null when there isn't one or Gui can't read the host */
   pull: ProposalPull | null
+  /** In a worktree: its folder name. Finishing removes it rather than starting something new */
+  worktree: string | null
 }
 
 export interface ProposalPull {

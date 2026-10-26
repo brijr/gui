@@ -976,6 +976,9 @@ function registerIpc() {
       await openWorktreeIn(windowFor(event), root)
     }),
   )
+  handleLegacy(Invoke.removeWorktree, (event) =>
+    reportError(async () => requireTab(event).removeWorktree()),
+  )
   handleLegacy(Invoke.openWorktree, (event, path: unknown) =>
     reportError(async () => {
       if (!isString(path) || path.length > 4096) throw new Error('That worktree is unavailable.')
@@ -1090,6 +1093,10 @@ function registerIpc() {
         )
       }),
   )
+  on(Send.revealProject, (tab) => {
+    const root = tab.getState().project?.root
+    if (root) shell.showItemInFolder(root)
+  })
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
   registerBoardIpc(onWindow, {
     create: newBoard,

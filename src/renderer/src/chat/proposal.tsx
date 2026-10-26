@@ -15,6 +15,7 @@ import {
   MessageSquare,
   RotateCw,
   SquarePen,
+  Trash2,
   TriangleAlert,
 } from '../lib/icons'
 import { Badge } from '../lib/status'
@@ -253,23 +254,37 @@ function barFor(
     )
   }
 
-  // Done with this one: the next idea starts from the latest, in a new chat.
+  // Done with this one: the next idea starts from the latest, in a new chat. A worktree can't
+  // switch to main (it's checked out beside it), so it's removed instead: the branch stays.
   if (pull && (pull.state === 'merged' || pull.state === 'closed')) {
     return (
       <Strip
         icon={pull.state === 'merged' ? Check : GitPullRequest}
         role="status"
         actions={
-          <Button
-            size="sm"
-            variant="primary"
-            icon={SquarePen}
-            disabled={disabled}
-            loading={busy === 'fresh'}
-            onClick={() => void act('fresh', () => gui.startFresh())}
-          >
-            Start something new
-          </Button>
+          proposal.worktree ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={Trash2}
+              disabled={disabled}
+              loading={busy === 'removeWorktree'}
+              onClick={() => void act('removeWorktree', () => gui.removeWorktree())}
+            >
+              Remove worktree
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={SquarePen}
+              disabled={disabled}
+              loading={busy === 'fresh'}
+              onClick={() => void act('fresh', () => gui.startFresh())}
+            >
+              Start something new
+            </Button>
+          )
         }
       >
         <PullTitle pull={pull} />

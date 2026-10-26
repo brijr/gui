@@ -70,6 +70,7 @@ export interface AllIpcRequests {
   [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
   [Invoke.answerWhereToWork]: Contract<'answerWhereToWork'>
   [Invoke.createWorktree]: Contract<'createWorktree'>
+  [Invoke.removeWorktree]: Contract<'removeWorktree'>
   [Invoke.openWorktree]: Contract<'openWorktree'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
@@ -138,6 +139,7 @@ export type LegacyErrorChannel =
   | typeof Invoke.cancelMerge
   | typeof Invoke.resolveConflicts
   | typeof Invoke.createWorktree
+  | typeof Invoke.removeWorktree
   | typeof Invoke.openWorktree
   | typeof Invoke.saveCustomAgent
   | typeof Invoke.deleteCustomAgent

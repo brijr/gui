@@ -105,6 +105,7 @@ export const Invoke = {
   askAboutBranch: 'settings:ask-about-branch',
   answerWhereToWork: 'project:where-to-work',
   createWorktree: 'worktree:create',
+  removeWorktree: 'worktree:remove',
   openWorktree: 'worktree:open',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
@@ -121,6 +122,7 @@ export const Send = {
   showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
   showBranchMenu: 'menu:branch',
+  revealProject: 'project:reveal',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
   installNode: 'node:install',
@@ -380,6 +382,8 @@ export interface GuiApi {
    * worktrees, Source Control
    */
   showBranchMenu(): void
+  /** Shows the open project's folder in Finder */
+  revealProject(): void
   /** The start screen's answer to "Where do you want to work?" (`WindowState.whereToWork`); false when it didn't go ahead */
   answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean>
   /**
@@ -387,6 +391,11 @@ export interface GuiApi {
    * tab; rejects with a message to show
    */
   createWorktree(name: string): Promise<void>
+  /**
+   * Confirms, then closes this worktree and deletes its folder. Refuses (rejects with a
+   * message) while it has uncommitted changes; the branch and its commits stay
+   */
+  removeWorktree(): Promise<void>
   /** Opens one of the repository's worktrees, or shows the tab it's open in */
   openWorktree(path: string): Promise<void>
 

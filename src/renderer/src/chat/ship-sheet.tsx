@@ -1,8 +1,10 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
 import type { ShipFile, ShipInfo, ShipRequest } from '../../../shared/types'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Dialog } from '../lib/dialog'
 import { Disclosure } from '../lib/disclosure'
+import { readableError } from '../lib/errors'
 import { Field, InlineError, Input, Textarea } from '../lib/field'
 import { ArrowLeft, Info, RotateCw } from '../lib/icons'
 import { PathText } from '../lib/path-text'
@@ -203,6 +205,7 @@ function Workspace({
                 You're on the shared branch. Create a branch to keep changes separate.
               </p>
             )}
+            {workspace.worktree && <WorktreeLine path={workspace.worktree.path} busy={busy} />}
             {requested && (
               <div className="flex flex-col gap-2 rounded-md bg-surface p-2 text-small">
                 <p>
@@ -550,6 +553,47 @@ function PathList({ paths }: { paths: string[] }) {
     )
   }
   return <>{nodes}</>
+}
+
+/**
+ * This is a worktree: where its folder is, and the way to remove it once it's done. Removing
+ * refuses while anything is uncommitted, and the branch and its commits stay.
+ */
+function WorktreeLine({ path, busy }: { path: string; busy: boolean }) {
+  const [removing, setRemoving] = useState(false)
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md bg-surface p-2 text-caption">
+      <p className="text-muted">
+        Worktree: a separate copy of your project on its own branch, in{' '}
+        <span className="font-mono break-all text-fg" title={path}>
+          {path}
+        </span>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="ghost" onClick={() => gui.revealProject()}>
+          Reveal in Finder
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          loading={removing}
+          onClick={async () => {
+            setRemoving(true)
+            try {
+              await gui.removeWorktree()
+            } catch (error) {
+              useShipSheet.setState({ error: readableError(error) })
+            } finally {
+              setRemoving(false)
+            }
+          }}
+        >
+          Remove worktree…
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 /** Renders `backticked` parts of a message as code. */

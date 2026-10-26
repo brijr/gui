@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve } from 'node:path'
 import {
   type At,
   CommandError,
+  git,
   gitAsUser,
   gitOrNull,
   listWorktrees,
@@ -15,18 +16,22 @@ import {
 import { getPrefs, setPrefs } from './prefs'
 import { assertBranchName, branchTaken } from './ship'
 import { getStartCommand, saveStartCommand } from './start-commands'
-import { isTrusted, trust } from './trust'
+import { isTrusted, trust, untrust } from './trust'
 import {
+  readHead,
   registerWorktree,
   uniqueSlug,
+  unregisterWorktree,
   type WorktreeRecord,
   worktreeSlug,
   worktreesDir,
 } from './worktree-registry'
 
 /**
- * Worktrees Gui makes: a separate checkout of the project on its own branch, in its own
- * folder, which opens as a project of its own (its own chat, preview and install).
+ * Worktrees Gui makes and removes: a separate checkout of the project on its own branch, in
+ * its own folder, which opens as a project of its own (its own chat, preview and install).
+ * Removing one never loses work: Git refuses while it has uncommitted changes, and the branch
+ * and its commits always stay.
  */
 
 /** Local env files a worktree gets a copy of, at the project root and in its monorepo app. */
@@ -37,6 +42,9 @@ const exists = (path: string) =>
     () => true,
     () => false,
   )
+
+const plural = (count: number, one: string, many = `${one}s`) =>
+  `${count} ${count === 1 ? one : many}`
 
 /**
  * A new worktree of the project at `root`, from its current commit, on `gui/<name>`; left
@@ -131,6 +139,51 @@ async function copyEnvFiles(from: string, to: string, dirs: string[], at: At) {
         console.error(`[gui] couldn't copy ${path} into the worktree`, error)
     }
   }
+}
+
+/**
+ * Why the worktree at `root` can't be removed yet, in the user's words; null when it can.
+ * Untracked files count: removing the folder would delete them.
+ */
+export async function removalBlocked(root: string): Promise<string | null> {
+  const head = await readHead(root)
+  if (!head?.mainTop) return 'This project isn’t a worktree.'
+  const repo = await openRepo(root)
+  if (repo.problem) return repo.problem
+  const count = repo.changes.length + repo.skipped.length
+  if (count === 0) return null
+  return `${basename(head.top)} has ${plural(count, 'uncommitted change')}. Commit or discard them first.`
+}
+
+/**
+ * Deletes the worktree's folder with `git worktree remove`, never forced, so Git refuses too
+ * if anything uncommitted turned up meanwhile. The branch and its commits stay.
+ */
+export async function removeWorktree(root: string) {
+  const blocked = await removalBlocked(root)
+  if (blocked) throw new Error(blocked)
+  const head = await readHead(root)
+  if (!head?.mainTop) throw new Error('This project isn’t a worktree.')
+  const top = head.top
+  await withGitMutation(head.mainTop, async (main) => {
+    try {
+      await git(main, ['worktree', 'remove', '--', top])
+    } catch (error) {
+      if (!(error instanceof CommandError)) throw error
+      throw new Error(`Couldn’t remove the worktree:\n${tail(error.output, 4)}`)
+    }
+    await git(main, ['worktree', 'prune']).catch(() => undefined)
+  })
+  await forgetSettings(root)
+}
+
+async function forgetSettings(root: string) {
+  await unregisterWorktree(root)
+  await untrust(root).catch(() => undefined)
+  await saveStartCommand(root, null).catch(() => undefined)
+  const prefs = getPrefs()
+  const { [root]: _app, ...apps } = prefs.apps
+  setPrefs({ apps, askRoots: prefs.askRoots.filter((saved) => saved !== root) })
 }
 
 /** The repository's worktrees, each with the folder its project opens at. */

@@ -27,6 +27,13 @@ async function opened(session: GuiSession, root: string) {
   }, `${root} to open`)
 }
 
+/** Answers the next native question with its button numbered `response`. */
+async function answerDialogs(session: GuiSession, response: number) {
+  await session.app.evaluate(({ dialog }, response) => {
+    dialog.showMessageBox = (async () => ({ response, checkboxChecked: false })) as never
+  }, response)
+}
+
 test('opening on main asks where to work, and On main opens it as it is', async ({ launch }) => {
   const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
   const { root } = session.fixture
@@ -91,9 +98,7 @@ test('On a new branch names the branch from the first message, without asking', 
   )
 })
 
-test('a new worktree opens beside main, with its own branch, install and preview', async ({
-  launch,
-}) => {
+test('a new worktree opens beside main, and removing it never loses work', async ({ launch }) => {
   const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
   const { root, base } = session.fixture
   onMain(root)
@@ -117,4 +122,23 @@ test('a new worktree opens beside main, with its own branch, install and preview
   expect(existsSync(join(root, 'uncommitted.txt'))).toBe(true)
   // Its own install, then its own preview.
   await session.waitForPreview()
+
+  // Uncommitted work blocks removal, before any question.
+  writeFileSync(join(folder, 'draft.txt'), 'not committed\n')
+  await expect(session.chat.evaluate(() => window.gui.removeWorktree())).rejects.toThrow(
+    /pricing-page has 1 uncommitted change/,
+  )
+  expect(existsSync(join(folder, 'draft.txt'))).toBe(true)
+
+  // Committed, it goes once confirmed; the branch and its commit stay.
+  git(folder, 'add', 'draft.txt')
+  git(folder, 'commit', '--quiet', '-m', 'Draft')
+  const commit = git(folder, 'rev-parse', 'HEAD').trim()
+  await answerDialogs(session, 0)
+  await session.chat.evaluate(() => window.gui.removeWorktree())
+  await waitFor(() => !existsSync(folder), 'the worktree folder to go')
+  expect(git(root, 'rev-parse', 'gui/pricing-page').trim()).toBe(commit)
+  await waitFor(async () => (await session.state()).project === null, 'the start screen')
+  const recent = (await session.state()).recent ?? []
+  expect(recent.some((project) => project.root === folder)).toBe(false)
 })

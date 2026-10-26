@@ -115,7 +115,7 @@ import {
   readProposal,
   startFresh,
 } from './proposal'
-import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
+import { addRecent, loadRecent, recentSoFar, removeRecent, withChats } from './recent'
 import { type CursorFrame, CursorTrack } from './recording-cursor'
 import { RecordingTrace } from './recording-trace'
 import { Recordings } from './recordings'
@@ -156,7 +156,7 @@ import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { focusWindow } from './window-presentation'
 import { branchStatus, whereToWorkCheck } from './worktree-registry'
-import { createWorktree, worktreesOf } from './worktrees'
+import { createWorktree, removalBlocked, removeWorktree, worktreesOf } from './worktrees'
 
 export type { TabHost, TabState } from './tab-host'
 
@@ -3320,6 +3320,54 @@ export class ProjectTab implements ChatPanelOwner {
     const root = await this.gitRootForAction()
     const made = await createWorktree(root, name)
     return made.path
+  }
+
+  /**
+   * Removes this worktree once the user confirms: never with uncommitted changes, and the
+   * branch and its commits stay. The dev server stops and the chat is archived as the project
+   * closes, then the folder goes and the tab is back on the start screen.
+   */
+  async removeWorktree() {
+    const root = this.state.project?.root
+    const worktree = this.state.branch?.worktree
+    if (!root || !worktree) throw new Error('This project isn’t a worktree.')
+    if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
+    if (!(await this.confirmGit(root))) return
+    const blocked = await removalBlocked(root)
+    if (blocked) throw new Error(blocked)
+    const branch = this.state.branch?.branch
+    const owner = this.panel.popoutWindow ?? this.host.win
+    const { response } = await dialog.showMessageBox(owner, {
+      type: 'question',
+      message: `Remove the worktree ${promptName(worktree.name)}?`,
+      detail: `Its folder is deleted from this Mac. ${branch ? `The branch ${promptName(branch)} and its commits stay` : 'Its commits stay'}, so you can open them again from ${promptName(worktree.of)}.`,
+      buttons: ['Remove Worktree', 'Cancel'],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    })
+    if (response !== 0 || this.disposed || this.state.project?.root !== root) return
+    await this.archiveChat()
+    await this.closeProject()
+    try {
+      await removeWorktree(root)
+    } catch (error) {
+      // Git refused after all (something changed meanwhile): the worktree opens again as it was.
+      if (!this.disposed) {
+        void this.openProject(root).catch(() => undefined)
+        if (!owner.isDestroyed())
+          await dialog.showMessageBox(owner, {
+            type: 'warning',
+            message: `Couldn’t remove ${promptName(worktree.name)}`,
+            detail: error instanceof Error ? error.message : String(error),
+            buttons: ['OK'],
+            noLink: true,
+          })
+      }
+      return
+    }
+    const recent = await withChats(await removeRecent(root))
+    this.host.shareRecent(recent)
   }
 
   // Plumbing

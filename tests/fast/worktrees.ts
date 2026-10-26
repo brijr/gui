@@ -15,7 +15,8 @@ import {
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 
-// Where to work, worktree naming, the registry, and making a worktree in a real repository. Git runs for real; Electron, the shell's environment and GitHub are stood in for.
+// Where to work, worktree naming, the registry, and making and removing a worktree in a real
+// repository. Git runs for real; Electron, the shell's environment and GitHub are stood in for.
 
 const base = realpathSync(mkdtempSync(join(tmpdir(), 'gui-worktrees-')))
 const userData = join(base, 'user-data')
@@ -150,6 +151,27 @@ try {
   // The same name again gets the next free one; no name gets the date.
   assert.equal((await worktrees.createWorktree(main, 'Pricing page')).branch, 'gui/pricing-page-2')
   assert.match((await worktrees.createWorktree(main, '')).branch, /^gui\/[a-z]{3}-\d{1,2}$/)
+
+  // Removing never loses work: refused while anything is uncommitted, folder untouched.
+  writeFileSync(join(made.path, 'draft.txt'), 'not committed\n')
+  assert.equal(
+    await worktrees.removalBlocked(made.path),
+    'pricing-page has 1 uncommitted change. Commit or discard them first.',
+  )
+  await assert.rejects(worktrees.removeWorktree(made.path), /1 uncommitted change/)
+  assert.ok(existsSync(join(made.path, 'draft.txt')))
+  assert.equal(await worktrees.removalBlocked(main), 'This project isn’t a worktree.')
+
+  // Once it's committed, the folder goes; the branch and its commit stay.
+  git(made.path, 'add', 'draft.txt')
+  git(made.path, 'commit', '--quiet', '-m', 'draft')
+  const commit = git(made.path, 'rev-parse', 'HEAD')
+  await worktrees.removeWorktree(made.path)
+  assert.ok(!existsSync(made.path))
+  assert.equal(git(main, 'rev-parse', 'gui/pricing-page'), commit)
+  assert.equal(await registry.findWorktree(made.path), null)
+  assert.ok(!(await isTrusted(made.path)))
+  assert.ok(!git(main, 'worktree', 'list').includes('pricing-page\n'))
 
   console.log('worktrees passed')
 } finally {
