@@ -7,6 +7,12 @@ import type { BoardTools } from './mcp-board-tools'
 import { describeBoard, type PromptBoard } from './prompt'
 
 const BOARD_SHOT_MAX = { width: 1600, height: 1960 }
+/**
+ * Screenshots are JPEG: encoding runs on the main process, and PNG of a long page held the
+ * whole app for half a second (stripe.com full page: PNG 557ms, JPEG 47ms). At 90, text and
+ * gradients stay clean.
+ */
+const SHOT_QUALITY = 90
 
 /** Scaled down to what the agent's image input takes. */
 function fitForAgent(image: NativeImage) {
@@ -20,19 +26,19 @@ function fitForAgent(image: NativeImage) {
           quality: 'good',
         })
       : image
-  return { data: fitted.toPNG().toString('base64'), ...fitted.getSize() }
+  return { data: fitted.toJPEG(SHOT_QUALITY).toString('base64'), ...fitted.getSize() }
 }
 
-/** "Stripe Home.png" → "stripe-home.png": a plain file name, never a path. */
+/** "Stripe Home.png" → "stripe-home.jpg": a plain file name, never a path. */
 export function assetName(name: string) {
   const stem = name
     .trim()
-    .replace(/\.png$/i, '')
+    .replace(/\.(png|jpe?g)$/i, '')
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 60)
-  return `${stem || 'screenshot'}.png`
+  return `${stem || 'screenshot'}.jpg`
 }
 
 /**
@@ -45,6 +51,8 @@ export function createBoardTools(
     prompt: () => PromptBoard | null
     open: (id: string | null) => Promise<void>
     live: () => boolean
+    /** Aborts once the canvas closes */
+    closed: AbortSignal
   },
 ): BoardTools {
   const tools = boardTools(board, host)
@@ -76,6 +84,8 @@ function boardTools(
     prompt: () => PromptBoard | null
     open: (id: string | null) => Promise<void>
     live: () => boolean
+    /** Aborts once the canvas closes */
+    closed: AbortSignal
   },
 ): BoardTools {
   const where = (frame: { id: string; width: number; height: number; x: number; y: number }) =>
@@ -119,13 +129,13 @@ function boardTools(
     screenshotUrl: async ({ saveAs, ...options }) => {
       // Loaded on first use: it starts browser windows, which the board itself never needs.
       const { captureWebPage, WEB_CAPTURE_MAX_HEIGHT } = await import('./web-capture')
-      const shot = await captureWebPage(options, host.live)
+      const shot = await captureWebPage(options, host.closed)
       if (!host.live()) throw new Error('The canvas closed.')
       let saved: string | null = null
       if (saveAs) {
         saved = `assets/${assetName(saveAs)}`
         await mkdir(join(board.root, 'assets'), { recursive: true })
-        await writeAsset(join(board.root, saved), shot.image.toPNG())
+        await writeAsset(join(board.root, saved), shot.image.toJPEG(SHOT_QUALITY))
       }
       return {
         ...fitForAgent(shot.image),
