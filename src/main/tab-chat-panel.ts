@@ -208,6 +208,8 @@ export class ChatPanel {
     this.tab.resources.chat?.setPopped(true)
     if (!this.tab.state.chatVisible) this.tab.patch({ chatVisible: true })
     this.tab.layout()
+    // Out, ⌘B brings it forward rather than hiding it: the View menu says Show Chat.
+    this.tab.host.tabChanged(this.tab, false)
     win.once('ready-to-show', () => {
       if (this.popout !== win || !this.tab.host.isActive(this.tab)) return
       fadeIn(win, this.tab.chatView.webContents)
@@ -229,6 +231,7 @@ export class ChatPanel {
     }
     if (!this.tab.state.chatVisible) this.tab.patch({ chatVisible: true })
     this.tab.layout()
+    this.tab.host.tabChanged(this.tab, false)
     focusWindow(this.tab.host.win)
     this.focusChat()
   }
