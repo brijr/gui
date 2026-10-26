@@ -887,6 +887,7 @@ export class ProjectTab implements ChatPanelOwner {
             prompt: () => this.promptBoard(),
             open: (id) => this.openFrame(id),
             live: current,
+            closed: resources.signal,
           })
         : null,
     ).catch((error: unknown) => {

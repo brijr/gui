@@ -132,29 +132,52 @@ async function lockDown() {
 
 /** Captures wait their turn: each has the session to itself, wiped once it's done. */
 let queue: Promise<unknown> = Promise.resolve()
+/** Captures running or waiting, across every canvas. More than this are turned away. */
+const MAX_CAPTURES = 4
+let captures = 0
+
+const CLOSED = 'The canvas closed.'
 
 /**
- * A screenshot of a public website. `wanted` is asked again once it's this capture's turn,
- * so one queued for a canvas that has since closed never starts.
+ * A screenshot of a public website. `signal` aborts once its canvas closes: a capture still
+ * waiting never starts, and one under way stops and closes its window.
  */
 export function captureWebPage(
   options: WebCaptureOptions,
-  wanted: () => boolean = () => true,
+  signal?: AbortSignal,
 ): Promise<WebCapture> {
   const target = captureUrl(options.url)
+  if (signal?.aborted) return Promise.reject(new Error(CLOSED))
+  if (captures >= MAX_CAPTURES)
+    return Promise.reject(
+      new Error('Gui is already capturing several websites. Try again once those finish.'),
+    )
+  captures++
   const run = queue.then(async () => {
-    if (!wanted()) throw new Error('The canvas closed.')
+    if (signal?.aborted) throw new Error(CLOSED)
     if (!(await isPublicHost(target.hostname))) throw new Error(LOCAL_ADDRESS)
     const { ses, proxy } = await lockedSession()
+    if (signal?.aborted) throw new Error(CLOSED)
     proxy.refused.clear()
     try {
-      return await capture(target, options, ses, proxy)
+      return await capture(target, options, ses, proxy, signal)
     } finally {
       await Promise.all([ses.clearStorageData(), ses.clearCache()]).catch(() => undefined)
     }
   })
-  queue = run.catch(() => undefined)
-  return run
+  const settled = run.then(
+    () => undefined,
+    () => undefined,
+  )
+  void settled.then(() => captures--)
+  queue = settled
+  if (!signal) return run
+  // A closed canvas's caller hears right away; its place in line is skipped when it comes up.
+  return new Promise<WebCapture>((resolve, reject) => {
+    const closed = () => reject(new Error(CLOSED))
+    signal.addEventListener('abort', closed, { once: true })
+    run.then(resolve, reject).finally(() => signal.removeEventListener('abort', closed))
+  })
 }
 
 async function capture(
@@ -162,6 +185,7 @@ async function capture(
   options: WebCaptureOptions,
   ses: Session,
   proxy: PublicProxy,
+  signal?: AbortSignal,
 ): Promise<WebCapture> {
   const win = new BrowserWindow({
     show: false,
@@ -178,6 +202,14 @@ async function capture(
     },
   })
   const wc = win.webContents
+  // Closing the canvas closes the window: a load or wait under way ends there.
+  const stop = () => {
+    if (!win.isDestroyed()) win.destroy()
+  }
+  signal?.addEventListener('abort', stop, { once: true })
+  const stillWanted = () => {
+    if (signal?.aborted || win.isDestroyed()) throw new Error(CLOSED)
+  }
   wc.setAudioMuted(true)
   // WebRTC's UDP would go around the proxy: it's left only what the proxy carries (nothing).
   wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
@@ -208,10 +240,13 @@ async function capture(
     })
     // A page that never finishes loading (analytics, streaming) is still captured as it is.
     await within(wc.loadURL(target.toString()), LOAD_TIMEOUT_MS)
+    if (signal?.aborted) throw new Error(CLOSED)
     if (win.isDestroyed()) throw new Error('The capture window closed.')
     if (load.failed) throw new Error(`Couldn't load ${target}: ${load.failed}`)
     await within(wc.executeJavaScript(READY_SCRIPT), READY_TIMEOUT_MS + 500)
+    stillWanted()
     await pause(SETTLE_MS)
+    stillWanted()
 
     const pageHeight = Math.round(
       Number(await within(wc.executeJavaScript(HEIGHT_SCRIPT), 2000)) || options.height,
@@ -219,16 +254,22 @@ async function capture(
     let height = options.height
     if (options.fullPage && pageHeight > options.height) {
       height = Math.min(pageHeight, WEB_CAPTURE_MAX_HEIGHT)
+      stillWanted()
       win.setContentSize(options.width, height)
       // The taller viewport brings lazy images and scroll-triggered sections into view.
       await pause(300)
+      stillWanted()
       await within(wc.executeJavaScript(READY_SCRIPT), READY_TIMEOUT_MS + 500)
+      stillWanted()
       await pause(SETTLE_MS)
+      stillWanted()
     }
     const image = await within(wc.capturePage({ x: 0, y: 0, width: options.width, height }), 8000)
+    stillWanted()
     if (!image || image.isEmpty()) throw new Error(`Couldn't capture ${target}.`)
     return { image, url: wc.getURL(), title: wc.getTitle(), pageHeight }
   } finally {
-    if (!win.isDestroyed()) win.destroy()
+    signal?.removeEventListener('abort', stop)
+    stop()
   }
 }
