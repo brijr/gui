@@ -116,7 +116,7 @@ test('the chat starts as the left sidebar, top to bottom, and ⌘B hides and sho
   await session.shot('sidebar')
 
   // ⌘B: gone, and the chrome and preview take the whole width.
-  await clickMenu(session, 'Show or Hide Chat')
+  await clickMenu(session, 'Hide Chat')
   const hidden = await layoutWhen(
     session,
     'the sidebar hidden',
@@ -137,9 +137,9 @@ test('the chat starts as the left sidebar, top to bottom, and ⌘B hides and sho
   // ⌘L again doesn't hide it; ⌘B does.
   await clickMenu(session, 'Focus Message Box')
   expect((await session.state()).chatVisible).toBe(true)
-  await clickMenu(session, 'Show or Hide Chat')
+  await clickMenu(session, 'Hide Chat')
   await layoutWhen(session, 'hidden by ⌘B', ({ chat }) => !chat?.visible)
-  await clickMenu(session, 'Show or Hide Chat')
+  await clickMenu(session, 'Show Chat')
   await layoutWhen(session, 'shown by ⌘B', ({ chat }) => chat?.visible === true)
 
   // Its right edge resizes it, and the width is remembered.
@@ -197,8 +197,8 @@ test('the chat pops out into a window of its own and comes back when that closes
   await expect(session.chat.getByRole('button', { name: 'Show as sidebar' })).toHaveCount(0)
   await session.shot('popped-out')
 
-  // ⌘B doesn't hide it while it's out.
-  await clickMenu(session, 'Show or Hide Chat')
+  // ⌘B doesn't hide it while it's out: the menu says Show Chat.
+  await clickMenu(session, 'Show Chat')
   expect((await session.app.evaluate(layout)).chat?.window).toBe(1)
 
   // Closing its window puts it back as the sidebar it was.

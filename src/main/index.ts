@@ -89,6 +89,7 @@ import {
   stringRequestArgs,
 } from './ipc-handler'
 import { isLoopback } from './loopback'
+import { chatWillHide, terminalWillHide } from './menu-toggles'
 import { createProject, createProjectFromFrame, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
@@ -1480,21 +1481,36 @@ const MOVE_TAB_ITEM = 'move-tab'
 const ALLOW_ITEM = 'allow'
 const DONT_ALLOW_ITEM = 'dont-allow'
 const FOCUS_MODE_ITEM = 'focus-mode'
+const SHOW_CHAT_ITEM = 'show-chat'
+const HIDE_CHAT_ITEM = 'hide-chat'
+const SHOW_TERMINAL_ITEM = 'show-terminal'
+const HIDE_TERMINAL_ITEM = 'hide-terminal'
 
-type SyncedItem = Pick<MenuItemConstructorOptions, 'checked' | 'enabled'>
+type SyncedItem = Pick<MenuItemConstructorOptions, 'checked' | 'enabled' | 'visible'>
 
 /**
  * Menu items that follow the window menus act on: View → Focus Mode is checked while the
  * window's in it; Agent → Auto Mode is checked when the project it would change is in Auto
  * mode; Allow and Don't Allow answer a permission card
  * that's waiting (see `permissionAnswer`); Window → Move Tab to New Window needs a second tab.
+ * View → Show Chat or Hide Chat, and Show Terminal or Hide Terminal, say what ⌘B and ⌘J
+ * will do (menu-toggles.ts).
  *
  * Their keys reach a page first: ⌘⌫ deletes typing in a text field, and the chat panel
  * answers ⌘↩ and ⌘⌫ itself (chat-panel.tsx), so only keys nothing else took get here.
  */
 function syncedItemStates(): Record<string, SyncedItem> {
   const tab = menuTab()
+  const focusMode = menuWindow()?.focusMode ?? false
+  const hideChat =
+    !!tab &&
+    chatWillHide({ chatVisible: tab.state.chatVisible, poppedOut: !!tab.popoutWindow, focusMode })
+  const hideTerminal = !!tab && terminalWillHide({ drawerOpen: tab.state.drawer.open, focusMode })
   return {
+    [SHOW_CHAT_ITEM]: { visible: !hideChat },
+    [HIDE_CHAT_ITEM]: { visible: hideChat },
+    [SHOW_TERMINAL_ITEM]: { visible: !hideTerminal },
+    [HIDE_TERMINAL_ITEM]: { visible: hideTerminal },
     [FOCUS_MODE_ITEM]: { checked: menuWindow()?.focusMode ?? false },
     [AUTO_MODE_ITEM]: { checked: tab?.autoApprove ?? false },
     [ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(true) },
@@ -1505,11 +1521,12 @@ function syncedItemStates(): Record<string, SyncedItem> {
 
 function syncMenuItems() {
   const menu = Menu.getApplicationMenu()
-  for (const [id, { checked, enabled }] of Object.entries(syncedItemStates())) {
+  for (const [id, { checked, enabled, visible }] of Object.entries(syncedItemStates())) {
     const item = menu?.getMenuItemById(id)
     if (!item) continue
     if (checked !== undefined && item.checked !== checked) item.checked = checked
     if (enabled !== undefined && item.enabled !== enabled) item.enabled = enabled
+    if (visible !== undefined && item.visible !== visible) item.visible = visible
   }
 }
 
@@ -1621,6 +1638,32 @@ function buildMenu() {
     )
     return [visible, ...hidden]
   }
+  /**
+   * A show-or-hide shortcut's two items on the same keys ("Show Chat", "Hide Chat"), only one
+   * of them shown (`syncMenuItems`). The hidden one's keys don't work: a keystroke runs the
+   * item the menu shows.
+   */
+  const showOrHide = (
+    id: ShortcutId,
+    showId: string,
+    hideId: string,
+    fn: (tab: ProjectTab) => void,
+  ): MenuItemConstructorOptions[] => {
+    const { menuLabels }: ShortcutSpec = SHORTCUTS[id]
+    if (!menuLabels) throw new Error(`${id} has no Show and Hide labels`)
+    return [
+      { id: showId, label: menuLabels.show },
+      { id: hideId, label: menuLabels.hide },
+    ].flatMap(({ id: itemId, label }) =>
+      item(id, {
+        id: itemId,
+        label,
+        ...synced[itemId],
+        acceleratorWorksWhenHidden: false,
+        click: withWindow(fn),
+      }),
+    )
+  }
   const template: MenuItemConstructorOptions[] = [
     {
       label: app.name,
@@ -1677,12 +1720,14 @@ function buildMenu() {
       submenu: [
         ...item('selectElement', { click: withWindow((w) => void w.toggleSelect()) }),
         // ⌘B shows or hides the chat, like a sidebar; ⌘L puts the cursor in it (Cursor's ⌘L).
-        ...item('toggleChat', { click: withWindow((w) => w.toggleChat()) }),
+        ...showOrHide('toggleChat', SHOW_CHAT_ITEM, HIDE_CHAT_ITEM, (w) => w.toggleChat()),
         ...item('focusMessageBox', { click: withWindow((w) => w.focusMessageBox()) }),
         ...item('dockChat', { click: withWindow((w) => w.toggleDock()) }),
         ...item('popOutChat', { click: withWindow((w) => w.togglePopOut()) }),
         // The drawer under the canvas, as VS Code's ⌘J toggles its panel.
-        ...item('toggleTerminal', { click: withWindow((w) => w.toggleDrawer()) }),
+        ...showOrHide('toggleTerminal', SHOW_TERMINAL_ITEM, HIDE_TERMINAL_ITEM, (w) =>
+          w.toggleDrawer(),
+        ),
         { type: 'separator' },
         ...item('focusAddress', { click: withTabs((w) => w.focusAddress()) }),
         ...item('reload', { click: withWindow((w) => w.reload()) }),

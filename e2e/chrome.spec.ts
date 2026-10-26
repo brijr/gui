@@ -166,12 +166,12 @@ test('logs open in the drawer from the status menu and ⌘J; a crash shows a bar
   await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close')
   await expect(logsTab(session)).toHaveCount(0)
 
-  // View → Show or Hide Terminal (⌘J) opens it again on the tab it showed, the logs, without
-  // starting a shell, and closes it.
-  await clickMenu(session, 'Show or Hide Terminal')
+  // View → Show Terminal (⌘J) opens it again on the tab it showed, the logs, without
+  // starting a shell, and Hide Terminal closes it.
+  await clickMenu(session, 'Show Terminal')
   await waitFor(() => logsOpen(session), 'the logs to open from the menu')
   expect((await session.state()).drawer.terminals).toEqual([])
-  await clickMenu(session, 'Show or Hide Terminal')
+  await clickMenu(session, 'Hide Terminal')
   await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close from the menu')
 
   // The dev server crashes: its last page stays, the status turns red, and instead of raw
@@ -256,16 +256,17 @@ test('⌘B shows and hides the chat; ⌘L puts the cursor in its message box', a
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
 
-  // The View menu: the terminal on ⌘J, the chat on ⌘B, and no logs of their own.
+  // The View menu: the terminal on ⌘J, the chat on ⌘B, and no logs of their own. Each says
+  // what it will do: the chat is showing, the terminal isn't.
   const toggles = await session.app.evaluate(({ Menu }) =>
     Menu.getApplicationMenu()
       ?.items.find((item) => item.label === 'View')
-      ?.submenu?.items.filter((item) => item.label.startsWith('Toggle'))
+      ?.submenu?.items.filter((item) => item.visible && /^(Show|Hide) /.test(item.label))
       .map((item) => [item.label, item.accelerator]),
   )
   expect(toggles).toEqual([
-    ['Show or Hide Chat', 'CmdOrCtrl+B'],
-    ['Show or Hide Terminal', 'CmdOrCtrl+J'],
+    ['Hide Chat', 'CmdOrCtrl+B'],
+    ['Show Terminal', 'CmdOrCtrl+J'],
   ])
 
   // Where the keyboard is depends on Gui being the active app, as it is when the user presses
@@ -314,8 +315,8 @@ test('⌘B shows and hides the chat; ⌘L puts the cursor in its message box', a
   // From the message box ⌘L leaves it be; ⌘B hides the chat, and shows it again.
   await clickMenu(session, 'Focus Message Box')
   expect(await visible()).toBe(true)
-  await clickMenu(session, 'Show or Hide Chat')
+  await clickMenu(session, 'Hide Chat')
   await waitFor(async () => !(await visible()), 'the chat to hide')
-  await clickMenu(session, 'Show or Hide Chat')
+  await clickMenu(session, 'Show Chat')
   await waitFor(visible, 'the chat to show again')
 })

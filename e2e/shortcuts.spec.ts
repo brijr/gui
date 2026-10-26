@@ -386,14 +386,18 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   const entries = await session.app.evaluate(menuEntries)
 
   // Each shortcut's item, with its keys; its other keys on hidden items that still work. (A
-  // page's own key, like the terminal's ⌘K, has none.)
+  // page's own key, like the terminal's ⌘K, has none.) A show-or-hide key's item says which it
+  // will do: one of its two labels shows.
   for (const shortcut of allShortcuts()) {
     if (shortcut.menu === null) {
       expect(entries.filter((entry) => entry.label === shortcut.label)).toEqual([])
       continue
     }
+    const labels = shortcut.menuLabels
+      ? [shortcut.menuLabels.show, shortcut.menuLabels.hide]
+      : [shortcut.label]
     const shown = entries.filter(
-      (entry) => entry.label === shortcut.label && entry.visible && entry.accelerator !== null,
+      (entry) => labels.includes(entry.label) && entry.visible && entry.accelerator !== null,
     )
     expect(
       shown.map((entry) => entry.accelerator),
@@ -409,8 +413,11 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
       })
     }
   }
-  // No two items share keys.
-  const keys = entries.flatMap((entry) => entry.accelerator ?? [])
+  // No two items share keys that work. (Show Chat and Hide Chat share ⌘B, but only the one
+  // showing answers it.)
+  const keys = entries.flatMap((entry) =>
+    entry.accelerator && (entry.visible || entry.worksHidden) ? entry.accelerator : [],
+  )
   expect(keys.filter((key, i) => keys.indexOf(key) !== i)).toEqual([])
   // The Help menu is macOS's (with its search field), and has the sheet.
   expect(entries.find((entry) => entry.label === 'Help' && entry.menu === '')?.role).toBe('help')
@@ -762,8 +769,8 @@ test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the li
   expect(await session.chat.evaluate(() => window.gui.send('ASK 1'))).toBe(true)
   await waitingCard(session, 'npm run step-1')
 
-  // View → Show or Hide Terminal: a terminal, with the keyboard in it.
-  await clickMenu(session, 'Show or Hide Terminal')
+  // View → Show Terminal: a terminal, with the keyboard in it.
+  await clickMenu(session, 'Show Terminal')
   const { drawer } = await waitFor(async () => {
     const state = await session.state()
     return state.drawer.terminals.length === 1 ? state : null
@@ -1086,7 +1093,7 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
   // ⌘J needs the drawer, hidden in focus mode whether or not it's open: it ends focus mode.
   await clickMenu(session, 'Focus Mode')
   await waitFor(async () => (await session.state()).focusMode, 'focus mode before ⌘J')
-  await clickMenu(session, 'Show or Hide Terminal')
+  await clickMenu(session, 'Show Terminal')
   await waitFor(async () => !(await session.state()).focusMode, '⌘J to end focus mode')
   expect((await session.state()).drawer).toMatchObject({ open: true, tab: 'server' })
   await expect(logsTab).toBeVisible()
