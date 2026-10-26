@@ -1961,7 +1961,7 @@ export class ProjectTab implements ChatPanelOwner {
           type: 'warning',
           message: `Push ${count} ${count === 1 ? 'commit' : 'commits'} directly to ${remote}/${branch}?`,
           detail: 'This updates the shared branch immediately and skips pull request review.',
-          buttons: ['Cancel', 'Create a branch', `Push to ${branch}`],
+          buttons: ['Cancel', 'Create a Branch', `Push to ${branch}`],
           defaultId: 0,
           cancelId: 0,
           noLink: true,
@@ -2693,11 +2693,11 @@ export class ProjectTab implements ChatPanelOwner {
         enabled = true,
       ): MenuItemConstructorOptions => ({ label, enabled, click: () => resolve(action) })
       Menu.buildFromTemplate([
-        item('Copy screenshot', 'copy'),
-        item('Copy full page', 'copy-full-page'),
-        item('Save screenshot…', 'save'),
+        item('Copy Screenshot', 'copy'),
+        item('Copy Full Page', 'copy-full-page'),
+        item('Save Screenshot…', 'save'),
         { type: 'separator' },
-        item('Attach to chat', 'attach', this.resources.chat !== null),
+        item('Attach to Chat', 'attach', this.resources.chat !== null),
       ]).popup({
         window: this.host.win,
         ...at,
@@ -2825,20 +2825,20 @@ export class ProjectTab implements ChatPanelOwner {
     const showingLogs = this.state.drawer.open && this.state.drawer.tab === 'server'
     const template: MenuItemConstructorOptions[] = [
       running
-        ? { label: 'Restart dev server', click: () => this.restartDevServer() }
+        ? { label: 'Restart Dev Server', click: () => this.restartDevServer() }
         : {
-            label: 'Start dev server',
+            label: 'Start Dev Server',
             enabled: !!this.state.project?.devCommand,
             click: () => this.startDevServer(),
           },
-      { label: 'Stop dev server', enabled: running, click: () => this.stopDevServer() },
+      { label: 'Stop Dev Server', enabled: running, click: () => this.stopDevServer() },
       { type: 'separator' },
       {
-        label: showingLogs ? 'Hide logs' : 'Show logs',
+        label: showingLogs ? 'Hide Logs' : 'Show Logs',
         click: () => (showingLogs ? this.setDrawerOpen(false) : this.showLogs()),
       },
       {
-        label: 'Open in browser',
+        label: 'Open in Browser',
         enabled: !!url,
         click: () => {
           if (url) shell.openExternal(this.state.preview.url ?? url).catch(() => undefined)
@@ -2863,7 +2863,7 @@ export class ProjectTab implements ChatPanelOwner {
         openSettings,
       ),
       { type: 'separator' },
-      { label: 'New chat', enabled: this.hasProject, click: () => this.newChat() },
+      { label: 'New Chat', enabled: this.hasProject, click: () => this.newChat() },
     ]
     const menu = Menu.buildFromTemplate(template)
     // From a popped-out chat, in its window.
@@ -3149,7 +3149,7 @@ export class ProjectTab implements ChatPanelOwner {
       ...(this.apps.length > 1
         ? [
             {
-              label: 'Switch App…',
+              label: 'Switch Project…',
               enabled: !this.state.setup?.apps && this.state.setup?.dependencies !== 'installing',
               click: () => this.showAppChooser(),
             },

@@ -388,10 +388,10 @@ export class ProjectWindow implements TabHost {
     if (!this.byId(id)) return
     const others = this.list.length > 1
     Menu.buildFromTemplate([
-      { label: 'Close tab', click: () => this.closeTab(id) },
-      { label: 'Close other tabs', enabled: others, click: () => this.closeOtherTabs(id) },
+      { label: 'Close Tab', click: () => this.closeTab(id) },
+      { label: 'Close Other Tabs', enabled: others, click: () => this.closeOtherTabs(id) },
       { type: 'separator' },
-      { label: 'Move tab to new window', enabled: others, click: () => this.moveToNewWindow(id) },
+      { label: 'Move Tab to New Window', enabled: others, click: () => this.moveToNewWindow(id) },
     ]).popup({ window: this.win })
   }
 

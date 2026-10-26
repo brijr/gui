@@ -228,7 +228,7 @@ export const SHORTCUTS = {
   },
 
   toggleChat: {
-    label: 'Toggle Chat',
+    label: 'Show or Hide Chat',
     accelerator: 'CmdOrCtrl+B',
     menu: 'view',
     group: 'chat',
@@ -313,7 +313,7 @@ export const SHORTCUTS = {
   },
 
   toggleTerminal: {
-    label: 'Toggle Terminal',
+    label: 'Show or Hide Terminal',
     accelerator: 'CmdOrCtrl+J',
     menu: 'view',
     group: 'terminal',

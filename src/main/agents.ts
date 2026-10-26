@@ -490,7 +490,7 @@ export function agentMenuItems(
   if (custom.length || customError) {
     items.push({ type: 'separator' }, ...custom.map(choice))
     if (customError) {
-      items.push({ label: 'agents.json has errors', sublabel: customError, enabled: false })
+      items.push({ label: 'agents.json Has Errors', sublabel: customError, enabled: false })
     }
   }
   items.push({ type: 'separator' })
@@ -499,7 +499,7 @@ export function agentMenuItems(
       label: 'Not Installed',
       submenu: missing.map((agent) => ({
         label: agent.name,
-        sublabel: agent.command ? `${agent.command} isn't on your PATH` : undefined,
+        sublabel: agent.command ? `Can't find the ${agent.command} command on this Mac` : undefined,
         enabled: false,
       })),
     })
