@@ -182,6 +182,37 @@ export interface RecentProject {
   chat?: { prompt: string; at: number } | null
 }
 
+/**
+ * Opening a project on a shared branch like main asks where to work first: on main, or on a
+ * new branch (named from the first message). The start screen shows it.
+ */
+export interface WhereToWorkPrompt {
+  root: string
+  /** The project's folder name */
+  name: string
+  /** The shared branch it's on */
+  branch: string
+}
+
+export type WhereToWorkAnswer =
+  | { kind: 'main'; always: boolean }
+  | { kind: 'branch' }
+  | { kind: 'cancel' }
+
+export function isWhereToWorkAnswer(value: unknown): value is WhereToWorkAnswer {
+  if (!value || typeof value !== 'object') return false
+  const answer = value as Record<string, unknown>
+  switch (answer.kind) {
+    case 'main':
+      return typeof answer.always === 'boolean'
+    case 'branch':
+    case 'cancel':
+      return true
+    default:
+      return false
+  }
+}
+
 /** An archived chat, as a project's list of them shows it */
 export interface ChatSummary {
   id: string
@@ -395,6 +426,8 @@ export interface WindowState {
   home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
+  /** Asking where to work before the project opens; null otherwise */
+  whereToWork: WhereToWorkPrompt | null
   /**
    * Git can't run until Apple's developer tools are installed ('missing'), or the user is
    * installing them; null when it can (or hasn't been needed yet). Undo and sharing need git.
@@ -1098,7 +1131,7 @@ export interface SettingsState {
   trustedProjects: string[]
   /** Projects started with a command set in Gui rather than the one it detected */
   startCommands: { root: string; start: StartCommand }[]
-  /** Projects where the user chose to stay on the main branch instead of a Gui branch */
+  /** Projects the user chose to always open on their main branch, without asking */
   defaultBranchProjects: string[]
   recentProjects: RecentProject[]
   storage: StorageUsage

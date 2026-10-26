@@ -64,6 +64,7 @@ const api: GuiApi = {
   showAgentMenu: send(Send.showAgentMenu),
   showChatMenu: send(Send.showChatMenu),
   showProjectMenu: send(Send.showProjectMenu),
+  answerWhereToWork: (answer) => legacyInvoke(Invoke.answerWhereToWork, answer),
   newBoard: send(Send.newBoard),
   openBoard: send(Send.openBoard),
   showRecentBoardMenu: send(Send.showRecentBoardMenu),

@@ -68,6 +68,7 @@ export interface AllIpcRequests {
   [Invoke.untrustProject]: Contract<'untrustProject'>
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
   [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
+  [Invoke.answerWhereToWork]: Contract<'answerWhereToWork'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
   [Invoke.boardChatCover]: Contract<'boardChatCover'>

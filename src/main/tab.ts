@@ -67,6 +67,7 @@ import {
   type Viewport,
   type ViewportFrame,
   viewportSpec,
+  type WhereToWorkAnswer,
   type WorkspaceApp,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
@@ -129,14 +130,7 @@ import {
   settleSetup,
 } from './setup'
 import { getShellEnv } from './shell-env'
-import {
-  inRepository,
-  type ShipActions,
-  ship,
-  shipInfo,
-  startWorkBranch,
-  workBranchChoice,
-} from './ship'
+import { type ShipActions, ship, shipInfo, startWorkBranch } from './ship'
 import { sourceControl } from './source-control'
 import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
@@ -161,6 +155,7 @@ import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { focusWindow } from './window-presentation'
+import { whereToWorkCheck } from './worktree-registry'
 
 export type { TabHost, TabState } from './tab-host'
 
@@ -323,8 +318,20 @@ export class ProjectTab implements ChatPanelOwner {
   private shipSheetOpen = false
   /** source_control_propose's draft, held until the agent's turn ends */
   private shipProposal: ShipDraft | null = null
-  /** The project whose Git the user said Not Now to when sending; not asked again this tab. */
-  private gitDeclined: string | null = null
+  /**
+   * "Where do you want to work?" while it's asked, before the project opens: what it resolves
+   * with, the project opening at the answer's folder or null for none.
+   */
+  private whereToWork: {
+    root: string
+    branch: string
+    finish: (choice: { root: string; branchOnSend: string | null } | null) => void
+  } | null = null
+  /**
+   * "On a new branch": the first message sent makes `gui/<its words>` from `from`, silently.
+   * Only for the opening that chose it.
+   */
+  private branchOnSend: { root: string; from: string } | null = null
   disposed = false
   private opening: string | null = null
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
@@ -383,6 +390,7 @@ export class ProjectTab implements ChatPanelOwner {
       home: app.getPath('home'),
       agents: agentHealth.list(),
       setup: null,
+      whereToWork: null,
       developerTools: shownTools(developerTools.state),
       board: null,
       recentBoards: null,
@@ -583,10 +591,74 @@ export class ProjectTab implements ChatPanelOwner {
     return this.state.project?.root ?? this.opening
   }
 
-  async openProject(root: string) {
+  /**
+   * Before a project on a shared branch like main opens: where to work, asked on the start
+   * screen (`WindowState.whereToWork`) in place of its open buttons. Resolves with the folder
+   * to open (the project's, or a new worktree's) and whether its first message starts a
+   * branch; null when cancelled or the tab closed. Deciding whether to ask reads files only.
+   */
+  async chooseWhereToWork(
+    root: string,
+  ): Promise<{ root: string; branchOnSend: string | null } | null> {
+    const check = await whereToWorkCheck(root)
+    if (this.disposed) return null
+    if (!check) return { root, branchOnSend: null }
+    this.whereToWork?.finish(null)
+    // The tab is taken: a second project opens in another one, and the strip names this one.
+    this.opening = root
+    return new Promise((resolve) => {
+      const pending = {
+        root,
+        branch: check.branch,
+        finish: (choice: { root: string; branchOnSend: string | null } | null) => {
+          if (this.whereToWork !== pending) return
+          this.whereToWork = null
+          if (!choice && this.opening === root && !this.state.project) this.opening = null
+          if (!this.disposed) this.patch({ whereToWork: null })
+          resolve(choice)
+        },
+      }
+      this.whereToWork = pending
+      this.patch({
+        whereToWork: {
+          root,
+          name: basename(root),
+          branch: check.branch,
+        },
+      })
+    })
+  }
+
+  /** The start screen's answer; false when it didn't go ahead (trust declined). */
+  async answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean> {
+    const pending = this.whereToWork
+    if (!pending) return false
+    const { root, branch } = pending
+    const live = () => this.whereToWork === pending && !this.disposed
+    switch (answer.kind) {
+      case 'cancel':
+        pending.finish(null)
+        return true
+      case 'main':
+        if (answer.always) {
+          const roots = getPrefs().defaultBranchRoots
+          if (!roots.includes(root)) setPrefs({ defaultBranchRoots: [...roots, root] })
+        }
+        pending.finish({ root, branchOnSend: null })
+        return true
+      case 'branch':
+        // Making the branch runs Git, which waits for trust like the project's scripts.
+        if (!(await this.confirmGit(root)) || !live()) return false
+        pending.finish({ root, branchOnSend: branch })
+        return true
+    }
+  }
+
+  async openProject(root: string, { branchOnSend = null }: { branchOnSend?: string | null } = {}) {
     const closed = this.closeProject()
     if (this.disposed) return
     this.opening = root
+    this.branchOnSend = branchOnSend ? { root, from: branchOnSend } : null
     const resources = this.createProjectResources()
     this.resources = resources
     const generation = resources.generation
@@ -1077,6 +1149,7 @@ export class ProjectTab implements ChatPanelOwner {
   private disposeProjectResources() {
     const root = this.projectRoot
     this.opening = null
+    this.branchOnSend = null
     this.stopWatchingForApp()
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
@@ -1836,73 +1909,43 @@ export class ProjectTab implements ChatPanelOwner {
     }
   }
 
-  /** The composer's message; on a shared branch like main, the user first picks a branch. */
+  /**
+   * The composer's message. After "On a new branch", the first one makes the branch first,
+   * named from its words. Every other send checks nothing: only this opening's choice.
+   */
   async sendFromComposer(
     text: string,
     images: ImageAttachment[],
     ids: string[],
     followUp: string | null,
   ) {
-    if (!(await this.chooseWorkBranch(text))) return false
+    if (!(await this.startPromisedBranch(text))) return false
     return this.sendChatMessage(text, images, ids, followUp)
   }
 
-  /** Trust to run Git, so it can check the branch before the agent edits. */
-  private confirmBranchCheck(root: string) {
-    return this.askToTrust(root, {
-      message: 'Use source control?',
-      detail:
-        "Before the agent edits files, Gui checks whether this project is on its main branch so it can offer a separate one. Gui runs Git in this project, which also runs the project's own Git hooks. Only continue for projects you trust.",
-      buttons: ['Continue', 'Not Now'],
-    })
-  }
-
   /**
-   * The agent edits the checked-out files, so a commit from a terminal lands on whatever
-   * branch that is. On a shared branch, asks once whether to move to a new Gui branch;
-   * staying is remembered for the project. False keeps the draft: cancelled, or failed.
+   * Makes the branch "On a new branch" promised, from the first message. A busy chat queues
+   * the message, and the branch was made when the first one started. False keeps the draft:
+   * the branch couldn't be made, and the user was told why.
    */
-  private async chooseWorkBranch(prompt: string) {
+  private async startPromisedBranch(prompt: string) {
+    const pending = this.branchOnSend
     const root = this.state.project?.root
-    // A busy chat queues the message; the branch was settled when its turn started.
-    if (!root || !this.resources.chat || this.resources.chat.busy) return true
-    if (getPrefs().defaultBranchRoots.includes(root) || this.gitDeclined === root) return true
-    if (!(await isTrusted(root))) {
-      // Not a repository: nothing to ask about, and `git init` later should still be asked.
-      if (!(await inRepository(root)) || this.state.project?.root !== root) return true
-      if (!(await this.confirmBranchCheck(root))) {
-        this.gitDeclined = root
-        return true
-      }
-    }
-    if (this.resources.chat?.busy) return true
-    const choice = await workBranchChoice(root, prompt)
-    if (!choice || this.disposed || this.state.project?.root !== root) return true
-    const current = promptName(choice.current)
-    const owner = this.panel.popoutWindow ?? this.host.win
-    const { response } = await dialog.showMessageBox(owner, {
-      type: 'question',
-      message: `Work on a new branch instead of ${current}?`,
-      detail: `Gui edits the files checked out here, so commits made from a terminal go to ${current}. A new branch leaves ${current} as it is until you merge.\n\nIf you stay on ${current}, Gui won’t ask again for this project.`,
-      buttons: [`Create ${choice.suggested}`, `Stay on ${current}`, 'Cancel'],
-      defaultId: 0,
-      cancelId: 2,
-      noLink: true,
-    })
-    if (response === 2 || this.disposed || this.state.project?.root !== root) return false
-    if (response === 1) {
-      const roots = getPrefs().defaultBranchRoots
-      if (!roots.includes(root)) setPrefs({ defaultBranchRoots: [...roots, root] })
+    if (!pending || pending.root !== root || !this.resources.chat || this.resources.chat.busy)
       return true
-    }
+    this.branchOnSend = null
     try {
-      await startWorkBranch(root, choice.current, choice.suggested)
+      await startWorkBranch(root, pending.from, prompt)
       return true
     } catch (error) {
+      if (this.disposed || this.state.project?.root !== root) return false
+      // Asked again on the next send.
+      this.branchOnSend = pending
+      const owner = this.panel.popoutWindow ?? this.host.win
       if (!owner.isDestroyed())
         await dialog.showMessageBox(owner, {
           type: 'warning',
-          message: `Couldn’t create ${choice.suggested}`,
+          message: 'Couldn’t create a branch for this chat',
           detail: error instanceof Error ? error.message : String(error),
           buttons: ['OK'],
           noLink: true,
@@ -3216,6 +3259,8 @@ export class ProjectTab implements ChatPanelOwner {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    // Closing the tab while it asks where to work cancels the opening.
+    this.whereToWork?.finish(null)
     this.panel.dispose()
     agentHealth.off('change', this.onAgentHealth)
     nodeRuntime.off('change', this.onNodeRuntime)

@@ -51,6 +51,7 @@ import {
   isProjectTemplate,
   isTerminalId,
   isViewport,
+  isWhereToWorkAnswer,
   type ProjectTemplate,
   type Rect,
   type SettingsSection,
@@ -211,7 +212,11 @@ const canonical = (path: string) => realpath(path).catch(() => path)
  * no window given, the focused one (or the one focused last) is used. A folder already open
  * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
-async function openProjectIn(target: ProjectWindow | undefined, root: string) {
+async function openProjectIn(
+  target: ProjectWindow | undefined,
+  root: string,
+  { ask = true }: { ask?: boolean } = {},
+) {
   // Gui needs an account first: the start screen asks for it, and the folder opens after.
   if (mustSignIn()) {
     waitingForAccount.push({ target, root })
@@ -233,7 +238,11 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   try {
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    await tabToOpenIn(target).openProject(real)
+    const tab = tabToOpenIn(target)
+    // On a shared branch like main, the start screen asks where to work first.
+    const choice = ask ? await tab.chooseWhereToWork(real) : { root: real, branchOnSend: null }
+    if (!choice) return
+    await tab.openProject(choice.root, { branchOnSend: choice.branchOnSend })
   } finally {
     opening.delete(real)
     syncMenuItems()
@@ -939,6 +948,12 @@ function registerIpc() {
   handleLegacy(Invoke.resolveConflicts, (event) =>
     reportError(async () => requireTab(event).resolveConflicts()),
   )
+  handleLegacy(Invoke.answerWhereToWork, async (event, answer: unknown) => {
+    // The start screen is the window's chrome, answering for its own tab.
+    const win = windowFor(event)
+    if (!win || win.win.webContents !== event.sender || !isWhereToWorkAnswer(answer)) return false
+    return win.activeTab.answerWhereToWork(answer)
+  })
   handleLegacy(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
     return requireTab(event).restoreTurn(turnId)

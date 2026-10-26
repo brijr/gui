@@ -35,6 +35,7 @@ import type {
   TerminalId,
   Version,
   Viewport,
+  WhereToWorkAnswer,
   WindowState,
 } from './types'
 
@@ -102,6 +103,7 @@ export const Invoke = {
   untrustProject: 'settings:untrust-project',
   resetStartCommand: 'settings:reset-start-command',
   askAboutBranch: 'settings:ask-about-branch',
+  answerWhereToWork: 'project:where-to-work',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
   boardChatCover: 'board:chat-cover',
@@ -362,6 +364,8 @@ export interface GuiApi {
    */
   showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void
   showProjectMenu(): void
+  /** The start screen's answer to "Where do you want to work?" (`WindowState.whereToWork`); false when it didn't go ahead */
+  answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean>
 
   /** A new canvas, opened in this tab if it's a start screen, otherwise in a new one */
   newBoard(): void
@@ -730,7 +734,7 @@ export interface GuiApi {
   untrustProject(root: string): Promise<void>
   /** The project starts with the command Gui detects again */
   resetStartCommand(root: string): Promise<void>
-  /** Sending on the project's main branch asks about a Gui branch again */
+  /** Opening the project on its main branch asks where to work again */
   askAboutBranch(root: string): Promise<void>
   clearRecent(): Promise<void>
   /** Asks to confirm, then clears; false when the user cancelled */
