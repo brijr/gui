@@ -104,7 +104,16 @@ function revealSelected(list: HTMLElement | null, instant: boolean) {
   if (!list || !tab) return
   const left = tab.offsetLeft - REVEAL_INSET
   const right = tab.offsetLeft + tab.offsetWidth + REVEAL_INSET - list.clientWidth
-  const to = Math.max(right, Math.min(left, list.scrollLeft))
+  // As far as the tabs' own slots reach. A tab sliding into place is drawn past its slot, which
+  // the list could scroll to; following it there would jolt the whole row as it lands.
+  const end = Math.max(
+    0,
+    ...[...list.children].map((child) =>
+      child instanceof HTMLElement ? child.offsetLeft + child.offsetWidth : 0,
+    ),
+  )
+  const most = Math.max(0, end - list.clientWidth)
+  const to = Math.min(most, Math.max(right, Math.min(left, list.scrollLeft)))
   if (Math.abs(to - list.scrollLeft) < 1) return
   list.scrollTo({ left: to, behavior: instant ? 'instant' : 'smooth' })
 }
