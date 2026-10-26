@@ -2,8 +2,9 @@ import { useId } from 'react'
 import type { SettingsState, StorageKind } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { InlineError } from '../lib/field'
-import { GroupLabel, List, ListItem } from '../lib/surface'
+import { List, ListItem } from '../lib/surface'
 import { Button } from '../lib/ui'
+import { SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
 interface StorageInfo {
@@ -16,12 +17,12 @@ const ROWS: readonly StorageInfo[] = [
   {
     kind: 'chats',
     title: 'Chat history',
-    detail: 'Transcripts and resumable agent sessions',
+    detail: 'Your chats, and what lets an agent pick one back up',
   },
   {
     kind: 'checkpoints',
-    title: 'Checkpoints',
-    detail: 'Snapshots that power Undo',
+    title: 'Versions',
+    detail: 'Saved states that power Undo',
   },
   {
     kind: 'previewData',
@@ -47,12 +48,8 @@ function formatBytes(bytes: number | null) {
 
 export function StorageSection({ settings }: { settings: SettingsState }) {
   const { storage, openProjects } = settings
-  const headingId = useId()
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <GroupLabel as="h2" id={headingId}>
-        Stored on this Mac
-      </GroupLabel>
+    <SettingsGroup title="Stored on this Mac">
       <List>
         {ROWS.map((row) => (
           <StorageRow key={row.kind} row={row} bytes={storage[row.kind]} />
@@ -60,10 +57,10 @@ export function StorageSection({ settings }: { settings: SettingsState }) {
       </List>
       {openProjects.length > 0 && (
         <p className="text-pretty text-caption text-subtle">
-          Projects open in a window keep their chat history and checkpoints.
+          Projects open in a window keep their chat history and versions.
         </p>
       )}
-    </section>
+    </SettingsGroup>
   )
 }
 

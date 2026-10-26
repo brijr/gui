@@ -921,7 +921,7 @@ function registerIpc() {
     authorize: fromAppUi,
     clone: async (event, id) => {
       const target = windowFor(event)
-      const folder = await pickParent(target, 'Clone GitHub project', 'Clone here')
+      const folder = await pickParent(target, 'Clone GitHub project', 'Clone Here')
       if (folder) openSafely(target, await cloneGitHub(id, folder))
     },
   })

@@ -38,7 +38,7 @@ function answerDevServerMenu({ Menu }: ElectronModule, label: string) {
   Menu.buildFromTemplate = (template) => {
     const menu = build(template)
     const choice = store.guiMenuChoice
-    if (!choice || !menu.items.some((item) => item.label === 'Stop dev server')) return menu
+    if (!choice || !menu.items.some((item) => item.label === 'Stop Dev Server')) return menu
     menu.popup = (options) => {
       store.guiMenuChoice = null
       store.guiMenuItems = menu.items
@@ -151,27 +151,27 @@ test('logs open in the drawer from the status menu and ⌘J; a crash shows a bar
   expect(await drawerOpen(session)).toBe(false)
   await expect(logsTab(session)).toHaveCount(0)
 
-  // The address bar's status opens the dev-server menu, whose "Show logs" opens the drawer on
+  // The address bar's status opens the dev-server menu, whose "Show Logs" opens the drawer on
   // the dev server's output.
-  await session.app.evaluate(answerDevServerMenu, 'Show logs')
+  await session.app.evaluate(answerDevServerMenu, 'Show Logs')
   await serverStatus(session).click()
   await waitFor(() => logsOpen(session), 'the logs to open from the status menu')
   await expect(logsTab(session)).toBeVisible()
   const offered = await session.app.evaluate(
     () => (globalThis as unknown as MenuStore).guiMenuItems,
   )
-  expect(offered).toEqual(['Restart dev server', 'Stop dev server', 'Show logs', 'Open in browser'])
+  expect(offered).toEqual(['Restart Dev Server', 'Stop Dev Server', 'Show Logs', 'Open in Browser'])
   await session.shot('logs')
   await session.chrome.getByRole('button', { name: 'Hide terminal', exact: true }).click()
   await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close')
   await expect(logsTab(session)).toHaveCount(0)
 
-  // View → Toggle Terminal (⌘J) opens it again on the tab it showed, the logs, without
+  // View → Show or Hide Terminal (⌘J) opens it again on the tab it showed, the logs, without
   // starting a shell, and closes it.
-  await clickMenu(session, 'Toggle Terminal')
+  await clickMenu(session, 'Show or Hide Terminal')
   await waitFor(() => logsOpen(session), 'the logs to open from the menu')
   expect((await session.state()).drawer.terminals).toEqual([])
-  await clickMenu(session, 'Toggle Terminal')
+  await clickMenu(session, 'Show or Hide Terminal')
   await waitFor(async () => !(await drawerOpen(session)), 'the drawer to close from the menu')
 
   // The dev server crashes: its last page stays, the status turns red, and instead of raw
@@ -264,8 +264,8 @@ test('⌘B shows and hides the chat; ⌘L puts the cursor in its message box', a
       .map((item) => [item.label, item.accelerator]),
   )
   expect(toggles).toEqual([
-    ['Toggle Chat', 'CmdOrCtrl+B'],
-    ['Toggle Terminal', 'CmdOrCtrl+J'],
+    ['Show or Hide Chat', 'CmdOrCtrl+B'],
+    ['Show or Hide Terminal', 'CmdOrCtrl+J'],
   ])
 
   // Where the keyboard is depends on Gui being the active app, as it is when the user presses
@@ -314,8 +314,8 @@ test('⌘B shows and hides the chat; ⌘L puts the cursor in its message box', a
   // From the message box ⌘L leaves it be; ⌘B hides the chat, and shows it again.
   await clickMenu(session, 'Focus Message Box')
   expect(await visible()).toBe(true)
-  await clickMenu(session, 'Toggle Chat')
+  await clickMenu(session, 'Show or Hide Chat')
   await waitFor(async () => !(await visible()), 'the chat to hide')
-  await clickMenu(session, 'Toggle Chat')
+  await clickMenu(session, 'Show or Hide Chat')
   await waitFor(visible, 'the chat to show again')
 })

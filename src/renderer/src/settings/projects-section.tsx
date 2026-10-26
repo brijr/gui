@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useState } from 'react'
 import type { SettingsState, StartCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { InlineError } from '../lib/field'
@@ -19,7 +19,6 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
   const startId = useId()
   const branchId = useId()
   const recentId = useId()
-  const clear = useAction()
   const count = recentProjects.length
 
   return (
@@ -29,7 +28,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
           Trusted projects
         </GroupLabel>
         <p className="text-pretty text-small text-muted">
-          Gui runs a trusted project's dev script without asking. Revoking makes it ask again next
+          Gui starts a trusted project's dev server without asking. Revoking makes it ask again next
           time.
         </p>
         {trustedProjects.length > 0 ? (
@@ -46,11 +45,11 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
       {startCommands.length > 0 && (
         <section aria-labelledby={startId} className="flex flex-col gap-2">
           <GroupLabel as="h2" id={startId}>
-            Start commands
+            Dev server commands
           </GroupLabel>
           <p className="text-pretty text-small text-muted">
-            These projects start with a command set in Gui instead of the one Gui found. Resetting
-            goes back to the one it finds.
+            These projects start their dev server with a command set in Gui instead of the one Gui
+            found. Resetting goes back to the one it finds.
           </p>
           <List>
             {startCommands.map(({ root, start }) => (
@@ -82,21 +81,49 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
           Recent projects
         </GroupLabel>
         <List>
-          <ListItem
-            title={<span className="tabular-nums">{recentLabel(count)}</span>}
-            trailing={
-              <Button
-                disabled={count === 0 || clear.pending}
-                onClick={() => void clear.run(() => gui.clearRecent())}
-              >
-                Clear recent projects
-              </Button>
-            }
-          />
+          <RecentRow count={count} />
         </List>
-        {clear.error && <InlineError>{clear.error}</InlineError>}
       </section>
     </>
+  )
+}
+
+/** How many recent projects, and clearing the list, after asking. */
+function RecentRow({ count }: { count: number }) {
+  const clear = useAction()
+  const [confirming, setConfirming] = useState(false)
+  const confirmClear = () =>
+    void clear.run(async () => {
+      await gui.clearRecent()
+      setConfirming(false)
+    })
+  return (
+    <ListItem
+      title={<span className="tabular-nums">{recentLabel(count)}</span>}
+      trailing={
+        confirming && count > 0 ? (
+          <>
+            <Button variant="ghost" disabled={clear.pending} onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            <Button variant="danger" loading={clear.pending} onClick={confirmClear}>
+              Clear
+            </Button>
+          </>
+        ) : (
+          <Button disabled={count === 0} onClick={() => setConfirming(true)}>
+            Clear recent projects
+          </Button>
+        )
+      }
+    >
+      {confirming && count > 0 && (
+        <p className="text-pretty text-small text-muted">
+          Clear the list of recent projects? The projects stay on this Mac.
+        </p>
+      )}
+      {clear.error && <InlineError>{clear.error}</InlineError>}
+    </ListItem>
   )
 }
 
@@ -125,7 +152,7 @@ function StartCommandRow({
       }
       trailing={
         <Button
-          aria-label={`Reset the start command for ${root}`}
+          aria-label={`Reset the dev server command for ${root}`}
           disabled={reset.pending}
           onClick={() => void reset.run(() => gui.resetStartCommand(root))}
         >

@@ -607,10 +607,10 @@ test('⇧⌘L focuses the address, ⇧⌘R reloads around the cache, ⇧⌘S ope
     const build = Menu.buildFromTemplate.bind(Menu)
     Menu.buildFromTemplate = (template) => {
       const menu = build(template)
-      if (!menu.items.some((item) => item.label === 'Copy screenshot')) return menu
+      if (!menu.items.some((item) => item.label === 'Copy Screenshot')) return menu
       menu.popup = (options) => {
         store.guiPopups?.push({ x: options?.x, y: options?.y })
-        menu.items.find((item) => item.label === 'Copy screenshot')?.click()
+        menu.items.find((item) => item.label === 'Copy Screenshot')?.click()
         options?.callback?.()
       }
       return menu
@@ -762,8 +762,8 @@ test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the li
   expect(await session.chat.evaluate(() => window.gui.send('ASK 1'))).toBe(true)
   await waitingCard(session, 'npm run step-1')
 
-  // View → Toggle Terminal: a terminal, with the keyboard in it.
-  await clickMenu(session, 'Toggle Terminal')
+  // View → Show or Hide Terminal: a terminal, with the keyboard in it.
+  await clickMenu(session, 'Show or Hide Terminal')
   const { drawer } = await waitFor(async () => {
     const state = await session.state()
     return state.drawer.terminals.length === 1 ? state : null
@@ -1031,7 +1031,7 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
     const build = Menu.buildFromTemplate.bind(Menu)
     Menu.buildFromTemplate = (template) => {
       const menu = build(template)
-      if (!menu.items.some((item) => item.label === 'Copy screenshot')) return menu
+      if (!menu.items.some((item) => item.label === 'Copy Screenshot')) return menu
       menu.popup = (options) => {
         store.guiPopups?.push({ x: options?.x })
         options?.callback?.()
@@ -1086,7 +1086,7 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
   // ⌘J needs the drawer, hidden in focus mode whether or not it's open: it ends focus mode.
   await clickMenu(session, 'Focus Mode')
   await waitFor(async () => (await session.state()).focusMode, 'focus mode before ⌘J')
-  await clickMenu(session, 'Toggle Terminal')
+  await clickMenu(session, 'Show or Hide Terminal')
   await waitFor(async () => !(await session.state()).focusMode, '⌘J to end focus mode')
   expect((await session.state()).drawer).toMatchObject({ open: true, tab: 'server' })
   await expect(logsTab).toBeVisible()

@@ -94,7 +94,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await page.getByRole('button', { name: 'Agents' }).click()
   await expect(page.getByRole('heading', { level: 1, name: 'Agents' })).toBeVisible()
   await shot(page, 'agents')
-  const codex = page.getByRole('switch', { name: 'Codex Enabled' })
+  const codex = page.getByRole('switch', { name: 'Codex', exact: true })
   await expect(codex).toHaveAttribute('aria-checked', 'true')
   // Unpackaged, as in tests, Codex is always found (in node_modules), so it's listed.
   expect(await session.app.evaluate(appMenuAgents)).toContain('Codex')
@@ -116,7 +116,7 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await settingsWhere(page, 'the stand-in Pi to be found', (s) =>
     s.agents.some((agent) => agent.id === 'pi' && agent.status === 'unknown'),
   )
-  const pi = page.getByRole('switch', { name: 'Pi Enabled' })
+  const pi = page.getByRole('switch', { name: 'Pi', exact: true })
   await pi.click()
   await settingsWhere(page, 'Pi to be off', (s) =>
     s.agents.some((agent) => agent.id === 'pi' && !agent.enabled),

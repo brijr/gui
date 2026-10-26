@@ -269,6 +269,8 @@ interface SegmentedControlProps<T extends string> {
   iconOnly?: boolean
   /** Segments share the width and truncate (effort levels) */
   stretch?: boolean
+  /** Shown but not choosable, e.g. while what it sets is switched off */
+  disabled?: boolean
   className?: string
 }
 
@@ -284,14 +286,16 @@ export function SegmentedControl<T extends string>({
   labelledBy,
   iconOnly = false,
   stretch = false,
+  disabled = false,
   className,
 }: SegmentedControlProps<T>) {
   return (
     <fieldset
       aria-label={label}
       aria-labelledby={labelledBy}
+      disabled={disabled}
       className={cn(
-        'no-drag flex min-w-0 items-center gap-0.5 rounded-md bg-fill p-0.5',
+        'no-drag flex min-w-0 items-center gap-0.5 rounded-md bg-fill p-0.5 disabled:opacity-40',
         className,
       )}
     >
@@ -313,7 +317,9 @@ export function SegmentedControl<T extends string>({
               PRESS,
               iconOnly ? 'w-6' : stretch ? 'px-1.5' : 'px-2',
               stretch && 'min-w-0 flex-auto',
-              on ? 'bg-accent-soft text-accent-text' : 'text-muted hover:bg-hover hover:text-fg',
+              on
+                ? 'bg-accent-soft text-accent-text'
+                : 'text-muted enabled:hover:bg-hover enabled:hover:text-fg',
             )}
           >
             {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}

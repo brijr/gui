@@ -45,7 +45,7 @@ function answerScreenshotMenu({ Menu }: ElectronModule, label: string) {
   Menu.buildFromTemplate = (template) => {
     const menu = build(template)
     const choice = store.guiMenuChoice
-    if (!choice || !menu.items.some((item) => item.label === 'Copy screenshot')) return menu
+    if (!choice || !menu.items.some((item) => item.label === 'Copy Screenshot')) return menu
     menu.popup = (options) => {
       store.guiMenuChoice = null
       menu.items.find((item) => item.label === choice && item.enabled)?.click()
@@ -150,7 +150,7 @@ test('screenshots copy, save and attach the preview at full resolution', async (
 
   // The visible area, in device pixels: nothing downscaled for the agent.
   const size = await preview.evaluate(previewSize)
-  expect(await takeScreenshot(session, 'Copy screenshot')).toBe('copied')
+  expect(await takeScreenshot(session, 'Copy Screenshot')).toBe('copied')
   const [visible] = (await stubs(session)).clipboard
   expect(visible?.types).toEqual(['image/png'])
   expect(visible?.signature).toBe(PNG_SIGNATURE)
@@ -161,7 +161,7 @@ test('screenshots copy, save and attach the preview at full resolution', async (
     document.body.style.height = '3000px'
   })
   const tall = await preview.evaluate(previewSize)
-  expect(await takeScreenshot(session, 'Copy full page')).toBe('copied')
+  expect(await takeScreenshot(session, 'Copy Full Page')).toBe('copied')
   const fullPage = (await stubs(session)).clipboard[1]
   expectSize(
     fullPage,
@@ -173,7 +173,7 @@ test('screenshots copy, save and attach the preview at full resolution', async (
   // Saved as a PNG, suggested on the Desktop under a macOS-style name.
   const savedPath = join(session.fixture.base, 'saved-screenshot.png')
   await session.app.evaluate(answerSaveDialog, savedPath)
-  expect(await takeScreenshot(session, 'Save screenshot…')).toBe('saved')
+  expect(await takeScreenshot(session, 'Save Screenshot…')).toBe('saved')
   const saved = readFileSync(savedPath)
   expect(saved.subarray(0, 8).toString('hex')).toBe(PNG_SIGNATURE)
   expectSize(pngSize(saved), tall.visible, 'saved screenshot')
@@ -187,7 +187,7 @@ test('screenshots copy, save and attach the preview at full resolution', async (
     store.guiAttached = []
     window.gui.onChatAttach((image) => store.guiAttached?.push(image))
   })
-  expect(await takeScreenshot(session, 'Attach to chat')).toBe('attached')
+  expect(await takeScreenshot(session, 'Attach to Chat')).toBe('attached')
   const attached = await waitFor(
     () =>
       session.chat.evaluate(() => {
@@ -254,7 +254,7 @@ test("a device frame's screenshot is the device's size at full resolution", asyn
     }
     await waitFor(framed, `the ${viewport} frame, scaled down`)
     const { dpr } = await preview.evaluate(previewSize)
-    expect(await takeScreenshot(session, 'Copy screenshot')).toBe('copied')
+    expect(await takeScreenshot(session, 'Copy Screenshot')).toBe('copied')
     const shot = (await stubs(session)).clipboard[i]
     expectSize(
       shot,

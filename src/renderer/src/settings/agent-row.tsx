@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
@@ -6,7 +6,8 @@ import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { ListItem } from '../lib/surface'
 import { Button, Switch, TextButton } from '../lib/ui'
-import { AgentStatusLabel } from './agent-status'
+import { AgentOffLabel, AgentStatusLabel } from './agent-status'
+import { useAction } from './use-action'
 
 interface AgentRowProps {
   name: string
@@ -22,8 +23,8 @@ interface AgentRowProps {
 
 /** One agent in a settings list: name, status, sign-in, and the on/off switch. */
 export function AgentRow({ name, health, detail, actions, error }: AgentRowProps) {
-  const nameId = useId()
   const [signInError, setSignInError] = useState<string | null>(null)
+  const retry = useAction()
   // A disabled agent isn't checked, so whatever status it last had would mislead.
   const live = health?.enabled ? health : null
   const enabled = live !== null
@@ -38,6 +39,13 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
     }
   }
 
+  // A failed Claude Code or Codex download downloads again; anything else checks again.
+  const tryAgain = (agent: AgentHealth) =>
+    void retry.run(async () => {
+      if (agent.install) await gui.installAgent(agent.id)
+      else gui.checkAgents(agent.id)
+    })
+
   const toggle = (next: boolean) => {
     if (health) gui.setAgentEnabled(health.id, next)
   }
@@ -48,12 +56,12 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
       quiet={!enabled}
       title={
         <>
-          <span id={nameId}>{name}</span>
-          {live && <AgentStatusLabel health={live} />}
+          <span className="truncate">{name}</span>
+          {live ? <AgentStatusLabel health={live} /> : health && <AgentOffLabel />}
           {live?.status === 'unknown' && (
             <TextButton
               tone="muted"
-              className="text-small font-medium"
+              className="shrink-0 text-small font-medium"
               onClick={() => gui.checkAgents(live.id)}
             >
               Check now
@@ -68,16 +76,19 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
               {live.status === 'signing-in' ? 'Waiting…' : live.signIn.label}
             </Button>
           )}
+          {live?.status === 'error' && (
+            <Button loading={retry.pending} onClick={() => tryAgain(live)}>
+              Try again
+            </Button>
+          )}
           {actions}
+          {/* The switch's name is the agent's; its track says whether it's on. */}
           <Switch
             checked={enabled}
             onCheckedChange={toggle}
-            label="Enabled"
-            labelledBy={nameId}
-            // A row of agents each saying "Enabled" reads as noise; the track says it.
+            label={name}
             labelHidden
             disabled={!health}
-            className="text-small text-muted"
           />
         </>
       }
@@ -95,6 +106,7 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
       )}
       {live?.status === 'error' && live.detail && <TechnicalDetails text={live.detail} />}
       {signInError && <InlineError>{signInError}</InlineError>}
+      {retry.error && <InlineError>{retry.error}</InlineError>}
       {error && <InlineError>{error}</InlineError>}
     </ListItem>
   )

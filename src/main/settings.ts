@@ -251,11 +251,12 @@ export async function archiveRecentChat(root: string) {
 const CLEAR_PROMPTS: Record<StorageKind, { message: string; detail: string }> = {
   chats: {
     message: 'Clear chat history?',
-    detail: 'Saved transcripts, archived chats, and resumable agent sessions are deleted.',
+    detail:
+      'Your chats and archived chats are deleted, and agents can no longer pick them back up.',
   },
   checkpoints: {
-    message: 'Clear checkpoints?',
-    detail: 'Turns in past chats can no longer be undone.',
+    message: 'Clear versions?',
+    detail: 'You can no longer undo changes from past chats.',
   },
   previewData: {
     message: 'Clear preview data?',
