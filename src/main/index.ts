@@ -119,6 +119,7 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
+import { showToolbarMenu, toolbarMenuItems } from './toolbar-menu'
 import { checkForUpdatesByHand, startUpdates } from './updates'
 import {
   allTabs,
@@ -901,6 +902,13 @@ function registerIpc() {
     },
   )
   handleLegacy(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
+  handleLegacy(Invoke.showToolbarMenu, async (event, items: unknown, at: unknown) => {
+    const win = windowFor(event)
+    const valid = toolbarMenuItems(items)
+    // The window's own chrome only, where the toolbar is.
+    if (!win || win.win.webContents !== event.sender || !valid || !isPoint(at)) return null
+    return showToolbarMenu(win.win, valid, at)
+  })
   handleLegacy(Invoke.takeScreenshot, (event, at: unknown) => {
     const tab = tabFor(event)
     return tab?.screenshotMenu(event.sender, isPoint(at) ? at : null) ?? null

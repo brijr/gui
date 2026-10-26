@@ -7,9 +7,16 @@ import { cn } from '../lib/cn'
 import { Plus } from '../lib/icons'
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { StatusDot } from '../lib/status'
-import { rovingTabKeyDown, TAB_LABEL, TabCloseButton, tabClass } from '../lib/tabs'
+import {
+  rovingTabKeyDown,
+  SCROLLING_TABLIST,
+  TAB_LABEL,
+  TabCloseButton,
+  tabClass,
+  useScrollingTabs,
+} from '../lib/tabs'
 import { IconButton, PRESS, Spinner } from '../lib/ui'
-import { sidebarBarStyle } from './layout-morph'
+import { sidebarRoom, useSidebarBar } from './layout-morph'
 
 /** How far a pressed tab moves before it's dragged rather than clicked. */
 const DRAG_THRESHOLD = 4
@@ -108,7 +115,13 @@ function moved(ids: string[], id: string, index: number) {
  * the context menu key opens the tab's menu.
  */
 export function TabStrip({ state }: { state: WindowState }) {
+  const nav = useRef<HTMLElement>(null)
   const list = useRef<HTMLDivElement>(null)
+  // The traffic lights sit in this row, left of the tabs, unless the chat sidebar has them;
+  // full screen hides them.
+  useSidebarBar(nav, sidebarRoom(state, !state.fullScreen))
+  // More tabs than fit: the row scrolls, and the shown one is always in it.
+  useScrollingTabs(list, state.tabs.length > 1 ? state.activeTab : null)
   const press = useRef<Press | null>(null)
   const [drag, setDrag] = useState<Drag | null>(null)
   // The order a drop asked for, shown until main's state says otherwise.
@@ -269,17 +282,17 @@ export function TabStrip({ state }: { state: WindowState }) {
 
   return (
     <nav
+      ref={nav}
       aria-label="Tabs"
-      className="drag flex shrink-0 items-center gap-1 border-b border-line bg-surface pr-2 pl-2"
-      // The traffic lights sit in this row, left of the tabs, unless the chat sidebar has them;
-      // full screen hides them.
-      style={{ height: TAB_ROW_HEIGHT, ...sidebarBarStyle(!state.fullScreen) }}
+      className="drag flex shrink-0 items-center gap-1 border-b border-line bg-surface"
+      style={{ height: TAB_ROW_HEIGHT }}
     >
       <div
         ref={list}
         role="tablist"
-        aria-label="Open projects"
-        className="flex min-w-0 shrink items-center gap-1 overflow-hidden"
+        // Each tab is a project or a canvas.
+        aria-label="Projects and canvases"
+        className={cn(SCROLLING_TABLIST, 'shrink')}
       >
         {ordered.map((tab, index) => {
           const active = tab.id === activeTab
@@ -380,11 +393,14 @@ export function TabStrip({ state }: { state: WindowState }) {
   )
 }
 
-/** Where a tab is drawn, in its slot's (`offsetLeft`'s) terms: its slot plus any transform. */
+/**
+ * Where a tab is drawn, in its slot's (`offsetLeft`'s) terms: its slot plus any transform. Its
+ * offset parent is the tablist, which may be scrolled.
+ */
 function drawnLeft(el: HTMLElement) {
   const parent = el.offsetParent
   const origin = parent ? parent.getBoundingClientRect().left + parent.clientLeft : 0
-  return el.getBoundingClientRect().left - origin
+  return el.getBoundingClientRect().left - origin + (parent?.scrollLeft ?? 0)
 }
 
 /** A tab that just opened grows in from its left edge; with reduced motion it fades in. */

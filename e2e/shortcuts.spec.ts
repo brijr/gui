@@ -490,7 +490,8 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
     ['Back', 'back'],
     ['Reload preview', 'reload'],
     ['Screenshot', 'screenshot'],
-    ['Toggle chat', 'toggleChat'],
+    // The chat shows, so its button offers to hide it.
+    ['Hide chat', 'toggleChat'],
   ]
   for (const [name, id] of controls) {
     const control = toolbar.getByRole('button', { name, exact: true })
