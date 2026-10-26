@@ -312,7 +312,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
     this.load(saved)
     this.restoreQueue(saved?.queue ?? [])
-    this.history = new HistoryWriter(options.historyFile, () => this.savedChat())
+    // Loaded from that file, so it's already saved there until something changes.
+    this.history = new HistoryWriter(options.historyFile, () => this.savedChat(), {
+      saved: saved !== null,
+    })
     // A health check may list the agent's models, and another window may change the choice.
     agentHealth.on('change', this.refreshModels)
     agentHealth.on('change', this.refreshAgent)
@@ -1058,6 +1061,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.emitTimers.clear()
     if (this.persistTimer) clearTimeout(this.persistTimer)
     this.persistTimer = null
+    // A turn or reset under way changes the chat without saving as it goes (its checkpoints,
+    // the prompts just settled): the final save records it as it stands.
+    if (this.active || this.lock) this.history.changed()
     // The final save keeps the queue, so it's back when the chat next opens.
     const saved = this.history.close()
     this.stopAgent()
@@ -2066,6 +2072,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private schedulePersist() {
+    // Marked at once, so closing or quitting before the timer still writes the change.
+    this.history.changed()
     if (this.disposed) return
     this.persistTimer ??= setTimeout(
       () => {

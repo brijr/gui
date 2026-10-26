@@ -89,11 +89,13 @@ import {
   stringRequestArgs,
 } from './ipc-handler'
 import { isLoopback } from './loopback'
+import { preloadMcpSdk } from './mcp-server'
 import { chatWillHide, terminalWillHide } from './menu-toggles'
 import { createProject, createProjectFromFrame, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import { execFile } from './process'
+import { finishEndingSync } from './process-groups'
 import { findWorkspaceRoot } from './project'
 import { loadRecent } from './recent'
 import { type Recordings, registerRecordingProtocol } from './recordings'
@@ -1844,9 +1846,26 @@ function focusExistingWindow() {
   focusWindow(win.win, { steal: true })
 }
 
+/**
+ * Work that can wait until the first window is on screen: a moment after it shows, or after a
+ * few seconds if it doesn't (opened in the background).
+ */
+function afterFirstWindow(win: BrowserWindow, run: () => void) {
+  let started = false
+  const start = () => {
+    if (started) return
+    started = true
+    setTimeout(run, 1000)
+  }
+  win.once('show', start)
+  setTimeout(start, 4000)
+}
+
 /** Stops agent processes that would otherwise outlive the app. */
 function shutdown() {
   for (const win of allWindows()) win.destroy()
+  // Terminals and dev servers stop in the background; nothing runs after this to finish it.
+  finishEndingSync()
   flushHistorySync()
   agentHealth.dispose()
   nodeRuntime.dispose()
@@ -1914,7 +1933,10 @@ if (!app.requestSingleInstanceLock()) {
     void agentHealth.checkOnLaunch(getPrefs().agentId)
     const initial = process.env.GUI_OPEN
     if (initial) openSafely(win, resolve(initial))
-    startUpdates()
+    afterFirstWindow(win.win, () => {
+      startUpdates()
+      preloadMcpSdk()
+    })
   })
 
   app.on('before-quit', shutdown)

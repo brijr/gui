@@ -4,7 +4,7 @@ import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
 import { Output } from './output'
 import { listenersOn, loopbackFor, portOpen, processGroups } from './ports'
-import { groupAlive, processGroupsOf, signalGroups } from './process-groups'
+import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 
 const PROBE_TIMEOUT_MS = 120_000
@@ -20,7 +20,6 @@ const LOCAL_URL =
   /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.localhost)(?::\d{2,5})?[^\s'"]*/
 
 const stripAnsi = (text: string) => text.replace(ANSI, '')
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 let lastLogsId = 0
 
@@ -61,6 +60,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   /** Settles when `proc` has exited and its exit has been handled. */
   private exited: Promise<void> = Promise.resolve()
   private disposed = false
+  /** Settles once a disposed server's processes have exited */
+  private ended: Promise<void> | null = null
   /** Its output and Gui's notes in between, kept to draw again; never held up by the drawer */
   readonly output = new Output(`logs-${++lastLogsId}`, {
     send: (chunk) => this.emit('data', chunk),
@@ -190,17 +191,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const proc = this.proc
     if (!proc) return Promise.resolve()
     this.stopping = true
-    const groups = processGroupsOf([proc])
-    signalGroups(groups, 'SIGTERM')
-    return (async () => {
-      const deadline = Date.now() + STOP_GRACE_MS
-      let alive = groups.filter(groupAlive)
-      while (alive.length > 0 && Date.now() < deadline) {
-        await sleep(50)
-        alive = alive.filter(groupAlive)
-      }
-      signalGroups(alive, 'SIGKILL')
-    })()
+    return endProcessGroups([proc], 'SIGTERM', STOP_GRACE_MS)
   }
 
   /** Stops whatever is running and resolves once it and everything it started have exited. */
@@ -227,14 +218,20 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     }
   }
 
-  dispose() {
+  /**
+   * Kills the server and everything it started. Settles once they've exited, so a worktree's
+   * folder isn't removed, nor the project opened again, while they still run.
+   */
+  dispose(): Promise<void> {
+    if (this.ended) return this.ended
     this.disposed = true
     this.run++
     this.output.dispose()
     if (this.lastLineTimer) clearTimeout(this.lastLineTimer)
-    if (this.proc) signalGroups(processGroupsOf([this.proc]), 'SIGKILL')
+    this.ended = endProcessGroups(this.proc ? [this.proc] : [], 'SIGKILL', 0)
     this.proc = null
     this.removeAllListeners()
+    return this.ended
   }
 
   /** Runs `command` in the user's login shell on a fresh PTY; throws if it can't start. */

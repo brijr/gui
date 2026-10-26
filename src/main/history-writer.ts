@@ -73,44 +73,74 @@ export function flushHistorySync() {
   for (const writer of writers) writer.saveSync()
 }
 
-/** Coalesces saves; bounded serialization yields to input, while disk writes/fsync run off main. */
+/**
+ * Coalesces saves; bounded serialization yields to input, while disk writes/fsync run off main.
+ * A chat with nothing unsaved isn't written again when it closes or Gui quits.
+ */
 export class HistoryWriter {
   private task: Promise<void> | null = null
+  /** A save was asked for and hasn't started */
   private dirty = false
+  /** The chat changed since the last write that started, or that write failed */
+  private unsaved: boolean
   private closed = false
   private syncFinished = false
   private finalChat: SavedChat | null = null
 
+  /** `saved`: the file already holds what `read` returns (the chat was just loaded from it). */
   constructor(
     private readonly file: string,
     private readonly read: () => SavedChat,
+    { saved = false }: { saved?: boolean } = {},
   ) {
+    this.unsaved = !saved
     writers.add(this)
+  }
+
+  /** The chat changed, and a save will follow; until it's done, close and quit write it. */
+  changed() {
+    this.unsaved = true
   }
 
   save() {
     if (this.closed) return
+    this.unsaved = true
     this.dirty = true
     this.start()
+  }
+
+  /** The file may not hold the chat as it is: it changed, or a write is still under way. */
+  private get pending() {
+    return this.unsaved || this.task !== null
   }
 
   /** Normal tab close: capture final state now, then wait before retiring its history claim. */
   close(): Promise<void> {
     if (!this.closed) {
       this.closed = true
-      this.finalChat = snapshotHistory(this.read())
-      this.dirty = true
+      if (this.pending) {
+        this.finalChat = snapshotHistory(this.read())
+        this.dirty = true
+      }
     }
     this.start()
+    if (!this.task) writers.delete(this)
     return this.task ?? Promise.resolve()
   }
 
-  /** Last resort at process shutdown; pending older worker results cannot replace it. */
+  /**
+   * Last resort at process shutdown; pending older worker results cannot replace it. A chat
+   * already on disk as it is isn't written again.
+   */
   saveSync() {
     if (this.syncFinished) return
     this.syncFinished = true
     this.closed = true
     this.dirty = false
+    if (!this.pending) {
+      writers.delete(this)
+      return
+    }
     try {
       const saved = this.finalChat ?? this.read()
       writeFileAtomicSync(this.file, serializeHistory(saved))
@@ -137,10 +167,12 @@ export class HistoryWriter {
   private async drain() {
     while (this.dirty && !this.syncFinished) {
       this.dirty = false
+      this.unsaved = false
       try {
         const snapshot = this.finalChat ?? snapshotHistory(this.read())
         await persistSnapshot(this.file, snapshot, true, () => this.syncFinished)
       } catch (error) {
+        this.unsaved = true
         console.error('[gui] failed to save chat history', error)
         // Ordinary close must still persist if its worker failed or the bounded queue filled.
         if (this.closed && !this.syncFinished) this.saveSync()

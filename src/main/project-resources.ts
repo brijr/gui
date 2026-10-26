@@ -120,33 +120,36 @@ export class ProjectResources {
         console.error('[gui] project resource teardown failed', error)
       }
     }
-    safely(() => devServer?.dispose())
-    safely(() => terminals?.dispose())
+    // They stop in the background; the opening isn't over until they have exited, so a
+    // worktree's folder is never removed, nor the project reopened, under a live process.
+    const exited = Promise.all([
+      safely(() => devServer?.dispose()),
+      safely(() => terminals?.dispose()),
+    ]).catch((error: unknown) => console.error('[gui] project process teardown failed', error))
     const saved = safely(() => chat?.dispose())
     safely(() => mcp?.close())
     const boardSaved = safely(() => board?.dispose())
     // History must remain claimed until the last save completes. Recordings also remain
     // available until chat persistence has captured its references.
-    void Promise.all([
+    const retired = Promise.all([
       Promise.resolve(saved).catch((error: unknown) =>
         console.error('[gui] final chat save failed', error),
       ),
       Promise.resolve(boardSaved).catch((error: unknown) =>
         console.error('[gui] final canvas save failed', error),
       ),
-    ])
-      .then(async () => {
-        try {
-          await safely(() => {
-            if (historyFile && historyRoot) return this.history.retire(historyRoot, historyFile)
-            if (claimedFile) this.history.release(claimedFile)
-          })
-        } catch (error) {
-          console.error('[gui] history retirement failed', error)
-        }
-        safely(() => recordings?.dispose())
-      })
-      .then(complete)
+    ]).then(async () => {
+      try {
+        await safely(() => {
+          if (historyFile && historyRoot) return this.history.retire(historyRoot, historyFile)
+          if (claimedFile) this.history.release(claimedFile)
+        })
+      } catch (error) {
+        console.error('[gui] history retirement failed', error)
+      }
+      safely(() => recordings?.dispose())
+    })
+    void Promise.all([retired, exited]).then(complete)
     return this.completion
   }
 }

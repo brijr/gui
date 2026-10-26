@@ -81,6 +81,56 @@ test('shutdown final save wins over an older worker write and repeated disposal'
   expect(await readLastMessage(file)).toEqual({ prompt: 'shutdown final state', at: 1 })
 })
 
+test('a chat already on disk as it is is not written again on close or quit', async () => {
+  const root = await directory()
+  const file = join(root, 'history.json')
+  await writeFile(file, 'as loaded')
+  const closing = new HistoryWriter(file, () => chat('unchanged'), { saved: true })
+  await closing.close()
+  closing.saveSync()
+  const quitting = new HistoryWriter(file, () => chat('unchanged'), { saved: true })
+  quitting.saveSync()
+  expect(await readFile(file, 'utf8')).toBe('as loaded')
+  expect(await readdir(root)).toEqual(['history.json'])
+})
+
+test('a change just before quit is written even before its save starts', async () => {
+  const root = await directory()
+  const file = join(root, 'history.json')
+  await writeFile(file, 'as loaded')
+  let state = chat('as loaded')
+  const writer = new HistoryWriter(file, () => state, { saved: true })
+  state = chat('changed just before quit')
+  writer.changed()
+  writer.saveSync()
+  expect(JSON.parse(await readFile(file, 'utf8')).turns[0].prompt).toBe('changed just before quit')
+})
+
+test('a chat saved since it last changed is not written again at quit', async () => {
+  const root = await directory()
+  const file = join(root, 'history.json')
+  const state = chat('saved')
+  const writer = new HistoryWriter(file, () => state, { saved: true })
+  writer.save()
+  // A write still under way at quit is replaced by the synchronous one.
+  writer.saveSync()
+  expect(JSON.parse(await readFile(file, 'utf8')).turns[0].prompt).toBe('saved')
+
+  const again = new HistoryWriter(file, () => state, { saved: true })
+  await writeFile(file, 'before the save')
+  again.save()
+  // Its write has landed, and nothing changed since.
+  for (let tries = 0; tries < 200; tries++) {
+    if ((await readFile(file, 'utf8')) !== 'before the save') break
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  await writeFile(file, 'written since')
+  await again.close()
+  again.saveSync()
+  expect(await readFile(file, 'utf8')).toBe('written since')
+})
+
 test('worker source maps resolve precise positions and preserve approximate fallback', async () => {
   const root = await directory()
   await writeFile(join(root, 'view.tsx'), '<button />')
