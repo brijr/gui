@@ -1,23 +1,39 @@
-import { type ReactNode, useEffect, useId, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { GitHubState } from '../../../shared/github'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { Field, InlineError, Input } from '../lib/field'
 import { GitHubMark } from '../lib/github-mark'
-import { GitBranch, RotateCw, Search } from '../lib/icons'
+import { ExternalLink, GitBranch, Search } from '../lib/icons'
 import { Badge } from '../lib/status'
-import { Card, GroupLabel, List, ListItem, Message } from '../lib/surface'
+import { List, ListItem, Message } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
+import {
+  GroupAction,
+  IdentityCard,
+  IdentityTile,
+  SettingsCard,
+  SettingsGroup,
+} from './settings-group'
+import { useAction } from './use-action'
+
+/** Said when the user closes the browser sign-in themselves: not an error. */
+const SIGN_IN_CANCELLED = 'Sign-in was cancelled.'
+
+type Repository = GitHubState['repositories'][number]
 
 /**
  * Settings → GitHub: connect GitHub to the Gui account (in the browser), then open its
- * repositories in Gui or create a new one. Local projects never need it.
+ * repositories in Gui or create a new one. Local projects never need it. Each action has
+ * its own progress and its own error, shown where it was chosen.
  */
 export function GitHubSection() {
   const [state, setState] = useState<GitHubState | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [connecting, setConnecting] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [connectError, setConnectError] = useState<string | null>(null)
+  const reload = useAction()
+  const disconnect = useAction()
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -25,51 +41,54 @@ export function GitHubSection() {
     void gui
       .getGitHub()
       .then(setState)
-      .catch((err: Error) => setError(err.message))
+      .catch((err: unknown) => setLoadError(readableError(err)))
     return () => {
       mounted.current = false
     }
   }, [])
 
-  const run = async (action: () => Promise<unknown>) => {
-    setBusy(true)
-    setError(null)
-    try {
-      await action()
-    } catch (err) {
-      if (mounted.current)
-        setError(err instanceof Error ? err.message : 'Could not connect GitHub.')
-    } finally {
-      if (mounted.current) setBusy(false)
-    }
+  const refresh = async () => {
+    const next = await gui.getGitHub(true)
+    if (mounted.current) setState(next)
   }
-  const refresh = async () => setState(await gui.getGitHub(true))
   // Choosing Connect again while it waits opens the browser again on the same sign-in.
   const connect = () => {
     setConnecting(true)
-    setError(null)
+    setConnectError(null)
     gui
       .connectGitHub()
       .then(refresh)
       .catch((err: unknown) => {
         const message = readableError(err)
-        if (mounted.current && message !== 'Sign-in was cancelled.') setError(message)
+        if (mounted.current && message !== SIGN_IN_CANCELLED) setConnectError(message)
       })
       .finally(() => mounted.current && setConnecting(false))
   }
   const cancel = () => void gui.cancelAccountSignIn().catch(() => undefined)
 
   const profile = state?.profile ?? null
-  const failed = error && <InlineError>{error}</InlineError>
+  const mark = (
+    <IdentityTile tone="brand">
+      <GitHubMark className="size-5" />
+    </IdentityTile>
+  )
 
   if (!state) {
-    return error ? (
-      <>
-        {failed}
-        <Button disabled={busy} className="self-start" onClick={() => void run(refresh)}>
+    return loadError ? (
+      <IdentityCard
+        leading={mark}
+        title="GitHub didn’t load"
+        detail="Check your connection, then try again."
+      >
+        <InlineError>{reload.error ?? loadError}</InlineError>
+        <Button
+          loading={reload.pending}
+          className="self-start"
+          onClick={() => void reload.run(refresh)}
+        >
           Try again
         </Button>
-      </>
+      </IdentityCard>
     ) : (
       <div role="status">
         <Message icon={<Spinner size="md" />}>Checking your GitHub connection…</Message>
@@ -79,7 +98,8 @@ export function GitHubSection() {
 
   if (!state.configured) {
     return (
-      <AccountCard
+      <IdentityCard
+        leading={mark}
         title="GitHub isn’t available in this build"
         detail="You can still clone a repository by its URL from the start screen, with your own git credentials."
       />
@@ -88,7 +108,8 @@ export function GitHubSection() {
 
   if (connecting) {
     return (
-      <AccountCard
+      <IdentityCard
+        leading={mark}
         title="Finish connecting in your browser"
         detail="Sign in to GitHub there and allow Gui. Then come back here."
       >
@@ -102,52 +123,51 @@ export function GitHubSection() {
             Cancel
           </Button>
         </div>
-      </AccountCard>
+      </IdentityCard>
     )
   }
 
   if (!profile) {
     return (
-      <>
-        <AccountCard
-          title="Connect your GitHub account"
-          detail="Open your repositories in Gui and create new projects. Local projects never need GitHub."
-        >
-          <Button variant="primary" disabled={busy} className="self-start" onClick={connect}>
-            Connect GitHub
-          </Button>
-        </AccountCard>
-        {failed}
-      </>
+      <IdentityCard
+        leading={mark}
+        title="Connect your GitHub account"
+        detail="Open your repositories in Gui and create new projects. Local projects never need GitHub."
+      >
+        <Button variant="primary" className="self-start" onClick={connect}>
+          Connect GitHub
+        </Button>
+        {connectError && <InlineError>{connectError}</InlineError>}
+      </IdentityCard>
     )
   }
 
   return (
     <>
-      <AccountCard
+      <IdentityCard
+        leading={mark}
         title={profile.name ?? profile.login}
         detail={`@${profile.login}`}
         trailing={
           <Button
             variant="ghost"
-            disabled={busy}
+            loading={disconnect.pending}
             onClick={() =>
-              void run(async () => {
+              void disconnect.run(async () => {
                 await gui.disconnectGitHub()
-                setState({ configured: true, profile: null, repositories: [] })
+                if (mounted.current) setState({ configured: true, profile: null, repositories: [] })
               })
             }
           >
             Disconnect
           </Button>
         }
-      />
-      {failed}
-      <Repositories state={state} busy={busy} run={run} refresh={refresh} />
+      >
+        {disconnect.error && <InlineError>{disconnect.error}</InlineError>}
+      </IdentityCard>
+      <Repositories state={state} refresh={refresh} />
       <NewProject
         login={profile.login}
-        busy={busy}
-        run={run}
         onCreated={(repository) =>
           setState(
             (current) =>
@@ -165,83 +185,35 @@ export function GitHubSection() {
   )
 }
 
-/** The account at the top of the page: GitHub's mark, who (or what to do), and actions. */
-function AccountCard({
-  title,
-  detail,
-  trailing,
-  children,
-}: {
-  title: ReactNode
-  detail: ReactNode
-  trailing?: ReactNode
-  children?: ReactNode
-}) {
-  return (
-    <Card className="flex flex-col gap-3 p-4">
-      <div className="flex items-center gap-3">
-        <span
-          aria-hidden="true"
-          className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#000] text-[#fff]"
-        >
-          <GitHubMark className="size-5" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{title}</p>
-          <p className="text-pretty text-small text-muted">{detail}</p>
-        </div>
-        {trailing}
-      </div>
-      {children}
-    </Card>
-  )
-}
-
-type Run = (action: () => Promise<unknown>) => Promise<void>
-
 /** The repositories Gui may see, searchable, each to clone and open as a project. */
-function Repositories({
-  state,
-  busy,
-  run,
-  refresh,
-}: {
-  state: GitHubState
-  busy: boolean
-  run: Run
-  refresh: () => Promise<void>
-}) {
+function Repositories({ state, refresh }: { state: GitHubState; refresh: () => Promise<void> }) {
   const [search, setSearch] = useState('')
-  const headingId = useId()
+  const reload = useAction()
+  const manage = useAction()
   const repos = state.repositories.filter((repo) =>
     repo.fullName.toLowerCase().includes(search.toLowerCase()),
   )
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <GroupLabel as="h2" id={headingId}>
-          Repositories
-        </GroupLabel>
-        <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            icon={RotateCw}
-            disabled={busy}
-            onClick={() => void run(refresh)}
-          >
+    <SettingsGroup
+      title="Repositories"
+      action={
+        <span className="flex items-center gap-3">
+          <GroupAction pending={reload.pending} onClick={() => void reload.run(refresh)}>
             Refresh
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            disabled={busy}
-            onClick={() => void run(() => gui.manageGitHub())}
+          </GroupAction>
+          {/* Opens GitHub in the browser */}
+          <GroupAction
+            pending={manage.pending}
+            onClick={() => void manage.run(() => gui.manageGitHub())}
           >
             Choose on GitHub
-          </Button>
-        </div>
-      </div>
+            <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
+          </GroupAction>
+        </span>
+      }
+    >
+      {reload.error && <InlineError>{reload.error}</InlineError>}
+      {manage.error && <InlineError>{manage.error}</InlineError>}
       {state.repositories.length === 0 ? (
         <Message icon={<GitBranch className="size-4" aria-hidden="true" />}>
           Choose which repositories Gui can see on GitHub, then refresh here. An organization may
@@ -263,24 +235,7 @@ function Repositories({
           {repos.length > 0 ? (
             <List className="max-h-72 overflow-y-auto">
               {repos.map((repo) => (
-                <ListItem
-                  key={repo.id}
-                  title={
-                    <>
-                      <span className="truncate">{repo.fullName}</span>
-                      {repo.private && <Badge className="shrink-0">Private</Badge>}
-                    </>
-                  }
-                  trailing={
-                    <Button
-                      size="sm"
-                      disabled={busy}
-                      onClick={() => void run(() => gui.cloneGitHub(repo.id))}
-                    >
-                      Clone & open
-                    </Button>
-                  }
-                />
+                <RepositoryRow key={repo.id} repo={repo} />
               ))}
             </List>
           ) : (
@@ -288,37 +243,58 @@ function Repositories({
           )}
         </>
       )}
-    </section>
+    </SettingsGroup>
+  )
+}
+
+/** One repository: cloning it shows its progress on its own button, and a failure under it. */
+function RepositoryRow({ repo }: { repo: Repository }) {
+  const clone = useAction()
+  return (
+    <ListItem
+      title={
+        <>
+          <span className="truncate" title={repo.fullName}>
+            {repo.fullName}
+          </span>
+          {repo.private && <Badge className="shrink-0">Private</Badge>}
+        </>
+      }
+      trailing={
+        <Button
+          loading={clone.pending}
+          onClick={() => void clone.run(() => gui.cloneGitHub(repo.id))}
+        >
+          Clone & open
+        </Button>
+      }
+    >
+      {clone.error && <InlineError>{clone.error}</InlineError>}
+    </ListItem>
   )
 }
 
 /** A new private repository with a README, then listed above to clone and open. */
 function NewProject({
   login,
-  busy,
-  run,
   onCreated,
 }: {
   login: string
-  busy: boolean
-  run: Run
-  onCreated: (repository: GitHubState['repositories'][number]) => void
+  onCreated: (repository: Repository) => void
 }) {
   const [name, setName] = useState('')
   const [created, setCreated] = useState<string | null>(null)
-  const headingId = useId()
+  const create = useAction()
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <GroupLabel as="h2" id={headingId}>
-        New project
-      </GroupLabel>
-      <Card>
+    <SettingsGroup title="New project">
+      <SettingsCard>
         <form
-          className="flex flex-col gap-3 p-3"
+          className="flex flex-col gap-3"
           onSubmit={(event) => {
             event.preventDefault()
-            if (busy || !name.trim()) return
-            void run(async () => {
+            if (create.pending || !name.trim()) return
+            setCreated(null)
+            void create.run(async () => {
               const repository = await gui.createGitHub(name.trim())
               onCreated(repository)
               setCreated(repository.fullName)
@@ -337,20 +313,26 @@ function NewProject({
               placeholder="my-design-project"
               value={name}
               maxLength={100}
-              disabled={busy}
+              disabled={create.pending}
               onChange={(event) => setName(event.target.value)}
             />
           </Field>
-          <Button type="submit" disabled={busy || !name.trim()} className="self-start">
+          <Button
+            type="submit"
+            loading={create.pending}
+            disabled={!name.trim()}
+            className="self-start"
+          >
             Create private repository
           </Button>
+          {create.error && <InlineError>{create.error}</InlineError>}
           {created && (
             <p role="status" className="text-small text-muted">
               Created {created}. Clone & open it from Repositories above.
             </p>
           )}
         </form>
-      </Card>
-    </section>
+      </SettingsCard>
+    </SettingsGroup>
   )
 }

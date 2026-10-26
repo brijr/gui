@@ -9,7 +9,7 @@ import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
-import { Check, TriangleAlert } from '../lib/icons'
+import { Check, ExternalLink, TriangleAlert } from '../lib/icons'
 import { Card, GroupLabel } from '../lib/surface'
 import { Button, Progress, Spinner } from '../lib/ui'
 
@@ -84,7 +84,7 @@ export function AgentNextStep({ name, health, onSetUp }: AgentNextStepProps) {
 
   if (!health.enabled) {
     return (
-      <Step text={`${name} is turned off.`}>
+      <Step text={`${name} is off.`}>
         <Button onClick={() => gui.setAgentEnabled(health.id, true)}>Turn on</Button>
       </Step>
     )
@@ -123,13 +123,14 @@ export function AgentNextStep({ name, health, onSetUp }: AgentNextStepProps) {
         <Step
           text={`${name} isn't installed yet. Install it, then come back. Gui picks it up on its own.`}
           details={
-            health.command ? `Gui looks for the ${health.command} command on your PATH.` : undefined
+            health.command ? `Gui can't find the ${health.command} command on this Mac.` : undefined
           }
           error={error}
         >
           {health.installUrl ? (
-            <Button variant="primary" onClick={install}>
-              Install {name}
+            // Opens the agent's own install page in the browser.
+            <Button variant="primary" trailingIcon={ExternalLink} onClick={install}>
+              Install from website
             </Button>
           ) : (
             checkAgain
@@ -172,8 +173,8 @@ export function AgentNextStep({ name, health, onSetUp }: AgentNextStepProps) {
       )
     default:
       return (
-        <Step text={`${name} is installed but hasn't been checked yet.`}>
-          <Button onClick={check}>Check</Button>
+        <Step text={`${name} hasn't been checked yet.`}>
+          <Button onClick={check}>Check now</Button>
         </Step>
       )
   }

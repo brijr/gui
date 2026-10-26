@@ -1,27 +1,23 @@
-import { useId } from 'react'
 import type { SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { GroupLabel, List, ListItem } from '../lib/surface'
+import { List, ListItem } from '../lib/surface'
 import { SegmentedControl, Switch } from '../lib/ui'
+import { SettingsGroup } from './settings-group'
 
 export function ChatSection({ settings }: { settings: SettingsState }) {
-  const headingId = useId()
+  const sidebar = settings.chatSidebar
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <GroupLabel as="h2" id={headingId}>
-        Layout
-      </GroupLabel>
-      <p className="text-pretty text-small text-muted">
-        Keep chat beside your preview, or leave it floating so you can move it out of the way. You
-        can also switch from the chat header while you work.
-      </p>
+    <SettingsGroup
+      title="Layout"
+      description="Keep chat beside your preview, or leave it floating so you can move it out of the way. You can also switch from the chat header while you work."
+    >
       <List>
         <ListItem
           title="Show the chat as a sidebar"
           trailing={
             // The row's title says what it is; the switch repeats it only for screen readers.
             <Switch
-              checked={settings.chatSidebar}
+              checked={sidebar}
               onCheckedChange={(docked) => gui.setChatDocked(docked)}
               label="Show the chat as a sidebar"
               labelHidden
@@ -30,10 +26,14 @@ export function ChatSection({ settings }: { settings: SettingsState }) {
         />
         <ListItem
           title="Chat sidebar position"
+          // Only the sidebar has a side; a floating chat goes wherever it's moved.
+          quiet={!sidebar}
+          detail={sidebar ? undefined : 'Turn on the sidebar to choose its side.'}
           trailing={
             <SegmentedControl
               label="Chat sidebar position"
               value={settings.chatSidebarSide}
+              disabled={!sidebar}
               segments={[
                 { value: 'left', label: 'Left' },
                 { value: 'right', label: 'Right' },
@@ -43,6 +43,6 @@ export function ChatSection({ settings }: { settings: SettingsState }) {
           }
         />
       </List>
-    </section>
+    </SettingsGroup>
   )
 }

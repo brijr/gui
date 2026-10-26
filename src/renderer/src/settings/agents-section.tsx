@@ -1,29 +1,57 @@
-import { useId, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   type AgentHealth,
+  type AgentId,
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
   type SettingsState,
 } from '../../../shared/types'
-import { AgentCard } from '../agents/agent-card'
+import { AgentCard, InstallProgress } from '../agents/agent-card'
 import { gui } from '../lib/api'
-import { Disclosure } from '../lib/disclosure'
+import { Disclosure, TechnicalDetails } from '../lib/disclosure'
 import { InlineError } from '../lib/field'
-import { Plus, TriangleAlert } from '../lib/icons'
+import { ExternalLink, Plus, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
-import { Card, GroupLabel, List, ListItem, SectionHeader } from '../lib/surface'
-import { Button, Code, TextButton } from '../lib/ui'
+import { List, ListItem } from '../lib/surface'
+import { Button, Code } from '../lib/ui'
 import { AgentRow } from './agent-row'
+import { AgentStatusLabel } from './agent-status'
 import { CustomAgentForm } from './custom-agent-form'
 import { DefaultAgentSelect } from './default-agent-select'
+import { GroupAction, SettingsCard, SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
+
+/** While an agent installs from "Not installed", it stays there until it settles. */
+const INSTALL_STEPS: readonly AgentHealth['status'][] = [
+  'not-installed',
+  'installing',
+  'checking',
+  'error',
+]
 
 export function AgentsSection({ settings }: { settings: SettingsState }) {
   const builtIn = settings.agents.filter((agent) => !agent.id.startsWith(CUSTOM_AGENT_PREFIX))
-  const found = builtIn.filter((agent) => agent.status !== 'not-installed')
-  const missing = builtIn.filter((agent) => agent.status === 'not-installed')
-  const foundId = useId()
-  const missingId = useId()
+  // Agents installed from the "Not installed" list, kept in it while they install.
+  const [installing, setInstalling] = useState<ReadonlySet<AgentId>>(new Set())
+  const isMissing = (agent: AgentHealth) =>
+    agent.status === 'not-installed' ||
+    (installing.has(agent.id) && INSTALL_STEPS.includes(agent.status))
+  const found = builtIn.filter((agent) => !isMissing(agent))
+  const missing = builtIn.filter(isMissing)
+  const checking = found.some((agent) => agent.enabled && agent.status === 'checking')
+
+  // Once an install settles (ready, or signing in next), the agent moves to "Installed agents".
+  const settled = builtIn
+    .filter((agent) => installing.has(agent.id) && !INSTALL_STEPS.includes(agent.status))
+    .map((agent) => agent.id)
+    .join(' ')
+  useEffect(() => {
+    if (!settled) return
+    const done = settled.split(' ')
+    setInstalling((current) => new Set([...current].filter((id) => !done.includes(id))))
+  }, [settled])
+
+  const startedInstall = (id: AgentId) => setInstalling((current) => new Set(current).add(id))
 
   return (
     <>
@@ -36,31 +64,18 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
         }
       />
 
-      <section aria-labelledby={foundId} className="flex flex-col gap-2">
-        <SectionHeader
-          id={foundId}
-          action={
-            <TextButton className="text-small font-medium" onClick={() => gui.checkAgents()}>
-              Check again
-            </TextButton>
-          }
-        >
-          Installed agents
-        </SectionHeader>
+      <SettingsGroup
+        title="Installed agents"
+        action={
+          <GroupAction pending={checking} onClick={() => gui.checkAgents()}>
+            Check again
+          </GroupAction>
+        }
+      >
         {found.length > 0 ? (
           <List>
             {found.map((agent) => (
-              <AgentRow
-                key={agent.id}
-                name={agent.name}
-                health={agent}
-                actions={
-                  // A failed Claude Code or Codex download can be retried from here.
-                  agent.install && agent.status === 'error' ? (
-                    <Button onClick={() => void gui.installAgent(agent.id)}>Try again</Button>
-                  ) : undefined
-                }
-              />
+              <AgentRow key={agent.id} name={agent.name} health={agent} />
             ))}
           </List>
         ) : (
@@ -68,19 +83,20 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
             None of Gui's agents are installed yet.
           </p>
         )}
-      </section>
+      </SettingsGroup>
 
       {missing.length > 0 && (
-        <section aria-labelledby={missingId} className="flex flex-col gap-2">
-          <GroupLabel as="h2" id={missingId}>
-            Not installed
-          </GroupLabel>
+        <SettingsGroup title="Not installed">
           <List>
             {missing.map((agent) => (
-              <NotInstalledRow key={agent.id} agent={agent} />
+              <NotInstalledRow
+                key={agent.id}
+                agent={agent}
+                onInstall={() => startedInstall(agent.id)}
+              />
             ))}
           </List>
-        </section>
+        </SettingsGroup>
       )}
 
       <CustomAgents settings={settings} />
@@ -88,28 +104,72 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
   )
 }
 
-function NotInstalledRow({ agent }: { agent: AgentHealth }) {
+/**
+ * An agent Gui can't find. Claude Code and Codex: Gui downloads them here, with progress, and
+ * a failure stays on this row. Other agents: their install page opens in the browser.
+ */
+function NotInstalledRow({ agent, onInstall }: { agent: AgentHealth; onInstall: () => void }) {
+  const install = useAction()
+  const [openedSite, setOpenedSite] = useState(false)
   const command = agent.command ?? agent.id
-  // Claude Code and Codex: Gui downloads them; other agents: their install page.
-  const label = agent.install === 'update' ? "Install Gui's copy" : 'Install'
+  const linkOut = !agent.install && agent.installUrl !== null
+  const working = agent.status === 'installing' || agent.status === 'checking'
+
+  const start = () => {
+    if (linkOut) setOpenedSite(true)
+    else onInstall()
+    void install.run(() => gui.installAgent(agent.id))
+  }
+
+  const detail =
+    agent.status === 'installing' ? (
+      <InstallProgress name={agent.name} progress={agent.progress} />
+    ) : agent.status === 'error' ? null : agent.install ? (
+      agent.message
+    ) : (
+      <>
+        Gui can't find the <Code>{command}</Code> command on this Mac.
+      </>
+    )
+
+  const button = linkOut ? (
+    <Button trailingIcon={ExternalLink} onClick={start}>
+      Install from website
+    </Button>
+  ) : agent.install && agent.status === 'error' ? (
+    <Button loading={install.pending} onClick={start}>
+      Try again
+    </Button>
+  ) : agent.install ? (
+    <Button loading={install.pending || working} onClick={start}>
+      {agent.install === 'update' ? "Install Gui's copy" : `Install ${agent.name}`}
+    </Button>
+  ) : null
+
   return (
     <ListItem
-      title={agent.name}
-      detail={
-        agent.install ? (
-          agent.message
-        ) : (
-          <>
-            Needs the <Code>{command}</Code> command on your PATH
-          </>
-        )
+      align="start"
+      title={
+        <>
+          <span className="truncate">{agent.name}</span>
+          {working && <AgentStatusLabel health={agent} />}
+          {agent.status === 'error' && <AgentStatusLabel health={agent} />}
+        </>
       }
-      trailing={
-        (agent.install || agent.installUrl) && (
-          <Button onClick={() => void gui.installAgent(agent.id)}>{label}</Button>
-        )
-      }
-    />
+      detail={detail}
+      trailing={button}
+    >
+      {agent.status === 'error' && (
+        <InlineError>{agent.message ?? `${agent.name} couldn't be installed.`}</InlineError>
+      )}
+      {agent.status === 'error' && agent.detail && <TechnicalDetails text={agent.detail} />}
+      {openedSite && agent.status === 'not-installed' && (
+        <p className="text-pretty text-small text-muted">
+          Finish installing on the website. Gui picks {agent.name} up on its own.
+        </p>
+      )}
+      {install.error && <InlineError>{install.error}</InlineError>}
+    </ListItem>
   )
 }
 
@@ -117,7 +177,6 @@ type Editing = { kind: 'add' } | { kind: 'edit'; name: string } | null
 
 function CustomAgents({ settings }: { settings: SettingsState }) {
   const { agents, customAgents, customAgentsError } = settings
-  const headingId = useId()
   const [editing, setEditing] = useState<Editing>(null)
   // While agents.json can't be read, nothing in it can be changed from here.
   const locked = customAgentsError !== null
@@ -153,7 +212,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
     )
   }
 
-  // For people bringing their own ACP agent; open when there's something in it.
+  // For people bringing their own agent; open when there's something in it.
   const [open, setOpen] = useState(customAgents.length > 0 || locked)
 
   const disclosure = (
@@ -162,37 +221,23 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
     </Disclosure>
   )
 
-  if (!open) {
-    return (
-      <section aria-labelledby={headingId} className="flex flex-col gap-2">
-        <GroupLabel as="h2" id={headingId}>
-          {disclosure}
-        </GroupLabel>
-      </section>
-    )
-  }
+  if (!open) return <SettingsGroup title={disclosure} />
 
   return (
-    <section aria-labelledby={headingId} className="flex flex-col gap-2">
-      <SectionHeader
-        id={headingId}
-        action={
-          <TextButton className="text-small font-medium" onClick={() => gui.openCustomAgentsFile()}>
-            Edit agents.json
-          </TextButton>
-        }
-      >
-        {disclosure}
-      </SectionHeader>
-
+    <SettingsGroup
+      title={disclosure}
+      action={
+        <GroupAction onClick={() => gui.openCustomAgentsFile()}>Edit agents.json</GroupAction>
+      }
+    >
       {customAgentsError && <AgentsFileError message={customAgentsError} />}
       {customAgents.length > 0 && <List>{customAgents.map(renderEntry)}</List>}
       {empty && <p className="text-pretty text-small text-muted">No custom agents yet.</p>}
 
       {adding ? (
-        <Card className="p-3">
+        <SettingsCard>
           <CustomAgentForm original={null} onDone={stopEditing} />
-        </Card>
+        </SettingsCard>
       ) : (
         <Button icon={Plus} className="self-start" disabled={addDisabled} onClick={startAdding}>
           Add agent
@@ -200,15 +245,16 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
       )}
 
       <p className="text-pretty text-caption text-subtle">
-        Any ACP agent can be added here. Gui finds agents on your login shell's PATH.
+        Add any agent that supports the Agent Client Protocol. Gui looks for its command in the same
+        places your Terminal does.
       </p>
-    </section>
+    </SettingsGroup>
   )
 }
 
 function AgentsFileError({ message }: { message: string }) {
   return (
-    <Card className="flex items-start gap-2 p-3">
+    <SettingsCard className="flex items-start gap-2">
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="font-medium">agents.json can't be read</p>
@@ -220,7 +266,7 @@ function AgentsFileError({ message }: { message: string }) {
       <Button className="-my-0.5" onClick={() => gui.openCustomAgentsFile()}>
         Open agents.json
       </Button>
-    </Card>
+    </SettingsCard>
   )
 }
 
