@@ -133,6 +133,7 @@ export function ProposalBar() {
   const proposal = useProposal((s) => s.proposal)
   const busy = useProposal((s) => s.busy)
   const error = useProposal((s) => s.error)
+  const shipBusy = useShipSheet((s) => s.busy)
   const comments = useOpenComments()
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
   // Under a header as tall as the tab row, as tall as the toolbar: both edges line up.
@@ -141,7 +142,7 @@ export function ProposalBar() {
 
   const bar =
     proposal.pull || proposal.merge || (proposal.behind ?? 0) > 0
-      ? barFor(proposal, comments.length, busy, agentBusy)
+      ? barFor(proposal, comments.length, busy, agentBusy, shipBusy)
       : null
   return (
     <>
@@ -197,6 +198,7 @@ function barFor(
   openComments: number,
   busy: Action | null,
   agentBusy: boolean,
+  shipBusy: boolean,
 ): ReactNode {
   const { pull, merge } = proposal
   const latest = proposal.defaultBranch ?? 'main'
@@ -331,10 +333,10 @@ function barFor(
               <Button
                 size="sm"
                 variant={openComments > 0 ? 'secondary' : 'primary'}
-                disabled={useShipSheet.getState().busy}
+                disabled={shipBusy}
                 onClick={toggleShipSheet}
               >
-                Update
+                Update pull request
               </Button>
             )}
           </>
