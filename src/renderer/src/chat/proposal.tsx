@@ -1,5 +1,4 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
-import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
 import { gui } from '../lib/api'
