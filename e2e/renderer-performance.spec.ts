@@ -127,6 +127,18 @@ async function stopProbe(page: Page) {
   })
 }
 
+/**
+ * Scrolls the transcript to its start with the mouse wheel, as the user does: only the user's
+ * own wheel, touch or key lets the chat stop following its newest line. A scroll set from a
+ * script counts as layout, and the chat goes back to the end.
+ */
+async function wheelToTop(page: Page) {
+  const transcript = page.locator('[data-transcript]')
+  await transcript.hover()
+  await page.mouse.wheel(0, -1_000_000)
+  await expect.poll(() => transcript.evaluate((el) => el.scrollTop)).toBe(0)
+}
+
 async function publish(session: GuiSession, update: ChatTurnUpdate) {
   await session.app.evaluate(({ webContents }, message) => {
     const chat = webContents
@@ -157,9 +169,7 @@ test('a 300-turn history mounts a bounded window and retains disclosure choices 
   expect(initial.longestTask).toBeLessThan(200)
 
   const transcript = session.chat.locator('[data-transcript]')
-  await transcript.evaluate((el) => {
-    el.scrollTop = 0
-  })
+  await wheelToTop(session.chat)
   const first = session.chat.locator('[data-turn-row="renderer-turn-0"]')
   await expect(first.getByText('Review request 0', { exact: true })).toBeVisible()
   const steps = first.getByRole('button', { name: /1 step/ })
@@ -241,9 +251,7 @@ test('large revisioned Markdown updates stay responsive, retain permission/redo 
   const current = session.chat.locator('[data-turn-row="renderer-turn-50"]')
   await expect(current.getByRole('button', { name: 'Allow', exact: true })).toBeVisible()
   await expect(session.chat.getByRole('button', { name: 'Redo', exact: true })).toBeVisible()
-  await transcript.evaluate((el) => {
-    el.scrollTop = 0
-  })
+  await wheelToTop(session.chat)
   await expect(session.chat.getByText('Review request 0', { exact: true })).toBeVisible()
   // The permission remains mounted while the user reads archived messages; answering it
   // still has a DOM counterpart for the existing permission view transition.

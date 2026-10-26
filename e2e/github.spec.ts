@@ -259,7 +259,9 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
         ).cloneInspection,
     )
     expect(pushInspection.argv).toContain('https://github.com/gui-tester/private-project.git')
-    expect(pushInspection.argv).toContain('refs/heads/gui/design-test:refs/heads/gui/design-test')
+    // The exact commit Gui checked goes up, so a commit made meanwhile can't ride along.
+    const shipped = git(root, 'rev-parse', 'gui/design-test').trim()
+    expect(pushInspection.argv).toContain(`${shipped}:refs/heads/gui/design-test`)
     expect(pushInspection.argv.join(' ')).not.toContain('test-provider-secret')
     expect(existsSync(pushInspection.askpass)).toBe(false)
     // A project's untrusted preview cannot call account methods through IPC.
