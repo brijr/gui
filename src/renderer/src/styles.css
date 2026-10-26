@@ -639,18 +639,63 @@ html.transparent body {
 .markdown code {
   @apply inline-code;
 }
+/* A code block's frame stays put; the code scrolls inside it, and the side it can scroll
+   toward fades over 16px, so a long line reads as more to come rather than cut off (as
+   scroll-fade does vertically). */
+@property --fade-left {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --fade-right {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes fade-left {
+  from {
+    --fade-left: 0px;
+  }
+  to {
+    --fade-left: 16px;
+  }
+}
+@keyframes fade-right {
+  from {
+    --fade-right: 16px;
+  }
+  to {
+    --fade-right: 0px;
+  }
+}
 .markdown pre {
-  overflow-x: auto;
+  overflow: hidden;
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   background: var(--surface);
-  padding: 8px 12px;
   font-size: var(--text-small);
   line-height: var(--text-small--line-height);
 }
 .markdown pre code {
+  display: block;
+  overflow-x: auto;
+  border-radius: 0;
   background: none;
-  padding: 0;
+  padding: 8px 12px;
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    #000 var(--fade-left),
+    #000 calc(100% - var(--fade-right)),
+    transparent
+  );
+  animation:
+    fade-left linear both,
+    fade-right linear both;
+  animation-timeline: scroll(self inline), scroll(self inline);
+  animation-range:
+    0 24px,
+    calc(100% - 24px) 100%;
 }
 .markdown h1,
 .markdown h2,

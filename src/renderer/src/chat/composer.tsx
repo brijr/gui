@@ -92,6 +92,13 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     (text.trim() !== '' || attachments.length > 0 || recordings.length > 0) &&
     pending === 0 &&
     !transcribing
+  /** Why Send is off, for its tooltip. */
+  const cantSend =
+    pending > 0
+      ? 'Wait for images to finish attaching'
+      : transcribing
+        ? 'Wait for the narration to be transcribed'
+        : 'Write a message first'
 
   /** One at a time, in order: decoding several large images at once can spike memory. */
   const attach = async (files: Iterable<File>) => {
@@ -221,7 +228,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       )}
       {unseenProblem && <ProblemsBar meta={meta} running={running} />}
       <QueuedMessages meta={meta} running={running} />
-      {meta.selectionError && <Line tone="error">{meta.selectionError}</Line>}
+      {meta.selectionError && (
+        <Line tone="error" role="alert">
+          {meta.selectionError}
+        </Line>
+      )}
       {meta.selection.length > 0 && <Selection selection={meta.selection} />}
       {followUp && (
         <FollowUpCard
@@ -244,10 +255,24 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       <div
         data-popover-anchor=""
         className={cn(
-          'rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
+          'relative rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
           dropping && 'border-accent bg-accent-soft',
         )}
       >
+        {/* Says what a drop does, over the box, until the files land or leave. */}
+        {dropping && (
+          <p
+            aria-hidden="true"
+            // The accent tint over the box's own color, opaque so the draft doesn't show through.
+            style={{
+              background: 'linear-gradient(var(--accent-soft), var(--accent-soft)), var(--raised)',
+            }}
+            className="pointer-events-none absolute inset-0 z-10 flex items-center gap-2 rounded-lg px-3 text-small font-medium text-accent-text"
+          >
+            <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
+            Drop images to attach
+          </p>
+        )}
         {(attachments.length > 0 || pending > 0) && (
           <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-2 pt-2">
             {attachments.map((image) => (
@@ -318,6 +343,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
             label="Attach images"
             icon={Paperclip}
             disabled={attachments.length + pending >= MAX_IMAGES}
+            title={
+              attachments.length + pending >= MAX_IMAGES
+                ? `Up to ${MAX_IMAGES} images per message`
+                : undefined
+            }
             onClick={() => picker.current?.click()}
           />
           <input
@@ -343,6 +373,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
               variant="primary"
               label={running ? 'Queue message' : 'Send'}
               shortcut="send"
+              title={canSend ? undefined : cantSend}
               icon={ArrowUp}
               disabled={!canSend}
             />
@@ -396,6 +427,7 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
         size="sm"
         className="shrink-0"
         disabled={running}
+        title={running ? 'Wait for the agent to finish' : 'Ask the agent to fix these errors'}
         onClick={() => void gui.fixProblems()}
       >
         Fix
@@ -514,7 +546,8 @@ function Line({
   children,
 }: {
   tone: 'info' | 'error' | 'busy'
-  role?: 'status'
+  /** status: read out politely as it changes; alert: an error, read out at once */
+  role?: 'status' | 'alert'
   children: ReactNode
 }) {
   return (
@@ -545,7 +578,7 @@ function AgentStatus({ meta }: { meta: ChatMeta }) {
   if (meta.status === 'error' && meta.error) {
     return (
       <div className="flex flex-col gap-1">
-        <Line tone="error">
+        <Line tone="error" role="alert">
           {meta.error} <span className="text-muted">Send a message to retry.</span>
         </Line>
         {/* Under the line's text, as under a note's in the transcript */}

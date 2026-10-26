@@ -2,6 +2,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from 'react'
 import type { ChatMeta, QueuedMessage, QueuePauseReason } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { Textarea } from '../lib/field'
 import {
   ChevronDown,
   ChevronUp,
@@ -35,9 +36,14 @@ function excerpt(prompt: string) {
   return text.length > 40 ? `${text.slice(0, 40).trimEnd()}…` : text
 }
 
-/** Row actions, shown while the row is pointed at or holds the keyboard (as the archive's). */
+/**
+ * Row actions, shown while the row is pointed at or holds the keyboard (as the archive's).
+ * Laid over the end of the message rather than beside it, so while they're hidden the message
+ * has the row's width; a fade on their left edge runs the text under them.
+ */
 const REVEAL =
-  'flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
+  'absolute inset-y-0 right-7 flex items-center pl-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
+const REVEAL_FADE = { background: 'linear-gradient(to right, transparent, var(--surface) 16px)' }
 
 /**
  * Messages sent while the agent was busy, oldest first, just above the composer. Each
@@ -69,7 +75,8 @@ export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boo
     <Card tone="inset">
       <div className="flex items-center gap-2 border-b border-line py-1 pr-1 pl-3">
         {/* Mounted with the queue rather than the pause, so the pause is announced. */}
-        <p role="status" className="min-w-0 flex-1 truncate text-small text-muted">
+        {/* The reason can be long ("Paused: the agent hit its output limit"): it wraps. */}
+        <p role="status" className="min-w-0 flex-1 text-pretty text-small text-muted">
           {paused ? PAUSED[meta.queuePauseReason ?? 'stopped'] : 'Queued'}
         </p>
         {meta.queue.length > 1 && (
@@ -186,16 +193,16 @@ function QueuedItem({
   if (editing) {
     return (
       <li data-queue-item={item.id} className="flex items-start gap-2 py-1 pr-1 pl-3">
-        <textarea
+        <Textarea
           ref={field}
           aria-label={`Edit queued message: ${name}`}
           value={draft}
           rows={1}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={onEditKeyDown}
-          className="field-sizing-content max-h-28 min-h-7 min-w-0 flex-1 resize-none rounded-md border border-line-strong bg-raised px-2 py-1 text-small text-fg transition-colors outline-none placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none"
+          className="field-sizing-content max-h-28 min-w-0 flex-1"
         />
-        <div className="flex shrink-0 items-center gap-1 pt-0.5">
+        <div className="flex shrink-0 items-center gap-1 pt-1">
           <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
             Cancel
           </Button>
@@ -227,7 +234,7 @@ function QueuedItem({
       }}
       onDragEnd={onDragEnd}
       className={cn(
-        'group flex h-7 items-center gap-2 pr-1 pl-1.5',
+        'group relative flex h-7 items-center gap-2 pr-1 pl-1.5',
         fresh && 'animate-row-in motion-reduce:animate-row-fade',
         isOver && 'bg-hover',
         isDragging && 'opacity-50',
@@ -261,11 +268,17 @@ function QueuedItem({
           <span className="sr-only">{item.attachments.length === 1 ? ' image' : ' images'}</span>
         </span>
       )}
-      <div className={REVEAL}>
+      <div className={REVEAL} style={REVEAL_FADE}>
         <IconButton
           size="sm"
           label={running ? `Send queued message next: ${name}` : `Send queued message now: ${name}`}
-          title={running ? 'Send next' : 'Send now'}
+          title={
+            !running
+              ? 'Send now'
+              : index === 0
+                ? 'Sends next, when the agent finishes'
+                : 'Send after the current reply'
+          }
           icon={Play}
           disabled={running && index === 0}
           onClick={() => gui.sendQueued(item.id)}
@@ -281,7 +294,7 @@ function QueuedItem({
         <IconButton
           size="sm"
           label={`Move queued message up: ${name}`}
-          title="Move up"
+          title={index === 0 ? 'Already first' : 'Move up'}
           icon={ChevronUp}
           disabled={index === 0}
           onClick={() => gui.moveQueued(item.id, index - 1)}
@@ -289,7 +302,7 @@ function QueuedItem({
         <IconButton
           size="sm"
           label={`Move queued message down: ${name}`}
-          title="Move down"
+          title={index === count - 1 ? 'Already last' : 'Move down'}
           icon={ChevronDown}
           disabled={index === count - 1}
           onClick={() => gui.moveQueued(item.id, index + 1)}

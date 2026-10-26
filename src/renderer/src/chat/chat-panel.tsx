@@ -482,6 +482,14 @@ function Header({ meta }: { meta: ChatMeta }) {
             icon={GitBranch}
             pressed={shipping}
             disabled={shipBusy || versionsBusy !== null}
+            // Disabled, its tooltip says why.
+            title={
+              shipBusy
+                ? 'Wait for source control to finish'
+                : versionsBusy !== null
+                  ? 'Wait for the version to finish restoring'
+                  : undefined
+            }
             onClick={() => {
               closeVersions()
               toggleShipSheet()

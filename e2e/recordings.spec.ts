@@ -254,7 +254,10 @@ test('removing an unsent recording deletes its files and does not send a turn', 
   await session.waitForPreview()
   await animate(session)
   const clip = await record(session)
-  await session.chat.getByRole('button', { name: 'Remove recording' }).click()
+  await session.chat
+    .getByLabel('Attached recordings')
+    .getByRole('button', { name: /^Remove / })
+    .click()
   await expect(session.chat.getByLabel('Attached recordings')).toHaveCount(0)
   await waitFor(
     () =>
