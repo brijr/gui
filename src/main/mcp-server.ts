@@ -2,8 +2,8 @@ import { randomBytes, timingSafeEqual } from 'node:crypto'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { APP_TOOL_NAMES, type AppTools, registerAppTools } from './mcp-app-tools'
 import { BOARD_TOOL_NAMES, type BoardTools, registerBoardTools } from './mcp-board-tools'
 import { PREVIEW_TOOL_NAMES, registerPreviewTools } from './mcp-preview-tools'
@@ -22,7 +22,43 @@ export const GUI_TOOL_NAMES = [
   ...BOARD_TOOL_NAMES,
 ] as const
 
+interface Sdk {
+  McpServer: typeof McpServer
+  StreamableHTTPServerTransport: typeof StreamableHTTPServerTransport
+}
+
+let sdk: Promise<Sdk> | null = null
+
+/**
+ * The MCP SDK, loaded when the first project's tools start (or just after the first window
+ * shows, by `preloadMcpSdk`) rather than before the first window: it takes tens of
+ * milliseconds to load.
+ */
+function loadSdk(): Promise<Sdk> {
+  sdk ??= Promise.all([
+    import('@modelcontextprotocol/sdk/server/mcp.js'),
+    import('@modelcontextprotocol/sdk/server/streamableHttp.js'),
+  ]).then(
+    ([mcp, http]) => ({
+      McpServer: mcp.McpServer,
+      StreamableHTTPServerTransport: http.StreamableHTTPServerTransport,
+    }),
+    (error: unknown) => {
+      // The next project tries again.
+      sdk = null
+      throw error
+    },
+  )
+  return sdk
+}
+
+/** Loads the SDK ahead of the first project, once Gui is idle. */
+export function preloadMcpSdk() {
+  loadSdk().catch((error: unknown) => console.error('[gui] MCP SDK failed to load', error))
+}
+
 function buildServer(
+  { McpServer }: Sdk,
   tools: PreviewTools,
   recordings: Recordings,
   app: AppTools,
@@ -51,6 +87,7 @@ export async function startMcpServer(
   app: AppTools,
   board: BoardTools | null = null,
 ): Promise<RunningMcpServer> {
+  const loaded = await loadSdk()
   const token = randomBytes(24).toString('hex')
   const expected = Buffer.from(`Bearer ${token}`)
   const authorized = (header: string | undefined) => {
@@ -69,8 +106,8 @@ export async function startMcpServer(
       res.writeHead(405, { Allow: 'POST' }).end()
       return
     }
-    const server = buildServer(tools, recordings, app, board)
-    const transport = new StreamableHTTPServerTransport({
+    const server = buildServer(loaded, tools, recordings, app, board)
+    const transport = new loaded.StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true,
       allowedHosts,

@@ -1,14 +1,36 @@
 import { app, dialog } from 'electron'
-// electron-updater is CommonJS; its named exports aren't visible to an ESM import.
-import electronUpdater from 'electron-updater'
-
-const { autoUpdater } = electronUpdater
+import type { AppUpdater } from 'electron-updater'
 
 /** How often a running Gui looks for a new version, after the check at launch. */
 const CHECK_EVERY = 4 * 60 * 60 * 1000
 
 let checkingByHand = false
 let prompted = false
+let updater: Promise<AppUpdater> | null = null
+
+/**
+ * electron-updater, loaded the first time it's needed rather than before the first window:
+ * it takes tens of milliseconds to load.
+ */
+function loadUpdater() {
+  updater ??= import('electron-updater').then((module) => {
+    // CommonJS: its named exports are on the default export.
+    const { autoUpdater } = module.default
+    autoUpdater.autoDownload = true
+    autoUpdater.autoInstallOnAppQuit = true
+    autoUpdater.on('update-downloaded', (info) => void offerRestart(info.version))
+    autoUpdater.on('error', failed)
+    return autoUpdater
+  })
+  return updater
+}
+
+function failed(error: Error) {
+  console.error('Update failed:', error)
+  if (!checkingByHand) return
+  checkingByHand = false
+  dialog.showErrorBox("Couldn't check for updates", error.message)
+}
 
 /**
  * Keeps an installed Gui up to date from the feed in electron-builder.yml (`publish`). New
@@ -18,15 +40,6 @@ let prompted = false
  */
 export function startUpdates() {
   if (!app.isPackaged) return
-  autoUpdater.autoDownload = true
-  autoUpdater.autoInstallOnAppQuit = true
-  autoUpdater.on('update-downloaded', (info) => void offerRestart(info.version))
-  autoUpdater.on('error', (error) => {
-    console.error('Update failed:', error)
-    if (!checkingByHand) return
-    checkingByHand = false
-    dialog.showErrorBox("Couldn't check for updates", error.message)
-  })
   void check()
   setInterval(() => void check(), CHECK_EVERY).unref()
 }
@@ -60,6 +73,14 @@ export async function checkForUpdatesByHand() {
 }
 
 async function check() {
+  let autoUpdater: AppUpdater
+  try {
+    autoUpdater = await loadUpdater()
+  } catch (error) {
+    updater = null
+    failed(error instanceof Error ? error : new Error(String(error)))
+    return null
+  }
   try {
     return await autoUpdater.checkForUpdates()
   } catch {
@@ -77,5 +98,5 @@ async function offerRestart(version: string) {
     defaultId: 0,
     cancelId: 1,
   })
-  if (response === 0) autoUpdater.quitAndInstall()
+  if (response === 0) (await loadUpdater()).quitAndInstall()
 }
