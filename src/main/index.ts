@@ -451,11 +451,35 @@ async function openOrShow(root: string) {
 const CLI_LINK = '/usr/local/bin/gui'
 const execFileAsync = promisify(execFile)
 
-/** Links `gui` into /usr/local/bin, asking for an administrator password if it must. */
+/** The `gui` script inside this copy of Gui. */
+const cliScript = () =>
+  app.isPackaged ? join(process.resourcesPath, 'bin', 'gui') : join(app.getAppPath(), 'bin', 'gui')
+
+/**
+ * Runs `gui skill setup` or `gui skill remove`, which install or remove the skill that
+ * teaches coding agents to open projects in Gui (bin/gui), and returns what it says it did.
+ * The script only touches a copy carrying Gui's marker, so the user's own skill stays.
+ */
+function runSkillCommand(action: 'setup' | 'remove') {
+  return new Promise<string>((resolve, reject) => {
+    execFile(
+      '/bin/sh',
+      [cliScript(), 'skill', action],
+      { env: { ...process.env, HOME: app.getPath('home') } },
+      (error, stdout, stderr) => {
+        if (error) reject(new Error(String(stderr).trim() || error.message))
+        else resolve(String(stdout).trim())
+      },
+    )
+  })
+}
+
+/**
+ * Links `gui` into /usr/local/bin, asking for an administrator password if it must, then
+ * installs the open-in-gui agent skill so coding agents know the command is there.
+ */
 async function installCli() {
-  const script = app.isPackaged
-    ? join(process.resourcesPath, 'bin', 'gui')
-    : join(app.getAppPath(), 'bin', 'gui')
+  const script = cliScript()
   try {
     try {
       await mkdir(dirname(CLI_LINK), { recursive: true })
@@ -476,11 +500,30 @@ async function installCli() {
     )
     return
   }
+  const skill = await runSkillCommand('setup').catch(
+    (error: unknown) =>
+      `Couldn't install the agent skill: ${error instanceof Error ? error.message : String(error)}`,
+  )
   await dialog.showMessageBox({
     message: "Installed the 'gui' command",
-    detail:
+    detail: [
       'In a new terminal window, run gui in a project folder to open it here and start its dev server.',
+      skill,
+    ].join('\n\n'),
   })
+}
+
+/** Removes the open-in-gui agent skill, if Gui installed it. */
+async function removeAgentSkill() {
+  try {
+    const detail = await runSkillCommand('remove')
+    await dialog.showMessageBox({ message: 'The open-in-gui agent skill', detail })
+  } catch (error) {
+    dialog.showErrorBox(
+      "Couldn't remove the agent skill",
+      error instanceof Error ? error.message : String(error),
+    )
+  }
 }
 
 /** From the menu bar: the focused window, or the last one, or a new one. */
@@ -1477,6 +1520,7 @@ function buildMenu() {
         { type: 'separator' },
         ...item('settings', { click: () => openSettings() }),
         { label: "Install 'gui' Command…", click: () => void installCli() },
+        { label: 'Remove Agent Skill…', click: () => void removeAgentSkill() },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },

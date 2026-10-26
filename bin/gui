@@ -2,11 +2,166 @@
 # Opens a folder in Gui, which starts its dev server: `gui` for the current folder,
 # `gui path/to/app` for another. A folder already open in Gui shows its tab.
 # Install it from Gui's app menu (Install 'gui' Command), or with `bun run install-app`.
+#
+# `gui skill setup` teaches coding agents to open projects in Gui when asked ("open it in
+# Gui"): it writes the open-in-gui skill below to ~/.agents/skills (Codex and others read it)
+# and links it into ~/.claude/skills. It only ever replaces or removes a copy carrying Gui's
+# marker, so a skill folder the user made is left alone.
 set -eu
+
+usage() {
+  cat <<'EOF'
+usage: gui [folder]          open a folder in Gui (default: the current one)
+       gui skill             print the skill that teaches coding agents to open projects in Gui
+       gui skill setup       install that skill for Claude Code, Codex and other agents
+       gui skill remove      remove it again
+To open a folder named "skill", run: gui ./skill
+EOF
+}
+
+# The skill's text. Bump gui-skill when it changes; `gui skill setup` rewrites Gui's copy.
+print_skill() {
+  cat <<'EOF'
+---
+name: open-in-gui
+description: Open the project you're working on in Gui, the desktop app for building web apps with agents. Use when the user says "open it in Gui", "open this in gui for me", "show me in Gui", "pull it up in Gui", or asks to see the app/project/worktree you just worked on in Gui.
+metadata:
+  gui-skill: "1"
+---
+<!-- Installed by Gui. Remove it with "gui skill remove" or Gui > Remove Agent Skill. -->
+
+Gui opens a folder as a project, starts its dev server itself, and shows the preview. Its `gui` command does the opening.
+
+## Steps
+
+1. **Pick the folder.** Use the project or worktree you've been working in, not a guess:
+   - Use the repo root of your current checkout (`git rev-parse --show-toplevel`). If you're in a worktree, use the worktree's own folder, not the main checkout. Gui opens worktrees as their own project.
+   - Use a monorepo's repo root too; Gui picks the app inside it.
+   - If you built something in a different folder this session (a new app, a scratch project), use that folder.
+   - If it's still unclear which folder they mean, ask.
+2. **Open it:**
+   ```sh
+   gui "/absolute/path/to/folder"
+   ```
+   If `gui` isn't on PATH, fall back to:
+   ```sh
+   open -b dev.gui.app "/absolute/path/to/folder"
+   ```
+   If that fails too, Gui isn't installed. Tell the user, and stop.
+3. **Don't start the dev server yourself.** Gui starts it. If you already have one running for this folder, tell the user: Gui will start its own, and a server pinned to one port may say the port is in use. Offer to stop yours.
+4. **Report back in one line:** which folder you opened and which branch it's on (`git branch --show-current`). If the folder is already open in Gui, its tab is brought forward. The command returns right away and can't confirm the app finished loading, so don't claim it did.
+
+## Notes
+
+- Opening a project that's on `main` may make Gui ask where to work (main, a new branch or a new worktree). Let the user answer it in Gui.
+- Only folders work, not single files or URLs.
+- Opening commits nothing and leaves git alone.
+EOF
+}
+
+skill_dir="$HOME/.agents/skills/open-in-gui"
+skill_link="$HOME/.claude/skills/open-in-gui"
+# Relative, so the link survives a renamed home folder: ~/.claude/skills → ~/.agents/skills.
+link_target="../../.agents/skills/open-in-gui"
+marker="<!-- Installed by Gui."
+
+exists() { [ -e "$1" ] || [ -L "$1" ]; }
+
+# Gui's copy: a real folder whose SKILL.md (a real file) carries the marker.
+skill_is_ours() {
+  [ -d "$skill_dir" ] && [ ! -L "$skill_dir" ] &&
+    [ -f "$skill_dir/SKILL.md" ] && [ ! -L "$skill_dir/SKILL.md" ] &&
+    grep -qF "$marker" "$skill_dir/SKILL.md"
+}
+
+# A link to the skill folder, as `gui skill setup` makes it (or with the absolute path).
+link_is_ours() {
+  [ -L "$skill_link" ] || return 1
+  target=$(readlink "$skill_link")
+  [ "$target" = "$link_target" ] || [ "$target" = "$skill_dir" ]
+}
+
+# Written whole beside the old file and renamed over it, so an agent never reads half a skill.
+write_skill() {
+  tmp="$skill_dir/.SKILL.md.$$.tmp"
+  if ! print_skill >"$tmp" || ! mv -f "$tmp" "$skill_dir/SKILL.md"; then
+    rm -f "$tmp"
+    echo "gui: couldn't write $skill_dir/SKILL.md" >&2
+    exit 1
+  fi
+}
+
+skill_setup() {
+  if skill_is_ours; then
+    write_skill
+    echo "Updated the open-in-gui skill in ~/.agents/skills/open-in-gui."
+  elif exists "$skill_dir"; then
+    echo "Left ~/.agents/skills/open-in-gui alone: it's already there and Gui didn't make it."
+    return 0
+  else
+    mkdir -p "$skill_dir"
+    write_skill
+    echo "Installed the open-in-gui skill in ~/.agents/skills/open-in-gui."
+  fi
+
+  if link_is_ours; then
+    :
+  elif exists "$skill_link"; then
+    echo "Left ~/.claude/skills/open-in-gui alone: it's already there and Gui didn't make it."
+  else
+    mkdir -p "$(dirname "$skill_link")"
+    ln -s "$link_target" "$skill_link"
+    echo "Linked it for Claude Code at ~/.claude/skills/open-in-gui."
+  fi
+  echo 'Ask your coding agent to "open it in Gui" and it opens the project it is working on.'
+  echo 'Remove it with: gui skill remove (or Gui > Remove Agent Skill).'
+}
+
+skill_remove() {
+  removed=false
+  if skill_is_ours; then
+    rm -f "$skill_dir/SKILL.md"
+    if rmdir "$skill_dir" 2>/dev/null; then
+      echo "Removed ~/.agents/skills/open-in-gui."
+    else
+      echo "Removed the skill from ~/.agents/skills/open-in-gui and kept the other files in it."
+    fi
+    removed=true
+  elif exists "$skill_dir"; then
+    echo "Left ~/.agents/skills/open-in-gui alone: Gui didn't make it."
+  fi
+
+  # The link stays while it still points at a skill folder Gui didn't make.
+  if link_is_ours; then
+    if [ "$removed" = true ] || ! exists "$skill_dir"; then
+      rm -f "$skill_link"
+      echo "Removed ~/.claude/skills/open-in-gui."
+      removed=true
+    fi
+  elif exists "$skill_link" && [ "$removed" = true ]; then
+    echo "Left ~/.claude/skills/open-in-gui alone: Gui didn't make it."
+  fi
+
+  if [ "$removed" = false ] && ! exists "$skill_dir"; then
+    echo "The open-in-gui skill isn't installed."
+  fi
+}
 
 case "${1:-}" in
   -h | --help)
-    echo "usage: gui [folder]   open a folder in Gui (default: the current one)"
+    usage
+    exit 0
+    ;;
+  skill)
+    case "${2:-}" in
+      "") print_skill ;;
+      setup) skill_setup ;;
+      remove) skill_remove ;;
+      *)
+        usage >&2
+        exit 1
+        ;;
+    esac
     exit 0
     ;;
 esac
