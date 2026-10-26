@@ -333,7 +333,8 @@ test('Auto mode is on per project; off, it asks; on, it still asks about outside
   await autoChip(chat).click()
   await autoModeIs(session, false)
   await expect(autoChip(chat)).toHaveAttribute('aria-pressed', 'false')
-  await expect(autoChip(chat)).toHaveText('Ask')
+  // One fixed label: only the pressed state changes.
+  await expect(autoChip(chat)).toHaveText('Auto')
   expect(await autoModeItem(session)).toEqual({ label: 'Auto Mode', checked: false })
 
   // Off, the command waits for the user, and so does the edit.

@@ -2,6 +2,7 @@ import { type Ref, useRef, useState } from 'react'
 import type { RecordingAttachment } from '../../../shared/types'
 import { Dialog } from '../lib/dialog'
 import { Play, X } from '../lib/icons'
+import { Card } from '../lib/surface'
 import { IconButton, PRESS } from '../lib/ui'
 
 /** Said in place of the video when its file can't be played (moved, or deleted). */
@@ -75,7 +76,7 @@ export function RecordingClip({
       setPreviewing(false)
     }
     return (
-      <div className="flex items-center gap-2 rounded-md border border-line bg-surface p-1">
+      <Card tone="inset" className="flex items-center gap-2 p-1">
         <button
           type="button"
           aria-label={`Play ${clip.name}`}
@@ -97,7 +98,9 @@ export function RecordingClip({
             </span>
           </span>
         </button>
-        {onRemove && <IconButton icon={X} label="Remove recording" onClick={onRemove} />}
+        {onRemove && (
+          <IconButton size="sm" icon={X} label={`Remove ${clip.name}`} onClick={onRemove} />
+        )}
         <Dialog
           open={previewing}
           onClose={close}
@@ -124,11 +127,11 @@ export function RecordingClip({
             />
           )}
         </Dialog>
-      </div>
+      </Card>
     )
   }
   return (
-    <div className="w-full max-w-80 overflow-hidden rounded-lg border border-line bg-surface">
+    <Card tone="inset" className="w-full max-w-80 overflow-hidden">
       {failed ? (
         <div className="px-2 py-1.5">
           <Unavailable />
@@ -147,8 +150,10 @@ export function RecordingClip({
           <span className="shrink-0 tabular-nums">· {duration}</span>
           {clip.narration && <span className="truncate">· {narrationNote(clip)}</span>}
         </span>
-        {onRemove && <IconButton icon={X} label="Remove recording" onClick={onRemove} />}
+        {onRemove && (
+          <IconButton size="sm" icon={X} label={`Remove ${clip.name}`} onClick={onRemove} />
+        )}
       </div>
-    </div>
+    </Card>
   )
 }

@@ -26,6 +26,7 @@ import {
   FilePen,
   FileText,
   Globe,
+  Hand,
   Info,
   MousePointer2,
   Redo2,
@@ -40,7 +41,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
-import { Button, PRESS, Spinner } from '../lib/ui'
+import { Button, PRESS, Spinner, Toggle } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
 import { setFollowUp, useChat, waitingCard } from './store'
@@ -79,6 +80,9 @@ function plural(count: number, word: string) {
 export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   const blocks = toBlocks(turn.items)
   const running = turn.status === 'running'
+  // The agent can't go on until a question it asked is answered.
+  const waiting =
+    running && turn.items.some((item) => item.kind === 'permission' && item.resolved === null)
   const end = `${turn.id}:end`
   return (
     <TurnPresentationScope id={turn.id}>
@@ -86,7 +90,8 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
         <Row rowKey={`${turn.id}:user`}>
           <UserMessage turn={turn} />
         </Row>
-        <div className={cn('flex flex-col gap-3', turn.reverted && 'opacity-50')}>
+        {/* Undone: dimmed, but still readable; the result's "Undone" badge says why. */}
+        <div className={cn('flex flex-col gap-3', turn.reverted && UNDONE)}>
           {blocks.map((block, index) => (
             <Row key={block.id} rowKey={block.id}>
               <BlockView
@@ -98,10 +103,10 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
               />
             </Row>
           ))}
-          {running && <Working since={turn.startedAt} />}
+          {running && (waiting ? <Waiting /> : <Working since={turn.startedAt} />)}
           {turn.status === 'error' && (
             <Row rowKey={end}>
-              <Note tone="error" detail={turn.errorDetail} stateKey="error">
+              <Note tone="error" detail={turn.errorDetail} stateKey="error" announce={end}>
                 {turn.error}
               </Note>
               {turn.signIn && <SignInAgain />}
@@ -124,6 +129,9 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
     </TurnPresentationScope>
   )
 }
+
+/** An undone turn's look: dimmed, at a contrast its secondary text still reads at. */
+const UNDONE = 'opacity-70'
 
 /**
  * A row of the transcript. It fades up once, when it first appears while the user watches;
@@ -337,18 +345,29 @@ function Note({
   tone,
   detail,
   stateKey,
+  announce,
   children,
 }: {
   tone: 'info' | 'error'
   detail?: string | null
   stateKey: string
+  /**
+   * Its row's key, to read it out to screen readers when it appears while the user is here
+   * (not from history, nor when scrolled back into view)
+   */
+  announce?: string
   children: ReactNode
 }) {
   const details = useTurnPresentation(`details:${stateKey}`, false)
+  // Decided when it mounts, as a row's fade is (Row marks the key seen).
+  const [fresh] = useState(() => announce !== undefined && isNewRow(announce))
   const Icon = tone === 'error' ? TriangleAlert : Info
   return (
     <div className="flex flex-col gap-1">
-      <p className={cn('flex gap-1.5 text-small', tone === 'error' ? 'text-danger' : 'text-muted')}>
+      <p
+        role={fresh ? 'alert' : undefined}
+        className={cn('flex gap-1.5 text-small', tone === 'error' ? 'text-danger' : 'text-muted')}
+      >
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 select-text break-words">{children}</span>
       </p>
@@ -617,7 +636,13 @@ function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
                 className={cn('size-3.5 shrink-0', failed ? 'text-danger' : 'text-subtle')}
                 aria-hidden="true"
               />
-              <span className={cn('shrink-0', failed && 'text-danger')}>{stepLabel(step)}</span>
+              {/* A long label (another server's tool name) truncates rather than pushing the row wide. */}
+              <span
+                className={cn('max-w-full min-w-0 truncate', failed && 'text-danger')}
+                title={stepLabel(step)}
+              >
+                {stepLabel(step)}
+              </span>
               <span
                 className="min-w-0 flex-1 select-text truncate font-mono text-caption text-subtle"
                 title={detail ?? undefined}
@@ -665,8 +690,9 @@ const OPTION_ORDER: Record<string, number> = {
 /** Past this many characters, an option won't fit half a narrow card: the options stack. */
 const LONG_OPTION = 24
 
-function optionLabel(option: PermissionChoice) {
-  return OPTION_LABELS[option.kind] ?? option.name
+/** An agent's own question keeps its wording ("Skip", its choices), not Allow / Don't allow. */
+function optionLabel(option: PermissionChoice, asked: boolean) {
+  return (asked ? null : OPTION_LABELS[option.kind]) ?? option.name
 }
 
 function byOptionOrder(a: PermissionChoice, b: PermissionChoice) {
@@ -713,7 +739,7 @@ function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: s
   const chosen = item.options.find((option) => option.optionId === item.resolved)
   // An unanswered request in an ended turn has no agent waiting on it anymore.
   const [Icon, tone, outcome] = !chosen
-    ? [CircleSlash, 'text-subtle', item.resolved === null ? 'Expired' : 'Cancelled']
+    ? [CircleSlash, 'text-subtle', item.resolved === null ? 'Expired' : 'Stopped']
     : item.toolKind === 'question'
       ? chosen.kind === 'answer'
         ? [Check, 'text-success', chosen.name]
@@ -728,9 +754,13 @@ function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: s
       className="flex h-6 min-w-0 items-center gap-2 text-small text-muted"
     >
       <Icon className={cn('size-3.5 shrink-0', tone)} aria-hidden="true" />
-      <span className="shrink-0">{outcome}</span>
+      {/* An agent's own answer can be a sentence: it truncates, whole in the tooltip. */}
+      <span className="max-w-full min-w-0 truncate" title={outcome}>
+        {outcome}
+      </span>
+      {/* What was asked about gives way first: the answer is what to read. */}
       <span
-        className="min-w-0 select-text truncate font-mono text-caption text-subtle"
+        className="min-w-0 flex-1 select-text truncate font-mono text-caption text-subtle"
         title={subject}
       >
         {firstLine}
@@ -760,7 +790,7 @@ function Permission({
   const asked = toolKind === 'question'
   const question = asked ? item.title : permissionQuestion(toolKind, locations)
   const options = [...item.options].sort(byOptionOrder)
-  const stacked = options.some((option) => optionLabel(option).length > LONG_OPTION)
+  const stacked = options.some((option) => optionLabel(option, asked).length > LONG_OPTION)
   const many = locations.length > 1
   const why = many
     ? 'These files control how the project builds or runs.'
@@ -819,13 +849,23 @@ function Permission({
                   stacked ? 'flex-1 break-words whitespace-normal' : 'truncate',
                 )}
               >
-                {optionLabel(option)}
+                {optionLabel(option, asked)}
               </span>
             </Button>
           ))}
         </div>
       </div>
     </Card>
+  )
+}
+
+/** In place of Working while a question waits: the agent is paused on the user, not busy. */
+function Waiting() {
+  return (
+    <p className="flex h-6 items-center gap-2 text-small text-muted">
+      <Hand className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
+      Waiting for you
+    </p>
   )
 }
 
@@ -869,11 +909,7 @@ function Comparison({ turn }: { turn: Turn }) {
   const strip = !ratio ? null : ratio > 4 ? 'wide' : ratio < 1 / 4 ? 'tall' : null
   return (
     <div
-      className={cn(
-        'grid gap-2',
-        large ? 'grid-cols-1' : 'grid-cols-2',
-        turn.reverted && 'opacity-50',
-      )}
+      className={cn('grid gap-2', large ? 'grid-cols-1' : 'grid-cols-2', turn.reverted && UNDONE)}
     >
       {shots.map(
         (shot) =>
@@ -980,6 +1016,12 @@ const CHANGE_TONE: Record<FileChange['status'], string> = {
   deleted: 'text-danger',
 }
 
+const CHANGE_WORD: Record<FileChange['status'], string> = {
+  added: 'Added',
+  modified: 'Changed',
+  deleted: 'Deleted',
+}
+
 function ChangedFiles({ changes }: { changes: FileChange[] }) {
   return (
     <ul
@@ -989,7 +1031,8 @@ function ChangedFiles({ changes }: { changes: FileChange[] }) {
       {changes.map((change) => (
         <li key={change.path} className="flex min-w-0 items-center gap-2">
           <span className={cn('w-3 shrink-0', CHANGE_TONE[change.status])} title={change.status}>
-            {change.status[0].toUpperCase()}
+            <span aria-hidden="true">{change.status[0].toUpperCase()}</span>
+            <span className="sr-only">{CHANGE_WORD[change.status]}</span>
           </span>
           <PathText path={change.path} className="flex-1 text-muted" />
           <span className="shrink-0 text-success tabular-nums">+{change.additions}</span>
@@ -1006,22 +1049,22 @@ function ChangedFiles({ changes }: { changes: FileChange[] }) {
  */
 function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   const [open, setOpen] = useTurnPresentation('result:files', false)
-  const [busy, setBusy] = useTurnPresentation('result:busy', false)
+  const [busy, setBusy] = useTurnPresentation<'undo' | 'redo' | null>('result:busy', null)
   const [error, setError] = useTurnPresentation<string | null>('result:error', null)
   const following = useChat((s) => s.followUp === turn.id)
   const changes = turn.changes ?? []
   const additions = changes.reduce((sum, change) => sum + change.additions, 0)
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
 
-  const run = async (action: () => Promise<void>) => {
-    setBusy(true)
+  const run = async (which: 'undo' | 'redo', action: () => Promise<void>) => {
+    setBusy(which)
     setError(null)
     try {
       await action()
     } catch (err) {
       setError(readableError(err))
     } finally {
-      setBusy(false)
+      setBusy(null)
     }
   }
 
@@ -1044,16 +1087,15 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
           unrecorded && <span className="text-small text-muted">Changes not recorded</span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
-          <Button
+          <Toggle
             size="sm"
             icon={Reply}
-            variant={following ? 'primary' : 'secondary'}
-            aria-pressed={following}
+            pressed={following}
             title="Ask about this change in your next message"
             onClick={() => setFollowUp(following ? null : turn.id)}
           >
             Follow up
-          </Button>
+          </Toggle>
           {turn.reverted ? (
             <>
               <Badge>Undone</Badge>
@@ -1061,8 +1103,8 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
                 <Button
                   size="sm"
                   icon={Redo2}
-                  disabled={busy}
-                  onClick={() => run(() => gui.redo())}
+                  loading={busy === 'redo'}
+                  onClick={() => run('redo', () => gui.redo())}
                 >
                   Redo
                 </Button>
@@ -1072,9 +1114,9 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
             <Button
               size="sm"
               icon={Undo2}
-              disabled={busy}
-              title="Restore files to how they were before this turn (also undoes later turns)"
-              onClick={() => run(() => gui.restoreTurn(turn.id))}
+              loading={busy === 'undo'}
+              title="Restore files to how they were before this message (also undoes later messages)"
+              onClick={() => run('undo', () => gui.restoreTurn(turn.id))}
             >
               Undo
             </Button>

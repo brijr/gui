@@ -201,6 +201,8 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
   emphasis?: 'soft' | 'strong'
   /** Its keyboard shortcut, named after the tooltip (`title`) */
   shortcut?: ShortcutId
+  /** md, the default; sm in a row of sm buttons (a turn's Follow up) */
+  size?: 'sm' | 'md'
 }
 
 /** A labelled on/off control (aria-pressed). Its weight never changes with its state. */
@@ -209,6 +211,7 @@ export function Toggle({
   icon: Icon,
   emphasis = 'soft',
   shortcut,
+  size = 'md',
   title,
   className,
   children,
@@ -222,7 +225,7 @@ export function Toggle({
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       className={cn(
         CONTROL,
-        BUTTON_SIZE.md,
+        BUTTON_SIZE[size],
         'shrink-0',
         !pressed && VARIANT.ghost,
         pressed && emphasis === 'soft' && `bg-accent-soft text-accent-text ${FADE}`,

@@ -49,10 +49,11 @@ export function useCommandMenu({
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [active, setActive] = useState(0)
   // A new chat's agent hasn't started, so it hasn't said what it offers: `/` starts it
-  // (nothing is sent) and the menu says it's loading until the commands arrive.
+  // (nothing is sent) and the menu says it's loading until the commands arrive, then that
+  // there are none if the agent offers none (or couldn't start).
   const awaiting = query !== null && commands.length === 0
-  const [loading, setLoading] = useState(false)
-  const open = (shown.length > 0 || (awaiting && loading)) && dismissed !== text
+  const [checked, setChecked] = useState(false)
+  const open = (shown.length > 0 || awaiting) && dismissed !== text
   const activeIndex = Math.min(active, shown.length - 1)
   const optionId = (index: number) => `${id}-command-${index}`
   const activeId = open && shown.length > 0 ? optionId(activeIndex) : undefined
@@ -65,14 +66,13 @@ export function useCommandMenu({
   useEffect(() => {
     if (!awaiting) return
     let live = true
-    setLoading(true)
+    setChecked(false)
     // Never rejects; an agent that couldn't start just leaves nothing to list.
     void gui.loadCommands().finally(() => {
-      if (live) setLoading(false)
+      if (live) setChecked(true)
     })
     return () => {
       live = false
-      setLoading(false)
     }
   }, [awaiting])
 
@@ -148,8 +148,14 @@ export function useCommandMenu({
         // A MenuRow's size and inset, so the list takes its place without a jump.
         <div className="p-1">
           <p role="status" className="flex h-7 items-center gap-2 px-2 text-small text-muted">
-            <Spinner />
-            Loading commands…
+            {checked ? (
+              'No commands available'
+            ) : (
+              <>
+                <Spinner />
+                Loading commands…
+              </>
+            )}
           </p>
         </div>
       )}

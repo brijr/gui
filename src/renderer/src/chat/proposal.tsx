@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect } from 'react'
+import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
@@ -18,7 +18,7 @@ import {
   TriangleAlert,
 } from '../lib/icons'
 import { Badge } from '../lib/status'
-import { Banner, Message, PanelHeader } from '../lib/surface'
+import { Banner, Card, Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, IconButton, TextButton } from '../lib/ui'
 import { Markdown } from './markdown'
@@ -430,19 +430,32 @@ export function ReviewSheet() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const fix = async (picked: ReviewComment[]) => {
-    if (!pull || picked.length === 0) return
-    const accepted = await gui.send(fixPrompt(pull, picked))
-    if (!accepted) {
-      useProposal.setState({ error: 'The agent couldn’t take this. Try again.' })
-      return
+  /** The comments being sent ('all' for Fix all), until main answers. */
+  const [sending, setSending] = useState<string | null>(null)
+  // A ref as well, so a second click before the rerender can't send them twice.
+  const inFlight = useRef(false)
+  const fix = async (picked: ReviewComment[], which: string) => {
+    if (!pull || picked.length === 0 || inFlight.current) return
+    inFlight.current = true
+    setSending(which)
+    try {
+      // Not taken: the user cancelled the branch question (or main already said why, as
+      // when a branch can't be created). The comments stay here to try again, as a draft
+      // stays in the composer, with no error of its own.
+      if (!(await gui.send(fixPrompt(pull, picked)))) return
+      markHandled(
+        pull,
+        picked.map((comment) => comment.id),
+      )
+      openReview(false)
+    } finally {
+      inFlight.current = false
+      setSending(null)
     }
-    markHandled(
-      pull,
-      picked.map((comment) => comment.id),
-    )
-    openReview(false)
   }
+  const busyReason = agentBusy ? 'Wait for the agent to finish' : undefined
+  // One primary: Fix all when there's more than one comment, otherwise the comment's own Fix this.
+  const several = comments.length > 1
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -482,53 +495,67 @@ export function ReviewSheet() {
         <>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable p-3">
             {comments.map((comment) => (
-              <li
-                key={comment.id}
-                className="flex flex-col gap-2 rounded-lg border border-line p-3"
-              >
-                <div className="flex min-w-0 items-center gap-1.5 text-small">
-                  <span className="font-medium">{comment.author}</span>
-                  {comment.path && (
-                    <Badge mono title={comment.path}>
-                      <span className="truncate">
-                        {comment.path.split('/').at(-1)}
-                        {comment.line ? `:${comment.line}` : ''}
-                      </span>
-                    </Badge>
-                  )}
-                  <span className="ml-auto shrink-0 text-caption text-subtle">
-                    {timeAgo(Date.parse(comment.createdAt))}
-                  </span>
-                </div>
-                <div className="text-small">
-                  <Markdown text={comment.body} />
-                </div>
-                <div className="flex items-center gap-1">
-                  <Button
-                    size="sm"
-                    variant="primary"
-                    disabled={agentBusy}
-                    onClick={() => void fix([comment])}
-                  >
-                    Fix this
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => markHandled(pull, [comment.id])}>
-                    Put aside
-                  </Button>
-                  <TextButton
-                    tone="muted"
-                    className="ml-auto text-caption"
-                    onClick={() => openExternal(comment.url)}
-                  >
-                    Reply on GitHub
-                  </TextButton>
-                </div>
+              <li key={comment.id}>
+                <Card tone="inset" className="flex flex-col gap-2 p-3">
+                  <div className="flex min-w-0 items-center gap-1.5 text-small">
+                    <span className="font-medium">{comment.author}</span>
+                    {comment.path && (
+                      <Badge mono title={comment.path}>
+                        <span className="truncate">
+                          {comment.path.split('/').at(-1)}
+                          {comment.line ? `:${comment.line}` : ''}
+                        </span>
+                      </Badge>
+                    )}
+                    <span className="ml-auto shrink-0 text-caption text-subtle">
+                      {timeAgo(Date.parse(comment.createdAt))}
+                    </span>
+                  </div>
+                  <div className="text-small">
+                    <Markdown text={comment.body} />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant={several ? 'secondary' : 'primary'}
+                      disabled={agentBusy || (sending !== null && sending !== comment.id)}
+                      loading={sending === comment.id}
+                      title={busyReason}
+                      aria-label={`Fix this: ${comment.author}’s comment`}
+                      onClick={() => void fix([comment], comment.id)}
+                    >
+                      Fix this
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={sending !== null}
+                      aria-label={`Put aside: ${comment.author}’s comment`}
+                      onClick={() => markHandled(pull, [comment.id])}
+                    >
+                      Put aside
+                    </Button>
+                    <TextButton
+                      tone="muted"
+                      className="ml-auto text-caption"
+                      onClick={() => openExternal(comment.url)}
+                    >
+                      Reply on GitHub
+                    </TextButton>
+                  </div>
+                </Card>
               </li>
             ))}
           </ul>
-          {comments.length > 1 && (
+          {several && (
             <div className="flex shrink-0 items-center gap-2 border-t border-line p-2">
-              <Button variant="primary" disabled={agentBusy} onClick={() => void fix(comments)}>
+              <Button
+                variant="primary"
+                disabled={agentBusy || (sending !== null && sending !== 'all')}
+                loading={sending === 'all'}
+                title={busyReason}
+                onClick={() => void fix(comments, 'all')}
+              >
                 Fix all {comments.length}
               </Button>
             </div>
