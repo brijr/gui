@@ -90,7 +90,14 @@ const test = base.extend<Fixtures>({
       const launched = { ...copy, spec: FIXTURES[0] }
       const session = await launchGui(
         recent === undefined ? launched : { ...launched, root: join(copy.root, recent) },
-        { fixture: 'vite', trusted: false, open: recent === undefined ? 'project' : 'recent' },
+        {
+          fixture: 'vite',
+          trusted: false,
+          open: recent === undefined ? 'project' : 'recent',
+          // On main without asking, as "Always open on main" saves it: for the monorepo's
+          // root, which is what opens, even from an app's folder.
+          prefs: { defaultBranchRoots: [copy.root] },
+        },
         testInfo,
       )
       sessions.push(session)

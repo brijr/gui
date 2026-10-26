@@ -75,6 +75,37 @@ async function keepWindowOnClose(session: GuiSession) {
   return id
 }
 
+/**
+ * ⌘0, then waits for the fit to land: it asks main where the floating chat is first, so the
+ * frames move a moment after the key. Done when every frame is in view and has stopped moving.
+ */
+async function zoomToFit(session: GuiSession) {
+  const view = () =>
+    session.chrome.evaluate(() => {
+      const area = document.querySelector('[role="application"]')?.getBoundingClientRect()
+      const frames = [...document.querySelectorAll('[data-frame]')].map((el) =>
+        el.getBoundingClientRect(),
+      )
+      if (!area || !frames.length) return null
+      const inView = frames.every(
+        (r) =>
+          r.left >= area.left &&
+          r.right <= area.right &&
+          r.top >= area.top &&
+          r.bottom <= area.bottom,
+      )
+      return inView ? JSON.stringify(frames.map((r) => [r.x, r.y, r.width, r.height])) : null
+    })
+  await session.chrome.keyboard.press('Meta+0')
+  let last: string | null = null
+  await waitFor(async () => {
+    const now = await view()
+    const settled = now !== null && now === last
+    last = now
+    return settled
+  }, 'every frame in view')
+}
+
 const undo = (session: GuiSession) =>
   session.app.evaluate(({ Menu }) => {
     const edit = Menu.getApplicationMenu()?.items.find((item) => item.label === 'Edit')
@@ -112,7 +143,7 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   )
 
   // Drag a frame; ⌘Z puts it back before touching the agent's turns.
-  await chrome.keyboard.press('Meta+0')
+  await zoomToFit(session)
   const box = await chrome.locator('[data-frame="desktop"]').last().boundingBox()
   if (!box) throw new Error('The desktop frame is not on screen')
   await chrome.mouse.move(box.x + 40, box.y + 40)
@@ -136,9 +167,12 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
     async () => (await board(session)).frames.some((frame) => frame.id === 'desktop-copy'),
     'the copy',
   )
+  // On the board too, before fitting: a frame that lands after a fit is brought into sight on
+  // its own, and the others can leave it.
+  await expect(chrome.locator('[data-frame="desktop-copy"]').last()).toBeVisible()
 
   // A double-click opens the frame live in the preview, at the viewport its size matches.
-  await chrome.keyboard.press('Meta+0')
+  await zoomToFit(session)
   const target = await chrome.locator('[data-frame="mobile"]').last().boundingBox()
   if (!target) throw new Error('The mobile frame is not on screen')
   await chrome.mouse.click(target.x + 10, target.y + 10)
@@ -149,7 +183,7 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   }, 'the frame open')
   expect(live.preview.viewport).toBe('mobile')
   expect(live.preview.selectable).toBe(true)
-  await chrome.getByRole('button', { name: 'Canvas' }).click()
+  await chrome.getByRole('button', { name: 'Canvas', exact: true }).click()
   await waitFor(async () => {
     const state = await session.state()
     return state.board?.open === null && !state.preview.visible

@@ -121,6 +121,18 @@ function openFromFinder(session: GuiSession, path: string) {
 }
 
 /**
+ * Opens a project not opened before from Finder: it's a fresh repository on main, so its tab
+ * asks where to work first, and the user works on main.
+ */
+async function openNewFromFinder(session: GuiSession, path: string) {
+  await openFromFinder(session, path)
+  await expect(
+    session.chrome.getByRole('heading', { name: 'Where do you want to work?' }),
+  ).toBeVisible()
+  await session.chrome.getByRole('button', { name: /^On main/ }).click()
+}
+
+/**
  * Clicks a visible item of the app menu by label. Like any script it focuses no window, so the
  * menu acts on the lone window, as it does for the user in the focused one.
  */
@@ -257,7 +269,7 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
 
   // A project opened from Finder goes into that start tab, which takes its name.
   const secondRoot = secondProject(session, copyFixture('vite'))
-  await openFromFinder(session, secondRoot)
+  await openNewFromFinder(session, secondRoot)
   const opened = await waitFor(
     async () => {
       const state = await session.state()
@@ -360,7 +372,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     // A second project in a new tab, and a third, empty one.
     await session.chrome.evaluate(() => window.gui.newTab())
     const secondChat = await newChatPage(session, [session.chat])
-    await openFromFinder(session, secondProject(session, copyFixture('vite')))
+    await openNewFromFinder(session, secondProject(session, copyFixture('vite')))
     const second = await waitFor(
       async () => {
         const state = await session.state()
