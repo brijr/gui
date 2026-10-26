@@ -55,11 +55,26 @@ export function inCorner(rect: Rect, size: ChatSize, corner: PanelCorner): Rect 
   }
 }
 
-/** The largest the floating panel can be: the window's width, the canvas's (`area`) height. */
-export function maxFloatingSize(contentWidth: number, area: Rect): ChatSize {
+/**
+ * The canvas a floating panel leaves uncovered above or below it on a short window, so the top
+ * of the page (its heading) stays in view. All of it on a canvas up to SHORT_CANVAS tall,
+ * easing to none at TALL_CANVAS, where the panel can be as tall as the canvas again.
+ */
+const PAGE_CLEAR = 240
+const SHORT_CANVAS = 600
+const TALL_CANVAS = 800
+
+/**
+ * The largest the floating panel can be: the window's width, and the canvas's (`area`)
+ * height less what a short window keeps clear, but not below `minHeight` while it fits.
+ */
+export function maxFloatingSize(contentWidth: number, area: Rect, minHeight: number): ChatSize {
+  const fits = area.height - PANEL_MARGIN * 2
+  const short = Math.min(1, Math.max(0, (TALL_CANVAS - area.height) / (TALL_CANVAS - SHORT_CANVAS)))
+  const clear = Math.max(PANEL_MARGIN * 2, Math.round(PAGE_CLEAR * short))
   return {
     width: contentWidth - PANEL_MARGIN * 2,
-    height: area.height - PANEL_MARGIN * 2,
+    height: Math.min(fits, Math.max(area.height - clear, minHeight)),
   }
 }
 
