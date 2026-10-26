@@ -249,6 +249,21 @@ async function openProjectIn(
   }
 }
 
+/**
+ * One of a repository's worktrees: the tab it's open in, shown, or a new tab. It opens as it
+ * is, without asking where to work: the user picked this checkout.
+ */
+async function openWorktreeIn(target: ProjectWindow | undefined, root: string) {
+  const open = allTabs().find((tab) => tab.projectRoot === root)
+  const shown = open && allWindows().find((win) => win.tabs.includes(open))
+  if (open && shown) {
+    shown.showTab(open)
+    focusWindow(shown.win, { steal: true })
+    return
+  }
+  await openProjectIn(target, root, { ask: false })
+}
+
 /** Folders asked for while signed out, in order. */
 const waitingForAccount: { target: ProjectWindow | undefined; root: string }[] = []
 
@@ -954,6 +969,21 @@ function registerIpc() {
     if (!win || win.win.webContents !== event.sender || !isWhereToWorkAnswer(answer)) return false
     return win.activeTab.answerWhereToWork(answer)
   })
+  handleLegacy(Invoke.createWorktree, (event, name: unknown) =>
+    reportError(async () => {
+      if (!isString(name) || name.length > 200) throw new Error('Use a shorter name.')
+      const root = await requireTab(event).createWorktree(name)
+      await openWorktreeIn(windowFor(event), root)
+    }),
+  )
+  handleLegacy(Invoke.openWorktree, (event, path: unknown) =>
+    reportError(async () => {
+      if (!isString(path) || path.length > 4096) throw new Error('That worktree is unavailable.')
+      const root = await requireTab(event).worktreeRoot(path)
+      if (!root) throw new Error('That worktree is no longer there. Refresh the branch list.')
+      await openWorktreeIn(windowFor(event), root)
+    }),
+  )
   handleLegacy(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
     return requireTab(event).restoreTurn(turnId)
@@ -1047,6 +1077,18 @@ function registerIpc() {
       () => win.showStartForm('cloneRepo'),
       (root) => openSafely(win, root),
     ),
+  )
+  onWindow(
+    Send.showBranchMenu,
+    (win) =>
+      void win.activeTab.showBranchMenu((root) => {
+        openWorktreeIn(win, root).catch((error: unknown) =>
+          dialog.showErrorBox(
+            "Couldn't open the worktree",
+            error instanceof Error ? error.message : String(error),
+          ),
+        )
+      }),
   )
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
   registerBoardIpc(onWindow, {

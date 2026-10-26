@@ -135,6 +135,8 @@ export class ProjectWindow implements TabHost {
     this.win.on('page-title-updated', (event) => event.preventDefault())
     this.win.on('focus', () => {
       lastFocused = this
+      // A branch switched in Terminal meanwhile shows in the toolbar.
+      void this.active.refreshBranch()
     })
     this.win.once('ready-to-show', () => showWindow(this.win))
     this.win.on('closed', () => this.dispose())

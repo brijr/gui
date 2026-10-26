@@ -1,7 +1,17 @@
 import { constants } from 'node:fs'
 import { access, chmod, copyFile, lstat, mkdir, realpath } from 'node:fs/promises'
-import { basename, dirname, join, relative } from 'node:path'
-import { type At, CommandError, gitAsUser, gitOrNull, tail, withGitMutation } from './git'
+import { basename, dirname, join, relative, resolve } from 'node:path'
+import {
+  type At,
+  CommandError,
+  gitAsUser,
+  gitOrNull,
+  listWorktrees,
+  openRepo,
+  tail,
+  type WorktreeEntry,
+  withGitMutation,
+} from './git'
 import { getPrefs, setPrefs } from './prefs'
 import { assertBranchName, branchTaken } from './ship'
 import { getStartCommand, saveStartCommand } from './start-commands'
@@ -121,4 +131,16 @@ async function copyEnvFiles(from: string, to: string, dirs: string[], at: At) {
         console.error(`[gui] couldn't copy ${path} into the worktree`, error)
     }
   }
+}
+
+/** The repository's worktrees, each with the folder its project opens at. */
+export async function worktreesOf(root: string) {
+  const repo = await openRepo(root, { status: false })
+  const inside = relative(repo.top, root)
+  const entries = await listWorktrees(repo)
+  return entries.map((entry: WorktreeEntry) => ({
+    ...entry,
+    root: inside ? join(entry.path, inside) : entry.path,
+    current: resolve(entry.path) === resolve(repo.top),
+  }))
 }

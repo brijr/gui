@@ -104,6 +104,8 @@ export const Invoke = {
   resetStartCommand: 'settings:reset-start-command',
   askAboutBranch: 'settings:ask-about-branch',
   answerWhereToWork: 'project:where-to-work',
+  createWorktree: 'worktree:create',
+  openWorktree: 'worktree:open',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
   boardChatCover: 'board:chat-cover',
@@ -118,6 +120,7 @@ export const Send = {
   showAgentMenu: 'menu:agent',
   showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
+  showBranchMenu: 'menu:branch',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
   installNode: 'node:install',
@@ -221,7 +224,15 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 
 /** Main → renderer */
 /** What the chat's More menu hands back to the chat page to do. */
-export type ChatMenuChoice = 'pullRequest' | 'archive' | 'versions'
+export type ChatMenuChoice =
+  | 'pullRequest'
+  | 'archive'
+  | 'versions'
+  /** From the toolbar's branch menu: Source Control, on its own or with its branch picker or a new-branch or new-worktree dialog open */
+  | 'sourceControl'
+  | 'switchBranch'
+  | 'newBranch'
+  | 'newWorktree'
 
 export const Events = {
   state: 'state',
@@ -364,8 +375,20 @@ export interface GuiApi {
    */
   showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void
   showProjectMenu(): void
+  /**
+   * The toolbar's branch menu: Switch Branch, New Branch, New Worktree, the repository's
+   * worktrees, Source Control
+   */
+  showBranchMenu(): void
   /** The start screen's answer to "Where do you want to work?" (`WindowState.whereToWork`); false when it didn't go ahead */
   answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean>
+  /**
+   * A new worktree of the open project, named from `name` (blank: the date), opened in a new
+   * tab; rejects with a message to show
+   */
+  createWorktree(name: string): Promise<void>
+  /** Opens one of the repository's worktrees, or shows the tab it's open in */
+  openWorktree(path: string): Promise<void>
 
   /** A new canvas, opened in this tab if it's a start screen, otherwise in a new one */
   newBoard(): void

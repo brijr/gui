@@ -38,6 +38,7 @@ test('opening on main asks where to work, and On main opens it as it is', async 
   const state = await opened(session, root)
   expect(state.whereToWork).toBeNull()
   expect(state.branch).toEqual({ branch: 'main', worktree: null })
+  await expect(session.chrome.getByRole('button', { name: 'Branch main' })).toBeVisible()
   expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main')
 })
 
@@ -83,6 +84,10 @@ test('On a new branch names the branch from the first message, without asking', 
   await waitFor(
     () => git(root, 'symbolic-ref', '--short', 'HEAD').trim() === 'gui/make-the-header-sticky',
     'the new branch',
+  )
+  await waitFor(
+    async () => (await session.state()).branch?.branch === 'gui/make-the-header-sticky',
+    'the toolbar to show it',
   )
 })
 

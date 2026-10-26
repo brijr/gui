@@ -231,19 +231,55 @@ export async function outgoingCount(
   return Number(count) || 0
 }
 
+export interface WorktreeEntry {
+  /** The work tree's folder */
+  path: string
+  /** Null when detached */
+  branch: string | null
+  /** The repository's main checkout, listed first */
+  main: boolean
+  /** Its folder is gone; `git worktree prune` drops it */
+  prunable: boolean
+}
+
+/** `git worktree list --porcelain -z`: one record per work tree, the main checkout first. */
+export function parseWorktrees(out: string): WorktreeEntry[] {
+  const entries: WorktreeEntry[] = []
+  for (const field of out.split('\0')) {
+    if (field.startsWith('worktree '))
+      entries.push({
+        path: field.slice('worktree '.length),
+        branch: null,
+        main: entries.length === 0,
+        prunable: false,
+      })
+    const entry = entries.at(-1)
+    if (!entry) continue
+    if (field.startsWith('branch refs/heads/'))
+      entry.branch = field.slice('branch refs/heads/'.length)
+    if (field === 'prunable' || field.startsWith('prunable ')) entry.prunable = true
+  }
+  return entries
+}
+
+export async function listWorktrees(at: At): Promise<WorktreeEntry[]> {
+  return parseWorktrees(await git(at, ['worktree', 'list', '--porcelain', '-z']))
+}
+
 export async function readWorkspace(repo: Repo): Promise<SourceControlWorkspace> {
   const [worktrees, remoteNames, destination] = await Promise.all([
-    git(repo, ['worktree', 'list', '--porcelain', '-z']),
+    listWorktrees(repo),
     git(repo, ['remote']),
     repo.branch ? pushDestination(repo, repo.branch) : null,
   ])
-  const occupied = new Set<string>()
-  let tree = ''
-  for (const field of worktrees.split('\0')) {
-    if (field.startsWith('worktree ')) tree = field.slice(9)
-    if (field.startsWith('branch refs/heads/') && resolve(tree) !== resolve(repo.top))
-      occupied.add(field.slice('branch refs/heads/'.length))
-  }
+  // Branches checked out in another worktree, and where (none when its folder is gone).
+  const occupied = new Map<string, string | null>()
+  for (const tree of worktrees)
+    if (tree.branch && resolve(tree.path) !== resolve(repo.top))
+      occupied.set(tree.branch, tree.prunable ? null : tree.path)
+  const main = worktrees[0]
+  const worktree =
+    main && resolve(main.path) !== resolve(repo.top) ? { path: repo.top, main: main.path } : null
   const names = remoteNames
     .split('\n')
     .filter(Boolean)
@@ -252,19 +288,29 @@ export async function readWorkspace(repo: Repo): Promise<SourceControlWorkspace>
   for (const ref of repo.refs) {
     if (ref.startsWith('refs/heads/')) {
       const name = ref.slice('refs/heads/'.length)
-      branches.push({ name, remote: null, checkedOutElsewhere: occupied.has(name) })
+      branches.push({
+        name,
+        remote: null,
+        checkedOutElsewhere: occupied.has(name),
+        worktree: occupied.get(name) ?? null,
+      })
     } else if (ref.startsWith('refs/remotes/') && !ref.endsWith('/HEAD')) {
       const path = ref.slice('refs/remotes/'.length)
       const remote = names.find((name) => path.startsWith(`${name}/`))
       if (remote)
-        branches.push({ name: path.slice(remote.length + 1), remote, checkedOutElsewhere: false })
+        branches.push({
+          name: path.slice(remote.length + 1),
+          remote,
+          checkedOutElsewhere: false,
+          worktree: null,
+        })
     }
   }
   if (
     repo.branch &&
     !branches.some((branch) => branch.remote === null && branch.name === repo.branch)
   )
-    branches.push({ name: repo.branch, remote: null, checkedOutElsewhere: false })
+    branches.push({ name: repo.branch, remote: null, checkedOutElsewhere: false, worktree: null })
   branches.sort(
     (a, b) => Number(a.remote !== null) - Number(b.remote !== null) || a.name.localeCompare(b.name),
   )
@@ -280,6 +326,7 @@ export async function readWorkspace(repo: Repo): Promise<SourceControlWorkspace>
       destination && repo.refs.has(`refs/remotes/${destination.remote}/${destination.branch}`),
     ),
     writeBlocked: repo.problem,
+    worktree,
   }
 }
 

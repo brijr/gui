@@ -69,6 +69,8 @@ export interface AllIpcRequests {
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
   [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
   [Invoke.answerWhereToWork]: Contract<'answerWhereToWork'>
+  [Invoke.createWorktree]: Contract<'createWorktree'>
+  [Invoke.openWorktree]: Contract<'openWorktree'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
   [Invoke.boardChatCover]: Contract<'boardChatCover'>
@@ -135,6 +137,8 @@ export type LegacyErrorChannel =
   | typeof Invoke.finishMerge
   | typeof Invoke.cancelMerge
   | typeof Invoke.resolveConflicts
+  | typeof Invoke.createWorktree
+  | typeof Invoke.openWorktree
   | typeof Invoke.saveCustomAgent
   | typeof Invoke.deleteCustomAgent
 export type LegacyChannel = Exclude<keyof AllIpcRequests, RequestChannel>

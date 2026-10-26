@@ -8,7 +8,7 @@ import { ArrowLeft, Info, RotateCw } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Message, PanelHeader } from '../lib/surface'
 import { Button, Code, IconButton, Skeleton } from '../lib/ui'
-import { BranchPicker, CreateBranchDialog } from './branch-picker'
+import { BranchPicker, CreateBranchDialog, CreateWorktreeDialog } from './branch-picker'
 import { useProposal } from './proposal-state'
 import {
   acceptShipProposal,
@@ -416,6 +416,10 @@ function Workspace({
       <CreateBranchDialog
         workspace={{ ...workspace, writeBlocked: restriction }}
         suggested={requested}
+      />
+      <CreateWorktreeDialog
+        branch={info.branch}
+        uncommitted={info.files.length + info.skipped.length}
       />
       <Dialog
         open={reviewOpen}

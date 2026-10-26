@@ -156,7 +156,7 @@ import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { focusWindow } from './window-presentation'
 import { branchStatus, whereToWorkCheck } from './worktree-registry'
-import { createWorktree } from './worktrees'
+import { createWorktree, worktreesOf } from './worktrees'
 
 export type { TabHost, TabState } from './tab-host'
 
@@ -1054,6 +1054,8 @@ export class ProjectTab implements ChatPanelOwner {
       this.host.tabChanged(this, false)
     })
     chat.on('turnEnd', (turn) => {
+      // The agent may have switched branches itself.
+      void this.refreshBranch()
       // What the agent proposed to ship opens once it's done, for the user to review.
       const proposed = this.shipProposal
       this.shipProposal = null
@@ -1972,6 +1974,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.branchOnSend = null
     try {
       await startWorkBranch(root, pending.from, prompt)
+      void this.refreshBranch()
       return true
     } catch (error) {
       if (this.disposed || this.state.project?.root !== root) return false
@@ -1988,6 +1991,23 @@ export class ProjectTab implements ChatPanelOwner {
         })
       return false
     }
+  }
+
+  /** The toolbar's branch, from the HEAD file: on open, focus, a turn's end, and Git actions. */
+  async refreshBranch() {
+    const root = this.state.project?.root
+    if (!root || this.resources.board) return
+    const branch = await branchStatus(root)
+    if (this.disposed || this.state.project?.root !== root) return
+    const now = this.state.branch
+    if (
+      now?.branch === branch?.branch &&
+      now?.worktree?.name === branch?.worktree?.name &&
+      now?.worktree?.of === branch?.worktree?.of &&
+      (now === null) === (branch === null)
+    )
+      return
+    this.patch({ branch })
   }
 
   // Shipping (src/main/ship.ts)
@@ -2019,12 +2039,14 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
     if (!(await this.confirmGit(root))) throw new Error('Cancelled.')
     if (this.state.project?.root !== root) throw new Error('No project is open.')
-    return ship(root, request, this.gitActions(root))
+    return ship(root, request, this.gitActions(root)).finally(() => void this.refreshBranch())
   }
 
   async sourceControl(request: SourceControlRequest) {
     const root = await this.gitRootForAction()
-    return sourceControl(root, request, this.gitActions(root))
+    return sourceControl(root, request, this.gitActions(root)).finally(
+      () => void this.refreshBranch(),
+    )
   }
 
   private gitActions(root: string): ShipActions {
@@ -2088,7 +2110,7 @@ export class ProjectTab implements ChatPanelOwner {
 
   async startFresh() {
     const root = await this.gitRootForAction()
-    await withGitMutation(root, () => startFresh(root))
+    await withGitMutation(root, () => startFresh(root)).finally(() => void this.refreshBranch())
     // The finished idea's chat goes to the archive; the next one starts empty.
     if (this.state.project?.root === root) this.newChat()
   }
@@ -3241,6 +3263,63 @@ export class ProjectTab implements ChatPanelOwner {
       },
     ]
     Menu.buildFromTemplate(template).popup({ window: this.host.win })
+  }
+
+  /**
+   * The toolbar's branch menu. Switching and making branches happen in Source Control, in the
+   * chat, so those open it; the worktrees listed (read only once Git may run here) open in
+   * their own tab, or show the one they're open in.
+   */
+  async showBranchMenu(openWorktree: (root: string) => void) {
+    const root = this.state.project?.root
+    if (!root || this.resources.board) return
+    const worktrees = (await isTrusted(root)) ? await worktreesOf(root).catch(() => []) : []
+    if (this.disposed || this.state.project?.root !== root) return
+    const choose = (choice: ChatMenuChoice) => {
+      // The sheet is the chat's: the chat shows first if it's hidden.
+      if (!this.state.chatVisible) this.panel.toggleChat()
+      this.sendChat(Events.chatMenuChoice, choice)
+    }
+    const listed = worktrees.filter((tree) => !tree.prunable)
+    const template: MenuItemConstructorOptions[] = [
+      { label: 'Switch Branch…', click: () => choose('switchBranch') },
+      { label: 'New Branch…', click: () => choose('newBranch') },
+      { label: 'New Worktree…', click: () => choose('newWorktree') },
+      ...(listed.length > 1
+        ? [
+            { type: 'separator' } as const,
+            ...listed.map(
+              (tree): MenuItemConstructorOptions => ({
+                label: tree.main ? `${basename(tree.path)} (main checkout)` : basename(tree.path),
+                sublabel: tree.branch ?? 'No branch',
+                type: 'checkbox',
+                checked: tree.current,
+                click: () => {
+                  if (!tree.current) openWorktree(tree.root)
+                },
+              }),
+            ),
+          ]
+        : []),
+      { type: 'separator' },
+      { label: 'Source Control…', click: () => choose('sourceControl') },
+    ]
+    Menu.buildFromTemplate(template).popup({ window: this.host.win })
+  }
+
+  /** One of this repository's worktrees (from the branch picker's Open); null if it isn't one. */
+  async worktreeRoot(path: string) {
+    const root = this.state.project?.root
+    if (!root || !(await isTrusted(root))) return null
+    const trees = await worktreesOf(root)
+    return trees.find((tree) => tree.path === path && !tree.prunable)?.root ?? null
+  }
+
+  /** A new worktree of this project, named from `name`; its folder, to open in a new tab. */
+  async createWorktree(name: string) {
+    const root = await this.gitRootForAction()
+    const made = await createWorktree(root, name)
+    return made.path
   }
 
   // Plumbing
