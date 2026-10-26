@@ -18,6 +18,7 @@ import { assertBranchName, branchTaken } from './ship'
 import { getStartCommand, saveStartCommand } from './start-commands'
 import { isTrusted, trust, untrust } from './trust'
 import {
+  findWorktree,
   readHead,
   registerWorktree,
   uniqueSlug,
@@ -174,6 +175,19 @@ export async function removeWorktree(root: string) {
     }
     await git(main, ['worktree', 'prune']).catch(() => undefined)
   })
+  await forgetSettings(root)
+}
+
+/**
+ * A worktree whose folder was deleted outside Gui: Git's stale record of it goes (prune only
+ * drops worktrees whose folders are gone), and so does Gui's. The branch is untouched.
+ */
+export async function forgetWorktree(root: string) {
+  const record = await findWorktree(root)
+  if (record && (await exists(record.main)) && (await isTrusted(record.main))) {
+    const repo = await openRepo(record.main, { status: false }).catch(() => null)
+    if (repo) await git(repo, ['worktree', 'prune']).catch(() => undefined)
+  }
   await forgetSettings(root)
 }
 

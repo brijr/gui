@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
 import { mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
   app,
@@ -134,6 +134,8 @@ import {
   shareBoards,
   windowEvents,
 } from './window'
+import { findWorktree, type WorktreeRecord } from './worktree-registry'
+import { forgetWorktree } from './worktrees'
 
 app.setName('Gui')
 keepInBackground()
@@ -226,7 +228,10 @@ async function openProjectIn(
     return
   }
   if (!(await isDirectory(root))) {
-    dialog.showErrorBox('Project not found', `${root} is not a folder.`)
+    // A worktree Gui made, deleted outside it: say so, and offer to clear it out of Gui.
+    const worktree = await findWorktree(root)
+    if (worktree) await offerToForget(target, worktree)
+    else dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
   // A monorepo app's folder opens the monorepo with that app chosen, so installs, the
@@ -247,6 +252,30 @@ async function openProjectIn(
     opening.delete(real)
     syncMenuItems()
   }
+}
+
+/**
+ * A worktree whose folder was deleted outside Gui. Removing it from Gui clears Git's stale
+ * record of it, the recents row and the registry; its branch is untouched.
+ */
+async function offerToForget(target: ProjectWindow | undefined, worktree: WorktreeRecord) {
+  const parent = target?.win ?? lastFocusedWindow()?.win
+  const name = basename(worktree.top)
+  const options = {
+    type: 'warning' as const,
+    message: `The worktree ${name} is gone`,
+    detail: `Its folder, ${worktree.top}, was deleted outside Gui. The branch ${worktree.branch} and its commits are untouched.`,
+    buttons: ['Remove from Gui', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options)
+  if (response !== 0) return
+  await forgetWorktree(worktree.path)
+  await removeRecent(worktree.path)
 }
 
 /**

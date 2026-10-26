@@ -142,3 +142,29 @@ test('a new worktree opens beside main, and removing it never loses work', async
   const recent = (await session.state()).recent ?? []
   expect(recent.some((project) => project.root === folder)).toBe(false)
 })
+
+test('a worktree deleted outside Gui shows as missing and can be cleared', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', askWhereToWork: true, open: 'recent' })
+  const { root, base } = session.fixture
+  onMain(root)
+  await session.chrome.evaluate((root) => window.gui.openRecent(root), root)
+  await asked(session)
+  await session.chrome.getByRole('button', { name: /^In a new worktree/ }).click()
+  await session.chrome.getByLabel(/What are you working on/).fill('Gone soon')
+  await session.chrome.getByRole('button', { name: 'Create worktree' }).click()
+  const folder = join(realpathSync(base), 'worktrees', 'fixture-vite', 'gone-soon')
+  await opened(session, folder)
+  await session.chrome.evaluate(() => window.gui.newTab())
+  git(root, 'worktree', 'remove', '--force', folder)
+  // A fresh start screen reads the recents again.
+  await session.chrome.evaluate(() => window.gui.newTab())
+  await expect(session.chrome.getByText('Folder missing')).toBeVisible()
+
+  await answerDialogs(session, 0)
+  await session.chrome.evaluate((folder) => window.gui.openRecent(folder), folder)
+  await waitFor(
+    async () => !((await session.state()).recent ?? []).some((p) => p.root === folder),
+    'the missing worktree to leave recents',
+  )
+  expect(git(root, 'branch', '--list', 'gui/gone-soon')).toContain('gui/gone-soon')
+})

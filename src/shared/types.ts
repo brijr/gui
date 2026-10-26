@@ -182,6 +182,8 @@ export interface RecentProject {
   chat?: { prompt: string; at: number } | null
   /** A worktree Gui made: the project it's of, and its branch (read as the list is read) */
   worktree?: { of: string; branch: string } | null
+  /** Its folder is gone (a worktree deleted outside Gui) */
+  missing?: boolean
 }
 
 /** The branch a project is on, read from Git's HEAD file. */

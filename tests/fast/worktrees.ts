@@ -173,6 +173,14 @@ try {
   assert.ok(!(await isTrusted(made.path)))
   assert.ok(!git(main, 'worktree', 'list').includes('pricing-page\n'))
 
+  // A worktree folder deleted outside Gui: forgetting it prunes Git's record of it.
+  const gone = await worktrees.createWorktree(main, 'Gone')
+  rmSync(gone.top, { recursive: true, force: true })
+  await worktrees.forgetWorktree(gone.path)
+  assert.ok(!git(main, 'worktree', 'list', '--porcelain').includes(gone.top))
+  assert.equal(await registry.findWorktree(gone.path), null)
+  assert.ok(git(main, 'branch', '--list', 'gui/gone').includes('gui/gone'), 'the branch stays')
+
   console.log('worktrees passed')
 } finally {
   rmSync(base, { recursive: true, force: true })
