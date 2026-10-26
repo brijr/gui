@@ -46,9 +46,11 @@ import { useAction } from '../settings/use-action'
 import { Board } from './board'
 import { FixStartupButton } from './fix-startup'
 import { useMorphDrawsFrame } from './layout-morph'
+import { recentDetail, recentTitle } from './recent-labels'
 import { crashed, stoppedOutside } from './server-status'
 import { SignIn } from './sign-in'
 import { focusAddressBar } from './toolbar'
+import { WhereToWork } from './where-to-work'
 
 /**
  * The preview is a native view layered over this element; we report our bounds so
@@ -979,6 +981,7 @@ function EmptyState({ state }: { state: WindowState }) {
   // Gui needs an account before anything else; projects asked for meanwhile open after.
   if (!account) return null
   if (needsSignIn(account)) return <SignIn />
+  if (state.whereToWork) return <WhereToWork prompt={state.whereToWork} />
   return <StartScreen state={state} />
 }
 
@@ -1040,7 +1043,7 @@ function StartScreen({ state }: { state: WindowState }) {
                 title={project.chat.prompt}
                 detail={
                   <span title={project.root}>
-                    {project.name} · {timeAgo(project.chat.at)}
+                    {recentTitle(project, project.name)} · {timeAgo(project.chat.at)}
                   </span>
                 }
               />
@@ -1095,8 +1098,8 @@ function StartScreen({ state }: { state: WindowState }) {
                 key={project.root}
                 root={project.root}
                 kind="project"
-                title={project.name}
-                detail={<PathText path={project.root} home={state.home} />}
+                title={recentTitle(project, project.name)}
+                detail={recentDetail(project, <PathText path={project.root} home={state.home} />)}
               />
             ))}
           </List>

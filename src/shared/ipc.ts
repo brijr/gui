@@ -35,6 +35,7 @@ import type {
   TerminalId,
   Version,
   Viewport,
+  WhereToWorkAnswer,
   WindowState,
 } from './types'
 
@@ -102,6 +103,10 @@ export const Invoke = {
   untrustProject: 'settings:untrust-project',
   resetStartCommand: 'settings:reset-start-command',
   askAboutBranch: 'settings:ask-about-branch',
+  answerWhereToWork: 'project:where-to-work',
+  createWorktree: 'worktree:create',
+  removeWorktree: 'worktree:remove',
+  openWorktree: 'worktree:open',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
   boardChatCover: 'board:chat-cover',
@@ -116,6 +121,8 @@ export const Send = {
   showAgentMenu: 'menu:agent',
   showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
+  showBranchMenu: 'menu:branch',
+  revealProject: 'project:reveal',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
   installNode: 'node:install',
@@ -219,7 +226,15 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 
 /** Main → renderer */
 /** What the chat's More menu hands back to the chat page to do. */
-export type ChatMenuChoice = 'pullRequest' | 'archive' | 'versions'
+export type ChatMenuChoice =
+  | 'pullRequest'
+  | 'archive'
+  | 'versions'
+  /** From the toolbar's branch menu: Source Control, on its own or with its branch picker or a new-branch or new-worktree dialog open */
+  | 'sourceControl'
+  | 'switchBranch'
+  | 'newBranch'
+  | 'newWorktree'
 
 export const Events = {
   state: 'state',
@@ -232,6 +247,8 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatMenuChoice: 'chat:menu-choice',
+  /** The chat's tab is the one its window shows (true) or went to the background (false) */
+  tabActive: 'chat:tab-active',
   /** The agent proposed a commit or pull request: open Source Control filled in with it */
   chatShipDraft: 'chat:ship-draft',
   chatAttach: 'chat:attach',
@@ -362,6 +379,27 @@ export interface GuiApi {
    */
   showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void
   showProjectMenu(): void
+  /**
+   * The toolbar's branch menu: Switch Branch, New Branch, New Worktree, the repository's
+   * worktrees, Source Control
+   */
+  showBranchMenu(): void
+  /** Shows the open project's folder in Finder */
+  revealProject(): void
+  /** The start screen's answer to "Where do you want to work?" (`WindowState.whereToWork`); false when it didn't go ahead */
+  answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean>
+  /**
+   * A new worktree of the open project, named from `name` (blank: the date), opened in a new
+   * tab; rejects with a message to show
+   */
+  createWorktree(name: string): Promise<void>
+  /**
+   * Confirms, then closes this worktree and deletes its folder. Refuses (rejects with a
+   * message) while it has uncommitted changes; the branch and its commits stay
+   */
+  removeWorktree(): Promise<void>
+  /** Opens one of the repository's worktrees, or shows the tab it's open in */
+  openWorktree(path: string): Promise<void>
 
   /** A new canvas, opened in this tab if it's a start screen, otherwise in a new one */
   newBoard(): void
@@ -527,6 +565,8 @@ export interface GuiApi {
   onChatFocus(cb: () => void): Unsubscribe
   /** A choice from the More menu that the chat page carries out */
   onChatMenuChoice(cb: (choice: ChatMenuChoice) => void): Unsubscribe
+  /** The chat's tab came to the front of its window, or went behind another */
+  onTabActive(cb: (active: boolean) => void): Unsubscribe
   /** The agent's proposed commit or pull request, once its turn ended */
   onShipDraft(cb: (draft: ShipDraft) => void): Unsubscribe
   /**
@@ -730,7 +770,7 @@ export interface GuiApi {
   untrustProject(root: string): Promise<void>
   /** The project starts with the command Gui detects again */
   resetStartCommand(root: string): Promise<void>
-  /** Sending on the project's main branch asks about a Gui branch again */
+  /** Opening the project on its main branch asks where to work again */
   askAboutBranch(root: string): Promise<void>
   clearRecent(): Promise<void>
   /** Asks to confirm, then clears; false when the user cancelled */

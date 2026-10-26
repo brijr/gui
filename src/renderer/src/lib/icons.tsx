@@ -143,6 +143,7 @@ export const SquareArrowOutUpRight = icon(
   Lucide.SquareArrowOutUpRight,
 )
 export const SquarePen = icon(SYMBOLS.SquarePen, Lucide.SquarePen)
+export const SquareStack = icon(SYMBOLS.SquareStack, Lucide.SquareStack)
 export const SquareTerminal = icon(SYMBOLS.SquareTerminal, Lucide.SquareTerminal)
 export const Tablet = icon(SYMBOLS.Tablet, Lucide.Tablet)
 export const Trash2 = icon(SYMBOLS.Trash2, Lucide.Trash2)

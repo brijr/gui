@@ -1,5 +1,4 @@
 import { type ReactNode, useEffect } from 'react'
-import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -9,12 +8,12 @@ import {
   Check,
   CircleDot,
   ExternalLink,
-  GitBranch,
   GitPullRequest,
   type IconComponent,
   MessageSquare,
   RotateCw,
   SquarePen,
+  Trash2,
   TriangleAlert,
 } from '../lib/icons'
 import { Badge } from '../lib/status'
@@ -53,15 +52,23 @@ export function useOpenComments(): ReviewComment[] {
 }
 
 /**
- * Keeps the bar current: on open, every minute (main fetches at most every two), when the
- * window comes back, when the agent finishes a turn, and when the PR sheet closes.
+ * Keeps the bar current: on open, every minute while its tab is in front (main fetches at most
+ * every two), when the tab or the window comes back, when the agent finishes a turn, and when
+ * the PR sheet closes. A tab behind another doesn't check its pull request.
  */
 export function useProposalUpdates() {
   useEffect(() => {
+    let active = true
     void refreshProposal(true)
-    const timer = setInterval(() => void refreshProposal(true), 60_000)
+    const timer = setInterval(() => {
+      if (active) void refreshProposal(true)
+    }, 60_000)
     const onFocus = () => void refreshProposal(true)
     window.addEventListener('focus', onFocus)
+    const offActive = gui.onTabActive((now) => {
+      if (now && !active) void refreshProposal(true)
+      active = now
+    })
     const offTurns = useChat.subscribe((chat, before) => {
       // The first read can come before the project is open, which reads as none: read again
       // as the chat changes, until there's something to show.
@@ -80,6 +87,7 @@ export function useProposalUpdates() {
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
+      offActive()
       offTurns()
       offSheet()
       offVersions()
@@ -127,50 +135,22 @@ function openExternal(url: string) {
   if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener')
 }
 
-/** Over the transcript; absent when there's nothing to say (no repo, nothing changed). */
+/**
+ * Over the transcript; absent when there's nothing to say (no repo, nothing changed). The
+ * branch itself is in the toolbar, whose branch menu opens Source Control.
+ */
 export function ProposalBar() {
   const proposal = useProposal((s) => s.proposal)
   const busy = useProposal((s) => s.busy)
   const error = useProposal((s) => s.error)
+  const shipBusy = useShipSheet((s) => s.busy)
   const comments = useOpenComments()
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
-  // Under a header as tall as the tab row, as tall as the toolbar: both edges line up.
-  const tabRow = useChat((s) => s.meta?.tabRow ?? false)
   if (!proposal) return null
 
-  const bar =
-    proposal.pull || proposal.merge || (proposal.behind ?? 0) > 0
-      ? barFor(proposal, comments.length, busy, agentBusy)
-      : null
+  const bar = barFor(proposal, comments.length, busy, agentBusy, shipBusy)
   return (
     <>
-      <Banner
-        icon={GitBranch}
-        style={tabRow ? { height: TOOLBAR_HEIGHT } : undefined}
-        actions={
-          <Button size="sm" variant="ghost" onClick={toggleShipSheet}>
-            Source control
-          </Button>
-        }
-      >
-        <Button
-          size="sm"
-          variant="ghost"
-          // `!`: flush with the icon; the sm size's padding would win otherwise (cn doesn't merge).
-          className="min-w-0 justify-start pl-0!"
-          title={proposal.branch ?? 'Detached HEAD'}
-          onClick={toggleShipSheet}
-        >
-          <span className="truncate font-mono">{proposal.branch ?? 'Detached HEAD'}</span>
-        </Button>
-        <span className="shrink-0 text-caption text-muted">
-          {proposal.changes > 0
-            ? `${proposal.changes} changed`
-            : proposal.ahead > 0
-              ? `${proposal.ahead} to push`
-              : 'Clean'}
-        </span>
-      </Banner>
       {bar}
       {error && (
         <Banner
@@ -196,6 +176,7 @@ function barFor(
   openComments: number,
   busy: Action | null,
   agentBusy: boolean,
+  shipBusy: boolean,
 ): ReactNode {
   const { pull, merge } = proposal
   const latest = proposal.defaultBranch ?? 'main'
@@ -253,23 +234,37 @@ function barFor(
     )
   }
 
-  // Done with this one: the next idea starts from the latest, in a new chat.
+  // Done with this one: the next idea starts from the latest, in a new chat. A worktree can't
+  // switch to main (it's checked out beside it), so it's removed instead: the branch stays.
   if (pull && (pull.state === 'merged' || pull.state === 'closed')) {
     return (
       <Strip
         icon={pull.state === 'merged' ? Check : GitPullRequest}
         role="status"
         actions={
-          <Button
-            size="sm"
-            variant="primary"
-            icon={SquarePen}
-            disabled={disabled}
-            loading={busy === 'fresh'}
-            onClick={() => void act('fresh', () => gui.startFresh())}
-          >
-            Start something new
-          </Button>
+          proposal.worktree ? (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={Trash2}
+              disabled={disabled}
+              loading={busy === 'removeWorktree'}
+              onClick={() => void act('removeWorktree', () => gui.removeWorktree())}
+            >
+              Remove worktree
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={SquarePen}
+              disabled={disabled}
+              loading={busy === 'fresh'}
+              onClick={() => void act('fresh', () => gui.startFresh())}
+            >
+              Start something new
+            </Button>
+          )
         }
       >
         <PullTitle pull={pull} />
@@ -316,10 +311,10 @@ function barFor(
               <Button
                 size="sm"
                 variant={openComments > 0 ? 'secondary' : 'primary'}
-                disabled={useShipSheet.getState().busy}
+                disabled={shipBusy}
                 onClick={toggleShipSheet}
               >
-                Update
+                Update pull request
               </Button>
             )}
           </>

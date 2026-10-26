@@ -3,7 +3,7 @@ import type { Proposal, ProposalPull } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 
-export type Action = 'fresh' | 'bringIn' | 'finish' | 'cancel' | 'resolve'
+export type Action = 'fresh' | 'bringIn' | 'finish' | 'cancel' | 'resolve' | 'removeWorktree'
 
 interface ProposalStore {
   proposal: Proposal | null

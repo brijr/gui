@@ -29,7 +29,7 @@ export interface Prefs {
   agentSettings: Record<AgentId, Record<string, string>>
   /** Project roots the user switched Auto mode off for; every other project is in Auto (see ChatMeta.autoApprove) */
   askRoots: string[]
-  /** Project roots where the user chose to work on the default branch rather than a Gui branch */
+  /** Project roots that always open on their main branch, without asking where to work */
   defaultBranchRoots: string[]
   /** Installed copies send a report when Gui itself fails (crash-reports.ts) */
   crashReports: boolean

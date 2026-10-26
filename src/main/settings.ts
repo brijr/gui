@@ -211,7 +211,7 @@ export async function resetStartCommand(root: string) {
   await refreshSettings()
 }
 
-/** The next message sent on the project's main branch asks about a Gui branch again. */
+/** The next time the project opens on its main branch, it asks where to work again. */
 export async function askAboutBranch(root: string) {
   const roots = getPrefs().defaultBranchRoots
   if (roots.includes(root))

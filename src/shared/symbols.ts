@@ -66,6 +66,8 @@ export const SYMBOLS = {
   SquareArrowOutDownLeft: 'arrow.down.left.square',
   SquareArrowOutUpRight: 'arrow.up.right.square',
   SquarePen: 'square.and.pencil',
+  // A worktree: a second copy of the project beside the first.
+  SquareStack: 'square.on.square',
   SquareTerminal: 'terminal',
   Tablet: 'ipad',
   Trash2: 'trash',

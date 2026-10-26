@@ -24,6 +24,10 @@ interface ShipSheetStore {
   error: string | null
   notice: string | null
   createOpen: boolean
+  /** The branch picker is open */
+  pickerOpen: boolean
+  /** The new-worktree dialog is open */
+  worktreeOpen: boolean
   reviewDraft: { title: string; body: string } | null
   pendingProposal: ShipDraft | null
   edited: boolean
@@ -39,6 +43,8 @@ const CLOSED: ShipSheetStore = {
   error: null,
   notice: null,
   createOpen: false,
+  pickerOpen: false,
+  worktreeOpen: false,
   reviewDraft: null,
   pendingProposal: null,
   edited: false,
@@ -62,6 +68,32 @@ export function openShipSheet(proposed: ShipDraft) {
   }
   generation++
   useShipSheet.setState({ ...CLOSED, open: true, proposed })
+}
+/**
+ * Opens Source Control (left open if it is), from the toolbar's branch menu: as it is, or
+ * with the branch picker or the new-branch or new-worktree dialog open over it.
+ */
+export function showSourceControl(
+  with_: 'sourceControl' | 'switchBranch' | 'newBranch' | 'newWorktree' = 'sourceControl',
+) {
+  const state = useShipSheet.getState()
+  if (state.busy) return
+  if (!state.open) {
+    generation++
+    useShipSheet.setState({ ...CLOSED, open: true })
+  }
+  useShipSheet.setState({
+    pickerOpen: with_ === 'switchBranch',
+    createOpen: with_ === 'newBranch',
+    worktreeOpen: with_ === 'newWorktree',
+    error: null,
+  })
+}
+export function setPickerOpen(pickerOpen: boolean) {
+  useShipSheet.setState({ pickerOpen })
+}
+export function setWorktreeOpen(worktreeOpen: boolean) {
+  useShipSheet.setState({ worktreeOpen, error: null })
 }
 export function closeShipSheet() {
   if (useShipSheet.getState().busy) return

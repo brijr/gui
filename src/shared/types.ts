@@ -180,6 +180,60 @@ export interface RecentProject {
   openedAt: number
   /** Its chat's last message and when it was sent; absent with no chat (or in the saved list) */
   chat?: { prompt: string; at: number } | null
+  /** A worktree Gui made: the project it's of, and its branch (read as the list is read) */
+  worktree?: { of: string; branch: string } | null
+  /** Its folder is gone (a worktree deleted outside Gui) */
+  missing?: boolean
+}
+
+/** The branch a project is on, read from Git's HEAD file. */
+export interface BranchStatus {
+  /** Null when no branch is checked out */
+  branch: string | null
+  /** In a worktree: the main project's folder name and this worktree's */
+  worktree: { of: string; name: string } | null
+}
+
+/**
+ * Opening a project on a shared branch like main asks where to work first: on main, on a new
+ * branch (named from the first message), or in a new worktree. The start screen shows it.
+ */
+export interface WhereToWorkPrompt {
+  root: string
+  /** The project's folder name */
+  name: string
+  /** The shared branch it's on */
+  branch: string
+  /** Uncommitted changes that stay behind in a new worktree; null until read */
+  uncommitted: number | null
+  /** Making the worktree */
+  creating: boolean
+  error: string | null
+}
+
+export type WhereToWorkAnswer =
+  | { kind: 'main'; always: boolean }
+  | { kind: 'branch' }
+  /** The worktree row opened: asks for trust if needed, then reads what stays behind */
+  | { kind: 'prepare-worktree' }
+  | { kind: 'worktree'; name: string }
+  | { kind: 'cancel' }
+
+export function isWhereToWorkAnswer(value: unknown): value is WhereToWorkAnswer {
+  if (!value || typeof value !== 'object') return false
+  const answer = value as Record<string, unknown>
+  switch (answer.kind) {
+    case 'main':
+      return typeof answer.always === 'boolean'
+    case 'worktree':
+      return typeof answer.name === 'string' && answer.name.length <= 200
+    case 'branch':
+    case 'prepare-worktree':
+    case 'cancel':
+      return true
+    default:
+      return false
+  }
 }
 
 /** An archived chat, as a project's list of them shows it */
@@ -395,6 +449,10 @@ export interface WindowState {
   home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
+  /** Asking where to work before the project opens; null otherwise */
+  whereToWork: WhereToWorkPrompt | null
+  /** The open project's branch; null outside a repository */
+  branch: BranchStatus | null
   /**
    * Git can't run until Apple's developer tools are installed ('missing'), or the user is
    * installing them; null when it can (or hasn't been needed yet). Undo and sharing need git.
@@ -1043,6 +1101,8 @@ export interface Proposal {
   merge: { files: string[]; marked: string[] } | null
   /** This branch's newest pull request; null when there isn't one or Gui can't read the host */
   pull: ProposalPull | null
+  /** In a worktree: its folder name. Finishing removes it rather than starting something new */
+  worktree: string | null
 }
 
 export interface ProposalPull {
@@ -1098,7 +1158,7 @@ export interface SettingsState {
   trustedProjects: string[]
   /** Projects started with a command set in Gui rather than the one it detected */
   startCommands: { root: string; start: StartCommand }[]
-  /** Projects where the user chose to stay on the main branch instead of a Gui branch */
+  /** Projects the user chose to always open on their main branch, without asking */
   defaultBranchProjects: string[]
   recentProjects: RecentProject[]
   storage: StorageUsage

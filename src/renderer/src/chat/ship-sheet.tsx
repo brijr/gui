@@ -1,14 +1,16 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
 import type { ShipFile, ShipInfo, ShipRequest } from '../../../shared/types'
+import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Dialog } from '../lib/dialog'
 import { Disclosure } from '../lib/disclosure'
+import { readableError } from '../lib/errors'
 import { Field, InlineError, Input, Textarea } from '../lib/field'
 import { ArrowLeft, Info, RotateCw } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Message, PanelHeader } from '../lib/surface'
 import { Button, Code, IconButton, Skeleton } from '../lib/ui'
-import { BranchPicker, CreateBranchDialog } from './branch-picker'
+import { BranchPicker, CreateBranchDialog, CreateWorktreeDialog } from './branch-picker'
 import { useProposal } from './proposal-state'
 import {
   acceptShipProposal,
@@ -43,12 +45,24 @@ export function ShipSheet() {
     void loadShipInfo()
   }, [running])
   useEffect(() => {
-    const refresh = () => {
+    // Every few seconds while the window is in use, one read at a time: each read runs several
+    // Git commands. Coming back to the window reads at once.
+    let reading = false
+    const refresh = async () => {
       const { busy, loaded } = useShipSheet.getState()
-      if (!busy && loaded.kind === 'ready') void loadShipInfo()
+      if (reading || busy || loaded.kind !== 'ready') return
+      reading = true
+      try {
+        await loadShipInfo()
+      } finally {
+        reading = false
+      }
     }
-    const timer = setInterval(refresh, 5000)
-    window.addEventListener('focus', refresh)
+    const timer = setInterval(() => {
+      if (document.hasFocus()) void refresh()
+    }, 5000)
+    const onFocus = () => void refresh()
+    window.addEventListener('focus', onFocus)
     const onKey = (event: KeyboardEvent) => {
       if (
         event.key === 'Escape' &&
@@ -60,7 +74,7 @@ export function ShipSheet() {
     window.addEventListener('keydown', onKey)
     return () => {
       clearInterval(timer)
-      window.removeEventListener('focus', refresh)
+      window.removeEventListener('focus', onFocus)
       window.removeEventListener('keydown', onKey)
     }
   }, [])
@@ -169,6 +183,8 @@ function Workspace({
     if (canCommit) void submitShip(info)
   }
   const requested = draft.branch && draft.branch !== info.branch ? draft.branch : ''
+  // Nothing to commit: the commit draft would only be in the way.
+  const clean = info.files.length === 0 && info.skipped.length === 0
   const proposedTarget = workspace.branches.find((branch) => branch.name === requested)
   return (
     <>
@@ -203,6 +219,7 @@ function Workspace({
                 You're on the shared branch. Create a branch to keep changes separate.
               </p>
             )}
+            {workspace.worktree && <WorktreeLine path={workspace.worktree.path} busy={busy} />}
             {requested && (
               <div className="flex flex-col gap-2 rounded-md bg-surface p-2 text-small">
                 <p>
@@ -239,101 +256,114 @@ function Workspace({
               </div>
             )}
           </section>
-          <section className="flex flex-col gap-2" aria-label="Changed files">
-            <div className="flex flex-wrap items-center justify-between gap-1 text-small">
-              <h3 className="font-medium">
-                Changes{' '}
-                <span className="text-caption text-muted">
-                  {count} of {info.files.length} selected
-                </span>
-              </h3>
-              <Button
-                size="sm"
-                variant="ghost"
-                disabled={busy || info.files.length === 0}
-                onClick={() =>
-                  setShipDraft({
-                    files: count === info.files.length ? [] : info.files.map((file) => file.path),
-                  })
-                }
-              >
-                {count === info.files.length && count > 0 ? 'Clear selection' : 'Select all'}
-              </Button>
-            </div>
-            {info.files.length > 0 ? (
-              <FileList
-                files={info.files}
-                selected={selected}
-                busy={busy}
-                onToggle={(path) => {
-                  const next = new Set(selected)
-                  if (next.has(path)) next.delete(path)
-                  else next.add(path)
-                  setShipDraft({ files: [...next] })
-                }}
-              />
-            ) : (
-              <p className="py-2 text-small text-muted">
-                Working tree clean. You can still switch or create a branch.
+          {clean ? (
+            <section className="flex flex-col gap-0.5" aria-label="Changed files">
+              <h3 className="text-small font-medium">No uncommitted changes</h3>
+              <p className="text-pretty text-caption text-muted">
+                Changes the agent makes show here to commit. You can still switch or create a
+                branch, and push the commits below.
               </p>
-            )}
-            {info.files.length > 0 && (
-              <p className="text-caption text-subtle">
-                Checked files include their current contents, including unstaged edits.
-              </p>
-            )}
-            {info.skipped.length > 0 && (
-              <p className="text-caption text-subtle">
-                Excluded as possible secrets: <PathList paths={info.skipped} />
-              </p>
-            )}
-          </section>
-          <section className="flex flex-col gap-2" aria-label="Commit draft">
-            <Field
-              label="Commit message"
-              htmlFor={`${id}-message`}
-              hint={
-                draft.title && draft.title === info.suggestion.title
-                  ? 'Suggested message. Edit it before committing.'
-                  : undefined
-              }
-            >
-              <Input
-                id={`${id}-message`}
-                value={draft.title}
-                disabled={busy}
-                maxLength={500}
-                placeholder="Describe this change"
-                onChange={(event) => setShipDraft({ title: event.target.value })}
-                aria-describedby={
-                  draft.title && draft.title === info.suggestion.title
-                    ? `${id}-message-hint`
-                    : undefined
-                }
-              />
-            </Field>
-            <Disclosure
-              open={description}
-              onOpenChange={setDescription}
-              title="Description (optional)"
-            >
-              Description (optional)
-            </Disclosure>
-            {description && (
-              <Textarea
-                aria-label="Commit description"
-                value={draft.body}
-                disabled={busy}
-                maxLength={20_000}
-                rows={3}
-                placeholder="What changed, and why"
-                onChange={(event) => setShipDraft({ body: event.target.value })}
-                onKeyDown={(event) => {
-                  if (event.metaKey && event.key === 'Enter') submit(event)
-                }}
-              />
-            )}
-          </section>
+            </section>
+          ) : (
+            <>
+              <section className="flex flex-col gap-2" aria-label="Changed files">
+                <div className="flex flex-wrap items-center justify-between gap-1 text-small">
+                  <h3 className="font-medium">
+                    Changes{' '}
+                    <span className="text-caption text-muted">
+                      {count} of {info.files.length} selected
+                    </span>
+                  </h3>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy || info.files.length === 0}
+                    onClick={() =>
+                      setShipDraft({
+                        files:
+                          count === info.files.length ? [] : info.files.map((file) => file.path),
+                      })
+                    }
+                  >
+                    {count === info.files.length && count > 0 ? 'Clear selection' : 'Select all'}
+                  </Button>
+                </div>
+                {info.files.length > 0 ? (
+                  <FileList
+                    files={info.files}
+                    selected={selected}
+                    busy={busy}
+                    onToggle={(path) => {
+                      const next = new Set(selected)
+                      if (next.has(path)) next.delete(path)
+                      else next.add(path)
+                      setShipDraft({ files: [...next] })
+                    }}
+                  />
+                ) : (
+                  <p className="py-2 text-small text-muted">
+                    Nothing here can be committed. You can still switch or create a branch.
+                  </p>
+                )}
+                {info.files.length > 0 && (
+                  <p className="text-caption text-subtle">
+                    Checked files include their current contents, including unstaged edits.
+                  </p>
+                )}
+                {info.skipped.length > 0 && (
+                  <p className="text-caption text-subtle">
+                    Excluded as possible secrets: <PathList paths={info.skipped} />
+                  </p>
+                )}
+              </section>
+              <section className="flex flex-col gap-2" aria-label="Commit draft">
+                <Field
+                  label="Commit message"
+                  htmlFor={`${id}-message`}
+                  hint={
+                    draft.title && draft.title === info.suggestion.title
+                      ? 'Suggested message. Edit it before committing.'
+                      : undefined
+                  }
+                >
+                  <Input
+                    id={`${id}-message`}
+                    value={draft.title}
+                    disabled={busy}
+                    maxLength={500}
+                    placeholder="Describe this change"
+                    onChange={(event) => setShipDraft({ title: event.target.value })}
+                    aria-describedby={
+                      draft.title && draft.title === info.suggestion.title
+                        ? `${id}-message-hint`
+                        : undefined
+                    }
+                  />
+                </Field>
+                <Disclosure
+                  open={description}
+                  onOpenChange={setDescription}
+                  title="Description (optional)"
+                >
+                  Description (optional)
+                </Disclosure>
+                {description && (
+                  <Textarea
+                    aria-label="Commit description"
+                    value={draft.body}
+                    disabled={busy}
+                    maxLength={20_000}
+                    rows={3}
+                    placeholder="What changed, and why"
+                    onChange={(event) => setShipDraft({ body: event.target.value })}
+                    onKeyDown={(event) => {
+                      if (event.metaKey && event.key === 'Enter') submit(event)
+                    }}
+                  />
+                )}
+              </section>
+            </>
+          )}
           <section
             className="flex flex-col gap-2 border-t border-line pt-3"
             aria-label="Remote actions"
@@ -399,23 +429,29 @@ function Workspace({
               {notice}
             </p>
           )}
-          {reason && <p className="text-caption text-muted">{reason}</p>}
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={!canCommit}
-            loading={action === 'commit'}
-            className="w-full"
-          >
-            {action === 'commit'
-              ? 'Committing…'
-              : `Commit ${count} ${count === 1 ? 'file' : 'files'}`}
-          </Button>
+          {!clean && reason && <p className="text-caption text-muted">{reason}</p>}
+          {!clean && (
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={!canCommit}
+              loading={action === 'commit'}
+              className="w-full"
+            >
+              {action === 'commit'
+                ? 'Committing…'
+                : `Commit ${count} ${count === 1 ? 'file' : 'files'}`}
+            </Button>
+          )}
         </div>
       </form>
       <CreateBranchDialog
         workspace={{ ...workspace, writeBlocked: restriction }}
         suggested={requested}
+      />
+      <CreateWorktreeDialog
+        branch={info.branch}
+        uncommitted={info.files.length + info.skipped.length}
       />
       <Dialog
         open={reviewOpen}
@@ -546,6 +582,47 @@ function PathList({ paths }: { paths: string[] }) {
     )
   }
   return <>{nodes}</>
+}
+
+/**
+ * This is a worktree: where its folder is, and the way to remove it once it's done. Removing
+ * refuses while anything is uncommitted, and the branch and its commits stay.
+ */
+function WorktreeLine({ path, busy }: { path: string; busy: boolean }) {
+  const [removing, setRemoving] = useState(false)
+  return (
+    <div className="flex flex-col gap-1.5 rounded-md bg-surface p-2 text-caption">
+      <p className="text-muted">
+        Worktree: a separate copy of your project on its own branch, in{' '}
+        <span className="font-mono break-all text-fg" title={path}>
+          {path}
+        </span>
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <Button size="sm" variant="ghost" onClick={() => gui.revealProject()}>
+          Reveal in Finder
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          disabled={busy}
+          loading={removing}
+          onClick={async () => {
+            setRemoving(true)
+            try {
+              await gui.removeWorktree()
+            } catch (error) {
+              useShipSheet.setState({ error: readableError(error) })
+            } finally {
+              setRemoving(false)
+            }
+          }}
+        >
+          Remove worktree…
+        </Button>
+      </div>
+    </div>
+  )
 }
 
 /** Renders `backticked` parts of a message as code. */

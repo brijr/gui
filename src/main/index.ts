@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
 import { mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
   app,
@@ -51,6 +51,7 @@ import {
   isProjectTemplate,
   isTerminalId,
   isViewport,
+  isWhereToWorkAnswer,
   type ProjectTemplate,
   type Rect,
   type SettingsSection,
@@ -133,6 +134,8 @@ import {
   shareBoards,
   windowEvents,
 } from './window'
+import { findWorktree, type WorktreeRecord } from './worktree-registry'
+import { forgetWorktree } from './worktrees'
 
 app.setName('Gui')
 keepInBackground()
@@ -211,7 +214,11 @@ const canonical = (path: string) => realpath(path).catch(() => path)
  * no window given, the focused one (or the one focused last) is used. A folder already open
  * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
-async function openProjectIn(target: ProjectWindow | undefined, root: string) {
+async function openProjectIn(
+  target: ProjectWindow | undefined,
+  root: string,
+  { ask = true }: { ask?: boolean } = {},
+) {
   // Gui needs an account first: the start screen asks for it, and the folder opens after.
   if (mustSignIn()) {
     waitingForAccount.push({ target, root })
@@ -221,7 +228,10 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
     return
   }
   if (!(await isDirectory(root))) {
-    dialog.showErrorBox('Project not found', `${root} is not a folder.`)
+    // A worktree Gui made, deleted outside it: say so, and offer to clear it out of Gui.
+    const worktree = await findWorktree(root)
+    if (worktree) await offerToForget(target, worktree)
+    else dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
   // A monorepo app's folder opens the monorepo with that app chosen, so installs, the
@@ -233,11 +243,54 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   try {
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    await tabToOpenIn(target).openProject(real)
+    const tab = tabToOpenIn(target)
+    // On a shared branch like main, the start screen asks where to work first.
+    const choice = ask ? await tab.chooseWhereToWork(real) : { root: real, branchOnSend: null }
+    if (!choice) return
+    await tab.openProject(choice.root, { branchOnSend: choice.branchOnSend })
   } finally {
     opening.delete(real)
     syncMenuItems()
   }
+}
+
+/**
+ * A worktree whose folder was deleted outside Gui. Removing it from Gui clears Git's stale
+ * record of it, the recents row and the registry; its branch is untouched.
+ */
+async function offerToForget(target: ProjectWindow | undefined, worktree: WorktreeRecord) {
+  const parent = target?.win ?? lastFocusedWindow()?.win
+  const name = basename(worktree.top)
+  const options = {
+    type: 'warning' as const,
+    message: `The worktree ${name} is gone`,
+    detail: `Its folder, ${worktree.top}, was deleted outside Gui. The branch ${worktree.branch} and its commits are untouched.`,
+    buttons: ['Remove from Gui', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+  }
+  const { response } = parent
+    ? await dialog.showMessageBox(parent, options)
+    : await dialog.showMessageBox(options)
+  if (response !== 0) return
+  await forgetWorktree(worktree.path)
+  await removeRecent(worktree.path)
+}
+
+/**
+ * One of a repository's worktrees: the tab it's open in, shown, or a new tab. It opens as it
+ * is, without asking where to work: the user picked this checkout.
+ */
+async function openWorktreeIn(target: ProjectWindow | undefined, root: string) {
+  const open = allTabs().find((tab) => tab.projectRoot === root)
+  const shown = open && allWindows().find((win) => win.tabs.includes(open))
+  if (open && shown) {
+    shown.showTab(open)
+    focusWindow(shown.win, { steal: true })
+    return
+  }
+  await openProjectIn(target, root, { ask: false })
 }
 
 /** Folders asked for while signed out, in order. */
@@ -939,6 +992,30 @@ function registerIpc() {
   handleLegacy(Invoke.resolveConflicts, (event) =>
     reportError(async () => requireTab(event).resolveConflicts()),
   )
+  handleLegacy(Invoke.answerWhereToWork, async (event, answer: unknown) => {
+    // The start screen is the window's chrome, answering for its own tab.
+    const win = windowFor(event)
+    if (!win || win.win.webContents !== event.sender || !isWhereToWorkAnswer(answer)) return false
+    return win.activeTab.answerWhereToWork(answer)
+  })
+  handleLegacy(Invoke.createWorktree, (event, name: unknown) =>
+    reportError(async () => {
+      if (!isString(name) || name.length > 200) throw new Error('Use a shorter name.')
+      const root = await requireTab(event).createWorktree(name)
+      await openWorktreeIn(windowFor(event), root)
+    }),
+  )
+  handleLegacy(Invoke.removeWorktree, (event) =>
+    reportError(async () => requireTab(event).removeWorktree()),
+  )
+  handleLegacy(Invoke.openWorktree, (event, path: unknown) =>
+    reportError(async () => {
+      if (!isString(path) || path.length > 4096) throw new Error('That worktree is unavailable.')
+      const root = await requireTab(event).worktreeRoot(path)
+      if (!root) throw new Error('That worktree is no longer there. Refresh the branch list.')
+      await openWorktreeIn(windowFor(event), root)
+    }),
+  )
   handleLegacy(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
     return requireTab(event).restoreTurn(turnId)
@@ -1033,6 +1110,22 @@ function registerIpc() {
       (root) => openSafely(win, root),
     ),
   )
+  onWindow(
+    Send.showBranchMenu,
+    (win) =>
+      void win.activeTab.showBranchMenu((root) => {
+        openWorktreeIn(win, root).catch((error: unknown) =>
+          dialog.showErrorBox(
+            "Couldn't open the worktree",
+            error instanceof Error ? error.message : String(error),
+          ),
+        )
+      }),
+  )
+  on(Send.revealProject, (tab) => {
+    const root = tab.getState().project?.root
+    if (root) shell.showItemInFolder(root)
+  })
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
   registerBoardIpc(onWindow, {
     create: newBoard,

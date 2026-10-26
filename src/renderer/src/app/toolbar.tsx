@@ -30,6 +30,7 @@ import {
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
 import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
+import { BranchButton } from './branch-button'
 import { sidebarBarStyle } from './layout-morph'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
@@ -94,6 +95,7 @@ export function Toolbar({ state }: { state: WindowState }) {
       style={bar}
     >
       <ProjectMenuButton state={state} named={!tabbed} />
+      {project && state.branch && <BranchButton branch={state.branch} />}
 
       {project && (
         <>

@@ -53,6 +53,11 @@ export interface LaunchOptions {
    * Null saves none, for the app's own defaults (floating chat at the bottom left).
    */
   prefs?: Record<string, unknown> | null
+  /**
+   * Opening a fixture (a fresh repository on its main branch) asks where to work. Specs open it
+   * on main without asking, as "Always open on main" does, unless this is true.
+   */
+  askWhereToWork?: boolean
 }
 
 export interface ConsentPrompt {
@@ -464,8 +469,15 @@ export async function launchGui(
     writeFileSync(join(copy.userData, TRUSTED_FILE), JSON.stringify([copy.root]))
   }
   const prefs = options.prefs === undefined ? FLOATING_PREFS : options.prefs
+  // The fixture is on main: specs work there, as if the user always opens it on main.
+  const onMain = options.askWhereToWork ? {} : { defaultBranchRoots: [copy.root] }
   if (prefs) {
-    writeFileSync(join(copy.userData, PREFS_FILE), JSON.stringify({ ...FLOATING_PREFS, ...prefs }))
+    writeFileSync(
+      join(copy.userData, PREFS_FILE),
+      JSON.stringify({ ...FLOATING_PREFS, ...onMain, ...prefs }),
+    )
+  } else if (!options.askWhereToWork) {
+    writeFileSync(join(copy.userData, PREFS_FILE), JSON.stringify(onMain))
   }
   if (options.open === 'recent') {
     const recent = [{ root: copy.root, name: copy.spec.name, openedAt: 1 }]
@@ -481,6 +493,8 @@ export async function launchGui(
       GUI_OPEN: options.open === 'recent' ? '' : copy.root,
       GUI_AGENT_STAND_INS: standInsFile(copy),
       GUI_E2E_REDUCED_MOTION: reducedMotion === 'reduce' ? '1' : '0',
+      // Worktrees a spec makes go with the fixture's copy when it's removed.
+      GUI_WORKTREES_DIR: join(copy.base, 'worktrees'),
     }),
     colorScheme: options.colorScheme ?? 'light',
     timeout: 60_000,
