@@ -92,14 +92,23 @@ export function Canvas({ state }: { state: WindowState }) {
         )}
         {state.board.open ? (
           preview.error && (
-            <div className="absolute inset-0 flex items-center justify-center p-8">
-              <Message icon={ALERT} tone="danger" title="This frame didn’t load">
+            <div className="absolute inset-0 flex items-center justify-start p-8">
+              <Message
+                icon={ALERT}
+                tone="danger"
+                title="This frame didn’t load"
+                className="max-w-sm"
+              >
                 {preview.error}
               </Message>
             </div>
           )
         ) : (
-          <Board key={state.board.id} board={state.board} />
+          <Board
+            key={state.board.id}
+            board={state.board}
+            working={state.tabs.find((tab) => tab.id === state.activeTab)?.status === 'working'}
+          />
         )}
       </main>
     )
@@ -110,14 +119,15 @@ export function Canvas({ state }: { state: WindowState }) {
       {preview.frame && preview.visible && !state.shortcutsOpen && !morphing && (
         <DeviceFrame frame={preview.frame} />
       )}
-      {/* Centered while it fits; scrolls from the top in a short window. */}
+      {/* Anchored at the left, centered top to bottom while it fits; scrolls from the top in
+          a short window. */}
       <div
         className={cn(
-          'absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8',
+          'absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8 pl-12',
           !state.project && 'pt-20',
         )}
       >
-        <div className="m-auto flex w-full justify-center">
+        <div className="my-auto flex w-full justify-start">
           <CanvasMessage state={state} />
         </div>
       </div>
@@ -188,7 +198,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={LOADING}
         title="Installing dependencies…"
         detail="Getting the project ready to run. The first time can take a few minutes."
-        actions={<LogsToggle open={logsOpen} noun="output" />}
+        actions={<LogsToggle open={logsOpen} />}
         env={env}
       />
     )
@@ -206,7 +216,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
           <>
             <FixStartupButton agentId={state.agentId} />
             <Button onClick={() => gui.installDependencies()}>Try again</Button>
-            <LogsToggle open={logsOpen} noun="output" />
+            <LogsToggle open={logsOpen} />
           </>
         }
         env={env}
@@ -229,20 +239,23 @@ function CanvasMessage({ state }: { state: WindowState }) {
               ? 'Something outside Gui stopped it.'
               : undefined
         }
-        note={devServer.lastLine || `Exit code ${devServer.exitCode}`}
+        note={
+          devServer.lastLine ||
+          (devServer.exitCode === null ? undefined : `Exit code ${devServer.exitCode}`)
+        }
         actions={
           failed ? (
             <>
               <FixStartupButton agentId={state.agentId} />
-              <Button onClick={() => gui.restartDevServer()}>Start again</Button>
-              <LogsToggle open={logsOpen} noun="logs" />
+              <Button onClick={() => gui.restartDevServer()}>Restart</Button>
+              <LogsToggle open={logsOpen} />
             </>
           ) : (
             <>
               <Button variant="primary" onClick={() => gui.restartDevServer()}>
-                Start again
+                Restart
               </Button>
-              <LogsToggle open={logsOpen} noun="logs" />
+              <LogsToggle open={logsOpen} />
             </>
           )
         }
@@ -265,7 +278,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
               Try again
             </Button>
             <FixStartupButton agentId={state.agentId} variant="secondary" />
-            <LogsToggle open={logsOpen} noun="logs" />
+            <LogsToggle open={logsOpen} />
           </>
         }
         env={env}
@@ -284,7 +297,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         actions={
           <>
             <FixStartupButton agentId={state.agentId} variant="secondary" />
-            <LogsToggle open={logsOpen} noun="logs" />
+            <LogsToggle open={logsOpen} />
             <Button variant="ghost" onClick={() => focusAddressBar()}>
               Enter address
             </Button>
@@ -578,15 +591,15 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
   )
 }
 
-/** The drawer on the dev server's output: "output" while setting up, "logs" once the app runs. */
-function LogsToggle({ open, noun }: { open: boolean; noun: 'output' | 'logs' }) {
+/** The drawer on the dev server's logs. */
+function LogsToggle({ open }: { open: boolean }) {
   return (
     <Button
       variant="ghost"
       aria-expanded={open}
       onClick={() => (open ? gui.setDrawerOpen(false) : gui.showLogs())}
     >
-      {open ? 'Hide' : 'Show'} {noun}
+      {open ? 'Hide logs' : 'Show logs'}
     </Button>
   )
 }
@@ -675,8 +688,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
         }
       >
         <span className="truncate">
-          Finish installing Apple’s developer tools in the window macOS opened. Gui picks them up
-          when you come back.
+          Finish installing Apple’s developer tools in the macOS window.
         </span>
       </Banner>
     )
@@ -691,9 +703,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
         </Button>
       }
     >
-      <span className="truncate">
-        Undo and sharing need Apple’s developer tools. It’s a free install from Apple.
-      </span>
+      <span className="truncate">Undo and sharing need Apple’s free developer tools.</span>
     </Banner>
   )
 }
@@ -811,10 +821,10 @@ function useGitHubConnected() {
 }
 
 /**
- * The ways in, as an even two-by-two grid: Open project, New project, GitHub (Connect GitHub,
- * then Select project; both open Settings → GitHub) and Clone by URL. New project
- * and Clone by URL swap the grid for a name or repo field; main asks where to put the
- * folder, then opens it like any project.
+ * The ways in: Open project, the one primary, then an even two-by-two grid of New project,
+ * New canvas, Clone by URL and GitHub (Connect GitHub, then Open from GitHub; both open
+ * Settings → GitHub). New project and Clone by URL swap the buttons for a name or repo field;
+ * main asks where to put the folder, then opens it like any project.
  */
 function OpenActions() {
   const [form, setForm] = useState<StartForm | null>(null)
@@ -849,10 +859,10 @@ function OpenActions() {
   }, [])
 
   if (!form) {
-    // Equal cells, their labels at the start, so the four read as one set.
+    // One primary across the top, then the other ways in as equal cells, labels at the start.
     const cell = 'w-full justify-start'
     return (
-      <div className="grid grid-cols-2 gap-2">
+      <div className="flex flex-col gap-2">
         <Button
           variant="primary"
           size="lg"
@@ -862,26 +872,22 @@ function OpenActions() {
         >
           Open project…
         </Button>
-        <Button size="lg" icon={FolderPlus} className={cell} onClick={() => setForm('newProject')}>
-          New project
-        </Button>
-        <Button size="lg" className={cell} onClick={() => gui.openSettings('github')}>
-          <GitHubMark />
-          {githubConnected ? 'Select project' : 'Connect GitHub'}
-        </Button>
-        <Button size="lg" icon={Link} className={cell} onClick={() => setForm('cloneRepo')}>
-          Clone by URL
-        </Button>
-        {/* No folder, install or server: a board to design on with the agent, open at once. */}
-        <Button
-          size="lg"
-          icon={Shapes}
-          className="col-span-2 w-full justify-start"
-          shortcut="newBoard"
-          onClick={() => gui.newBoard()}
-        >
-          Open a canvas
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button icon={FolderPlus} className={cell} onClick={() => setForm('newProject')}>
+            New project
+          </Button>
+          {/* No folder, install or server: a canvas to design on with the agent, open at once. */}
+          <Button icon={Shapes} className={cell} shortcut="newBoard" onClick={() => gui.newBoard()}>
+            New canvas
+          </Button>
+          <Button icon={Link} className={cell} onClick={() => setForm('cloneRepo')}>
+            Clone by URL
+          </Button>
+          <Button className={cell} onClick={() => gui.openSettings('github')}>
+            <GitHubMark />
+            {githubConnected ? 'Open from GitHub…' : 'Connect GitHub…'}
+          </Button>
+        </div>
       </div>
     )
   }

@@ -277,7 +277,7 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
       session.chrome.getByRole('button', { name: 'Clone by URL', exact: true }),
     ).toBeVisible()
     await session.chrome.screenshot({ path: test.info().outputPath('github-start-screen.png') })
-    await session.chrome.getByRole('button', { name: 'Connect GitHub', exact: true }).click()
+    await session.chrome.getByRole('button', { name: 'Connect GitHub…', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
   } finally {
     if (previous === undefined) delete process.env.GUI_ACCOUNTS_URL

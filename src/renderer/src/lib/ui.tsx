@@ -28,7 +28,7 @@ export const PRESS = 'active:opacity-70 active:transition-none'
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ControlSize = 'sm' | 'md' | 'lg'
 
-const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
+const CONTROL = `no-drag inline-flex items-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
 
 /** Disabled, a control fades; a primary one goes neutral instead (VARIANT), as a pale accent still reads as live. */
 const FADE = 'disabled:opacity-40'
@@ -90,7 +90,8 @@ export function Button({
       aria-busy={loading || undefined}
       title={tooltip && shortcut ? withShortcut(tooltip, shortcut) : tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
-      className={cn(CONTROL, BUTTON_SIZE[size], VARIANT[variant], className)}
+      // A label starts at the left, even in a button wider than it (text in Gui is never centered).
+      className={cn(CONTROL, 'justify-start', BUTTON_SIZE[size], VARIANT[variant], className)}
       {...props}
     >
       {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
@@ -165,7 +166,7 @@ export function IconButton({
       aria-pressed={pressed}
       className={cn(
         CONTROL,
-        'shrink-0',
+        'shrink-0 justify-center',
         showKeys ? 'h-7 gap-1.5 pr-1.5 pl-2' : size === 'sm' ? 'size-6' : 'size-7',
         strong
           ? VARIANT.primary
@@ -223,7 +224,7 @@ export function Toggle({
       className={cn(
         CONTROL,
         BUTTON_SIZE.md,
-        'shrink-0',
+        'shrink-0 justify-start',
         !pressed && VARIANT.ghost,
         pressed && emphasis === 'soft' && `bg-accent-soft text-accent-text ${FADE}`,
         pressed && emphasis === 'strong' && VARIANT.primary,

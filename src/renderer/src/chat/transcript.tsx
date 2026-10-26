@@ -336,21 +336,8 @@ function EmptyTranscript({
   canvas: boolean
   picked: number
 }) {
-  // On a canvas's board there's no app to point at: the board itself says what to ask for.
-  if (canvas && !canSelect) {
-    return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
-        <Message
-          className="m-auto shrink-0"
-          icon={<MessageSquare className="size-4" aria-hidden="true" />}
-          title="Design on the canvas"
-        >
-          Ask for a page, or a few versions of one, and each lands on the board as a frame. Open a
-          frame to point at any part of it to change.
-        </Message>
-      </div>
-    )
-  }
+  // On a canvas there's no app to point at, and the canvas itself says what to ask for.
+  if (canvas && !canSelect) return <div className="min-h-0 flex-1" />
   // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
   // still take a message, which needs no element.
   if (!canSelect) {

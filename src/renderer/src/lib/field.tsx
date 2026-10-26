@@ -7,6 +7,11 @@ import { cn } from './cn'
  */
 const FRAME = 'rounded-md border border-line-strong bg-raised text-fg transition-colors'
 const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40`
+/**
+ * The field's look without its size or type, for a field sized to what it edits in place (a
+ * frame's or section's name on the canvas).
+ */
+export const FIELD_LOOK = `${FRAME} outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none`
 /** The same frame around an input and a control at its start; it takes the focus look from the input. */
 const GROUP = `${FRAME} flex items-center has-[input:focus]:border-accent has-[input:focus]:ring-3 has-[input:focus]:ring-accent-soft`
 

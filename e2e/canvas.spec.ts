@@ -57,7 +57,7 @@ async function board(session: GuiSession): Promise<BoardState> {
 }
 
 async function openCanvas(session: GuiSession) {
-  await session.chrome.getByRole('button', { name: /Open a canvas/ }).click()
+  await session.chrome.getByRole('button', { name: /New canvas/ }).click()
   return board(session)
 }
 
@@ -149,7 +149,7 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   }, 'the frame open')
   expect(live.preview.viewport).toBe('mobile')
   expect(live.preview.selectable).toBe(true)
-  await chrome.getByRole('button', { name: 'Board' }).click()
+  await chrome.getByRole('button', { name: 'Canvas' }).click()
   await waitFor(async () => {
     const state = await session.state()
     return state.board?.open === null && !state.preview.visible

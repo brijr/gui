@@ -242,7 +242,7 @@ function BoardToolbar({
       {open ? (
         <>
           <Button variant="ghost" icon={ArrowLeft} onClick={() => gui.boardOpenFrame(null)}>
-            Board
+            Canvas
           </Button>
           <p className="min-w-0 flex-1 truncate text-small font-medium text-fg">
             {open.name}

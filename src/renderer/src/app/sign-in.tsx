@@ -47,7 +47,7 @@ export function SignIn() {
         <div className="flex flex-col gap-3">
           <p role="status" className="flex items-center gap-2 text-muted">
             <Spinner />
-            Finish signing in in your browser…
+            Continue in your browser to sign in…
           </p>
           <div className="flex flex-wrap gap-2">
             <Button onClick={signIn}>Open browser again</Button>
@@ -57,7 +57,7 @@ export function SignIn() {
           </div>
         </div>
       ) : (
-        <Button variant="primary" size="lg" className="w-full" onClick={signIn}>
+        <Button variant="primary" size="lg" className="self-start" onClick={signIn}>
           Sign in or create an account
         </Button>
       )}
