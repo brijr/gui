@@ -19,6 +19,7 @@ export function Transcript({ turnIds, meta }: { turnIds: string[]; meta: ChatMet
         <EmptyTranscript
           canSelect={meta.canSelect}
           canvas={meta.canvas}
+          canvasEmpty={meta.canvasEmpty}
           picked={meta.selection.length}
         />
         {meta.archived && <ArchivedNotice archived={meta.archived} />}
@@ -330,14 +331,31 @@ function StarterPrompts({ prompts }: { prompts: readonly string[] }) {
 function EmptyTranscript({
   canSelect,
   canvas,
+  canvasEmpty,
   picked,
 }: {
   canSelect: boolean
   canvas: boolean
+  canvasEmpty: boolean
   picked: number
 }) {
-  // On a canvas there's no app to point at, and the canvas itself says what to ask for.
-  if (canvas && !canSelect) return <div className="min-h-0 flex-1" />
+  // An empty canvas says what to ask for itself: the chat doesn't say it again.
+  if (canvasEmpty && !canSelect) return <div className="min-h-0 flex-1" />
+  // On a canvas's frames there's no app to point at until one is open.
+  if (canvas && !canSelect) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-8 py-6">
+        <Message
+          className="m-auto shrink-0"
+          icon={<MessageSquare className="size-4" aria-hidden="true" />}
+          title="Design on the canvas"
+        >
+          Ask for a page, or a few versions of one, and each lands on the canvas as a frame. Open a
+          frame to point at any part of it to change.
+        </Message>
+      </div>
+    )
+  }
   // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
   // still take a message, which needs no element.
   if (!canSelect) {

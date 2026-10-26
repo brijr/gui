@@ -554,6 +554,7 @@ export class ProjectTab implements ChatPanelOwner {
         selecting: this.state.preview.selecting,
         canSelect: this.canSelect,
         canvas: !!this.resources.board,
+        canvasEmpty: this.resources.board?.frames.length === 0,
         minimized: false,
         docked: getPrefs().chatSidebar,
         sidebarSide: getPrefs().chatSidebarSide,
@@ -714,6 +715,7 @@ export class ProjectTab implements ChatPanelOwner {
       this.state.project.name === name ? this.state.project : { ...this.state.project, name }
     // The frame open in the preview left the board (deleted, or its turn undone).
     if (this.state.board?.open && !board.openId) this.closeFrame()
+    this.resources.chat?.setCanvasEmpty(board.frames.length === 0)
     this.patch({ board: board.state(), project })
   }
 
@@ -914,6 +916,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.resources.chat = chat
     resources.attachHistory(root, file)
     chat.setCanSelect(this.canSelect)
+    if (board) chat.setCanvasEmpty(board.frames.length === 0)
     this.patch({ agentId: chat.meta.agentId })
     this.sendChat(Events.chatReset, chat.snapshot())
     return true

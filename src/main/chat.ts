@@ -295,6 +295,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       selecting: false,
       canSelect: false,
       canvas: !!options.board,
+      canvasEmpty: false,
       minimized: false,
       docked: options.docked,
       sidebarSide: getPrefs().chatSidebarSide,
@@ -534,6 +535,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   setCanSelect(canSelect: boolean) {
     if (canSelect !== this.meta.canSelect) this.patchMeta({ canSelect })
+  }
+
+  setCanvasEmpty(canvasEmpty: boolean) {
+    if (canvasEmpty !== this.meta.canvasEmpty) this.patchMeta({ canvasEmpty })
   }
 
   setMinimized(minimized: boolean) {
