@@ -82,8 +82,9 @@ const BOARD_GAP_MIN = 8
 
 /**
  * The order the project toolbar makes room in (toolbar-fit.ts): the tools' keys first, then
- * Back and Forward, the viewport, Screenshot and Reload go into the "…" menu, then the project's
- * name, then Select. Record and the chat button always stay.
+ * Back and Forward, the viewport, Screenshot and Reload go into the "…" menu, then the branch
+ * button drops its name, then the project's name, then Select. Record and the chat button
+ * always stay.
  */
 const PROJECT_STEPS: FitStep[] = [
   { tool: 'screenshot', to: 'compact' },
@@ -93,6 +94,7 @@ const PROJECT_STEPS: FitStep[] = [
   { tool: 'viewport', to: 'hidden' },
   { tool: 'screenshot', to: 'hidden' },
   { tool: 'reload', to: 'hidden' },
+  { tool: 'branch', to: 'compact' },
   { tool: 'project', to: 'compact' },
   { tool: 'select', to: 'hidden' },
 ]
@@ -225,7 +227,9 @@ export function Toolbar({ state }: { state: WindowState }) {
       style={{ height: TOOLBAR_HEIGHT }}
     >
       <ProjectMenuButton state={state} named={!tabbed && fit('project') !== 'compact'} />
-      {project && state.branch && <BranchButton branch={state.branch} />}
+      {project && state.branch && (
+        <BranchButton branch={state.branch} compact={fit('branch') === 'compact'} />
+      )}
 
       {project && (
         <>

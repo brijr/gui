@@ -152,13 +152,13 @@ export function WhereToWork({ prompt }: { prompt: WhereToWorkPrompt }) {
         </li>
       </List>
       <div className="flex items-center justify-between gap-2">
-        <Button
-          variant="ghost"
+        <TextButton
+          tone="muted"
           disabled={prompt.creating}
           onClick={() => void gui.answerWhereToWork({ kind: 'cancel' })}
         >
           Cancel
-        </Button>
+        </TextButton>
         <TextButton
           tone="muted"
           disabled={busy}
