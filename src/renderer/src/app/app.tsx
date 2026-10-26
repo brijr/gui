@@ -98,6 +98,20 @@ export function App() {
             <Drawer state={state} />
           </Fragment>
           <ShortcutsSheet open={sheet} />
+          {/* The bars run under the chat sidebar to slide with it, and they drag the window.
+              macOS takes this page's drag areas as the window's, over the sidebar's own view,
+              so its buttons would drag instead of click. This keeps that strip out of them.
+              Last, so it's drawn after the bars and cuts its hole in their drag area. */}
+          {state.sidebarWidth > 0 && (
+            <div
+              aria-hidden="true"
+              className={cn(
+                'no-drag absolute inset-y-0 z-chrome',
+                state.sidebarSide === 'left' ? 'left-0' : 'right-0',
+              )}
+              style={{ width: state.sidebarWidth }}
+            />
+          )}
         </>
       )}
     </div>
