@@ -119,6 +119,7 @@ import {
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
+import { prepareTranscription } from './transcribe'
 import { checkForUpdatesByHand, startUpdates } from './updates'
 import {
   allTabs,
@@ -718,6 +719,8 @@ function registerIpc() {
           'Gui can’t use the microphone. Turn it on in System Settings → Privacy & Security → Microphone.'
       }
     }
+    // The speech model downloads while they talk, not after they stop.
+    if (narrated) prepareTranscription()
     const id = await store.start(narrated)
     if (tab.recordings !== store || captures.has(event.sender.id)) {
       await store.discard(id)
@@ -774,22 +777,28 @@ function registerIpc() {
       return false
     return capture.store.frame(capture.id, at, jpeg)
   })
+  handleLegacy(Invoke.recordingVideo, (event, id: unknown, chunk: unknown) => {
+    const capture = captures.get(event.sender.id)
+    if (
+      !capture ||
+      id !== capture.id ||
+      !(chunk instanceof Uint8Array) ||
+      capture.tab?.recordings !== capture.store
+    )
+      return false
+    return capture.store.video(capture.id, chunk)
+  })
+  handleLegacy(Invoke.prepareNarration, () => {
+    prepareTranscription()
+  })
   handleLegacy(
     Invoke.finishRecording,
-    async (
-      event,
-      id: unknown,
-      duration: unknown,
-      video: unknown,
-      startedAt: unknown,
-      audio: unknown,
-    ) => {
+    async (event, id: unknown, duration: unknown, startedAt: unknown, audio: unknown) => {
       const capture = captures.get(event.sender.id)
       if (
         !capture ||
         id !== capture.id ||
         !isNumber(duration) ||
-        !(video instanceof Uint8Array) ||
         (audio !== undefined && audio !== null && !(audio instanceof Uint8Array))
       )
         throw new Error('Recording is unavailable.')
@@ -800,7 +809,7 @@ function registerIpc() {
         let traced: Awaited<ReturnType<typeof capture.trace.finish>> | null = null
         if (isNumber(startedAt)) traced = await capture.trace.finish(startedAt, duration)
         else capture.trace.dispose()
-        const clip = await capture.store.finish(capture.id, duration, video, {
+        const clip = await capture.store.finish(capture.id, duration, {
           timeline: traced?.timeline ?? [],
           cursor: traced?.cursor ?? null,
           audio: capture.narrated && audio instanceof Uint8Array ? audio : null,

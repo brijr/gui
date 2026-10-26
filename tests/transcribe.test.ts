@@ -64,12 +64,12 @@ describe.skipIf(!available)('transcribe', () => {
     ).rejects.toThrow('The transcriber is missing from this copy of Gui.')
   })
 
-  test('stops when cancelled', async () => {
+  test('stops when asked', async () => {
     const slow = await helper('slow', 'sleep 5')
     const abort = new AbortController()
     const running = transcribe('in.wav', abort.signal, slow)
     abort.abort()
-    await expect(running).rejects.toThrow('Transcription was cancelled.')
+    await expect(running).rejects.toThrow('Transcription stopped.')
   })
 
   // The real helper on real speech, where it's been built (scripts/build-native.sh).

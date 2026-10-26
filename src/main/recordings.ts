@@ -1,7 +1,16 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import {
+  type FileHandle,
+  mkdir,
+  open as openFile,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises'
 import { join } from 'node:path'
-import { app, nativeImage, protocol } from 'electron'
+import { app, protocol } from 'electron'
 import {
   MAX_NARRATED_RECORDING_MS,
   MAX_RECORDING_AUDIO_BYTES,
@@ -10,13 +19,18 @@ import {
   MAX_RECORDING_VIDEO_BYTES,
 } from '../shared/bounded'
 import type { RecordingAttachment, RecordingNarration } from '../shared/types'
+import { fileResponse } from './byte-range'
+import { imageSize } from './image-size'
 import type { CursorLog } from './recording-cursor'
 import { captionsVtt, transcriptText } from './recording-narration'
 import type { TraceEntry } from './recording-trace'
 import { thumbnail } from './thumbnail'
 import { type Transcript, transcribe } from './transcribe'
+import { durationBytes, type ReservedDuration, reserveDuration } from './webm-duration'
 
 const MAX_BYTES = 128 * 1024 * 1024
+/** A kept clip whose transcript was being made as its project closed */
+const STOPPED = 'Transcription stopped because the project closed.'
 /** Kept with the clip (and in chat history); the full transcript is in transcript.json. */
 const MAX_NARRATION_TEXT = 4000
 /** A clip may run this much past its limit: the recorder stops on a timer. */
@@ -56,6 +70,24 @@ interface Draft {
   height: number
   thumbnail: string
   writing: boolean
+  /** video.webm, written as the recorder makes it */
+  video: FileHandle | null
+  /** What the recorder has sent, for its size limit */
+  videoBytes: number
+  /** Where the next chunk goes in video.webm (the first one grows by its duration) */
+  fileBytes: number
+  /** Chunks being written, in order; rejects once one fails */
+  videoWrites: Promise<void>
+  /** Where the clip's duration goes once it's known */
+  duration: ReservedDuration | null
+  finishing: boolean
+}
+
+interface Job {
+  done: Promise<void>
+  abort: AbortController
+  /** The clip was removed, so there's nothing to record how it ended in */
+  discarded: boolean
 }
 
 export class Recordings {
@@ -64,7 +96,7 @@ export class Recordings {
   private unsent = new Set<string>()
   private disposed = false
   /** Narrated clips being transcribed, by ID */
-  private jobs = new Map<string, { done: Promise<void>; abort: AbortController }>()
+  private jobs = new Map<string, Job>()
   constructor(
     private root: string,
     /** A clip changed after it was attached (its transcript came in) */
@@ -112,16 +144,55 @@ export class Recordings {
       height: 0,
       thumbnail: '',
       writing: false,
+      video: null,
+      videoBytes: 0,
+      fileBytes: 0,
+      videoWrites: Promise.resolve(),
+      duration: null,
+      finishing: false,
     }
     this.draft = draft
     try {
       await mkdir(draft.dir, { recursive: true })
-      if (this.disposed) throw new Error('Project closed.')
+      draft.video = await openFile(join(draft.dir, 'video.webm'), 'w')
+      if (this.disposed || this.draft !== draft) throw new Error('Project closed.')
       return id
     } catch (error) {
+      await closeVideo(draft)
       await this.discard(id)
       throw error
     }
+  }
+
+  /**
+   * The next piece of the clip's video, as the recorder makes it: saved now, so stopping a
+   * long clip doesn't hold and copy all of it at once.
+   */
+  async video(id: string, chunk: Uint8Array) {
+    const draft = this.draft
+    if (!draft || draft.id !== id || draft.finishing || this.disposed) return false
+    if (!(chunk instanceof Uint8Array) || !chunk.byteLength)
+      throw new Error('Invalid recording video.')
+    if (draft.videoBytes + chunk.byteLength > MAX_RECORDING_VIDEO_BYTES)
+      throw new Error('Recording reached its size limit. Please record a shorter clip.')
+    const first = draft.videoBytes === 0
+    if (first && Buffer.from(chunk.subarray(0, 4)).toString('hex') !== '1a45dfa3')
+      throw new Error('Invalid recording video.')
+    draft.videoBytes += chunk.byteLength
+    const write = draft.videoWrites.then(async () => {
+      const handle = draft.video
+      if (!handle || this.draft !== draft) throw new Error('Recording is no longer active.')
+      let bytes = chunk
+      if (first) {
+        draft.duration = reserveDuration(chunk)
+        if (draft.duration) bytes = draft.duration.bytes
+      }
+      await handle.write(bytes, 0, bytes.byteLength, draft.fileBytes)
+      draft.fileBytes += bytes.byteLength
+    })
+    draft.videoWrites = write
+    await write
+    return true
   }
 
   async frame(id: string, timestampMs: number, jpeg: Uint8Array) {
@@ -141,10 +212,11 @@ export class Recordings {
       draft.timestamps.length >= MAX_RECORDING_FRAMES
     )
       throw new Error('Recording reached its storage limit.')
-    const image = nativeImage.createFromBuffer(Buffer.from(jpeg))
-    const { width, height } = image.getSize()
-    if (image.isEmpty() || width > 1920 || height > 1920)
+    // From the header: decoding each frame just for its size took ~8 MB a frame.
+    const size = imageSize(jpeg)
+    if (!size || size.width > 1920 || size.height > 1920)
       throw new Error('Invalid recording frame.')
+    const { width, height } = size
     if (!draft.timestamps.length) {
       draft.width = width
       draft.height = height
@@ -165,11 +237,10 @@ export class Recordings {
   async finish(
     id: string,
     durationMs: number,
-    video: Uint8Array,
     { timeline = [], cursor = null, audio = null }: FinishedRecording = {},
   ): Promise<RecordingAttachment> {
     const draft = this.draft
-    if (!draft || draft.id !== id || this.disposed || draft.writing)
+    if (!draft || draft.id !== id || this.disposed || draft.writing || draft.finishing)
       throw new Error('Recording is no longer active.')
     if (
       !Number.isFinite(durationMs) ||
@@ -178,13 +249,17 @@ export class Recordings {
       !draft.timestamps.length
     )
       throw new Error('No usable recording frames.')
-    if (
-      !(video instanceof Uint8Array) ||
-      video.byteLength < 4 ||
-      video.byteLength > MAX_RECORDING_VIDEO_BYTES ||
-      Buffer.from(video.subarray(0, 4)).toString('hex') !== '1a45dfa3'
-    )
-      throw new Error('Invalid or oversized recording video.')
+    draft.finishing = true
+    await draft.videoWrites
+    const handle = draft.video
+    if (this.draft !== draft || this.disposed || !handle)
+      throw new Error('Recording is no longer active.')
+    if (draft.fileBytes < 4) throw new Error('Invalid or oversized recording video.')
+    if (draft.duration) {
+      const bytes = durationBytes(durationMs, draft.duration)
+      await handle.write(bytes, 0, bytes.byteLength, draft.duration.offset)
+    }
+    await closeVideo(draft)
     const sound = draft.narrated && audio && isWav(audio) ? audio : null
     if (audio && !sound) throw new Error('Invalid or oversized recording audio.')
     const manifest: Manifest = {
@@ -205,7 +280,6 @@ export class Recordings {
           }
         : {}),
     }
-    await writeFile(join(draft.dir, 'video.webm'), video)
     await writeFile(join(draft.dir, 'timeline.json'), JSON.stringify(timeline))
     if (cursor) await writeFile(join(draft.dir, 'cursor.json'), JSON.stringify(cursor))
     if (sound) await writeFile(join(draft.dir, 'audio.wav'), sound)
@@ -218,18 +292,20 @@ export class Recordings {
 
   /**
    * Transcribes a narrated clip in the background; its narration says how that went once
-   * it's done, and `onUpdate` passes the clip on. The audio is deleted either way.
+   * it's done, and `onUpdate` passes the clip on. The audio is deleted either way, and a clip
+   * that's kept never stays "Transcribing…": stopped with its project, it says so.
    */
   private transcribe(id: string) {
-    const abort = new AbortController()
     const dir = this.path(id)
     const audio = join(dir, 'audio.wav')
-    const done = (async () => {
-      let narration: RecordingNarration
+    const job: Job = { done: Promise.resolve(), abort: new AbortController(), discarded: false }
+    const { signal } = job.abort
+    job.done = (async () => {
+      let narration: RecordingNarration = { status: 'failed', error: STOPPED }
       try {
-        const transcript = await transcribe(audio, abort.signal)
+        const transcript = await transcribe(audio, signal)
         const text = transcriptText(transcript)
-        if (abort.signal.aborted) return
+        if (signal.aborted) return
         if (text) {
           await writeFile(join(dir, 'transcript.json'), JSON.stringify(transcript))
           await writeFile(join(dir, 'captions.vtt'), captionsVtt(transcript))
@@ -241,26 +317,31 @@ export class Recordings {
           }
         } else narration = { status: 'failed', error: "Couldn't hear any speech." }
       } catch (error) {
-        if (abort.signal.aborted) return
+        if (signal.aborted) return
         console.error('[gui] transcription failed', error)
         narration = {
           status: 'failed',
           error: error instanceof Error ? error.message : "Couldn't transcribe the recording.",
         }
+      } finally {
+        // Stopped or not, a kept clip records how it ended. A removed one is going as a
+        // whole: deleting its audio too would race that.
+        if (!job.discarded) {
+          await rm(audio, { force: true }).catch(() => undefined)
+          const manifest = await this.info(id).catch(() => null)
+          if (manifest && !job.discarded) {
+            const next: Manifest = { ...manifest, narration }
+            await writeFile(join(dir, 'manifest.json'), JSON.stringify(next))
+            this.onUpdate(this.attachment(next))
+          }
+        }
       }
-      await rm(audio, { force: true }).catch(() => undefined)
-      if (abort.signal.aborted || this.disposed) return
-      const manifest = await this.info(id).catch(() => null)
-      if (!manifest || abort.signal.aborted) return
-      const next: Manifest = { ...manifest, narration }
-      await writeFile(join(dir, 'manifest.json'), JSON.stringify(next))
-      if (!abort.signal.aborted && !this.disposed) this.onUpdate(this.attachment(next))
     })()
       .catch((error: unknown) => console.error('[gui] failed to save a transcript', error))
       .finally(() => {
-        if (this.jobs.get(id)?.abort === abort) this.jobs.delete(id)
+        if (this.jobs.get(id) === job) this.jobs.delete(id)
       })
-    this.jobs.set(id, { done, abort })
+    this.jobs.set(id, job)
   }
 
   /** The clips as they are once any transcripts still being made are done (or `timeoutMs` passes). */
@@ -367,9 +448,17 @@ export class Recordings {
   async discard(id: string) {
     if (this.retained.has(id)) return
     this.unsent.delete(id)
-    this.jobs.get(id)?.abort.abort()
-    if (this.draft?.id === id) this.draft = null
-    await rm(this.path(id), { recursive: true, force: true })
+    const job = this.jobs.get(id)
+    if (job) {
+      job.discarded = true
+      job.abort.abort()
+    }
+    const draft = this.draft?.id === id ? this.draft : null
+    if (draft) {
+      this.draft = null
+      await closeVideo(draft)
+    }
+    await rm(this.path(id), { recursive: true, force: true, maxRetries: 2 })
   }
 
   dispose() {
@@ -388,6 +477,12 @@ export class Recordings {
   private attachment({ timestamps: _timestamps, ...attachment }: Manifest) {
     return attachment
   }
+}
+
+async function closeVideo(draft: Draft) {
+  const handle = draft.video
+  draft.video = null
+  await handle?.close().catch(() => undefined)
 }
 
 /** A 16-bit PCM WAV small enough to be a narrated clip's audio. */
@@ -444,32 +539,10 @@ export function registerRecordingProtocol() {
           headers: { 'Content-Type': 'text/vtt; charset=utf-8', ...SHARED },
         })
       }
-      const video = await readFile(join(dir, 'video.webm'))
-      const headers: Record<string, string> = {
+      return await fileResponse(join(dir, 'video.webm'), request, {
         ...SHARED,
         'Content-Type': 'video/webm',
-        'Accept-Ranges': 'bytes',
-        'Content-Length': String(video.length),
-      }
-      const range = request.headers.get('range')
-      if (range) {
-        const parts = /^bytes=(\d+)-(\d*)$/.exec(range)
-        if (!parts) return new Response(null, { status: 416 })
-        const start = Number(parts[1])
-        const end = parts[2] ? Math.min(Number(parts[2]), video.length - 1) : video.length - 1
-        if (start > end || start >= video.length)
-          return new Response(null, {
-            status: 416,
-            headers: { 'Content-Range': `bytes */${video.length}` },
-          })
-        headers['Content-Range'] = `bytes ${start}-${end}/${video.length}`
-        headers['Content-Length'] = String(end - start + 1)
-        return new Response(request.method === 'HEAD' ? null : video.subarray(start, end + 1), {
-          status: 206,
-          headers,
-        })
-      }
-      return new Response(request.method === 'HEAD' ? null : video, { headers })
+      })
     } catch {
       return new Response(null, { status: 404 })
     }

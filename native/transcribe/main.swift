@@ -2,6 +2,10 @@
 // SpeechAnalyzer (macOS 26+). Gui runs it from src/main/transcribe.ts.
 //
 //   gui-transcribe <audio.wav> [--locale en-US]
+//   gui-transcribe --prepare [--locale en-US]
+//
+// --prepare downloads the language's model, if the system doesn't have it yet, and prints
+// nothing: Gui runs it when narration is turned on, so the first clip doesn't wait for it.
 //
 // Prints one JSON object to stdout:
 //   { "locale": "en-US", "segments": [{ "start": ms, "end": ms, "text": "…",
@@ -43,7 +47,7 @@ func ms(_ time: CMTime) -> Int {
 }
 
 @available(macOS 26, *)
-func transcribe(_ url: URL, _ requested: Locale) async throws -> Output {
+func transcriber(_ requested: Locale) async throws -> (SpeechTranscriber, Locale) {
   guard SpeechTranscriber.isAvailable else { fail("Speech transcription is unavailable on this Mac.", 3) }
   guard let locale = await SpeechTranscriber.supportedLocale(equivalentTo: requested) else {
     fail("Speech transcription doesn't support \(requested.identifier(.bcp47)).", 4)
@@ -58,6 +62,12 @@ func transcribe(_ url: URL, _ requested: Locale) async throws -> Output {
   if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
     try await request.downloadAndInstall()
   }
+  return (transcriber, locale)
+}
+
+@available(macOS 26, *)
+func transcribe(_ url: URL, _ requested: Locale) async throws -> Output {
+  let (transcriber, locale) = try await transcriber(requested)
   let collect = Task { () throws -> [Segment] in
     var segments: [Segment] = []
     for try await result in transcriber.results where result.isFinal {
@@ -97,8 +107,20 @@ struct Main {
       requested = Locale(identifier: args[flag + 1])
       args.removeSubrange(flag...(flag + 1))
     }
-    guard args.count == 1 else { fail("Usage: gui-transcribe <audio file> [--locale xx-YY]", 2) }
+    let prepare = args.firstIndex(of: "--prepare")
+    if let flag = prepare { args.remove(at: flag) }
+    guard args.count == (prepare == nil ? 1 : 0) else {
+      fail("Usage: gui-transcribe <audio file> [--locale xx-YY] | --prepare [--locale xx-YY]", 2)
+    }
     guard #available(macOS 26, *) else { fail("Speech transcription needs macOS 26 or later.", 3) }
+    if prepare != nil {
+      do {
+        _ = try await transcriber(requested)
+        exit(0)
+      } catch {
+        fail(error.localizedDescription, 1)
+      }
+    }
     do {
       let output = try await transcribe(URL(fileURLWithPath: args[0]), requested)
       let encoder = JSONEncoder()

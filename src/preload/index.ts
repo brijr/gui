@@ -187,8 +187,10 @@ const api: GuiApi = {
   loadCommands: () => legacyInvoke(Invoke.loadCommands),
   startRecording: (narrate) => legacyInvoke(Invoke.startRecording, narrate === true),
   saveRecordingFrame: (id, at, jpeg) => legacyInvoke(Invoke.recordingFrame, id, at, jpeg),
-  finishRecording: (id, duration, video, startedAt, audio) =>
-    legacyInvoke(Invoke.finishRecording, id, duration, video, startedAt, audio ?? null),
+  saveRecordingVideo: (id, chunk) => legacyInvoke(Invoke.recordingVideo, id, chunk),
+  finishRecording: (id, duration, startedAt, audio) =>
+    legacyInvoke(Invoke.finishRecording, id, duration, startedAt, audio ?? null),
+  prepareNarration: () => legacyInvoke(Invoke.prepareNarration),
   discardRecording: (id) => legacyInvoke(Invoke.discardRecording, id),
   onRecordingCursor: (cb) => subscribe(Events.recordingCursor, cb),
   onRecordingAttach: (cb) => subscribe(Events.recordingAttach, cb),
