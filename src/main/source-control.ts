@@ -6,10 +6,10 @@ import {
   commitError,
   git,
   gitAsUser,
-  openRepo,
   outgoingCount,
   pushDestination,
   type Repo,
+  readContext,
   readWorkspace,
   tail,
   withGitMutation,
@@ -27,7 +27,10 @@ import {
 } from './ship'
 import { findLeak, leakMessage, localEnvValues, secretIn } from './ship-secrets'
 
-function assertContext(repo: Repo, request: SourceControlRequest) {
+function assertContext(
+  repo: Pick<Repo, 'top' | 'branch' | 'head' | 'problem'>,
+  request: SourceControlRequest,
+) {
   const expected = request.expected
   if (
     resolve(expected.root) !== resolve(repo.top) ||
@@ -82,7 +85,7 @@ export async function sourceControl(
               'A local branch already has this name. Select the local branch instead.',
             )
           actions.assertAvailable()
-          assertContext(await openRepo(root), request)
+          assertContext(await readContext(root), request)
           await gitAsUser(
             repo,
             request.remote
@@ -109,7 +112,7 @@ export async function sourceControl(
           if (base !== null && !base.startsWith('refs/heads/') && !base.startsWith('refs/remotes/'))
             throw new Error('Choose a local or remote branch to start from.')
           actions.assertAvailable()
-          assertContext(await openRepo(root), request)
+          assertContext(await readContext(root), request)
           if (!repo.hasHead && (!base || base === `refs/heads/${branch}`))
             await git(repo, ['symbolic-ref', 'HEAD', `refs/heads/${request.branch}`])
           else
@@ -146,7 +149,7 @@ export async function sourceControl(
       const connected = await connectedFor(repo)
       if (connected) await applyConnectedIdentity(repo, connected.profile)
       actions.assertAvailable()
-      assertContext(await openRepo(root), request)
+      assertContext(await readContext(root), request)
       await unstage(repo, repo.stagedSecrets)
       try {
         await commitChanges(repo, changes, title, body)

@@ -112,23 +112,29 @@ export async function inRepository(root: string): Promise<boolean> {
   }
 }
 
-export async function openRepo(root: string): Promise<Repo> {
+const NO_CHANGES = { changes: [], skipped: [], stagedSecrets: [], conflicts: false }
+
+/**
+ * The repository as Gui acts on it. `status: false` leaves out the uncommitted changes (a
+ * scan of the whole work tree) for a read that only needs branches and the remote.
+ */
+export async function openRepo(root: string, { status = true } = {}): Promise<Repo> {
   const env = await commandEnv()
   const top = (await git({ top: root, env }, ['rev-parse', '--show-toplevel'])).trim()
   const at = { top, env }
-  const [branch, head, refs, remote, status, busy] = await Promise.all([
+  const [branch, head, refs, remote, changes, busy] = await Promise.all([
     gitOrNull(at, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
     gitOrNull(at, ['rev-parse', '--verify', '--quiet', 'HEAD']),
     git(at, ['for-each-ref', '--format=%(refname)', 'refs/heads', 'refs/remotes']),
     readRemote(at),
-    readChanges(at),
+    status ? readChanges(at) : NO_CHANGES,
     operationInProgress(at),
   ])
   const refSet = new Set(refs.split('\n').filter(Boolean))
   const defaultBranch = await findDefaultBranch(at, remote, refSet, branch)
   const problem = busy
     ? 'Git is in the middle of a merge or rebase. Finish or cancel it from the bar above the chat first.'
-    : status.conflicts
+    : changes.conflicts
       ? 'Some files have merge conflicts. Resolve them first.'
       : null
   return {
@@ -140,10 +146,35 @@ export async function openRepo(root: string): Promise<Repo> {
     defaultBranch,
     refs: refSet,
     remote,
-    changes: status.changes,
-    skipped: status.skipped,
-    stagedSecrets: status.stagedSecrets,
+    changes: changes.changes,
+    skipped: changes.skipped,
+    stagedSecrets: changes.stagedSecrets,
     problem,
+  }
+}
+
+/**
+ * Where the repository stands, without reading its changes or remote: what an action checks
+ * again just before it writes, to be sure nothing moved since it looked.
+ */
+export async function readContext(
+  root: string,
+): Promise<Pick<Repo, 'top' | 'branch' | 'head' | 'problem'>> {
+  const env = await commandEnv()
+  const top = (await git({ top: root, env }, ['rev-parse', '--show-toplevel'])).trim()
+  const at = { top, env }
+  const [branch, head, busy] = await Promise.all([
+    gitOrNull(at, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
+    gitOrNull(at, ['rev-parse', '--verify', '--quiet', 'HEAD']),
+    operationInProgress(at),
+  ])
+  return {
+    top,
+    branch,
+    head,
+    problem: busy
+      ? 'Git is in the middle of a merge or rebase. Finish or cancel it from the bar above the chat first.'
+      : null,
   }
 }
 
@@ -151,9 +182,11 @@ const mutations = new Set<string>()
 
 /** All app-owned repository writes share the common Git directory, including worktrees. */
 export async function withGitMutation<T>(root: string, action: (repo: Repo) => Promise<T>) {
-  const repo = await openRepo(root)
-  const common = (await git(repo, ['rev-parse', '--git-common-dir'])).trim()
-  const key = await realpath(resolve(repo.top, common))
+  // The lock's key alone, without reading the repository: `action` gets the one full read.
+  const common = (
+    await git({ top: root, env: await commandEnv() }, ['rev-parse', '--git-common-dir'])
+  ).trim()
+  const key = await realpath(resolve(root, common))
   if (mutations.has(key)) throw new Error('Another Git action is running. Wait for it to finish.')
   mutations.add(key)
   try {

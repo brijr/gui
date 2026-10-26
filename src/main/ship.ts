@@ -120,20 +120,16 @@ export async function ship(
   request: ShipRequest,
   actions?: ShipActions,
 ): Promise<ShipResult> {
-  return withGitMutation(root, () => shipUnlocked(root, request, actions))
+  // The lock reads the repository once; shipping works from that read.
+  return withGitMutation(root, (repo) => shipUnlocked(root, repo, request, actions))
 }
 
 async function shipUnlocked(
   root: string,
+  repo: Repo,
   request: ShipRequest,
   actions?: ShipActions,
 ): Promise<ShipResult> {
-  let repo: Repo
-  try {
-    repo = await openRepo(root)
-  } catch (error) {
-    throw new Error(readError(error))
-  }
   if (repo.problem) throw new Error(repo.problem)
   actions?.assertAvailable()
   if (request.mode === 'commit' && repo.changes.length === 0) {
@@ -261,7 +257,8 @@ export async function pushSavedCommits(
   if (!repo.head) throw new Error('There are no saved commits to push.')
   await assertBranchName(repo, destination)
   const snapshot = async () => {
-    const fresh = await openRepo(repo.top)
+    // Branches, HEAD and the remote are what a push depends on; not the uncommitted changes.
+    const fresh = await openRepo(repo.top, { status: false })
     const urls = await git(fresh, ['remote', 'get-url', '--push', '--all', '--', remote.name])
     const tracking = await pushDestination(fresh, branch)
     return {
