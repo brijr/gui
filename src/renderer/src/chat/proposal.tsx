@@ -52,15 +52,23 @@ export function useOpenComments(): ReviewComment[] {
 }
 
 /**
- * Keeps the bar current: on open, every minute (main fetches at most every two), when the
- * window comes back, when the agent finishes a turn, and when the PR sheet closes.
+ * Keeps the bar current: on open, every minute while its tab is in front (main fetches at most
+ * every two), when the tab or the window comes back, when the agent finishes a turn, and when
+ * the PR sheet closes. A tab behind another doesn't check its pull request.
  */
 export function useProposalUpdates() {
   useEffect(() => {
+    let active = true
     void refreshProposal(true)
-    const timer = setInterval(() => void refreshProposal(true), 60_000)
+    const timer = setInterval(() => {
+      if (active) void refreshProposal(true)
+    }, 60_000)
     const onFocus = () => void refreshProposal(true)
     window.addEventListener('focus', onFocus)
+    const offActive = gui.onTabActive((now) => {
+      if (now && !active) void refreshProposal(true)
+      active = now
+    })
     const offTurns = useChat.subscribe((chat, before) => {
       // The first read can come before the project is open, which reads as none: read again
       // as the chat changes, until there's something to show.
@@ -79,6 +87,7 @@ export function useProposalUpdates() {
     return () => {
       clearInterval(timer)
       window.removeEventListener('focus', onFocus)
+      offActive()
       offTurns()
       offSheet()
       offVersions()

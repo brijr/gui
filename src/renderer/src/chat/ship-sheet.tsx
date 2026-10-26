@@ -45,12 +45,24 @@ export function ShipSheet() {
     void loadShipInfo()
   }, [running])
   useEffect(() => {
-    const refresh = () => {
+    // Every few seconds while the window is in use, one read at a time: each read runs several
+    // Git commands. Coming back to the window reads at once.
+    let reading = false
+    const refresh = async () => {
       const { busy, loaded } = useShipSheet.getState()
-      if (!busy && loaded.kind === 'ready') void loadShipInfo()
+      if (reading || busy || loaded.kind !== 'ready') return
+      reading = true
+      try {
+        await loadShipInfo()
+      } finally {
+        reading = false
+      }
     }
-    const timer = setInterval(refresh, 5000)
-    window.addEventListener('focus', refresh)
+    const timer = setInterval(() => {
+      if (document.hasFocus()) void refresh()
+    }, 5000)
+    const onFocus = () => void refresh()
+    window.addEventListener('focus', onFocus)
     const onKey = (event: KeyboardEvent) => {
       if (
         event.key === 'Escape' &&
@@ -62,7 +74,7 @@ export function ShipSheet() {
     window.addEventListener('keydown', onKey)
     return () => {
       clearInterval(timer)
-      window.removeEventListener('focus', refresh)
+      window.removeEventListener('focus', onFocus)
       window.removeEventListener('keydown', onKey)
     }
   }, [])

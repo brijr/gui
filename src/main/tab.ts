@@ -496,6 +496,9 @@ export class ProjectTab implements ChatPanelOwner {
     // A permission card that came up in the background is what the user switched here for
     // (in a focused window: focusing the chat would raise it).
     if (this.resources.chat?.awaitingPermission && this.host.win.isFocused()) this.panel.focusChat()
+    // Its pull request is checked again while it's in front, and not while it isn't.
+    this.sendChat(Events.tabActive, true)
+    void this.refreshBranch()
   }
 
   /**
@@ -515,6 +518,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.panel.popoutWindow) this.panel.popoutWindow.hide()
     else contentView.removeChildView(this.chatView)
     this.syncDrawerOutput()
+    this.sendChat(Events.tabActive, false)
   }
 
   /** Hands the tab to another window; its views are already out of the old one. */

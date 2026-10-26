@@ -149,6 +149,7 @@ const api: GuiApi = {
   onChatReset: (cb) => subscribe(Events.chatReset, cb),
   onChatFocus: (cb) => subscribe(Events.chatFocus, cb),
   onChatMenuChoice: (cb) => subscribe(Events.chatMenuChoice, cb),
+  onTabActive: (cb) => subscribe(Events.tabActive, cb),
   onShipDraft: (cb) => subscribe(Events.chatShipDraft, cb),
   onChatFloat: (cb) => subscribe(Events.chatFloat, cb),
   chatMorphed: send(Send.chatMorphed),

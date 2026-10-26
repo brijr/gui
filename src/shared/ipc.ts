@@ -247,6 +247,8 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatMenuChoice: 'chat:menu-choice',
+  /** The chat's tab is the one its window shows (true) or went to the background (false) */
+  tabActive: 'chat:tab-active',
   /** The agent proposed a commit or pull request: open Source Control filled in with it */
   chatShipDraft: 'chat:ship-draft',
   chatAttach: 'chat:attach',
@@ -563,6 +565,8 @@ export interface GuiApi {
   onChatFocus(cb: () => void): Unsubscribe
   /** A choice from the More menu that the chat page carries out */
   onChatMenuChoice(cb: (choice: ChatMenuChoice) => void): Unsubscribe
+  /** The chat's tab came to the front of its window, or went behind another */
+  onTabActive(cb: (active: boolean) => void): Unsubscribe
   /** The agent's proposed commit or pull request, once its turn ended */
   onShipDraft(cb: (draft: ShipDraft) => void): Unsubscribe
   /**
