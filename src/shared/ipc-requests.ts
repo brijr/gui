@@ -53,7 +53,9 @@ export interface AllIpcRequests {
   [Invoke.showToolbarMenu]: Contract<'showToolbarMenu'>
   [Invoke.startRecording]: Contract<'startRecording'>
   [Invoke.recordingFrame]: Contract<'saveRecordingFrame'>
+  [Invoke.recordingVideo]: Contract<'saveRecordingVideo'>
   [Invoke.finishRecording]: Contract<'finishRecording'>
+  [Invoke.prepareNarration]: Contract<'prepareNarration'>
   [Invoke.discardRecording]: Contract<'discardRecording'>
   [Invoke.ship]: Contract<'ship'>
   [Invoke.sourceControl]: Contract<'sourceControl'>

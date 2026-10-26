@@ -90,7 +90,9 @@ export const Invoke = {
   showToolbarMenu: 'toolbar:overflow-menu',
   startRecording: 'recording:start',
   recordingFrame: 'recording:frame',
+  recordingVideo: 'recording:video',
   finishRecording: 'recording:finish',
+  prepareNarration: 'recording:prepare-narration',
   discardRecording: 'recording:discard',
   ship: 'ship:run',
   sourceControl: 'source-control:run',
@@ -709,17 +711,20 @@ export interface GuiApi {
     narrate?: boolean,
   ): Promise<{ id: string; narrated: boolean; notice: string | null }>
   saveRecordingFrame(id: string, timestampMs: number, jpeg: Uint8Array): Promise<boolean>
+  /** The clip's next piece of WebM video, in order, as the recorder makes it */
+  saveRecordingVideo(id: string, chunk: Uint8Array): Promise<boolean>
   /**
    * `startedAt` is when the clip's time 0 was, in epoch ms (`timeOrigin + now`); `audio` is a
-   * narrated clip's voice as 16 kHz mono WAV.
+   * narrated clip's voice as 16 kHz mono WAV. The video is what `saveRecordingVideo` sent.
    */
   finishRecording(
     id: string,
     durationMs: number,
-    video: Uint8Array,
     startedAt: number,
     audio?: Uint8Array | null,
   ): Promise<void>
+  /** Narration was turned on: get this Mac's speech model now, rather than after the first clip */
+  prepareNarration(): Promise<void>
   discardRecording(id: string): Promise<void>
   /** Where the pointer is over the preview while recording `id`, for the recorder to draw */
   onRecordingCursor(cb: (cursor: RecordingCursor) => void): Unsubscribe

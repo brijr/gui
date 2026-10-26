@@ -25,7 +25,7 @@ import type { IconComponent } from './icons'
  */
 export const PRESS = 'active:opacity-70 active:transition-none'
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'plain' | 'live'
 type ControlSize = 'sm' | 'md' | 'lg'
 
 const CONTROL = `no-drag inline-flex items-center justify-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
@@ -45,13 +45,17 @@ const VARIANT: Record<ButtonVariant, string> = {
   secondary: `border border-line-strong bg-raised text-fg shadow-control enabled:hover:tint ${FADE}`,
   ghost: `text-muted enabled:hover:bg-hover enabled:hover:text-fg ${FADE}`,
   danger: `bg-danger-soft text-danger enabled:hover:tint ${FADE}`,
+  plain: `text-muted enabled:hover:text-fg ${FADE}`,
+  live: `text-danger ${FADE}`,
 }
 
 interface ButtonProps extends ComponentProps<'button'> {
   /**
    * primary: the one thing to do next (at most one per view). secondary: the default, for
    * other actions and retries. ghost: quiet actions next to a primary or in headers.
-   * danger: confirming something destructive.
+   * danger: confirming something destructive. plain: ghost with no fill of its own, for a
+   * control inside a group that highlights as a whole (Record and its mic). live: something
+   * running that this stops (Record while it records), in danger text with no fill.
    */
   variant?: ButtonVariant
   size?: ControlSize
@@ -119,8 +123,11 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   title?: string
   icon: IconComponent
   size?: 'sm' | 'md'
-  /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
-  variant?: 'ghost' | 'primary' | 'secondary'
+  /**
+   * ghost, the default; primary for Send; secondary for a bordered one like Stop; plain for
+   * one inside a group that highlights as a whole (Button's `plain`)
+   */
+  variant?: 'ghost' | 'primary' | 'secondary' | 'plain'
   /** Makes it a toggle: aria-pressed, and accent-soft with accent text while pressed */
   pressed?: boolean
   /** Turns the icon while something loads (Reload) */

@@ -1,4 +1,3 @@
-import { fixWebmDuration } from '@fix-webm-duration/fix'
 import { useEffect, useRef, useState } from 'react'
 import {
   MAX_NARRATED_RECORDING_MS,
@@ -10,8 +9,10 @@ import {
 import type { WindowState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
+import { readableError } from '../lib/errors'
+import { InlineError } from '../lib/field'
 import { CircleDot, Mic, MicOff, Square, X } from '../lib/icons'
-import { Button, PRESS } from '../lib/ui'
+import { Button, IconButton } from '../lib/ui'
 import { PointerOverlay } from './recording-pointer'
 import { captureVoice, type Voice } from './recording-voice'
 
@@ -29,10 +30,17 @@ function savedNarrate() {
   }
 }
 
+/** A recording in progress, for its timer and mic level */
+interface Live {
+  /** performance.now() when it started */
+  started: number
+  voice: Voice | null
+}
+
 export function RecordButton({ state, disabled }: { state: WindowState; disabled: boolean }) {
   const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'saving'>('idle')
-  const [elapsed, setElapsed] = useState(0)
-  const [level, setLevel] = useState<number | null>(null)
+  // Set once as it starts: the timer and the level redraw themselves, not the whole button.
+  const [live, setLive] = useState<Live | null>(null)
   const [narrate, setNarrate] = useState(savedNarrate)
   const [error, setError] = useState<string | null>(null)
   /** Recording goes on, but without the user's voice: why */
@@ -76,6 +84,8 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
     try {
       localStorage.setItem(NARRATE_KEY, String(next))
     } catch {}
+    // This Mac's speech model downloads now, rather than after the first narrated clip.
+    if (next) void gui.prepareNarration().catch(() => undefined)
   }
 
   const start = async () => {
@@ -157,8 +167,9 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         mimeType,
         videoBitsPerSecond: narrated ? 2_000_000 : 3_000_000,
       })
-      const chunks: Blob[] = []
       let bytes = 0
+      /** Video chunks on their way to main, in order */
+      let saving: Promise<void> = Promise.resolve()
       let stopping = false
       let pending: Promise<void> = Promise.resolve()
       let capturing = false
@@ -170,6 +181,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         if (stopping) return
         stopping = true
         durationMs = Math.min(maxDuration + 1000, Math.max(performance.now() - started, last))
+        setLive(null)
         setPhase('saving')
         clearInterval(interval)
         clearTimeout(deadline)
@@ -181,14 +193,32 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       }
       stop.current = finish
       recorder.ondataavailable = (event) => {
-        if (!event.data.size) return
+        if (!event.data.size || failure) return
         bytes += event.data.size
         if (bytes > MAX_RECORDING_VIDEO_BYTES) {
           failure = 'Recording reached its size limit. Please record a shorter clip.'
           finish()
           return
         }
-        chunks.push(event.data)
+        // Each second goes to main as it's made, so stopping a long clip doesn't gather all
+        // of it here and copy it again.
+        const data = event.data
+        saving = saving
+          .then(async () => {
+            if (failure) return
+            const accepted = await gui.saveRecordingVideo(
+              recordingId,
+              new Uint8Array(await data.arrayBuffer()),
+            )
+            if (!accepted && !failure) {
+              failure = 'Recording interrupted because the preview became unavailable.'
+              finish()
+            }
+          })
+          .catch((cause: unknown) => {
+            failure ??= readableError(cause) || 'Could not save the recording.'
+            finish()
+          })
       }
       recorder.onerror = () => {
         failure = 'Could not encode the recording.'
@@ -197,30 +227,26 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       recorder.onstop = async () => {
         try {
           await pending
+          await saving
           const audio = voice ? await voice.finish().catch(() => null) : null
           if (failure) throw new Error(failure)
-          const blob = await fixWebmDuration(new Blob(chunks, { type: mimeType }), durationMs, {
-            logger: false,
-          })
           // Release the capture before main gives the keyboard to the chat.
           video.srcObject = null
           await gui.finishRecording(
             recordingId,
             durationMs,
-            new Uint8Array(await blob.arrayBuffer()),
             performance.timeOrigin + started,
             audio,
           )
         } catch (cause) {
           await gui.discardRecording(recordingId).catch(() => undefined)
-          setError(cause instanceof Error ? cause.message : 'Could not save the recording.')
+          setError(readableError(cause) || 'Could not save the recording.')
         } finally {
           voice?.dispose()
           video.srcObject = null
           stop.current = null
           busy.current = false
-          setElapsed(0)
-          setLevel(null)
+          setLive(null)
           setPhase('idle')
         }
       }
@@ -257,7 +283,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             }
           })
           .catch((cause: unknown) => {
-            failure = cause instanceof Error ? cause.message : 'Could not save frames.'
+            failure ??= readableError(cause) || 'Could not save frames.'
             finish()
           })
           .finally(() => {
@@ -285,14 +311,9 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             finish()
         }),
       )
-      let ticks = 0
-      interval = setInterval(() => {
-        draw()
-        if (++ticks % 4) return
-        setElapsed(performance.now() - started)
-        if (voice) setLevel(voice.level())
-      }, 1000 / 30)
+      interval = setInterval(draw, 1000 / 30)
       deadline = setTimeout(finish, maxDuration)
+      setLive({ started, voice })
       setPhase('recording')
     } catch (cause) {
       clearInterval(interval)
@@ -302,9 +323,9 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       voice?.dispose()
       if (id) await gui.discardRecording(id).catch(() => undefined)
       busy.current = false
-      setLevel(null)
+      setLive(null)
       setPhase('idle')
-      setError(cause instanceof Error ? cause.message : 'Could not start recording.')
+      setError(readableError(cause) || 'Could not start recording.')
     }
   }
 
@@ -328,12 +349,13 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       : 'Record preview'
   const idle = phase === 'idle'
   return (
-    <div ref={root} className="relative no-drag flex items-center">
+    <div ref={root} className="relative no-drag flex min-w-0 items-center">
       {/* Record and its mic are one control, highlighted together on hover. The mic shows
-          whether recordings are narrated: tinted while on, struck through while off. */}
-      <div className="group/record flex h-7 items-center rounded-md transition-colors has-[button:enabled:hover]:bg-hover">
+          whether recordings are narrated: tinted while on, struck through while off. Their
+          own variants carry their colors (plain, live), so no class here overrides another. */}
+      <div className="group/record flex h-7 shrink-0 items-center rounded-md transition-colors has-[button:enabled:hover]:bg-hover">
         <Button
-          variant="ghost"
+          variant={recording ? 'live' : 'plain'}
           icon={recording ? Square : CircleDot}
           disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
           onClick={() => (recording ? stop.current?.() : void start())}
@@ -343,23 +365,25 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
           shortcut="recordPreview"
           // The seconds count up in place rather than shifting the button's width.
           className={cn(
-            'pr-1.5 pl-2 enabled:hover:bg-transparent group-has-[button:enabled:hover]/record:text-fg',
-            recording && 'text-danger tabular-nums',
+            'pr-1.5 pl-2',
+            recording ? 'tabular-nums' : 'group-has-[button:enabled:hover]/record:text-fg',
           )}
         >
-          {recording
-            ? `${Math.floor(elapsed / 1000)}s`
-            : phase === 'saving'
-              ? 'Saving…'
-              : phase === 'starting'
-                ? 'Starting…'
-                : null}
+          {recording && live ? (
+            <Elapsed started={live.started} />
+          ) : phase === 'saving' ? (
+            'Saving…'
+          ) : phase === 'starting' ? (
+            'Starting…'
+          ) : null}
         </Button>
         {!recording && (
-          <button
-            type="button"
-            aria-label="Narrate recordings"
-            aria-pressed={narrate}
+          <IconButton
+            variant="plain"
+            size="sm"
+            icon={narrate ? Mic : MicOff}
+            label="Narrate recordings"
+            pressed={narrate}
             title={
               narrate
                 ? 'Recordings include your voice, transcribed for the agent. Click to turn off.'
@@ -367,56 +391,66 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             }
             disabled={!idle}
             onClick={toggleNarrate}
-            className={cn(
-              'mr-0.5 -ml-0.5 flex size-6 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-40',
-              PRESS,
-              narrate ? 'bg-accent-soft text-accent-text' : 'text-subtle hover:text-fg',
-            )}
-          >
-            {narrate ? (
-              <Mic className="size-3.5" aria-hidden="true" />
-            ) : (
-              <MicOff className="size-3.5" aria-hidden="true" />
-            )}
-          </button>
+            className="mr-0.5 -ml-0.5"
+          />
         )}
-        {recording && level !== null && (
-          // The mic is hearing them: a level that moves as they talk.
-          <span
-            role="img"
-            aria-label="Microphone on"
-            title="Recording your voice"
-            className="mr-1 flex h-7 items-center gap-1 text-danger"
-          >
-            <Mic className="size-3.5" aria-hidden="true" />
-            <span className="h-1 w-6 overflow-hidden rounded-full bg-hover">
-              <span
-                className="block h-full rounded-full bg-current transition-[width] duration-100"
-                style={{ width: `${Math.round(Math.max(0.08, level) * 100)}%` }}
-              />
-            </span>
-          </span>
-        )}
+        {recording && live?.voice && <Level voice={live.voice} />}
       </div>
       {/* In the toolbar itself: anything hanging below it would sit under the preview, a
-          native view drawn over this page. The reason is announced and in the tooltip. */}
+          native view drawn over this page. A long reason is cut short; its tooltip has it all. */}
       {shown && (
-        <>
-          <span role="alert" className="sr-only">
-            {error ? "Couldn't record" : 'Recording without your voice'}: {shown}
-          </span>
-          <Button
-            variant="danger"
-            size="sm"
-            trailingIcon={X}
-            title={`${shown} Click to dismiss.`}
-            onClick={dismiss}
-            className="ml-1"
-          >
-            {error ? "Couldn't record" : 'No voice'}
-          </Button>
-        </>
+        <div className="ml-1.5 flex min-w-0 max-w-80 items-center gap-0.5">
+          {error ? (
+            <InlineError className="truncate">
+              <span title={error}>Couldn’t record: {error}</span>
+            </InlineError>
+          ) : (
+            <p role="status" title={shown} className="select-text truncate text-small text-warning">
+              {shown}
+            </p>
+          )}
+          <IconButton size="sm" icon={X} label="Dismiss" onClick={dismiss} />
+        </div>
       )}
     </div>
+  )
+}
+
+/** Seconds since `started`, counting up. Only this redraws as they pass. */
+function Elapsed({ started }: { started: number }) {
+  const [seconds, setSeconds] = useState(() => Math.floor((performance.now() - started) / 1000))
+  useEffect(() => {
+    const tick = () => setSeconds(Math.floor((performance.now() - started) / 1000))
+    const timer = setInterval(tick, 250)
+    return () => clearInterval(timer)
+  }, [started])
+  return <>{seconds}s</>
+}
+
+/** The mic is hearing them: a level that moves as they talk, set on the bar without a render. */
+function Level({ voice }: { voice: Voice }) {
+  const bar = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (bar.current)
+        bar.current.style.width = `${Math.round(Math.max(0.08, voice.level()) * 100)}%`
+    }, 1000 / 8)
+    return () => clearInterval(timer)
+  }, [voice])
+  return (
+    <span
+      role="img"
+      aria-label="Microphone on"
+      title="Recording your voice"
+      className="mr-1 flex h-7 items-center gap-1 text-danger"
+    >
+      <Mic className="size-3.5" aria-hidden="true" />
+      <span className="h-1 w-6 overflow-hidden rounded-full bg-hover">
+        <span
+          ref={bar}
+          className="block h-full w-[8%] rounded-full bg-current transition-[width] duration-100"
+        />
+      </span>
+    </span>
   )
 }

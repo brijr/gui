@@ -1,7 +1,7 @@
 import { join } from 'node:path'
 import { app } from 'electron'
 import { z } from 'zod'
-import { spawnProcess } from './process'
+import { type ChildProcess, spawnProcess } from './process'
 
 /**
  * Transcribes a narrated recording's audio on this Mac with Apple's SpeechAnalyzer
@@ -68,6 +68,39 @@ export function transcriptionUnavailable(): string | null {
   return null
 }
 
+/** The model download can be large; the helper gives up rather than run on. */
+const PREPARE_TIMEOUT_MS = 15 * 60_000
+let preparing: ChildProcess | null = null
+let prepared = false
+
+/**
+ * Gets this Mac's speech model for the user's language before the first narrated clip needs
+ * it: the system downloads it once and keeps it. Runs once a launch (again if it failed),
+ * and stops when Gui quits.
+ */
+export function prepareTranscription(helper = transcriberPath()) {
+  if (preparing || prepared || transcriptionUnavailable()) return
+  const child = spawnProcess(helper, ['--prepare'], {
+    stdio: 'ignore',
+    timeout: PREPARE_TIMEOUT_MS,
+    killSignal: 'SIGKILL',
+  })
+  preparing = child
+  const stop = () => child.kill('SIGKILL')
+  app.once('will-quit', stop)
+  const done = (ok: boolean) => {
+    if (preparing !== child) return
+    preparing = null
+    prepared = ok
+    app.off('will-quit', stop)
+  }
+  child.once('error', (error) => {
+    console.error('[gui] could not get the speech model ready', error)
+    done(false)
+  })
+  child.once('close', (code) => done(code === 0))
+}
+
 const EXIT_MESSAGES: Record<number, string> = {
   3: 'Speech transcription is unavailable on this Mac.',
   4: "Speech transcription doesn't support your Mac's language yet.",
@@ -103,7 +136,7 @@ export async function transcribe(
       if (err.reduce((total, part) => total + part.length, 0) < 4096) err.push(chunk)
     })
     child.on('error', (error: NodeJS.ErrnoException) => {
-      if (error.name === 'AbortError') reject(new TranscribeError('Transcription was cancelled.'))
+      if (error.name === 'AbortError') reject(new TranscribeError('Transcription stopped.'))
       else if (error.code === 'ENOENT')
         reject(new TranscribeError('The transcriber is missing from this copy of Gui.'))
       else reject(error)
@@ -116,7 +149,7 @@ export async function transcribe(
       }),
     )
   })
-  if (signal.aborted) throw new TranscribeError('Transcription was cancelled.')
+  if (signal.aborted) throw new TranscribeError('Transcription stopped.')
   if (code !== 0) {
     throw new TranscribeError(
       (code !== null && EXIT_MESSAGES[code]) ||

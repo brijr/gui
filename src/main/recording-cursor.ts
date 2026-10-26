@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron'
+import { RECORDING_FPS } from '../shared/bounded'
 import { type ViewPoint, viewPoint, viewportFromView } from '../shared/coords'
 import type { RecordingCursor } from '../shared/types'
 
@@ -45,6 +46,12 @@ export interface CursorLog {
 export type CursorFrame = Omit<RecordingCursor, 'id'>
 
 const POLL_MS = 16
+/**
+ * The recorder draws at most RECORDING_FPS times a second, so the pointer is sent no more
+ * often than that (with half a poll of slack, so every other poll can send). A press or
+ * release, or leaving the preview, goes at once.
+ */
+const SEND_MS = 1000 / RECORDING_FPS - POLL_MS / 2
 const LOCATE_MS = 250
 /** Moving less than this (view px) still counts as holding still. */
 const DWELL_SLOP = 6
@@ -69,6 +76,9 @@ export class CursorTrack {
   private pending = new Set<Promise<unknown>>()
   private viewport = { width: 0, height: 0 }
   private stopped = false
+  /** The newest position not sent to the recorder yet */
+  private unsent: CursorFrame | null = null
+  private sent: { at: number; down: boolean; inside: boolean } | null = null
   private readonly onInput = (_event: unknown, input: Electron.InputEvent) => {
     if (input.type === 'mouseDown') this.down = true
     else if (input.type === 'mouseUp') this.down = false
@@ -168,6 +178,7 @@ export class CursorTrack {
       Math.abs(previous.x - point.x) < 0.5 &&
       Math.abs(previous.y - point.y) < 0.5
     ) {
+      this.send(at)
       this.track(at, inside, point)
       return
     }
@@ -181,8 +192,21 @@ export class CursorTrack {
         ...(down ? { down: true as const } : {}),
         ...(inside ? {} : { out: true as const }),
       })
-    this.options.onFrame({ x: point.x / size.width, y: point.y / size.height, down, inside })
+    this.unsent = { x: point.x / size.width, y: point.y / size.height, down, inside }
+    this.send(at)
     this.track(at, inside, point)
+  }
+
+  /** Passes the newest position on to the recorder, at the rate it draws. */
+  private send(at: number) {
+    const frame = this.unsent
+    if (!frame) return
+    const sent = this.sent
+    const changed = !sent || sent.down !== frame.down || sent.inside !== frame.inside
+    if (!changed && at - sent.at < SEND_MS) return
+    this.unsent = null
+    this.sent = { at, down: frame.down, inside: frame.inside }
+    this.options.onFrame(frame)
   }
 
   /** Holding still and what's underneath, from the pointer's view position. */
