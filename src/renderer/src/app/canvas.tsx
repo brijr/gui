@@ -94,7 +94,7 @@ export function Canvas({ state }: { state: WindowState }) {
         )}
         {state.board.open ? (
           preview.error && (
-            <div className="absolute inset-0 flex items-center justify-start p-8">
+            <div className="absolute inset-0 flex items-center justify-center p-8">
               <Message
                 icon={ALERT}
                 tone="danger"
@@ -121,15 +121,15 @@ export function Canvas({ state }: { state: WindowState }) {
       {preview.frame && preview.visible && !state.shortcutsOpen && !morphing && (
         <DeviceFrame frame={preview.frame} />
       )}
-      {/* Anchored at the left, centered top to bottom while it fits; scrolls from the top in
-          a short window. */}
+      {/* The column sits in the middle while it fits (its text still starts at the left);
+          scrolls from the top in a short window. */}
       <div
         className={cn(
-          'absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8 pl-12',
+          'absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8',
           !state.project && 'pt-20',
         )}
       >
-        <div className="my-auto flex w-full justify-start">
+        <div className="m-auto flex w-full justify-center">
           <CanvasMessage state={state} />
         </div>
       </div>

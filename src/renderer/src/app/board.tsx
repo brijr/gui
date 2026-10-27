@@ -1068,7 +1068,7 @@ function EmptyBoard({ working }: { working: boolean }) {
     }
   }
   return (
-    <div className="pointer-events-none absolute inset-0 flex items-center justify-start p-8">
+    <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
       <Card
         className="pointer-events-auto flex w-full max-w-md flex-col gap-4 p-5"
         onPointerDown={(event) => event.stopPropagation()}
