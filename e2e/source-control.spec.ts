@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { SourceControlAction } from '../src/shared/source-control'
 import { electronExecutable, waitFor } from './helpers/env'
 import { git } from './helpers/fixtures'
-import { chooseFromChatMenu } from './helpers/menus'
+import { chooseFromBranchMenu } from './helpers/menus'
 import { type GuiSession, standInsFile } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -86,16 +86,13 @@ test('clean branch management and repeated commits preserve file choices across 
   identity(root)
   remote(session)
   await status(session)
-  const header = session.chat.getByRole('banner').first()
-  const sourceControl = header.getByRole('button', { name: 'Source control', exact: true })
-  await expect(sourceControl).toHaveAttribute('aria-pressed', 'false')
-  await sourceControl.dispatchEvent('click')
-  await expect(sourceControl).toHaveAttribute('aria-pressed', 'true')
+  // The toolbar's branch menu is the one way in; Back to chat closes it.
+  const openSheet = () => chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
+  await openSheet()
   await expect(session.chat.getByText(/No uncommitted changes/)).toBeVisible()
-  await sourceControl.dispatchEvent('click')
-  await expect(sourceControl).toHaveAttribute('aria-pressed', 'false')
-  await expect(session.chat.getByRole('textbox', { name: 'Commit message' })).not.toBeVisible()
-  await sourceControl.dispatchEvent('click')
+  await session.chat.getByRole('button', { name: 'Back to chat' }).first().dispatchEvent('click')
+  await expect(session.chat.getByText(/No uncommitted changes/)).not.toBeVisible()
+  await openSheet()
   await expect(session.chat.getByText(/No uncommitted changes/)).toBeVisible()
   await session.chat.getByRole('button', { name: 'New branch', exact: true }).dispatchEvent('click')
   await expect(session.chat.getByRole('textbox', { name: 'Branch name' })).toBeFocused()
@@ -146,7 +143,10 @@ test('clean branch management and repeated commits preserve file choices across 
   await session.chat.getByRole('textbox', { name: 'Commit message' }).fill('Second selected group')
   await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
   await settledShot(session, testInfo.outputPath('source-control-light.png'))
-  await header.screenshot({ path: testInfo.outputPath('source-control-header.png') })
+  await session.chat
+    .getByRole('banner')
+    .first()
+    .screenshot({ path: testInfo.outputPath('source-control-header.png') })
   await session.chat
     .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
@@ -266,7 +266,7 @@ test('main, master, custom defaults and upstream destinations all require main-o
   ).rejects.toThrow(/cancelled/)
   const localMain = git(root, 'rev-parse', 'main').trim()
   await answerPush(session, 1)
-  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
+  await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
   await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
   await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
   await expect(session.chat.getByRole('dialog', { name: 'Create a branch' })).toBeVisible()
@@ -405,10 +405,7 @@ test('draft typing and file selection remain available while the agent runs', as
     async () => (await session.chatSnapshot()).turns.some((turn) => turn.status === 'running'),
     'running turn',
   )
-  const header = session.chat.getByRole('banner').first()
-  const sourceControl = header.getByRole('button', { name: 'Source control', exact: true })
-  await expect(sourceControl).toBeEnabled()
-  await sourceControl.dispatchEvent('click')
+  await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
   await session.chat
     .getByRole('textbox', { name: 'Commit message' })
     .fill('Draft written during the turn')
@@ -421,7 +418,10 @@ test('draft typing and file selection remain available while the agent runs', as
     act(session, { kind: 'commit', title: 'Bypass UI', body: '', files: ['src/App.tsx'] }),
   ).rejects.toThrow(/agent/)
   await settledShot(session, testInfo.outputPath('source-control-running-narrow.png'))
-  await header.screenshot({ path: testInfo.outputPath('source-control-header-narrow.png') })
+  await session.chat
+    .getByRole('banner')
+    .first()
+    .screenshot({ path: testInfo.outputPath('source-control-header-narrow.png') })
   writeFileSync(release, 'done')
   await session.waitForTurn(0)
   await expect(session.chat.getByRole('textbox', { name: 'Commit message' })).toHaveValue(

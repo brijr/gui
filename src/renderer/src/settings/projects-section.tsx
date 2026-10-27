@@ -62,11 +62,11 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
       {defaultBranchProjects.length > 0 && (
         <section aria-labelledby={branchId} className="flex flex-col gap-2">
           <GroupLabel as="h2" id={branchId}>
-            Always open on main
+            Stay on main
           </GroupLabel>
           <p className="text-pretty text-small text-muted">
-            These projects open on their main branch without asking where to work. Ask again to
-            choose between main, a new branch and a new worktree the next time you open one.
+            In these projects, work goes straight onto the main branch. Use new branches to have the
+            first message start a branch again, so main stays as it is.
           </p>
           <List>
             {defaultBranchProjects.map((root) => (
@@ -173,11 +173,11 @@ function DefaultBranchRow({ root, home }: { root: string; home: string }) {
       detail={<PathText path={root} home={home} className="select-text text-caption text-subtle" />}
       trailing={
         <Button
-          aria-label={`Ask where to work again for ${root}`}
+          aria-label={`Use new branches again for ${root}`}
           disabled={ask.pending}
           onClick={() => void ask.run(() => gui.askAboutBranch(root))}
         >
-          Ask again
+          Use new branches
         </Button>
       }
     >

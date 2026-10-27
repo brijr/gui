@@ -128,20 +128,15 @@ test('the agent reads source control, versions and earlier turns, and proposes a
   expect(textOf(versions)).toContain('modified src/App.tsx')
   expect(proposed.isError).not.toBe(true)
 
-  // The sheet opens filled in once the turn is over; nothing is committed until the user ships.
-  await expect(session.chat.getByRole('textbox', { name: 'Commit message' })).toHaveValue(
-    'Note the agent proposal',
-  )
-  await expect(session.chat.getByRole('checkbox', { name: 'Include src/App.tsx' })).toBeChecked()
-  await expect(
-    session.chat.getByRole('checkbox', { name: 'Include src/index.css' }),
-  ).not.toBeChecked()
+  // The bar over the chat takes it once the turn is over: its button commits with the agent's
+  // message and files (one of them gone since), and nothing is committed until it's pressed.
+  await expect(session.chat.getByText(/· Note the agent proposal/)).toBeVisible()
+  const commit = session.chat.getByRole('button', { name: 'Commit', exact: true })
+  await expect(commit).toBeVisible()
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(head)
 
-  await session.chat
-    .getByRole('button', { name: 'Commit 1 file', exact: true })
-    .dispatchEvent('click')
-  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
+  await commit.dispatchEvent('click')
+  await waitFor(() => git(root, 'rev-parse', 'HEAD').trim() !== head, 'the commit')
   expect(git(root, 'log', '-1', '--format=%s').trim()).toBe('Note the agent proposal')
   expect(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim()).toBe(
     'src/App.tsx',

@@ -57,6 +57,8 @@ export async function readProposal(root: string, refresh = false): Promise<Propo
     merge,
     pull,
     worktree: head?.mainTop ? basename(head.top) : null,
+    remote: repo.remote?.host ?? null,
+    newBranchFrom: null,
   }
 }
 

@@ -51,10 +51,10 @@ import {
   isProjectTemplate,
   isTerminalId,
   isViewport,
-  isWhereToWorkAnswer,
   type ProjectTemplate,
   type Rect,
   type SettingsSection,
+  type ShipDraft,
   type ShipRequest,
   type StartCommandInput,
   type StorageKind,
@@ -139,7 +139,7 @@ import {
   shareBoards,
   windowEvents,
 } from './window'
-import { findWorktree, type WorktreeRecord } from './worktree-registry'
+import { findWorktree, sharedBranchCheck, type WorktreeRecord } from './worktree-registry'
 import { forgetWorktree } from './worktrees'
 
 app.setName('Gui')
@@ -249,10 +249,10 @@ async function openProjectIn(
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
     const tab = tabToOpenIn(target)
-    // On a shared branch like main, the start screen asks where to work first.
-    const choice = ask ? await tab.chooseWhereToWork(real) : { root: real, branchOnSend: null }
-    if (!choice) return
-    await tab.openProject(choice.root, { branchOnSend: choice.branchOnSend })
+    // On a shared branch like main, the first message starts a new branch, so main stays as
+    // it was. Reads files only; the bar over the chat says so and offers Stay on main.
+    const shared = ask ? await sharedBranchCheck(real) : null
+    await tab.openProject(real, { branchOnSend: shared?.branch ?? null })
   } finally {
     opening.delete(real)
     syncMenuItems()
@@ -285,7 +285,7 @@ async function offerToForget(target: ProjectWindow | undefined, worktree: Worktr
 
 /**
  * One of a repository's worktrees: the tab it's open in, shown, or a new tab. It opens as it
- * is, without asking where to work: the user picked this checkout.
+ * is, with no new branch on the first message: the user picked this checkout.
  */
 async function openWorktreeIn(target: ProjectWindow | undefined, root: string) {
   const open = allTabs().find((tab) => tab.projectRoot === root)
@@ -722,6 +722,14 @@ function isShipRequest(value: unknown): value is ShipRequest {
   )
 }
 
+/** The agent's proposal, as the chat hands it back with Share: a request whose branch may be left out. */
+function isShipDraft(value: unknown): value is ShipDraft {
+  if (!value || typeof value !== 'object') return false
+  const draft = value as Record<string, unknown>
+  if (draft.mode !== 'commit' && draft.mode !== 'share') return false
+  return isShipRequest({ ...draft, branch: draft.branch === undefined ? '' : draft.branch })
+}
+
 const captures = new Map<
   number,
   {
@@ -984,6 +992,15 @@ function registerIpc() {
     if (!tab) throw new Error('No project is open.')
     return tab.ship(request)
   })
+  handleLegacy(Invoke.share, (event, draft: unknown) => {
+    if (draft !== null && !isShipDraft(draft)) throw new Error('Invalid request')
+    const tab = tabFor(event)
+    if (!tab) throw new Error('No project is open.')
+    return tab.share(draft)
+  })
+  handleLegacy(Invoke.stayOnBranch, (event) =>
+    reportError(async () => requireTab(event).stayOnBranch()),
+  )
   handleLegacy(Invoke.sourceControl, (event, request: unknown) => {
     if (!isSourceControlRequest(request)) throw new Error('Invalid source control request')
     const tab = tabFor(event)
@@ -1012,12 +1029,6 @@ function registerIpc() {
   handleLegacy(Invoke.resolveConflicts, (event) =>
     reportError(async () => requireTab(event).resolveConflicts()),
   )
-  handleLegacy(Invoke.answerWhereToWork, async (event, answer: unknown) => {
-    // The start screen is the window's chrome, answering for its own tab.
-    const win = windowFor(event)
-    if (!win || win.win.webContents !== event.sender || !isWhereToWorkAnswer(answer)) return false
-    return win.activeTab.answerWhereToWork(answer)
-  })
   handleLegacy(Invoke.createWorktree, (event, name: unknown) =>
     reportError(async () => {
       if (!isString(name) || name.length > 200) throw new Error('Use a shorter name.')
@@ -1117,10 +1128,8 @@ function registerIpc() {
     const point = isPoint(at) ? at : null
     tabFor(event)?.showAgentMenu(() => openSettings('agents'), event.sender, point)
   })
-  ipcMain.on(Send.showChatMenu, (event, at: unknown, ship: unknown) => {
-    if (!isPoint(at)) return
-    const flags = ship && typeof ship === 'object' ? (ship as Record<string, unknown>) : {}
-    tabFor(event)?.showChatMenu(at, { open: flags.open === true, busy: flags.busy === true })
+  ipcMain.on(Send.showChatMenu, (event, at: unknown) => {
+    if (isPoint(at)) tabFor(event)?.showChatMenu(at)
   })
   onWindow(Send.showProjectMenu, (win) =>
     win.activeTab.showProjectMenu(

@@ -1,9 +1,17 @@
 import { create } from 'zustand'
-import type { Proposal, ProposalPull } from '../../../shared/types'
+import type { Proposal, ProposalPull, ShipDraft } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 
-export type Action = 'fresh' | 'bringIn' | 'finish' | 'cancel' | 'resolve' | 'removeWorktree'
+export type Action =
+  | 'fresh'
+  | 'bringIn'
+  | 'finish'
+  | 'cancel'
+  | 'resolve'
+  | 'removeWorktree'
+  | 'share'
+  | 'stay'
 
 interface ProposalStore {
   proposal: Proposal | null
@@ -13,6 +21,10 @@ interface ProposalStore {
   reviewing: boolean
   /** Comments the user has sent to the agent or put aside, by pull request URL */
   handled: Record<string, string[]>
+  /** The commit the agent proposed (source_control_propose), for the bar's button to use */
+  draft: ShipDraft | null
+  /** Pushed, and the pull request is finished on the host's website at this page */
+  finish: string | null
 }
 
 const HANDLED_KEY = 'gui.reviewHandled'
@@ -32,6 +44,8 @@ export const useProposal = create<ProposalStore>(() => ({
   error: null,
   reviewing: false,
   handled: loadHandled(),
+  draft: null,
+  finish: null,
 }))
 
 /** Bumped per read, so a slow one can't overwrite a newer answer. */
@@ -40,7 +54,16 @@ let reads = 0
 export async function refreshProposal(fromRemote = false) {
   const current = ++reads
   const proposal = await gui.getProposal(fromRemote).catch(() => null)
-  if (current === reads) useProposal.setState({ proposal })
+  if (current !== reads) return
+  // Nothing left to commit or push: the agent's proposal was for work that's gone.
+  const settled = !proposal || (proposal.changes === 0 && proposal.ahead === 0)
+  useProposal.setState(settled ? { proposal, draft: null } : { proposal })
+}
+
+/** The agent proposed a commit: the bar's button commits with its message. */
+export function proposeDraft(draft: ShipDraft) {
+  useProposal.setState({ draft })
+  void refreshProposal()
 }
 
 export async function act(action: Action, run: () => Promise<void>) {

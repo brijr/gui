@@ -120,16 +120,9 @@ function openFromFinder(session: GuiSession, path: string) {
   }, path)
 }
 
-/**
- * Opens a project not opened before from Finder: it's a fresh repository on main, so its tab
- * asks where to work first, and the user works on main.
- */
+/** Opens a project not opened before from Finder: on main, it opens straight away too. */
 async function openNewFromFinder(session: GuiSession, path: string) {
   await openFromFinder(session, path)
-  await expect(
-    session.chrome.getByRole('heading', { name: 'Where do you want to work?' }),
-  ).toBeVisible()
-  await session.chrome.getByRole('button', { name: /^On main/ }).click()
 }
 
 /**

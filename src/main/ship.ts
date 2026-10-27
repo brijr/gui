@@ -116,7 +116,7 @@ async function shipUnlocked(
   if (repo.problem) throw new Error(repo.problem)
   actions?.assertAvailable()
   if (request.mode === 'commit' && repo.changes.length === 0) {
-    throw new Error('No changes to commit. Choose Share for review to push saved commits.')
+    throw new Error('No changes to commit. Push sends the commits you already have.')
   }
   // Validate the selection before switching branches or changing the index.
   const pushOnly =

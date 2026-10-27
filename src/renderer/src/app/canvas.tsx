@@ -50,7 +50,6 @@ import { recentDetail, recentTitle } from './recent-labels'
 import { crashed, stoppedOutside } from './server-status'
 import { SignIn } from './sign-in'
 import { focusAddressBar } from './toolbar'
-import { WhereToWork } from './where-to-work'
 
 /**
  * The preview is a native view layered over this element; we report our bounds so
@@ -987,7 +986,6 @@ function EmptyState({ state }: { state: WindowState }) {
   // Gui needs an account before anything else; projects asked for meanwhile open after.
   if (!account) return null
   if (needsSignIn(account)) return <SignIn />
-  if (state.whereToWork) return <WhereToWork prompt={state.whereToWork} />
   return <StartScreen state={state} />
 }
 

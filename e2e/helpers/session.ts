@@ -54,10 +54,10 @@ export interface LaunchOptions {
    */
   prefs?: Record<string, unknown> | null
   /**
-   * Opening a fixture (a fresh repository on its main branch) asks where to work. Specs open it
-   * on main without asking, as "Always open on main" does, unless this is true.
+   * A fixture is a fresh repository on its main branch, where the first message would start a
+   * new branch. Specs stay on main, as "Stay on main" does, unless this is true.
    */
-  askWhereToWork?: boolean
+  newBranchOnSend?: boolean
 }
 
 export interface ConsentPrompt {
@@ -470,13 +470,13 @@ export async function launchGui(
   }
   const prefs = options.prefs === undefined ? FLOATING_PREFS : options.prefs
   // The fixture is on main: specs work there, as if the user always opens it on main.
-  const onMain = options.askWhereToWork ? {} : { defaultBranchRoots: [copy.root] }
+  const onMain = options.newBranchOnSend ? {} : { defaultBranchRoots: [copy.root] }
   if (prefs) {
     writeFileSync(
       join(copy.userData, PREFS_FILE),
       JSON.stringify({ ...FLOATING_PREFS, ...onMain, ...prefs }),
     )
-  } else if (!options.askWhereToWork) {
+  } else if (!options.newBranchOnSend) {
     writeFileSync(join(copy.userData, PREFS_FILE), JSON.stringify(onMain))
   }
   if (options.open === 'recent') {

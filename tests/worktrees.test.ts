@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-test('where to work reads HEAD only, and worktrees are made and removed without losing work', async () => {
+test('the shared-branch check reads HEAD only, and worktrees are made and removed without losing work', async () => {
   const result = await promisify(execFile)(process.execPath, [
     join(import.meta.dirname, 'fast', 'worktrees.ts'),
   ])

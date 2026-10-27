@@ -75,21 +75,21 @@ const worktrees = await import('../../src/main/worktrees')
 const { trust, isTrusted } = await import('../../src/main/trust')
 
 try {
-  // Asking where to work: a main checkout on a shared branch with commits, read from files.
+  // A new branch on the first message: a main checkout on a shared branch with commits, read from files.
   const main = repo('my-app')
-  assert.deepEqual(await registry.whereToWorkCheck(main), { branch: 'main' })
-  assert.deepEqual(await registry.whereToWorkCheck(repo('on-master', 'master')), {
+  assert.deepEqual(await registry.sharedBranchCheck(main), { branch: 'main' })
+  assert.deepEqual(await registry.sharedBranchCheck(repo('on-master', 'master')), {
     branch: 'master',
   })
-  assert.equal(await registry.whereToWorkCheck(repo('fresh', 'main', true)), null, 'no commits')
+  assert.equal(await registry.sharedBranchCheck(repo('fresh', 'main', true)), null, 'no commits')
   const feature = repo('feature', 'feature/thing')
-  assert.equal(await registry.whereToWorkCheck(feature), null, 'feature branch')
+  assert.equal(await registry.sharedBranchCheck(feature), null, 'feature branch')
   const detached = repo('detached')
   git(detached, 'switch', '--quiet', '--detach')
-  assert.equal(await registry.whereToWorkCheck(detached), null, 'detached')
-  assert.equal(await registry.whereToWorkCheck(join(base, 'user-data')), null, 'no repository')
+  assert.equal(await registry.sharedBranchCheck(detached), null, 'detached')
+  assert.equal(await registry.sharedBranchCheck(join(base, 'user-data')), null, 'no repository')
   repo('always-main')
-  assert.equal(await registry.whereToWorkCheck(alwaysMain), null, 'always open on main')
+  assert.equal(await registry.sharedBranchCheck(alwaysMain), null, 'stays on main')
   // The remote's default branch counts as shared, whatever it's called.
   const custom = repo('custom-default', 'release-line')
   mkdirSync(join(custom, '.git/refs/remotes/origin'), { recursive: true })
@@ -97,12 +97,12 @@ try {
     join(custom, '.git/refs/remotes/origin/HEAD'),
     'ref: refs/remotes/origin/release-line\n',
   )
-  assert.deepEqual(await registry.whereToWorkCheck(custom), { branch: 'release-line' })
+  assert.deepEqual(await registry.sharedBranchCheck(custom), { branch: 'release-line' })
   // Packed refs count as commits.
   const packed = repo('packed')
   git(packed, 'pack-refs', '--all')
   assert.ok(!existsSync(join(packed, '.git/refs/heads/main')))
-  assert.deepEqual(await registry.whereToWorkCheck(packed), { branch: 'main' })
+  assert.deepEqual(await registry.sharedBranchCheck(packed), { branch: 'main' })
 
   // Naming
   assert.equal(registry.worktreeSlug('Pricing page'), 'pricing-page')
@@ -142,7 +142,7 @@ try {
   const head = await registry.readHead(made.path)
   assert.equal(head?.linked, true)
   assert.equal(head?.mainTop, main)
-  assert.equal(await registry.whereToWorkCheck(made.path), null, 'a worktree never asks')
+  assert.equal(await registry.sharedBranchCheck(made.path), null, 'never in a worktree')
   assert.deepEqual(await registry.branchStatus(made.path), {
     branch: 'gui/pricing-page',
     worktree: { of: 'my-app', name: 'pricing-page' },

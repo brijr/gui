@@ -8,6 +8,12 @@ import { app, type BrowserWindow } from 'electron'
 const inBackground = !app.isPackaged && process.env.GUI_E2E_BACKGROUND === '1'
 
 /**
+ * GUI_E2E_HIDDEN=1 as well (a walkthrough's screenshots, a run beside someone's work): windows
+ * are see-through and let clicks pass, so nothing shows on screen while pages still render.
+ */
+const hidden = inBackground && process.env.GUI_E2E_HIDDEN === '1'
+
+/**
  * In the background, macOS isn't let bring Gui to the front at all, whatever shows a window
  * or a sheet, and it keeps out of the Dock and ⌘Tab.
  */
@@ -17,6 +23,10 @@ export function keepInBackground() {
 
 /** Shows a window, in front and with the keyboard unless Gui runs in the background. */
 export function showWindow(win: BrowserWindow) {
+  if (hidden) {
+    win.setOpacity(0)
+    win.setIgnoreMouseEvents(true)
+  }
   if (inBackground) win.showInactive()
   else win.show()
 }

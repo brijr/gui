@@ -58,6 +58,8 @@ export interface AllIpcRequests {
   [Invoke.prepareNarration]: Contract<'prepareNarration'>
   [Invoke.discardRecording]: Contract<'discardRecording'>
   [Invoke.ship]: Contract<'ship'>
+  [Invoke.share]: Contract<'share'>
+  [Invoke.stayOnBranch]: Contract<'stayOnBranch'>
   [Invoke.sourceControl]: Contract<'sourceControl'>
   [Invoke.getProposal]: Contract<'getProposal'>
   [Invoke.startFresh]: Contract<'startFresh'>
@@ -71,7 +73,6 @@ export interface AllIpcRequests {
   [Invoke.untrustProject]: Contract<'untrustProject'>
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
   [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
-  [Invoke.answerWhereToWork]: Contract<'answerWhereToWork'>
   [Invoke.createWorktree]: Contract<'createWorktree'>
   [Invoke.removeWorktree]: Contract<'removeWorktree'>
   [Invoke.openWorktree]: Contract<'openWorktree'>
@@ -138,6 +139,7 @@ export type LegacyErrorChannel =
   | typeof Invoke.setStartCommand
   | typeof Invoke.startFresh
   | typeof Invoke.bringInLatest
+  | typeof Invoke.stayOnBranch
   | typeof Invoke.finishMerge
   | typeof Invoke.cancelMerge
   | typeof Invoke.resolveConflicts

@@ -15,10 +15,25 @@ interface ChatMenuStore {
  * can click, so main's next menu offering `label` clicks it instead of showing. Returns what
  * the menu offered.
  */
-export async function chooseFromChatMenu(
+export function chooseFromChatMenu(app: ElectronApplication, chat: Page, label: string) {
+  // dispatchEvent: the chat view can be hidden or offscreen; only its page matters here.
+  return chooseFromMenu(app, label, 'the chat menu', () =>
+    chat.getByRole('button', { name: 'More', exact: true }).dispatchEvent('click'),
+  )
+}
+
+/** Chooses `label` from the toolbar's branch menu, the way into Source Control. */
+export function chooseFromBranchMenu(app: ElectronApplication, chrome: Page, label: string) {
+  return chooseFromMenu(app, label, 'the branch menu', () =>
+    chrome.getByRole('button', { name: /^Branch / }).dispatchEvent('click'),
+  )
+}
+
+async function chooseFromMenu(
   app: ElectronApplication,
-  chat: Page,
   label: string,
+  name: string,
+  open: () => Promise<void>,
 ): Promise<string[]> {
   await app.evaluate(({ Menu }, choice) => {
     const store = globalThis as unknown as ChatMenuStore
@@ -41,8 +56,7 @@ export async function chooseFromChatMenu(
       return menu
     }
   }, label)
-  // dispatchEvent: the chat view can be hidden or offscreen; only its page matters here.
-  await chat.getByRole('button', { name: 'More', exact: true }).dispatchEvent('click')
+  await open()
   // Answered once main has built and "shown" it.
   return waitFor(
     () =>
@@ -50,6 +64,6 @@ export async function chooseFromChatMenu(
         const store = globalThis as unknown as ChatMenuStore
         return store.guiChatMenuChoice === null ? (store.guiChatMenuItems ?? []) : null
       }),
-    `the chat menu to offer ${label}`,
+    `${name} to offer ${label}`,
   )
 }

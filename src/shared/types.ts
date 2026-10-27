@@ -195,48 +195,6 @@ export interface BranchStatus {
   worktree: { of: string; name: string } | null
 }
 
-/**
- * Opening a project on a shared branch like main asks where to work first: on main, on a new
- * branch (named from the first message), or in a new worktree. The start screen shows it.
- */
-export interface WhereToWorkPrompt {
-  root: string
-  /** The project's folder name */
-  name: string
-  /** The shared branch it's on */
-  branch: string
-  /** Uncommitted changes that stay behind in a new worktree; null until read */
-  uncommitted: number | null
-  /** Making the worktree */
-  creating: boolean
-  error: string | null
-}
-
-export type WhereToWorkAnswer =
-  | { kind: 'main'; always: boolean }
-  | { kind: 'branch' }
-  /** The worktree row opened: asks for trust if needed, then reads what stays behind */
-  | { kind: 'prepare-worktree' }
-  | { kind: 'worktree'; name: string }
-  | { kind: 'cancel' }
-
-export function isWhereToWorkAnswer(value: unknown): value is WhereToWorkAnswer {
-  if (!value || typeof value !== 'object') return false
-  const answer = value as Record<string, unknown>
-  switch (answer.kind) {
-    case 'main':
-      return typeof answer.always === 'boolean'
-    case 'worktree':
-      return typeof answer.name === 'string' && answer.name.length <= 200
-    case 'branch':
-    case 'prepare-worktree':
-    case 'cancel':
-      return true
-    default:
-      return false
-  }
-}
-
 /** An archived chat, as a project's list of them shows it */
 export interface ChatSummary {
   id: string
@@ -474,8 +432,6 @@ export interface WindowState {
   home: string
   agents: AgentHealth[]
   setup: ProjectSetup | null
-  /** Asking where to work before the project opens; null otherwise */
-  whereToWork: WhereToWorkPrompt | null
   /** The open project's branch; null outside a repository */
   branch: BranchStatus | null
   /**
@@ -1130,6 +1086,13 @@ export interface Proposal {
   pull: ProposalPull | null
   /** In a worktree: its folder name. Finishing removes it rather than starting something new */
   worktree: string | null
+  /** Where it's pushed: GitHub and GitLab take pull requests; null when it isn't online */
+  remote: 'github' | 'gitlab' | 'other' | null
+  /**
+   * The shared branch (main) the project opened on, while the first message will start a new
+   * branch from it; null once it has, or when the user chose to stay on it.
+   */
+  newBranchFrom: string | null
 }
 
 export interface ProposalPull {

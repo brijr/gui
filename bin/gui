@@ -53,7 +53,7 @@ Gui opens a folder as a project, starts its dev server itself, and shows the pre
 
 ## Notes
 
-- Opening a project that's on `main` may make Gui ask where to work (main, a new branch or a new worktree). Let the user answer it in Gui.
+- On `main`, Gui keeps main as it is: the first message the user sends there starts a new branch. The bar over Gui's chat offers Stay on main.
 - Only folders work, not single files or URLs.
 - Opening commits nothing and leaves git alone.
 EOF

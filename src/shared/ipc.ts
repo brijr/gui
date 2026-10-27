@@ -37,7 +37,6 @@ import type {
   ToolbarMenuItem,
   Version,
   Viewport,
-  WhereToWorkAnswer,
   WindowState,
 } from './types'
 
@@ -95,6 +94,8 @@ export const Invoke = {
   prepareNarration: 'recording:prepare-narration',
   discardRecording: 'recording:discard',
   ship: 'ship:run',
+  share: 'ship:share',
+  stayOnBranch: 'proposal:stay-on-branch',
   sourceControl: 'source-control:run',
   getProposal: 'proposal:get',
   startFresh: 'proposal:start-fresh',
@@ -108,7 +109,6 @@ export const Invoke = {
   untrustProject: 'settings:untrust-project',
   resetStartCommand: 'settings:reset-start-command',
   askAboutBranch: 'settings:ask-about-branch',
-  answerWhereToWork: 'project:where-to-work',
   createWorktree: 'worktree:create',
   removeWorktree: 'worktree:remove',
   openWorktree: 'worktree:open',
@@ -232,7 +232,6 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 /** Main → renderer */
 /** What the chat's More menu hands back to the chat page to do. */
 export type ChatMenuChoice =
-  | 'pullRequest'
   | 'archive'
   | 'versions'
   /** From the toolbar's branch menu: Source Control, on its own or with its branch picker or a new-branch or new-worktree dialog open */
@@ -384,7 +383,7 @@ export interface GuiApi {
    * The chat header's More menu, under the button: Source Control, Archived Chats, Pop
    * Out. Main does Pop Out itself; the rest come back as `onChatMenuChoice`.
    */
-  showChatMenu(at: { x: number; y: number }, ship: { open: boolean; busy: boolean }): void
+  showChatMenu(at: { x: number; y: number }): void
   showProjectMenu(): void
   /**
    * The toolbar's branch menu: Switch Branch, New Branch, New Worktree, the repository's
@@ -393,8 +392,6 @@ export interface GuiApi {
   showBranchMenu(): void
   /** Shows the open project's folder in Finder */
   revealProject(): void
-  /** The start screen's answer to "Where do you want to work?" (`WindowState.whereToWork`); false when it didn't go ahead */
-  answerWhereToWork(answer: WhereToWorkAnswer): Promise<boolean>
   /**
    * A new worktree of the open project, named from `name` (blank: the date), opened in a new
    * tab; rejects with a message to show
@@ -750,6 +747,14 @@ export interface GuiApi {
   getShipInfo(): Promise<ShipInfo | null>
   /** Commits, pushes and opens the PR; rejects with a readable message */
   ship(request: ShipRequest): Promise<ShipResult>
+  /**
+   * The bar's one button: commits every eligible change (secrets left out), and with a remote
+   * pushes it and creates or updates the pull request. On main it goes on a new branch first.
+   * `draft` is the agent's proposal, when it made one. Rejects with a readable message.
+   */
+  share(draft: ShipDraft | null): Promise<ShipResult>
+  /** The first message won't start a new branch: work stays on main, here and from now on */
+  stayOnBranch(): Promise<void>
   sourceControl(request: SourceControlRequest): Promise<SourceControlResult>
   /**
    * Where the work stands as a pull request; null without a project or before Gui may run
@@ -787,7 +792,7 @@ export interface GuiApi {
   untrustProject(root: string): Promise<void>
   /** The project starts with the command Gui detects again */
   resetStartCommand(root: string): Promise<void>
-  /** Opening the project on its main branch asks where to work again */
+  /** Opened on its main branch, the project's first message starts a new branch again */
   askAboutBranch(root: string): Promise<void>
   clearRecent(): Promise<void>
   /** Asks to confirm, then clears; false when the user cancelled */

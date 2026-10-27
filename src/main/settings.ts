@@ -211,7 +211,7 @@ export async function resetStartCommand(root: string) {
   await refreshSettings()
 }
 
-/** The next time the project opens on its main branch, it asks where to work again. */
+/** Opened on its main branch again, the project's first message starts a new branch. */
 export async function askAboutBranch(root: string) {
   const roots = getPrefs().defaultBranchRoots
   if (roots.includes(root))

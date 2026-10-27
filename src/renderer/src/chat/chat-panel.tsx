@@ -31,7 +31,6 @@ import { cn } from '../lib/cn'
 import {
   ChevronDown,
   Ellipsis,
-  GitBranch,
   Maximize2,
   MessageSquare,
   Minus,
@@ -47,7 +46,8 @@ import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
 import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
-import { openShipSheet, ShipSheet, toggleShipSheet, useShipSheet } from './ship-sheet'
+import { proposeDraft } from './proposal-state'
+import { openShipSheet, ShipSheet, useShipSheet } from './ship-sheet'
 import { showSourceControl } from './shipping-state'
 import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
 import { Transcript } from './transcript'
@@ -99,7 +99,15 @@ export function ChatPanel() {
       }),
     [],
   )
-  useEffect(() => gui.onShipDraft(openShipSheet), [])
+  // The agent's proposal goes on the bar's button, and into Source Control when it's open.
+  useEffect(
+    () =>
+      gui.onShipDraft((draft) => {
+        proposeDraft(draft)
+        if (useShipSheet.getState().open) openShipSheet(draft)
+      }),
+    [],
+  )
   useProposalUpdates()
   const meta = useChat((s) => s.meta)
   const turnIds = useChat((s) => s.turnIds)
@@ -420,9 +428,6 @@ function agentStatus(meta: ChatMeta, running: boolean): Status {
 function Header({ meta }: { meta: ChatMeta }) {
   const running = meta.status === 'working'
   const titleBar = meta.docked || meta.popped
-  const shipping = useShipSheet((s) => s.open)
-  const shipBusy = useShipSheet((s) => s.busy)
-  const versionsBusy = useVersions((s) => s.busy)
   return (
     <PanelHeader
       onPointerDown={titleBar ? undefined : onDragStart}
@@ -476,26 +481,7 @@ function Header({ meta }: { meta: ChatMeta }) {
               onClick={() => gui.togglePopOut()}
             />
           )}
-          <IconButton
-            size="sm"
-            label="Source control"
-            icon={GitBranch}
-            pressed={shipping}
-            disabled={shipBusy || versionsBusy !== null}
-            // Disabled, its tooltip says why.
-            title={
-              shipBusy
-                ? 'Wait for source control to finish'
-                : versionsBusy !== null
-                  ? 'Wait for the version to finish restoring'
-                  : undefined
-            }
-            onClick={() => {
-              closeVersions()
-              toggleShipSheet()
-            }}
-          />
-          <MoreButton shipping={shipping} shipBusy={shipBusy} />
+          <MoreButton />
           {!meta.docked && !meta.popped && (
             <IconButton
               size="sm"
@@ -524,17 +510,14 @@ function Header({ meta }: { meta: ChatMeta }) {
  * Request, Archived Chats, Pop Out. The pull request sheet and the archived chats are this
  * page's, so main says which was chosen; the archived chats open under this button.
  */
-function MoreButton({ shipping, shipBusy }: { shipping: boolean; shipBusy: boolean }) {
+function MoreButton() {
   const button = useRef<HTMLButtonElement>(null)
   const [archive, setArchive] = useState(false)
   useEffect(
     () =>
       gui.onChatMenuChoice((choice) => {
         if (choice === 'versions') toggleVersions()
-        else if (choice === 'pullRequest') {
-          closeVersions()
-          toggleShipSheet()
-        } else if (choice === 'archive') setArchive(true)
+        else if (choice === 'archive') setArchive(true)
         else {
           // The toolbar's branch menu
           closeVersions()
@@ -553,10 +536,7 @@ function MoreButton({ shipping, shipBusy }: { shipping: boolean; shipBusy: boole
         aria-haspopup="menu"
         onClick={(event) => {
           const box = event.currentTarget.getBoundingClientRect()
-          gui.showChatMenu(
-            { x: Math.round(box.left), y: Math.round(box.bottom + 4) },
-            { open: shipping, busy: shipBusy },
-          )
+          gui.showChatMenu({ x: Math.round(box.left), y: Math.round(box.bottom + 4) })
         }}
       />
       <ArchivePopover

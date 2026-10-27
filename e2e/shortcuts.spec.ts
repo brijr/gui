@@ -21,7 +21,7 @@ import {
   viewportSpec,
 } from '../src/shared/types'
 import { electronExecutable, sleep, waitFor } from './helpers/env'
-import { chooseFromChatMenu } from './helpers/menus'
+import { chooseFromBranchMenu } from './helpers/menus'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -710,7 +710,7 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   await session.shot('permission-keys')
 
   // The PR sheet has ⌘↩ while it's open: the card waits.
-  await chooseFromChatMenu(session.app, chat, 'Source Control…')
+  await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
   await expect(chat.getByRole('button', { name: 'Back to chat' }).first()).toBeVisible()
   await waitFor(async () => !(await keys()).allow, 'Allow off under the sheet')
   expect(await keys()).toEqual({ allow: false, dontAllow: false })

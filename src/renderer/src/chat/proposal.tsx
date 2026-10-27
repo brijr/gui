@@ -1,6 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { fixPrompt } from '../../../shared/review'
-import type { Proposal, ProposalPull, ReviewComment } from '../../../shared/types'
+import type { Proposal, ProposalPull, ReviewComment, ShipDraft } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import {
@@ -8,6 +8,7 @@ import {
   Check,
   CircleDot,
   ExternalLink,
+  GitBranch,
   GitPullRequest,
   type IconComponent,
   MessageSquare,
@@ -29,7 +30,7 @@ import {
   refreshProposal,
   useProposal,
 } from './proposal-state'
-import { toggleShipSheet, useShipSheet } from './shipping-state'
+import { linkTarget, opensByItself, useShipSheet } from './shipping-state'
 import { useVersions } from './versions-state'
 
 export { refreshProposal, useProposal } from './proposal-state'
@@ -76,6 +77,8 @@ export function useProposalUpdates() {
       const running = chat.turns.some((turn) => turn.status === 'running')
       const was = before.turns.some((turn) => turn.status === 'running')
       if (was && !running) void refreshProposal()
+      // A message went in: on main, its branch was made first, and the bar says so.
+      else if (chat.turns.length > before.turns.length) void refreshProposal()
     })
     const offSheet = useShipSheet.subscribe((sheet, before) => {
       if (before.open && !sheet.open) void refreshProposal()
@@ -146,12 +149,15 @@ export function ProposalBar() {
   const shipBusy = useShipSheet((s) => s.busy)
   const comments = useOpenComments()
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
+  const draft = useProposal((s) => s.draft)
+  const finish = useProposal((s) => s.finish)
   if (!proposal) return null
 
-  const bar = barFor(proposal, comments.length, busy, agentBusy, shipBusy)
+  const bar = barFor(proposal, comments.length, busy, agentBusy, shipBusy, draft)
   return (
     <>
       {bar}
+      {finish && <FinishOnHost url={finish} />}
       {error && (
         <Banner
           tone="danger"
@@ -177,10 +183,25 @@ function barFor(
   busy: Action | null,
   agentBusy: boolean,
   shipBusy: boolean,
+  draft: ShipDraft | null,
 ): ReactNode {
   const { pull, merge } = proposal
   const latest = proposal.defaultBranch ?? 'main'
   const disabled = busy !== null || agentBusy
+  // The one button that takes the work forward: commit, and when it's online, push and
+  // create or update the pull request, all at once.
+  const shareButton = (
+    <Button
+      size="sm"
+      variant="primary"
+      disabled={disabled || shipBusy}
+      loading={busy === 'share'}
+      title={agentBusy ? 'Wait for the agent to finish' : shareHint(proposal, draft)}
+      onClick={() => share(draft)}
+    >
+      {shareLabel(proposal, draft)}
+    </Button>
+  )
 
   // Bringing in the latest stopped on conflicts: the agent resolves them, Gui finishes.
   if (merge) {
@@ -295,7 +316,7 @@ function barFor(
         role="status"
         actions={
           <>
-            {behind > 0 && bringIn('Bring in latest')}
+            {behind > 0 && bringIn('Get latest')}
             {openComments > 0 && (
               <Button
                 size="sm"
@@ -307,16 +328,7 @@ function barFor(
               </Button>
             )}
             {/* Work here the pull request doesn't have yet; the comments come first when both. */}
-            {(changes > 0 || proposal.ahead > 0) && (
-              <Button
-                size="sm"
-                variant={openComments > 0 ? 'secondary' : 'primary'}
-                disabled={shipBusy}
-                onClick={toggleShipSheet}
-              >
-                Update pull request
-              </Button>
-            )}
+            {(changes > 0 || proposal.ahead > 0) && shareButton}
           </>
         }
       >
@@ -334,18 +346,42 @@ function barFor(
         role="status"
         actions={
           <>
-            {behind > 0 && !proposal.onDefaultBranch && bringIn('Bring in latest')}
-            <Button size="sm" variant="primary" onClick={toggleShipSheet}>
-              {proposal.changes > 0 ? 'Review changes' : 'Share for review'}
-            </Button>
+            {behind > 0 && !proposal.onDefaultBranch && bringIn('Get latest')}
+            {shareButton}
           </>
         }
       >
-        <span className="truncate" title={proposal.branch ?? undefined}>
+        <span className="truncate" title={draft?.title ?? proposal.branch ?? undefined}>
           {proposal.changes > 0
-            ? `${plural(proposal.changes, 'uncommitted file')}`
-            : `${plural(proposal.ahead, 'commit')} ready to share`}
+            ? plural(proposal.changes, 'uncommitted change')
+            : `${plural(proposal.ahead, 'commit')} ready to push`}
           {proposal.branch && ` on ${proposal.branch}`}
+          {draft && ` · ${draft.title}`}
+        </span>
+      </Strip>
+    )
+  }
+
+  // Opened on main: the first message goes on a branch of its own, unless the user stays.
+  if (proposal.newBranchFrom) {
+    const from = proposal.newBranchFrom
+    return (
+      <Strip
+        icon={GitBranch}
+        role="status"
+        actions={
+          <Button
+            size="sm"
+            disabled={disabled}
+            loading={busy === 'stay'}
+            onClick={() => void act('stay', () => gui.stayOnBranch())}
+          >
+            Stay on {from}
+          </Button>
+        }
+      >
+        <span className="text-pretty">
+          Your first message starts a new branch, so {from} stays as it is.
         </span>
       </Strip>
     )
@@ -362,6 +398,58 @@ function barFor(
     )
   }
   return null
+}
+
+/** What the bar's button does, in the words the glossary uses for each step. */
+function shareLabel(proposal: Proposal, draft: ShipDraft | null) {
+  const { pull, remote } = proposal
+  if (remote === null || draft?.mode === 'commit') return 'Commit'
+  if (pull && (pull.state === 'open' || pull.state === 'draft')) return 'Update pull request'
+  if (remote === 'other') return proposal.changes > 0 ? 'Commit and push' : 'Push'
+  // Commits made on main by hand: they're pushed there, after Gui asks.
+  if (proposal.onDefaultBranch && proposal.changes === 0) return 'Push'
+  return 'Create pull request'
+}
+
+function shareHint(proposal: Proposal, draft: ShipDraft | null) {
+  const files = 'Commits every change except files that may hold secrets'
+  if (proposal.remote === null || draft?.mode === 'commit') return `${files}. It stays on this Mac.`
+  const branch = proposal.onDefaultBranch && proposal.changes > 0 ? ', on a new branch' : ''
+  return `${files}${branch}, then pushes it.`
+}
+
+/** Runs the bar's button; a pull request the host can't create here opens on its website. */
+function share(draft: ShipDraft | null) {
+  void act('share', async () => {
+    const result = await gui.share(draft)
+    useProposal.setState({ draft: null, finish: null })
+    if (result.outcome !== 'compare' || !result.url) return
+    if (opensByItself(result)) openExternal(result.url)
+    else useProposal.setState({ finish: result.url })
+  })
+}
+
+/** Pushed, with the pull request still to be created on the host's website. */
+function FinishOnHost({ url }: { url: string }) {
+  const host = linkTarget(url)?.host ?? 'the website'
+  return (
+    <Strip
+      icon={GitPullRequest}
+      role="status"
+      actions={
+        <>
+          <Button size="sm" variant="primary" icon={ExternalLink} onClick={() => openExternal(url)}>
+            Open {host}
+          </Button>
+          <TextButton tone="muted" onClick={() => useProposal.setState({ finish: null })}>
+            Dismiss
+          </TextButton>
+        </>
+      }
+    >
+      <span className="text-pretty">Pushed. Create the pull request on {host} to finish.</span>
+    </Strip>
+  )
 }
 
 /**

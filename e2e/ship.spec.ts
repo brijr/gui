@@ -4,7 +4,7 @@ import type { ElectronApplication, Page } from '@playwright/test'
 import type { ShipInfo, ShipRequest } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import { git } from './helpers/fixtures'
-import { chooseFromChatMenu } from './helpers/menus'
+import { chooseFromBranchMenu } from './helpers/menus'
 import { expect, test } from './helpers/test'
 
 const MARKER = '// Shipped from Gui e2e'
@@ -30,7 +30,7 @@ test('retrying a failed push keeps excluded edits out of the saved commit', asyn
   git(root, 'add', 'src/index.css')
   await waitFor(() => session.chat.evaluate(getShipInfo), 'ship info')
 
-  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
+  await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
   await session.chat.getByRole('checkbox', { name: 'Include src/index.css' }).dispatchEvent('click')
   await session.chat
     .getByRole('button', { name: 'Commit 1 file', exact: true })
@@ -81,7 +81,7 @@ test('source control saves selected files locally, then shares the saved commit'
   git(root, 'add', 'src/index.css')
 
   const info = await waitFor(() => session.chat.evaluate(getShipInfo), 'ship info')
-  await chooseFromChatMenu(session.app, session.chat, 'Source Control…')
+  await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
   await expect(session.chat.getByRole('checkbox', { name: 'Include src/App.tsx' })).toBeChecked()
   await session.chat.getByRole('checkbox', { name: 'Include src/index.css' }).dispatchEvent('click')
   await session.chat.getByRole('textbox', { name: 'Commit message' }).fill('Save only the app edit')
@@ -189,7 +189,7 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
   expect(info.suggestion.branch).toMatch(/^gui\/[a-z0-9-]+$/)
   expect(info.suggestion.title).not.toBe('')
 
-  await checkSheet(session.app, session.chat, info)
+  await checkSheet(session.app, session.chrome, session.chat, info)
 
   // Pushed: committed on a new branch that now exists on the remote too.
   const request: ShipRequest = { ...info.suggestion, title: 'Mark the fixture as shipped' }
@@ -235,11 +235,11 @@ test('create pull request commits to a new branch, pushes it, and leaves secrets
 })
 
 /**
- * The chat header's More menu opens the sheet, prefilled from the same suggestion. Soft: the
+ * The toolbar's branch menu opens the sheet, prefilled from the same suggestion. Soft: the
  * git assertions above and below are what this test is for.
  */
-async function checkSheet(app: ElectronApplication, chat: Page, info: ShipInfo) {
-  await chooseFromChatMenu(app, chat, 'Source Control…')
+async function checkSheet(app: ElectronApplication, chrome: Page, chat: Page, info: ShipInfo) {
+  await chooseFromBranchMenu(app, chrome, 'Source Control…')
   await expect
     .soft(chat.getByRole('textbox', { name: 'Commit message' }))
     .toHaveValue(info.suggestion.title)

@@ -9,7 +9,8 @@ import { defineConfig } from '@playwright/test'
  *
  * Agent turns spend real usage and are skipped unless GUI_E2E_AGENT=claude|codex.
  * Other switches: GUI_E2E_SHOTS=1 attaches screenshots at key steps,
- * GUI_E2E_KEEP=1 keeps the temp project directories.
+ * GUI_E2E_KEEP=1 keeps the temp project directories, GUI_E2E_HIDDEN=1 keeps the windows
+ * invisible (see-through, clicks pass) so nothing shows on screen.
  *
  * Gui runs in the background (GUI_E2E_BACKGROUND=1): its windows show without coming to the
  * front, so the suite doesn't take over the window you're working in. The two tests about

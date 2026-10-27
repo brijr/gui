@@ -109,11 +109,11 @@ export async function branchStatus(root: string): Promise<BranchStatus | null> {
 }
 
 /**
- * Whether opening `root` asks where to work, and the shared branch it's on if so. Only for a
- * main checkout on a branch a team shares (main, develop, the remote's default) that has
- * commits, and not one the user said always opens on main. Reads files only.
+ * Whether opening `root` puts its first message on a new branch, and the shared branch it's on
+ * if so. Only for a main checkout on a branch a team shares (main, develop, the remote's
+ * default) that has commits, and not one the user chose to stay on. Reads files only.
  */
-export async function whereToWorkCheck(root: string): Promise<{ branch: string } | null> {
+export async function sharedBranchCheck(root: string): Promise<{ branch: string } | null> {
   if (getPrefs().defaultBranchRoots.includes(root)) return null
   const head = await readHead(root)
   if (!head || head.linked || !head.branch || !head.hasCommits) return null
