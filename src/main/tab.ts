@@ -959,6 +959,7 @@ export class ProjectTab implements ChatPanelOwner {
       this.host.tabChanged(this, false)
     })
     chat.on('turnEnd', (turn) => {
+      this.panel.untuck()
       // The agent may have switched branches itself.
       void this.refreshBranch()
       // What the agent proposed to ship opens once it's done, for the user to review.
@@ -1289,21 +1290,34 @@ export class ProjectTab implements ChatPanelOwner {
 
   back() {
     const history = this.preview.webContents.navigationHistory
-    if (history.canGoBack()) history.goBack()
+    if (this.canNavigateHistory(-1)) history.goBack()
   }
 
   forward() {
     const history = this.preview.webContents.navigationHistory
-    if (history.canGoForward()) history.goForward()
+    if (this.canNavigateHistory(1)) history.goForward()
+  }
+
+  private canNavigateHistory(offset: -1 | 1) {
+    if (!this.state.preview.url) return false
+    const history = this.preview.webContents.navigationHistory
+    if (!history.canGoToOffset(offset)) return false
+    return history.getEntryAtIndex(history.getActiveIndex() + offset)?.url !== 'about:blank'
   }
 
   reload() {
-    if (this.state.preview.url) this.preview.webContents.reload()
+    if (!this.state.preview.url) return
+    if (this.preview.webContents.getURL() === 'about:blank') {
+      void this.loadPreview(this.state.preview.url)
+    } else this.preview.webContents.reload()
   }
 
   /** Reloads without the cache, for a change a normal reload keeps serving stale. */
   hardReload() {
-    if (this.state.preview.url) this.preview.webContents.reloadIgnoringCache()
+    if (!this.state.preview.url) return
+    if (this.preview.webContents.getURL() === 'about:blank') {
+      void this.loadPreview(this.state.preview.url)
+    } else this.preview.webContents.reloadIgnoringCache()
   }
 
   setViewport(viewport: Viewport) {
@@ -1460,13 +1474,18 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   private onNavigated(url: string) {
-    if (url === 'about:blank') return
-    const history = this.preview.webContents.navigationHistory
+    const navigation = {
+      canGoBack: this.canNavigateHistory(-1),
+      canGoForward: this.canNavigateHistory(1),
+    }
+    if (url === 'about:blank') {
+      this.patchPreview(navigation)
+      return
+    }
     this.patchPreview({
       url,
       selectable: isLoopback(url),
-      canGoBack: history.canGoBack(),
-      canGoForward: history.canGoForward(),
+      ...navigation,
     })
   }
 

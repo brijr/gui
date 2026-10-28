@@ -74,6 +74,10 @@ const steps = [
 
 const questions = [
   {
+    q: 'What does Gui cost?',
+    a: 'Gui is free to use during alpha. It connects to your own AI coding agent through ACP. You pay your agent provider under your existing account and plan; Gui adds no AI usage charges.',
+  },
+  {
     q: 'How is Gui different from the browser in Claude Code, Codex, or Cursor?',
     a: 'In those apps, the browser is a panel next to the chat. In Gui, your app fills the window and the chat floats on it, and you can use each of those agents. Gui is for many small design changes: each change shows before and after, with Undo and Follow up. Gui also records the page with your voice, and has a canvas for designs without a project.',
   },
@@ -162,10 +166,16 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   </div>
 
   <h1 class="lede">
-    An agent harness for web design and UI design.{' '}<br />
-    Design on your <span data-demo-target>real app</span>, not on a mockup.
+    Design on your <span data-demo-target>real app</span>.{' '}<br />
+    Tell your AI coding agent what to change.
   </h1>
-  <p class="sub">Your app fills the window and the chat floats on it. Make many small changes fast, with the agent that you use now.</p>
+  <p class="sub">Gui is a Mac app. Select an element, describe a change, and your AI coding agent edits the code. Start with a canvas or open a project.</p>
+
+  <nav class="launch-links" aria-label="Before you start">
+    <a href="#cost">Cost and setup</a>
+    <a href="/privacy">Privacy</a>
+    <a href="/terms">Terms</a>
+  </nav>
 
   <div class="try">
     <a class="try-button download-button" href="/download">
@@ -184,6 +194,12 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     </button>
   </div>
 
+  <p class="download-help" data-download-help hidden role="status">
+    After the download finishes, open Gui.dmg, drag Gui to Applications, then open Gui. Sign in, choose an agent, and select New canvas to start.
+  </p>
+  <p class="demo-note">Free during alpha. Use your own AI agent account and plan.</p>
+  <p class="demo-note">The browser demo needs no account. It supports bold text, a serif font, and blue text.</p>
+
   <!-- Phones are sent here by the worker when there is no script to open the dialog. -->
   <p class="mac-only" id="mac-only">Gui is a Mac app. Open usegui.com on your Mac to download it.</p>
 
@@ -197,7 +213,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     <p class="waitlist-joined" id="waitlist-joined">You are on the waitlist. We send you an email when Gui is available.</p>
   </section>
 
-  <dialog class="dialog" id="mac-dialog" closedby="any" aria-labelledby="mac-title" autofocus>
+  <dialog class="dialog" id="mac-dialog" closedby="closerequest" aria-labelledby="mac-title" autofocus>
     <button class="dialog-close" type="button" commandfor="mac-dialog" command="close" aria-label="Close">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
     </button>
@@ -214,7 +230,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     </div>
   </dialog>
 
-  <dialog class="dialog" id="waitlist-dialog" closedby="any" aria-labelledby="waitlist-title">
+  <dialog class="dialog" id="waitlist-dialog" closedby="closerequest" aria-labelledby="waitlist-title">
     <button class="dialog-close" type="button" commandfor="waitlist-dialog" command="close" aria-label="Close">
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18" /></svg>
     </button>
@@ -276,6 +292,12 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
         ))
       }
     </ol>
+  </section>
+
+  <section id="cost">
+    <h2>Cost and setup</h2>
+    <p>Gui is free to use during alpha. Connect your own AI coding agent through ACP and use your existing account and plan. You pay the agent provider directly; Gui adds no AI usage charges.</p>
+    <p>The Mac app needs a Gui account and an AI coding agent. Gui can install Claude Code or Codex and help you sign in. You can start with New canvas without a project.</p>
   </section>
 
   <section>
@@ -456,30 +478,52 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
   const macDialog = document.querySelector<HTMLDialogElement>('#mac-dialog')!
 
-  // Browsers without invoker commands (commandfor) open and close the dialogs here instead.
-  if (!('command' in HTMLButtonElement.prototype)) {
-    document.querySelectorAll<HTMLButtonElement>('button[commandfor]').forEach((button) => {
+  const dialogs = [macDialog, dialog]
+  const historyClosures = new WeakSet<HTMLDialogElement>()
+  const showDialog = (target: HTMLDialogElement) => {
+    if (target.open) return
+    for (const other of dialogs) {
+      if (other.open) {
+        historyClosures.add(other)
+        other.close()
+      }
+    }
+    target.showModal()
+    const state = { ...history.state, guiDialog: target.id }
+    if (history.state?.guiDialog) history.replaceState(state, '', `#${target.id}`)
+    else history.pushState(state, '', `#${target.id}`)
+  }
+  for (const button of document.querySelectorAll<HTMLButtonElement>('button[commandfor]')) {
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
       const target = document.getElementById(button.getAttribute('commandfor')!) as HTMLDialogElement
-      button.addEventListener('click', () =>
-        button.getAttribute('command') === 'show-modal' ? target.showModal() : target.close(),
-      )
+      if (button.getAttribute('command') === 'show-modal') showDialog(target)
+      else target.close()
     })
   }
-  // And without closedby="any", a click on the backdrop closes them here. A click on the backdrop
-  // and a click on the dialog's padding both target the dialog, so the click's position decides.
-  if (!('closedBy' in HTMLDialogElement.prototype)) {
-    document.querySelectorAll<HTMLDialogElement>('dialog.dialog').forEach((target) =>
-      target.addEventListener('click', (event) => {
-        const box = target.getBoundingClientRect()
-        const inside =
-          event.clientX >= box.left &&
-          event.clientX <= box.right &&
-          event.clientY >= box.top &&
-          event.clientY <= box.bottom
-        if (event.target === target && !inside) target.close()
-      }),
-    )
+  for (const target of dialogs) {
+    target.addEventListener('close', () => {
+      if (historyClosures.delete(target)) return
+      if (history.state?.guiDialog === target.id) history.back()
+    })
+    target.addEventListener('click', (event) => {
+      if (event.detail > 1) return
+      const box = target.getBoundingClientRect()
+      const inside = event.clientX >= box.left && event.clientX <= box.right &&
+        event.clientY >= box.top && event.clientY <= box.bottom
+      if (event.target === target && !inside) target.close()
+    })
   }
+  addEventListener('popstate', () => {
+    for (const target of dialogs) {
+      if (history.state?.guiDialog === target.id) {
+        if (!target.open) target.showModal()
+      } else if (target.open) {
+        historyClosures.add(target)
+        target.close()
+      }
+    }
+  })
 
   // Gui is a Mac app: on a phone or tablet, the download button explains that instead of
   // downloading a DMG. iPadOS says it is a Mac, but a Mac has no touch screen.
@@ -488,9 +532,12 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   if (notMac) {
     document.querySelector('.download-button')!.addEventListener('click', (event) => {
       event.preventDefault()
-      macDialog.showModal()
+      showDialog(macDialog)
     })
   }
+  document.querySelector('.download-button')!.addEventListener('click', () => {
+    if (!notMac) document.querySelector<HTMLElement>('[data-download-help]')!.hidden = false
+  })
   // The share sheet sends the link to the Mac (AirDrop, Messages, Mail). Without it, copy the link.
   const share = macDialog.querySelector<HTMLButtonElement>('[data-share]')!
   if (!navigator.share) share.textContent = 'Copy the link'
@@ -499,36 +546,58 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     if (navigator.share) {
       await navigator.share({ title: 'Gui', text: 'Gui for Mac', url }).catch(() => {})
     } else {
-      await navigator.clipboard.writeText(url).catch(() => {})
-      share.textContent = 'Link copied'
+      try {
+        await navigator.clipboard.writeText(url)
+        share.textContent = 'Link copied'
+      } catch {
+        share.textContent = 'Open usegui.com on your Mac'
+      }
     }
   })
-  // One dialog at a time: the waitlist replaces this one.
-  macDialog.querySelector('[data-mac-waitlist]')!.addEventListener('click', () => macDialog.close())
-
+  let submission = 0
+  let pending: AbortController | null = null
   form.addEventListener('submit', async (event) => {
     event.preventDefault()
+    if (pending) return
+    const id = ++submission
+    pending = new AbortController()
     const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!
     button.disabled = true
-    status.textContent = ''
+    button.textContent = 'Saving…'
+    status.dataset.state = 'saving'
+    status.textContent = 'Saving your address…'
     const response = await fetch(form.action, {
       method: 'POST',
       body: new FormData(form),
       headers: { accept: 'application/json' },
+      signal: pending.signal,
     }).catch(() => null)
     const result = (await response?.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (id !== submission) return
+    pending = null
     button.disabled = false
-    if (result?.ok) {
+    button.textContent = 'Sign up'
+    if (response?.ok && result?.ok) {
       form.hidden = true
       done.hidden = false
       done.querySelector('button')!.focus()
     } else {
+      status.dataset.state = 'error'
       status.textContent = result?.error ?? 'Gui could not save your address. Try again.'
     }
   })
 
   // The next time the dialog opens, it starts with an empty form.
   dialog.addEventListener('close', () => {
+    if (dialog.open) return
+    submission++
+    pending?.abort()
+    pending = null
+    status.textContent = ''
+    delete status.dataset.state
+    const button = form.querySelector<HTMLButtonElement>('button[type=submit]')!
+    button.disabled = false
+    button.textContent = 'Sign up'
     if (form.hidden) {
       form.reset()
       form.hidden = false
@@ -600,6 +669,22 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .sub {
     margin-top: var(--s-3);
     color: var(--muted);
+  }
+  .launch-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-3);
+    margin-top: var(--s-3);
+    font-size: 1rem;
+  }
+  .demo-note,
+  .download-help {
+    margin-top: var(--s-3);
+    font-size: 1rem;
+    color: var(--muted);
+  }
+  .download-help[hidden] {
+    display: none;
   }
   .try {
     display: flex;
@@ -831,7 +916,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .waitlist-status:empty {
     display: none;
   }
-  .dialog .waitlist-status {
+  .dialog .waitlist-status[data-state="error"] {
     color: #d93025;
   }
   .try-button {

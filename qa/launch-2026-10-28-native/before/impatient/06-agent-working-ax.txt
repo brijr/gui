@@ -1,0 +1,85 @@
+Window: "impatient-coffee", App: Gui QA Impatient.
+0 standard window impatient-coffee, URL: file:///private/tmp/gui-native-qa-20261028/impatient-coffee/, Secondary Actions: Raise
+	1 container impatient-coffee
+		2 container
+			3 HTML content Gui, URL: file:///Users/brijr/Projects/gui/out/renderer/index.html
+				4 container
+					5 container
+						6 pop up button impatient-coffee
+						7 pop up button Branch main
+						8 button Description: Back, Help: Back (⌘[)
+						9 button (disabled) Description: Forward, Help: Forward (⌘])
+						10 button Description: Reload preview, Help: Reload preview (⌘R)
+						11 pop up button Description: Dev server: Running, Help: Running — npm run dev
+						12 text field (settable) Description: App address, Help: App address (⇧⌘L), Value: http://localhost:5175/, Placeholder: Running
+						13 container Viewport
+							14 toggle button Description: Desktop, Help: Desktop · fills the window (⌘1), Value: 1
+							15 toggle button Description: Laptop, Help: Laptop · 1440 × 900 (⌘2), Value: 0
+							16 toggle button Description: Tablet, Help: Tablet · 820 × 1180 (⌘3), Value: 0
+							17 toggle button Description: Mobile, Help: Mobile · 390 × 844 (⌘4), Value: 0
+						18 button Description: Screenshot, Help: Screenshot (⇧⌘S)
+						19 button Description: Record preview, Help: Record preview (⌥⌘R)
+						20 toggle button Description: Narrate recordings, Help: Talk while you record: your voice is transcribed for the agent. Click to turn on., Value: 0
+						21 toggle button Description: Select element, Help: Select element (⌘D), Value: 0
+						22 toggle button Description: Hide chat, Help: Hide chat (⌘B), Value: 1
+			23 HTML content impatient-coffee, URL: localhost:5175/
+				24 container
+					25 text impatient-coffee
+					26 container
+						27 link Description: Features, Value: localhost:5175/#features
+						28 link Description: Contact, Value: localhost:5175/#contact
+						29 link Description: Get started, Value: localhost:5175/#contact
+					30 container
+						31 text Introducing  impatient-coffee
+						32 heading A clear headline that says what you do, Value: 1
+							33 text A clear headline that says what you do
+						34 text One or two sentences on who it's for and why it matters. Replace this with your own story.
+						35 link Description: Get started, Value: localhost:5175/#contact
+						36 link Description: Learn more, Value: localhost:5175/#features
+					37 container
+						38 heading Fast to start, Value: 2
+							39 text Fast to start
+						40 text Everything you need for a first version, ready the moment you open it.
+						41 heading Easy to change, Value: 2
+							42 text Easy to change
+						43 text Point at any part of the page in Gui and describe what you want instead.
+						44 heading Real code, Value: 2
+							45 text Real code
+						46 text React and Tailwind under the hood, ready to ship when you are.
+					47 container
+						48 heading Ready when you are, Value: 2
+							49 text Ready when you are
+						50 text Tell people how to reach you or sign up.
+					51 container
+						52 text ©  2026 impatient-coffee
+			53 HTML content Chat, URL: file:///Users/brijr/Projects/gui/out/renderer/chat.html
+				54 container
+					55 pop up button Claude Code, Help: Switch agent
+					56 button Description: New chat, Help: New chat (archives this one) (⇧⌘K)
+					57 button Description: Show as sidebar, Help: Show as sidebar (⇧⌘D)
+					58 pop up button More
+					59 button Minimize
+					60 container main
+						61 text 8 uncommitted changes  on main
+					62 button (disabled) Commit, Help: Wait for the agent to finish
+					63 container
+						64 text Build a landing page for a coffee shop I'll check the project setup, then build the page Working 4 s
+					65 container
+						66 text entry area (settable) Description: Message Claude Code, Placeholder: Queue a message…
+						67 button Attach images
+						68 toggle button Description: Auto mode, Value: 1
+						69 pop up button Description: Model: Default (recommended), effort Medium, Help: Default (recommended) · Medium (⇧⌘M)
+						70 button Description: Stop, Help: Stop (⌘.)
+	71 close button
+	72 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	73 minimize button
+74 menu bar
+	75 Gui QA Impatient
+	76 File
+	77 Edit
+	78 View
+	79 Agent
+	80 Window
+	81 Help
+
+The focused UI element is 53 HTML content Chat, URL: file:///Users/brijr/Projects/gui/out/renderer/chat.html

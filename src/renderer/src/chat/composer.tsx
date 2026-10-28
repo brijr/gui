@@ -53,6 +53,7 @@ const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files'
 export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }) {
   // The draft lives in the store: docking, floating and minimizing remount this component.
   const text = useChat((s) => s.draft)
+  const firstMessage = useChat((s) => s.turnIds.length === 0)
   const attachments = useChat((s) => s.attachments)
   const recordings = useChat((s) => s.recordings)
   // A turn that's gone (a new session) has nothing to follow up on.
@@ -337,6 +338,12 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           }
           className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
+        {firstMessage && meta.autoApprove && (
+          <p className="px-2.5 pb-2 text-caption text-muted">
+            Auto is on: your agent can edit files and run commands without asking, including
+            commands outside this project. Turn Auto off to review more requests.
+          </p>
+        )}
         {/* A container: in a narrow panel, Auto and the model button get more compact. */}
         <div className="@container flex items-center gap-1 px-1.5 pb-1.5">
           <IconButton
@@ -525,7 +532,7 @@ function FollowUpCard({
 function PickedLabel({ picked }: { picked: Picked }) {
   const { name, detail, where, title } = pickLabel(picked)
   return (
-    <div className="min-w-0 flex-1">
+    <div className="min-w-0 flex-1" title={title}>
       <p className="truncate text-small">
         <span className="font-medium">{name}</span>
         {detail && <span className="text-muted"> {detail}</span>}

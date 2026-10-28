@@ -374,6 +374,7 @@ function barFor(
             size="sm"
             disabled={disabled}
             loading={busy === 'stay'}
+            title={`Edit ${from} directly instead of starting a separate branch`}
             onClick={() => void act('stay', () => gui.stayOnBranch())}
           >
             Stay on {from}
@@ -381,7 +382,8 @@ function barFor(
         }
       >
         <span className="text-pretty">
-          Your first message starts a new branch, so {from} stays as it is.
+          Your first message starts a separate version of this project, called a Git branch. {from}{' '}
+          stays unchanged.
         </span>
       </Strip>
     )

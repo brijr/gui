@@ -101,13 +101,20 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
         <span class="tool" aria-hidden="true"><Fragment set:html={svg('more')} /></span>
       </header>
 
+      <div class="demo-guide">
+        <p>Browser demo: bold, serif, or blue. No live AI agent.</p>
+        <p data-demo-status role="status">An example plays first.</p>
+        <div class="demo-guide-actions">
+          <button class="button" type="button" data-skip>Try it yourself</button>
+          <button class="button" type="button" data-play hidden>Watch example</button>
+        </div>
+      </div>
       <div class="transcript" data-transcript aria-live="polite">
         <div class="empty" data-empty>
           <span class="empty-icon"><Fragment set:html={svg('pointer', 16)} /></span>
           <p class="empty-title">Point at something to change</p>
           <p>
-            Click an element on the page, then write the change. Your agent edits the code and the
-            page updates.
+            Watch the example, or choose Try it yourself. Then select text on the page and try bold, a serif font, or blue.
           </p>
           <button class="button" type="button" data-select>
             <Fragment set:html={svg('pointer')} />
@@ -129,9 +136,10 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
         </div>
       </div>
 
+      <span id="demo-input-help" class="sr-only">This browser demo supports bold, serif, and blue. Other requests need the Mac app and your own agent.</span>
       <form class="composer" data-composer>
         <div class="chips" data-chips></div>
-        <textarea data-input rows="2" placeholder="Ask Claude Code…" aria-label="Message"></textarea>
+        <textarea data-input rows="2" placeholder="Try: Make this bold" aria-label="Message" aria-describedby="demo-input-help" maxlength="1000"></textarea>
         <div class="composer-foot">
           <span class="tool" aria-hidden="true"><Fragment set:html={svg('paperclip')} /></span>
           <span class="pill" aria-hidden="true">Auto</span>
@@ -603,6 +611,26 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .grow {
     flex: 1;
   }
+  .demo .demo-guide {
+    flex: none;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--c-muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+  .demo .demo-guide-actions {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .demo .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
   .demo .transcript {
     flex: 1;
     min-height: 0;
@@ -985,6 +1013,27 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     line-height: 14px;
   }
 
+  .demo[data-narrow] .button,
+  .demo[data-narrow] .send,
+  .demo[data-narrow] button.tool,
+  .demo[data-narrow] .done {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .demo[data-narrow] .chat-head {
+    min-height: 44px;
+  }
+  .demo[data-narrow] .composer textarea {
+    font-size: 16px;
+  }
+  .demo[data-narrow] .demo-guide [data-demo-status] {
+    display: none;
+  }
+  @media (max-width: 759px) {
+    .page.is-demo {
+      padding: 24px;
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
     .demo .transcript .thinking {
       animation: row-fade 150ms linear;

@@ -1,0 +1,46 @@
+Gui launch QA — October 28, 2026
+
+PASS: bun run check
+  TypeScript, Biome, architecture boundaries, 158 fast tests,
+  chat-store and chat-transport checks, accounts typecheck, 29 account tests.
+
+PASS: bun run test:e2e -g 'preview history stops|opening on main opens straight away'
+  2 native Electron regression tests passed.
+  Covers first-edit branch behavior, initial Back disabled, real Back/Forward history,
+  blocked repeated Back, and Reload recovery from a legacy stranded about:blank preview.
+
+PASS: bun run --cwd www build
+PASS: from www, bunx playwright test e2e/launch.spec.ts e2e/demo.spec.ts --workers=1
+  23 browser regressions passed; serial animation opening/closing p95 16.7ms.
+
+PASS: five real native persona reruns after the product fixes
+  Impatient: New project → real coffee page → automatically returned Result → Undo → Redo.
+  Literal: plain labels/branch explanation, picking instructions after 7.113s → blue → Undo → Redo.
+  Mobile: slow scratch preview, 390px native preset → purple → Undo → Redo.
+  Breaker: junk rejection, Escape, double clicks, real history → orange → double Undo → double Redo.
+  Skeptic: native and local website costs/policies/Auto scope → orange → Undo → Redo.
+  Every persona used real Claude Code; no ACP stand-in supplied persona success.
+
+Independent native visual review: welcome, first-edit guidance, selected Heading,
+persistent pick strip, Auto explanation, phone preview, real Results, Back guard,
+Account/Agents cost disclosures, and real account-required sign-in screen.
+
+Excluded harness issues: terminal-session shutdown/stock Electron launch, fixed-file
+watcher losing Git replacement notifications, early temporary-app capture problems,
+and an unsuccessful proposed automated keyboard-focus test (removed).
+The real impatient turn independently verifies automatic chat restoration.
+
+AX triage: immediate Result capture can retain Queue a message… while pixels show
+Ask Claude Code…. The accessible name remains Message Claude Code. Skeptic Undo/Redo
+and the lead's independent capture of the same live runtime show Ask Claude Code….
+This is retained as a transient capture observation, not counted as a confirmed app defect.
+
+NOT PROVEN: production account signup/sign-in, fresh provider authentication,
+installation from a newly packaged DMG, physical touch/phone keyboard, full-app 3G,
+or independently measured 375px native tool arguments. Real browser 375px evidence
+is in the October 27 report. Native preview width375 is agent-reported only.
+
+Real account-required app remains at Sign in or create an account. Clicking it accepts
+Gui's Terms/Privacy and awaits the user's explicit approval under the computer-use policy.
+No deployment, release, or commit was performed. AGENTS.md requires human review
+of the account-service patch before landing.

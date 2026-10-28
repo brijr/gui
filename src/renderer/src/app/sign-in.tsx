@@ -41,6 +41,9 @@ export function SignIn() {
           Use your Gui account to design your app with your own agents. Sign in with Google, GitHub,
           or your email. New here? Signing in makes an account.
         </p>
+        <p className="text-pretty text-small text-muted">
+          Gui is free during alpha. Your AI agent uses your own account and plan.
+        </p>
       </div>
 
       {waiting ? (
@@ -84,7 +87,7 @@ export function SignIn() {
           >
             Privacy Policy
           </a>
-          , and to get emails from us about Gui. You can turn them off in Settings.
+          . Product emails are optional. You can choose them in Settings → Account.
         </p>
       </div>
     </div>

@@ -95,6 +95,46 @@ const logsOpen = async (session: GuiSession) => {
 }
 const drawerOpen = async (session: GuiSession) => (await session.state()).drawer.open
 
+test('preview history stops before the internal blank page and reload recovers a stranded preview', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  const running = await session.waitForPreview()
+  const first = running.preview.url ?? ''
+  const back = toolbar(session).getByRole('button', { name: 'Back', exact: true })
+  const forward = toolbar(session).getByRole('button', { name: 'Forward', exact: true })
+  await expect(back).toBeDisabled()
+
+  const second = new URL('/second', first).href
+  await address(session).fill(second)
+  await address(session).press('Enter')
+  await expect(address(session)).toHaveValue(second)
+  await expect(back).toBeEnabled()
+  await back.click()
+  await expect(address(session)).toHaveValue(first)
+  await expect(back).toBeDisabled()
+  // A repeated Back request cannot enter Electron's initial about:blank entry.
+  await session.chrome.evaluate(() => window.gui.back())
+  const preview = await session.previewPage()
+  await expect(preview).toHaveURL(first)
+  await expect(forward).toBeEnabled()
+  await forward.click()
+  await expect(preview).toHaveURL(second)
+
+  // Recreate a preview already stranded by the old Back behavior. Its last app address
+  // remains in Gui's state, so the visible Reload action must restore that address.
+  await session.app.evaluate(async ({ webContents }, url) => {
+    const page = webContents.getAllWebContents().find((wc) => wc.getURL() === url)
+    if (!page) throw new Error('The preview is missing')
+    await page.loadURL('about:blank')
+  }, second)
+  await expect(preview).toHaveURL('about:blank')
+  await expect(address(session)).toHaveValue(second)
+  await toolbar(session).getByRole('button', { name: 'Reload preview', exact: true }).click()
+  await expect(preview).toHaveURL(second)
+  await expect(preview.getByRole('heading', { name: 'Gui Vite fixture' })).toBeVisible()
+})
+
 test('the start tab offers project actions; a project fills the toolbar, without the agent menu', async ({
   launch,
 }) => {

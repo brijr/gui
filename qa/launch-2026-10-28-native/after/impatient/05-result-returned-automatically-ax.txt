@@ -1,0 +1,154 @@
+Window: "impatient-after", App: Gui QA Impatient.
+0 standard window impatient-after, URL: file:///private/tmp/gui-native-qa-20261028/impatient-after/, Secondary Actions: Raise
+	1 container impatient-after
+		2 container
+			3 HTML content Gui, URL: file:///Users/brijr/Projects/gui/out/renderer/index.html
+				4 container
+					5 container
+						6 pop up button impatient-after
+						7 pop up button Branch main
+						8 button (disabled) Description: Back, Help: Back (⌘[)
+						9 button (disabled) Description: Forward, Help: Forward (⌘])
+						10 button Description: Reload preview, Help: Reload preview (⌘R)
+						11 pop up button Description: Dev server: Running, Help: Running — npm run dev
+						12 text field (settable) Description: App address, Help: App address (⇧⌘L), Value: http://localhost:5175/, Placeholder: Running
+						13 container Viewport
+							14 toggle button Description: Desktop, Help: Desktop · fills the window (⌘1), Value: 1
+							15 toggle button Description: Laptop, Help: Laptop · 1440 × 900 (⌘2), Value: 0
+							16 toggle button Description: Tablet, Help: Tablet · 820 × 1180 (⌘3), Value: 0
+							17 toggle button Description: Mobile, Help: Mobile · 390 × 844 (⌘4), Value: 0
+						18 button Description: Screenshot, Help: Screenshot (⇧⌘S)
+						19 button Description: Record preview, Help: Record preview (⌥⌘R)
+						20 toggle button Description: Narrate recordings, Help: Talk while you record: your voice is transcribed for the agent. Click to turn on., Value: 0
+						21 toggle button Description: Select element, Help: Select element (⌘D), Value: 0
+						22 toggle button Description: Hide chat, Help: Hide chat (⌘B), Value: 1
+			23 HTML content Hearth & Bean — Coffee, URL: localhost:5175/
+				24 container
+					25 link Description: Hearth & Bean, Value: localhost:5175/#
+					26 container
+						27 link Description: Menu, Value: localhost:5175/#menu
+						28 link Description: Our story, Value: localhost:5175/#story
+						29 link Description: Visit us, Value: localhost:5175/#visit
+					30 container
+						31 text NEIGHBORHOOD COFFEE SINCE 2014
+						32 heading Good coffee, slow mornings., Value: 1
+							33 text Good coffee, slow mornings.
+						34 text Small-batch beans roasted down the street, pastries baked before sunrise, and a corner table with your name on it.
+						35 link Description: See the menu, Value: localhost:5175/#menu
+						36 link Description: Hours & location, Value: localhost:5175/#visit
+					37 container
+						38 heading The menu, Value: 2
+							39 text The menu
+						40 text Milk alternatives at no extra charge.
+						41 heading ESPRESSO, Value: 3
+							42 text ESPRESSO
+						43 content list
+							44 container
+								45 text Espresso Double shot, house blend $ 3.25
+							46 container
+								47 text Cortado Equal parts espresso and steamed milk $ 4.00
+							48 container
+								49 text Flat white Silky microfoam, ristretto shots $ 4.50
+							50 container
+								51 text Oat latte Our most ordered drink $ 5.00
+						52 heading SLOW BAR, Value: 3
+							53 text SLOW BAR
+						54 content list
+							55 container
+								56 text Pour-over Rotating single origin $ 5.50
+							57 container
+								58 text Cold brew Steeped 18 hours $ 4.75
+							59 container
+								60 text Chai Spiced in house, every morning $ 4.75
+							61 container
+								62 text Hot chocolate Dark chocolate, whole milk $ 4.25
+						63 heading BAKERY, Value: 3
+							64 text BAKERY
+						65 content list
+							66 container
+								67 text Butter croissant Baked at 6am $ 3.75
+							68 container
+								69 text Cardamom bun Sells out by noon $ 4.25
+							70 container
+								71 text Banana bread Brown butter, sea salt $ 3.95
+							72 container
+								73 text Seasonal scone Ask what’s in today $ 3.75
+					74 container
+						75 heading A small shop with a big kettle., Value: 2
+							76 text A small shop with a big kettle.
+						77 text We started with one espresso machine and six stools. Ten years on, we still know most of our regulars by name — and their order before they reach the counter. Our beans come from a roaster three blocks away, our milk from a dairy an hour north, and our pastries from our own oven.
+					78 container
+						79 heading Come say hi, Value: 2
+							80 text Come say hi
+						81 text 214 Maple Street Portland, OR 97214
+						82 link Description: (503) 555-0142, Value: tel:+15035550142
+						83 heading HOURS, Value: 3
+							84 text HOURS
+						85 definition list
+							86 container Monday – Friday
+								87 text Monday – Friday
+							88 text 6:30am – 5pm
+							89 container Saturday
+								90 text Saturday
+							91 text 7am – 5pm
+							92 container Sunday
+								93 text Sunday
+							94 text 8am – 3pm
+					95 container
+						96 text ©  2026 Hearth & Bean
+					97 text Brewed with care on Maple Street.
+			98 HTML content Chat, URL: file:///Users/brijr/Projects/gui/out/renderer/chat.html
+				99 container
+					100 pop up button Claude Code, Help: Switch agent
+					101 button Description: New chat, Help: New chat (archives this one) (⇧⌘K)
+					102 button Description: Show as sidebar, Help: Show as sidebar (⇧⌘D)
+					103 pop up button More
+					104 button Minimize
+					105 container main
+						106 text 8 uncommitted changes  on main
+					107 button Commit, Help: Commits every change except files that may hold secrets. It stays on this Mac.
+					108 container
+						109 text Build a landing page for a coffee shop. Keep it local and do not use external services. I'll check the project setup, then build the page.
+						110 button 6 steps · 35s
+							111 text 6 steps
+							112 text · 
+							113 text 35s
+						114 text Looks good on desktop; checking mobile.
+						115 button 1 step · 1s
+							116 text 1 step
+							117 text · 
+							118 text 1s
+						119 text I built a landing page for a made-up coffee shop called "Hearth & Bean" in 
+						120 text src/App.jsx
+						121 text . It has a hero with a drawn coffee cup, a three-column menu with prices, an "our story" section, a dark section with the address and hours, and a footer. Everything is local: system fonts and an SVG illustration drawn in the code, with no external images, web fonts, maps or other services. It looks right at desktop and mobile widths, and the console shows no errors. The name, address, phone number and menu are placeholders for you to replace, and I also changed the browser tab title in 
+						122 text index.html
+						123 text .
+						124 container Result
+							125 button 2 files changed +169 −56
+								126 text 2 files
+								127 text  changed
+								128 text +
+								129 text 169
+								130 text −
+								131 text 56
+							132 toggle button Follow up, Help: Ask about this change in your next message, Value: 0
+							133 button Undo, Help: Restore files to how they were before this message (also undoes later messages)
+					134 container
+						135 text entry area (settable) Description: Message Claude Code, Placeholder: Ask Claude Code…
+						136 button Attach images
+						137 toggle button Description: Auto mode, Value: 1
+						138 pop up button Description: Model: Default (recommended), effort Medium, Help: Default (recommended) · Medium (⇧⌘M)
+						139 button (disabled) Description: Send, Help: Write a message first
+	140 close button
+	141 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	142 minimize button
+143 menu bar
+	144 Gui QA Impatient
+	145 File
+	146 Edit
+	147 View
+	148 Agent
+	149 Window
+	150 Help
+
+The focused UI element is 23 HTML content Hearth & Bean — Coffee, URL: localhost:5175/

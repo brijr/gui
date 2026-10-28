@@ -48,7 +48,8 @@ async function answerDialogs(session: GuiSession, response: number) {
   }, response)
 }
 
-const NEW_BRANCH = /Your first message starts a new branch, so main stays as it is/
+const NEW_BRANCH =
+  /Your first message starts a separate version of this project, called a Git branch\. main stays unchanged/
 
 test('opening on main opens straight away, and the first message starts a new branch', async ({
   launch,

@@ -1,0 +1,105 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gui launch QA · October 27, 2026</title><style>body{font:16px/1.55 system-ui,sans-serif;margin:0;background:#fafafa;color:#171717}main{max-width:1120px;margin:auto;padding:40px 24px}h1{font-size:36px;line-height:1.15;letter-spacing:-.03em}h2{margin-top:40px}p{max-width:82ch}a{color:#075dcc}table{border-collapse:collapse;width:100%;font-size:14px}td,th{border-bottom:1px solid #ddd;text-align:left;vertical-align:top;padding:12px 8px}th{background:#eee}small{color:#555}.pair{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0 36px}figure{margin:0}img{display:block;max-width:100%;height:auto;max-height:650px;object-fit:contain;object-position:top;border:1px solid #ddd;background:#eee}figcaption{padding:6px 0;color:#555}summary{cursor:pointer;padding:12px 0}.table{overflow-x:auto}code{background:#eee;padding:2px 5px}li{margin:8px 0}@media(max-width:600px){.pair{grid-template-columns:1fr}h1{font-size:28px}main{padding:24px 16px}}</style><main>
+<h1>Gui launch QA</h1><p><strong>Historical website-only report.</strong> <a href="../launch-2026-10-28-native/report.html">See the October 28 native reruns and merged current results.</a> The owner has since confirmed that Gui is free during alpha, with agent usage paid directly to the provider; pricing is now fixed in the local patch.</p><p>October 27, 2026 · Five simulated first-time personas, each run before and after the local fixes.</p>
+<p><strong>Five simulated personas reached browser-demo success after fixes; 10 of 11 merged issues fixed locally, 1 partially resolved pending native usage pricing.</strong></p>
+<p>First success here means a requested change in the browser demo. The isolated native sign-in test passed separately using a mock account service.</p>
+<h2>One ranked issue list</h2><p>Counts reflect observed problems across these five agents. One-person ties are ordered by severity. Each row links its captured evidence.</p><div class="table"><table><thead><tr><th>Rank / observed</th><th>Problem</th><th>Result and change</th><th>Evidence</th></tr></thead><tbody>
+<tr><td>1 · 5/5<br><small>High</small></td><td>Unannounced automatic example and hidden demo limits<br><small>impatient, skeptic, mobile, literal, breaker</small></td><td><strong>Fixed</strong><br>The demo discloses its supported changes before entry, labels the example, offers Try it yourself, and explains its busy state.</td><td><a href="before/literal/03-select-instruction.png">Before</a> · <a href="after/literal/03-your-turn-no-auto-edit.png">After</a></td></tr>
+<tr><td>2 · 1/5<br><small>High</small></td><td>Ordinary “Make this bold.” request rejected<br><small>literal</small></td><td><strong>Fixed</strong><br>Typed bold/bolder, serif, and blue requests now run the supported changes on selected text.</td><td><a href="before/literal/05-bold-rejected.png">Before</a> · <a href="after/literal/05-bold-first-success.png">After</a></td></tr>
+<tr><td>3 · 1/5<br><small>High</small></td><td>Gui usage price missing before signup<br><small>skeptic</small></td><td><strong>Partly resolved</strong><br>Cost and setup is linked beside the start actions. Download has no checkout and agent costs are separate. The price for native Gui use still needs an owner decision.</td><td><a href="before/skeptic/01-no-pricing.png">Before</a> · <a href="after/skeptic/02-cost-setup.png">After</a></td></tr>
+<tr><td>4 · 1/5<br><small>Medium</small></td><td>Marketing subscription bundled with new accounts<br><small>skeptic</small></td><td><strong>Fixed in local patch</strong><br>New accounts start with updates off; existing preferences survive. Sign-in, Terms, Privacy, docs and account tests agree. Human review is required before landing the account-service patch.</td><td><a href="before/skeptic/03-marketing-default.png">Before</a> · <a href="after/skeptic/04-optional-marketing.png">After</a></td></tr>
+<tr><td>5 · 1/5<br><small>Medium</small></td><td>Phone preview shrinks body text to about 9px<br><small>mobile</small></td><td><strong>Fixed</strong><br>At 375px the preview is 343px wide, with scale 0.914667 and its own scroll area.</td><td><a href="before/mobile/04-blue-change-success.png">Before</a> · <a href="after/mobile/05-blue-change-success.png">After</a></td></tr>
+<tr><td>6 · 1/5<br><small>Medium</small></td><td>Phone suggestion and Undo buttons only 28px high<br><small>mobile</small></td><td><strong>Fixed</strong><br>Mobile suggestions, Undo, send and toolbar controls have at least 44px touch targets.</td><td><a href="before/mobile/04-blue-change-success.png">Before</a> · <a href="after/mobile/06-undo-success.png">After</a></td></tr>
+<tr><td>7 · 1/5<br><small>Medium</small></td><td>Back leaves an open dialog flow<br><small>breaker</small></td><td><strong>Fixed</strong><br>Waitlist and demo use same-document history entries; Back closes and Forward restores. A regression also covers delayed dialog close events.</td><td><a href="before/breaker/05-back-leaves-flow.png">Before</a> · <a href="after/breaker/08-back-stays-on-landing.png">After</a></td></tr>
+<tr><td>8 · 1/5<br><small>Medium</small></td><td>Double-clicking the waitlist opener dismisses it<br><small>breaker</small></td><td><strong>Fixed</strong><br>Repeated backdrop clicks are ignored; the modal survives a double click. Duplicate submissions are guarded and pending work is cancelled when the dialog closes.</td><td><a href="before/breaker/findings.md">Before</a> · <a href="after/breaker/01-double-click-opener.png">After</a></td></tr>
+<tr><td>9 · 1/5<br><small>Medium</small></td><td>Landing description assumes “agent harness” knowledge<br><small>literal</small></td><td><strong>Fixed</strong><br>The hero explains select, describe, edit; Cost and setup names the Gui account and agent requirement.</td><td><a href="before/literal/01-landing-jargon.png">Before</a> · <a href="after/literal/01-plain-landing.png">After</a></td></tr>
+<tr><td>10 · 1/5<br><small>Low</small></td><td>Download gives no next installation steps<br><small>impatient</small></td><td><strong>Fixed</strong><br>The download action reveals instructions for opening the DMG, installing Gui, signing in, choosing an agent and starting New canvas.</td><td><a href="before/impatient/04-download-completed.png">Before</a> · <a href="after/impatient/02-install-guidance.png">After</a></td></tr>
+<tr><td>11 · 1/5<br><small>Low</small></td><td>Saving feedback uses the same red as errors<br><small>breaker</small></td><td><strong>Fixed during verification</strong><br>Pending feedback now uses neutral text; error feedback retains red.</td><td><a href="after/breaker/10-saving-before-close.png">Before</a> · <a href="after/breaker/11-saving-neutral.png">After</a></td></tr>
+</tbody></table></div><h2>Verification</h2><ul>
+<li>bun run check — passed</li>
+<li>23/23 passed: launch.spec.ts + demo.spec.ts, --workers=1</li>
+<li>1/1 passed: a new user signs in before Gui opens a project, then the project opens; isolated mock account service</li>
+<li>29/29 service tests passed; new-account opt-in default and repeat-login preference preservation covered</li>
+</ul><h2>The five reruns</h2>
+<section id="impatient"><h3>The impatient one</h3><p>Download starts; installation guidance appears. Skipped the labeled example and typed “Make the words blue”; blue text and Undo appeared.</p><ol><li>Landing: healthy start actions and explicit demo scope.</li><li>Onboarding: cost/setup or platform boundary visible; native price remains open for the skeptic.</li><li>Demo: labeled example or user-controlled start.</li><li>First own change: passed, with visible result and Undo.</li></ol><div class="pair"><figure><a href="before/impatient/06-demo-result.png"><img loading="lazy" src="before/impatient/06-demo-result.png" alt="The impatient one before fixes"></a><figcaption>Before</figcaption></figure><figure><a href="after/impatient/04-own-blue-change.png"><img loading="lazy" src="after/impatient/04-own-blue-change.png" alt="The impatient one verified first success after fixes"></a><figcaption>After</figcaption></figure></div><details><summary>Full notes and all captured moments</summary><p><a href="before/impatient/findings.md">Before notes</a> · <a href="after/impatient/findings.md">After notes</a></p><ul>
+<li><a href="before/impatient/01-landing.png">before/impatient/01-landing.png</a></li>
+<li><a href="before/impatient/02-download-error.png">before/impatient/02-download-error.png</a></li>
+<li><a href="before/impatient/03-valid-landing.png">before/impatient/03-valid-landing.png</a></li>
+<li><a href="before/impatient/04-download-completed.png">before/impatient/04-download-completed.png</a></li>
+<li><a href="before/impatient/05-demo-entry.png">before/impatient/05-demo-entry.png</a></li>
+<li><a href="before/impatient/06-demo-result.png">before/impatient/06-demo-result.png</a></li>
+<li><a href="after/impatient/01-landing.png">after/impatient/01-landing.png</a></li>
+<li><a href="after/impatient/02-install-guidance.png">after/impatient/02-install-guidance.png</a></li>
+<li><a href="after/impatient/03-labeled-example.png">after/impatient/03-labeled-example.png</a></li>
+<li><a href="after/impatient/04-own-blue-change.png">after/impatient/04-own-blue-change.png</a></li>
+</ul></details></section>
+<section id="skeptic"><h3>The skeptic</h3><p>Cost/setup and legal links are visible. Marketing is optional in published copy. Own blue demo change succeeded. Native usage pricing remains unanswered.</p><ol><li>Landing: healthy start actions and explicit demo scope.</li><li>Onboarding: cost/setup or platform boundary visible; native price remains open for the skeptic.</li><li>Demo: labeled example or user-controlled start.</li><li>First own change: passed, with visible result and Undo.</li></ol><div class="pair"><figure><a href="before/skeptic/03-marketing-default.png"><img loading="lazy" src="before/skeptic/03-marketing-default.png" alt="The skeptic before fixes"></a><figcaption>Before</figcaption></figure><figure><a href="after/skeptic/08-personal-success.png"><img loading="lazy" src="after/skeptic/08-personal-success.png" alt="The skeptic verified first success after fixes"></a><figcaption>After</figcaption></figure></div><details><summary>Full notes and all captured moments</summary><p><a href="before/skeptic/findings.md">Before notes</a> · <a href="after/skeptic/findings.md">After notes</a></p><ul>
+<li><a href="before/skeptic/01-no-pricing.png">before/skeptic/01-no-pricing.png</a></li>
+<li><a href="before/skeptic/02-privacy.png">before/skeptic/02-privacy.png</a></li>
+<li><a href="before/skeptic/03-marketing-default.png">before/skeptic/03-marketing-default.png</a></li>
+<li><a href="before/skeptic/04-terms.png">before/skeptic/04-terms.png</a></li>
+<li><a href="before/skeptic/05-demo-entry.png">before/skeptic/05-demo-entry.png</a></li>
+<li><a href="before/skeptic/06-demo-auto.png">before/skeptic/06-demo-auto.png</a></li>
+<li><a href="before/skeptic/07-demo-result.png">before/skeptic/07-demo-result.png</a></li>
+<li><a href="before/skeptic/08-personal-success.png">before/skeptic/08-personal-success.png</a></li>
+<li><a href="after/skeptic/01-hero-links.png">after/skeptic/01-hero-links.png</a></li>
+<li><a href="after/skeptic/02-cost-setup.png">after/skeptic/02-cost-setup.png</a></li>
+<li><a href="after/skeptic/03-privacy.png">after/skeptic/03-privacy.png</a></li>
+<li><a href="after/skeptic/04-optional-marketing.png">after/skeptic/04-optional-marketing.png</a></li>
+<li><a href="after/skeptic/05-terms-optional-email.png">after/skeptic/05-terms-optional-email.png</a></li>
+<li><a href="after/skeptic/06-disclosed-example.png">after/skeptic/06-disclosed-example.png</a></li>
+<li><a href="after/skeptic/07-selection-guidance.png">after/skeptic/07-selection-guidance.png</a></li>
+<li><a href="after/skeptic/08-personal-success.png">after/skeptic/08-personal-success.png</a></li>
+</ul></details></section>
+<section id="mobile"><h3>The mobile user</h3><p>375 × 812, server throttle of 400 kbit/s plus 400ms latency. Readable preview, 44px controls, blue change, Undo, and phone download guidance succeeded.</p><ol><li>Landing: healthy start actions and explicit demo scope.</li><li>Onboarding: cost/setup or platform boundary visible; native price remains open for the skeptic.</li><li>Demo: labeled example or user-controlled start.</li><li>First own change: passed, with visible result and Undo.</li></ol><div class="pair"><figure><a href="before/mobile/04-blue-change-success.png"><img loading="lazy" src="before/mobile/04-blue-change-success.png" alt="The mobile user before fixes"></a><figcaption>Before</figcaption></figure><figure><a href="after/mobile/05-blue-change-success.png"><img loading="lazy" src="after/mobile/05-blue-change-success.png" alt="The mobile user verified first success after fixes"></a><figcaption>After</figcaption></figure></div><details><summary>Full notes and all captured moments</summary><p><a href="before/mobile/findings.md">Before notes</a> · <a href="after/mobile/findings.md">After notes</a></p><ul>
+<li><a href="before/mobile/01-landing.png">before/mobile/01-landing.png</a></li>
+<li><a href="before/mobile/02-demo-initial.png">before/mobile/02-demo-initial.png</a></li>
+<li><a href="before/mobile/03-demo-ready.png">before/mobile/03-demo-ready.png</a></li>
+<li><a href="before/mobile/04-blue-change-success.png">before/mobile/04-blue-change-success.png</a></li>
+<li><a href="after/mobile/01-landing.png">after/mobile/01-landing.png</a></li>
+<li><a href="after/mobile/02-download-guidance.png">after/mobile/02-download-guidance.png</a></li>
+<li><a href="after/mobile/03-demo-example.png">after/mobile/03-demo-example.png</a></li>
+<li><a href="after/mobile/04-demo-takeover-ready.png">after/mobile/04-demo-takeover-ready.png</a></li>
+<li><a href="after/mobile/05-blue-change-success.png">after/mobile/05-blue-change-success.png</a></li>
+<li><a href="after/mobile/06-undo-success.png">after/mobile/06-undo-success.png</a></li>
+<li><a href="after/mobile/07-mobile-download-guidance-stable.png">after/mobile/07-mobile-download-guidance-stable.png</a></li>
+</ul></details></section>
+<section id="literal"><h3>The literal reader</h3><p>Plain instructions, explicit demo limits and example skip. Exact previously rejected request “Make this bold.” succeeded on first submission.</p><ol><li>Landing: healthy start actions and explicit demo scope.</li><li>Onboarding: cost/setup or platform boundary visible; native price remains open for the skeptic.</li><li>Demo: labeled example or user-controlled start.</li><li>First own change: passed, with visible result and Undo.</li></ol><div class="pair"><figure><a href="before/literal/05-bold-rejected.png"><img loading="lazy" src="before/literal/05-bold-rejected.png" alt="The literal reader before fixes"></a><figcaption>Before</figcaption></figure><figure><a href="after/literal/05-bold-first-success.png"><img loading="lazy" src="after/literal/05-bold-first-success.png" alt="The literal reader verified first success after fixes"></a><figcaption>After</figcaption></figure></div><details><summary>Full notes and all captured moments</summary><p><a href="before/literal/findings.md">Before notes</a> · <a href="after/literal/findings.md">After notes</a></p><ul>
+<li><a href="before/literal/01-landing-jargon.png">before/literal/01-landing-jargon.png</a></li>
+<li><a href="before/literal/02-demo-open.png">before/literal/02-demo-open.png</a></li>
+<li><a href="before/literal/03-select-instruction.png">before/literal/03-select-instruction.png</a></li>
+<li><a href="before/literal/04-result-before-send.png">before/literal/04-result-before-send.png</a></li>
+<li><a href="before/literal/05-bold-rejected.png">before/literal/05-bold-rejected.png</a></li>
+<li><a href="before/literal/06-suggestion-success.png">before/literal/06-suggestion-success.png</a></li>
+<li><a href="after/literal/00-wrong-target-blocker.png">after/literal/00-wrong-target-blocker.png</a></li>
+<li><a href="after/literal/01-plain-landing.png">after/literal/01-plain-landing.png</a></li>
+<li><a href="after/literal/02-labeled-example.png">after/literal/02-labeled-example.png</a></li>
+<li><a href="after/literal/03-your-turn-no-auto-edit.png">after/literal/03-your-turn-no-auto-edit.png</a></li>
+<li><a href="after/literal/04-bold-ready-to-send.png">after/literal/04-bold-ready-to-send.png</a></li>
+<li><a href="after/literal/05-bold-first-success.png">after/literal/05-bold-first-success.png</a></li>
+</ul></details></section>
+<section id="breaker"><h3>The breaker</h3><p>Junk stays text, duplicate send produces one turn, double-click opener stays open, Back/Forward recover both flows, and local waitlist and own blue change succeed.</p><ol><li>Landing: healthy start actions and explicit demo scope.</li><li>Onboarding: cost/setup or platform boundary visible; native price remains open for the skeptic.</li><li>Demo: labeled example or user-controlled start.</li><li>First own change: passed, with visible result and Undo.</li></ol><div class="pair"><figure><a href="before/breaker/05-back-leaves-flow.png"><img loading="lazy" src="before/breaker/05-back-leaves-flow.png" alt="The breaker before fixes"></a><figcaption>Before</figcaption></figure><figure><a href="after/breaker/06-own-blue-success.png"><img loading="lazy" src="after/breaker/06-own-blue-success.png" alt="The breaker verified first success after fixes"></a><figcaption>After</figcaption></figure></div><details><summary>Full notes and all captured moments</summary><p><a href="before/breaker/findings.md">Before notes</a> · <a href="after/breaker/findings.md">After notes</a></p><ul>
+<li><a href="before/breaker/01-junk-email-validation.png">before/breaker/01-junk-email-validation.png</a></li>
+<li><a href="before/breaker/02-demo-busy-no-guidance.png">before/breaker/02-demo-busy-no-guidance.png</a></li>
+<li><a href="before/breaker/03-long-message.png">before/breaker/03-long-message.png</a></li>
+<li><a href="before/breaker/04-waitlist-success.png">before/breaker/04-waitlist-success.png</a></li>
+<li><a href="before/breaker/05-back-leaves-flow.png">before/breaker/05-back-leaves-flow.png</a></li>
+<li><a href="before/breaker/06-supported-change-success.png">before/breaker/06-supported-change-success.png</a></li>
+<li><a href="after/breaker/01-double-click-opener.png">after/breaker/01-double-click-opener.png</a></li>
+<li><a href="after/breaker/02-junk-validation.png">after/breaker/02-junk-validation.png</a></li>
+<li><a href="after/breaker/03-waitlist-double-submit-error.png">after/breaker/03-waitlist-double-submit-error.png</a></li>
+<li><a href="after/breaker/04-demo-intro-and-limits.png">after/breaker/04-demo-intro-and-limits.png</a></li>
+<li><a href="after/breaker/05-junk-safe-text.png">after/breaker/05-junk-safe-text.png</a></li>
+<li><a href="after/breaker/06-own-blue-success.png">after/breaker/06-own-blue-success.png</a></li>
+<li><a href="after/breaker/07-waitlist-success.png">after/breaker/07-waitlist-success.png</a></li>
+<li><a href="after/breaker/08-back-stays-on-landing.png">after/breaker/08-back-stays-on-landing.png</a></li>
+<li><a href="after/breaker/09-pending-close-reopen-clean.png">after/breaker/09-pending-close-reopen-clean.png</a></li>
+<li><a href="after/breaker/10-saving-before-close.png">after/breaker/10-saving-before-close.png</a></li>
+<li><a href="after/breaker/11-saving-neutral.png">after/breaker/11-saving-neutral.png</a></li>
+</ul></details></section>
+<h2>Limits and decisions</h2><ul>
+<li>Gui browser demo success is established. Live WorkOS signup, agent login, native install and a real AI edit are not verified by the persona runs.</li>
+<li>Mobile used a real 375px browser with a server-side 3G approximation. Browser UA remained desktop; the proxy forwarded iPhone UA to the Worker. Physical touch, a virtual keyboard, and radio behavior were not exercised.</li>
+<li>This is a local patch; no deployment or commit was made. Price for native usage remains a product-owner decision.</li>
+<li>Initial Astro download404, localhost IPv6 collision, local HTTPS/HSTS mismatch, and throttle-server cancellation outage were excluded from product counts.</li>
+<li>The parallel website performance run was oversubscribed; a serial rerun passed all23 tests at opening/closing p95 16.7ms. Two assertions were updated for intended #demo history and existing custom-scrollbar class.</li>
+</ul><h2>Repeat the checks</h2><p>Build the website with <code>bun run --cwd www build</code>, then run <code>bun qa/launch-2026-10-27/harness.ts</code>. The harness binds IPv4 127.0.0.1:4331 and 4332, uses the actual website Worker, local static assets and a memory-only database, and serves the existing alpha.7 DMG. Port 4332 adds the mobile server throttle. Use the explicit IPv4 address.</p><p><a href="report.json">Structured merged results</a> · <a href="harness.ts">Reproducible local harness</a> · <a href="after/review/02-native-sign-in.png">Native sign-in screenshot</a></p></main></html>

@@ -1,0 +1,9 @@
+Final verification, October 27, 2026
+
+bun run check: passed (typechecks, lint, architecture, 158 fast tests plus chat/transport checks, 29 account tests).
+bun run test:e2e -g "a new user signs in before Gui opens a project": 1 passed using isolated mock account service.
+bunx playwright test e2e/launch.spec.ts e2e/demo.spec.ts --workers=1 in www: 23 passed.
+After final neutral Saving style repair, bunx playwright test e2e/launch.spec.ts --workers=1: 5 passed.
+Five persona browser reruns: all reached own requested demo success. Pricing remains partially resolved.
+3G harness cancellation recovery: cancelled response then subsequent GET returned200.
+All ranked issue/evidence links validated on disk.

@@ -63,6 +63,10 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
           <DefaultAgentSelect agents={settings.agents} defaultAgentId={settings.defaultAgentId} />
         }
       />
+      <p className="text-pretty text-small text-muted">
+        Your AI agent makes the changes you request. It uses your own account and plan through the
+        Agent Client Protocol (ACP). You pay the provider directly; Gui adds no AI usage charges.
+      </p>
 
       <SettingsGroup
         title="Installed agents"

@@ -14,8 +14,6 @@ import { Counter, Kbd } from '../lib/ui'
 const DRAG_THRESHOLD = 4
 /** Smaller than this either way, a drag is taken as a click after all. */
 const MIN_AREA = 8
-/** How long the hint stays when picking starts */
-const HINT_MS = 4000
 /** The label's height (h-5) */
 const LABEL_HEIGHT = 20
 /** Between the label and the outline, so the label doesn't sit on what's above the element */
@@ -42,12 +40,10 @@ export function PickOverlay() {
 
   useEffect(() => gui.onPickState(setState), [])
 
-  // Each time picking starts the hint shows, then gets out of the way.
+  // Keep the instructions until the user starts a pick, including time spent reading them.
   useEffect(() => {
     if (state.run === 0) return
     setHintRun(state.run)
-    const timer = setTimeout(() => setHintRun(0), HINT_MS)
-    return () => clearTimeout(timer)
   }, [state.run])
 
   // ⇧ can go down before the pointer moves, or while the window is elsewhere.

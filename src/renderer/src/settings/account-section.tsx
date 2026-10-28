@@ -18,6 +18,30 @@ export function AccountSection({ settings }: { settings: SettingsState }) {
   return (
     <>
       <AccountDetails />
+      <SettingsGroup title="Cost and policies">
+        <p className="text-pretty text-small text-muted">
+          Gui is free during alpha. Connect your own AI agent account and plan; you pay the agent
+          provider directly. Gui adds no AI usage charges.
+        </p>
+        <p className="flex gap-4 text-small">
+          <a
+            className="underline underline-offset-2"
+            href="https://usegui.com/terms"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Terms
+          </a>
+          <a
+            className="underline underline-offset-2"
+            href="https://usegui.com/privacy"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Privacy Policy
+          </a>
+        </p>
+      </SettingsGroup>
       <CrashReports on={settings.crashReports} />
     </>
   )

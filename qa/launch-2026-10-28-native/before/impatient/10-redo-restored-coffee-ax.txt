@@ -1,0 +1,169 @@
+Window: "impatient-coffee", App: Gui QA Impatient.
+0 standard window impatient-coffee, URL: file:///private/tmp/gui-native-qa-20261028/impatient-coffee/, Secondary Actions: Raise
+	1 container impatient-coffee
+		2 container
+			3 HTML content Gui, URL: file:///Users/brijr/Projects/gui/out/renderer/index.html
+				4 container
+					5 container
+						6 pop up button impatient-coffee
+						7 pop up button Branch main
+						8 button Description: Back, Help: Back (⌘[)
+						9 button (disabled) Description: Forward, Help: Forward (⌘])
+						10 button Description: Reload preview, Help: Reload preview (⌘R)
+						11 pop up button Description: Dev server: Running, Help: Running — npm run dev
+						12 text field (settable) Description: App address, Help: App address (⇧⌘L), Value: http://localhost:5175/, Placeholder: Running
+						13 container Viewport
+							14 toggle button Description: Desktop, Help: Desktop · fills the window (⌘1), Value: 1
+							15 toggle button Description: Laptop, Help: Laptop · 1440 × 900 (⌘2), Value: 0
+							16 toggle button Description: Tablet, Help: Tablet · 820 × 1180 (⌘3), Value: 0
+							17 toggle button Description: Mobile, Help: Mobile · 390 × 844 (⌘4), Value: 0
+						18 button Description: Screenshot, Help: Screenshot (⇧⌘S)
+						19 button Description: Record preview, Help: Record preview (⌥⌘R)
+						20 toggle button Description: Narrate recordings, Help: Talk while you record: your voice is transcribed for the agent. Click to turn on., Value: 0
+						21 toggle button Description: Select element, Help: Select element (⌘D), Value: 0
+						22 toggle button Description: Hide chat, Help: Hide chat (⌘B), Value: 1
+			23 HTML content Impatient Coffee, URL: localhost:5175/
+				24 container
+					25 link Description: Impatient Coffee, Value: localhost:5175/#
+					26 container
+						27 link Description: Menu, Value: localhost:5175/#menu
+						28 link Description: About, Value: localhost:5175/#about
+						29 link Description: Visit, Value: localhost:5175/#visit
+						30 link Description: Order ahead, Value: localhost:5175/#visit
+					31 container
+						32 text NEIGHBORHOOD COFFEE BAR
+						33 heading Great coffee, without the wait., Value: 1
+							34 text Great coffee, without the wait.
+						35 text Locally roasted beans, pastries baked at dawn, and a counter built for speed. Life is short. Your line should be too.
+						36 link Description: Order ahead, Value: localhost:5175/#visit
+						37 link Description: See the menu, Value: localhost:5175/#menu
+						38 text Ready in 2 min
+					39 container
+						40 text 0 1
+						41 heading Two minutes or less, Value: 2
+							42 text Two minutes or less
+						43 text Order ahead or walk in. Most drinks are in your hand before your card is back in your pocket. 0 2
+						44 heading Roasted down the street, Value: 2
+							45 text Roasted down the street
+						46 text We work with a small roaster two blocks away and get fresh bags every Tuesday. 0 3
+						47 heading No rush to leave, Value: 2
+							48 text No rush to leave
+						49 text We make coffee fast so you have more time. Stay for a chapter, a call, or a second cup.
+					50 container
+						51 heading The menu, Value: 2
+							52 text The menu
+						53 text Oat, almond, and whole milk at no extra charge.
+						54 heading ESPRESSO, Value: 3
+							55 text ESPRESSO
+						56 content list
+							57 container
+								58 text Espresso Double shot, house blend 3.25
+							59 container
+								60 text Cortado Equal parts espresso and milk 4.00
+							61 container
+								62 text Flat White Velvety microfoam 4.50
+							63 container
+								64 text Oat Latte Our most-ordered drink 5.00
+						65 heading SLOW BAR, Value: 3
+							66 text SLOW BAR
+						67 content list
+							68 container
+								69 text Pour Over Rotating single origin 5.50
+							70 container
+								71 text Cold Brew Steeped 18 hours 4.75
+							72 container
+								73 text Batch Drip Ready before you ask 2.75
+							74 container
+								75 text Chai Spiced in house 4.75
+						76 heading BAKERY, Value: 3
+							77 text BAKERY
+						78 content list
+							79 container
+								80 text Butter Croissant Baked every morning 3.75
+							81 container
+								82 text Cardamom Bun Sells out by 10 4.25
+							83 container
+								84 text Banana Bread With brown butter 3.50
+							85 container
+								86 text Breakfast Sando Egg, cheddar, chili jam 8.50
+					87 container
+						88 heading Come say hi, Value: 2
+							89 text Come say hi
+						90 text Corner of Alder & 3rd. Look for the orange door, or skip the line by ordering ahead. 214 Alder Street Portland, OR 97204
+						91 link Description: Order ahead, Value: localhost:5175/#
+						92 heading HOURS, Value: 3
+							93 text HOURS
+						94 definition list
+							95 container Mon – Fri
+								96 text Mon – Fri
+							97 text 6:30am – 4pm
+							98 container Saturday
+								99 text Saturday
+							100 text 7:30am – 4pm
+							101 container Sunday
+								102 text Sunday
+							103 text 8am – 2pm
+					104 container
+						105 text ©  2026  Impatient Coffee
+					106 link Description: Instagram, Value: localhost:5175/#
+					107 link Description: hello@impatient.coffee, Value: mailto:hello@impatient.coffee
+			108 HTML content Chat, URL: file:///Users/brijr/Projects/gui/out/renderer/chat.html
+				109 container
+					110 pop up button Claude Code, Help: Switch agent
+					111 button Description: New chat, Help: New chat (archives this one) (⇧⌘K)
+					112 button Description: Show as sidebar, Help: Show as sidebar (⇧⌘D)
+					113 pop up button More
+					114 button Minimize
+					115 container main
+						116 text 8 uncommitted changes  on main
+					117 button Commit, Help: Commits every change except files that may hold secrets. It stays on this Mac.
+					118 container
+						119 text Build a landing page for a coffee shop I'll check the project setup, then build the page.
+						120 button 5 steps · 42s
+							121 text 5 steps
+							122 text · 
+							123 text 42s
+						124 text That screenshot was taken before hot reload landed; checking again.
+						125 button 2 steps · 1s
+							126 text 2 steps
+							127 text · 
+							128 text 1s
+						129 text Desktop looks good. Checking a phone width.
+						130 button 1 step · 1s
+							131 text 1 step
+							132 text · 
+							133 text 1s
+						134 text I built an "Impatient Coffee" landing page with a cream-and-espresso theme in 
+						135 text src/App.jsx
+						136 text . It has a hero with a CSS-drawn latte cup, a strip of three short selling points ("Two minutes or less", for example), a three-column menu with prices, and a visit card with the address and hours. It looks right on desktop and at phone width, with no console errors. The address, prices, hours, email and "Order ahead" links are placeholders, so swap in your real details. The page uses two Google Fonts (Fraunces and Inter), loaded in 
+						137 text index.html
+						138 text .
+						139 container Result
+							140 button 3 files changed +210 −55
+								141 text 3 files
+								142 text  changed
+								143 text +
+								144 text 210
+								145 text −
+								146 text 55
+							147 toggle button Follow up, Help: Ask about this change in your next message, Value: 0
+							148 button Undo, Help: Restore files to how they were before this message (also undoes later messages)
+					149 container
+						150 text entry area (settable) Description: Message Claude Code, Placeholder: Ask Claude Code…
+						151 button Attach images
+						152 toggle button Description: Auto mode, Value: 1
+						153 pop up button Description: Model: Default (recommended), effort Medium, Help: Default (recommended) · Medium (⇧⌘M)
+						154 button (disabled) Description: Send, Help: Write a message first
+	155 close button
+	156 full screen button Help: this button also has an action to zoom the window, Secondary Actions: zoom the window
+	157 minimize button
+158 menu bar
+	159 Gui QA Impatient
+	160 File
+	161 Edit
+	162 View
+	163 Agent
+	164 Window
+	165 Help
+
+The focused UI element is 108 HTML content Chat, URL: file:///Users/brijr/Projects/gui/out/renderer/chat.html

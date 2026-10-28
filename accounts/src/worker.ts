@@ -364,11 +364,11 @@ async function accountFor(env: Env, identity: Identity, linkTo?: string | null):
   const created = !id
   if (!id) {
     id = crypto.randomUUID()
-    // New accounts get product updates (the terms say so); Settings → Account turns them off.
+    // Product updates are optional; people can opt in in Settings → Account.
     await env.DB.prepare(
       'INSERT INTO accounts (id, email, name, updates, created_at, last_login_at) VALUES (?, ?, ?, ?, ?, ?)',
     )
-      .bind(id, identity.email, identity.name, identity.email ? 1 : 0, now(), now())
+      .bind(id, identity.email, identity.name, 0, now(), now())
       .run()
   }
   if (!known)

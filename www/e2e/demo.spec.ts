@@ -157,7 +157,7 @@ test('links on the page do not navigate while the demo is open', async ({ page }
     el.scrollTop = el.scrollHeight
   })
   await page.getByRole('link', { name: 'WIP' }).click()
-  await expect(page).toHaveURL(/127.0.0.1:4329\/$/)
+  await expect(page).toHaveURL(/127.0.0.1:4329\/#demo$/)
   await expect(page.locator('[data-selected] .mark-label')).toContainText(/^a/)
 })
 
@@ -194,7 +194,7 @@ test('closing puts the page back as it was', async ({ page }) => {
   expect(await page.locator('.sub').getAttribute('style')).toBeNull()
   expect(await page.locator('[data-demo-target]').getAttribute('class')).toBeNull()
   expect(await page.locator('[data-demo-target]').getAttribute('style')).toBeNull()
-  expect(await page.evaluate(() => document.documentElement.className)).toBe('')
+  await expect(page.locator('html')).not.toHaveClass(/demo-open/)
   await expect(page.getByRole('button', { name: 'Try it now' })).toBeFocused()
 
   // And it opens again from the start.

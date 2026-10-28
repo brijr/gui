@@ -827,7 +827,7 @@ function useGitHubConnected() {
  * Settings → GitHub). New project and Clone by URL swap the buttons for a name or repo field;
  * main asks where to put the folder, then opens it like any project.
  */
-function OpenActions() {
+function OpenActions({ firstRun }: { firstRun: boolean }) {
   const [form, setForm] = useState<StartForm | null>(null)
   const githubConnected = useGitHubConnected()
   const [template, setTemplate] = useState<ProjectTemplate>('website')
@@ -867,21 +867,41 @@ function OpenActions() {
         <Button
           variant="primary"
           size="lg"
-          icon={FolderOpen}
+          icon={firstRun ? FolderPlus : FolderOpen}
           className={cell}
-          onClick={() => void gui.openProject()}
+          onClick={() => (firstRun ? setForm('newProject') : void gui.openProject())}
         >
-          Open project…
+          {firstRun ? 'New project' : 'Open project…'}
         </Button>
         <div className="grid grid-cols-2 gap-2">
-          <Button icon={FolderPlus} className={cell} onClick={() => setForm('newProject')}>
-            New project
+          <Button
+            icon={firstRun ? FolderOpen : FolderPlus}
+            className={cell}
+            title={
+              firstRun
+                ? 'Choose a project folder already on your Mac'
+                : 'Start a new website or app'
+            }
+            onClick={() => (firstRun ? void gui.openProject() : setForm('newProject'))}
+          >
+            {firstRun ? 'Open project…' : 'New project'}
           </Button>
           {/* No folder, install or server: a canvas to design on with the agent, open at once. */}
-          <Button icon={Shapes} className={cell} shortcut="newBoard" onClick={() => gui.newBoard()}>
+          <Button
+            icon={Shapes}
+            className={cell}
+            title="Design on a board without a project folder"
+            shortcut="newBoard"
+            onClick={() => gui.newBoard()}
+          >
             New canvas
           </Button>
-          <Button icon={Link} className={cell} onClick={() => setForm('cloneRepo')}>
+          <Button
+            icon={Link}
+            className={cell}
+            title="Copy a GitHub project to your Mac from its link"
+            onClick={() => setForm('cloneRepo')}
+          >
             Clone by URL
           </Button>
           <Button className={cell} onClick={() => gui.openSettings('github')}>
@@ -889,6 +909,12 @@ function OpenActions() {
             {githubConnected ? 'Open from GitHub…' : 'Connect GitHub…'}
           </Button>
         </div>
+        {firstRun && (
+          <p className="text-small text-muted">
+            New project starts a website or app. New canvas opens a design board without a project.
+            Open project uses a folder already on your Mac.
+          </p>
+        )}
       </div>
     )
   }
@@ -916,6 +942,12 @@ function OpenActions() {
   return (
     <form
       className="flex flex-col gap-3"
+      onKeyDown={(event) => {
+        if (event.key === 'Escape' && !busy) {
+          event.preventDefault()
+          close()
+        }
+      }}
       onSubmit={(event) => {
         event.preventDefault()
         void submit()
@@ -961,9 +993,6 @@ function OpenActions() {
               setValue(event.target.value)
               setError(null)
             }}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape' && !busy) close()
-            }}
           />
           <Button type="submit" variant="primary" loading={busy} disabled={!value.trim()}>
             {busy ? spec.busy : spec.submit}
@@ -1008,7 +1037,7 @@ function StartScreen({ state }: { state: WindowState }) {
     .slice(0, 5)
   const projects = state.recent.filter((project) => !project.chat).slice(0, 5)
   const boards = (state.recentBoards ?? []).slice(0, 5)
-  const firstRun = state.recent.length === 0
+  const firstRun = state.recent.length === 0 && boards.length === 0
   return (
     <div className="flex w-full max-w-md flex-col gap-8">
       <div className="flex flex-col gap-5">
@@ -1030,7 +1059,7 @@ function StartScreen({ state }: { state: WindowState }) {
             onOtherAgents={() => setOtherAgents(true)}
           />
         )}
-        <OpenActions />
+        <OpenActions firstRun={firstRun} />
       </div>
 
       {chats.length > 0 && (

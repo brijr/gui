@@ -201,7 +201,24 @@ function UserMessage({ turn }: { turn: Turn }) {
 /** What a designer calls it: up to two components, innermost last ("Hero › Button"), or the tag. */
 function componentName(componentStack: string[], tag: string) {
   const [inner, outer] = componentStack
-  return inner ? (outer ? `${outer} › ${inner}` : inner) : `<${tag}>`
+  if (inner) return outer ? `${outer} › ${inner}` : inner
+  if (/^h[1-6]$/.test(tag)) return 'Heading'
+  const names: Record<string, string> = {
+    a: 'Link',
+    button: 'Button',
+    img: 'Image',
+    p: 'Paragraph',
+    span: 'Text',
+    input: 'Input',
+    textarea: 'Text field',
+    select: 'Dropdown',
+    nav: 'Navigation',
+    section: 'Section',
+    ul: 'List',
+    ol: 'List',
+    li: 'List item',
+  }
+  return names[tag] ?? 'Element'
 }
 
 function sourceLabel(source: SourceLocation | null) {
@@ -230,7 +247,7 @@ export function pickLabel(picked: Picked) {
   return {
     name: componentName(picked.componentStack, picked.tag),
     detail: picked.text ? picked.text.slice(0, 60) : null,
-    where: sourceLabel(picked.source) ?? picked.selector,
+    where: sourceLabel(picked.source),
     title: picked.source?.file ?? picked.selector,
   }
 }

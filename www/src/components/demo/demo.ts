@@ -136,6 +136,9 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   const send = q<HTMLButtonElement>('[data-send]')
   const toolbarSelect = q<HTMLButtonElement>('[data-toolbar] [data-select]')
   const closeButton = q<HTMLButtonElement>('.done')
+  const skip = q<HTMLButtonElement>('[data-skip]')
+  const play = q<HTMLButtonElement>('[data-play]')
+  const demoStatus = q('[data-demo-status]')
   const selectButtons = root.querySelectorAll<HTMLButtonElement>('[data-select]')
   const suggestions = root.querySelectorAll<HTMLButtonElement>('[data-suggestion]')
   const reduce = matchMedia('(prefers-reduced-motion: reduce)')
@@ -152,6 +155,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   let opener: HTMLElement | null = null
   let frame = 0
   let resizing = 0
+  let navigatingBack = false
   /** The transcript's scroll height when it last scrolled to the end */
   let transcriptHeight = 0
   const applied: Change[] = []
@@ -232,16 +236,16 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     }
     // Phones: the chat goes under the preview, and the page sits in it like a device frame.
     const m = 8
-    const tb = 40
+    const tb = 44
     const win = { x: m, y: m, w: W - 2 * m, h: H - 2 * m }
-    const chatH = Math.round(clamp(win.h * 0.4, 240, 380))
+    const chatH = Math.round(clamp(win.h * 0.58, 300, 480))
     const area = { x: win.x, y: win.y + tb, w: win.w, h: win.h - tb - chatH }
-    const s = Math.min((area.w - 24) / vw, (area.h - 24) / vh)
+    const s = (area.w - 16) / vw
     const pageRect = {
       x: area.x + (area.w - vw * s) / 2,
-      y: area.y + (area.h - vh * s) / 2,
+      y: area.y + 8,
       w: vw * s,
-      h: vh * s,
+      h: area.h - 16,
     }
     return {
       s,
@@ -258,6 +262,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     page.style.width = `${document.documentElement.clientWidth}px`
     page.style.height = `${innerHeight}px`
     geo = measure()
+    if (geo.narrow) page.style.height = `${geo.page.h / geo.s}px`
     const set = (name: string, value: number) => root.style.setProperty(name, `${value}px`)
     for (const [key, r] of [
       ['win', geo.win],
@@ -288,6 +293,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   function open(from: HTMLElement) {
     if (state !== 'closed') return
     opener = from
+    if (!history.state?.guiDemo) history.pushState({ ...history.state, guiDemo: true }, '', '#demo')
     loadWallpaper()
     clock.textContent = new Intl.DateTimeFormat(undefined, {
       weekday: 'short',
@@ -377,6 +383,13 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
 
   function close() {
     if (state === 'closed' || state === 'closing') return
+    if (history.state?.guiDemo) {
+      if (!navigatingBack) {
+        navigatingBack = true
+        history.back()
+      }
+      return
+    }
     run++
     setState('closing')
     setPicking(false)
@@ -933,7 +946,15 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   function sync() {
     const idle = state === 'idle'
     input.readOnly = !idle
-    send.disabled = !input.value.trim() || !(idle || state === 'intro')
+    send.disabled = !idle || !input.value.trim()
+    skip.hidden = state !== 'intro'
+    play.hidden = !idle
+    demoStatus.textContent =
+      state === 'intro' || state === 'opening'
+        ? 'Example playing. Choose Try it yourself to start now.'
+        : state === 'working'
+          ? 'Applying your demo change…'
+          : 'Your turn. Select text and try bold, serif, or blue.'
     for (const button of suggestions) button.disabled = !idle || !selected
     hint.textContent = selected
       ? `Try a change to the selected ${tagOf(selected)}:`
@@ -969,7 +990,19 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       if (state === 'idle') setPicking(!picking)
     })
   }
-  q('[data-restart]').addEventListener('click', () => {
+  skip.addEventListener('click', () => {
+    if (state !== 'intro') return
+    run++
+    hideCursor()
+    revertAll(true)
+    setHover(null)
+    select(null)
+    form.classList.remove('is-active')
+    send.classList.remove('is-pressed')
+    resetChat()
+    ready()
+  })
+  const replay = () => {
     if (state !== 'intro' && state !== 'idle' && state !== 'working') return
     run++
     hideCursor()
@@ -980,7 +1013,9 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     resetChat()
     setState('intro')
     script(intro)
-  })
+  }
+  q('[data-restart]').addEventListener('click', replay)
+  play.addEventListener('click', replay)
   for (const button of suggestions) {
     button.addEventListener('click', () => {
       if (state !== 'idle' || !selected) return
@@ -999,9 +1034,26 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     event.preventDefault()
     const prompt = input.value.trim()
     if (state !== 'idle' || !prompt) return
+    const kind = /\b(bold|bolder|semi[- ]?bold)\b/i.test(prompt)
+      ? 'bolder'
+      : /\bserif\b/i.test(prompt)
+        ? 'serif'
+        : /\bblue\b/i.test(prompt)
+          ? 'blue'
+          : ''
+    const requested = selected && kind ? suggestion(kind, selected) : null
+    const turn: Turn = requested
+      ? { ...requested, prompt }
+      : {
+          prompt,
+          target: selected,
+          reply: selected
+            ? FREE_REPLY
+            : 'Select some text on the page first, then ask for bold, a serif font, or blue.',
+        }
     setState('working')
     script(async (id) => {
-      await converse({ prompt, target: selected, reply: FREE_REPLY }, id)
+      await converse(turn, id)
       setState('idle')
     })
   })
@@ -1033,6 +1085,11 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     true,
   )
 
+  addEventListener('popstate', () => {
+    navigatingBack = false
+    if (!history.state?.guiDemo && state !== 'closed') close()
+    else if (history.state?.guiDemo && state === 'closed' && opener) open(opener)
+  })
   addEventListener('keydown', (event) => {
     if (event.key === 'Escape' && state !== 'closed') close()
   })

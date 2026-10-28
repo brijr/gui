@@ -262,9 +262,9 @@ test('login stores verified identity, encrypts provider credentials, and prevent
   const signedIn = await login()
   const response = await call('/account', signedIn.session)
   expect(await response.json()).toMatchObject({
-    // A new account with an email starts subscribed.
-    account: { email: 'test@example.com', updates: true },
-    profile: { login: 'tester', email: 'test@example.com', updates: true },
+    // A new account must choose to receive product updates.
+    account: { email: 'test@example.com', updates: false },
+    profile: { login: 'tester', email: 'test@example.com', updates: false },
   })
   const user = db.query('SELECT * FROM users').get() as {
     github_token: string
@@ -329,16 +329,16 @@ test('email is optional, and only verified primary email can subscribe', async (
 
 test('preferences survive repeat login by immutable GitHub identity; logout invalidates only its session', async () => {
   const first = await login()
-  // Opting out sticks: signing in again doesn't change the choice.
-  expect((await call('/account/updates', first.session, 'POST', { updates: false })).status).toBe(
+  // Opting in sticks: signing in again does not change the choice.
+  expect((await call('/account/updates', first.session, 'POST', { updates: true })).status).toBe(
     200,
   )
   const second = await login()
   expect(db.query('SELECT count(*) AS n FROM users').get()).toEqual({ n: 1 })
   expect(db.query('SELECT count(*) AS n FROM accounts').get()).toEqual({ n: 1 })
   expect(await (await call('/account', second.session)).json()).toMatchObject({
-    account: { updates: false },
-    profile: { updates: false },
+    account: { updates: true },
+    profile: { updates: true },
   })
   await call('/logout', first.session, 'POST')
   expect((await call('/account', first.session)).status).toBe(401)
@@ -505,7 +505,7 @@ test('sign-in goes through AuthKit in the browser and back to Gui by loopback, o
   const state = redirect.searchParams.get('state') ?? ''
   const session = await collect(attempt, await browse(`/callback/workos?code=c&state=${state}`))
   expect(await (await call('/account', session ?? undefined)).json()).toMatchObject({
-    account: { email: 'test@example.com', name: 'Ada Lovelace', updates: true },
+    account: { email: 'test@example.com', name: 'Ada Lovelace', updates: false },
     profile: null,
   })
   // Gui keeps its own session; WorkOS's ends, so signing in again asks again.
