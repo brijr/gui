@@ -321,25 +321,18 @@ function notePlace(at: Point) {
  */
 function captionPlace(rect: Rect | null) {
   if (!rect) return { top: 12, left: 12 }
+  // Under the target, like a tooltip, so it never hides the controls beside it (often the
+  // walkthrough's next step); over it when there's no room under.
   const { innerWidth: width, innerHeight: height } = window
-  const right = width - CAPTION_EDGE - (rect.x + rect.width + CAPTION_GAP)
-  const left = rect.x - CAPTION_GAP - CAPTION_EDGE
-  if (Math.max(right, left) >= CAPTION_WIDTH) {
-    const top = Math.min(Math.max(CAPTION_EDGE, rect.y), height - CAPTION_HEIGHT - CAPTION_EDGE)
-    return right >= left
-      ? { top, left: rect.x + rect.width + CAPTION_GAP }
-      : { top, right: width - rect.x + CAPTION_GAP }
-  }
   const x = Math.min(
     Math.max(CAPTION_EDGE, rect.x),
     Math.max(CAPTION_EDGE, width - CAPTION_WIDTH - CAPTION_EDGE),
   )
   const below = height - CAPTION_EDGE - (rect.y + rect.height + CAPTION_GAP)
   const above = rect.y - CAPTION_GAP - CAPTION_EDGE
-  if (Math.max(below, above) >= CAPTION_HEIGHT)
-    return below >= above
-      ? { top: rect.y + rect.height + CAPTION_GAP, left: x }
-      : { bottom: height - rect.y + CAPTION_GAP, left: x }
+  if (below >= CAPTION_HEIGHT || (below >= above && below > 0))
+    return { top: rect.y + rect.height + CAPTION_GAP, left: x }
+  if (above >= CAPTION_HEIGHT) return { bottom: height - rect.y + CAPTION_GAP, left: x }
   // Bigger than the view: inside its top edge.
   return { top: Math.max(CAPTION_EDGE, rect.y + CAPTION_GAP), left: x }
 }
