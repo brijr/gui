@@ -256,7 +256,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       <div
         data-popover-anchor=""
         className={cn(
-          'relative rounded-lg border border-line-strong bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
+          'relative rounded-lg border border-edge bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
           dropping && 'border-accent bg-accent-soft',
         )}
       >

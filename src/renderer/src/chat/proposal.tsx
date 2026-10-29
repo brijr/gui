@@ -2,7 +2,6 @@ import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { fixPrompt } from '../../../shared/review'
 import type { Proposal, ProposalPull, ReviewComment, ShipDraft } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
 import {
   ArrowLeft,
   Check,
@@ -10,7 +9,6 @@ import {
   ExternalLink,
   GitBranch,
   GitPullRequest,
-  type IconComponent,
   MessageSquare,
   RotateCw,
   Shield,
@@ -166,7 +164,7 @@ export function ProposalBar() {
           tone="danger"
           icon={TriangleAlert}
           role="alert"
-          className="h-auto min-h-9 py-1.5 [&>div]:whitespace-normal"
+          wrap
           actions={
             <>
               <GitErrorAction error={error} retry={retry} onDone={dismiss} />
@@ -198,7 +196,8 @@ function barFor(
   // Gui doesn't run Git until the project is trusted: no branch, no commits, until it is.
   if (!proposal.trusted) {
     return (
-      <Strip
+      <Banner
+        wrap
         icon={Shield}
         role="status"
         actions={
@@ -219,7 +218,7 @@ function barFor(
         <span className="text-pretty">
           Gui needs your OK to use Git in this project, to keep your work on its own branch.
         </span>
-      </Strip>
+      </Banner>
     )
   }
   // The one button that takes the work forward: commit, and when it's online, push and
@@ -245,7 +244,8 @@ function barFor(
   if (merge) {
     const left = merge.marked.length
     return (
-      <Strip
+      <Banner
+        wrap
         tone="warning"
         icon={TriangleAlert}
         role="status"
@@ -290,7 +290,7 @@ function barFor(
             ? `${plural(left, 'file')} conflict with the latest ${latest}`
             : 'Conflicts fixed. Finish getting the latest.'}
         </span>
-      </Strip>
+      </Banner>
     )
   }
 
@@ -298,7 +298,8 @@ function barFor(
   // switch to main (it's checked out beside it), so it's removed instead: the branch stays.
   if (pull && (pull.state === 'merged' || pull.state === 'closed')) {
     return (
-      <Strip
+      <Banner
+        wrap
         icon={pull.state === 'merged' ? Check : GitPullRequest}
         role="status"
         actions={
@@ -327,9 +328,11 @@ function barFor(
           )
         }
       >
-        <PullTitle pull={pull} />
-        {pullBadge(pull)}
-      </Strip>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <PullTitle pull={pull} />
+          {pullBadge(pull)}
+        </span>
+      </Banner>
     )
   }
 
@@ -350,7 +353,8 @@ function barFor(
   if (pull) {
     const changes = proposal.changes
     return (
-      <Strip
+      <Banner
+        wrap
         icon={GitPullRequest}
         role="status"
         actions={
@@ -371,16 +375,19 @@ function barFor(
           </>
         }
       >
-        <PullTitle pull={pull} />
-        {pullBadge(pull)}
-      </Strip>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <PullTitle pull={pull} />
+          {pullBadge(pull)}
+        </span>
+      </Banner>
     )
   }
 
   // Not shared yet.
   if (proposal.changes > 0 || proposal.ahead > 0) {
     return (
-      <Strip
+      <Banner
+        wrap
         icon={CircleDot}
         role="status"
         actions={
@@ -397,7 +404,7 @@ function barFor(
           {proposal.branch && ` on ${proposal.branch}`}
           {draft && ` · ${draft.title}`}
         </span>
-      </Strip>
+      </Banner>
     )
   }
 
@@ -405,7 +412,8 @@ function barFor(
   if (proposal.newBranchFrom) {
     const from = proposal.newBranchFrom
     return (
-      <Strip
+      <Banner
+        wrap
         icon={GitBranch}
         role="status"
         actions={
@@ -423,18 +431,18 @@ function barFor(
         <span className="text-pretty">
           Your first message starts a new branch, so {from} stays as it is.
         </span>
-      </Strip>
+      </Banner>
     )
   }
 
   // Nothing of its own: the only news is that the latest moved on.
   if (behind > 0) {
     return (
-      <Strip icon={RotateCw} role="status" actions={bringIn('Get latest')}>
+      <Banner wrap icon={RotateCw} role="status" actions={bringIn('Get latest')}>
         <span className="truncate">
           {latest} has {plural(behind, 'new commit')}
         </span>
-      </Strip>
+      </Banner>
     )
   }
   return null
@@ -480,7 +488,8 @@ function shareHint(proposal: Proposal, draft: ShipDraft | null) {
 function Done({ done }: { done: ShareDone }) {
   const host = done.url ? (linkTarget(done.url)?.host ?? 'the website') : null
   return (
-    <Strip
+    <Banner
+      wrap
       icon={done.url ? GitPullRequest : Check}
       role="status"
       actions={
@@ -502,41 +511,7 @@ function Done({ done }: { done: ShareDone }) {
       }
     >
       <span className="text-pretty">{done.text}</span>
-    </Strip>
-  )
-}
-
-/**
- * The bar's layout: what's going on (icon, words, a state badge) on the first line, and the
- * next moves under it, so a narrow sidebar never cuts the title or the buttons short.
- */
-function Strip({
-  icon: Icon,
-  tone = 'neutral',
-  role,
-  actions,
-  children,
-}: {
-  icon: IconComponent
-  tone?: 'neutral' | 'warning'
-  role?: 'status'
-  actions?: ReactNode
-  children: ReactNode
-}) {
-  return (
-    <div
-      role={role}
-      className={cn(
-        'flex shrink-0 flex-col gap-2 border-b border-line px-3 py-2 text-small',
-        tone === 'warning' ? 'bg-warning-soft text-warning' : 'bg-surface text-muted',
-      )}
-    >
-      <div className="flex min-w-0 items-center gap-1.5">
-        <Icon className="size-3.5 shrink-0" aria-hidden="true" />
-        {children}
-      </div>
-      {actions && <div className="flex flex-wrap items-center gap-1">{actions}</div>}
-    </div>
+    </Banner>
   )
 }
 
@@ -618,22 +593,21 @@ export function ReviewSheet() {
         }
       />
       {!pull || comments.length === 0 ? (
-        <div className="flex min-h-0 flex-1 items-center px-8">
-          <Message
-            icon={<Check className="size-4" aria-hidden="true" />}
-            tone="accent"
-            title="All caught up"
-            actions={<Button onClick={() => openReview(false)}>Back to chat</Button>}
-          >
-            Every comment has gone to the agent or been put aside.
-          </Message>
-        </div>
+        <Message
+          fill
+          icon={Check}
+          tone="accent"
+          title="All caught up"
+          actions={<Button onClick={() => openReview(false)}>Back to chat</Button>}
+        >
+          Every comment has gone to the agent or been put aside.
+        </Message>
       ) : (
         <>
           <ul className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto scroll-stable p-3">
             {comments.map((comment) => (
               <li key={comment.id}>
-                <Card tone="inset" className="flex flex-col gap-2 p-3">
+                <Card tone="inset" className="flex flex-col gap-2">
                   <div className="flex min-w-0 items-center gap-1.5 text-small">
                     <span className="font-medium">{comment.author}</span>
                     {comment.path && (

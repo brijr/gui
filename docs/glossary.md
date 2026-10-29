@@ -23,6 +23,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | app | site, server | preview, empty states | What the project builds and the preview shows |
 | preview | page, browser view | toolbar, shortcuts | **page** is one address inside the preview. **browser** is the user's own browser ("Open in Browser") |
 | dev server | server, start command, "Start app" | drawer, View menu, setup cards | Sentences about what the user sees say "your app": "Your app stopped". The command field is "Dev server command"; the button is "Start dev server" ("Start Dev Server" in menus and dialogs) |
+| Trust project, Trusted projects | Allow, approve, "Use source control?" | trust prompt, bar, Source Control, Settings → Projects | One switch: a trusted project runs its dev server, Git and agents without asking |
 | dependencies | packages | setup cards, address bar status | "Installing dependencies…", "Gui will install its dependencies and start it" |
 | select | pick, picked | "Select element" (⌘D), composer and message lists ("Selected", "2 selected"), empty chat | Code names (`Picked`, `pick/`) stay |
 | Show as sidebar / Show as floating panel | Float panel, Dock | chat header (`chat-panel.tsx`) | Menu: "Chat as Sidebar". Settings: "Show the chat as a sidebar" |

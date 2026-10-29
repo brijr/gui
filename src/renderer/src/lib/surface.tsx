@@ -1,11 +1,4 @@
-import {
-  type ComponentProps,
-  type CSSProperties,
-  isValidElement,
-  type ReactElement,
-  type ReactNode,
-  useState,
-} from 'react'
+import { type ComponentProps, type CSSProperties, type ReactNode, useState } from 'react'
 import { cn } from './cn'
 import { Check, type IconComponent, Search, X } from './icons'
 import { PRESS, Spinner } from './ui'
@@ -407,7 +400,9 @@ export function Banner({
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{children}</div>
       )}
-      {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
+      {actions && (
+        <div className={cn('flex shrink-0 items-center gap-1', wrap && 'flex-wrap')}>{actions}</div>
+      )}
     </div>
   )
 }
@@ -530,7 +525,7 @@ const MESSAGE_TONE = {
 
 interface MessageProps {
   /** A 16px icon in a 32px circle, so titles sit at the same height in every state; loading: a spinner */
-  icon: IconComponent | 'loading' | ReactElement
+  icon: IconComponent | 'loading'
   /** The circle's color: danger for errors, accent for a success, neutral otherwise */
   tone?: keyof typeof MESSAGE_TONE
   /** Leave it out when the explanation says it all */
@@ -576,9 +571,6 @@ export function Message({
       >
         {Icon === 'loading' ? (
           <Spinner size="md" />
-        ) : isValidElement(Icon) ? (
-          // Until proposal.tsx and ship-sheet.tsx pass the icon itself
-          Icon
         ) : (
           <Icon className="size-4" aria-hidden="true" />
         )}

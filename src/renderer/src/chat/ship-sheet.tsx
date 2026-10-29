@@ -1,7 +1,7 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ShipFile, ShipInfo, ShipRequest } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
+import { ChangeMark } from '../lib/changed-files'
 import { Disclosure } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { Field, InlineError, Input, Textarea } from '../lib/field'
@@ -122,19 +122,16 @@ export function ShipSheet() {
           <Skeleton className="h-7 w-full" />
         </div>
       ) : loaded.kind === 'blocked' ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center p-3">
-          <Message
-            icon={<Info className="size-4" aria-hidden="true" />}
-            actions={
-              // Declining closed the question quietly; this asks it again.
-              loaded.untrusted && (
-                <Button onClick={() => void loadShipInfo()}>Trust project…</Button>
-              )
-            }
-          >
-            <WithCode text={loaded.message} />
-          </Message>
-        </div>
+        <Message
+          fill
+          icon={Info}
+          actions={
+            // Declining closed the question quietly; this asks it again.
+            loaded.untrusted && <Button onClick={() => void loadShipInfo()}>Trust project…</Button>
+          }
+        >
+          <WithCode text={loaded.message} />
+        </Message>
       ) : (
         draft && <Workspace info={loaded.info} draft={draft} running={running} />
       )}
@@ -165,7 +162,7 @@ function Workspace({
   const workspace = info.workspace
   if (!workspace)
     return (
-      <Message icon={<Info className="size-4" aria-hidden="true" />}>
+      <Message icon={Info}>
         Gui couldn’t read this project’s branches. Refresh to try again.
       </Message>
     )
@@ -476,12 +473,6 @@ function Workspace({
 }
 
 const FILE_LIMIT = 100
-const STATUS_COLOR: Record<ShipFile['status'], string> = {
-  added: 'text-success',
-  modified: 'text-warning',
-  deleted: 'text-danger',
-  renamed: 'text-accent-text',
-}
 
 function FileList({
   files,
@@ -511,14 +502,7 @@ function FileList({
             className="min-h-0 min-w-0 cursor-pointer rounded-sm px-1 py-1 hover:bg-hover [&>span:last-child]:flex [&>span:last-child]:flex-1 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
             label={
               <>
-                <span
-                  className={cn('w-3 shrink-0 font-mono', STATUS_COLOR[file.status])}
-                  aria-hidden="true"
-                  title={file.status}
-                >
-                  {file.status[0]?.toUpperCase()}
-                </span>
-                <span className="sr-only">{file.status}</span>
+                <ChangeMark status={file.status} />
                 <PathText path={file.path} className="flex-1" />
               </>
             }
