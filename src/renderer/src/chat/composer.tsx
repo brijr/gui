@@ -268,7 +268,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
             style={{
               background: 'linear-gradient(var(--accent-soft), var(--accent-soft)), var(--raised)',
             }}
-            className="pointer-events-none absolute inset-0 z-10 flex items-center gap-2 rounded-lg px-3 text-small font-medium text-accent-text"
+            className="pointer-events-none absolute inset-0 z-sticky flex items-center gap-2 rounded-lg px-3 text-small font-medium text-accent-text"
           >
             <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
             Drop images to attach
@@ -420,7 +420,7 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const latest = meta.problems.at(-1)
   return (
     // A compact card: a line (two, with the latest error), Fix, and an X that hides it until a new error.
-    <Card tone="inset" className={cn(ARRIVE, 'flex items-center gap-2 py-2 pr-1.5 pl-3')}>
+    <Card tone="inset" padding="compact" className={cn(ARRIVE, 'flex items-center gap-2')}>
       <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="min-w-0 flex-1">
         <p className="text-small font-medium">{problemsTitle(meta.problems)}</p>
@@ -457,7 +457,7 @@ function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
 function Selection({ selection }: { selection: Picked[] }) {
   const several = selection.length > 1
   return (
-    <Card tone="inset" className={cn(ARRIVE, 'max-h-36 overflow-y-auto')}>
+    <Card tone="inset" padding="none" className={cn(ARRIVE, 'max-h-36 overflow-y-auto')}>
       <ul
         aria-label={several ? `${selection.length} picked` : 'Picked'}
         className="divide-y divide-line"
@@ -512,7 +512,7 @@ function FollowUpCard({
   onRemove: () => void
 }) {
   return (
-    <Card tone="inset" className={cn(ARRIVE, 'flex items-center gap-2 py-1 pr-1 pl-3')}>
+    <Card tone="inset" padding="compact" className={cn(ARRIVE, 'flex items-center gap-2')}>
       <Reply className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
       <p className="min-w-0 flex-1 truncate text-small" title={prompt}>
         <span className="text-muted">Following up on </span>

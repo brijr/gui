@@ -24,7 +24,7 @@ import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { FIELD_LOOK, InlineError } from '../lib/field'
 import { Card, GroupLabel } from '../lib/surface'
-import { Button, Spinner } from '../lib/ui'
+import { PromptButton, Spinner } from '../lib/ui'
 
 /** The frame label's height above a frame, in screen pixels. */
 const LABEL_HEIGHT = 22
@@ -1109,7 +1109,8 @@ function EmptyBoard({ working }: { working: boolean }) {
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
       <Card
-        className="pointer-events-auto flex w-full max-w-md flex-col gap-4 p-5"
+        padding="canvas"
+        className="pointer-events-auto flex w-full max-w-md flex-col gap-4"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="flex flex-col gap-1">
@@ -1123,16 +1124,14 @@ function EmptyBoard({ working }: { working: boolean }) {
           <GroupLabel>Try</GroupLabel>
           <div className="flex flex-col items-start gap-1.5">
             {STARTERS.map((prompt) => (
-              <Button
+              <PromptButton
                 key={prompt}
-                size="sm"
                 loading={sending === prompt}
                 disabled={busy}
-                className="h-auto max-w-full justify-start py-1.5 text-left whitespace-normal"
                 onClick={() => void start(prompt)}
               >
                 {prompt}
-              </Button>
+              </PromptButton>
             ))}
           </div>
           {(working || sent) && (

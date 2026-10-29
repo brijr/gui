@@ -16,10 +16,15 @@
  *
  * Container recipes, so the same kind of thing has the same insets everywhere:
  *   header   h-9, pl-3 pr-1.5, gap-1.5: panel, sheet and dialog headers (PanelHeader)
- *   bar      h-9, pl-3 pr-1.5, gap-2: a banner across a panel (Banner)
- *   popover  p-1 around MenuRows; p-3 around prose
- *   card     p-3; a compact card (one line and a button) py-2 pl-3 pr-2
- *   row      px-3 py-2 (ListRow, ListItem); 28px rows in menus and dense lists
+ *   bar      h-9, pl-3 pr-1.5, gap-2: a banner across a panel (Banner); with `wrap`,
+ *            min-h-9 and py-1.5, the text wrapping and the actions dropping under it
+ *   popover  p-1 around MenuRows; p-3 around prose; a note in place of rows (PopoverNote)
+ *            h-9 px-3, a search field across the top (PopoverSearch) h-9
+ *   card     Card's `padding`: card p-3; compact (a line or two and a small button)
+ *            py-2 pl-3 pr-2; canvas (a card alone on the canvas) p-5; none
+ *   row      px-3 py-2.5 in a List (ListItem, flush ListRow, with or without a leading
+ *            icon); 28px rows in menus and dense lists (MenuRow)
+ *   empty    Message with `fill`: p-6 around it, in the middle of what's left of the panel
  *
  * Layers, lowest first (z-* utilities below): sticky headers inside a scroller, chrome that
  * sits over its page (bars, drag regions), then popovers and menus. Modal sheets are native
@@ -240,6 +245,8 @@
   --motion-exit: 100ms;
   /* Reduced motion: the cross-fade that stands in for movement */
   --motion-fade: 150ms;
+  /* The guide's pointer gliding to what it shows next: slow enough for the eye to follow */
+  --motion-guide: 650ms;
 
   /* Behind the preview, and the start screen */
   --canvas: #ececec;

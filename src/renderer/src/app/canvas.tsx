@@ -27,6 +27,7 @@ import {
   Ellipsis,
   FolderOpen,
   FolderPlus,
+  type IconComponent,
   Info,
   KeyRound,
   Link,
@@ -40,7 +41,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { timeAgo } from '../lib/time'
-import { Button, Code, IconButton, SegmentedControl, Spinner } from '../lib/ui'
+import { Button, Code, IconButton, SegmentedControl } from '../lib/ui'
 import { needsSignIn, useAccount } from '../lib/use-account'
 import { useAction } from '../settings/use-action'
 import { Board } from './board'
@@ -95,7 +96,7 @@ export function Canvas({ state }: { state: WindowState }) {
           preview.error && (
             <div className="absolute inset-0 flex items-center justify-center p-8">
               <Message
-                icon={ALERT}
+                icon={TriangleAlert}
                 tone="danger"
                 title="This frame didn’t load"
                 className="max-w-sm"
@@ -170,9 +171,6 @@ function DeviceFrame({ frame }: { frame: ViewportFrame }) {
   )
 }
 
-const ALERT = <TriangleAlert className="size-4" aria-hidden="true" />
-const INFO = <Info className="size-4" aria-hidden="true" />
-const LOADING = <Spinner size="md" />
 const CHEVRON = <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />
 
 /**
@@ -196,7 +194,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (setup?.dependencies === 'installing') {
     return (
       <SetupCard
-        icon={LOADING}
+        icon="loading"
         title="Installing dependencies…"
         detail="Getting the project ready to run. The first time can take a few minutes."
         actions={<LogsToggle open={logsOpen} />}
@@ -208,7 +206,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (setup?.dependencies === 'failed') {
     return (
       <SetupCard
-        icon={ALERT}
+        icon={TriangleAlert}
         tone="danger"
         title="Couldn't install dependencies"
         detail="The install stopped with an error."
@@ -230,7 +228,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     const failed = crashed(state)
     return (
       <SetupCard
-        icon={failed ? ALERT : INFO}
+        icon={failed ? TriangleAlert : Info}
         tone={failed ? 'danger' : 'neutral'}
         title="Your app stopped"
         detail={
@@ -269,7 +267,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (preview.error) {
     return (
       <SetupCard
-        icon={ALERT}
+        icon={TriangleAlert}
         tone="danger"
         title="Your app couldn't load"
         detail={preview.error}
@@ -291,7 +289,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (devServer.status === 'starting' && devServer.slow) {
     return (
       <SetupCard
-        icon={LOADING}
+        icon="loading"
         title="Your app is taking a while to start"
         detail="Gui is waiting for it to show an address. Check the logs, or enter your app's address if it's already running."
         note={devServer.lastLine}
@@ -313,7 +311,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (devServer.status === 'starting' || (devServer.status === 'running' && !preview.visible)) {
     return (
       <SetupCard
-        icon={LOADING}
+        icon="loading"
         title={devServer.status === 'starting' ? 'Starting your app…' : 'Loading your app…'}
         note={devServer.lastLine || devServer.command || ''}
         env={env}
@@ -324,7 +322,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (!project.devCommand && !preview.url) {
     return (
       <SetupCard
-        icon={INFO}
+        icon={Info}
         title="Start building your app"
         detail="Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
         note="Add a “dev” script to package.json, or set a start command, to let Gui start your app automatically."
@@ -348,7 +346,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (setup?.dependencies === 'missing' && devServer.status === 'idle') {
     return (
       <SetupCard
-        icon={<Package className="size-4" aria-hidden="true" />}
+        icon={Package}
         title="This project needs a quick setup"
         detail="Gui will install its packages and start it, which runs the project's own scripts."
         actions={
@@ -364,7 +362,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
   if (devServer.status === 'idle' && !preview.visible) {
     return (
       <SetupCard
-        icon={<Play className="size-4" aria-hidden="true" />}
+        icon={Play}
         title="Your app isn't running"
         note={project.devCommand ?? ''}
         actions={
@@ -389,7 +387,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
   if (node.status === 'installing' || node.status === 'ready') {
     return (
       <SetupCard
-        icon={LOADING}
+        icon="loading"
         title="Setting up Node.js…"
         detail="Your app starts as soon as it's ready."
       >
@@ -400,7 +398,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
   if (node.status === 'failed') {
     return (
       <SetupCard
-        icon={ALERT}
+        icon={TriangleAlert}
         tone="danger"
         title="Couldn't set up Node.js"
         detail={node.error ?? 'The download stopped with an error.'}
@@ -415,7 +413,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
   }
   return (
     <SetupCard
-      icon={<Package className="size-4" aria-hidden="true" />}
+      icon={Package}
       title="Your app needs Node.js"
       detail="Gui runs your app with Node.js, and your agent uses it to build. Gui can set it up for you: a one-time download of about 30 MB that stays inside Gui."
       actions={
@@ -428,7 +426,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
 }
 
 interface SetupCardProps {
-  icon: ReactNode
+  icon: IconComponent | 'loading'
   tone?: 'neutral' | 'danger'
   title: string
   /** Plain explanation */
@@ -460,7 +458,7 @@ function SetupCard({
   start,
 }: SetupCardProps) {
   return (
-    <Card className="flex w-full max-w-sm flex-col gap-4 p-5">
+    <Card padding="canvas" className="flex w-full max-w-sm flex-col gap-4">
       <Message icon={icon} tone={tone} title={title} actions={actions}>
         {detail}
       </Message>
@@ -608,7 +606,7 @@ function LogsToggle({ open }: { open: boolean }) {
 function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
   return (
     <SetupCard
-      icon={<AppWindow className="size-4" aria-hidden="true" />}
+      icon={AppWindow}
       title="Which app should Gui preview?"
       detail={`This project has ${apps.length} apps. You can switch later from the project menu.`}
     >

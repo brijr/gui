@@ -3,8 +3,8 @@ import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Check, ChevronRight } from '../lib/icons'
-import { List, SectionHeader } from '../lib/surface'
-import { PRESS, TextButton } from '../lib/ui'
+import { List, ListRow, SectionHeader } from '../lib/surface'
+import { TextButton } from '../lib/ui'
 import { AgentOffLabel, AgentStatusLabel } from '../settings/agent-status'
 import { AgentNextStep } from './agent-card'
 import { AgentIcon } from './agent-icon'
@@ -39,28 +39,26 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
         ))}
         {missing.length > 0 && (
           <li>
-            <button
-              type="button"
+            <ListRow
+              flush
               aria-expanded={showMissing}
               onClick={() => setShowMissing((open) => !open)}
-              className={cn(
-                'flex w-full min-w-0 items-center gap-3 px-3 py-2 text-left text-muted transition-[background-color,opacity] hover:bg-hover focus-visible:-outline-offset-2',
-                PRESS,
-              )}
-            >
-              <span className="min-w-0 flex-1 truncate text-small">
-                {showMissing
+              className="text-small text-muted"
+              title={
+                showMissing
                   ? 'Hide agents that aren’t installed'
-                  : `${missing.length} more ${missing.length === 1 ? 'agent' : 'agents'}, not installed`}
-              </span>
-              <ChevronRight
-                className={cn(
-                  'size-3 shrink-0 text-subtle transition-transform motion-reduce:transition-none',
-                  showMissing && 'rotate-90',
-                )}
-                aria-hidden="true"
-              />
-            </button>
+                  : `${missing.length} more ${missing.length === 1 ? 'agent' : 'agents'}, not installed`
+              }
+              trailing={
+                <ChevronRight
+                  className={cn(
+                    'size-3 shrink-0 text-subtle transition-transform motion-reduce:transition-none',
+                    showMissing && 'rotate-90',
+                  )}
+                  aria-hidden="true"
+                />
+              }
+            />
           </li>
         )}
       </List>
@@ -70,34 +68,33 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
 
 function AgentListRow({ health, current }: { health: AgentHealth; current: boolean }) {
   return (
-    // The one in use has the selected look (accent-soft, its marker in accent text); the
-    // others are rows like ListRow's flush ones.
+    // The one in use has the selected look, its next step under it too.
     <li className={cn(current && 'bg-accent-soft')}>
-      <button
-        type="button"
+      <ListRow
+        flush
+        selected={current}
         // Named with its status ("Codex Ready"); the one in use says so.
         aria-current={current || undefined}
         // Choosing an agent that hasn't been checked yet checks it as it switches.
         onClick={() => {
           if (!current) gui.setAgent(health.id)
         }}
-        className={cn(
-          'flex w-full min-w-0 items-center gap-3 px-3 py-2 text-left transition-[background-color,opacity] focus-visible:-outline-offset-2',
-          !current && `hover:bg-hover ${PRESS}`,
-        )}
-      >
-        <AgentIcon agentId={health.id} />
-        <span className="flex min-w-0 flex-1 items-center gap-2">
-          <span className="truncate font-medium">{health.name}</span>
-          {health.enabled ? <AgentStatusLabel health={health} /> : <AgentOffLabel />}
-        </span>
-        {current && (
-          <span className="flex shrink-0 items-center gap-1 text-small font-medium text-accent-text">
-            <Check className="size-3.5" aria-hidden="true" />
-            In use
-          </span>
-        )}
-      </button>
+        leading={<AgentIcon agentId={health.id} />}
+        title={
+          <>
+            <span className="truncate">{health.name}</span>
+            {health.enabled ? <AgentStatusLabel health={health} /> : <AgentOffLabel />}
+          </>
+        }
+        trailing={
+          current && (
+            <span className="flex shrink-0 items-center gap-1 text-small font-medium text-accent-text">
+              <Check className="size-3.5" aria-hidden="true" />
+              In use
+            </span>
+          )
+        }
+      />
       {/* Not while checking: its row already says so, and a check that ends ready would
           add a line only to take it away. */}
       {current && health.status !== 'ready' && health.status !== 'checking' && (

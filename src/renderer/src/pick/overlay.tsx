@@ -230,7 +230,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         <div
           key={guide.step}
           data-guide-outline=""
-          className="pointer-events-none absolute animate-row-fade rounded-sm border-2 border-accent shadow-[0_0_0_4px_var(--accent-soft)]"
+          className="pointer-events-none absolute animate-row-fade rounded-sm border-2 border-accent ring-4 ring-accent-soft"
           style={place(guide.rect)}
         />
       )}
@@ -248,7 +248,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
       {target && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute top-0 left-0 transition-transform duration-650 ease-out motion-reduce:transition-none"
+          className="pointer-events-none absolute top-0 left-0 transition-transform duration-(--motion-guide) ease-out motion-reduce:transition-none"
           style={{ transform: `translate(${target.x}px, ${target.y}px)` }}
         >
           {guide.clicks > 0 && (

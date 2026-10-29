@@ -5,17 +5,21 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError, Input } from '../lib/field'
-import { Pencil, Search, Trash2 } from '../lib/icons'
-import { usePresence } from '../lib/motion'
-import { GroupLabel, Popover } from '../lib/surface'
+import { Pencil, Trash2 } from '../lib/icons'
+import { motionMs, usePresence } from '../lib/motion'
+import {
+  GroupLabel,
+  Popover,
+  PopoverNote,
+  type PopoverPlacement,
+  PopoverSearch,
+  placePopover,
+} from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, IconButton, Spinner } from '../lib/ui'
-import { type Placement, place } from './model-picker'
 
 /** Lists longer than this get a filter field. */
 const FILTER_AFTER = 8
-/** How long the list takes to close (styles.css --motion-exit). */
-const EXIT_MS = 100
 
 /**
  * The project's archived chats, to reopen, rename or delete: a popover under `anchor` (the
@@ -30,12 +34,12 @@ export function ArchivePopover({
   anchor: React.RefObject<HTMLButtonElement | null>
   onClose: (refocus: boolean) => void
 }) {
-  const [placement, setPlacement] = useState<Placement | null>(null)
-  const shown = usePresence(open, EXIT_MS)
+  const [placement, setPlacement] = useState<PopoverPlacement | null>(null)
+  const shown = usePresence(open, motionMs('--motion-exit'))
   const listId = useId()
   // Placed under the button each time it opens.
   useEffect(() => {
-    if (open && anchor.current) setPlacement(place(anchor.current))
+    if (open && anchor.current) setPlacement(placePopover(anchor.current))
   }, [open, anchor])
   if (!shown || !placement) return null
   return (
@@ -59,7 +63,7 @@ function matches(chat: ChatSummary, words: string[]) {
 interface ArchiveListProps {
   id: string
   open: boolean
-  placement: Placement
+  placement: PopoverPlacement
   button: React.RefObject<HTMLButtonElement | null>
   onClose: (refocus: boolean) => void
 }
@@ -168,45 +172,26 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
       role="dialog"
       aria-label="Archived chats"
       onKeyDown={onKeyDown}
-      style={{
-        left: placement.left,
-        width: placement.width,
-        maxHeight: placement.maxHeight,
-        top: placement.top ?? undefined,
-        bottom: placement.bottom ?? undefined,
-        transformOrigin: placement.origin,
-      }}
-      className="fixed z-50"
+      placement={placement}
     >
       <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 pt-2.5 pb-2">
         <GroupLabel as="h2">Archived chats</GroupLabel>
         <p className="text-caption text-subtle">New chat archives the open one here.</p>
       </div>
       {filterable && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
-          <Search className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-          <input
-            type="text"
-            aria-label="Filter archived chats"
-            placeholder="Filter chats…"
-            autoComplete="off"
-            spellCheck={false}
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="h-9 min-w-0 flex-1 bg-transparent text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
-          />
-        </div>
+        <PopoverSearch
+          aria-label="Filter archived chats"
+          placeholder="Filter chats…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
       )}
       {chats === null ? (
-        <div className="flex items-center gap-2 px-3 py-4 text-small text-muted">
-          <Spinner /> Loading…
-        </div>
+        <PopoverNote loading>Loading…</PopoverNote>
       ) : chats.length === 0 ? (
-        <p className="px-3 py-4 text-small text-muted">No archived chats yet.</p>
+        <PopoverNote>No archived chats yet.</PopoverNote>
       ) : shown.length === 0 ? (
-        <p role="status" className="px-3 py-4 text-small text-muted">
-          No chats match
-        </p>
+        <PopoverNote>No chats match</PopoverNote>
       ) : (
         <ul className="min-h-0 overflow-y-auto scroll-stable overscroll-contain p-1">
           {shown.map((chat) => (

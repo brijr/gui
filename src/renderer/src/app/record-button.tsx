@@ -459,7 +459,7 @@ function Level({ voice }: { voice: Voice }) {
       <span className="h-1 w-6 overflow-hidden rounded-full bg-hover">
         <span
           ref={bar}
-          className="block h-full w-[8%] rounded-full bg-current transition-[width] duration-100"
+          className="block h-full w-[8%] rounded-full bg-current transition-[width]"
         />
       </span>
     </span>

@@ -6,15 +6,9 @@ import { Field, InlineError, Input } from '../lib/field'
 import { GitHubMark } from '../lib/github-mark'
 import { ExternalLink, GitBranch, Search } from '../lib/icons'
 import { Badge } from '../lib/status'
-import { List, ListItem, Message } from '../lib/surface'
+import { Card, List, ListItem, Message } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
-import {
-  GroupAction,
-  IdentityCard,
-  IdentityTile,
-  SettingsCard,
-  SettingsGroup,
-} from './settings-group'
+import { GroupAction, IdentityCard, IdentityTile, SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
 /** Said when the user closes the browser sign-in themselves: not an error. */
@@ -69,7 +63,7 @@ export function GitHubSection() {
   const profile = state?.profile ?? null
   const mark = (
     <IdentityTile tone="brand">
-      <GitHubMark className="size-5" />
+      <GitHubMark className="size-4" />
     </IdentityTile>
   )
 
@@ -91,7 +85,7 @@ export function GitHubSection() {
       </IdentityCard>
     ) : (
       <div role="status">
-        <Message icon={<Spinner size="md" />}>Checking your GitHub connection…</Message>
+        <Message icon="loading">Checking your GitHub connection…</Message>
       </div>
     )
   }
@@ -215,7 +209,7 @@ function Repositories({ state, refresh }: { state: GitHubState; refresh: () => P
       {reload.error && <InlineError>{reload.error}</InlineError>}
       {manage.error && <InlineError>{manage.error}</InlineError>}
       {state.repositories.length === 0 ? (
-        <Message icon={<GitBranch className="size-4" aria-hidden="true" />}>
+        <Message icon={GitBranch}>
           Choose which repositories Gui can see on GitHub, then refresh here. An organization may
           need to approve Gui before its repositories appear.
         </Message>
@@ -287,7 +281,7 @@ function NewProject({
   const create = useAction()
   return (
     <SettingsGroup title="New project">
-      <SettingsCard>
+      <Card>
         <form
           className="flex flex-col gap-3"
           onSubmit={(event) => {
@@ -332,7 +326,7 @@ function NewProject({
             </p>
           )}
         </form>
-      </SettingsCard>
+      </Card>
     </SettingsGroup>
   )
 }

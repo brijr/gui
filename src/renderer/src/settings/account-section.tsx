@@ -6,7 +6,7 @@ import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { CircleUser } from '../lib/icons'
 import { List, ListItem, Message } from '../lib/surface'
-import { Button, Checkbox, Spinner, Switch } from '../lib/ui'
+import { Button, Spinner, Switch } from '../lib/ui'
 import { useAccount } from '../lib/use-account'
 import { IdentityCard, IdentityTile, SettingsGroup } from './settings-group'
 
@@ -108,7 +108,7 @@ function AccountDetails() {
   if (!state || profile.kind === 'loading')
     return (
       <div role="status">
-        <Message icon={<Spinner size="md" />}>Checking your Gui account…</Message>
+        <Message icon="loading">Checking your Gui account…</Message>
       </div>
     )
 
@@ -121,7 +121,7 @@ function AccountDetails() {
       <IdentityCard
         leading={
           <IdentityTile>
-            <CircleUser className="size-4.5" />
+            <CircleUser className="size-4" aria-hidden="true" />
           </IdentityTile>
         }
         title="Your account didn’t load"
@@ -172,7 +172,7 @@ function AccountDetails() {
       <IdentityCard
         leading={
           <IdentityTile>
-            <CircleUser className="size-4.5" />
+            <CircleUser className="size-4" aria-hidden="true" />
           </IdentityTile>
         }
         title={account.name ?? account.email ?? 'Gui account'}
@@ -187,19 +187,20 @@ function AccountDetails() {
       </IdentityCard>
       <SettingsGroup title="Email">
         <List>
-          {/* A checkbox row: as tall as a ListItem with a button */}
-          <li className="px-3 py-1.5">
-            <Checkbox
-              label={
-                account.email
-                  ? `Email me about new Gui features at ${account.email}`
-                  : 'Email me about new Gui features (your account has no email)'
-              }
-              checked={account.updates}
-              disabled={saving || signingOut || !account.email}
-              onChange={(event) => setUpdates(event.target.checked)}
-            />
-          </li>
+          {/* Applies at once, so a switch, like every other setting */}
+          <ListItem
+            title="Email me about new Gui features"
+            detail={account.email ?? 'Your account has no email.'}
+            trailing={
+              <Switch
+                checked={account.updates}
+                disabled={saving || signingOut || !account.email}
+                onCheckedChange={setUpdates}
+                label="Email me about new Gui features"
+                labelHidden
+              />
+            }
+          />
         </List>
         {saveError && <InlineError>{saveError}</InlineError>}
       </SettingsGroup>
@@ -233,7 +234,7 @@ function SignedOut({ expired }: { expired: boolean }) {
     <IdentityCard
       leading={
         <IdentityTile>
-          <CircleUser className="size-4.5" />
+          <CircleUser className="size-4" aria-hidden="true" />
         </IdentityTile>
       }
       title={expired ? 'Sign in again' : 'You’re signed out'}

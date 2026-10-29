@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useState } from 'react'
 import type { ShortcutId } from '../../../shared/shortcuts'
 import {
-  type FileChange,
   isRegion,
   type PermissionChoice,
   type Picked,
@@ -11,6 +10,7 @@ import {
   type TurnItem,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
+import { ChangedFiles } from '../lib/changed-files'
 import { cn } from '../lib/cn'
 import { Disclosure, REVEAL, TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
@@ -38,7 +38,6 @@ import {
   Wrench,
   X,
 } from '../lib/icons'
-import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, PRESS, Spinner, Toggle } from '../lib/ui'
@@ -312,7 +311,7 @@ function BlockView({
     case 'plan':
       return (
         // A compact card: a short list, not a block of prose.
-        <Card tone="inset" className="py-2 pr-2 pl-3">
+        <Card tone="inset" padding="compact">
           <ul aria-label="Plan" className="flex flex-col gap-1">
             {withKeys(block.entries).map(({ key, entry }) => (
               <li key={key} className="flex items-start gap-2 text-small">
@@ -638,8 +637,8 @@ function StepGroup({
 
 function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
   return (
-    <Card tone="inset" className={cn(REVEAL, 'w-full py-1')}>
-      <ul aria-label="Steps" className="flex flex-col">
+    <Card tone="inset" padding="none" className={cn(REVEAL, 'w-full')}>
+      <ul aria-label="Steps" className="flex flex-col py-1">
         {steps.map((step) => {
           if (step.kind === 'thought') {
             return (
@@ -822,7 +821,7 @@ function Permission({
       as="section"
       aria-label={question}
       data-permission={item.id}
-      className="flex flex-col gap-3 p-3"
+      className="flex flex-col gap-3"
     >
       <div className="flex min-w-0 items-start gap-2">
         <p className="min-w-0 flex-1 break-words font-semibold">{question}</p>
@@ -1031,39 +1030,6 @@ function Shot({
   )
 }
 
-const CHANGE_TONE: Record<FileChange['status'], string> = {
-  added: 'text-success',
-  modified: 'text-warning',
-  deleted: 'text-danger',
-}
-
-const CHANGE_WORD: Record<FileChange['status'], string> = {
-  added: 'Added',
-  modified: 'Changed',
-  deleted: 'Deleted',
-}
-
-function ChangedFiles({ changes }: { changes: FileChange[] }) {
-  return (
-    <ul
-      aria-label="Changed files"
-      className={cn(REVEAL, 'flex flex-col gap-1 font-mono text-caption')}
-    >
-      {changes.map((change) => (
-        <li key={change.path} className="flex min-w-0 items-center gap-2">
-          <span className={cn('w-3 shrink-0', CHANGE_TONE[change.status])} title={change.status}>
-            <span aria-hidden="true">{change.status[0].toUpperCase()}</span>
-            <span className="sr-only">{CHANGE_WORD[change.status]}</span>
-          </span>
-          <PathText path={change.path} className="flex-1 text-muted" />
-          <span className="shrink-0 text-success tabular-nums">+{change.additions}</span>
-          <span className="shrink-0 text-danger tabular-nums">−{change.deletions}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 /**
  * The end of a turn that changed files: how the element looked before and after, what
  * changed, Follow up (talk about this change again, later on), and Undo (Redo once undone).
@@ -1095,7 +1061,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   if (changes.length === 0 && !unrecorded) return null
 
   return (
-    <Card tone="inset" as="section" aria-label="Result" className="flex flex-col gap-3 p-3">
+    <Card tone="inset" as="section" aria-label="Result" className="flex flex-col gap-3">
       <Comparison turn={turn} />
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         {changes.length > 0 ? (

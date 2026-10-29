@@ -14,7 +14,7 @@ import {
   Reply,
   X,
 } from '../lib/icons'
-import { Card } from '../lib/surface'
+import { Banner, Card } from '../lib/surface'
 import { Button, IconButton } from '../lib/ui'
 import { noteRemoveQueued } from './store'
 import { isNewRow, markSeen } from './transitions'
@@ -72,24 +72,30 @@ export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boo
     gui.clearQueued()
   }
   return (
-    <Card tone="inset">
-      <div className="flex items-center gap-2 border-b border-line py-1 pr-1 pl-3">
+    <Card tone="inset" padding="none" className="overflow-hidden">
+      {/* The reason can be long ("Paused: the agent hit its output limit"): it wraps. */}
+      <Banner
+        wrap
+        actions={
+          (meta.queue.length > 1 || paused) && (
+            <>
+              {meta.queue.length > 1 && (
+                <Button size="sm" variant="ghost" onClick={clearAll}>
+                  Clear all
+                </Button>
+              )}
+              {paused && (
+                <Button size="sm" onClick={() => gui.sendQueuedNow()}>
+                  {meta.queuePauseReason === 'setup' ? 'Send anyway' : 'Send next'}
+                </Button>
+              )}
+            </>
+          )
+        }
+      >
         {/* Mounted with the queue rather than the pause, so the pause is announced. */}
-        {/* The reason can be long ("Paused: the agent hit its output limit"): it wraps. */}
-        <p role="status" className="min-w-0 flex-1 text-pretty text-small text-muted">
-          {paused ? PAUSED[meta.queuePauseReason ?? 'stopped'] : 'Queued'}
-        </p>
-        {meta.queue.length > 1 && (
-          <Button size="sm" variant="ghost" className="shrink-0" onClick={clearAll}>
-            Clear all
-          </Button>
-        )}
-        {paused && (
-          <Button size="sm" className="shrink-0" onClick={() => gui.sendQueuedNow()}>
-            {meta.queuePauseReason === 'setup' ? 'Send anyway' : 'Send next'}
-          </Button>
-        )}
-      </div>
+        <p role="status">{paused ? PAUSED[meta.queuePauseReason ?? 'stopped'] : 'Queued'}</p>
+      </Banner>
       <ul
         data-clip
         aria-label="Queued messages"

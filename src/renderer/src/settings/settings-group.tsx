@@ -5,7 +5,7 @@ import { Spinner, TextButton } from '../lib/ui'
 /*
  * The one recipe for every Settings section:
  * - a group is a SettingsGroup: its label (an action at the end of the line, a GroupAction),
- *   an optional line about it, then a List of rows or a SettingsCard
+ *   an optional line about it, then a List of rows or a Card
  * - cards and rows share a 12px inset (p-3, ListItem's px-3), so their edges line up
  * - buttons in rows and cards are md (the Button default); a group's own actions are
  *   GroupActions, text-sized, beside its label
@@ -55,11 +55,6 @@ export function GroupAction({ pending = false, onClick, children, ...props }: Gr
   )
 }
 
-/** A card in Settings, on the 12px inset rows use. */
-export function SettingsCard({ className, ...props }: ComponentProps<typeof Card>) {
-  return <Card className={className ? `p-3 ${className}` : 'p-3'} {...props} />
-}
-
 interface IdentityCardProps {
   /** A 36px tile: the account's mark */
   leading: ReactNode
@@ -74,7 +69,7 @@ interface IdentityCardProps {
 /** Who's signed in (or what to do about it), at the top of Account and GitHub. */
 export function IdentityCard({ leading, title, detail, trailing, children }: IdentityCardProps) {
   return (
-    <SettingsCard className="flex flex-col gap-3">
+    <Card className="flex flex-col gap-3">
       <div className="flex items-center gap-3">
         {leading}
         <div className="min-w-0 flex-1">
@@ -84,7 +79,7 @@ export function IdentityCard({ leading, title, detail, trailing, children }: Ide
         {trailing && <div className="flex shrink-0 items-center gap-2">{trailing}</div>}
       </div>
       {children}
-    </SettingsCard>
+    </Card>
   )
 }
 
