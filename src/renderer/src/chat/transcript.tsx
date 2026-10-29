@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import type { ChatMeta } from '../../../shared/types'
+import type { ChatMeta, Turn } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { ErrorBoundary } from '../lib/error-boundary'
 import { readableError } from '../lib/errors'
@@ -305,7 +305,34 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
           {turnIds.length >= LONG_CHAT && !running && <LongChatHint />}
         </div>
       </div>
+      <Announcer />
     </TurnPresentationProvider>
+  )
+}
+
+/**
+ * What a screen reader hears while the agent works, which the screen shows elsewhere: a
+ * question it's waiting on, and its turn ending. Not the reply as it streams, and not an
+ * error, which reads itself out (Note's alert). Keyed by the turn or card it's about, so each
+ * is read once.
+ */
+function announcement(turns: Turn[], agent = 'The agent'): string {
+  const waiting = waitingCard(turns)
+  if (waiting) return `${waiting.item.id}\0Permission needed: ${waiting.item.title}`
+  const last = turns.at(-1)
+  if (last?.status === 'done') return `${last.id}\0${agent} finished`
+  if (last?.status === 'cancelled') return `${last.id}\0${agent} stopped`
+  return ''
+}
+
+function Announcer() {
+  const latest = useChat((s) => announcement(s.turns, s.meta?.agentName))
+  // What was so when the transcript appeared is history, not news.
+  const [history] = useState(latest)
+  return (
+    <p role="status" className="sr-only">
+      {latest === history ? '' : latest.split('\0')[1]}
+    </p>
   )
 }
 

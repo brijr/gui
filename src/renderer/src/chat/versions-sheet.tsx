@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useId, useState } from 'react'
+import { type FormEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import type { FileChange, Version } from '../../../shared/types'
 import { cn } from '../lib/cn'
 import { Disclosure, REVEAL } from '../lib/disclosure'
@@ -34,6 +34,21 @@ export function VersionsSheet() {
   const busy = useVersions((s) => s.busy)
   const error = useVersions((s) => s.error)
   const running = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
+  const root = useRef<HTMLDivElement>(null)
+
+  // The keyboard comes in with the sheet, on Back. Closed with the keyboard in it, it goes on
+  // to the message box that takes the sheet's place, as after a morph (FloatingChat). A layout
+  // effect, so the sheet is still in the page when it's checked.
+  useLayoutEffect(() => {
+    const sheet = root.current
+    if (document.hasFocus()) sheet?.querySelector('button')?.focus({ preventScroll: true })
+    return () => {
+      if (!sheet?.contains(document.activeElement)) return
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true }),
+      )
+    }
+  }, [])
 
   // Also on remount (docking, minimizing), so the list and its Current mark are fresh.
   useEffect(() => {
@@ -54,7 +69,7 @@ export function VersionsSheet() {
   }
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={root} className="flex min-h-0 flex-1 flex-col">
       <PanelHeader
         title="Versions"
         leading={

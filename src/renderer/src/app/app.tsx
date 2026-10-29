@@ -67,6 +67,10 @@ export function App() {
         <div className="drag h-dvh bg-surface" />
       ) : (
         <>
+          {/* The page's title for a screen reader; the start screen has its own. */}
+          {(state.project || state.board) && (
+            <h1 className="sr-only">{state.project?.name ?? state.board?.name}</h1>
+          )}
           {focusMode && <FocusBar state={state} />}
           {/* Focus mode hides the bars rather than unmounting them, so they come back as they were. */}
           <div

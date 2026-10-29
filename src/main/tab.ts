@@ -1362,6 +1362,23 @@ export class ProjectTab implements ChatPanelOwner {
     this.preview.webContents.focus()
   }
 
+  /**
+   * F6 and ⇧F6: the keyboard to the next pane on screen, or with `step` -1 the previous one,
+   * wrapping around: the chrome, the preview, the chat. Tab stays inside each, as in a browser.
+   */
+  focusPane(step: 1 | -1) {
+    if (!this.host.isActive(this) || !this.host.win.isFocused()) return
+    const chrome = this.host.win.webContents
+    const panes = [{ contents: chrome, focus: () => chrome.focus() }]
+    if (this.preview.getVisible())
+      panes.push({ contents: this.preview.webContents, focus: () => this.focusPreview() })
+    if (this.chatView.getVisible() && !this.panel.popoutWindow)
+      panes.push({ contents: this.chatView.webContents, focus: () => this.panel.focusChat() })
+    const at = panes.findIndex((pane) => pane.contents.isFocused())
+    const from = at === -1 ? (step === 1 ? panes.length - 1 : 0) : at
+    panes[(from + step + panes.length) % panes.length].focus()
+  }
+
   private async loadPreview(url: string) {
     this.patchPreview({ url, error: null })
     try {

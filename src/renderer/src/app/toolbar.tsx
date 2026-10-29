@@ -3,6 +3,7 @@ import { TOOLBAR_HEIGHT } from '../../../shared/layout'
 import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
 import {
   type BoardState,
+  type PreviewState,
   type ToolbarMenuItem,
   VIEWPORTS,
   type Viewport,
@@ -153,8 +154,8 @@ export function Toolbar({ state }: { state: WindowState }) {
     padding,
     sliding,
   })
-  // Picking and screenshots only work on the local app.
-  const capturable = preview.visible && preview.selectable
+  const uncapturable = captureBlocked(preview, false)
+  const capturable = uncapturable === null
   const shown = (tool: string) => fit(tool) !== 'hidden'
   const keys = (tool: string) => fit(tool) === 'full'
 
@@ -282,21 +283,16 @@ export function Toolbar({ state }: { state: WindowState }) {
           <div className="flex shrink-0 items-center gap-1">
             {/* Mounted while it's in the "…" menu too: ⇧⌘S opens its menu from here. */}
             <ScreenshotButton
-              disabled={!capturable}
+              unavailable={uncapturable}
               keys={keys('screenshot')}
               hidden={!shown('screenshot')}
             />
-            <RecordButton state={state} disabled={!capturable} />
+            <RecordButton state={state} unavailable={uncapturable} />
             {shown('select') && (
-              <IconButton
-                label="Select element"
-                shortcut="selectElement"
+              <SelectButton
+                unavailable={uncapturable}
                 keys={keys('select')}
-                icon={MousePointer2}
-                pressed={preview.selecting}
-                emphasis="strong"
-                disabled={!capturable}
-                onClick={() => gui.toggleSelect()}
+                selecting={preview.selecting}
               />
             )}
           </div>
@@ -395,7 +391,8 @@ function BoardToolbar({
   named: boolean
 }) {
   const { preview } = state
-  const capturable = preview.visible && preview.selectable
+  const uncapturable = captureBlocked(preview, true)
+  const capturable = uncapturable === null
   const open = board.frames.find((frame) => frame.id === board.open)
   const frameButton = useRef<HTMLButtonElement>(null)
   const boardView = useBoardView()
@@ -605,27 +602,22 @@ function BoardToolbar({
           {(shown('screenshot') || shown('select')) && (
             <div className="flex shrink-0 items-center gap-1">
               <ScreenshotButton
-                disabled={!capturable}
+                unavailable={uncapturable}
                 keys={keys('screenshot')}
                 hidden={!shown('screenshot')}
               />
               {shown('select') && (
-                <IconButton
-                  label="Select element"
-                  shortcut="selectElement"
+                <SelectButton
+                  unavailable={uncapturable}
                   keys={keys('select')}
-                  icon={MousePointer2}
-                  pressed={preview.selecting}
-                  emphasis="strong"
-                  disabled={!capturable}
-                  onClick={() => gui.toggleSelect()}
+                  selecting={preview.selecting}
                 />
               )}
             </div>
           )}
           {!shown('screenshot') && !shown('select') && (
             // ⇧⌘S still opens the screenshot menu, under the "…".
-            <ScreenshotButton disabled={!capturable} keys={false} hidden />
+            <ScreenshotButton unavailable={uncapturable} keys={false} hidden />
           )}
           {overflowing && <MoreButton items={more} onChoose={choose} />}
           {chat}
@@ -752,12 +744,52 @@ async function screenshotUnder(button: HTMLElement | null) {
  * Opens the screenshot menu under itself, from a click or ⇧⌘S; briefly shows a check once
  * something was done.
  */
+/**
+ * Why the capture tools (Screenshot, Record, Select) can't be used just now, or null when they
+ * can. They stay in the tab order then, aria-disabled, with this as their tooltip, so the
+ * keyboard reaches them and hears why rather than skipping a dimmed button.
+ */
+function captureBlocked(preview: PreviewState, board: boolean): string | null {
+  if (!preview.visible)
+    return board ? 'Open a frame to capture it' : 'Start the dev server to capture'
+  if (!preview.selectable) return 'Only your own app can be captured'
+  return null
+}
+
+/** Dimmed while aria-disabled, as `disabled` would (Record's own button too). */
+const UNAVAILABLE = 'aria-disabled:opacity-40'
+
+function SelectButton({
+  unavailable,
+  keys,
+  selecting,
+}: {
+  unavailable: string | null
+  keys: boolean
+  selecting: boolean
+}) {
+  return (
+    <IconButton
+      label="Select element"
+      shortcut="selectElement"
+      keys={keys}
+      icon={MousePointer2}
+      pressed={selecting}
+      emphasis="strong"
+      title={unavailable ?? undefined}
+      aria-disabled={unavailable !== null || undefined}
+      className={UNAVAILABLE}
+      onClick={() => unavailable === null && gui.toggleSelect()}
+    />
+  )
+}
+
 function ScreenshotButton({
-  disabled,
+  unavailable,
   keys,
   hidden = false,
 }: {
-  disabled: boolean
+  unavailable: string | null
   keys: boolean
   /** In the "…" menu: not drawn, but ⇧⌘S still opens its menu (under the "…", or the window) */
   hidden?: boolean
@@ -799,10 +831,11 @@ function ScreenshotButton({
         shortcut="screenshot"
         keys={keys}
         // The tooltip says what it did, for a moment.
-        title={done?.label}
+        title={done?.label ?? unavailable ?? undefined}
         icon={done ? Check : Camera}
-        disabled={disabled}
-        onClick={() => void take()}
+        aria-disabled={unavailable !== null || undefined}
+        className={UNAVAILABLE}
+        onClick={() => unavailable === null && void take()}
       />
       <span aria-live="polite" className="sr-only">
         {done?.label}

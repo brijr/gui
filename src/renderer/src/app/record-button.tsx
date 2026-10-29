@@ -37,7 +37,14 @@ interface Live {
   voice: Voice | null
 }
 
-export function RecordButton({ state, disabled }: { state: WindowState; disabled: boolean }) {
+/** `unavailable`: why there's nothing to record (the toolbar's `captureBlocked`), or null. */
+export function RecordButton({
+  state,
+  unavailable,
+}: {
+  state: WindowState
+  unavailable: string | null
+}) {
   const [phase, setPhase] = useState<'idle' | 'starting' | 'recording' | 'saving'>('idle')
   // Set once as it starts: the timer and the level redraw themselves, not the whole button.
   const [live, setLive] = useState<Live | null>(null)
@@ -333,7 +340,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
   const toggle = useRef(() => {})
   toggle.current = () => {
     if (phase === 'recording') stop.current?.()
-    else if (phase === 'idle' && !disabled) void start()
+    else if (phase === 'idle' && unavailable === null) void start()
   }
   useEffect(() => {
     const onRecord = () => toggle.current()
@@ -348,6 +355,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       ? 'Record preview with your voice'
       : 'Record preview'
   const idle = phase === 'idle'
+  const blocked = unavailable !== null
   return (
     <div ref={root} className="relative no-drag flex min-w-0 items-center">
       {/* Record and its mic are one control, highlighted together on hover, so neither
@@ -357,15 +365,17 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         <Button
           variant={recording ? 'danger' : 'ghost'}
           icon={recording ? Square : CircleDot}
-          disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
-          onClick={() => (recording ? stop.current?.() : void start())}
-          title={label}
+          disabled={phase === 'starting' || phase === 'saving'}
+          // With nothing to record it stays reachable, saying why (as the toolbar's other tools).
+          aria-disabled={(blocked && !recording) || undefined}
+          onClick={() => (recording ? stop.current?.() : !blocked && void start())}
+          title={(!recording && unavailable) || label}
           aria-label={label}
           // Its keys after the icon, like the toolbar's other tools.
           shortcut="recordPreview"
           // The seconds count up in place rather than shifting the button's width.
           className={cn(
-            'pr-1.5 pl-2',
+            'pr-1.5 pl-2 aria-disabled:opacity-40',
             recording
               ? 'tabular-nums'
               : 'enabled:hover:bg-transparent group-has-[button:enabled:hover]/record:text-fg',

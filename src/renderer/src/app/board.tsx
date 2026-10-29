@@ -17,6 +17,7 @@ import {
   regroupSections,
   sectionBounds,
 } from '../../../shared/board'
+import { matchesShortcut } from '../../../shared/shortcuts'
 import type { BoardFrame, BoardState, Rect } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -206,22 +207,34 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   // again some other way later (a marquee, ⌘A) selects frames, not the section.
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new selection is the trigger.
   useEffect(() => {
-    setPickedSection((current) => {
-      const section = board.sections.find((s) => s.id === current)
-      const same =
-        section?.frames.length === board.selection.length &&
-        section.frames.every((id) => board.selection.includes(id))
-      return same ? current : null
-    })
+    const section = board.sections.find((s) => s.id === pickedSection)
+    const same =
+      section?.frames.length === board.selection.length &&
+      section.frames.every((id) => board.selection.includes(id))
+    if (!same) setPickedSection(null)
     const names = board.selection.flatMap((id) => board.frames.find((f) => f.id === id)?.name ?? [])
     setAnnouncement(
-      names.length === 0
-        ? ''
-        : names.length === 1
-          ? `${names[0]} selected`
-          : `${names.length} frames selected`,
+      same
+        ? `${section.name} selected`
+        : names.length === 0
+          ? ''
+          : names.length === 1
+            ? `${names[0]} selected`
+            : `${names.length} frames selected`,
     )
   }, [selection])
+
+  // A name field that closes (Enter, Esc) gives the keyboard back to the board, rather than
+  // leaving it nowhere.
+  const naming = renaming ?? renamingSection
+  const wasNaming = useRef(naming)
+  useEffect(() => {
+    const was = wasNaming.current
+    wasNaming.current = naming
+    if (was && !naming && document.activeElement === document.body) {
+      ref.current?.focus({ preventScroll: true })
+    }
+  }, [naming])
 
   useLayoutEffect(() => {
     const el = ref.current
@@ -622,15 +635,41 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     else if (plain && event.code === 'KeyV') setBoardTool('move')
     else if (plain && event.key === 'Enter' && ids.length === 1) gui.boardOpenFrame(ids[0])
     else if (event.key === 'Escape' && ids.length) gui.boardSelect([])
-    else if (plain && event.key === 'Tab' && board.frames.length) {
-      // Tab and ⇧Tab step through the frames; past the last, focus leaves the board.
-      const at = ids.length === 1 ? board.frames.findIndex((frame) => frame.id === ids[0]) : -1
-      const next = event.shiftKey ? (at === -1 ? board.frames.length - 1 : at - 1) : at + 1
-      const frame = board.frames[next]
-      if (frame) {
-        gui.boardSelect([frame.id])
-        reveal(frame)
-      } else handled = false
+    // What a double-click and a right-click do, from the keyboard: on the section picked by
+    // its name, or the one frame selected.
+    else if (matchesShortcut(event, 'canvasRename') && (picked || ids.length === 1)) {
+      if (picked) setRenamingSection(picked.id)
+      else setRenaming(ids[0])
+    } else if (
+      (matchesShortcut(event, 'canvasMenu') || (plain && event.key === 'ContextMenu')) &&
+      (picked || ids.length === 1)
+    ) {
+      if (picked) gui.showSectionMenu(picked.id)
+      else gui.showFrameMenu(ids[0])
+    } else if (plain && event.key === 'Tab' && board.frames.length) {
+      // Tab and ⇧Tab step through the sections, each before its first frame, and the frames;
+      // past the last, focus leaves the board.
+      const listed = new Set<string>()
+      const stops = board.frames.flatMap((frame) => {
+        const section = board.sections.find((s) => s.frames.includes(frame.id))
+        if (!section || listed.has(section.id)) return [{ frame, section: null }]
+        listed.add(section.id)
+        return [
+          { frame: null, section },
+          { frame, section: null },
+        ]
+      })
+      const at = stops.findIndex((stop) =>
+        picked ? stop.section?.id === picked.id : ids.length === 1 && stop.frame?.id === ids[0],
+      )
+      const next = stops[event.shiftKey ? (at === -1 ? stops.length - 1 : at - 1) : at + 1]
+      const area = next?.section ? sectionBounds(next.section, board.frames) : next?.frame
+      if (next?.section) {
+        setPickedSection(next.section.id)
+        gui.boardSelect(next.section.frames)
+      } else if (next?.frame) gui.boardSelect([next.frame.id])
+      if (area) reveal(area)
+      else handled = false
     } else if (arrows[event.key] && ids.length && !command && !event.altKey) {
       const [dx, dy] = arrows[event.key]
       if (nudge.current && nudge.current.ids.join('\n') !== ids.join('\n')) commitNudge()
@@ -676,7 +715,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       // biome-ignore lint/a11y/noNoninteractiveTabindex: role="application" handles its own keys.
       tabIndex={0}
       role="application"
-      aria-label={`Canvas ${board.name}, ${count} ${count === 1 ? 'frame' : 'frames'}. Tab steps through frames; arrows move them; Enter opens one.`}
+      aria-label={`Canvas ${board.name}, ${count} ${count === 1 ? 'frame' : 'frames'}. Tab steps through sections and frames; arrows move them; Enter opens one; F2 renames; Shift+F10 shows its menu.`}
       className={cn(
         'absolute inset-0 overflow-hidden bg-canvas outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),

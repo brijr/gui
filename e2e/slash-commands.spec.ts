@@ -80,7 +80,10 @@ test('the composer lists the agent’s slash commands and sends one on its own',
   await session.declineConsentDialogs()
   const { prompts } = await useStandIn(session)
   const { chat } = session
-  const box = chat.getByRole('textbox', { name: /^Message / })
+  // The message box is a combobox while it lists commands.
+  const box = chat
+    .getByRole('textbox', { name: /^Message / })
+    .or(chat.getByRole('combobox', { name: /^Message / }))
   const menu = chat.getByRole('listbox', { name: 'Commands' })
 
   expect((await session.chatSnapshot()).meta.commands).toEqual([])
@@ -150,7 +153,10 @@ test('a new chat’s `/` starts the agent for its commands without sending anyth
   await session.declineConsentDialogs()
   const { prompts, sessions } = await useStandIn(session)
   const { chat } = session
-  const box = chat.getByRole('textbox', { name: /^Message / })
+  // The message box is a combobox while it lists commands.
+  const box = chat
+    .getByRole('textbox', { name: /^Message / })
+    .or(chat.getByRole('combobox', { name: /^Message / }))
   const menu = chat.getByRole('listbox', { name: 'Commands' })
 
   // Nothing known yet: `/` starts the agent, and the menu lists what it then reports.
