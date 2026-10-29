@@ -63,6 +63,8 @@ import {
   type StartCommandInput,
   type TabStatus,
   type TerminalId,
+  takesPushes,
+  UNDO_PULL_NOTE,
   VIEWPORTS,
   type Viewport,
   type ViewportFrame,
@@ -343,6 +345,8 @@ export class ProjectTab implements ChatPanelOwner {
    * `from`, so main stays as it was. Only for this opening; Stay on main clears it.
    */
   private branchOnSend: { root: string; from: string } | null = null
+  /** The project whose branch had an open pull request at the last read, for ⌘Z's Undo */
+  private pullOpenAt: string | null = null
   disposed = false
   private opening: string | null = null
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
@@ -2308,6 +2312,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (!root) return null
     if (!(await isTrusted(root))) return (await inRepository(root)) ? UNTRUSTED_PROPOSAL : null
     const proposal = await readProposal(root, refresh)
+    this.pullOpenAt = takesPushes(proposal.pull) ? root : null
     const pending = this.branchOnSend
     // Only while it's still on that branch: switched by hand, there's nothing to promise.
     const newBranchFrom =
@@ -2891,9 +2896,24 @@ export class ProjectTab implements ChatPanelOwner {
    * view, where its turn shows "Undone" and Redo: hidden, the change would go back unseen.
    */
   async undoLastChange() {
-    const turnId = this.panel.chatInView ? this.resources.chat?.lastUndoableTurnId() : null
-    if (!turnId) return shell.beep()
-    await this.resources.chat?.restoreTurn(turnId).catch(() => shell.beep())
+    const chat = this.resources.chat
+    const turnId = this.panel.chatInView ? chat?.lastUndoableTurnId() : null
+    if (!chat || !turnId) return shell.beep()
+    // As the turn's Undo button does: with an open pull request, it asks first.
+    if (this.pullOpenAt === this.state.project?.root) {
+      const { response } = await dialog.showMessageBox(this.panel.popoutWindow ?? this.host.win, {
+        type: 'question',
+        message: 'Undo this message?',
+        detail: `You can redo. ${UNDO_PULL_NOTE}`,
+        buttons: ['Undo', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (response !== 0 || chat !== this.resources.chat || chat.lastUndoableTurnId() !== turnId)
+        return
+    }
+    await chat.restoreTurn(turnId).catch(() => shell.beep())
   }
 
   async redoLastChange() {

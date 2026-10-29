@@ -1129,6 +1129,18 @@ export interface ProposalPull {
   comments: ReviewComment[]
 }
 
+/** A pull request that still takes pushes. Undo asks first while there's one. */
+export function takesPushes(pull: ProposalPull | null | undefined) {
+  return pull?.state === 'open' || pull?.state === 'draft'
+}
+
+/**
+ * What Undo says while the branch has an open pull request (the button's confirm and ⌘Z's).
+ * Gui can't tell which of the changes were pushed, so it says what's true either way.
+ */
+export const UNDO_PULL_NOTE =
+  'Your pull request keeps anything already pushed to it until you push again.'
+
 export interface ReviewComment {
   /** Unique across kinds, e.g. `review-123` */
   id: string

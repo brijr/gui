@@ -8,6 +8,8 @@ import {
   type SourceLocation,
   type Turn,
   type TurnItem,
+  takesPushes,
+  UNDO_PULL_NOTE,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { ChangedFiles } from '../lib/changed-files'
@@ -1051,13 +1053,8 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
         return !!next && !next.reverted && (!!next.changes?.length || !!next.changesUnknown)
       }).length,
   )
-  // Everything is committed and pushed to an open pull request, these changes included:
-  // undoing them here leaves uncommitted changes against it.
-  const pushed = useProposal((s) => {
-    const p = s.proposal
-    const open = p?.pull?.state === 'open' || p?.pull?.state === 'draft'
-    return !!p && open && p.changes === 0 && p.ahead === 0
-  })
+  // With an open pull request, some of these changes may be pushed already: Undo asks first.
+  const pullOpen = useProposal((s) => takesPushes(s.proposal?.pull))
   const changes = turn.changes ?? []
   const additions = changes.reduce((sum, change) => sum + change.additions, 0)
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
@@ -1132,7 +1129,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
                     ? 'Restore files to how they were before this message, undoing later messages too'
                     : 'Restore files to how they were before this message'
                 }
-                onClick={() => (later > 0 || pushed ? setConfirming(true) : undo())}
+                onClick={() => (later > 0 || pullOpen ? setConfirming(true) : undo())}
               >
                 {later > 0 ? 'Undo to here' : 'Undo'}
               </Button>
@@ -1145,8 +1142,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
           <p role="status" className="min-w-0 flex-1 text-small text-pretty text-muted">
             {later > 0 ? `Undo this and ${plural(later, 'later message')}?` : 'Undo this message?'}{' '}
             You can redo.
-            {pushed &&
-              ' Your pull request already has these changes, so undoing leaves uncommitted changes to push.'}
+            {pullOpen && ` ${UNDO_PULL_NOTE}`}
           </p>
           <span className="flex shrink-0 items-center gap-2">
             <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
