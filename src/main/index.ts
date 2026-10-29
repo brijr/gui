@@ -1740,6 +1740,8 @@ function buildMenu() {
           w.toggleDrawer(),
         ),
         { type: 'separator' },
+        ...item('nextPane', { click: withWindow((w) => w.focusPane(1)) }),
+        ...item('previousPane', { click: withWindow((w) => w.focusPane(-1)) }),
         ...item('focusAddress', { click: withTabs((w) => w.focusAddress()) }),
         ...item('reload', { click: withWindow((w) => w.reload()) }),
         ...item('hardReload', { click: withWindow((w) => w.hardReload()) }),
