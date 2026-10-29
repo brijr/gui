@@ -464,7 +464,7 @@ function Header({ meta }: { meta: ChatMeta }) {
           {!meta.popped && (
             <IconButton
               size="sm"
-              label={meta.docked ? 'Float panel' : 'Show as sidebar'}
+              label={meta.docked ? 'Show as floating panel' : 'Show as sidebar'}
               shortcut="dockChat"
               // What it turns the chat into: a floating panel, or the sidebar.
               icon={meta.docked ? PictureInPicture2 : PanelLeft}

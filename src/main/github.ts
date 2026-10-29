@@ -158,7 +158,7 @@ async function loadCredential(id: number, session: string | null) {
   } catch (error) {
     // Signed out or no longer connected is the user's to fix; anything else is the service's.
     if (error instanceof AccountError && error.status < 500) throw error
-    throw new CredentialUnavailable('Could not reach Gui accounts.', { cause: error })
+    throw new CredentialUnavailable("Couldn't reach Gui accounts.", { cause: error })
   }
   if (!/^[\w-]+\/[\w.-]+$/.test(result.fullName)) throw new Error('Invalid GitHub repository name.')
   return { token: asRepoToken(result.token), fullName: result.fullName }
@@ -183,7 +183,7 @@ async function authenticatedGit(
             error
               ? reject(
                   new Error(
-                    'GitHub could not complete this git operation. Check repository access and try again.',
+                    "GitHub couldn't complete this git operation. Check repository access and try again.",
                   ),
                 )
               : resolve(),
@@ -208,7 +208,7 @@ export async function cloneGitHub(id: number, parent: string): Promise<string> {
   } catch (error) {
     await rm(destination, { recursive: true, force: true })
     if (error instanceof CredentialScopeChanged) throw error
-    throw new Error(`Could not clone ${fullName}. Check repository access and try again.`)
+    throw new Error(`Couldn't clone ${fullName}. Check repository access and try again.`)
   }
 }
 export async function connectedGitHub(fullName: string) {
@@ -313,7 +313,7 @@ export async function readGitHub<T>(id: number, fullName: string, path: string):
       },
     })
     if (response.status === 401) access.evict()
-    if (!response.ok) throw new Error('Could not read the pull request from GitHub.')
+    if (!response.ok) throw new Error("Couldn't read the pull request from GitHub.")
     return (await response.json()) as T
   })
 }

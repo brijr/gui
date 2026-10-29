@@ -53,8 +53,8 @@ test('saving a version, restoring it, and restoring back', async ({ launch }) =>
     'files restored back',
   )
 
-  // Publish hands over to Source Control with the files as they are now.
-  await session.chat.getByRole('button', { name: 'Publish…' }).dispatchEvent('click')
+  // Commit… hands over to Source Control with the files as they are now.
+  await session.chat.getByRole('button', { name: 'Commit…' }).dispatchEvent('click')
   await expect(session.chat.getByText('Source control', { exact: true })).toBeVisible()
 })
 

@@ -93,7 +93,7 @@ test('⇧-click picks several elements and picking goes on; a plain click starts
   await waitFor(async () => !(await selecting(session)), 'picking to end')
   expect((await selection(session)).map((picked) => picked.id)).toEqual([button.id])
   await expect(
-    session.chat.getByRole('list', { name: 'Picked' }).getByRole('listitem'),
+    session.chat.getByRole('list', { name: 'Selected' }).getByRole('listitem'),
   ).toHaveCount(1)
 
   // A plain click replaces the selection and ends picking, as a single pick always has.
@@ -156,7 +156,7 @@ test('dragging picks an area as a screenshot, and the agent gets every pick', as
   expect(answer).toMatch(/<selected_element_[0-9a-f]+>\nSelection 2 of 2\n/)
   expect(turn.context.map((picked) => picked.kind ?? 'element')).toEqual(['region', 'element'])
   expect(meta.selection).toEqual([])
-  await expect(session.chat.getByRole('list', { name: 'Picked' })).toHaveCount(1)
+  await expect(session.chat.getByRole('list', { name: 'Selected' })).toHaveCount(1)
 })
 
 test('the wheel scrolls the page while picking, and outlines follow it', async ({ launch }) => {

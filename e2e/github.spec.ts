@@ -32,7 +32,7 @@ test('signed-out Projects opens without accessing Keychain', async ({ launch }) 
   await expect(page.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible()
 })
 
-test('GitHub connects to the Gui account, lists repositories, and disconnects', async ({
+test('GitHub connects to the Gui account, its repositories clone from Clone…, and it disconnects', async ({
   launch,
 }) => {
   let connected = false
@@ -139,23 +139,13 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
     const landing = await fetch(`http://127.0.0.1:${loopback}/callback?code=one-time`)
     expect(await landing.text()).toContain('GitHub is connected')
     await expect(page.getByText('@gui-tester', { exact: true })).toBeVisible()
-    await expect(
-      page
-        .getByRole('listitem')
-        .filter({ hasText: 'gui-tester/private-project' })
-        .getByText('Private', { exact: true }),
-    ).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Clone & open' })).toBeVisible()
+    // Settings chooses what Gui can see; cloning is the start screen's Clone….
+    await expect(page.getByRole('button', { name: 'Choose on GitHub' })).toBeVisible()
     await page.getByLabel('Repository name', { exact: true }).fill('design-project')
     await page.getByRole('button', { name: 'Create private repository', exact: true }).click()
     await expect.poll(() => createdName).toBe('design-project')
     await expect(page.getByText('Created gui-tester/design-project.')).toBeVisible()
-    await expect(
-      page
-        .getByRole('listitem')
-        .filter({ hasText: 'gui-tester/design-project' })
-        .getByText('Private', { exact: true }),
-    ).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Open…', exact: true })).toBeVisible()
     await page.screenshot({ path: test.info().outputPath('github-connected.png') })
     const userData = await session.app.evaluate(({ app }) => app.getPath('userData'))
     expect(readFileSync(join(userData, 'github-session')).toString()).toContain('test-encrypted:')
@@ -163,18 +153,7 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
     await session.app.evaluate(({ dialog }, parent) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [parent] })
     }, cloneParent)
-    // Existing folders survive a rejected clone.
     const destination = join(cloneParent, 'private-project')
-    mkdirSync(destination)
-    writeFileSync(join(destination, 'keep.txt'), 'existing project')
-    await page
-      .getByRole('listitem')
-      .filter({ hasText: 'gui-tester/private-project' })
-      .getByRole('button', { name: 'Clone & open' })
-      .click()
-    await expect(page.getByRole('alert')).toContainText('EEXIST')
-    expect(readFileSync(join(destination, 'keep.txt'), 'utf8')).toBe('existing project')
-    rmSync(destination, { recursive: true })
     // Replace only git clone, so the test can inspect credentials and fail without contacting GitHub.
     await session.app.evaluate(() => {
       const child = process.getBuiltinModule('child_process') as typeof import('node:child_process')
@@ -202,28 +181,6 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
       }) as typeof original
       process.getBuiltinModule('module').syncBuiltinESMExports()
     })
-    await page
-      .getByRole('listitem')
-      .filter({ hasText: 'gui-tester/private-project' })
-      .getByRole('button', { name: 'Clone & open' })
-      .click()
-    await expect(page.getByRole('alert')).toContainText(
-      'Could not clone gui-tester/private-project',
-    )
-    await expect(page.getByRole('alert')).not.toContainText('test-provider-secret')
-    const inspection = await session.app.evaluate(
-      () =>
-        (
-          globalThis as unknown as {
-            cloneInspection: { argv: string[]; token: string; askpass: string; script: string }
-          }
-        ).cloneInspection,
-    )
-    expect(inspection.token).toBe('test-provider-secret')
-    expect(inspection.argv.join(' ')).not.toContain('test-provider-secret')
-    expect(inspection.script).not.toContain('test-provider-secret')
-    expect(existsSync(inspection.askpass)).toBe(false)
-    expect(existsSync(destination)).toBe(false)
     // Connected projects ship with the GitHub session instead of a gh login.
     const root = session.fixture.root
     git(root, 'branch', '-M', 'main')
@@ -267,20 +224,56 @@ test('GitHub connects to the Gui account, lists repositories, and disconnects', 
     // A project's untrusted preview cannot call account methods through IPC.
     const preview = await session.previewPage()
     expect(await preview.evaluate(() => 'gui' in window)).toBe(false)
+
+    // The start screen's Clone… lists the connected repositories above the address field.
+    await session.chrome.evaluate(() => window.gui.newTab())
+    await session.chrome.getByRole('button', { name: 'Clone…', exact: true }).click()
+    const privateRow = session.chrome
+      .getByRole('listitem')
+      .filter({ hasText: 'gui-tester/private-project' })
+    await expect(privateRow.getByText('Private', { exact: true })).toBeVisible()
+    await expect(session.chrome.getByLabel('GitHub repository', { exact: true })).toBeVisible()
+    await session.chrome.screenshot({ path: test.info().outputPath('github-clone-form.png') })
+    // Existing folders survive a rejected clone.
+    mkdirSync(destination)
+    writeFileSync(join(destination, 'keep.txt'), 'existing project')
+    await privateRow.getByRole('button', { name: 'Clone…' }).click()
+    await expect(privateRow.getByRole('alert')).toContainText('EEXIST')
+    expect(readFileSync(join(destination, 'keep.txt'), 'utf8')).toBe('existing project')
+    rmSync(destination, { recursive: true })
+    await privateRow.getByRole('button', { name: 'Clone…' }).click()
+    await expect(privateRow.getByRole('alert')).toContainText(
+      "Couldn't clone gui-tester/private-project",
+    )
+    await expect(privateRow.getByRole('alert')).not.toContainText('test-provider-secret')
+    const inspection = await session.app.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            cloneInspection: { argv: string[]; token: string; askpass: string; script: string }
+          }
+        ).cloneInspection,
+    )
+    expect(inspection.token).toBe('test-provider-secret')
+    expect(inspection.argv.join(' ')).not.toContain('test-provider-secret')
+    expect(inspection.script).not.toContain('test-provider-secret')
+    expect(existsSync(inspection.askpass)).toBe(false)
+    expect(existsSync(destination)).toBe(false)
+    await session.chrome.getByRole('button', { name: 'Cancel', exact: true }).click()
+
     await page.getByRole('button', { name: 'Disconnect', exact: true }).click()
     await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
     expect(connected).toBe(false)
     // Disconnecting GitHub leaves Gui signed in.
     expect(existsSync(join(userData, 'github-session'))).toBe(true)
     await page.screenshot({ path: test.info().outputPath('github-disconnected.png') })
-    // The start screen's GitHub projects opens them in Settings, beside Clone by URL.
-    await session.chrome.evaluate(() => window.gui.newTab())
+    // Disconnected, Clone… offers to connect GitHub in place of the list.
+    await session.chrome.getByRole('button', { name: 'Clone…', exact: true }).click()
     await expect(
-      session.chrome.getByRole('button', { name: 'Clone by URL', exact: true }),
+      session.chrome.getByRole('button', { name: 'Connect GitHub', exact: true }),
     ).toBeVisible()
+    await expect(session.chrome.getByLabel('GitHub repository', { exact: true })).toBeVisible()
     await session.chrome.screenshot({ path: test.info().outputPath('github-start-screen.png') })
-    await session.chrome.getByRole('button', { name: 'Connect GitHub…', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
   } finally {
     if (previous === undefined) delete process.env.GUI_ACCOUNTS_URL
     else process.env.GUI_ACCOUNTS_URL = previous

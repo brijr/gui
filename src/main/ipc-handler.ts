@@ -31,7 +31,7 @@ export function createRequestRegistrar<E>(
           ok: false,
           error: {
             code: error instanceof IpcRequestError ? error.code : 'operation_failed',
-            message: error instanceof Error ? error.message : 'Could not complete this action.',
+            message: error instanceof Error ? error.message : "Couldn't complete this action.",
           },
         }
       }

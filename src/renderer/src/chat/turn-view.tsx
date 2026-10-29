@@ -43,6 +43,7 @@ import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, PRESS, Spinner, Toggle } from '../lib/ui'
 import { Markdown } from './markdown'
+import { useProposal } from './proposal-state'
 import { RecordingClip } from './recording-clip'
 import { setFollowUp, useChat, waitingCard } from './store'
 import { isNewRow, markSeen } from './transitions'
@@ -157,7 +158,7 @@ function UserMessage({ turn }: { turn: Turn }) {
   return (
     <div className="flex flex-col items-end gap-1.5">
       {turn.context.length > 0 && (
-        <ul aria-label="Picked" className="flex max-w-7/8 flex-wrap justify-end gap-1">
+        <ul aria-label="Selected" className="flex max-w-7/8 flex-wrap justify-end gap-1">
           {turn.context.map((picked) => (
             <li key={picked.id} className="min-w-0">
               <PickedChip picked={picked} />
@@ -1063,12 +1064,30 @@ function ChangedFiles({ changes }: { changes: FileChange[] }) {
 /**
  * The end of a turn that changed files: how the element looked before and after, what
  * changed, Follow up (talk about this change again, later on), and Undo (Redo once undone).
+ * Undo also undoes every later message (`restoreTurn`), so on an older one it reads "Undo to
+ * here" and asks first.
  */
 function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   const [open, setOpen] = useTurnPresentation('result:files', false)
   const [busy, setBusy] = useTurnPresentation<'undo' | 'redo' | null>('result:busy', null)
   const [error, setError] = useTurnPresentation<string | null>('result:error', null)
+  const [confirming, setConfirming] = useTurnPresentation('result:confirm', false)
   const following = useChat((s) => s.followUp === turn.id)
+  // Later messages with changes that Undo here would take back too.
+  const later = useChat(
+    (s) =>
+      s.turnIds.slice(s.turnIds.indexOf(turn.id) + 1).filter((id) => {
+        const next = s.turnsById[id]
+        return !!next && !next.reverted && (!!next.changes?.length || !!next.changesUnknown)
+      }).length,
+  )
+  // Everything is committed and pushed to an open pull request, these changes included:
+  // undoing them here leaves uncommitted changes against it.
+  const pushed = useProposal((s) => {
+    const p = s.proposal
+    const open = p?.pull?.state === 'open' || p?.pull?.state === 'draft'
+    return !!p && open && p.changes === 0 && p.ahead === 0
+  })
   const changes = turn.changes ?? []
   const additions = changes.reduce((sum, change) => sum + change.additions, 0)
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
@@ -1083,6 +1102,11 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
     } finally {
       setBusy(null)
     }
+  }
+
+  const undo = () => {
+    setConfirming(false)
+    void run('undo', () => gui.restoreTurn(turn.id))
   }
 
   // Interrupted (e.g. by a quit) before its changes were recorded; it can still be undone.
@@ -1128,18 +1152,42 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               )}
             </>
           ) : (
-            <Button
-              size="sm"
-              icon={Undo2}
-              loading={busy === 'undo'}
-              title="Restore files to how they were before this message (also undoes later messages)"
-              onClick={() => run('undo', () => gui.restoreTurn(turn.id))}
-            >
-              Undo
-            </Button>
+            !confirming && (
+              <Button
+                size="sm"
+                icon={Undo2}
+                loading={busy === 'undo'}
+                title={
+                  later > 0
+                    ? 'Restore files to how they were before this message, undoing later messages too'
+                    : 'Restore files to how they were before this message'
+                }
+                onClick={() => (later > 0 || pushed ? setConfirming(true) : undo())}
+              >
+                {later > 0 ? 'Undo to here' : 'Undo'}
+              </Button>
+            )
           )}
         </span>
       </div>
+      {confirming && !turn.reverted && (
+        <div className="flex flex-wrap items-center gap-2">
+          <p role="status" className="min-w-0 flex-1 text-small text-pretty text-muted">
+            {later > 0 ? `Undo this and ${plural(later, 'later message')}?` : 'Undo this message?'}{' '}
+            You can redo.
+            {pushed &&
+              ' Your pull request already has these changes, so undoing leaves uncommitted changes to push.'}
+          </p>
+          <span className="flex shrink-0 items-center gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+              Cancel
+            </Button>
+            <Button size="sm" variant="primary" icon={Undo2} onClick={undo}>
+              Undo
+            </Button>
+          </span>
+        </div>
+      )}
       {open && <ChangedFiles changes={changes} />}
       {error && <InlineError>{error}</InlineError>}
     </Card>

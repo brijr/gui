@@ -113,6 +113,11 @@ export class ChatPanel {
     return this.tab.state.preview.selecting && this.chatShown && !this.docked
   }
 
+  /** The chat is on screen in some form, popped out included, so its turns can be seen. */
+  get chatInView() {
+    return this.chatShown || !!this.popout
+  }
+
   private get chatShown() {
     return (
       this.tab.state.chatVisible && this.tab.hasProject && !this.tab.host.focusMode && !this.popout

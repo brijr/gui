@@ -459,7 +459,7 @@ function EmptyTranscript({
           </Button>
         }
       >
-        Pick something in the preview, then describe your edit below.
+        Select something in the preview, then describe your edit below.
       </Message>
     </div>
   )

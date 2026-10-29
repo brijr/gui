@@ -151,7 +151,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       still.width = Math.max(1, Math.round(canvas.width * shrink))
       still.height = Math.max(1, Math.round(canvas.height * shrink))
       const stillContext = still.getContext('2d')
-      if (!context || !stillContext) throw new Error('Could not capture preview frames.')
+      if (!context || !stillContext) throw new Error("Couldn't capture preview frames.")
       // Canvas pixels per CSS pixel of the page: the capture is in device pixels.
       const unit = (canvas.width / Math.max(1, video.videoWidth)) * window.devicePixelRatio
       const pointer = new PointerOverlay()
@@ -196,7 +196,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         if (!event.data.size || failure) return
         bytes += event.data.size
         if (bytes > MAX_RECORDING_VIDEO_BYTES) {
-          failure = 'Recording reached its size limit. Please record a shorter clip.'
+          failure = 'Recording reached its size limit. Record a shorter clip.'
           finish()
           return
         }
@@ -216,12 +216,12 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             }
           })
           .catch((cause: unknown) => {
-            failure ??= readableError(cause) || 'Could not save the recording.'
+            failure ??= readableError(cause) || "Couldn't save the recording."
             finish()
           })
       }
       recorder.onerror = () => {
-        failure = 'Could not encode the recording.'
+        failure = "Couldn't encode the recording."
         finish()
       }
       recorder.onstop = async () => {
@@ -240,7 +240,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
           )
         } catch (cause) {
           await gui.discardRecording(recordingId).catch(() => undefined)
-          setError(readableError(cause) || 'Could not save the recording.')
+          setError(readableError(cause) || "Couldn't save the recording.")
         } finally {
           voice?.dispose()
           video.srcObject = null
@@ -266,7 +266,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         stillContext.drawImage(canvas, 0, 0, still.width, still.height)
         pending = new Promise<Blob>((resolve, reject) =>
           still.toBlob(
-            (blob) => (blob ? resolve(blob) : reject(new Error('Could not encode a frame.'))),
+            (blob) => (blob ? resolve(blob) : reject(new Error("Couldn't encode a frame."))),
             'image/jpeg',
             0.88,
           ),
@@ -283,7 +283,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             }
           })
           .catch((cause: unknown) => {
-            failure ??= readableError(cause) || 'Could not save frames.'
+            failure ??= readableError(cause) || "Couldn't save frames."
             finish()
           })
           .finally(() => {
@@ -325,7 +325,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
       busy.current = false
       setLive(null)
       setPhase('idle')
-      setError(readableError(cause) || 'Could not start recording.')
+      setError(readableError(cause) || "Couldn't start recording.")
     }
   }
 

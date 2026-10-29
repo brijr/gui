@@ -64,8 +64,8 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
         }
       />
       <p className="text-pretty text-small text-muted">
-        Your AI agent makes the changes you request. It uses your own account and plan through the
-        Agent Client Protocol (ACP). You pay the provider directly; Gui adds no AI usage charges.
+        Your AI agent makes the changes you ask for, with your own account and plan. You pay the
+        provider directly; Gui adds no AI usage charges.
       </p>
 
       <SettingsGroup
@@ -146,7 +146,7 @@ function NotInstalledRow({ agent, onInstall }: { agent: AgentHealth; onInstall: 
     </Button>
   ) : agent.install ? (
     <Button loading={install.pending || working} onClick={start}>
-      {agent.install === 'update' ? "Install Gui's copy" : `Install ${agent.name}`}
+      {agent.install === 'update' ? `Install ${agent.name} for Gui` : `Install ${agent.name}`}
     </Button>
   ) : null
 

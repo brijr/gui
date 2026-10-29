@@ -29,7 +29,7 @@ test('a failed start offers the agent, and a start command set in Gui starts the
   await session.shot('crashed')
 
   await session.chrome.getByRole('button', { name: 'Change', exact: true }).click()
-  const command = session.chrome.getByLabel('Start command')
+  const command = session.chrome.getByLabel('Dev server command')
   await expect(command).toHaveValue('bun run dev')
   await command.fill('bun run dev:real')
   await session.shot('start-command-form')

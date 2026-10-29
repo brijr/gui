@@ -37,7 +37,7 @@ export function startupFailure({ project, setup, devServer, preview }: StartupSt
       ? `The dev server printed ${devServer.url}, but nothing answers there yet.`
       : "The dev server is still starting and hasn't printed a local address."
   }
-  if (preview.error) return `The preview couldn't load the app: ${oneLine(preview.error)}`
+  if (preview.error) return `The preview couldn't load the app: ${oneLine(preview.error.detail)}`
   if (!project.devCommand) {
     return 'Gui found no script to start the app (no dev, develop, start or serve script in package.json).'
   }
@@ -76,7 +76,7 @@ export function describeServer(state: StartupState) {
   lines.push(`Package manager: ${project.packageManager}`)
   if (setup?.node && setup.node.status !== 'ready') lines.push('Node.js: not installed yet')
   if (preview.url) lines.push(`Preview: ${preview.url}`)
-  if (preview.error) lines.push(`Preview error: ${oneLine(preview.error)}`)
+  if (preview.error) lines.push(`Preview error: ${oneLine(preview.error.detail)}`)
   if (devServer.lastLine) lines.push(`Last output: ${oneLine(devServer.lastLine)}`)
   return lines.join('\n')
 }

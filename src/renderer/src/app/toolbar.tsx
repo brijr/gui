@@ -863,11 +863,8 @@ function AddressBar({ state }: { state: WindowState }) {
   // Like the canvas: without a dev script (or an app picked), the address is the way in.
   const noCommand = !project?.devCommand && !setup?.apps
   const placeholder = devServer.status === 'idle' && noCommand ? "Enter your app's address" : label
-  const exit =
-    devServer.status === 'exited' && devServer.exitCode !== null
-      ? `exited with code ${devServer.exitCode}`
-      : null
-  const tooltip = [label, devServer.command, exit].filter(Boolean).join(' — ')
+  // The label already says whether it stopped with an error; the exit code is in the logs.
+  const tooltip = [label, devServer.command].filter(Boolean).join(' — ')
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

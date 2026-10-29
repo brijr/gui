@@ -90,11 +90,11 @@ export const SHORTCUTS = {
     description: 'Open a new canvas to design on freely',
   },
   cloneRepo: {
-    label: 'Clone by URL…',
+    label: 'Clone…',
     accelerator: 'Shift+CmdOrCtrl+O',
     menu: 'file',
     group: 'app',
-    description: 'Clone a GitHub repo and open it',
+    description: 'Copy a GitHub repository to your Mac and open it',
   },
   closeWindow: {
     label: 'Close Window',
@@ -108,14 +108,14 @@ export const SHORTCUTS = {
     accelerator: 'CmdOrCtrl+Z',
     menu: 'edit',
     group: 'app',
-    description: "Undo typing, or outside a text field the agent's last change",
+    description: "Undo typing, or with the chat showing, the agent's last change",
   },
   redo: {
     label: 'Redo',
     accelerator: 'Shift+CmdOrCtrl+Z',
     menu: 'edit',
     group: 'app',
-    description: "Redo typing, or the agent's change you undid",
+    description: "Redo typing, or with the chat showing, the agent's change you undid",
   },
   keyboardShortcuts: {
     label: 'Keyboard Shortcuts',
