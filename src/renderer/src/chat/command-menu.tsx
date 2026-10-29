@@ -21,7 +21,13 @@ interface CommandMenu {
   /** The menu (or the chosen command's input hint) to draw above the message box */
   element: ReactNode
   /** Props for the message box, which keeps focus and points at the highlighted command */
-  inputProps: { 'aria-controls'?: string; 'aria-activedescendant'?: string }
+  inputProps: {
+    role?: 'combobox'
+    'aria-expanded'?: boolean
+    'aria-autocomplete'?: 'list'
+    'aria-controls'?: string
+    'aria-activedescendant'?: string
+  }
   /** Handles ↑/↓, Enter, Tab and Esc while the menu is open; true when it took the key */
   onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean
 }
@@ -177,7 +183,16 @@ export function useCommandMenu({
 
   return {
     element,
-    inputProps: activeId ? { 'aria-controls': listId, 'aria-activedescendant': activeId } : {},
+    // A combobox only while its list shows: otherwise it's the plain message box it looks like.
+    inputProps: activeId
+      ? {
+          role: 'combobox',
+          'aria-expanded': true,
+          'aria-autocomplete': 'list',
+          'aria-controls': listId,
+          'aria-activedescendant': activeId,
+        }
+      : {},
     onKeyDown,
   }
 }

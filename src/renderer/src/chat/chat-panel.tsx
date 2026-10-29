@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useEffect,
@@ -384,8 +385,33 @@ const CORNER_CLASS = 'size-3.5 after:size-3 after:border-accent'
 const DOCKED_CLASS =
   'inset-y-0 right-0 w-1.5 cursor-ew-resize after:inset-y-0 after:right-0 after:w-px'
 
-/** An invisible handle that resizes the panel; main keeps the panel inside the window. */
+/** How far an arrow key moves a resize handle, in px. */
+const RESIZE_STEP = 16
+
+/**
+ * An invisible handle that resizes the panel; main keeps the panel inside the window. The
+ * sidebar's, and the floating panel's left and top edges, are also separators the keyboard
+ * reaches, whose arrow keys resize it; the rest are for the pointer.
+ */
 function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: boolean }) {
+  const handle = useRef<HTMLDivElement>(null)
+  const keyboard = docked || edge === 'left' || edge === 'top'
+  const sideways = edge === 'left' || edge === 'right'
+  // What it resizes, for assistive tech: the panel's width or height.
+  const [size, setSize] = useState(0)
+  useLayoutEffect(() => {
+    const el = handle.current
+    const panel =
+      el?.closest<HTMLElement>('[data-chat-panel]') ??
+      el?.parentElement?.querySelector<HTMLElement>('[data-chat-panel]')
+    if (!keyboard || !panel) return
+    const observer = new ResizeObserver(() =>
+      setSize(Math.round(sideways ? panel.offsetWidth : panel.offsetHeight)),
+    )
+    observer.observe(panel)
+    return () => observer.disconnect()
+  }, [keyboard, sideways])
+
   const onPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     if (event.button !== 0) return
     // No text selection or focus change while dragging.
@@ -396,12 +422,32 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
       () => gui.endResizeChat(),
     )
   }
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
+    const moves: Record<string, [number, number]> = sideways
+      ? { ArrowLeft: [-RESIZE_STEP, 0], ArrowRight: [RESIZE_STEP, 0] }
+      : { ArrowUp: [0, -RESIZE_STEP], ArrowDown: [0, RESIZE_STEP] }
+    const move = moves[event.key]
+    if (!move) return
+    event.preventDefault()
+    gui.resizeChat(edge, ...move)
+  }
+  // The pointer-only ones are hidden from assistive tech.
   return (
+    // biome-ignore lint/a11y/useSemanticElements: an <hr> can't hold the keyboard to resize.
     <div
-      aria-hidden="true"
+      ref={handle}
+      role="separator"
+      tabIndex={keyboard ? 0 : undefined}
+      aria-hidden={keyboard ? undefined : true}
+      aria-label={keyboard ? 'Resize chat' : undefined}
+      aria-orientation={keyboard ? (sideways ? 'vertical' : 'horizontal') : undefined}
+      aria-valuenow={keyboard ? size : undefined}
+      aria-valuetext={keyboard ? `${size} pixels ${sideways ? 'wide' : 'tall'}` : undefined}
+      onKeyDown={keyboard ? onKeyDown : undefined}
+      onKeyUp={keyboard ? () => gui.endResizeChat() : undefined}
       onPointerDown={onPointerDown}
       className={cn(
-        'absolute z-sticky after:absolute after:opacity-0 after:transition-opacity hover:after:opacity-70',
+        'absolute z-sticky outline-none after:absolute after:opacity-0 after:transition-opacity hover:after:opacity-70 focus-visible:after:opacity-100',
         docked
           ? edge === 'left'
             ? DOCKED_CLASS.replaceAll('right-0', 'left-0')
@@ -496,7 +542,8 @@ function Header({ meta }: { meta: ChatMeta }) {
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <AgentSwitcher name={meta.agentName} />
         {meta.modeName && !meta.modeFollowsPolicy && (
-          <Badge title="The agent's mode">
+          // Out of the title bar's drag area, or its tooltip never shows.
+          <Badge title="The agent's mode" className="no-drag">
             <span className="truncate">{meta.modeName}</span>
           </Badge>
         )}
@@ -560,6 +607,7 @@ function AgentSwitcher({ name }: { name: string }) {
     <button
       type="button"
       aria-haspopup="menu"
+      aria-label={`Switch agent, ${name}`}
       title="Switch agent"
       onClick={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
