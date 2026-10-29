@@ -190,6 +190,15 @@ const frameLabel = (session: GuiSession) => session.chrome.locator('main p').fir
 const canvasHeight = (session: GuiSession) =>
   session.chrome.evaluate(() => Math.round(document.querySelector('main')?.clientHeight ?? 0))
 
+/**
+ * The window's views once the preview fills the canvas, as it does when its morph has landed:
+ * mid-morph, the springs round to a pixel either way.
+ */
+async function settledViews(session: GuiSession) {
+  const layout = await session.app.evaluate(views)
+  return layout && layout.preview.height === (await canvasHeight(session)) ? layout : null
+}
+
 // A stand-in ACP agent: it offers a model setting (a list long enough to search), asks
 // "ASK n" permission questions one after the other, each offering Always allow, Allow and
 // Don't allow, and calls Gui's preview_screenshot tool for "SHOT {...}". Every answer goes
@@ -1006,9 +1015,8 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
   await waitFor(async () => (await session.state()).drawer.open, 'the logs open')
   const logsTab = session.chrome.getByRole('tab', { name: 'Dev server', selected: true })
   const before = await waitFor(async () => {
-    const layout = await session.app.evaluate(views)
-    const canvas = await canvasHeight(session)
-    return layout?.chat?.visible && layout.preview.height === canvas ? layout : null
+    const layout = await settledViews(session)
+    return layout?.chat?.visible ? layout : null
   }, 'the chat showing, and the preview above the logs')
   const toolbar = session.chrome.getByRole('banner')
 
@@ -1016,9 +1024,8 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
   await clickMenu(session, 'Focus Mode')
   await waitFor(async () => (await session.state()).focusMode, 'focus mode')
   const focused = await waitFor(async () => {
-    const layout = await session.app.evaluate(views)
-    const { preview } = layout ?? {}
-    return preview && preview.y === FOCUS_BAR && !layout?.chat?.visible ? layout : null
+    const layout = await settledViews(session)
+    return layout?.preview.y === FOCUS_BAR && !layout.chat?.visible ? layout : null
   }, 'the preview filling the window')
   expect(focused.preview).toMatchObject({
     x: 0,
@@ -1076,7 +1083,7 @@ test('focus mode shows only the preview, and Esc or ⌘\\ brings back what was s
   })
   await waitFor(async () => !(await session.state()).focusMode, 'focus mode to end')
   const after = await waitFor(async () => {
-    const layout = await session.app.evaluate(views)
+    const layout = await settledViews(session)
     return layout?.chat?.visible && layout.preview.y === before.preview.y ? layout : null
   }, 'the chat and toolbar back')
   expect(after.preview).toEqual(before.preview)
