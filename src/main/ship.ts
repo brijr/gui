@@ -844,6 +844,13 @@ async function pushError(repo: Repo, remote: Remote, branch: string, error: unkn
   ) {
     return `Couldn’t reach ${where}. Check your internet connection and try again.`
   }
+  if (
+    /does not appear to be a git repository|repository '.*' does not exist|No such file or directory/i.test(
+      output,
+    )
+  ) {
+    return `Couldn’t push: there’s no repository at this project’s online address on ${where} any more. It may have moved or been deleted.`
+  }
   if (await hasHook(repo, ['pre-push']))
     return `A check in this project stopped the push:\n${tail(output)}`
   return `Couldn’t push:\n${tail(output)}`
