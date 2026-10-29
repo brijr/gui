@@ -1,8 +1,8 @@
 import { readFile } from 'node:fs/promises'
 import { basename, join } from 'node:path'
+import { GIT_MESSAGES } from '../shared/source-control'
 import type { Proposal, ProposalPull, ReviewComment } from '../shared/types'
 import {
-  applyConnectedIdentity,
   CommandError,
   commitError,
   GH_TIMEOUT,
@@ -10,6 +10,7 @@ import {
   gitAsUser,
   gitOrNull,
   HOOK_TIMEOUT,
+  isIdentityError,
   isSafeName,
   openRepo,
   type Repo,
@@ -18,12 +19,13 @@ import {
   tail,
 } from './git'
 import { connectedGitHub, fetchGitHub, readGitHub } from './github'
+import { fillIdentity } from './ship'
 import { readHead } from './worktree-registry'
 
 /**
  * Where the project's work stands as a pull request, and the moves around it a designer
- * needs without knowing Git: start the next idea from the latest, bring the latest in,
- * and finish (or cancel) that when it stops on conflicts. Shipping itself is ship.ts.
+ * needs without knowing Git: start the next idea from the latest, get the latest, and
+ * finish (or undo) that when it stops on conflicts. Shipping itself is ship.ts.
  */
 
 /** Fetching is the slow part of a status read; at most this often per repository. */
@@ -59,6 +61,8 @@ export async function readProposal(root: string, refresh = false): Promise<Propo
     worktree: head?.mainTop ? basename(head.top) : null,
     remote: repo.remote?.host ?? null,
     newBranchFrom: null,
+    stayOnBranch: false,
+    trusted: true,
   }
 }
 
@@ -73,7 +77,7 @@ export async function startFresh(root: string): Promise<void> {
   if (!main || !isSafeName(main)) throw new Error('Gui couldn’t tell which branch is the latest.')
   if (repo.changes.length > 0) {
     throw new Error(
-      'Some changes aren’t in a pull request yet. Update your pull request first, or undo them, then start something new.',
+      'Some changes aren’t committed yet. Update your pull request first, or undo them, then start something new.',
     )
   }
   const connected = await connectedFor(repo)
@@ -105,22 +109,23 @@ export async function bringInLatest(root: string): Promise<void> {
   if (repo.problem) throw new Error(repo.problem)
   const main = repo.defaultBranch
   if (!repo.remote || !main || !isSafeName(main))
-    throw new Error('There’s no shared copy of this project to bring changes in from.')
+    throw new Error('This project isn’t online yet, so there’s nothing to get.')
   const connected = await connectedFor(repo)
   await fetchDefault(repo, connected, true)
-  if (connected) await applyConnectedIdentity(repo, connected.profile)
+  await fillIdentity(repo, connected?.profile)
   const tracking = `refs/remotes/${repo.remote.name}/${main}`
   try {
     await gitAsUser(repo, ['merge', '--no-edit', tracking], { timeout: HOOK_TIMEOUT })
   } catch (error) {
     if (await mergeState(repo)) return
     const output = error instanceof CommandError ? error.output : ''
+    if (isIdentityError(output)) throw new Error(GIT_MESSAGES.identity)
     if (/local changes .* would be overwritten|untracked working tree files/i.test(output)) {
       throw new Error(
-        'Your unshared changes touch the same files as the latest. Update your pull request first, then bring in the latest.',
+        'Your uncommitted changes touch the same files as the latest. Commit them first (the bar’s button does), then get the latest.',
       )
     }
-    throw new Error(`Couldn’t bring in the latest:\n${tailOf(error)}`)
+    throw new Error(`Couldn’t get the latest:\n${tailOf(error)}`)
   }
 }
 
@@ -135,7 +140,7 @@ export async function finishMerge(root: string): Promise<void> {
     throw new Error(`These files still have conflicts: ${merge.marked.join(', ')}`)
   }
   const connected = await connectedFor(repo)
-  if (connected) await applyConnectedIdentity(repo, connected.profile)
+  await fillIdentity(repo, connected?.profile)
   await git(repo, ['add', '--', ...merge.files])
   try {
     await gitAsUser(repo, ['commit', '--no-edit'], { timeout: HOOK_TIMEOUT })
@@ -151,14 +156,14 @@ export async function cancelMerge(root: string): Promise<void> {
   try {
     await gitAsUser(repo, ['merge', '--abort'])
   } catch (error) {
-    throw new Error(`Couldn’t cancel:\n${tailOf(error)}`)
+    throw new Error(`Couldn’t undo getting the latest:\n${tailOf(error)}`)
   }
 }
 
 /** How Gui's own conflict message starts, so it never becomes a commit or PR title. */
 export const CONFLICT_PROMPT_START = 'I brought in the latest changes from'
 
-/** What the agent is asked when bringing in the latest stopped on conflicts. */
+/** What the agent is asked when getting the latest stopped on conflicts. */
 export function conflictPrompt(merge: NonNullable<Proposal['merge']>, main: string): string {
   const files = merge.files.map((file) => `- ${file}`).join('\n')
   return `${CONFLICT_PROMPT_START} ${main}, and some files conflict with the work here:
@@ -370,7 +375,11 @@ async function readWithGh<T>(repo: Repo, fullName: string, path: string): Promis
 }
 
 function hostOf(repo: Repo) {
-  return repo.remote?.web ?? 'the remote'
+  return repo.remote?.host === 'github'
+    ? 'GitHub'
+    : repo.remote?.host === 'gitlab'
+      ? 'GitLab'
+      : (repo.remote?.web ?? 'the server')
 }
 
 function tailOf(error: unknown) {

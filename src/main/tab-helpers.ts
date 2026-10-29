@@ -1,5 +1,6 @@
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { dialog, type NativeImage } from 'electron'
+import { GIT_MESSAGES } from '../shared/source-control'
 import type { ImageAttachment, PreviewFrame, ProjectInfo, Rect, ShipInfo } from '../shared/types'
 import type { DeveloperToolsStatus } from './developer-tools'
 import type { TabState } from './tab-host'
@@ -8,10 +9,11 @@ const ATTACH_EDGE = 1568
 const ATTACH_THUMBNAIL_EDGE = 160
 const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
 
-/** What the ship sheet shows when the user didn't let Gui run Git. */
-export function cancelledShipInfo(): ShipInfo {
+/** What Source Control shows when the user didn't let Gui run Git: it offers to ask again. */
+export function untrustedShipInfo(): ShipInfo {
   return {
-    blocked: 'Cancelled.',
+    blocked: GIT_MESSAGES.untrusted,
+    untrusted: true,
     branch: null,
     onDefaultBranch: false,
     files: [],

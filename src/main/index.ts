@@ -79,6 +79,7 @@ import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { errorReport, sendCrashReport } from './crash-reports'
 import { developerTools } from './developer-tools'
+import { saveIdentity } from './git'
 import { cloneGitHub } from './github'
 import { flushHistorySync } from './history'
 import {
@@ -723,6 +724,16 @@ function isShipRequest(value: unknown): value is ShipRequest {
   )
 }
 
+/** A name and email for Git: one line each, without control characters. */
+function gitIdentity(name: unknown, email: unknown) {
+  if (!isString(name) || !isString(email)) return null
+  const clean = (text: string, max: number) =>
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what's refused
+    /[\u0000-\u001f\u007f]/.test(text) || text.trim().length > max ? '' : text.trim()
+  const kept = { name: clean(name, 200), email: clean(email, 320) }
+  return kept.name && /^[^\s@<>]+@[^\s@<>]+$/.test(kept.email) ? kept : null
+}
+
 /** The agent's proposal, as the chat hands it back with Share: a request whose branch may be left out. */
 function isShipDraft(value: unknown): value is ShipDraft {
   if (!value || typeof value !== 'object') return false
@@ -1002,6 +1013,19 @@ function registerIpc() {
   handleLegacy(Invoke.stayOnBranch, (event) =>
     reportError(async () => requireTab(event).stayOnBranch()),
   )
+  handleLegacy(Invoke.trustProject, (event) => tabFor(event)?.trustProject() ?? false)
+  // From a project's own chat only, as the rest of shipping is.
+  handleLegacy(Invoke.setGitIdentity, (event, name: unknown, email: unknown) =>
+    reportError(async () => {
+      requireTab(event)
+      const identity = gitIdentity(name, email)
+      if (!identity) throw new Error('Enter your name and an email address.')
+      await saveIdentity(identity.name, identity.email)
+    }),
+  )
+  handleLegacy(Invoke.openGitHubSettings, async (event) => {
+    if (tabFor(event)) openSettings('github')
+  })
   handleLegacy(Invoke.sourceControl, (event, request: unknown) => {
     if (!isSourceControlRequest(request)) throw new Error('Invalid source control request')
     const tab = tabFor(event)
@@ -1034,7 +1058,7 @@ function registerIpc() {
     reportError(async () => {
       if (!isString(name) || name.length > 200) throw new Error('Use a shorter name.')
       const root = await requireTab(event).createWorktree(name)
-      await openWorktreeIn(windowFor(event), root)
+      if (root) await openWorktreeIn(windowFor(event), root)
     }),
   )
   handleLegacy(Invoke.removeWorktree, (event) =>

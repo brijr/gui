@@ -10,7 +10,7 @@ import { expect, test } from './helpers/test'
 const MARKER = '// Shipped from Gui e2e'
 const SECRET = 'VITE_API_TOKEN=do-not-commit'
 
-test('retrying a failed push keeps excluded edits out of the saved commit', async ({ launch }) => {
+test('retrying a failed push keeps excluded edits out of the commit', async ({ launch }) => {
   const session = await launch({ fixture: 'vite' })
   const { base, root } = session.fixture
   git(root, 'branch', '-M', 'main')
@@ -35,7 +35,7 @@ test('retrying a failed push keeps excluded edits out of the saved commit', asyn
   await session.chat
     .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
-  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
+  await expect(session.chat.getByText(/^Committed /)).toBeVisible()
   await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
   await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
   await expect(session.chat.getByRole('alert')).toBeVisible()
@@ -51,13 +51,13 @@ test('retrying a failed push keeps excluded edits out of the saved commit', asyn
 
   git(root, 'remote', 'set-url', 'origin', origin)
   await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
-  await expect(session.chat.getByText(/^Pushed saved commits/)).toBeVisible()
+  await expect(session.chat.getByText(/^Pushed /)).toBeVisible()
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
   expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
   expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
 })
 
-test('source control saves selected files locally, then shares the saved commit', async ({
+test('source control commits selected files locally, then pushes the commit', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
@@ -88,7 +88,7 @@ test('source control saves selected files locally, then shares the saved commit'
   await session.chat
     .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
-  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
+  await expect(session.chat.getByText(/^Committed /)).toBeVisible()
 
   const branch = info.branch
   if (!branch) throw new Error('No current branch')
@@ -103,12 +103,12 @@ test('source control saves selected files locally, then shares the saved commit'
   expect(git(origin, 'rev-parse', 'main').trim()).toBe(before)
 
   expect((await session.chat.evaluate(() => window.gui.getProposal(false)))?.ahead).toBe(1)
-  // Share just the saved commit while the excluded file remains staged.
+  // Push just the commit while the excluded file remains staged.
   await expect(
-    session.chat.getByText('Only saved commits are pushed. Uncommitted edits stay here.'),
+    session.chat.getByText('Push sends your commits. Uncommitted changes stay on this Mac.'),
   ).toBeVisible()
   await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
-  await expect(session.chat.getByText(/^Pushed saved commits/)).toBeVisible()
+  await expect(session.chat.getByText(/^Pushed /)).toBeVisible()
   expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
   expect(git(root, 'diff', '--cached', '--name-only').trim()).toBe('src/index.css')
@@ -150,7 +150,8 @@ function treeOf(repo: string, ref: string): string[] {
 test('create pull request commits to a new branch, pushes it, and leaves secrets out', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite' })
+  // Not Stay on main (the specs' default): from main, the work goes on a new branch.
+  const session = await launch({ fixture: 'vite', newBranchOnSend: true })
   const { base, root } = session.fixture
 
   // The fixture ignores *.local; track it so leaving .env.local out is up to the app.
@@ -243,8 +244,9 @@ async function checkSheet(app: ElectronApplication, chrome: Page, chat: Page, in
   await expect
     .soft(chat.getByRole('textbox', { name: 'Commit message' }))
     .toHaveValue(info.suggestion.title)
-  // A remote Gui can't link: no pull request page, so the action is a plain push.
+  // A host Gui can't link: no pull request page, so no Create pull request either.
   await expect.soft(chat.getByRole('button', { name: 'Commit 1 file' })).toHaveCount(1)
+  await expect.soft(chat.getByRole('button', { name: 'Create pull request' })).toHaveCount(0)
   const back = chat.getByRole('button', { name: 'Back to chat' })
   if ((await back.count()) > 0) await back.first().dispatchEvent('click')
   await expect.soft(chat.getByRole('textbox', { name: 'Commit message' })).toHaveCount(0)

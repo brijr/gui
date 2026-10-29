@@ -998,7 +998,7 @@ export interface ShipInfo {
   branch: string | null
   /** The checked-out branch is the repository's default branch. */
   onDefaultBranch: boolean
-  /** Current branch has saved commits that can be pushed without committing more files. */
+  /** Current branch has commits that can be pushed without committing more files. */
   pendingCommits?: boolean
   files: ShipFile[]
   /** Changed files left out because they may hold secrets (e.g. `.env.local`) */
@@ -1006,6 +1006,10 @@ export interface ShipInfo {
   /** Where the branch is pushed; null without a remote (the commit stays local) */
   remote: { host: 'github' | 'gitlab' | 'other'; repo: string } | null
   suggestion: { branch: string; title: string; body: string }
+  /** The user hasn't let Gui run Git here yet; `blocked` says so, and the sheet asks again */
+  untrusted?: boolean
+  /** Stay on main: commits go on the current branch, even a shared one, never a new one */
+  stayOnBranch?: boolean
 }
 
 export interface ShipRequest {
@@ -1040,9 +1044,10 @@ export interface ShipResult {
   /**
    * `created`: the PR exists (`url`). `compare`: pushed, and `url` opens the host's
    * new-PR page to finish in the browser. `pushed`: pushed to a host Gui can't link.
-   * `committed`: committed locally only.
+   * `committed`: committed locally only. `cancelled`: the user said no (to trusting the
+   * project, or to pushing straight to a shared branch) before anything changed.
    */
-  outcome: 'created' | 'compare' | 'pushed' | 'committed'
+  outcome: 'created' | 'compare' | 'pushed' | 'committed' | 'cancelled'
   url: string | null
 }
 
@@ -1099,6 +1104,13 @@ export interface Proposal {
    * branch from it; null once it has, or when the user chose to stay on it.
    */
   newBranchFrom: string | null
+  /** Stay on main: work goes on the current branch, and the bar commits and pushes there */
+  stayOnBranch: boolean
+  /**
+   * Gui may run Git here (the project is trusted). Untrusted, the rest is empty and the bar
+   * offers Trust project… instead.
+   */
+  trusted: boolean
 }
 
 export interface ProposalPull {

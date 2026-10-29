@@ -1,16 +1,16 @@
-import { type FormEvent, type ReactNode, useEffect, useId, useState } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
 import type { ShipFile, ShipInfo, ShipRequest } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Dialog } from '../lib/dialog'
 import { Disclosure } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { Field, InlineError, Input, Textarea } from '../lib/field'
 import { ArrowLeft, Info, RotateCw } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Message, PanelHeader } from '../lib/surface'
-import { Button, Code, IconButton, Skeleton } from '../lib/ui'
+import { Button, Checkbox, Code, IconButton, Skeleton } from '../lib/ui'
 import { BranchPicker, CreateBranchDialog, CreateWorktreeDialog } from './branch-picker'
+import { GitErrorAction } from './git-actions'
 import { useProposal } from './proposal-state'
 import {
   acceptShipProposal,
@@ -20,6 +20,7 @@ import {
   performSourceControl,
   setCreateBranchOpen,
   setShipDraft,
+  shareFromSheet,
   submitShip,
   useShipSheet,
 } from './shipping-state'
@@ -40,6 +41,19 @@ export function ShipSheet() {
   const draft = useShipSheet((state) => state.draft)
   const busy = useShipSheet((state) => state.busy)
   const running = useChat((state) => state.turns.some((turn) => turn.status === 'running'))
+  const root = useRef<HTMLDivElement>(null)
+  // Opening moves the keyboard to Back; closing hands it to the composer, as the chat's
+  // morphs do, rather than leaving it on nothing.
+  useEffect(() => {
+    root.current?.querySelector<HTMLElement>('button[aria-label="Back to chat"]')?.focus()
+    return () => {
+      requestAnimationFrame(() => {
+        const active = document.activeElement
+        if (active && active !== document.body) return
+        document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true })
+      })
+    }
+  }, [])
   // biome-ignore lint/correctness/useExhaustiveDependencies: refresh action availability at both agent transitions
   useEffect(() => {
     void loadShipInfo()
@@ -79,7 +93,7 @@ export function ShipSheet() {
     }
   }, [])
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div ref={root} className="flex min-h-0 flex-1 flex-col">
       <PanelHeader
         title="Source control"
         leading={
@@ -109,7 +123,15 @@ export function ShipSheet() {
         </div>
       ) : loaded.kind === 'blocked' ? (
         <div className="flex min-h-0 flex-1 items-center justify-center p-3">
-          <Message icon={<Info className="size-4" aria-hidden="true" />}>
+          <Message
+            icon={<Info className="size-4" aria-hidden="true" />}
+            actions={
+              // Declining closed the question quietly; this asks it again.
+              loaded.untrusted && (
+                <Button onClick={() => void loadShipInfo()}>Trust project…</Button>
+              )
+            }
+          >
             <WithCode text={loaded.message} />
           </Message>
         </div>
@@ -132,13 +154,10 @@ function Workspace({
   const busy = useShipSheet((state) => state.busy)
   const action = useShipSheet((state) => state.action)
   const error = useShipSheet((state) => state.error)
+  const retry = useShipSheet((state) => state.retry)
   const notice = useShipSheet((state) => state.notice)
-  const reviewDraft = useShipSheet((state) => state.reviewDraft)
   const pendingProposal = useShipSheet((state) => state.pendingProposal)
   const [description, setDescription] = useState(Boolean(draft.body))
-  const [reviewOpen, setReviewOpen] = useState(false)
-  const [reviewTitle, setReviewTitle] = useState('')
-  const [reviewBody, setReviewBody] = useState('')
   const pull = useProposal((state) =>
     state.proposal?.branch === info.branch ? state.proposal.pull : null,
   )
@@ -147,7 +166,7 @@ function Workspace({
   if (!workspace)
     return (
       <Message icon={<Info className="size-4" aria-hidden="true" />}>
-        Refresh Source control to load repository details.
+        Gui couldn’t read this project’s branches. Refresh to try again.
       </Message>
     )
   const restriction = running ? 'Wait for the agent to finish first.' : workspace.writeBlocked
@@ -158,7 +177,7 @@ function Workspace({
   const reason =
     restriction ||
     (!branchReady
-      ? 'Create or select the branch before committing.'
+      ? 'Create or switch to the branch first.'
       : info.files.length === 0
         ? 'No changes to commit.'
         : count === 0
@@ -170,14 +189,18 @@ function Workspace({
   const shared =
     info.branch === 'main' || info.branch === 'master' || info.branch === workspace.defaultBranch
   const destination = workspace.destination
+  const host =
+    info.remote?.host === 'github' ? 'GitHub' : info.remote?.host === 'gitlab' ? 'GitLab' : null
   const openPull = pull && (pull.state === 'open' || pull.state === 'draft')
-  const canPull = Boolean(
-    destination &&
-      info.remote?.host !== 'other' &&
-      destination.branch !== workspace.defaultBranch &&
-      workspace.published &&
-      workspace.ahead === 0,
-  )
+  // The bar's flow: it ends in a pull request only on a host that takes them, and from a
+  // branch other than main (from main, Gui makes one first unless the project stays on main).
+  const pullBranch = info.suggestion.branch
+  const offersPull =
+    host !== null && Boolean(destination) && !(pullBranch === info.branch && shared)
+  const canShare =
+    count > 0 ||
+    workspace.ahead > 0 ||
+    (workspace.published && destination?.branch !== workspace.defaultBranch)
   const submit = (event?: FormEvent) => {
     event?.preventDefault()
     if (canCommit) void submitShip(info)
@@ -205,18 +228,18 @@ function Workspace({
             <p className="text-caption text-muted">
               {destination ? (
                 <>
-                  Push destination{' '}
-                  <Code>
-                    {destination.remote}/{destination.branch}
-                  </Code>
+                  Pushes to <Code>{destination.branch}</Code>
+                  {host && ` on ${host}`}
                 </>
               ) : (
-                'No remote configured. Commits stay on this computer.'
+                'This project isn’t online yet. Commits stay on this Mac.'
               )}
             </p>
             {shared && (
               <p className="rounded-md bg-warning-soft p-2 text-caption text-warning">
-                You're on the shared branch. Create a branch to keep changes separate.
+                {info.stayOnBranch
+                  ? `Commits go straight to ${info.branch}, which everyone shares. Gui asks before pushing them.`
+                  : `You’re on ${info.branch}, which everyone shares. Create pull request puts your changes on a new branch first.`}
               </p>
             )}
             {workspace.worktree && <WorktreeLine path={workspace.worktree.path} busy={busy} />}
@@ -260,8 +283,7 @@ function Workspace({
             <section className="flex flex-col gap-0.5" aria-label="Changed files">
               <h3 className="text-small font-medium">No uncommitted changes</h3>
               <p className="text-pretty text-caption text-muted">
-                Changes the agent makes show here to commit. You can still switch or create a
-                branch, and push the commits below.
+                Changes the agent makes show up here to commit.
               </p>
             </section>
           ) : (
@@ -301,18 +323,16 @@ function Workspace({
                     }}
                   />
                 ) : (
-                  <p className="py-2 text-small text-muted">
-                    Nothing here can be committed. You can still switch or create a branch.
-                  </p>
+                  <p className="py-2 text-small text-muted">Nothing here can be committed.</p>
                 )}
                 {info.files.length > 0 && (
                   <p className="text-caption text-subtle">
-                    Checked files include their current contents, including unstaged edits.
+                    Each checked file is committed as it is now.
                   </p>
                 )}
                 {info.skipped.length > 0 && (
                   <p className="text-caption text-subtle">
-                    Excluded as possible secrets: <PathList paths={info.skipped} />
+                    Left out because they may hold secrets: <PathList paths={info.skipped} />
                   </p>
                 )}
               </section>
@@ -364,65 +384,63 @@ function Workspace({
               </section>
             </>
           )}
-          <section
-            className="flex flex-col gap-2 border-t border-line pt-3"
-            aria-label="Remote actions"
-          >
-            <p className="text-small font-medium">
-              {destination
-                ? workspace.ahead > 0
+          {destination && (
+            <section className="flex flex-col gap-2 border-t border-line pt-3" aria-label="Push">
+              <p className="text-small font-medium">
+                {workspace.ahead > 0
                   ? `${workspace.ahead} ${workspace.ahead === 1 ? 'commit' : 'commits'} ready to push`
-                  : 'All commits pushed'
-                : 'No remote configured'}
-            </p>
-            {destination && (
+                  : 'All commits pushed'}
+              </p>
               <p className="text-caption text-muted">
-                Only saved commits are pushed. Uncommitted edits stay here.
+                Push sends your commits. Uncommitted changes stay on this Mac.
               </p>
-            )}
-            <div className="flex flex-wrap gap-2">
-              <Button
-                disabled={disabled || !destination || workspace.ahead === 0 || !info.branch}
-                loading={action === 'push'}
-                onClick={() => void performSourceControl({ kind: 'push' })}
-              >
-                Push
-              </Button>
-              {openPull ? (
-                <Button variant="ghost" onClick={() => openExternal(pull.url)}>
-                  Open pull request
-                </Button>
-              ) : (
+              <div className="flex flex-wrap gap-2">
                 <Button
-                  variant="ghost"
-                  disabled={disabled || !canPull}
-                  loading={action === 'pull'}
-                  onClick={() => {
-                    setReviewTitle(reviewDraft?.title || info.suggestion.title)
-                    setReviewBody(reviewDraft?.body ?? info.suggestion.body)
-                    setReviewOpen(true)
-                  }}
+                  disabled={disabled || workspace.ahead === 0 || !info.branch}
+                  loading={action === 'push'}
+                  onClick={() => void performSourceControl({ kind: 'push' })}
                 >
-                  Create pull request
+                  Push
                 </Button>
-              )}
-            </div>
-            {destination && !openPull && !canPull && (
-              <p className="text-caption text-subtle">
-                {info.remote?.host === 'other'
-                  ? 'This remote has no supported pull request page.'
-                  : destination.branch === workspace.defaultBranch
-                    ? 'Use a separate branch for a pull request.'
-                    : 'Push the saved commits first.'}
-              </p>
-            )}
-          </section>
+                {openPull ? (
+                  <Button variant="ghost" onClick={() => openExternal(pull.url)}>
+                    Open pull request
+                  </Button>
+                ) : (
+                  offersPull && (
+                    <Button
+                      variant="ghost"
+                      disabled={disabled || !canShare}
+                      loading={action === 'share'}
+                      title={
+                        canShare
+                          ? 'Commits the checked files with this message, pushes them and creates the pull request'
+                          : 'Check the files to put in the pull request first'
+                      }
+                      onClick={() => void shareFromSheet()}
+                    >
+                      Create pull request
+                    </Button>
+                  )
+                )}
+              </div>
+            </section>
+          )}
         </div>
         <div className="flex shrink-0 flex-col gap-2 border-t border-line p-3">
           {error && (
             <InlineError className="max-h-24 overflow-y-auto whitespace-pre-wrap">
               <WithCode text={error} />
             </InlineError>
+          )}
+          {error && (
+            <div className="flex flex-wrap gap-2 empty:hidden">
+              <GitErrorAction
+                error={error}
+                retry={retry}
+                onDone={() => useShipSheet.setState({ error: null, retry: null })}
+              />
+            </div>
           )}
           {notice && (
             <p role="status" className="text-caption text-muted">
@@ -453,52 +471,6 @@ function Workspace({
         branch={info.branch}
         uncommitted={info.files.length + info.skipped.length}
       />
-      <Dialog
-        open={reviewOpen}
-        onClose={() => {
-          if (!busy) setReviewOpen(false)
-        }}
-        title="Create pull request"
-        className="flex flex-col gap-3 p-3"
-        footer={
-          <>
-            <Button disabled={busy} onClick={() => setReviewOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              disabled={disabled || !reviewTitle.trim()}
-              loading={action === 'pull'}
-              onClick={() => {
-                void performSourceControl({ kind: 'pull', title: reviewTitle, body: reviewBody })
-                setReviewOpen(false)
-              }}
-            >
-              Create pull request
-            </Button>
-          </>
-        }
-      >
-        <Field label="Title" htmlFor={`${id}-review-title`}>
-          <Input
-            id={`${id}-review-title`}
-            value={reviewTitle}
-            maxLength={500}
-            disabled={busy}
-            onChange={(event) => setReviewTitle(event.target.value)}
-          />
-        </Field>
-        <Field label="Description (optional)" htmlFor={`${id}-review-body`}>
-          <Textarea
-            id={`${id}-review-body`}
-            value={reviewBody}
-            rows={4}
-            maxLength={20_000}
-            disabled={busy}
-            onChange={(event) => setReviewBody(event.target.value)}
-          />
-        </Field>
-      </Dialog>
     </>
   )
 }
@@ -531,25 +503,26 @@ function FileList({
     >
       {files.slice(0, limit).map((file) => (
         <li key={file.path}>
-          <label className="flex min-w-0 cursor-pointer items-center gap-2 rounded-sm px-1 py-1 hover:bg-hover">
-            <input
-              type="checkbox"
-              checked={selected.has(file.path)}
-              disabled={busy}
-              aria-label={`Include ${file.path}`}
-              onChange={() => onToggle(file.path)}
-              className="shrink-0 accent-accent"
-            />
-            <span
-              className={cn('w-3 shrink-0 font-mono', STATUS_COLOR[file.status])}
-              aria-hidden="true"
-              title={file.status}
-            >
-              {file.status[0]?.toUpperCase()}
-            </span>
-            <span className="sr-only">{file.status}</span>
-            <PathText path={file.path} className="flex-1" />
-          </label>
+          <Checkbox
+            checked={selected.has(file.path)}
+            disabled={busy}
+            aria-label={`Include ${file.path}`}
+            onChange={() => onToggle(file.path)}
+            className="min-h-0 min-w-0 cursor-pointer rounded-sm px-1 py-1 hover:bg-hover [&>span:last-child]:flex [&>span:last-child]:flex-1 [&>span:last-child]:items-center [&>span:last-child]:gap-2"
+            label={
+              <>
+                <span
+                  className={cn('w-3 shrink-0 font-mono', STATUS_COLOR[file.status])}
+                  aria-hidden="true"
+                  title={file.status}
+                >
+                  {file.status[0]?.toUpperCase()}
+                </span>
+                <span className="sr-only">{file.status}</span>
+                <PathText path={file.path} className="flex-1" />
+              </>
+            }
+          />
         </li>
       ))}
       {more > 0 && (

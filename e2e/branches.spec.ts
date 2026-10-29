@@ -8,8 +8,9 @@ import { expect, test } from './helpers/test'
 
 // Opening a project on main opens it straight away, and keeps main as it was: the first
 // message starts a new branch, unless the user stays on main. The bar over the chat then has
-// one button that commits, pushes and creates the pull request. Worktrees come from the
-// toolbar's branch menu. The fixture is a fresh repository, already trusted.
+// one button that commits, pushes and creates the pull request (or, staying on main, commits
+// to main). Worktrees come from the toolbar's branch menu. The fixture is a fresh repository,
+// already trusted.
 
 function onMain(root: string) {
   git(root, 'branch', '-M', 'main')
@@ -48,8 +49,7 @@ async function answerDialogs(session: GuiSession, response: number) {
   }, response)
 }
 
-const NEW_BRANCH =
-  /Your first message starts a separate version of this project, called a Git branch\. main stays unchanged/
+const NEW_BRANCH = /Your first message starts a new branch, so main stays as it is/
 
 test('opening on main opens straight away, and the first message starts a new branch', async ({
   launch,
@@ -100,7 +100,7 @@ test('Stay on main keeps the work on main, and is remembered for the project', a
 test('the bar’s one button commits every change, pushes it on a new branch, and leaves secrets out', async ({
   launch,
 }) => {
-  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const session = await launch({ fixture: 'vite', newBranchOnSend: true, open: 'recent' })
   const { base, root } = session.fixture
 
   // The app commits with the repository's own identity and hooks; pin both for the test.
@@ -142,9 +142,36 @@ test('the bar’s one button commits every change, pushes it on a new branch, an
   expect(git(origin, 'ls-tree', '-r', '--name-only', branch)).not.toContain('.env')
   expect(git(origin, 'rev-parse', 'main').trim()).toBe(mainBefore)
   expect(git(root, 'status', '--porcelain', '--', '.env').trim()).toBe('?? .env')
-  // Nothing left to share: the bar goes quiet.
+  // Nothing left to share: the button goes, and the bar says what happened.
   await expect(button).toHaveCount(0)
+  await expect(session.chat.getByText(`Pushed ${branch}.`)).toBeVisible()
   await session.shot('shared')
+})
+
+test('staying on main, the bar’s button commits to main and says so', async ({ launch }) => {
+  // The specs' default prefs keep the fixture on main (Stay on main).
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { root } = session.fixture
+  git(root, 'config', 'user.name', 'Gui E2E')
+  git(root, 'config', 'user.email', 'e2e@example.com')
+  git(root, 'config', 'commit.gpgsign', 'false')
+  git(root, 'config', 'core.hooksPath', '/dev/null')
+  await openOnMain(session)
+  const before = git(root, 'rev-parse', 'HEAD').trim()
+
+  appendFileSync(join(root, 'src/App.tsx'), '// committed to main\n')
+  await session.chat.evaluate(() => window.dispatchEvent(new Event('focus')))
+  // Not online: the commit stays on this Mac, on main itself.
+  const button = session.chat.getByRole('button', { name: 'Commit to main' })
+  await expect(button).toBeVisible({ timeout: 30_000 })
+  await button.click()
+
+  await waitFor(() => git(root, 'rev-parse', 'HEAD').trim() !== before, 'the commit')
+  expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('main')
+  expect(git(root, 'show', 'HEAD:src/App.tsx')).toContain('committed to main')
+  await expect(
+    session.chat.getByText('Committed on main. It stays on this Mac until you push.'),
+  ).toBeVisible()
 })
 
 test('a new worktree opens beside main, and removing it never loses work', async ({ launch }) => {

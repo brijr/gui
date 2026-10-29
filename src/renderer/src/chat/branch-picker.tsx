@@ -4,7 +4,7 @@ import { gui } from '../lib/api'
 import { Dialog } from '../lib/dialog'
 import { readableError } from '../lib/errors'
 import { Field, Input, Select } from '../lib/field'
-import { Check, ChevronDown, GitBranch, Plus, SquareStack } from '../lib/icons'
+import { Check, ChevronDown, GitBranch } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Button } from '../lib/ui'
 import {
@@ -42,7 +42,7 @@ export function BranchPicker({
     )
     return {
       count: shown.length,
-      lists: (['Local branches', 'Remote branches'] as const).map((label, group) => ({
+      lists: (['On this Mac', 'Online'] as const).map((label, group) => ({
         label,
         branches: shown
           .filter((branch) => (branch.remote !== null) === (group === 1))
@@ -55,10 +55,11 @@ export function BranchPicker({
   }, [workspace.branches, query])
   return (
     <>
+      {/* New branches and worktrees come from the toolbar's branch menu, which opens their
+          dialogs over this sheet: one way to each. */}
       <Button
         icon={GitBranch}
         trailingIcon={ChevronDown}
-        // Its own row: the new-branch and new-worktree buttons wrap under it in a narrow chat.
         className="min-w-0 flex-1 basis-full justify-start"
         aria-label={`Select branch, current branch ${workspace.branch ?? 'none'}`}
         title={workspace.branch ?? 'No branch'}
@@ -69,12 +70,6 @@ export function BranchPicker({
           path={workspace.branch ?? 'No branch'}
           className="min-w-0 flex-1 text-left font-mono"
         />
-      </Button>
-      <Button icon={Plus} disabled={disabled} onClick={() => setCreateBranchOpen(true)}>
-        New branch
-      </Button>
-      <Button icon={SquareStack} disabled={disabled} onClick={() => setWorktreeOpen(true)}>
-        New worktree
       </Button>
       <Dialog
         title="Switch branch"
@@ -144,7 +139,7 @@ const BranchRow = memo(function BranchRow({
           : elsewhere
             ? 'Checked out in a worktree whose folder is gone'
             : localExists
-              ? 'Select the local branch above'
+              ? 'Pick the one on this Mac, above'
               : undefined
       }
       onClick={() => {
@@ -347,7 +342,7 @@ export function CreateBranchDialog({
           disabled={busy}
           onChange={(event) => setBase(event.target.value)}
         >
-          {!workspace.branch && <option value="">Current commit</option>}
+          {!workspace.branch && <option value="">Where you are now</option>}
           {workspace.branches.map((branch) => {
             const ref = branch.remote
               ? `refs/remotes/${branch.remote}/${branch.name}`
@@ -362,12 +357,11 @@ export function CreateBranchDialog({
         </Select>
       </Field>
       <p className="text-caption text-muted">
-        Your uncommitted files come along when Git can preserve them.
+        Your uncommitted changes come along when Git can keep them.
       </p>
       {workspace.ahead > 0 && (
         <p className="text-caption text-muted">
-          Starting from the current branch includes its saved commits. The original branch will not
-          be reset.
+          Starting from the current branch includes its commits. The current branch stays as it is.
         </p>
       )}
       {error && (

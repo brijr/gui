@@ -131,7 +131,8 @@ test('the agent reads source control, versions and earlier turns, and proposes a
   // The bar over the chat takes it once the turn is over: its button commits with the agent's
   // message and files (one of them gone since), and nothing is committed until it's pressed.
   await expect(session.chat.getByText(/· Note the agent proposal/)).toBeVisible()
-  const commit = session.chat.getByRole('button', { name: 'Commit', exact: true })
+  // Stay on main (the specs' default): the commit lands on main, and the button says so.
+  const commit = session.chat.getByRole('button', { name: 'Commit to main', exact: true })
   await expect(commit).toBeVisible()
   expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(head)
 

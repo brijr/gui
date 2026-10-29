@@ -94,7 +94,10 @@ test('clean branch management and repeated commits preserve file choices across 
   await expect(session.chat.getByText(/No uncommitted changes/)).not.toBeVisible()
   await openSheet()
   await expect(session.chat.getByText(/No uncommitted changes/)).toBeVisible()
-  await session.chat.getByRole('button', { name: 'New branch', exact: true }).dispatchEvent('click')
+  // Opening it puts the keyboard on Back.
+  await expect(session.chat.getByRole('button', { name: 'Back to chat' }).first()).toBeFocused()
+  // New branches come from the toolbar's branch menu, over the open sheet.
+  await chooseFromBranchMenu(session.app, session.chrome, 'New Branch…')
   await expect(session.chat.getByRole('textbox', { name: 'Branch name' })).toBeFocused()
   await session.chat.getByRole('textbox', { name: 'Branch name' }).fill('feature/source-control')
   await settledShot(session, testInfo.outputPath('source-control-create-branch.png'))
@@ -134,7 +137,7 @@ test('clean branch management and repeated commits preserve file choices across 
   await session.chat
     .getByRole('button', { name: 'Commit 1 file', exact: true })
     .dispatchEvent('click')
-  await expect(session.chat.getByText(/^Commit saved/)).toBeVisible()
+  await expect(session.chat.getByText(/^Committed /)).toBeVisible()
   expect(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim()).toBe(
     'src/App.tsx',
   )
@@ -158,7 +161,9 @@ test('clean branch management and repeated commits preserve file choices across 
   expect(git(root, 'diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD').trim()).toBe(
     'src/index.css',
   )
-  await expect(session.chat.getByRole('button', { name: 'New branch', exact: true })).toBeEnabled()
+  await expect(
+    session.chat.getByRole('button', { name: /Select branch, current branch/ }),
+  ).toBeEnabled()
   await session.chat.emulateMedia({ colorScheme: 'dark' })
   await settledShot(session, testInfo.outputPath('source-control-dark.png'))
   expect(
@@ -201,12 +206,12 @@ test('branch switching handles remote-only refs, occupied worktrees, dirty files
   git(root, 'switch', '--quiet', '--detach', 'HEAD')
   await expect(
     act(session, { kind: 'commit', files: ['src/App.tsx'], title: 'Detached', body: '' }),
-  ).rejects.toThrow(/detached/)
+  ).rejects.toThrow(/not on a branch/)
   await act(session, { kind: 'create', branch: 'feature/from-detached', base: null })
   expect(git(root, 'symbolic-ref', '--short', 'HEAD').trim()).toBe('feature/from-detached')
 })
 
-test('main, master, custom defaults and upstream destinations all require main-owned confirmation', async ({
+test('main, master, custom defaults and upstream destinations all ask before pushing, and Cancel is quiet', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
@@ -222,27 +227,29 @@ test('main, master, custom defaults and upstream destinations all require main-o
     git(root, 'commit', '--quiet', '--allow-empty', '-m', `Outgoing ${branch}`)
     const saved = git(root, 'rev-parse', 'HEAD').trim()
     const before = git(origin, 'rev-parse', branch).trim()
-    for (const [answer, outcome] of [
-      [0, 'cancelled'],
-      [1, 'branch-required'],
-    ] as const) {
-      await answerPush(session, answer)
-      expect((await act(session, { kind: 'push' })).outcome).toBe(outcome)
-      expect(git(origin, 'rev-parse', branch).trim()).toBe(before)
-      expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
-      const prompt = await session.app.evaluate(
-        () =>
-          (
-            globalThis as unknown as {
-              pushPrompts: { message: string; defaultId: number; cancelId: number }[]
-            }
-          ).pushPrompts[0],
-      )
-      expect(prompt?.message).toContain(`origin/${branch}`)
-      expect(prompt?.defaultId).toBe(0)
-      expect(prompt?.cancelId).toBe(0)
-    }
-    await answerPush(session, 2)
+    // Cancel (the default, and Esc) pushes nothing.
+    await answerPush(session, 0)
+    expect((await act(session, { kind: 'push' })).outcome).toBe('cancelled')
+    expect(git(origin, 'rev-parse', branch).trim()).toBe(before)
+    expect(git(root, 'rev-parse', 'HEAD').trim()).toBe(saved)
+    const prompt = await session.app.evaluate(
+      () =>
+        (
+          globalThis as unknown as {
+            pushPrompts: {
+              message: string
+              buttons: string[]
+              defaultId: number
+              cancelId: number
+            }[]
+          }
+        ).pushPrompts[0],
+    )
+    expect(prompt?.message).toBe(`Push 1 commit straight to ${branch}?`)
+    expect(prompt?.buttons).toEqual(['Cancel', `Push to ${branch}`])
+    expect(prompt?.defaultId).toBe(0)
+    expect(prompt?.cancelId).toBe(0)
+    await answerPush(session, 1)
     expect((await act(session, { kind: 'push' })).outcome).toBe('pushed')
     expect(git(origin, 'rev-parse', branch).trim()).toBe(saved)
   }
@@ -255,31 +262,37 @@ test('main, master, custom defaults and upstream destinations all require main-o
   const prompt = await session.app.evaluate(
     () => (globalThis as unknown as { pushPrompts: { message: string }[] }).pushPrompts[0],
   )
-  expect(prompt?.message).toContain('origin/main')
-  // Legacy Share uses the same confirmation gate, even with an empty file selection.
+  expect(prompt?.message).toContain('straight to main')
+  // The bar's share flow uses the same question; declined, it ends quietly, not as an error.
   git(root, 'switch', '--quiet', 'main')
-  git(root, 'commit', '--quiet', '--allow-empty', '-m', 'Legacy pending commit')
-  await expect(
-    session.chat.evaluate(() =>
-      window.gui.ship({ mode: 'share', files: [], branch: 'main', title: 'Legacy push', body: '' }),
-    ),
-  ).rejects.toThrow(/cancelled/)
-  const localMain = git(root, 'rev-parse', 'main').trim()
-  await answerPush(session, 1)
+  git(root, 'commit', '--quiet', '--allow-empty', '-m', 'Pending commit')
+  const originMain = git(origin, 'rev-parse', 'main').trim()
+  expect(
+    (
+      await session.chat.evaluate(() =>
+        window.gui.ship({ mode: 'share', files: [], branch: 'main', title: 'Push', body: '' }),
+      )
+    ).outcome,
+  ).toBe('cancelled')
+  expect(git(origin, 'rev-parse', 'main').trim()).toBe(originMain)
+
+  // Cancel from Source Control's Push closes the question with nothing said.
+  await answerPush(session, 0)
   await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
-  await expect(session.chat.getByRole('button', { name: 'Push', exact: true })).toBeEnabled()
-  await session.chat.getByRole('button', { name: 'Push', exact: true }).dispatchEvent('click')
-  await expect(session.chat.getByRole('dialog', { name: 'Create a branch' })).toBeVisible()
-  await expect(session.chat.getByRole('textbox', { name: 'Branch name' })).toBeFocused()
-  await session.chat.getByRole('textbox', { name: 'Branch name' }).fill('feature/main-commits')
-  await session.chat.getByRole('button', { name: 'Create and switch' }).dispatchEvent('click')
-  await expect(
-    session.chat.getByRole('button', {
-      name: /Select branch, current branch feature\/main-commits/,
-    }),
-  ).toBeVisible()
-  expect(git(root, 'rev-parse', 'main').trim()).toBe(localMain)
-  expect(git(root, 'rev-parse', 'feature/main-commits').trim()).toBe(localMain)
+  const push = session.chat.getByRole('button', { name: 'Push', exact: true })
+  await expect(push).toBeEnabled()
+  await push.dispatchEvent('click')
+  await waitFor(
+    () =>
+      session.app.evaluate(
+        () => (globalThis as unknown as { pushPrompts: unknown[] }).pushPrompts.length === 1,
+      ),
+    'the push question',
+  )
+  await expect(push).toBeEnabled()
+  await expect(session.chat.getByRole('alert')).toHaveCount(0)
+  await expect(session.chat.getByText(/^Pushed |[Cc]ancelled/)).toHaveCount(0)
+  expect(git(origin, 'rev-parse', 'main').trim()).toBe(originMain)
 })
 
 test('a changed repository invalidates push approval and concurrent Git actions cannot interleave', async ({
@@ -295,7 +308,7 @@ test('a changed repository invalidates push approval and concurrent Git actions 
     dialog.showMessageBox = (() =>
       new Promise((resolve) => {
         Object.assign(globalThis, {
-          releasePush: () => resolve({ response: 2, checkboxChecked: false }),
+          releasePush: () => resolve({ response: 1, checkboxChecked: false }),
         })
       })) as typeof dialog.showMessageBox
   })
@@ -323,7 +336,7 @@ test('a changed repository invalidates push approval and concurrent Git actions 
   await session.app.evaluate(() =>
     (globalThis as unknown as { releasePush: () => void }).releasePush(),
   )
-  expect(await pushing).toContain('changed while preparing')
+  expect(await pushing).toContain('changed while Gui was getting ready')
   expect(git(origin, 'rev-parse', 'main').trim()).toBe(before)
 })
 
@@ -413,7 +426,9 @@ test('draft typing and file selection remain available while the agent runs', as
   await expect(
     session.chat.getByRole('button', { name: 'Commit 1 file', exact: true }),
   ).toBeDisabled()
-  await expect(session.chat.getByRole('button', { name: 'New branch', exact: true })).toBeDisabled()
+  await expect(
+    session.chat.getByRole('button', { name: /Select branch, current branch/ }),
+  ).toBeDisabled()
   await expect(
     act(session, { kind: 'commit', title: 'Bypass UI', body: '', files: ['src/App.tsx'] }),
   ).rejects.toThrow(/agent/)
