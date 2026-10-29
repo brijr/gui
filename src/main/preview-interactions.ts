@@ -35,8 +35,17 @@ const KEY_CODES: Record<PreviewKey, number> = {
   PageDown: 34,
 }
 
-/** Bounded page data, not a script supplied by the agent. Selectors are resolved afresh. */
-const SNAPSHOT = `(() => {
+/** What a snapshot may come to; a page bigger than this (very long ids, say) isn't read. */
+const MAX_SNAPSHOT_CHARS = 200_000
+/** The longest selector a tool takes; an element only a longer one reaches is left out. */
+const MAX_SELECTOR = 500
+
+/**
+ * Bounded page data, not a script supplied by the agent. Selectors are resolved afresh. On a
+ * website (`hide`: SENSITIVE), no password, one-time code or payment field shows its value.
+ */
+const snapshotScript = (hide: string) => `(() => {
+  const hidden = ${hide};
   const clean = (text) => String(text || '').replace(/\\s+/g, ' ').trim().slice(0, 160);
   const selector = (el) => {
     const parts = [];
@@ -59,13 +68,15 @@ const SNAPSHOT = `(() => {
     const style = getComputedStyle(el);
     if (!rect.width || !rect.height || style.visibility === 'hidden' || style.visibility === 'collapse' || style.display === 'none') continue;
     if (elements.length >= 100) { omitted++; continue; }
+    const path = selector(el);
+    if (path.length > ${MAX_SELECTOR}) { omitted++; continue; }
     const labelIds = (el.getAttribute('aria-labelledby') || '').split(/\\s+/).filter(Boolean);
     const name = clean(el.getAttribute('aria-label') || labelIds.map(id => document.getElementById(id)?.textContent || '').join(' ') || (el.labels && Array.from(el.labels).map(n => n.textContent).join(' ')) || el.getAttribute('placeholder') || el.textContent);
-    const password = el.localName === 'input' && el.type === 'password';
+    const secret = (el.localName === 'input' && el.type === 'password') || hidden(el);
     elements.push({
-      selector: selector(el), tag: el.localName, role: el.getAttribute('role') || undefined,
+      selector: path, tag: el.localName, role: el.getAttribute('role') || undefined,
       name, type: el.getAttribute('type') || undefined,
-      value: password ? undefined : ('value' in el ? clean(el.value) : undefined),
+      value: secret ? undefined : ('value' in el ? clean(el.value) : undefined),
       disabled: el.matches(':disabled') || el.getAttribute('aria-disabled') === 'true',
       checked: 'checked' in el ? el.checked : el.getAttribute('aria-checked') || undefined,
       expanded: el.getAttribute('aria-expanded') || undefined,
@@ -89,15 +100,41 @@ export const SENSITIVE_NAME =
 
 /**
  * Whether a field asks for a password, a one-time code or payment details. Page JavaScript,
- * run on the field; the page can't see it.
+ * run in Gui's own world (`world`), where the page can't see or change it.
  */
-const SENSITIVE = `function () {
-  if (this.localName === 'input' && this.type === 'password') return true;
-  if (new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, 'i').test(this.getAttribute('autocomplete') || '')) return true;
-  const labels = this.labels ? Array.from(this.labels).map(n => n.textContent).join(' ') : '';
-  const names = [this.getAttribute('name'), this.id, this.getAttribute('aria-label'), this.getAttribute('placeholder'), labels].join(' ');
+const SENSITIVE = `(field) => {
+  if (field.localName === 'input' && field.type === 'password') return true;
+  if (new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, 'i').test(field.getAttribute('autocomplete') || '')) return true;
+  const labels = field.labels ? Array.from(field.labels).map(n => n.textContent).join(' ') : '';
+  const names = [field.getAttribute('name'), field.id, field.getAttribute('aria-label'), field.getAttribute('placeholder'), labels].join(' ');
   return new RegExp(${JSON.stringify(SENSITIVE_NAME.source)}, 'i').test(names);
 }`
+
+const APP_SNAPSHOT = snapshotScript('() => false')
+const WEBSITE_SNAPSHOT = snapshotScript(SENSITIVE)
+
+/** A control that sends its form when clicked, or with Space: a submit button, with a form. */
+const SUBMITS = `(el) => {
+  const control = el && el.closest ? el.closest('button, input') : null;
+  if (!control || !control.form) return false;
+  return control.localName === 'button' ? control.type === 'submit' : ['submit', 'image'].includes(control.type);
+}`
+
+/**
+ * Whether `key` on the focused element sends a form: Enter in a form's field (implicit
+ * submission) or on a submit button, Space on a submit button.
+ */
+const KEY_SUBMITS = (key: PreviewKey) => `(() => {
+  const submits = ${SUBMITS};
+  let el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  if (!el) return false;
+  if (${JSON.stringify(key)} === 'Enter') return (el.localName === 'input' && !!el.form) || submits(el);
+  return ${JSON.stringify(key)} === 'Space' && submits(el);
+})()`
+
+const NOT_SENT =
+  "Not sent: on websites Gui doesn't submit forms. Stop here and tell the user what this step would send; don't look for another way to send it."
 
 /** Only prepares browser input; never changes application values or invokes .click(). */
 const TARGET = `function () {
@@ -111,7 +148,7 @@ const TARGET = `function () {
   const x = (left + right) / 2, y = (top + bottom) / 2;
   const hit = document.elementFromPoint(x, y);
   if (!hit || (hit !== this && !this.contains(hit))) return { error: 'The target is covered by another element' };
-  return { x, y, disabled: this.matches(':disabled') || this.getAttribute('aria-disabled') === 'true',
+  return { x, y, submits: (${SUBMITS})(hit), disabled: this.matches(':disabled') || this.getAttribute('aria-disabled') === 'true',
     editable: !this.readOnly && (this.isContentEditable || this.localName === 'textarea' ||
       (this.localName === 'input' && ['text','search','email','url','tel','password','number'].includes(this.type))) };
 }`
@@ -119,6 +156,8 @@ const TARGET = `function () {
 interface Target {
   x: number
   y: number
+  /** A click there sends a form */
+  submits: boolean
   disabled: boolean
   editable: boolean
   error?: string
@@ -134,7 +173,7 @@ export type BeforeInput = (at: { x: number; y: number }, click: boolean) => Prom
 export class PreviewInteractions {
   /**
    * `website`: the page is a public website the agent opened (website.ts), where it never
-   * types into password, one-time code or payment fields.
+   * types into password, one-time code or payment fields, sees what's in them, or sends a form.
    */
   constructor(
     private readonly inspector: Inspector,
@@ -157,8 +196,14 @@ export class PreviewInteractions {
       const { result, exceptionDetails } = await this.cmd<{
         result: { value?: unknown }
         exceptionDetails?: unknown
-      }>('Runtime.evaluate', { expression: SNAPSHOT, returnByValue: true })
+      }>('Runtime.evaluate', {
+        expression: this.website ? WEBSITE_SNAPSHOT : APP_SNAPSHOT,
+        contextId: await this.world(),
+        returnByValue: true,
+      })
       if (exceptionDetails || !result.value) throw new Error('Could not read the preview page')
+      if (JSON.stringify(result.value).length > MAX_SNAPSHOT_CHARS)
+        throw new Error('The page is too large to read as a snapshot; use preview_screenshot')
       return result.value
     })
   }
@@ -167,6 +212,7 @@ export class PreviewInteractions {
     return this.exclusive(async () => {
       const target = await this.target(selector)
       if (target.disabled) throw new Error('The target is disabled')
+      if (this.website && target.submits) throw new Error(NOT_SENT)
       await this.beforeInput(target, true)
       await this.clickAt(target)
     })
@@ -185,7 +231,13 @@ export class PreviewInteractions {
       const target = await this.target(selector)
       if (target.disabled || !target.editable)
         throw new Error('The target is not an editable field')
-      if (this.website && (await this.callOn<boolean>(await this.uniqueNode(selector), SENSITIVE)))
+      if (
+        this.website &&
+        (await this.callOn<boolean>(
+          await this.uniqueNode(selector),
+          `function () { return (${SENSITIVE})(this) }`,
+        ))
+      )
         throw new Error(
           "Gui doesn't type into password, one-time code or payment fields on websites. Stop here and tell the user what this step asks for.",
         )
@@ -231,6 +283,14 @@ export class PreviewInteractions {
         if (target.disabled) throw new Error('The target is disabled')
         await this.beforeInput(target, false)
         await this.cmd('DOM.focus', { backendNodeId: await this.uniqueNode(selector) })
+      }
+      if (this.website && (key === 'Enter' || key === 'Space')) {
+        const { result } = await this.cmd<{ result: { value?: unknown } }>('Runtime.evaluate', {
+          expression: KEY_SUBMITS(key),
+          contextId: await this.world(),
+          returnByValue: true,
+        })
+        if (result.value !== false) throw new Error(NOT_SENT)
       }
       await this.key(key, shift)
     })
@@ -332,9 +392,25 @@ export class PreviewInteractions {
     await this.cmd('Input.dispatchKeyEvent', { ...params, type: 'keyUp' })
   }
 
+  /**
+   * Gui's own JavaScript world in the page's main frame, beside the page's: it shares the
+   * DOM, but page scripts can't patch the built-ins (RegExp, Array, getters) Gui's run on.
+   */
+  private async world() {
+    const { frameTree } = await this.cmd<{ frameTree: { frame: { id: string } } }>(
+      'Page.getFrameTree',
+    )
+    const { executionContextId } = await this.cmd<{ executionContextId: number }>(
+      'Page.createIsolatedWorld',
+      { frameId: frameTree.frame.id, worldName: 'gui-tools' },
+    )
+    return executionContextId
+  }
+
   private async callOn<T>(backendNodeId: number, functionDeclaration: string): Promise<T> {
     const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
       backendNodeId,
+      executionContextId: await this.world(),
     })
     try {
       const { result, exceptionDetails } = await this.cmd<{

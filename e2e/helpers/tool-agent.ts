@@ -82,11 +82,17 @@ export interface Step {
   /** Waits this many ms, as an agent thinking between calls would */
   wait?: number
 }
-export async function ask(session: GuiSession, steps: Step[]): Promise<ToolResult[]> {
+/** Sends `steps` as one message; `during` acts as the user while its turn runs. */
+export async function ask(
+  session: GuiSession,
+  steps: Step[],
+  during?: () => Promise<void>,
+): Promise<ToolResult[]> {
   const index = (await session.chatSnapshot()).turns.length
   expect(
     await session.chat.evaluate((text) => window.gui.send(text), `TOOLS ${JSON.stringify(steps)}`),
   ).toBe(true)
+  await during?.()
   const { turn } = await session.waitForTurn(index)
   expect(turn.error).toBeNull()
   expect(turn.status).toBe('done')

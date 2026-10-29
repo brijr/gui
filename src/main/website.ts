@@ -1,14 +1,19 @@
 import { WebContentsView } from 'electron'
+import type { ElementContext } from '../shared/types'
 import { Inspector } from './inspector'
 import { Picker } from './picker'
 import { PageTools } from './preview-tools'
 import { ViewportEmulation } from './viewport'
 import {
+  closePage,
+  giveBackWebSession,
+  guardPage,
   isPublicWebsite,
+  isWeb,
   LOCAL_ADDRESS,
+  takeWebSession,
   type WebSession,
-  webSession,
-  wipeWebSession,
+  within,
 } from './web-session'
 
 /**
@@ -28,48 +33,32 @@ import {
 const LOAD_TIMEOUT_MS = 30_000
 /** Late layout after a load: client-side routing, fonts, a cookie banner. */
 const SETTLE_MS = 400
-const CLOSE_TIMEOUT_MS = 3000
+/** A page blocked again this soon after Gui went back is sending by itself: it stays put. */
+const BLOCKED_AGAIN_MS = 4000
 /** Chromium's error for a request the session cancelled (net::ERR_BLOCKED_BY_CLIENT) */
 const BLOCKED = -20
 const BLOCKED_NOTICE =
-  "Gui stopped that page from loading and went back: a website can't send a form from the preview, nor open an address on this Mac or the local network. Nothing was sent."
+  "Gui stopped that page from loading (and went back where it could): a website can't send a form from the preview, nor open an address on this Mac or the local network. Nothing was sent."
+const BLOCKED_AGAIN_NOTICE =
+  "Gui stopped that page from sending a form again, by itself this time (as sign-in hand-offs do), and left it on the blocked page rather than go back once more. Nothing was sent. Don't go on with this flow; tell the user it needs a sign-in Gui doesn't do."
 
-/** Wiped sessions not in use. Electron never frees a session, so a closed website's is reused. */
-const idleSessions: string[] = []
-let sessionsMade = 0
+/** A form field's `value` attribute in serialized HTML, which always quotes with `"`. */
+const VALUE_ATTRIBUTE = /(\s)value="[^"]*"/gi
 
-async function takeSession(): Promise<{ partition: string; web: WebSession }> {
-  const partition = idleSessions.pop() ?? `gui-website-${++sessionsMade}`
-  const web = await webSession(partition)
-  // Already wiped when it was given back; again, in case anything lingered.
-  if (!(await wipeWebSession(web))) throw new Error("Couldn't start a fresh browser session.")
-  return { partition, web }
-}
-
-/** Only a session wiped clean goes back to be used again. */
-async function giveBack(partition: string, web: WebSession) {
-  if (await wipeWebSession(web)) idleSessions.push(partition)
-}
-
-function within<T>(task: Promise<T>, ms: number): Promise<T | null> {
-  return new Promise((resolve) => {
-    const timer = setTimeout(() => resolve(null), ms)
-    task.then(
-      (value) => {
-        clearTimeout(timer)
-        resolve(value)
-      },
-      () => {
-        clearTimeout(timer)
-        resolve(null)
-      },
-    )
-  })
+/**
+ * On a website, inspect never shows what's in a field: a controlled field's `value`
+ * attribute follows what was typed, the user's sign-in included.
+ */
+function withoutValues(element: ElementContext): ElementContext {
+  const { value: _value, ...attributes } = element.attributes
+  return {
+    ...element,
+    attributes,
+    outerHTML: element.outerHTML.replace(VALUE_ATTRIBUTE, '$1value="…"'),
+  }
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
-
-const isWeb = (url: string) => /^https?:/i.test(url)
 
 export interface WebsiteHooks {
   /** A walkthrough step on `picker` (the website's overlay); whether the user can see it */
@@ -102,15 +91,15 @@ export class Website {
   private loading = 0
   /** What happened that the agent's next page tool should hear (`takeNotice`) */
   private notice: string | null = null
+  /** When Gui last went back from a blocked page (`guard`) */
+  private wentBackAt = -Infinity
 
   /** A website view in a fresh session, with nothing loaded yet. */
   static async create(hooks: WebsiteHooks) {
-    const { partition, web } = await takeSession()
-    return new Website(partition, web, hooks)
+    return new Website(await takeWebSession(), hooks)
   }
 
   private constructor(
-    private readonly partition: string,
     private readonly web: WebSession,
     private readonly hooks: WebsiteHooks,
   ) {
@@ -134,7 +123,8 @@ export class Website {
       wc,
       inspector: this.inspector,
       // Styles and markup only: a website's source isn't the user's to look up.
-      inspectNode: (node) => this.inspector.inspect(node, null, null, { screenshot: false }),
+      inspectNode: async (node) =>
+        withoutValues(await this.inspector.inspect(node, null, null, { screenshot: false })),
       viewScale: () => this.emulation.scale,
       restoreViewport: () => this.emulation.restore(),
       guide: (node, caption) => hooks.guide(this.picker, node, caption),
@@ -158,12 +148,12 @@ export class Website {
   }
 
   /**
-   * Opens `url` (http or https, and public) and waits for it to load, or to have loaded what
-   * it will in LOAD_TIMEOUT_MS. Where it landed, after redirects.
+   * Opens `url` (http or https; the caller checked it's public, and the session checks every
+   * request) and waits for it to load, or to have loaded what it will in LOAD_TIMEOUT_MS.
+   * Where it landed, after redirects.
    */
   async load(url: URL): Promise<string> {
     if (!isWeb(url.protocol)) throw new Error('Only http and https addresses can be opened.')
-    if (!(await isPublicWebsite(url.hostname))) throw new Error(LOCAL_ADDRESS)
     if (this.closed) throw new Error('The website closed.')
     const wc = this.view.webContents
     this.web.proxy.refused.clear()
@@ -205,42 +195,34 @@ export class Website {
     this.emulation.dispose()
     this.inspector.dispose()
     const wc = this.view.webContents
-    if (!wc.isDestroyed()) {
-      const destroyed = new Promise<void>((resolve) => wc.once('destroyed', () => resolve()))
-      wc.close()
-      await within(destroyed, CLOSE_TIMEOUT_MS)
-    }
-    await giveBack(this.partition, this.web)
+    // Its session is used again only once the page is gone; a page that lingers retires it.
+    await giveBackWebSession(this.web, await closePage(wc, () => wc.close()))
   }
 
   private guard() {
     const wc = this.view.webContents
-    wc.setAudioMuted(true)
-    // WebRTC's UDP would go around the proxy: it's left only what the proxy carries (nothing).
-    wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
-    // A link to a new window opens here instead, as one journey; nothing else opens.
-    wc.setWindowOpenHandler(({ url }) => {
-      if (isWeb(url)) void this.load(new URL(url)).catch(() => undefined)
-      return { action: 'deny' }
-    })
-    // Navigation in any frame, and redirects, stay on the web: no app protocols or local files.
-    wc.on('will-frame-navigate', (event) => {
-      if (!isWeb(event.url)) event.preventDefault()
-    })
-    wc.on('will-redirect', (event, url) => {
-      if (!isWeb(url)) event.preventDefault()
+    // A link to a new window opens here instead, as one journey, if it's public; nothing
+    // else opens.
+    guardPage(wc, (url) => {
+      const target = new URL(url)
+      void isPublicWebsite(target.hostname)
+        .then((open) => (open ? this.load(target) : undefined))
+        .catch(() => undefined)
     })
     // "Leave site?" never holds up closing the website or the agent's next page.
     wc.on('will-prevent-unload', (event) => event.preventDefault())
-    wc.on('select-bluetooth-device', (event, _devices, callback) => {
-      event.preventDefault()
-      callback('')
-    })
     // The page tried to send a form, or to open a local address, and the session stopped it:
     // back to the page it was on rather than Chromium's error page, and the agent hears why.
+    // Once: a page that sends again by itself right away (a sign-in hand-off) would loop.
+    // (Chromium has no page to go back to when the page sent without a click.)
     wc.on('did-fail-load', (_event, code, _description, _url, mainFrame) => {
       if (!mainFrame || code !== BLOCKED || this.loading > 0) return
+      if (Date.now() - this.wentBackAt < BLOCKED_AGAIN_MS) {
+        this.notice = BLOCKED_AGAIN_NOTICE
+        return
+      }
       this.notice = BLOCKED_NOTICE
+      this.wentBackAt = Date.now()
       setTimeout(() => {
         if (!wc.isDestroyed() && wc.navigationHistory.canGoBack()) wc.navigationHistory.goBack()
       }, 0)

@@ -34,6 +34,7 @@ export interface PublicProxy {
   port: number
   /** Hosts refused since the last `clearRefused`, to tell the user why a page didn't load */
   refused: Set<string>
+  /** Stops listening and ends every connection it carries */
   close(): Promise<void>
 }
 
@@ -99,7 +100,10 @@ export async function startPublicProxy(options: PublicProxyOptions = {}): Promis
     return addresses[0] ?? REPLY.hostUnreachable
   }
 
+  const open = new Set<Socket>()
   const server = createServer((client) => {
+    open.add(client)
+    client.once('close', () => open.delete(client))
     client.setTimeout(HANDSHAKE_MS, () => client.destroy())
     client.on('error', () => client.destroy())
     let buffer = Buffer.alloc(0)
@@ -173,6 +177,11 @@ export async function startPublicProxy(options: PublicProxyOptions = {}): Promis
   return {
     port,
     refused,
-    close: () => new Promise<void>((done) => server.close(() => done())),
+    close: () =>
+      new Promise<void>((done) => {
+        server.close(() => done())
+        // A client's close ends its upstream too.
+        for (const socket of open) socket.destroy()
+      }),
   }
 }

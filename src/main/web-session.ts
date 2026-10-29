@@ -1,4 +1,4 @@
-import { app, type Session, session } from 'electron'
+import { app, type Session, session, type WebContents } from 'electron'
 import {
   defaultResolve,
   isLocalName,
@@ -15,7 +15,12 @@ import { type PublicProxy, startPublicProxy } from './public-proxy'
  * into, so a website never sees their cookies or storage. The page gets no permissions, can't
  * download or reach this machine or the local network: every connection goes through a proxy
  * (public-proxy.ts) that looks names up itself and connects only to the public address it
- * checked. Callers wipe the session (`wipeWebSession`) when they're done with it.
+ * checked. Each session has its own proxy, so what it refused (`refused`) is that session's.
+ *
+ * QUIC never goes around the proxy: Chromium uses QUIC only for direct connections, and
+ * WebTransport fails outright behind a proxy. WebRTC's UDP is limited per page (`guardPage`).
+ *
+ * A session is used by one page at a time (`takeWebSession`) and wiped once that page is gone.
  */
 
 export interface WebSession {
@@ -25,13 +30,49 @@ export interface WebSession {
 
 /** Tests only, never in a packaged app: one made-up `.test` website on this machine. */
 const standIn = standInWebsite(process.env.GUI_E2E_WEBSITE, app.isPackaged)
+/**
+ * Tests only, with the stand-in: `slow.` before its name answers this late, as a slow DNS
+ * server would, so tests can act while a website is still being checked.
+ */
+const STAND_IN_SLOW_MS = 3000
 
 export const LOCAL_ADDRESS =
   'Gui only opens public websites, not addresses on this Mac or the local network.'
 
+const CLOSE_TIMEOUT_MS = 3000
+
+/** The task's result, or null when it fails or takes longer than `ms`. */
+export function within<T>(task: Promise<T>, ms: number): Promise<T | null> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), ms)
+    task.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      () => {
+        clearTimeout(timer)
+        resolve(null)
+      },
+    )
+  })
+}
+
+/** The stand-in's own name, or its slow one; null for any other. */
+function standInName(hostname: string) {
+  if (!standIn) return null
+  const name = hostname.toLowerCase()
+  if (name === standIn.host) return 'fast'
+  if (name === `slow.${standIn.host}`) return 'slow'
+  return null
+}
+
 /** Whether a URL's host is on the open internet (or is the tests' stand-in website). */
 export function isPublicWebsite(hostname: string) {
-  if (standIn && hostname.toLowerCase() === standIn.host) return Promise.resolve(true)
+  const name = standInName(hostname)
+  if (name === 'fast') return Promise.resolve(true)
+  if (name === 'slow')
+    return new Promise<boolean>((resolve) => setTimeout(() => resolve(true), STAND_IN_SLOW_MS))
   return isPublicHost(hostname)
 }
 
@@ -55,28 +96,74 @@ export function allowedRequest(url: string, method = 'GET', resourceType = 'othe
   return !isPrivateIp(parsed.hostname) && !isLocalName(parsed.hostname)
 }
 
-const sessions = new Map<string, Promise<WebSession>>()
+export const isWeb = (url: string) => /^https?:/i.test(url)
 
-/** The partition's session, locked down once: Electron grants every permission by default. */
-export function webSession(partition: string): Promise<WebSession> {
-  if (partition.startsWith('persist:')) throw new Error('Website sessions stay in memory.')
-  let locked = sessions.get(partition)
-  if (!locked) {
-    locked = lockDown(partition).catch((error: unknown) => {
-      sessions.delete(partition)
-      throw error
-    })
-    sessions.set(partition, locked)
-  }
-  return locked
+/** Where a frame may go: the web, or an empty or inline (srcdoc) frame of the page's own. */
+const framePlace = (url: string) => isWeb(url) || /^about:(blank|srcdoc)(?:[?#]|$)/i.test(url)
+
+/**
+ * What every page in these sessions gets: muted, WebRTC kept to the proxy (which carries no
+ * UDP), navigation in any frame and redirects kept on the web (no app protocols or local
+ * files), no Bluetooth, and no new windows: `openWindow` gets a web address one asked for.
+ */
+export function guardPage(wc: WebContents, openWindow?: (url: string) => void) {
+  wc.setAudioMuted(true)
+  wc.setWebRTCIPHandlingPolicy('disable_non_proxied_udp')
+  wc.setWindowOpenHandler(({ url }) => {
+    if (isWeb(url)) openWindow?.(url)
+    return { action: 'deny' }
+  })
+  wc.on('will-frame-navigate', (event) => {
+    if (!framePlace(event.url)) event.preventDefault()
+  })
+  wc.on('will-redirect', (event, url) => {
+    if (!isWeb(url)) event.preventDefault()
+  })
+  wc.on('select-bluetooth-device', (event, _devices, callback) => {
+    event.preventDefault()
+    callback('')
+  })
 }
 
+/** Closes a page (`close`) and waits for it to be gone; false when it's still there. */
+export async function closePage(wc: WebContents, close: () => void): Promise<boolean> {
+  if (wc.isDestroyed()) return true
+  const destroyed = new Promise<void>((resolve) => wc.once('destroyed', () => resolve()))
+  close()
+  await within(destroyed, CLOSE_TIMEOUT_MS)
+  return wc.isDestroyed()
+}
+
+/** Wiped sessions no page uses. Electron never frees a session, so a used one is reused. */
+const idle: WebSession[] = []
+let made = 0
+
+/** A wiped session for one page; `giveBackWebSession` once that page is gone. */
+export async function takeWebSession(): Promise<WebSession> {
+  const web = idle.pop() ?? (await lockDown(`gui-website-${++made}`))
+  // Already wiped when it was given back; again, in case anything lingered.
+  if (await wipe(web)) return web
+  await web.proxy.close()
+  throw new Error("Couldn't start a fresh browser session.")
+}
+
+/**
+ * Its page closed (`pageGone`) and the session wiped, it's used again. A page that's still
+ * there, or a wipe that failed, retires the session: its proxy closes, so nothing in it reaches
+ * the web again, and it's never handed out.
+ */
+export async function giveBackWebSession(web: WebSession, pageGone: boolean) {
+  if (pageGone && (await wipe(web))) idle.push(web)
+  else await web.proxy.close()
+}
+
+/** A partition's session, locked down: Electron grants every permission by default. */
 async function lockDown(partition: string): Promise<WebSession> {
   const proxy = await startPublicProxy(
     standIn
       ? {
           resolve: (host) =>
-            host === standIn.host ? Promise.resolve(['127.0.0.1']) : defaultResolve(host),
+            standInName(host) ? Promise.resolve(['127.0.0.1']) : defaultResolve(host),
           allowed: (ip, port) => !isPrivateIp(ip) || (ip === '127.0.0.1' && port === standIn.port),
         }
       : {},
@@ -111,11 +198,8 @@ async function lockDown(partition: string): Promise<WebSession> {
   return { ses, proxy }
 }
 
-/**
- * Clears everything websites left: cookies, storage, service workers, cache and HTTP sign-ins.
- * False when that failed, and the session mustn't be used again.
- */
-export async function wipeWebSession({ ses, proxy }: WebSession): Promise<boolean> {
+/** Clears everything websites left: cookies, storage, service workers, cache and HTTP sign-ins. */
+async function wipe({ ses, proxy }: WebSession): Promise<boolean> {
   proxy.refused.clear()
   try {
     await Promise.all([

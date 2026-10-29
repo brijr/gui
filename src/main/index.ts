@@ -777,6 +777,7 @@ function registerIpc() {
       win?.win.webContents !== event.sender ||
       !tab?.getState().preview.visible ||
       !tab.getState().preview.selectable ||
+      tab.getState().preview.website !== null ||
       !tab.recordings ||
       captures.has(event.sender.id)
     )

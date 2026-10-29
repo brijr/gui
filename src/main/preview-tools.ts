@@ -106,7 +106,10 @@ export interface WebsiteHost {
   shown: () => PageTools | null
   /** Opens `url` (http or https, public) in the website, opening it first; where it landed */
   open: (url: URL) => Promise<string>
-  /** Back to the app: the website closes and its session is cleared */
+  /**
+   * The agent going back to the app: the website closes and its session is cleared, and any
+   * note that the user went back is forgotten (the agent is on the app now, as it asked)
+   */
   close: () => void
   /**
    * Why the website closed under the agent (the user went back to their app), once, for its
@@ -194,13 +197,13 @@ export class PageTools {
     return this.page.kind
   }
 
-  /** The page's address now */
+  /** The page's address now; empty once it closed (the user went back mid-tool) */
   url() {
-    return this.page.wc.getURL()
+    return this.page.wc.isDestroyed() ? '' : this.page.wc.getURL()
   }
 
   title() {
-    return this.page.wc.getTitle()
+    return this.page.wc.isDestroyed() ? '' : this.page.wc.getTitle()
   }
 
   /** What happened on the page since the last tool (a blocked form post), once; or null */
@@ -266,7 +269,7 @@ export class PageTools {
    * website's only on a public web page, never this machine.
    */
   protected assertLoaded() {
-    const url = this.page.wc.getURL()
+    const url = this.url()
     if (!url) throw new Error('The preview has no page loaded yet')
     if (this.page.kind === 'website') {
       if (!/^https?:/i.test(url) || isLoopback(url)) throw new Error('The website has no page open')

@@ -352,7 +352,7 @@ export class ProjectTab implements ChatPanelOwner {
   /** The website the agent opened in the preview, over the app (website.ts) */
   private website: Website | null = null
   private websiteOpening: Promise<Website> | null = null
-  /** Bumped as a website closes: one still opening then closes too. */
+  /** Bumped as a website closes: one still opening then closes too, unseen. */
   private websiteGeneration = 0
   /**
    * Why the website closed while the agent's turn was using it (the user went back to their
@@ -915,7 +915,10 @@ export class ProjectTab implements ChatPanelOwner {
       website: {
         shown: () => (this.website && !this.website.closed ? this.website.tools : null),
         open: (url) => this.openWebsite(url),
-        close: () => this.closeWebsite(),
+        close: () => {
+          this.closeWebsite()
+          this.websiteClosedNote = null
+        },
         takeClosedNote: () => {
           const note = this.websiteClosedNote
           this.websiteClosedNote = null
@@ -1747,24 +1750,44 @@ export class ProjectTab implements ChatPanelOwner {
    * back to the app while it opened.
    */
   private async openWebsite(url: URL): Promise<string> {
+    // A canvas has no app to go back to, nor an address bar: it looks at websites with
+    // canvas_screenshot_url.
+    if (this.resources.board)
+      throw new Error('On a canvas, look at websites with canvas_screenshot_url.')
+    // Taken before anything waits: a DNS lookup can take seconds, and by then the user may have
+    // stopped this turn, sent the next message, or gone back to their app.
+    const resources = this.resources
+    const generation = resources.generation
+    const opened = this.websiteGeneration
+    const turn = resources.chat?.workingTurnId ?? null
+    const current = () =>
+      !this.disposed &&
+      this.resources === resources &&
+      resources.stillCurrent(generation) &&
+      this.websiteGeneration === opened &&
+      (resources.chat?.workingTurnId ?? null) === turn
+    const gone =
+      "Not opened: the turn was stopped, or the preview went back to the user's app, while the website was being checked."
+    // Nothing opens for an address that isn't public; the session checks every request too.
+    if (!(await isPublicWebsite(url.hostname))) throw new Error(LOCAL_ADDRESS)
+    if (!current()) throw new Error(gone)
     let website = this.website
     const fresh = !website || website.closed
     if (!website || website.closed) {
-      // A canvas has no app to go back to, nor an address bar: it looks at websites with
-      // canvas_screenshot_url.
-      if (this.resources.board)
-        throw new Error('On a canvas, look at websites with canvas_screenshot_url.')
-      // Nothing opens for an address that isn't public; the session checks every request too.
-      if (!(await isPublicWebsite(url.hostname))) throw new Error(LOCAL_ADDRESS)
-      const resources = this.resources
-      const generation = this.websiteGeneration
-      this.websiteOpening ??= Website.create(this.websiteHooks()).finally(() => {
-        this.websiteOpening = null
-      })
-      website = await this.websiteOpening
-      if (this.disposed || resources !== this.resources || generation !== this.websiteGeneration) {
-        void website.close()
-        throw new Error("The preview went back to the user's app before the website opened.")
+      // Shared by this generation's calls only: closing the website starts the next afresh.
+      let opening = this.websiteOpening
+      if (!opening) {
+        const made = Website.create(this.websiteHooks())
+        const done = () => {
+          if (this.websiteOpening === made) this.websiteOpening = null
+        }
+        made.then(done, done)
+        this.websiteOpening = opening = made
+      }
+      website = await opening
+      if (!current()) {
+        if (this.website !== website) void website.close()
+        throw new Error(gone)
       }
       if (this.website !== website) this.showWebsite(website, url)
     }
@@ -1801,6 +1824,7 @@ export class ProjectTab implements ChatPanelOwner {
   /** Back to the app: the website closes and its session is wiped for the next one. */
   private closeWebsite() {
     this.websiteGeneration++
+    this.websiteOpening = null
     const website = this.website
     if (!website) return
     this.website = null

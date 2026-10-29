@@ -36,8 +36,14 @@ export const PREVIEW_TOOL_NAMES = [
   'recording_narration',
 ] as const
 
+/** What Gui does and doesn't stop on a website, for the input tools' descriptions. */
+const NOT_SENT_ON_WEBSITES =
+  "On a website, Gui refuses what sends a form (clicking its submit button, Enter in its fields); a page's own scripts can still send data in ways Gui doesn't block, so never look for another way to send."
+
 /** The host of a website's address, which is safe to name outside a fence: no spaces or markup. */
 function host(url: string) {
+  // Its page closed while the tool ran: the next tool hears why.
+  if (!url) return 'that just closed'
   try {
     return new URL(url).host
   } catch {
@@ -104,7 +110,7 @@ export function registerPreviewTools(
       `preview_${action}`,
       {
         title: action === 'click' ? 'Click in the preview' : 'Hover in the preview',
-        description: `${action === 'click' ? 'Click' : 'Move the pointer over'} a unique visible element using real browser input, on the page the preview shows (the user's app, or your website). Scrolls it into view. Rejects ambiguous or covered targets. Changes the shared preview; inspect or screenshot afterwards to see the result.`,
+        description: `${action === 'click' ? 'Click' : 'Move the pointer over'} a unique visible element using real browser input, on the page the preview shows (the user's app, or your website). Scrolls it into view. Rejects ambiguous or covered targets. Changes the shared preview; inspect or screenshot afterwards to see the result.${action === 'click' ? ` ${NOT_SENT_ON_WEBSITES}` : ''}`,
         inputSchema: { selector },
         annotations: actionAnnotations,
       },
@@ -127,7 +133,7 @@ export function registerPreviewTools(
     {
       title: 'Type in the preview',
       description:
-        'Type text into a unique editable input, textarea or contenteditable using real browser input (including React handlers). Replaces the existing text by default; replace=false inserts at the cursor after clicking the field. Does not submit; use preview_press with Enter when needed. Changes the shared preview. On a website, it refuses password, one-time code and payment fields; type only obvious test data there, and only where nothing is sent.',
+        "Type text into a unique editable input, textarea or contenteditable using real browser input (including React handlers). Replaces the existing text by default; replace=false inserts at the cursor after clicking the field. Does not submit; use preview_press with Enter when needed. Changes the shared preview. On a website, it refuses password, one-time code and payment fields (and snapshots never show what's in them); type only obvious test data there, and only where nothing is sent.",
       inputSchema: {
         selector,
         text: z
@@ -155,8 +161,7 @@ export function registerPreviewTools(
     'preview_press',
     {
       title: 'Press a key in the preview',
-      description:
-        'Press a browser key in the currently focused element, or focus a unique selector first. Supports Enter, Escape, Tab, Space, editing and navigation keys; shift=true supports reverse Tab. Use for dialogs, form submission, keyboard navigation and native select controls. Changes the shared preview.',
+      description: `Press a browser key in the currently focused element, or focus a unique selector first. Supports Enter, Escape, Tab, Space, editing and navigation keys; shift=true supports reverse Tab. Use for dialogs, form submission, keyboard navigation and native select controls. Changes the shared preview. ${NOT_SENT_ON_WEBSITES}`,
       inputSchema: {
         key: z.enum(PREVIEW_KEYS),
         selector: selector.optional(),
