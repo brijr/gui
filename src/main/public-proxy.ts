@@ -26,14 +26,15 @@ const MAX_REQUEST = 600
 export interface PublicProxyOptions {
   /** Every address a name has */
   resolve?: (host: string) => Promise<string[]>
-  /** Whether an address may be connected to; public addresses by default */
-  allowed?: (ip: string) => boolean
+  /** Whether an address (and port) may be connected to; public addresses by default */
+  allowed?: (ip: string, port: number) => boolean
 }
 
 export interface PublicProxy {
   port: number
   /** Hosts refused since the last `clearRefused`, to tell the user why a page didn't load */
   refused: Set<string>
+  /** Stops listening and ends every connection it carries */
   close(): Promise<void>
 }
 
@@ -83,23 +84,26 @@ function readRequest(buffer: Buffer): { at: Destination; length: number } | numb
 
 export async function startPublicProxy(options: PublicProxyOptions = {}): Promise<PublicProxy> {
   const resolve = options.resolve ?? defaultResolve
-  const allowed = options.allowed ?? ((ip: string) => !isPrivateIp(ip))
+  const allowed = options.allowed ?? ((ip: string, _port: number) => !isPrivateIp(ip))
   const refused = new Set<string>()
 
   /** The one address to connect to, or why not. */
-  const addressFor = async ({ host, literal }: Destination): Promise<string | number> => {
-    if (literal) return allowed(host) ? host : REPLY.notAllowed
+  const addressFor = async ({ host, literal, port }: Destination): Promise<string | number> => {
+    if (literal) return allowed(host, port) ? host : REPLY.notAllowed
     const name = host.toLowerCase()
-    if (isIP(name)) return allowed(name) ? name : REPLY.notAllowed
+    if (isIP(name)) return allowed(name, port) ? name : REPLY.notAllowed
     if (isLocalName(name)) return REPLY.notAllowed
     const addresses = await resolve(name).catch(() => [] as string[])
     if (!addresses.length) return REPLY.hostUnreachable
     // Any private answer refuses the name: which one the connection gets isn't ours to pick.
-    if (!addresses.every(allowed)) return REPLY.notAllowed
+    if (!addresses.every((address) => allowed(address, port))) return REPLY.notAllowed
     return addresses[0] ?? REPLY.hostUnreachable
   }
 
+  const open = new Set<Socket>()
   const server = createServer((client) => {
+    open.add(client)
+    client.once('close', () => open.delete(client))
     client.setTimeout(HANDSHAKE_MS, () => client.destroy())
     client.on('error', () => client.destroy())
     let buffer = Buffer.alloc(0)
@@ -173,6 +177,11 @@ export async function startPublicProxy(options: PublicProxyOptions = {}): Promis
   return {
     port,
     refused,
-    close: () => new Promise<void>((done) => server.close(() => done())),
+    close: () =>
+      new Promise<void>((done) => {
+        server.close(() => done())
+        // A client's close ends its upstream too.
+        for (const socket of open) socket.destroy()
+      }),
   }
 }

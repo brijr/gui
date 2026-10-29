@@ -154,6 +154,8 @@ import { collapseText, rewriteText } from './text-edit'
 import { thumbnail } from './thumbnail'
 import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
+import { isPublicWebsite, LOCAL_ADDRESS } from './web-session'
+import { Website, type WebsiteHooks } from './website'
 import { focusWindow } from './window-presentation'
 import { branchStatus } from './worktree-registry'
 import { createWorktree, removalBlocked, removeWorktree, worktreesOf } from './worktrees'
@@ -347,6 +349,18 @@ export class ProjectTab implements ChatPanelOwner {
   private rehighlightTimer: NodeJS.Timeout | null = null
   /** Ends the agent's walkthrough a little after its turn did */
   private guideEndTimer: NodeJS.Timeout | null = null
+  /** The website the agent opened in the preview, over the app (website.ts) */
+  private website: Website | null = null
+  private websiteOpening: Promise<Website> | null = null
+  /** Bumped as a website closes: one still opening then closes too, unseen. */
+  private websiteGeneration = 0
+  /**
+   * Why the website closed while the agent's turn was using it (the user went back to their
+   * app), for its next page tool to say once, rather than act on the app unawares.
+   */
+  private websiteClosedNote: string | null = null
+  /** The turn last seen starting, so a new one is told from a permission card being answered */
+  private runningTurn: string | null = null
   /**
    * The preview's current page is Chromium's error page for a load that failed. It fires
    * dom-ready like any page, which must not take the failure back.
@@ -389,6 +403,7 @@ export class ProjectTab implements ChatPanelOwner {
         selecting: false,
         selectable: false,
         visible: false,
+        website: null,
       },
       agentId: getPrefs().agentId,
       chatVisible: true,
@@ -470,7 +485,11 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** The chat panel is the tab's own page; the chrome belongs to the window. */
   owns(wc: WebContents) {
-    return wc === this.chatView.webContents || this.picker.owns(wc)
+    return (
+      wc === this.chatView.webContents ||
+      this.picker.owns(wc) ||
+      this.website?.picker.owns(wc) === true
+    )
   }
 
   /** The tab strip's name for it: the project's, or the folder opening; null on the start screen. */
@@ -496,6 +515,10 @@ export class ProjectTab implements ChatPanelOwner {
     const { contentView } = this.host.win
     contentView.addChildView(this.preview)
     contentView.addChildView(this.picker.view)
+    if (this.website) {
+      contentView.addChildView(this.website.view)
+      contentView.addChildView(this.website.picker.view)
+    }
     // Popped out, the chat is in its own window, which shows again with its tab.
     if (this.panel.popoutWindow) this.panel.popoutWindow.showInactive()
     else contentView.addChildView(this.chatView)
@@ -521,6 +544,10 @@ export class ProjectTab implements ChatPanelOwner {
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
     contentView.removeChildView(this.picker.view)
+    if (this.website) {
+      contentView.removeChildView(this.website.view)
+      contentView.removeChildView(this.website.picker.view)
+    }
     // A background tab's popped-out chat hides, so the one in sight is the tab in sight's.
     if (this.panel.popoutWindow) this.panel.popoutWindow.hide()
     else contentView.removeChildView(this.chatView)
@@ -809,6 +836,8 @@ export class ProjectTab implements ChatPanelOwner {
   async openFrame(id: string | null) {
     const board = this.resources.board
     if (!board) return
+    // A frame (or the board) takes the preview back from a website.
+    this.closeWebsite()
     if (id === null || !board.has(id)) {
       board.setOpen(null)
       this.closeFrame()
@@ -881,13 +910,20 @@ export class ProjectTab implements ChatPanelOwner {
       restartServer: () => (board ? Promise.resolve(BOARD_SERVER_STATUS) : this.restartForAgent()),
       setStartCommand: (input) =>
         board ? Promise.resolve(BOARD_SERVER_STATUS) : this.setStartCommandForAgent(input),
-      guide: (node, caption) => this.guideStep(node, caption),
-      // Every click, hover and keystroke the agent makes shows its pointer, so the user can
-      // follow along, walkthrough or not. Not while the preview is hidden or they're picking.
-      guideInput: async (at, click) => {
-        if (!this.picker.guiding && !this.guideStep(null, null)) return
-        this.picker.guideCursor(at, click)
-        await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
+      guide: (node, caption) => this.guideStep(this.picker, node, caption),
+      guideInput: (at, click) => this.guideInput(this.picker, at, click),
+      website: {
+        shown: () => (this.website && !this.website.closed ? this.website.tools : null),
+        open: (url) => this.openWebsite(url),
+        close: () => {
+          this.closeWebsite()
+          this.websiteClosedNote = null
+        },
+        takeClosedNote: () => {
+          const note = this.websiteClosedNote
+          this.websiteClosedNote = null
+          return note
+        },
       },
     })
     this.resources.previewTools = tools
@@ -963,6 +999,13 @@ export class ProjectTab implements ChatPanelOwner {
     chat.on('turn', (turn) => {
       // The edited element's highlight would otherwise sit in the next turn's screenshots.
       if (turn.status === 'running') this.cancelRehighlight()
+      // Each message starts on the user's app: a website the agent opened before closes, and
+      // its session is cleared, before this turn's agent can act on it.
+      if (turn.status === 'running' && turn.id !== this.runningTurn) {
+        this.runningTurn = turn.id
+        this.closeWebsite()
+        this.websiteClosedNote = null
+      }
       // Working, or a permission card answered: the tab strip shows it.
       this.host.tabChanged(this, false)
     })
@@ -987,7 +1030,7 @@ export class ProjectTab implements ChatPanelOwner {
       this.shipProposal = null
       if (proposed && turn.status === 'done') this.sendChat(Events.chatShipDraft, proposed)
       // The walkthrough's last step stays a moment to be read, then gets out of the way.
-      if (this.picker.guiding) {
+      if (this.picker.guiding || this.website?.picker.guiding) {
         this.clearGuideEnd()
         this.guideEndTimer = setTimeout(() => this.endGuide(), GUIDE_LINGER_MS)
       }
@@ -1124,6 +1167,8 @@ export class ProjectTab implements ChatPanelOwner {
 
   private disposeProjectResources() {
     const root = this.projectRoot
+    // A website the project's agent opened goes with it, and its session is cleared.
+    this.closeWebsite()
     this.opening = null
     this.branchOnSend = null
     this.stopWatchingForApp()
@@ -1307,6 +1352,8 @@ export class ProjectTab implements ChatPanelOwner {
   // Preview
 
   navigate(input: string) {
+    // The user typing an address goes back to their own preview.
+    this.backToApp()
     const base = this.state.devServer.url ?? this.state.preview.url
     const trimmed = input.trim()
     // `localhost:5173/x` would otherwise parse as the scheme "localhost:".
@@ -1322,11 +1369,13 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   back() {
+    if (this.website) return
     const history = this.preview.webContents.navigationHistory
     if (this.canNavigateHistory(-1)) history.goBack()
   }
 
   forward() {
+    if (this.website) return
     const history = this.preview.webContents.navigationHistory
     if (this.canNavigateHistory(1)) history.goForward()
   }
@@ -1339,6 +1388,7 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   reload() {
+    if (this.website) return this.website.view.webContents.reload()
     if (!this.state.preview.url) return
     if (this.preview.webContents.getURL() === 'about:blank') {
       void this.loadPreview(this.state.preview.url)
@@ -1347,6 +1397,7 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** Reloads without the cache, for a change a normal reload keeps serving stale. */
   hardReload() {
+    if (this.website) return this.website.view.webContents.reloadIgnoringCache()
     if (!this.state.preview.url) return
     if (this.preview.webContents.getURL() === 'about:blank') {
       void this.loadPreview(this.state.preview.url)
@@ -1392,7 +1443,7 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** The keyboard to the page (focus mode, where Esc on it ends focus mode). */
   focusPreview() {
-    this.preview.webContents.focus()
+    ;(this.website?.view ?? this.preview).webContents.focus()
   }
 
   /**
@@ -1403,8 +1454,9 @@ export class ProjectTab implements ChatPanelOwner {
     if (!this.host.isActive(this) || !this.host.win.isFocused()) return
     const chrome = this.host.win.webContents
     const panes = [{ contents: chrome, focus: () => chrome.focus() }]
-    if (this.preview.getVisible())
-      panes.push({ contents: this.preview.webContents, focus: () => this.focusPreview() })
+    const page = this.website?.view ?? this.preview
+    if (page.getVisible())
+      panes.push({ contents: page.webContents, focus: () => this.focusPreview() })
     if (this.chatView.getVisible() && !this.panel.popoutWindow)
       panes.push({ contents: this.chatView.webContents, focus: () => this.panel.focusChat() })
     const at = panes.findIndex((pane) => pane.contents.isFocused())
@@ -1575,7 +1627,7 @@ export class ProjectTab implements ChatPanelOwner {
       return
     }
     // Only pick from the local app: what's picked is sent to the agent.
-    const local = isLoopback(this.preview.webContents.getURL())
+    const local = isLoopback(this.preview.webContents.getURL()) && !this.website
     if (!this.state.preview.visible || !this.resources.chat || !local) return
     // Picking is on the live page: a morph in progress lands at once.
     this.morph.finish()
@@ -1629,7 +1681,8 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   pickWheel(at: Point, deltaX: number, deltaY: number) {
-    if (this.picker.picking || this.picker.guiding) this.picker.wheel(at, deltaX, deltaY)
+    if (this.website?.picker.guiding) this.website.picker.wheel(at, deltaX, deltaY)
+    else if (this.picker.picking || this.picker.guiding) this.picker.wheel(at, deltaX, deltaY)
   }
 
   // Editing the page's text in place (src/preload/preview.ts)
@@ -1689,19 +1742,178 @@ export class ProjectTab implements ChatPanelOwner {
     })
   }
 
-  // The agent's walkthrough (preview_point), drawn by the pick overlay
+  // A website the agent opened in the preview (website.ts)
 
-  /** A step, if the user can see the preview and isn't picking; whether it's shown. */
-  private guideStep(node: number | null, caption: string | null) {
-    if (!this.state.preview.visible || this.host.sheetShown) return false
+  /**
+   * Opens `url` in a website over the app, opening one first in a fresh, signed-out session;
+   * where it landed. It goes with this opening of the project, and closes if the preview went
+   * back to the app while it opened.
+   */
+  private async openWebsite(url: URL): Promise<string> {
+    // A canvas has no app to go back to, nor an address bar: it looks at websites with
+    // canvas_screenshot_url.
+    if (this.resources.board)
+      throw new Error('On a canvas, look at websites with canvas_screenshot_url.')
+    // Taken before anything waits: a DNS lookup can take seconds, and by then the user may have
+    // stopped this turn, sent the next message, or gone back to their app.
+    const resources = this.resources
+    const generation = resources.generation
+    const opened = this.websiteGeneration
+    const turn = resources.chat?.workingTurnId ?? null
+    const current = () =>
+      !this.disposed &&
+      this.resources === resources &&
+      resources.stillCurrent(generation) &&
+      this.websiteGeneration === opened &&
+      (resources.chat?.workingTurnId ?? null) === turn
+    const gone =
+      "Not opened: the turn was stopped, or the preview went back to the user's app, while the website was being checked."
+    // Nothing opens for an address that isn't public; the session checks every request too.
+    if (!(await isPublicWebsite(url.hostname))) throw new Error(LOCAL_ADDRESS)
+    if (!current()) throw new Error(gone)
+    let website = this.website
+    const fresh = !website || website.closed
+    if (!website || website.closed) {
+      // Shared by this generation's calls only: closing the website starts the next afresh.
+      let opening = this.websiteOpening
+      if (!opening) {
+        const made = Website.create(this.websiteHooks())
+        const done = () => {
+          if (this.websiteOpening === made) this.websiteOpening = null
+        }
+        made.then(done, done)
+        this.websiteOpening = opening = made
+      }
+      website = await opening
+      if (!current()) {
+        if (this.website !== website) void website.close()
+        throw new Error(gone)
+      }
+      if (this.website !== website) this.showWebsite(website, url)
+    }
+    let landed: string
+    try {
+      landed = await website.load(url)
+    } catch (error) {
+      // A website that couldn't open its first page leaves the app in view.
+      if (fresh && this.website === website) this.closeWebsite()
+      throw error
+    }
+    if (this.website === website) this.patchPreview({ website: landed || url.toString() })
+    return landed
+  }
+
+  /** Puts the website over the app's page and its overlay, under the chat. */
+  private showWebsite(website: Website, url: URL) {
+    this.website = website
+    this.websiteClosedNote = null
+    if (this.state.preview.selecting) void this.setSelecting(false)
+    this.morph.finish(false)
+    // The app's walkthrough is out of sight now.
+    this.picker.endGuide()
+    if (this.host.isActive(this)) {
+      const { contentView } = this.host.win
+      const chat = contentView.children.indexOf(this.chatView)
+      contentView.addChildView(website.view, chat === -1 ? undefined : chat)
+      contentView.addChildView(website.picker.view, chat === -1 ? undefined : chat + 1)
+    }
+    this.patchPreview({ website: url.toString() })
+    this.layout()
+  }
+
+  /** Back to the app: the website closes and its session is wiped for the next one. */
+  private closeWebsite() {
+    this.websiteGeneration++
+    this.websiteOpening = null
+    const website = this.website
+    if (!website) return
+    this.website = null
+    if (!this.disposed) {
+      const { contentView } = this.host.win
+      contentView.removeChildView(website.view)
+      contentView.removeChildView(website.picker.view)
+    }
+    void website.close()
+    if (this.disposed) return
+    this.patchPreview({ website: null })
+    this.layout()
+  }
+
+  /**
+   * "Back to your app", or the user navigating their preview: the website closes. Mid-turn,
+   * the agent's next page tool hears why, rather than acting on the app unawares.
+   */
+  backToApp() {
+    if (!this.website) return
+    if (this.resources.chat?.turnRunning)
+      this.websiteClosedNote =
+        "The user went back to their app, so the website is closed and its session cleared. Open it again with preview_navigate and its full address only if they still want it; the page tools now act on the user's app."
+    this.closeWebsite()
+  }
+
+  private websiteHooks(): WebsiteHooks {
+    return {
+      guide: (picker, node, caption) => this.guideStep(picker, node, caption),
+      guideInput: (picker, at, click) => this.guideInput(picker, at, click),
+      navigated: (url) => {
+        if (this.website?.url === url) this.patchPreview({ website: url })
+      },
+      gone: () => {
+        if (!this.website) return
+        if (this.resources.chat?.turnRunning)
+          this.websiteClosedNote =
+            "The website's page crashed, so the preview is back on the user's app. Open it again with preview_navigate if needed."
+        this.closeWebsite()
+      },
+      loadStarted: () => {
+        this.keyboardBeforeLoad = this.keyboardOwner()
+      },
+      keepKeyboard: () => this.keepKeyboard(),
+      loadStopped: () => {
+        this.keepKeyboard()
+        this.keyboardBeforeLoad = null
+      },
+      clicked: () => {
+        this.keyboardBeforeLoad = null
+      },
+    }
+  }
+
+  // The agent's walkthrough (preview_point), drawn by the pick overlay: the app's, or the
+  // website's over it
+
+  /**
+   * A step on `picker` (the app's overlay, or the website's), if the user can see that page
+   * and isn't picking; whether it's shown.
+   */
+  private guideStep(picker: Picker, node: number | null, caption: string | null) {
+    if (this.host.sheetShown) return false
+    const website = this.website && !this.website.closed ? this.website : null
+    // The app's page is out of sight under a website, and a website's once it closed.
+    if (
+      picker === this.picker ? website || !this.state.preview.visible : picker !== website?.picker
+    )
+      return false
+    if (this.placement.width <= 0) return false
     this.clearGuideEnd()
-    return this.picker.guide(this.placement, node, caption)
+    return picker.guide(this.placement, node, caption)
+  }
+
+  /**
+   * Every click, hover and keystroke the agent makes shows its pointer, so the user can follow
+   * along, walkthrough or not. Not while the page is out of sight or they're picking.
+   */
+  private async guideInput(picker: Picker, at: Point, click: boolean) {
+    if (!picker.guiding && !this.guideStep(picker, null, null)) return
+    picker.guideCursor(at, click)
+    await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
   }
 
   /** The user clicked the walkthrough away, or it ran its course. */
   endGuide() {
     this.clearGuideEnd()
     this.picker.endGuide()
+    this.website?.picker.endGuide()
   }
 
   private clearGuideEnd() {
@@ -2822,9 +3034,13 @@ export class ProjectTab implements ChatPanelOwner {
     }
   }
 
-  /** Like the agent's tools: only the local app, never a page it linked to. */
+  /** Like the agent's tools: only the local app, never a page it linked to or a website. */
   private canCapture() {
-    return this.state.preview.visible && isLoopback(this.preview.webContents.getURL())
+    return (
+      this.state.preview.visible &&
+      this.state.preview.website === null &&
+      isLoopback(this.preview.webContents.getURL())
+    )
   }
 
   /** Resolves with the chosen item, or null when the menu closes without a choice. */
@@ -2907,6 +3123,19 @@ export class ProjectTab implements ChatPanelOwner {
     const live = this.morph.place(placed)
     this.preview.setBounds(live?.rect ?? bounds)
     this.preview.setVisible(visible)
+    // A website the agent opened lies over the app, in its viewport, whether or not the app
+    // has a page to show.
+    const website = this.website
+    const websiteShown = website !== null && area.width > 0 && !covered
+    if (website) {
+      website.view.setBounds(bounds)
+      website.view.setVisible(websiteShown)
+      website.emulation.set(emulation)
+      if (website.picker.guiding) {
+        if (websiteShown) website.picker.setBounds(bounds)
+        else website.picker.endGuide()
+      }
+    }
     // Picking needs the page on screen, where the overlay lies over it.
     if (this.picker.picking) {
       if (visible) this.picker.setBounds(bounds)
@@ -2944,8 +3173,10 @@ export class ProjectTab implements ChatPanelOwner {
    */
   morphLayout(kind: MorphKind) {
     const { win } = this.host
+    // A website over the app would morph the app's page, out of sight: it simply resizes.
     const eligible =
       !this.disposed &&
+      this.website === null &&
       this.host.isActive(this) &&
       this.state.preview.visible &&
       !this.state.preview.selecting &&
@@ -3421,7 +3652,8 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** The preview shows the local app, so the chat can offer to pick an element. */
   private get canSelect() {
-    return this.state.preview.visible && this.state.preview.selectable
+    const { visible, selectable, website } = this.state.preview
+    return visible && selectable && website === null
   }
 
   private patchPreview(patch: Partial<PreviewState>) {

@@ -313,7 +313,9 @@ export function RecordButton({
             next.activeTab !== state.activeTab ||
             next.project?.root !== state.project?.root ||
             !next.preview.selectable ||
-            !next.preview.visible
+            !next.preview.visible ||
+            // It records the user's app: a website the agent opens over it ends the clip there.
+            next.preview.website !== null
           )
             finish()
         }),

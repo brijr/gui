@@ -339,6 +339,11 @@ export interface PreviewState {
   /** Element picking is only allowed on the local app, not off-site pages */
   selectable: boolean
   visible: boolean
+  /**
+   * The address of the website the agent opened in the preview, shown over the app in a
+   * separate, signed-out session (main/website.ts); null while the preview shows the app
+   */
+  website: string | null
 }
 
 /**

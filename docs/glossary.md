@@ -22,6 +22,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | project | app (as the thing you open), folder, repo | "Switch App…" in `tab.ts` → "Switch Project…" | Use **folder** only for a place on disk ("Reveal in Finder") |
 | app | site, server | preview, empty states | What the project builds and the preview shows |
 | preview | page, browser view | toolbar, shortcuts | **page** is one address inside the preview. **browser** is the user's own browser ("Open in Browser") |
+| website | site, external page, off-site page | address bar, agent prompt and tool results | A public site that isn't the user's app, which the agent opens in the preview to use like a user ("how does linear.app do onboarding?"), in a separate, signed-out session. The address bar shows its address; the way back is **Back to your app** |
 | dev server | server, start command, "Start app" | drawer, View menu, setup cards | Sentences about what the user sees say "your app": "Your app stopped". The command field is "Dev server command"; the button is "Start dev server" ("Start Dev Server" in menus and dialogs) |
 | Trust project, Trusted projects | Allow, approve, "Use source control?" | trust prompt, bar, Source Control, Settings → Projects | One switch: a trusted project runs its dev server, Git and agents without asking |
 | dependencies | packages | setup cards, address bar status | "Installing dependencies…", "Gui will install its dependencies and start it" |

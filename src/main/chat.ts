@@ -880,6 +880,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return this.active !== null
   }
 
+  /**
+   * The turn the agent is working on, or null once none is or the user stopped it: late work
+   * for a turn compares it with the one it started in, the way `epoch` is used here.
+   */
+  get workingTurnId() {
+    const record = this.active
+    return record && !record.cancelRequested ? record.turn.id : null
+  }
+
   activeTurnUsedTools() {
     return this.active?.turn.items.some((item) => item.kind === 'tool') ?? false
   }

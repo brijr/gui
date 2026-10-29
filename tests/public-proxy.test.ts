@@ -113,3 +113,15 @@ test('a name with any private answer is refused, whichever one a connection woul
   expect((await socks(started.port, 'mixed.example', server.port)).code).toBe(0x02)
   expect(server.connections()).toBe(0)
 })
+
+test('allowed is told the port, so one stand-in website reaches only its own port', async () => {
+  const site = await echo()
+  const other = await echo()
+  const started = await proxy({
+    resolve: async () => ['127.0.0.1'],
+    allowed: (ip, port) => ip === '127.0.0.1' && port === site.port,
+  })
+  expect((await socks(started.port, 'shop.gui-e2e.test', site.port)).code).toBe(0x00)
+  expect((await socks(started.port, 'shop.gui-e2e.test', other.port)).code).toBe(0x02)
+  expect(other.connections()).toBe(0)
+})

@@ -4,6 +4,7 @@ import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import { type BeforeInput, PreviewInteractions } from './preview-interactions'
 import type { Problems } from './problems'
+import { navigationTarget } from './public-address'
 
 /**
  * Images stay in the agent's session, and the API rejects any side over 2000 px once a
@@ -69,24 +70,61 @@ export interface FramedScreenshot extends Screenshot {
   area: Rect
 }
 
-export interface PreviewToolsDeps {
+/** The page the tools act on: the user's app, or a website the agent opened (website.ts). */
+export interface PageDeps {
+  /**
+   * `app`: the user's app on its local dev server (or a canvas frame). `website`: a public
+   * website, in its own signed-out session, where typing into password and payment fields is
+   * refused.
+   */
+  kind: 'app' | 'website'
   wc: WebContents
   inspector: Inspector
-  problems: Problems
   /**
    * Inspects a node with its source path relative to the repo root (resolving a monorepo
-   * app's paths against its own folder first), without the screenshot.
+   * app's paths against its own folder first), without the screenshot. A website has none.
    */
   inspectNode: (backendNodeId: number) => Promise<ElementContext>
+  /** How large the page is drawn in the user's device frame; 1 without one (viewport.ts) */
+  viewScale: () => number
+  /** Inside the inspector's lock: puts the user's viewport (device frame or none) back */
+  restoreViewport: () => Promise<void>
+  /**
+   * preview_point: a walkthrough step drawn over the page (null node: a caption on its own).
+   * False when the user can't see it: the preview is hidden, or they're picking.
+   */
+  guide: (node: number | null, caption: string | null) => boolean
+  /** Takes the agent's visible pointer to each input's target first */
+  guideInput: BeforeInput
+  /** Something that happened on the page since the last tool, to tell the agent once */
+  notice?: () => string | null
+}
+
+/** The website the agent can open in the preview in place of the app (website.ts). */
+export interface WebsiteHost {
+  /** The website showing in the preview, or null when the preview shows the app */
+  shown: () => PageTools | null
+  /** Opens `url` (http or https, public) in the website, opening it first; where it landed */
+  open: (url: URL) => Promise<string>
+  /**
+   * The agent going back to the app: the website closes and its session is cleared, and any
+   * note that the user went back is forgotten (the agent is on the app now, as it asked)
+   */
+  close: () => void
+  /**
+   * Why the website closed under the agent (the user went back to their app), once, for its
+   * next page tool to say; null otherwise
+   */
+  takeClosedNote: () => string | null
+}
+
+export interface PreviewToolsDeps extends Omit<PageDeps, 'kind'> {
+  problems: Problems
   devOrigin: () => string | null
   /** Current preview URL, or null when nothing is loaded */
   currentUrl: () => string | null
   navigate: (url: string) => Promise<void>
   logs: () => string
-  /** How large the page is drawn in the user's device frame; 1 without one (viewport.ts) */
-  viewScale: () => number
-  /** Inside the inspector's lock: puts the user's viewport (device frame or none) back */
-  restoreViewport: () => Promise<void>
   /** The dev server's state in a few lines (`describeServer`) */
   serverStatus: () => string
   /** Gets the app running again, from the top, and waits to see; what happened */
@@ -96,13 +134,7 @@ export interface PreviewToolsDeps {
    * detects again), and waits to see; what happened
    */
   setStartCommand: (input: StartCommandInput | null) => Promise<string>
-  /**
-   * preview_point: a walkthrough step drawn over the page (null node: a caption on its own).
-   * False when the user can't see it: the preview is hidden, or they're picking.
-   */
-  guide: (node: number | null, caption: string | null) => boolean
-  /** During a walkthrough, takes the visible pointer to each input's target first */
-  guideInput: BeforeInput
+  website: WebsiteHost
 }
 
 interface LayoutMetrics {
@@ -145,16 +177,38 @@ function stoppedLoading(wc: WebContents, ms: number) {
 const readingTime = (caption: string | null) =>
   caption ? Math.min(8000, 1400 + caption.length * 45) : 900
 
-/** What the agent can do with the live preview: inspect it, interact, and check its work. */
-export class PreviewTools {
+/**
+ * What the agent can do with a page in the preview: read it, interact, point things out and
+ * screenshot it. The user's app (PreviewTools) and a website the agent opened (website.ts).
+ */
+export class PageTools {
   readonly interactions: PreviewInteractions
 
-  constructor(private readonly deps: PreviewToolsDeps) {
+  constructor(protected readonly page: PageDeps) {
     this.interactions = new PreviewInteractions(
-      deps.inspector,
+      page.inspector,
       () => this.assertLoaded(),
-      deps.guideInput,
+      page.guideInput,
+      page.kind === 'website',
     )
+  }
+
+  get kind() {
+    return this.page.kind
+  }
+
+  /** The page's address now; empty once it closed (the user went back mid-tool) */
+  url() {
+    return this.page.wc.isDestroyed() ? '' : this.page.wc.getURL()
+  }
+
+  title() {
+    return this.page.wc.isDestroyed() ? '' : this.page.wc.getTitle()
+  }
+
+  /** What happened on the page since the last tool (a blocked form post), once; or null */
+  takeNotice() {
+    return this.page.notice?.() ?? null
   }
 
   /**
@@ -165,7 +219,7 @@ export class PreviewTools {
     this.assertLoaded()
     const node = selector ? await this.interactions.locate(selector) : null
     const text = caption?.replace(/\s+/g, ' ').trim() || null
-    if (!this.deps.guide(node, text))
+    if (!this.page.guide(node, text))
       return "Not shown: the user isn't looking at the preview right now (it's hidden, or they're picking)."
     await sleep(readingTime(text))
     return text ? 'Shown, and the user has had time to read it.' : 'Shown.'
@@ -181,11 +235,11 @@ export class PreviewTools {
     this.assertLoaded()
     // An edit that just landed can reload the page (Astro, or HMR giving up); mid-reload
     // it's blank, so wait for the new page to load and paint.
-    if (this.deps.wc.isLoading()) {
-      await stoppedLoading(this.deps.wc, RELOAD_TIMEOUT_MS)
+    if (this.page.wc.isLoading()) {
+      await stoppedLoading(this.page.wc, RELOAD_TIMEOUT_MS)
       await sleep(300)
     }
-    return this.deps.inspector.exclusive((session) =>
+    return this.page.inspector.exclusive((session) =>
       session.withoutHighlight(() => {
         this.assertLoaded()
         return this.capture(session, options)
@@ -196,66 +250,30 @@ export class PreviewTools {
   /** Computed styles, box, and source location for the first element matching `selector`. */
   async inspect(selector: string): Promise<Omit<ElementContext, 'screenshot'>> {
     this.assertLoaded()
-    const backendNodeId = await this.deps.inspector.querySelector(selector)
-    const { screenshot: _screenshot, ...element } = await this.deps.inspectNode(backendNodeId)
+    const backendNodeId = await this.page.inspector.querySelector(selector)
+    const { screenshot: _screenshot, ...element } = await this.page.inspectNode(backendNodeId)
     return element
-  }
-
-  console() {
-    return {
-      url: this.deps.currentUrl(),
-      messages: this.deps.problems.recentConsole(),
-      problems: this.deps.problems.list(),
-    }
-  }
-
-  async navigate(path: string) {
-    const base = this.deps.devOrigin()
-    if (!base || !isLoopback(base)) throw new Error('The dev server is not running')
-    const url = new URL(path, base)
-    if (url.origin !== new URL(base).origin || !/^https?:$/.test(url.protocol)) {
-      throw new Error('Only paths on the dev server can be opened')
-    }
-    await withTimeout(
-      this.deps.navigate(url.toString()),
-      `${url} didn't finish loading within ${NAVIGATION_TIMEOUT_MS / 1000}s; it may still be compiling (check dev_server_logs)`,
-      NAVIGATION_TIMEOUT_MS,
-    )
-    await sleep(300)
-    return this.deps.currentUrl()
   }
 
   async reload() {
     this.assertLoaded()
-    const { wc } = this.deps
+    const { wc } = this.page
     const loaded = stoppedLoading(wc, RELOAD_TIMEOUT_MS)
     wc.reload()
     await loaded
-    return this.deps.currentUrl()
+    return wc.getURL()
   }
 
-  serverStatus() {
-    return this.deps.serverStatus()
-  }
-
-  restartServer() {
-    return this.deps.restartServer()
-  }
-
-  setStartCommand(input: StartCommandInput | null) {
-    return this.deps.setStartCommand(input)
-  }
-
-  logs(lines: number) {
-    const text = this.deps.logs().replace(ANSI, '').replace(/\r\n?/g, '\n')
-    return text.split('\n').slice(-lines).join('\n')
-  }
-
-  /** The tools only ever act on the user's own local app, never a page it linked to. */
-  private assertLoaded() {
-    const url = this.deps.wc.getURL()
+  /**
+   * The app's tools only ever act on the user's own local app, never a page it linked to; a
+   * website's only on a public web page, never this machine.
+   */
+  protected assertLoaded() {
+    const url = this.url()
     if (!url) throw new Error('The preview has no page loaded yet')
-    if (!isLoopback(url)) throw new Error('The preview is not showing the local dev server')
+    if (this.page.kind === 'website') {
+      if (!/^https?:/i.test(url) || isLoopback(url)) throw new Error('The website has no page open')
+    } else if (!isLoopback(url)) throw new Error('The preview is not showing the local dev server')
   }
 
   /** Runs inside the inspector's lock; must only use `session` for node lookups. */
@@ -337,7 +355,7 @@ export class PreviewTools {
     } finally {
       // Nested scrollers first, in the layout their offsets were recorded in.
       await restoreScrollers?.().catch(() => undefined)
-      if (width) await this.deps.restoreViewport().catch(() => undefined)
+      if (width) await this.page.restoreViewport().catch(() => undefined)
       if (width || scrolled) await this.restoreWindowScroll(initial).catch(() => undefined)
     }
   }
@@ -349,7 +367,7 @@ export class PreviewTools {
       height,
       deviceScaleFactor: 0,
       mobile: width < 768,
-      scale: this.deps.viewScale(),
+      scale: this.page.viewScale(),
       dontSetVisibleSize: true,
     })
     await sleep(SETTLE_MS)
@@ -417,7 +435,7 @@ export class PreviewTools {
 
   /** Inspector bounds every CDP command. */
   private cmd<T = unknown>(method: string, params?: Record<string, unknown>) {
-    return this.deps.inspector.command<T>(method, params)
+    return this.page.inspector.command<T>(method, params)
   }
 }
 
@@ -479,4 +497,69 @@ export function matchingArea(before: { area: Rect; element: Rect }, element: Cli
   const framed = around(element, CROP_MARGIN)
   const both = union(before.area, framed)
   return area(both) > 4 * Math.max(area(before.area), area(framed)) ? framed : both
+}
+
+/**
+ * The agent's preview tools: the user's app (its page, console, dev server), and the website it
+ * opened in the preview instead, when it has (`shown`).
+ */
+export class PreviewTools extends PageTools {
+  constructor(private readonly deps: PreviewToolsDeps) {
+    super({ ...deps, kind: 'app' })
+  }
+
+  /**
+   * The page the page tools act on: the website showing in the preview, or the app. Once,
+   * after the user went back to their app themselves, it says so rather than act on the app.
+   */
+  shown(): PageTools {
+    const closed = this.deps.website.takeClosedNote()
+    if (closed) throw new Error(closed)
+    return this.deps.website.shown() ?? this
+  }
+
+  /**
+   * A path, or an address on the app: the app, closing any website. A full http(s) address
+   * elsewhere: that website, in its own signed-out session. Where the preview ended up.
+   */
+  async navigate(input: string): Promise<{ kind: 'app' | 'website'; url: string }> {
+    const target = navigationTarget(input, this.deps.devOrigin())
+    if (target.kind === 'website') {
+      return { kind: 'website', url: await this.deps.website.open(target.url) }
+    }
+    this.deps.website.close()
+    const { url } = target
+    await withTimeout(
+      this.deps.navigate(url.toString()),
+      `${url} didn't finish loading within ${NAVIGATION_TIMEOUT_MS / 1000}s; it may still be compiling (check dev_server_logs)`,
+      NAVIGATION_TIMEOUT_MS,
+    )
+    await sleep(300)
+    return { kind: 'app', url: this.deps.currentUrl() ?? url.toString() }
+  }
+
+  console() {
+    return {
+      url: this.deps.currentUrl(),
+      messages: this.deps.problems.recentConsole(),
+      problems: this.deps.problems.list(),
+    }
+  }
+
+  serverStatus() {
+    return this.deps.serverStatus()
+  }
+
+  restartServer() {
+    return this.deps.restartServer()
+  }
+
+  setStartCommand(input: StartCommandInput | null) {
+    return this.deps.setStartCommand(input)
+  }
+
+  logs(lines: number) {
+    const text = this.deps.logs().replace(ANSI, '').replace(/\r\n?/g, '\n')
+    return text.split('\n').slice(-lines).join('\n')
+  }
 }

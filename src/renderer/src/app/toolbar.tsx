@@ -162,6 +162,12 @@ export function Toolbar({ state }: { state: WindowState }) {
   })
   const uncapturable = captureBlocked(preview, false)
   const capturable = uncapturable === null
+  // A website the agent opened has no history of the app's; Back to your app leaves it.
+  const history = {
+    back: preview.website === null && preview.canGoBack,
+    forward: preview.website === null && preview.canGoForward,
+  }
+  const reloadable = !!preview.url || preview.website !== null
   const shown = (tool: string) => fit(tool) !== 'hidden'
   const keys = (tool: string) => fit(tool) === 'full'
 
@@ -177,12 +183,12 @@ export function Toolbar({ state }: { state: WindowState }) {
       ...(shown('history')
         ? []
         : [
-            { id: 'back', label: 'Back', shortcut: 'back', enabled: preview.canGoBack } as const,
+            { id: 'back', label: 'Back', shortcut: 'back', enabled: history.back } as const,
             {
               id: 'forward',
               label: 'Forward',
               shortcut: 'forward',
-              enabled: preview.canGoForward,
+              enabled: history.forward,
             } as const,
           ]),
       ...(shown('reload')
@@ -192,7 +198,7 @@ export function Toolbar({ state }: { state: WindowState }) {
               id: 'reload',
               label: 'Reload Preview',
               shortcut: 'reload',
-              enabled: !!preview.url,
+              enabled: reloadable,
             } as const,
           ]),
     )
@@ -248,14 +254,14 @@ export function Toolbar({ state }: { state: WindowState }) {
                     label="Back"
                     shortcut="back"
                     icon={ArrowLeft}
-                    disabled={!preview.canGoBack}
+                    disabled={!history.back}
                     onClick={() => gui.back()}
                   />
                   <IconButton
                     label="Forward"
                     shortcut="forward"
                     icon={ArrowRight}
-                    disabled={!preview.canGoForward}
+                    disabled={!history.forward}
                     onClick={() => gui.forward()}
                   />
                 </>
@@ -265,8 +271,8 @@ export function Toolbar({ state }: { state: WindowState }) {
                   label="Reload preview"
                   shortcut="reload"
                   icon={RotateCw}
-                  spinning={preview.loading}
-                  disabled={!preview.url}
+                  spinning={preview.loading && preview.website === null}
+                  disabled={!reloadable}
                   onClick={() => gui.reload()}
                 />
               )}
@@ -753,6 +759,7 @@ async function screenshotUnder(button: HTMLElement | null) {
  * keyboard reaches them and hears why rather than skipping a dimmed button.
  */
 function captureBlocked(preview: PreviewState, board: boolean): string | null {
+  if (preview.website) return 'Only your own app can be captured'
   if (!preview.visible)
     return board ? 'Open a frame to capture it' : 'Start the dev server to capture'
   if (!preview.selectable) return 'Only your own app can be captured'
@@ -854,6 +861,25 @@ const ADDRESS_ID = 'preview-address'
  * buttons), and Desktop's page zoom while it isn't 100% (`inField`: at the end of the address
  * field, like a browser's, filling its height). A device frame's label shows its own.
  */
+/**
+ * In the address field while the agent has a website open in the preview: closes it (and
+ * clears its signed-out session), and the user's app shows again.
+ */
+function BackToApp() {
+  return (
+    <button
+      type="button"
+      onClick={() => gui.backToApp()}
+      className={cn(
+        'no-drag flex h-full shrink-0 items-center rounded-r-md pr-2.5 pl-2 text-caption font-medium text-fg transition-[color,background-color,opacity] hover:bg-hover focus-visible:-outline-offset-2',
+        PRESS,
+      )}
+    >
+      Back to your app
+    </button>
+  )
+}
+
 function ZoomPercent({
   zoom,
   action,
@@ -914,8 +940,10 @@ function AddressBar({ state }: { state: WindowState }) {
   const { preview, devServer, project, setup } = state
   // While focused, the field shows the user's draft; otherwise it follows navigation.
   const [draft, setDraft] = useState<string | null>(null)
-  // The address of what's on screen, or being loaded, or failed to load.
-  const url = preview.visible || preview.loading || preview.error ? preview.url : null
+  // The address of what's on screen, or being loaded, or failed to load: the website the agent
+  // opened over the app, while it's there.
+  const url =
+    preview.website ?? (preview.visible || preview.loading || preview.error ? preview.url : null)
   const value = draft ?? url ?? ''
   const { status, label } = serverStatus(state)
   // Like the canvas: without a dev script (or an app picked), the address is the way in.
@@ -953,16 +981,20 @@ function AddressBar({ state }: { state: WindowState }) {
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
         trailing={
-          preview.viewport === 'desktop' &&
-          preview.zoom !== 1 && (
-            <ZoomPercent
-              inField
-              zoom={preview.zoom}
-              action="reset to 100%"
-              title="Reset zoom"
-              shortcut="actualSize"
-              onClick={() => gui.zoomPreview(0)}
-            />
+          preview.website ? (
+            <BackToApp />
+          ) : (
+            preview.viewport === 'desktop' &&
+            preview.zoom !== 1 && (
+              <ZoomPercent
+                inField
+                zoom={preview.zoom}
+                action="reset to 100%"
+                title="Reset zoom"
+                shortcut="actualSize"
+                onClick={() => gui.zoomPreview(0)}
+              />
+            )
           )
         }
         leading={

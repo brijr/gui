@@ -159,3 +159,52 @@ export function captureUrl(input: string): URL {
     throw new Error('Only http and https addresses can be captured.')
   return url
 }
+
+/** A made-up website on this machine that end-to-end tests browse (`standInWebsite`). */
+export interface StandInWebsite {
+  /** A name under `.test`, which is reserved and never resolves on the internet */
+  host: string
+  /** The port on 127.0.0.1 that serves it */
+  port: number
+}
+
+/**
+ * Tests only: `GUI_E2E_WEBSITE="shop.gui-e2e.test=4321"` lets the agent's websites reach one
+ * made-up `.test` name, served on this machine at that port, as if it were public. Ignored in a
+ * packaged app, so it never loosens what a user's Gui can reach.
+ */
+export function standInWebsite(
+  value: string | undefined,
+  packaged: boolean,
+): StandInWebsite | null {
+  if (packaged || !value) return null
+  const match = /^([a-z\d-]+(?:\.[a-z\d-]+)*\.test)=(\d{1,5})$/.exec(value.trim().toLowerCase())
+  const port = Number(match?.[2])
+  if (!match?.[1] || !Number.isInteger(port) || port < 1 || port > 65_535) return null
+  return { host: match[1], port }
+}
+
+/**
+ * Where preview_navigate's input goes. A path (`/pricing`, `pricing`) or an address on the
+ * user's app (`appOrigin`): the app. A full http(s) address anywhere else: a website, which
+ * must also turn out to be public before it opens. Other schemes are refused.
+ */
+export function navigationTarget(
+  input: string,
+  appOrigin: string | null,
+): { kind: 'app' | 'website'; url: URL } {
+  const trimmed = input.trim()
+  const schemed = /^[a-z][a-z\d+.-]*:/i.test(trimmed) || trimmed.startsWith('//')
+  if (!schemed && !appOrigin) throw new Error('The dev server is not running')
+  let url: URL
+  try {
+    url = new URL(trimmed, appOrigin ?? undefined)
+  } catch {
+    throw new Error(`${trimmed} isn't an address`)
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:')
+    throw new Error('Only http and https addresses can be opened.')
+  if (appOrigin && url.origin === new URL(appOrigin).origin) return { kind: 'app', url }
+  if (!schemed) throw new Error('Only paths on the dev server can be opened')
+  return { kind: 'website', url }
+}

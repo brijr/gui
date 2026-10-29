@@ -1,5 +1,11 @@
 import { expect, test } from 'bun:test'
-import { captureUrl, isPrivateIp, isPublicHost } from '../src/main/public-address'
+import {
+  captureUrl,
+  isPrivateIp,
+  isPublicHost,
+  navigationTarget,
+  standInWebsite,
+} from '../src/main/public-address'
 
 test('private, loopback, link-local and reserved addresses are not public', () => {
   for (const ip of [
@@ -76,4 +82,48 @@ test('capture addresses are http(s), with https assumed, including host:port', (
     'chrome://gpu',
   ])
     expect(() => captureUrl(bad)).toThrow('Only http and https')
+})
+
+test("paths and the app's own addresses stay on the app; full addresses elsewhere are websites", () => {
+  const app = 'http://localhost:5173'
+  const target = (input: string) => {
+    const { kind, url } = navigationTarget(input, app)
+    return `${kind} ${url}`
+  }
+  expect(target('/pricing')).toBe('app http://localhost:5173/pricing')
+  expect(target('pricing?plan=pro')).toBe('app http://localhost:5173/pricing?plan=pro')
+  expect(target('http://localhost:5173/settings')).toBe('app http://localhost:5173/settings')
+  expect(target('https://linear.app')).toBe('website https://linear.app/')
+  expect(target(' https://stripe.com/checkout ')).toBe('website https://stripe.com/checkout')
+  // Another port on this machine is not the app; it opens only if it's public (it isn't).
+  expect(target('http://localhost:3000')).toBe('website http://localhost:3000/')
+})
+
+test('only http and https open, and a path needs the dev server', () => {
+  for (const input of [
+    'file:///etc/passwd',
+    'chrome://settings',
+    'javascript:alert(1)',
+    'data:text/html,hi',
+  ])
+    expect(() => navigationTarget(input, 'http://localhost:5173')).toThrow('Only http and https')
+  expect(() => navigationTarget('/pricing', null)).toThrow('dev server is not running')
+  expect(navigationTarget('https://linear.app', null).kind).toBe('website')
+})
+
+test('the stand-in website is for tests only: never in a packaged app, and only a .test name', () => {
+  expect(standInWebsite('shop.gui-e2e.test=4321', false)).toEqual({
+    host: 'shop.gui-e2e.test',
+    port: 4321,
+  })
+  expect(standInWebsite('shop.gui-e2e.test=4321', true)).toBeNull()
+  expect(standInWebsite(undefined, false)).toBeNull()
+  for (const value of [
+    'linear.app=443',
+    'localhost=80',
+    'shop.test=0',
+    'shop.test=70000',
+    'shop.test',
+  ])
+    expect(standInWebsite(value, false)).toBeNull()
 })

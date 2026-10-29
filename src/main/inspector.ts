@@ -376,11 +376,12 @@ export class Inspector extends EventEmitter<InspectorEvents> {
 
   /**
    * DOM facts come from protocol commands, which page scripts can't intercept,
-   * so the picked element's HTML and styles reflect the real node.
+   * so the picked element's HTML and styles reflect the real node. A null `projectRoot` (a
+   * website, not the user's app) looks for no source files.
    */
   async inspect(
     backendNodeId: number,
-    projectRoot: string,
+    projectRoot: string | null,
     devOrigin: string | null,
     options: { screenshot?: boolean } = {},
   ): Promise<ElementContext> {
@@ -413,11 +414,13 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       attributes[attrs[i]] = attrs[i + 1].slice(0, 300)
     }
     const html = outer.outerHTML
-    const reactSource = await locateSource(react, projectRoot, devOrigin)
+    const reactSource = projectRoot ? await locateSource(react, projectRoot, devOrigin) : null
     // Pages React didn't render (Astro) can still name their source in dev-mode attributes.
-    const source = reactSource ?? (await sourceFromAttributes(lineage, projectRoot))
+    const source =
+      reactSource ?? (projectRoot ? await sourceFromAttributes(lineage, projectRoot) : null)
     const reactStack = react?.componentStack ?? []
-    const componentStack = reactSource || reactStack.length > 0 ? reactStack : fileStack(lineage)
+    const componentStack =
+      reactSource || reactStack.length > 0 || !projectRoot ? reactStack : fileStack(lineage)
 
     return {
       id: randomUUID(),
