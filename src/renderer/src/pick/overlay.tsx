@@ -246,7 +246,9 @@ function Guide({ guide }: { guide: GuideOverlay }) {
     >
       {guide.rect && (
         <div
-          key={guide.step}
+          // Its own key: one shared with the caption makes React lose the old outline on the
+          // next step, and leave it on the page.
+          key={`outline-${guide.step}`}
           data-guide-outline=""
           className="pointer-events-none absolute animate-row-fade rounded-sm border-2 border-accent ring-4 ring-accent-soft"
           style={place(guide.rect)}
@@ -254,7 +256,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
       )}
       {guide.caption && (
         <div
-          key={guide.step}
+          key={`caption-${guide.step}`}
           role="status"
           aria-live="polite"
           className="pointer-events-none absolute max-w-70 animate-row-in rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover motion-reduce:animate-row-fade"
@@ -315,14 +317,12 @@ function notePlace(at: Point) {
 }
 
 /**
- * Beside what's pointed at, on the side with more room, so it covers the page's flow (the
- * heading under a button) as little as it can; when neither side has room, below or above,
- * again where there's more. It keeps clear of the outline's ring and inside the view.
+ * Under what's pointed at, like a tooltip, so it never hides the controls beside it (often the
+ * walkthrough's next step); over it when there's no room under. It keeps clear of the
+ * outline's ring and inside the view.
  */
 function captionPlace(rect: Rect | null) {
   if (!rect) return { top: 12, left: 12 }
-  // Under the target, like a tooltip, so it never hides the controls beside it (often the
-  // walkthrough's next step); over it when there's no room under.
   const { innerWidth: width, innerHeight: height } = window
   const x = Math.min(
     Math.max(CAPTION_EDGE, rect.x),

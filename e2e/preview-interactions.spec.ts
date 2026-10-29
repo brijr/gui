@@ -168,6 +168,14 @@ test('a walkthrough points out elements with captions and shows the agent pointe
   await expect(overlay.locator('[data-guide-outline]')).toBeVisible()
   expect(await page.locator('text=This opens the dialog.').count()).toBe(0)
 
+  // Each step replaces the last: one outline, at the new element.
+  await ask(session, [
+    { name: 'preview_point', args: { selector: '#name', caption: 'Type a name here.' } },
+    { name: 'preview_point', args: { selector: '#submit', caption: 'Then send it.' } },
+  ])
+  await expect(overlay.getByRole('status')).toHaveText('Then send it.')
+  await expect(overlay.locator('[data-guide-outline]')).toHaveCount(1)
+
   const [missing] = await ask(session, [
     { name: 'preview_point', args: { selector: '#missing', caption: 'Nothing here' } },
   ])
