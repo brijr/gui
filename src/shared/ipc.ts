@@ -136,6 +136,7 @@ export const Send = {
   installNode: 'node:install',
   installDeveloperTools: 'developer-tools:install',
   navigate: 'preview:navigate',
+  backToApp: 'preview:back-to-app',
   back: 'preview:back',
   forward: 'preview:forward',
   reload: 'preview:reload',
@@ -493,6 +494,8 @@ export interface GuiApi {
   openEnvFile(): void
 
   navigate(url: string): void
+  /** Closes the website the agent opened in the preview: the user's app shows again */
+  backToApp(): void
   back(): void
   forward(): void
   reload(): void

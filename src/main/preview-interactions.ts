@@ -77,6 +77,28 @@ const SNAPSHOT = `(() => {
     limitation: 'Main document only; iframe contents and shadow roots are not listed. Selectors may change after navigation or hot reload.' };
 })()`
 
+/**
+ * Fields the agent never types into on a website: passwords, one-time codes and payment
+ * details, by their `autocomplete` token (https://html.spec.whatwg.org/#autofill-field).
+ */
+export const SENSITIVE_AUTOCOMPLETE =
+  /\b(current-password|new-password|one-time-code|cc-[a-z-]+)\b/i
+/** …and by what the field is called (name, id, label, placeholder), for forms without tokens. */
+export const SENSITIVE_NAME =
+  /pass(word|code|phrase)|\bpin\b|card.?(number|no\b)|\bcc.?(num|number)\b|\bcvc|\bcvv|\bcsc\b|security.?code|expir|\biban\b|routing.?number|account.?number|\bssn\b|social.?security|tax.?id/i
+
+/**
+ * Whether a field asks for a password, a one-time code or payment details. Page JavaScript,
+ * run on the field; the page can't see it.
+ */
+const SENSITIVE = `function () {
+  if (this.localName === 'input' && this.type === 'password') return true;
+  if (new RegExp(${JSON.stringify(SENSITIVE_AUTOCOMPLETE.source)}, 'i').test(this.getAttribute('autocomplete') || '')) return true;
+  const labels = this.labels ? Array.from(this.labels).map(n => n.textContent).join(' ') : '';
+  const names = [this.getAttribute('name'), this.id, this.getAttribute('aria-label'), this.getAttribute('placeholder'), labels].join(' ');
+  return new RegExp(${JSON.stringify(SENSITIVE_NAME.source)}, 'i').test(names);
+}`
+
 /** Only prepares browser input; never changes application values or invokes .click(). */
 const TARGET = `function () {
   if (!this.isConnected) return { error: 'The target was removed; take a fresh snapshot' };
@@ -110,10 +132,15 @@ export type BeforeInput = (at: { x: number; y: number }, click: boolean) => Prom
 
 /** Real Chromium input in the shared preview; serializes with screenshots and picking. */
 export class PreviewInteractions {
+  /**
+   * `website`: the page is a public website the agent opened (website.ts), where it never
+   * types into password, one-time code or payment fields.
+   */
   constructor(
     private readonly inspector: Inspector,
     private readonly assertLoaded: () => void,
     private readonly beforeInput: BeforeInput = async () => {},
+    private readonly website = false,
   ) {}
 
   /** The one element `selector` matches, scrolled into view: its node, to point at. */
@@ -158,6 +185,10 @@ export class PreviewInteractions {
       const target = await this.target(selector)
       if (target.disabled || !target.editable)
         throw new Error('The target is not an editable field')
+      if (this.website && (await this.callOn<boolean>(await this.uniqueNode(selector), SENSITIVE)))
+        throw new Error(
+          "Gui doesn't type into password, one-time code or payment fields on websites. Stop here and tell the user what this step asks for.",
+        )
       await this.beforeInput(target, true)
       await this.clickAt(target)
       // Gui keeps the chat's keyboard while the agent works. Focus the DOM field without

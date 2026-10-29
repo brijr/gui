@@ -1,15 +1,13 @@
-import { BrowserWindow, type NativeImage, type Session, session } from 'electron'
-import { captureUrl, isLocalName, isPrivateIp, isPublicHost } from './public-address'
-import { type PublicProxy, startPublicProxy } from './public-proxy'
+import { BrowserWindow, type NativeImage, type Session } from 'electron'
+import { captureUrl } from './public-address'
+import type { PublicProxy } from './public-proxy'
+import { isPublicWebsite, LOCAL_ADDRESS, webSession, wipeWebSession } from './web-session'
 
 /**
  * Screenshots of public websites, for the canvas agent to look at for reference. Each capture
- * gets a hidden window in an in-memory session apart from the user's previews; captures run
- * one at a time and the session is wiped between them, so one site never sees another's
- * cookies or storage. The page gets no permissions (clipboard, camera, notifications...),
- * can't download, open windows or launch apps, and can't reach this machine or the local
- * network: every connection goes through a proxy (public-proxy.ts) that looks names up itself
- * and connects only to the public address it checked.
+ * gets a hidden window in a locked-down, in-memory session apart from the user's previews
+ * (web-session.ts); captures run one at a time and the session is wiped between them, so one
+ * site never sees another's cookies or storage. The page can't open windows or launch apps.
  */
 
 const PARTITION = 'gui-web-capture'
@@ -36,24 +34,6 @@ export interface WebCapture {
   title: string
   /** The page's full height in CSS px, even when the capture was cut short */
   pageHeight: number
-}
-
-const LOCAL_ADDRESS = "Gui doesn't capture this machine or the local network, only public websites."
-
-/**
- * Requests the page may make: http(s) and websockets, and in-page data. Addresses that are
- * plainly local are stopped here; the proxy checks every name's address as it connects.
- */
-function allowedRequest(url: string) {
-  let parsed: URL
-  try {
-    parsed = new URL(url)
-  } catch {
-    return false
-  }
-  if (parsed.protocol === 'data:' || parsed.protocol === 'blob:') return true
-  if (!/^(https?|wss?):$/.test(parsed.protocol)) return false
-  return !isPrivateIp(parsed.hostname) && !isLocalName(parsed.hostname)
 }
 
 const READY_SCRIPT = `new Promise(resolve => {
@@ -87,49 +67,6 @@ function within<T>(task: Promise<T>, ms: number): Promise<T | null> {
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
-let captureSession: Promise<{ ses: Session; proxy: PublicProxy }> | null = null
-
-/** The capture partition, locked down once: Electron grants every permission by default. */
-function lockedSession() {
-  captureSession ??= lockDown().catch((error: unknown) => {
-    captureSession = null
-    throw error
-  })
-  return captureSession
-}
-
-async function lockDown() {
-  const proxy = await startPublicProxy()
-  const ses = session.fromPartition(PARTITION)
-  // Chromium sends a SOCKS5 proxy the name, not an address it looked up. `<-loopback>` takes
-  // away the bypass Chromium otherwise keeps for localhost.
-  await ses.setProxy({
-    proxyRules: `socks5://127.0.0.1:${proxy.port}`,
-    proxyBypassRules: '<-loopback>',
-  })
-  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
-  ses.setPermissionCheckHandler(() => false)
-  ses.setDevicePermissionHandler(() => false)
-  ses.on('select-hid-device', (event, _details, callback) => {
-    event.preventDefault()
-    callback()
-  })
-  ses.on('select-serial-port', (event, _ports, _wc, callback) => {
-    event.preventDefault()
-    callback('')
-  })
-  ses.on('select-usb-device', (event, _details, callback) => {
-    event.preventDefault()
-    callback()
-  })
-  ses.on('will-download', (event) => event.preventDefault())
-  // Every request, the page's own and each redirect's, from any frame.
-  ses.webRequest.onBeforeRequest((details, callback) =>
-    callback({ cancel: !allowedRequest(details.url) }),
-  )
-  return { ses, proxy }
-}
-
 /** Captures wait their turn: each has the session to itself, wiped once it's done. */
 let queue: Promise<unknown> = Promise.resolve()
 /** Captures running or waiting, across every canvas. More than this are turned away. */
@@ -155,14 +92,14 @@ export function captureWebPage(
   captures++
   const run = queue.then(async () => {
     if (signal?.aborted) throw new Error(CLOSED)
-    if (!(await isPublicHost(target.hostname))) throw new Error(LOCAL_ADDRESS)
-    const { ses, proxy } = await lockedSession()
+    if (!(await isPublicWebsite(target.hostname))) throw new Error(LOCAL_ADDRESS)
+    const web = await webSession(PARTITION)
     if (signal?.aborted) throw new Error(CLOSED)
-    proxy.refused.clear()
+    web.proxy.refused.clear()
     try {
-      return await capture(target, options, ses, proxy, signal)
+      return await capture(target, options, web.ses, web.proxy, signal)
     } finally {
-      await Promise.all([ses.clearStorageData(), ses.clearCache()]).catch(() => undefined)
+      await wipeWebSession(web)
     }
   })
   const settled = run.then(

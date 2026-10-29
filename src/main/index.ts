@@ -1312,6 +1312,7 @@ function registerIpc() {
     sendCrashReport({ kind: 'window', message, stack: isString(stack) ? stack : undefined })
   })
   on(Send.navigate, (tab, url) => isString(url) && tab.navigate(url))
+  on(Send.backToApp, (tab) => tab.backToApp())
   on(Send.back, (tab) => tab.back())
   on(Send.forward, (tab) => tab.forward())
   on(Send.reload, (tab) => tab.reload())

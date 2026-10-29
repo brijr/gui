@@ -109,6 +109,7 @@ const api: GuiApi = {
   openEnvFile: send(Send.openEnvFile),
 
   navigate: send(Send.navigate),
+  backToApp: send(Send.backToApp),
   back: send(Send.back),
   forward: send(Send.forward),
   reload: send(Send.reload),
