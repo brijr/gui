@@ -17,7 +17,8 @@ import { IconButton } from './ui'
  * Either way the rest are muted and fill as the pointer passes. Only the selected tab is in
  * the tab order (roving focus); the arrow keys, Home and End move the keyboard and the
  * selection together (rovingTabKeyDown). A tab's close button is for the pointer and hidden
- * from assistive tech; from the keyboard, Delete or Backspace on a tab closes it.
+ * from assistive tech; from the keyboard, Delete on a tab closes it. Not Backspace: pressed
+ * by habit, as if in a field, it would end a whole project.
  *
  * Transitions are the caller's, as the tab strip's change while a tab is dragged: give a tab
  * `transition-[color,background-color]` at least, and its label TAB_LABEL's opacity one.
@@ -132,7 +133,7 @@ interface TabKeys {
 /**
  * The keys on a tab, per the WAI-ARIA tabs pattern with selection following focus: ← and →
  * move to the previous and next tab (wrapping), Home and End to the first and last. Delete
- * or Backspace closes the tab, with the keyboard moving to the next one (or the previous),
+ * closes the tab, with the keyboard moving to the next one (or the previous),
  * the one that's shown after. Tabs are found in the tablist the key was pressed in.
  */
 export function rovingTabKeyDown(
@@ -142,7 +143,7 @@ export function rovingTabKeyDown(
   const tabs = event.currentTarget
     .closest('[role="tablist"]')
     ?.querySelectorAll<HTMLElement>('[role="tab"]')
-  if (event.key === 'Delete' || event.key === 'Backspace') {
+  if (event.key === 'Delete') {
     if (!close) return
     event.preventDefault()
     // Moved before it closes, while the neighbor is still where it was.
