@@ -675,6 +675,8 @@ export interface GuideOverlay {
   clicks: number
   /** Bumped by each step, so its caption comes in afresh */
   step: number
+  /** The agent's turn is using this website: a click says so rather than reach the page */
+  held: boolean
 }
 
 export interface Problem {

@@ -68,6 +68,11 @@ export class Picker {
     clicks: number
     step: number
   } | null = null
+  /**
+   * The agent's turn is using this page (a website): the walkthrough's overlay stays over it,
+   * so the user's clicks don't reach the page, and a click there says why.
+   */
+  private held = false
 
   constructor(
     private readonly preview: WebContents,
@@ -100,6 +105,10 @@ export class Picker {
 
   get guiding() {
     return this.guided !== null
+  }
+
+  get holding() {
+    return this.held
   }
 
   /** Measured and drawn while picking or guiding. */
@@ -162,6 +171,13 @@ export class Picker {
     if (!guided) return
     guided.cursor = at
     if (click) guided.clicks++
+    this.schedule()
+  }
+
+  /** Whether the agent's turn holds the page (`held`); the caller keeps a guide shown meanwhile. */
+  hold(held: boolean) {
+    if (this.held === held) return
+    this.held = held
     this.schedule()
   }
 
@@ -336,6 +352,7 @@ export class Picker {
       cursor,
       clicks: guided.clicks,
       step: guided.step,
+      held: this.held,
     }
   }
 

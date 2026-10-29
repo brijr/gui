@@ -54,6 +54,30 @@ const AUTOPOST = `<!doctype html><title>Signing you in</title>
   })
 </script>`
 
+/**
+ * Each kind of dialog, a count of the clicks that reach the page, and a "Leave site?" on the way
+ * out. What each dialog got shows in the page.
+ */
+const DIALOGS = `<!doctype html><title>Dialogs</title>
+<h1>Dialogs</h1>
+<p>Clicks: <output id="clicks">0</output></p>
+<button id="alert" onclick="alert('Your trial ends in 3 days')">Alert</button>
+<button id="confirm" onclick="document.getElementById('confirmed').textContent = 'confirmed ' + confirm('Delete this project?')">Confirm</button>
+<output id="confirmed"></output>
+<button id="prompt" onclick="let answer; try { answer = 'answered ' + prompt('Team name?', 'Acme') } catch { answer = 'no prompt' } document.getElementById('answered').textContent = answer">Prompt</button>
+<output id="answered"></output>
+<a id="leave" href="/">Home</a>
+<script>
+  addEventListener('pointerdown', () => {
+    const clicks = document.getElementById('clicks')
+    clicks.textContent = String(Number(clicks.textContent) + 1)
+  })
+  addEventListener('beforeunload', (event) => {
+    event.preventDefault()
+    event.returnValue = ''
+  })
+</script>`
+
 /** A page that tries every way out of the website's session it can, by itself. */
 const hostile = (local: number, download: string) => `<!doctype html><title>Hostile</title>
 <h1>Hostile</h1>
@@ -124,6 +148,7 @@ test.beforeAll(async () => {
     if (path === '/') return HOME
     if (path.startsWith('/signup')) return SIGNUP
     if (path === '/autopost') return AUTOPOST
+    if (path === '/dialogs') return DIALOGS
     if (path === '/hostile') return hostile(local.port, DOWNLOAD)
     if (path === '/redirect') return { redirect: `http://127.0.0.1:${local.port}/redirected` }
     if (path === '/file.bin') return 'data'
@@ -179,6 +204,64 @@ function overlayWithPointer(session: GuiSession): Promise<Page> {
     "the agent's pointer",
     { timeout: 10_000 },
   )
+}
+
+/**
+ * Runs in main: the website's view and the overlay holding it (drawn while the agent's turn
+ * uses it), with where each lies in the window, front last.
+ */
+async function heldWebsite(session: GuiSession) {
+  return session.app.evaluate(async ({ BrowserWindow }, host) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      const views = win.contentView.children.flatMap((view, index) =>
+        'webContents' in view ? [{ view: view as Electron.WebContentsView, index }] : [],
+      )
+      const site = views.find(({ view }) => view.webContents.getURL().includes(host))
+      if (!site) continue
+      for (const { view, index } of views) {
+        if (!view.webContents.getURL().endsWith('/pick.html')) continue
+        const held = await view.webContents.executeJavaScript(
+          `!!document.querySelector('[data-guide="held"]')`,
+        )
+        if (!held) continue
+        return {
+          site: { index: site.index, bounds: site.view.getBounds(), id: site.view.webContents.id },
+          overlay: {
+            index,
+            bounds: view.getBounds(),
+            visible: view.getVisible(),
+            id: view.webContents.id,
+          },
+        }
+      }
+    }
+    return null
+  }, HOST)
+}
+
+/** Runs in main: Esc as the user presses it (main sees it before the page) in `id`'s contents. */
+function pressEscape(session: GuiSession, id: number) {
+  return session.app.evaluate(({ webContents }, id) => {
+    const contents = webContents.fromId(id)
+    contents?.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+    contents?.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+  }, id)
+}
+
+function clickMenu(session: GuiSession, label: string) {
+  return session.app.evaluate(({ Menu }, name) => {
+    const find = (items: Electron.MenuItem[]): Electron.MenuItem | undefined => {
+      for (const item of items) {
+        if (item.label === name && item.visible) return item
+        const inner = item.submenu && find(item.submenu.items)
+        if (inner) return inner
+      }
+      return undefined
+    }
+    const item = find(Menu.getApplicationMenu()?.items ?? [])
+    if (!item) throw new Error(`No menu item "${name}"`)
+    item.click()
+  }, label)
 }
 
 const text = (result: { content: { type: string; text?: string }[] }) =>
@@ -388,7 +471,8 @@ test('mid-turn, what the user types into secret fields stays hidden, and going b
   const caption = 'This is the sign-up form, with a field for your work email and a password.'
   const back = session.chrome.getByRole('button', { name: 'Back to your app' })
 
-  // The user signs in on the website themselves while the agent looks.
+  // Sign-in details in the page while the agent looks (the user's own keys wait until the turn
+  // ends, so a script fills them here): the agent never reads the secret ones.
   const [, snapshot, form, card] = await ask(
     session,
     [
@@ -495,4 +579,106 @@ test('a website still being looked up never opens once the user stopped the turn
       .some((page) => page.url().includes(`slow.${HOST}`)),
   ).toBe(false)
   await session.waitForTurn(index)
+})
+
+test('mid-turn the website is the agent’s: the user’s clicks and keys wait, and its dialogs never block', async ({
+  launch,
+}) => {
+  const session = await launchWithSite(launch)
+  const focusMode = async (on: boolean) => {
+    if ((await session.state()).focusMode !== on) await clickMenu(session, 'Focus Mode')
+    await waitFor(async () => (await session.state()).focusMode === on, `focus mode ${on}`)
+  }
+
+  const [opened, alerted, confirmed, prompted, answered, left, home] = await ask(
+    session,
+    [
+      { name: 'preview_navigate', args: { path: `${site.url}/dialogs` } },
+      { wait: 6000 },
+      { name: 'preview_click', args: { selector: '#alert' } },
+      { name: 'preview_click', args: { selector: '#confirm' } },
+      { name: 'preview_click', args: { selector: '#prompt' } },
+      { name: 'preview_snapshot' },
+      { name: 'preview_click', args: { selector: '#leave' } },
+      { wait: 500 },
+      { name: 'preview_snapshot' },
+    ],
+    async () => {
+      // Gui answers the page's dialogs; Playwright, attached to it too, would try again and fail.
+      ;(await websitePage(session)).on('dialog', () => undefined)
+      // While the agent waits, its overlay lies over the whole website, in front of it.
+      const held = await waitFor(() => heldWebsite(session), 'the website held')
+      expect(held.overlay.visible).toBe(true)
+      expect(held.overlay.bounds).toEqual(held.site.bounds)
+      expect(held.overlay.index).toBeGreaterThan(held.site.index)
+      // A click there says why and never reaches the page.
+      const overlay = await waitFor(async () => {
+        for (const page of session.app.context().pages())
+          if (
+            page.url().endsWith('/pick.html') &&
+            (await page.locator('[data-guide="held"]').count())
+          )
+            return page
+        return undefined
+      }, 'the held overlay')
+      await overlay.mouse.click(60, 60)
+      await expect(
+        overlay.getByText('The agent is using this website. Stop it to use it yourself.'),
+      ).toBeVisible()
+      const page = await websitePage(session)
+      await expect(page.locator('#clicks')).toHaveText('0')
+      // Should the page take the keyboard, the overlay takes it instead: no key reaches the page.
+      // (A window in the background has no keyboard to watch, so this checks who's given it.)
+      expect(
+        await session.app.evaluate(
+          ({ webContents }, { site, overlay }) => {
+            const page = webContents.fromId(site)
+            const over = webContents.fromId(overlay)
+            if (!page || !over) return null
+            let given = false
+            const focus = over.focus.bind(over)
+            over.focus = () => {
+              given = true
+            }
+            page.emit('focus')
+            over.focus = focus
+            return given
+          },
+          { site: held.site.id, overlay: held.overlay.id },
+        ),
+      ).toBe(true)
+      // Esc there ends focus mode, as on the app's preview.
+      await focusMode(true)
+      await pressEscape(session, held.overlay.id)
+      await waitFor(async () => !(await session.state()).focusMode, 'focus mode to end')
+    },
+  )
+  expect(opened.isError, text(opened)).not.toBe(true)
+  // Nothing waited on the dialogs: alert got OK, confirm Cancel. (Electron has no prompt: it
+  // throws, or with one it would get no answer.)
+  for (const result of [alerted, confirmed, prompted])
+    expect(result.isError, text(result)).not.toBe(true)
+  expect(pageData(answered).text).toContain('confirmed false')
+  expect(pageData(answered).text).toMatch(/answered null|no prompt/)
+  // The agent heard what each said, fenced as the page's.
+  const heard = [alerted, confirmed, prompted, answered].map(text).join('\n')
+  expect(heard).toMatch(/<website_dialog_[0-9a-f]{8}>[\s\S]*Your trial ends in 3 days/)
+  expect(heard).toContain('Delete this project?')
+  expect(heard).toContain('untrusted')
+  // "Leave site?" let it go.
+  expect(left.isError, text(left)).not.toBe(true)
+  expect(text(left) + text(home)).toContain('beforeunload: Leave site? → Leave')
+  expect(pageData(home).url).toBe(`${site.url}/`)
+
+  // The turn over, the website is the user's: nothing holds it, and Esc on it ends focus mode.
+  await waitFor(async () => !(await heldWebsite(session)), 'the website let go')
+  const siteId = await session.app.evaluate(
+    ({ webContents }, host) =>
+      webContents.getAllWebContents().find((wc) => wc.getURL().includes(host))?.id ?? null,
+    HOST,
+  )
+  if (siteId === null) throw new Error('The website closed')
+  await focusMode(true)
+  await pressEscape(session, siteId)
+  await waitFor(async () => !(await session.state()).focusMode, 'focus mode to end on the website')
 })
