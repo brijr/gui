@@ -2,7 +2,7 @@ import { constants } from 'node:fs'
 import { access, lstat, realpath } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 import type { GitHubProfile } from '../shared/github'
-import type { SourceControlWorkspace } from '../shared/source-control'
+import { GIT_MESSAGES, type SourceControlWorkspace } from '../shared/source-control'
 import type { ShipFile, ShipInfo } from '../shared/types'
 import { developerTools, GIT_TOOLS_MISSING } from './developer-tools'
 import { execFile } from './process'
@@ -81,6 +81,17 @@ const IN_PROGRESS = [
   'REVERT_HEAD',
   'BISECT_LOG',
 ]
+
+/**
+ * The name and email every commit on this Mac is made with, as the user typed them in Gui
+ * (Add name and email…). Writes the user's global Git config, so Gui asks only once.
+ */
+export async function saveIdentity(name: string, email: string) {
+  const env = await commandEnv()
+  const home = env.HOME || process.env.HOME || '/'
+  await runGit(home, env, ['config', '--global', 'user.name', name])
+  await runGit(home, env, ['config', '--global', 'user.email', email])
+}
 
 /** Beginners can commit without global git setup. Existing identity always wins. */
 export async function applyConnectedIdentity(repo: At, profile: GitHubProfile) {
@@ -518,15 +529,9 @@ export async function commitError(repo: Repo, error: unknown): Promise<string> {
   const output = error.output
   if (error.missing) return GIT_MISSING
   if (error.timedOut) {
-    return 'Saving the commit took too long, so Gui stopped it. A check that runs before each commit may be stuck.'
+    return 'Committing took too long, so Gui stopped it. A check that runs before each commit may be stuck.'
   }
-  if (
-    /Author identity unknown|Committer identity unknown|tell me who you are|unable to auto-detect email|empty ident name/i.test(
-      output,
-    )
-  ) {
-    return 'Git needs your name and email before it can commit. Add them in GitHub Desktop (Settings → Git), or run `git config --global user.name "Your Name"` and `git config --global user.email you@example.com`, then try again.'
-  }
+  if (isIdentityError(output)) return GIT_MESSAGES.identity
   if (/nothing (added )?to commit|no changes added to commit/i.test(output)) return NOTHING_TO_SHIP
   if (/index\.lock|another git process/i.test(output)) {
     return 'Another Git app is working in this project right now. Wait a moment, then try again.'
@@ -542,6 +547,13 @@ export async function commitError(repo: Repo, error: unknown): Promise<string> {
     return `A check in this project stopped the commit:\n${tail(output)}`
   }
   return `Couldn’t commit:\n${tail(output)}`
+}
+
+/** Git refused to commit (or merge) for want of a name and email. */
+export function isIdentityError(output: string) {
+  return /Author identity unknown|Committer identity unknown|tell me who you are|unable to auto-detect email|empty ident name/i.test(
+    output,
+  )
 }
 
 export async function hasHook(repo: Repo, names: string[]): Promise<boolean> {

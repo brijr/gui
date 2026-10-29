@@ -4,14 +4,16 @@ import type {
   SourceControlRequest,
   SourceControlResult,
 } from '../../../shared/source-control'
-import type { ShipDraft, ShipInfo, ShipRequest, ShipResult } from '../../../shared/types'
+import type { ShipDraft, ShipInfo, ShipRequest } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
-import { refreshProposal } from './proposal-state'
+import { refreshProposal, share } from './proposal-state'
+
+export { linkTarget, openExternal, opensByItself } from './proposal-state'
 
 type Loaded =
   | { kind: 'loading' }
-  | { kind: 'blocked'; message: string }
+  | { kind: 'blocked'; message: string; untrusted?: boolean }
   | { kind: 'ready'; info: ShipInfo }
 
 interface ShipSheetStore {
@@ -20,15 +22,16 @@ interface ShipSheetStore {
   draft: ShipRequest | null
   proposed: ShipDraft | null
   busy: boolean
-  action: SourceControlRequest['kind'] | null
+  action: SourceControlRequest['kind'] | 'share' | null
   error: string | null
+  /** Runs the action that failed again, for the error's own button (Add name and email…) */
+  retry: (() => void) | null
   notice: string | null
   createOpen: boolean
   /** The branch picker is open */
   pickerOpen: boolean
   /** The new-worktree dialog is open */
   worktreeOpen: boolean
-  reviewDraft: { title: string; body: string } | null
   pendingProposal: ShipDraft | null
   edited: boolean
   root: string | null
@@ -41,11 +44,11 @@ const CLOSED: ShipSheetStore = {
   busy: false,
   action: null,
   error: null,
+  retry: null,
   notice: null,
   createOpen: false,
   pickerOpen: false,
   worktreeOpen: false,
-  reviewDraft: null,
   pendingProposal: null,
   edited: false,
   root: null,
@@ -109,7 +112,8 @@ export async function loadShipInfo() {
   try {
     const info = await gui.getShipInfo()
     if (!info) loaded = { kind: 'blocked', message: 'Open a project first.' }
-    else if (info.blocked) loaded = { kind: 'blocked', message: info.blocked }
+    else if (info.blocked)
+      loaded = { kind: 'blocked', message: info.blocked, untrusted: info.untrusted === true }
     else loaded = { kind: 'ready', info }
   } catch (error) {
     loaded = { kind: 'blocked', message: readableError(error) }
@@ -184,15 +188,17 @@ export async function performSourceControl(action: SourceControlAction) {
   if (state.busy || state.loaded.kind !== 'ready' || !state.loaded.info.workspace) return
   const expected = state.loaded.info.workspace
   const current = generation
-  useShipSheet.setState({ busy: true, action: action.kind, error: null, notice: null })
+  useShipSheet.setState({ busy: true, action: action.kind, error: null, notice: null, retry: null })
   try {
     const result = await gui.sourceControl({ ...action, expected })
     if (current !== generation) return
-    applyResult(result, state.draft)
-    if ((result.outcome === 'created' || result.outcome === 'compare') && result.url)
-      openExternal(result.url)
+    applyResult(result)
   } catch (error) {
-    if (current === generation) useShipSheet.setState({ error: readableError(error) })
+    if (current === generation)
+      useShipSheet.setState({
+        error: readableError(error),
+        retry: () => void performSourceControl(action),
+      })
   } finally {
     if (current === generation) {
       await loadShipInfo()
@@ -201,15 +207,9 @@ export async function performSourceControl(action: SourceControlAction) {
     }
   }
 }
-function applyResult(result: SourceControlResult, before: ShipRequest | null) {
-  if (result.outcome === 'branch-required') {
-    useShipSheet.setState({ createOpen: true })
-    return
-  }
-  if (result.outcome === 'cancelled') {
-    useShipSheet.setState({ notice: 'Push cancelled.' })
-    return
-  }
+function applyResult(result: SourceControlResult) {
+  // Not trusted, or not pushed straight to main: the user said no, so nothing to say.
+  if (result.outcome === 'cancelled') return
   if (result.outcome === 'switched' || result.outcome === 'created-branch') {
     useShipSheet.setState(({ draft }) => ({
       createOpen: false,
@@ -221,17 +221,11 @@ function applyResult(result: SourceControlResult, before: ShipRequest | null) {
     useShipSheet.setState(({ draft }) => ({
       draft: draft ? { ...draft, title: '', body: '', files: [] } : null,
       proposed: null,
-      reviewDraft: before ? { title: before.title, body: before.body } : null,
-      notice: `Commit saved · ${result.commit} on ${result.branch}.`,
+      notice: `Committed ${result.commit} on ${result.branch}. It stays on this Mac until you push.`,
     }))
-  } else if (result.outcome === 'pushed') {
-    useShipSheet.setState({
-      notice: `Pushed saved commits from ${result.branch}. Uncommitted edits stay here.`,
-    })
   } else {
     useShipSheet.setState({
-      notice: `Pull request ${result.outcome === 'created' ? 'created' : 'ready to finish in your browser'}.`,
-      draft: before,
+      notice: `Pushed ${result.branch}. Uncommitted changes stay on this Mac.`,
     })
   }
 }
@@ -246,37 +240,39 @@ export async function submitShip(info: ShipInfo) {
   })
 }
 
-/** The chat window hands window.open to the system browser (guardAppContents in window.ts). */
-export function openExternal(url: string) {
-  if (/^https?:\/\//.test(url)) window.open(url, '_blank', 'noopener')
-}
-
-/** Hosts whose pull request pages Gui builds itself. */
-const KNOWN_HOSTS = new Map([
-  ['github.com', 'GitHub'],
-  ['gitlab.com', 'GitLab'],
-])
-
 /**
- * Where a result's link goes: its host as shown on the button, and the host's name when
- * it's github.com or gitlab.com over https. Exported for tests.
+ * Create pull request, the same as the bar's: the chosen files committed with this message
+ * (on a new branch from main), pushed, and the pull request created. Back in the chat, the
+ * bar shows how it went.
  */
-export function linkTarget(url: string | null): { host: string; known: string | null } | null {
-  if (!url) return null
+export async function shareFromSheet() {
+  const state = useShipSheet.getState()
+  if (state.busy || state.loaded.kind !== 'ready' || !state.draft) return
+  const { info } = state.loaded
+  const draft = state.draft
+  const current = generation
+  useShipSheet.setState({ busy: true, action: 'share', error: null, notice: null, retry: null })
   try {
-    const { protocol, host, hostname } = new URL(url)
-    if (protocol !== 'https:' && protocol !== 'http:') return null
-    return { host, known: (protocol === 'https:' && KNOWN_HOSTS.get(hostname)) || null }
-  } catch {
-    return null
+    const result = await share(() =>
+      gui.ship({
+        mode: 'share',
+        branch: info.suggestion.branch,
+        title: draft.title.trim() || info.suggestion.title,
+        body: draft.body,
+        files: draft.files ?? [],
+      }),
+    )
+    if (current !== generation || result.outcome === 'cancelled') return
+    useShipSheet.setState({ busy: false, action: null })
+    closeShipSheet()
+  } catch (error) {
+    if (current === generation)
+      useShipSheet.setState({ error: readableError(error), retry: () => void shareFromSheet() })
+  } finally {
+    if (current === generation) {
+      await loadShipInfo()
+      useShipSheet.setState({ busy: false, action: null })
+    }
+    void refreshProposal()
   }
-}
-
-/**
- * Only the new-pull-request page Gui built for github.com or gitlab.com opens without a
- * click. Any other link (a self-hosted server's, or one a server printed while pushing)
- * waits behind a button that names its host. Exported for tests.
- */
-export function opensByItself(result: ShipResult): boolean {
-  return result.outcome === 'compare' && Boolean(linkTarget(result.url)?.known)
 }

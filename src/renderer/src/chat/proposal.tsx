@@ -13,6 +13,7 @@ import {
   type IconComponent,
   MessageSquare,
   RotateCw,
+  Shield,
   SquarePen,
   Trash2,
   TriangleAlert,
@@ -21,16 +22,21 @@ import { Badge } from '../lib/status'
 import { Banner, Card, Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, IconButton, TextButton } from '../lib/ui'
+import { GitErrorAction } from './git-actions'
 import { Markdown } from './markdown'
 import {
   type Action,
   act,
+  linkTarget,
   markHandled,
+  openExternal,
   openReview,
   refreshProposal,
+  type ShareDone,
+  share,
   useProposal,
 } from './proposal-state'
-import { linkTarget, opensByItself, useShipSheet } from './shipping-state'
+import { useShipSheet } from './shipping-state'
 import { useVersions } from './versions-state'
 
 export { refreshProposal, useProposal } from './proposal-state'
@@ -40,7 +46,7 @@ import { useChat } from './store'
 /**
  * The bar over the chat that says where the work stands on its way into the shared project,
  * in a designer's words: not shared yet, in review, changes requested, merged. It offers the
- * one next move (share, review the comments, bring in the latest, start something new), and
+ * one next move (share, review the comments, get the latest, start something new), and
  * the review sheet turns each reviewer comment into a message for the agent.
  */
 
@@ -133,11 +139,6 @@ function plural(count: number, one: string, many = `${one}s`) {
   return `${count} ${count === 1 ? one : many}`
 }
 
-/** The chat window hands window.open to the system browser. */
-function openExternal(url: string) {
-  if (/^https:\/\//.test(url)) window.open(url, '_blank', 'noopener')
-}
-
 /**
  * Over the transcript; absent when there's nothing to say (no repo, nothing changed). The
  * branch itself is in the toolbar, whose branch menu opens Source Control.
@@ -150,14 +151,16 @@ export function ProposalBar() {
   const comments = useOpenComments()
   const agentBusy = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
   const draft = useProposal((s) => s.draft)
-  const finish = useProposal((s) => s.finish)
+  const done = useProposal((s) => s.done)
+  const retry = useProposal((s) => s.retry)
   if (!proposal) return null
 
   const bar = barFor(proposal, comments.length, busy, agentBusy, shipBusy, draft)
+  const dismiss = () => useProposal.setState({ error: null, retry: null })
   return (
     <>
       {bar}
-      {finish && <FinishOnHost url={finish} />}
+      {done && <Done done={done} />}
       {error && (
         <Banner
           tone="danger"
@@ -165,9 +168,12 @@ export function ProposalBar() {
           role="alert"
           className="h-auto min-h-9 py-1.5 [&>div]:whitespace-normal"
           actions={
-            <TextButton tone="muted" onClick={() => useProposal.setState({ error: null })}>
-              Dismiss
-            </TextButton>
+            <>
+              <GitErrorAction error={error} retry={retry} onDone={dismiss} />
+              <TextButton tone="muted" onClick={dismiss}>
+                Dismiss
+              </TextButton>
+            </>
           }
         >
           {error}
@@ -188,6 +194,34 @@ function barFor(
   const { pull, merge } = proposal
   const latest = proposal.defaultBranch ?? 'main'
   const disabled = busy !== null || agentBusy
+
+  // Gui doesn't run Git until the project is trusted: no branch, no commits, until it is.
+  if (!proposal.trusted) {
+    return (
+      <Strip
+        icon={Shield}
+        role="status"
+        actions={
+          <Button
+            size="sm"
+            disabled={busy !== null}
+            loading={busy === 'trust'}
+            onClick={() =>
+              void act('trust', async () => {
+                await gui.trustProject()
+              })
+            }
+          >
+            Trust project…
+          </Button>
+        }
+      >
+        <span className="text-pretty">
+          Gui needs your OK to use Git in this project, to keep your work on its own branch.
+        </span>
+      </Strip>
+    )
+  }
   // The one button that takes the work forward: commit, and when it's online, push and
   // create or update the pull request, all at once.
   const shareButton = (
@@ -197,13 +231,17 @@ function barFor(
       disabled={disabled || shipBusy}
       loading={busy === 'share'}
       title={agentBusy ? 'Wait for the agent to finish' : shareHint(proposal, draft)}
-      onClick={() => share(draft)}
+      onClick={() =>
+        void act('share', async () => {
+          await share(() => gui.share(draft))
+        })
+      }
     >
       {shareLabel(proposal, draft)}
     </Button>
   )
 
-  // Bringing in the latest stopped on conflicts: the agent resolves them, Gui finishes.
+  // Getting the latest stopped on conflicts: the agent resolves them, Gui finishes.
   if (merge) {
     const left = merge.marked.length
     return (
@@ -218,9 +256,10 @@ function barFor(
               variant="ghost"
               disabled={disabled}
               loading={busy === 'cancel'}
+              title={`Go back to how this branch was before getting the latest from ${latest}`}
               onClick={() => void act('cancel', () => gui.cancelMerge())}
             >
-              Cancel
+              Undo get latest
             </Button>
             {left > 0 ? (
               <Button
@@ -249,7 +288,7 @@ function barFor(
         <span className="truncate">
           {left > 0
             ? `${plural(left, 'file')} conflict with the latest ${latest}`
-            : 'Conflicts fixed. Finish bringing in the latest.'}
+            : 'Conflicts fixed. Finish getting the latest.'}
         </span>
       </Strip>
     )
@@ -301,7 +340,7 @@ function barFor(
       icon={RotateCw}
       disabled={disabled}
       loading={busy === 'bringIn'}
-      title={`Bring the newest changes from ${latest} into this work`}
+      title={`Get the newest commits from ${latest} into this work`}
       onClick={() => void act('bringIn', () => gui.bringInLatest())}
     >
       {label}
@@ -374,7 +413,7 @@ function barFor(
             size="sm"
             disabled={disabled}
             loading={busy === 'stay'}
-            title={`Edit ${from} directly instead of starting a separate branch`}
+            title={`Work on ${from} directly, without a new branch`}
             onClick={() => void act('stay', () => gui.stayOnBranch())}
           >
             Stay on {from}
@@ -382,8 +421,7 @@ function barFor(
         }
       >
         <span className="text-pretty">
-          Your first message starts a separate version of this project, called a Git branch. {from}{' '}
-          stays unchanged.
+          Your first message starts a new branch, so {from} stays as it is.
         </span>
       </Strip>
     )
@@ -394,7 +432,7 @@ function barFor(
     return (
       <Strip icon={RotateCw} role="status" actions={bringIn('Get latest')}>
         <span className="truncate">
-          {plural(behind, 'new update')} on {latest}
+          {latest} has {plural(behind, 'new commit')}
         </span>
       </Strip>
     )
@@ -402,54 +440,68 @@ function barFor(
   return null
 }
 
+/**
+ * Main, when the work lands right on it (Stay on main, or commits made there by hand). The
+ * button names it then, since that's where everyone else gets the work from.
+ */
+function landsOn(proposal: Proposal) {
+  if (!proposal.onDefaultBranch || !proposal.branch) return null
+  return proposal.stayOnBranch || proposal.changes === 0 ? proposal.branch : null
+}
+
 /** What the bar's button does, in the words the glossary uses for each step. */
 function shareLabel(proposal: Proposal, draft: ShipDraft | null) {
   const { pull, remote } = proposal
-  if (remote === null || draft?.mode === 'commit') return 'Commit'
+  const main = landsOn(proposal)
+  if (remote === null || draft?.mode === 'commit') return main ? `Commit to ${main}` : 'Commit'
   if (pull && (pull.state === 'open' || pull.state === 'draft')) return 'Update pull request'
+  // Gui asks before pushing to main.
+  if (main) return proposal.changes > 0 ? `Commit and push to ${main}` : `Push to ${main}`
   if (remote === 'other') return proposal.changes > 0 ? 'Commit and push' : 'Push'
-  // Commits made on main by hand: they're pushed there, after Gui asks.
-  if (proposal.onDefaultBranch && proposal.changes === 0) return 'Push'
   return 'Create pull request'
 }
 
 function shareHint(proposal: Proposal, draft: ShipDraft | null) {
   const files = 'Commits every change except files that may hold secrets'
-  if (proposal.remote === null || draft?.mode === 'commit') return `${files}. It stays on this Mac.`
-  const branch = proposal.onDefaultBranch && proposal.changes > 0 ? ', on a new branch' : ''
-  return `${files}${branch}, then pushes it.`
+  const main = landsOn(proposal)
+  const where = main
+    ? ` to ${main}`
+    : proposal.onDefaultBranch && proposal.changes > 0
+      ? ', on a new branch'
+      : ''
+  if (proposal.remote === null || draft?.mode === 'commit')
+    return `${files}${where}. It stays on this Mac.`
+  if (main && proposal.changes === 0) return `Pushes your commits to ${main}, after Gui asks.`
+  if (main) return `${files}${where}, then pushes it after Gui asks.`
+  return `${files}${where}, then pushes it.`
 }
 
-/** Runs the bar's button; a pull request the host can't create here opens on its website. */
-function share(draft: ShipDraft | null) {
-  void act('share', async () => {
-    const result = await gui.share(draft)
-    useProposal.setState({ draft: null, finish: null })
-    if (result.outcome !== 'compare' || !result.url) return
-    if (opensByItself(result)) openExternal(result.url)
-    else useProposal.setState({ finish: result.url })
-  })
-}
-
-/** Pushed, with the pull request still to be created on the host's website. */
-function FinishOnHost({ url }: { url: string }) {
-  const host = linkTarget(url)?.host ?? 'the website'
+/** What sharing did, until the next change: a commit kept here, a push, a pull request to finish. */
+function Done({ done }: { done: ShareDone }) {
+  const host = done.url ? (linkTarget(done.url)?.host ?? 'the website') : null
   return (
     <Strip
-      icon={GitPullRequest}
+      icon={done.url ? GitPullRequest : Check}
       role="status"
       actions={
         <>
-          <Button size="sm" variant="primary" icon={ExternalLink} onClick={() => openExternal(url)}>
-            Open {host}
-          </Button>
-          <TextButton tone="muted" onClick={() => useProposal.setState({ finish: null })}>
+          {done.url && (
+            <Button
+              size="sm"
+              variant="primary"
+              icon={ExternalLink}
+              onClick={() => done.url && openExternal(done.url)}
+            >
+              Open {host}
+            </Button>
+          )}
+          <TextButton tone="muted" onClick={() => useProposal.setState({ done: null })}>
             Dismiss
           </TextButton>
         </>
       }
     >
-      <span className="text-pretty">Pushed. Create the pull request on {host} to finish.</span>
+      <span className="text-pretty">{done.text}</span>
     </Strip>
   )
 }

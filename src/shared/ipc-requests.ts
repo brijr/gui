@@ -60,6 +60,9 @@ export interface AllIpcRequests {
   [Invoke.ship]: Contract<'ship'>
   [Invoke.share]: Contract<'share'>
   [Invoke.stayOnBranch]: Contract<'stayOnBranch'>
+  [Invoke.trustProject]: Contract<'trustProject'>
+  [Invoke.setGitIdentity]: Contract<'setGitIdentity'>
+  [Invoke.openGitHubSettings]: Contract<'openGitHubSettings'>
   [Invoke.sourceControl]: Contract<'sourceControl'>
   [Invoke.getProposal]: Contract<'getProposal'>
   [Invoke.startFresh]: Contract<'startFresh'>
@@ -140,6 +143,7 @@ export type LegacyErrorChannel =
   | typeof Invoke.startFresh
   | typeof Invoke.bringInLatest
   | typeof Invoke.stayOnBranch
+  | typeof Invoke.setGitIdentity
   | typeof Invoke.finishMerge
   | typeof Invoke.cancelMerge
   | typeof Invoke.resolveConflicts

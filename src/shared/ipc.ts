@@ -96,6 +96,9 @@ export const Invoke = {
   ship: 'ship:run',
   share: 'ship:share',
   stayOnBranch: 'proposal:stay-on-branch',
+  trustProject: 'proposal:trust-project',
+  setGitIdentity: 'git:set-identity',
+  openGitHubSettings: 'settings:open-github',
   sourceControl: 'source-control:run',
   getProposal: 'proposal:get',
   startFresh: 'proposal:start-fresh',
@@ -748,17 +751,25 @@ export interface GuiApi {
   /** Commits, pushes and opens the PR; rejects with a readable message */
   ship(request: ShipRequest): Promise<ShipResult>
   /**
-   * The bar's one button: commits every eligible change (secrets left out), and with a remote
-   * pushes it and creates or updates the pull request. On main it goes on a new branch first.
+   * The bar's one button: commits every eligible change (secrets left out), and when the
+   * project is online pushes it and creates or updates the pull request. On main it goes on a
+   * new branch first, unless the project stays on main.
    * `draft` is the agent's proposal, when it made one. Rejects with a readable message.
    */
   share(draft: ShipDraft | null): Promise<ShipResult>
   /** The first message won't start a new branch: work stays on main, here and from now on */
   stayOnBranch(): Promise<void>
+  /** Asks to trust the project (so Gui may run Git here); true once it is */
+  trustProject(): Promise<boolean>
+  /** Saves the name and email Git commits with, in the user's global Git config */
+  setGitIdentity(name: string, email: string): Promise<void>
+  /** Opens Settings at GitHub, from the chat (after GitHub turned a push away) */
+  openGitHubSettings(): Promise<void>
   sourceControl(request: SourceControlRequest): Promise<SourceControlResult>
   /**
-   * Where the work stands as a pull request; null without a project or before Gui may run
-   * Git there. `refresh` also gets the latest from the remote (at most every few minutes).
+   * Where the work stands as a pull request; null without a project or repository, and
+   * `trusted: false` before Gui may run Git there. `refresh` also fetches (at most every few
+   * minutes).
    */
   getProposal(refresh?: boolean): Promise<Proposal | null>
   /** Archives this chat and starts the next idea from the latest; rejects with a message */

@@ -28,8 +28,8 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
           Trusted projects
         </GroupLabel>
         <p className="text-pretty text-small text-muted">
-          Gui starts a trusted project's dev server without asking. Revoking makes it ask again next
-          time.
+          In a trusted project, Gui runs the dev server and Git, and agents use the project's own
+          settings, without asking. Revoking makes Gui ask again next time.
         </p>
         {trustedProjects.length > 0 ? (
           <List>
@@ -65,8 +65,9 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
             Stay on main
           </GroupLabel>
           <p className="text-pretty text-small text-muted">
-            In these projects, work goes straight onto the main branch. Use new branches to have the
-            first message start a branch again, so main stays as it is.
+            In these projects, the first message doesn't start a new branch, and the button over the
+            chat commits to main and pushes there after asking. Use new branches to start a branch
+            from the first message again, so main stays as it is.
           </p>
           <List>
             {defaultBranchProjects.map((root) => (

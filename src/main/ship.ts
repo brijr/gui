@@ -49,8 +49,10 @@ export {
   tail,
 } from './git'
 
+import type { GitHubProfile } from '../shared/github'
+import { GIT_MESSAGES } from '../shared/source-control'
 import type { ShipFile, ShipInfo, ShipRequest, ShipResult } from '../shared/types'
-import { CredentialUnavailable, connectedGitHub, pullGitHub, pushGitHub } from './github'
+import { CredentialUnavailable, connectedGitHub, getGitHub, pullGitHub, pushGitHub } from './github'
 
 /**
  * Turning the project's uncommitted changes into a pull request: what would be
@@ -59,8 +61,13 @@ import { CredentialUnavailable, connectedGitHub, pullGitHub, pushGitHub } from '
  */
 
 const NOTHING_TO_SHIP = 'No changes to share yet.'
+const NOT_ONLINE = 'This project isn’t online yet. Commits stay on this Mac.'
 
-export async function shipInfo(root: string, prompts: string[]): Promise<ShipInfo> {
+/**
+ * What Source Control and the bar would commit, and where. `stay` is Stay on main: the
+ * suggestion is the current branch, wherever that is, rather than a new one.
+ */
+export async function shipInfo(root: string, prompts: string[], stay = false): Promise<ShipInfo> {
   let repo: Repo
   try {
     repo = await openRepo(root)
@@ -81,7 +88,7 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
       ? filesTitle(files)
       : ((await gitOrNull(repo, ['log', '-1', '--format=%s'])) ?? 'Update')
   const branch =
-    (newBranch && (files.length > 0 || !pendingCommits)) || repo.branch === null
+    repo.branch === null || (!stay && newBranch && (files.length > 0 || !pendingCommits))
       ? uniqueBranch(`gui/${slugify(title)}`, repo)
       : repo.branch
 
@@ -95,6 +102,7 @@ export async function shipInfo(root: string, prompts: string[]): Promise<ShipInf
     skipped: repo.skipped,
     remote: repo.remote && { host: repo.remote.host, repo: repo.remote.repo },
     suggestion: { branch, title, body: bulletList(cleaned, title) },
+    stayOnBranch: stay,
   }
 }
 
@@ -118,12 +126,13 @@ async function shipUnlocked(
   if (request.mode === 'commit' && repo.changes.length === 0) {
     throw new Error('No changes to commit. Push sends the commits you already have.')
   }
-  // Validate the selection before switching branches or changing the index.
-  const pushOnly =
-    request.mode !== 'commit' &&
-    request.branch.trim() === repo.branch &&
-    (await aheadOfRemote(repo, request.branch.trim()))
-  selectChanges(repo.changes, request.files, pushOnly)
+  // Validate the selection before switching branches or changing the index. With nothing
+  // to commit, the branch's commits may still need pushing, or (pushed already, from
+  // Source Control) only the pull request is left to create.
+  const onBranch = request.mode !== 'commit' && request.branch.trim() === repo.branch
+  const pushOnly = onBranch && (await aheadOfRemote(repo, request.branch.trim()))
+  const pullOnly = onBranch && !pushOnly && published(repo, request.branch.trim())
+  selectChanges(repo.changes, request.files, pushOnly || pullOnly)
 
   const connected =
     repo.remote?.host === 'github' && repo.remote.web === 'github.com'
@@ -133,12 +142,12 @@ async function shipUnlocked(
           return null
         })
       : null
-  if (connected) await applyConnectedIdentity(repo, connected.profile)
+  await fillIdentity(repo, connected?.profile)
 
   const title = request.title.replace(/\s+/g, ' ').trim()
   const body = request.body.trim()
   const branch = request.branch.trim()
-  if (!title) throw new Error('Add a title first.')
+  if (!title) throw new Error('Add a commit message first.')
   await assertBranchName(repo, branch)
 
   // The title and description go to the host too, and the branch name with the push.
@@ -185,7 +194,7 @@ async function shipUnlocked(
       await undo()
       throw new Error(await commitError(repo, error))
     }
-  } else if (!(await aheadOfRemote(repo, branch))) {
+  } else if (!pullOnly && !(await aheadOfRemote(repo, branch))) {
     await undo()
     throw new Error(NOTHING_TO_SHIP)
   }
@@ -197,8 +206,38 @@ async function shipUnlocked(
 
   const base = pullRequestBase(repo, remote, start, branch)
   const current = await openRepo(root)
-  const output = await pushSavedCommits(current, branch, branch, actions)
+  let output = ''
+  if (await aheadOfRemote(current, branch)) {
+    try {
+      output = await pushSavedCommits(current, branch, branch, actions)
+    } catch (error) {
+      if (!(error instanceof PushCancelled)) throw error
+      // Not pushing straight to main: what was committed stays, on this Mac.
+      return changes.length > 0
+        ? { branch, commit, outcome: 'committed', url: null }
+        : { branch, commit, outcome: 'cancelled', url: null }
+    }
+  }
   return openPullRequest(current, branch, base, title, body, output)
+}
+
+/** On the host already, as a branch of its own a pull request can come from. */
+function published(repo: Repo, branch: string): boolean {
+  return (
+    repo.remote !== null &&
+    branch !== repo.defaultBranch &&
+    !SHARED_BRANCHES.has(branch) &&
+    repo.refs.has(`refs/remotes/${repo.remote.name}/${branch}`)
+  )
+}
+
+/**
+ * Without a name and email of its own, Git commits as the GitHub account connected to Gui
+ * (any repository's). Only for this command: nothing is written to the user's Git config.
+ */
+export async function fillIdentity(repo: Repo, profile?: GitHubProfile | null) {
+  const found = profile ?? (await getGitHub().catch(() => null))?.profile
+  if (found) await applyConnectedIdentity(repo, found)
 }
 
 export async function connectedFor(repo: Repo) {
@@ -208,19 +247,22 @@ export async function connectedFor(repo: Repo) {
 }
 
 export interface PushWarning {
-  remote: string
   branch: string
   count: number
+  /** Where it goes, as the user knows it (GitHub, GitLab, a server's name); null when unknown */
+  host: string | null
 }
 
 export interface ShipActions {
   assertAvailable(): void
-  confirmPush(warning: PushWarning): Promise<'push' | 'cancel' | 'branch'>
+  /** True to push straight to the shared branch */
+  confirmPush(warning: PushWarning): Promise<boolean>
 }
 
+/** The user chose not to push to the shared branch. Not an error: callers end quietly. */
 export class PushCancelled extends Error {
-  constructor(readonly choice: 'cancel' | 'branch') {
-    super(choice === 'branch' ? 'Create a branch before pushing.' : 'Push cancelled.')
+  constructor() {
+    super('Not pushed.')
   }
 }
 
@@ -236,8 +278,8 @@ export async function pushSavedCommits(
   actions?: ShipActions,
 ) {
   const remote = repo.remote
-  if (!remote) throw new Error('This project has no remote configured.')
-  if (!repo.head) throw new Error('There are no saved commits to push.')
+  if (!remote) throw new Error(NOT_ONLINE)
+  if (!repo.head) throw new Error('There are no commits to push.')
   await assertBranchName(repo, destination)
   const snapshot = async () => {
     // Branches, HEAD and the remote are what a push depends on; not the uncommitted changes.
@@ -259,17 +301,18 @@ export async function pushSavedCommits(
   }
   const before = await snapshot()
   if (before.fresh.branch !== branch || before.fresh.head !== repo.head)
-    throw new Error('The branch changed. Refresh Source control before pushing.')
+    throw new Error('The branch changed while Gui was getting ready to push. Try again.')
   const connected = await connectedFor(repo)
   if (isSharedBranch(destination, repo.defaultBranch)) {
     if (!actions) throw new Error('Pushing to the shared branch requires confirmation in Gui.')
     const count = await outgoingCount(repo, { remote: remote.name, branch: destination })
-    const choice = await actions.confirmPush({ remote: remote.name, branch: destination, count })
-    if (choice !== 'push') throw new PushCancelled(choice)
+    const host = remote.web ? hostLabel(remote) : null
+    if (!(await actions.confirmPush({ branch: destination, count, host })))
+      throw new PushCancelled()
   }
   const after = await snapshot()
   if (before.key !== after.key)
-    throw new Error('The repository changed while preparing the push. Refresh and confirm again.')
+    throw new Error('The project changed while Gui was getting ready to push. Try again.')
   actions?.assertAvailable()
   const matchingUrls = after.urls
     .trim()
@@ -321,7 +364,7 @@ export async function openPullRequest(
   pushOutput = '',
 ): Promise<ShipResult> {
   const remote = repo.remote
-  if (!remote) throw new Error('This project has no remote configured.')
+  if (!remote) throw new Error(NOT_ONLINE)
   const commit = repo.head?.slice(0, 8) ?? ''
   const connected = await connectedFor(repo)
   // Committed straight onto the base branch: there's nothing to review.
@@ -344,7 +387,7 @@ export async function openPullRequest(
     : { branch, commit, outcome: 'pushed', url: null }
 }
 
-/** Whether `branch` has commits the remote doesn't, as far as this clone knows. */
+/** Whether `branch` has commits the host doesn't, as far as this clone knows. */
 async function aheadOfRemote(repo: Repo, branch: string): Promise<boolean> {
   const remote = repo.remote
   if (!remote || !repo.hasHead) return false
@@ -364,7 +407,7 @@ function startsNewBranch(repo: Repo): boolean {
 
 /**
  * The branch "On a new branch" promised when the project opened: `gui/<words from the first
- * message>`, made from HEAD and switched to; uncommitted edits come along. Null when the
+ * message>`, made from HEAD and switched to; uncommitted changes come along. Null when the
  * project has moved off `from` meanwhile, so there's nothing to do.
  */
 export async function startWorkBranch(root: string, from: string, prompt: string) {
@@ -475,7 +518,7 @@ async function unshippedPrompts(repo: Repo, prompts: string[]): Promise<string[]
   return fresh.length > 0 ? fresh : prompts
 }
 
-/** A local branch, or the remote's, already has this name. */
+/** A branch on this Mac, or online, already has this name. */
 export function branchTaken(repo: Pick<Repo, 'refs' | 'remote'>, name: string): boolean {
   return (
     repo.refs.has(`refs/heads/${name}`) ||
@@ -483,7 +526,7 @@ export function branchTaken(repo: Pick<Repo, 'refs' | 'remote'>, name: string): 
   )
 }
 
-/** `name`, or `name-2`, `name-3`… if a local or remote branch already has it. */
+/** `name`, or `name-2`, `name-3`… if a branch here or online already has it. */
 function uniqueBranch(name: string, repo: Repo): string {
   if (!branchTaken(repo, name)) return name
   for (let n = 2; ; n++) {
@@ -588,9 +631,7 @@ export function selectChanges(
   const paths = new Set(files)
   const selected = changes.filter((change) => paths.has(change.file.path))
   if (selected.length !== paths.size) {
-    throw new Error(
-      'The selected files changed. Reopen Source control to review the current files.',
-    )
+    throw new Error('The changed files are different now. Check the list, then try again.')
   }
   return selected
 }
@@ -781,11 +822,11 @@ async function pushError(repo: Repo, remote: Remote, branch: string, error: unkn
     )
   ) {
     return remote.host === 'github'
-      ? 'Couldn’t push: Gui couldn’t sign in to GitHub. Sign in with GitHub Desktop or `gh auth login`, then try again.'
+      ? GIT_MESSAGES.signIn
       : `Couldn’t push: Gui couldn’t sign in to ${where}. Check that you can push from your Git app, then try again.`
   }
   if (/\[rejected\]|non-fast-forward|fetch first|Updates were rejected/i.test(output)) {
-    return `Couldn’t push: \`${branch}\` on ${where} has changes that aren’t on this computer. Use a different branch name and try again.`
+    return `Couldn’t push: \`${branch}\` on ${where} has commits that aren’t on this Mac. Use a different branch name and try again.`
   }
   if (/\[remote rejected\]|pre-receive hook declined|GH0\d\d|protected branch/i.test(output)) {
     const said = tail(
@@ -811,5 +852,5 @@ async function pushError(repo: Repo, remote: Remote, branch: string, error: unkn
 function hostLabel(remote: Remote): string {
   if (remote.host === 'github') return 'GitHub'
   if (remote.host === 'gitlab') return 'GitLab'
-  return remote.web ?? 'the remote'
+  return remote.web ?? 'the server'
 }

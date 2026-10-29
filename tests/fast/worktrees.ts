@@ -66,6 +66,7 @@ mock.module('../../src/main/shell-env', () => ({ getShellEnv: async () => gitEnv
 mock.module('../../src/main/github', () => ({
   CredentialUnavailable: class extends Error {},
   connectedGitHub: async () => null,
+  getGitHub: async () => ({ configured: false, profile: null, repositories: [] }),
   pullGitHub: async () => null,
   pushGitHub: async () => undefined,
 }))

@@ -30,24 +30,27 @@ export type SourceControlAction =
   | { kind: 'create'; branch: string; base: string | null }
   | { kind: 'commit'; files: string[]; title: string; body: string }
   | { kind: 'push' }
-  | { kind: 'pull'; title: string; body: string }
 
 export type SourceControlRequest = { expected: GitContext } & SourceControlAction
 
 export interface SourceControlResult {
-  outcome:
-    | 'switched'
-    | 'created-branch'
-    | 'committed'
-    | 'pushed'
-    | 'created'
-    | 'compare'
-    | 'cancelled'
-    | 'branch-required'
+  outcome: 'switched' | 'created-branch' | 'committed' | 'pushed' | 'cancelled'
   branch: string | null
   commit?: string
-  url?: string | null
 }
+
+/**
+ * Messages the chat answers with a button rather than words alone: how errors that need the
+ * user to do something are recognised on the other side of IPC.
+ */
+export const GIT_MESSAGES = {
+  /** Git has no name and email to commit with: the chat asks for them (Add name and email…) */
+  identity: 'Git needs your name and email before it can commit.',
+  /** A push to GitHub was turned away for sign-in: the chat opens Settings → GitHub */
+  signIn: 'Gui couldn’t sign in to GitHub.',
+  /** The user hasn't trusted the project, so Gui doesn't run Git (Trust project…) */
+  untrusted: 'Gui needs your OK to use Git in this project.',
+} as const
 
 const bounded = (value: unknown, max: number): value is string =>
   typeof value === 'string' && value.length <= max && !value.includes('\0')
@@ -79,8 +82,6 @@ export function isSourceControlRequest(value: unknown): value is SourceControlRe
         bounded(request.title, 500) &&
         bounded(request.body, 20_000)
       )
-    case 'pull':
-      return bounded(request.title, 500) && bounded(request.body, 20_000)
     case 'push':
       return true
     default:

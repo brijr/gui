@@ -1,7 +1,6 @@
 import { resolve } from 'node:path'
 import type { SourceControlRequest, SourceControlResult } from '../shared/source-control'
 import {
-  applyConnectedIdentity,
   CommandError,
   commitError,
   git,
@@ -18,7 +17,7 @@ import {
   assertBranchName,
   commitChanges,
   connectedFor,
-  openPullRequest,
+  fillIdentity,
   PushCancelled,
   pushSavedCommits,
   type ShipActions,
@@ -37,7 +36,7 @@ function assertContext(
     expected.branch !== repo.branch ||
     expected.head !== repo.head
   )
-    throw new Error('The repository changed. Refresh Source control before continuing.')
+    throw new Error('The project changed while Gui was getting ready. Try again.')
   if (repo.problem) throw new Error(repo.problem)
 }
 
@@ -74,16 +73,14 @@ export async function sourceControl(
             (item) => item.name === request.branch && item.remote === request.remote,
           )
           if (!target)
-            throw new Error('That branch is no longer available. Refresh the branch list.')
+            throw new Error('That branch isn’t there anymore. Open the branch list again.')
           if (target.checkedOutElsewhere)
             throw new Error('That branch is checked out in another worktree.')
           if (request.branch === branch && request.remote === null)
             return { outcome: 'switched', branch }
           const local = repo.refs.has(`refs/heads/${request.branch}`)
           if (request.remote && local)
-            throw new Error(
-              'A local branch already has this name. Select the local branch instead.',
-            )
+            throw new Error('A branch on this Mac already has this name. Pick that one instead.')
           actions.assertAvailable()
           assertContext(await readContext(root), request)
           await gitAsUser(
@@ -108,9 +105,9 @@ export async function sourceControl(
             !repo.refs.has(base) &&
             !(base === `refs/heads/${branch}` && !repo.hasHead)
           )
-            throw new Error('The starting branch is no longer available. Refresh and try again.')
+            throw new Error('The branch to start from isn’t there anymore. Try again.')
           if (base !== null && !base.startsWith('refs/heads/') && !base.startsWith('refs/remotes/'))
-            throw new Error('Choose a local or remote branch to start from.')
+            throw new Error('Choose a branch to start from.')
           actions.assertAvailable()
           assertContext(await readContext(root), request)
           if (!repo.hasHead && (!base || base === `refs/heads/${branch}`))
@@ -128,7 +125,7 @@ export async function sourceControl(
         if (!(error instanceof CommandError)) throw error
         if (/overwritten|would be lost/i.test(error.output))
           throw new Error(
-            'Git cannot switch branches without overwriting your edits. Commit them or choose a new branch from the current one.',
+            'Git can’t switch branches without overwriting your uncommitted changes. Commit them, or start a new branch from this one.',
           )
         throw new Error(`Couldn’t switch branches:\n${tail(error.output, 4)}`)
       }
@@ -137,7 +134,7 @@ export async function sourceControl(
         branch: request.branch,
       }
     }
-    if (!branch) throw new Error('Create or select a branch first. HEAD is detached.')
+    if (!branch) throw new Error('You’re not on a branch. Create or switch to one first.')
     if (request.kind === 'commit') {
       const title = request.title.replace(/\s+/g, ' ').trim()
       const body = request.body.trim()
@@ -146,8 +143,7 @@ export async function sourceControl(
       const env = await checkFields(repo, title, body, branch)
       const leak = await findLeak(repo, changes, env)
       if (leak) throw new Error(leak)
-      const connected = await connectedFor(repo)
-      if (connected) await applyConnectedIdentity(repo, connected.profile)
+      await fillIdentity(repo, (await connectedFor(repo))?.profile)
       actions.assertAvailable()
       assertContext(await readContext(root), request)
       await unstage(repo, repo.stagedSecrets)
@@ -162,30 +158,16 @@ export async function sourceControl(
         commit: (await git(repo, ['rev-parse', '--short', 'HEAD'])).trim(),
       }
     }
+    // A push: creating the pull request is the bar's share flow (ship.ts), from the sheet too.
     const destination = await pushDestination(repo, branch)
-    if (!destination) throw new Error('This project has no remote configured.')
-    const ahead = await outgoingCount(repo, destination)
-    if (request.kind === 'push') {
-      if (!ahead) throw new Error('There are no saved commits to push.')
-      try {
-        await pushSavedCommits(repo, branch, destination.branch, actions)
-      } catch (error) {
-        if (error instanceof PushCancelled)
-          return { outcome: error.choice === 'branch' ? 'branch-required' : 'cancelled', branch }
-        throw error
-      }
-      return { outcome: 'pushed', branch }
+    if (!destination) throw new Error('This project isn’t online yet. Commits stay on this Mac.')
+    if (!(await outgoingCount(repo, destination))) throw new Error('There are no commits to push.')
+    try {
+      await pushSavedCommits(repo, branch, destination.branch, actions)
+    } catch (error) {
+      if (error instanceof PushCancelled) return { outcome: 'cancelled', branch }
+      throw error
     }
-    if (ahead) throw new Error('Push your saved commits before creating a pull request.')
-    if (!repo.refs.has(`refs/remotes/${destination.remote}/${destination.branch}`))
-      throw new Error('Push this branch before creating a pull request.')
-    if (destination.branch === repo.defaultBranch)
-      throw new Error('Create a separate branch for a pull request.')
-    if (repo.remote?.host === 'other')
-      throw new Error('This remote does not support a pull request link.')
-    const title = request.title.trim() || (await git(repo, ['log', '-1', '--format=%s'])).trim()
-    await checkFields(repo, title, request.body, branch)
-    actions.assertAvailable()
-    return openPullRequest(repo, destination.branch, repo.defaultBranch, title, request.body.trim())
+    return { outcome: 'pushed', branch }
   })
 }
