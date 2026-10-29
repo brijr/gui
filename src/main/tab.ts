@@ -1006,6 +1006,8 @@ export class ProjectTab implements ChatPanelOwner {
         this.closeWebsite()
         this.websiteClosedNote = null
       }
+      // Once the turn ends, the website is the user's to use.
+      this.holdWebsite()
       // Working, or a permission card answered: the tab strip shows it.
       this.host.tabChanged(this, false)
     })
@@ -1443,7 +1445,15 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** The keyboard to the page (focus mode, where Esc on it ends focus mode). */
   focusPreview() {
-    ;(this.website?.view ?? this.preview).webContents.focus()
+    this.pageKeyboard().focus()
+  }
+
+  /** What takes the keyboard for the page: a website's overlay while the agent's turn holds it. */
+  private pageKeyboard() {
+    const website = this.website
+    if (website?.picker.holding && website.picker.view.getVisible())
+      return website.picker.view.webContents
+    return (website?.view ?? this.preview).webContents
   }
 
   /**
@@ -1456,7 +1466,7 @@ export class ProjectTab implements ChatPanelOwner {
     const panes = [{ contents: chrome, focus: () => chrome.focus() }]
     const page = this.website?.view ?? this.preview
     if (page.getVisible())
-      panes.push({ contents: page.webContents, focus: () => this.focusPreview() })
+      panes.push({ contents: this.pageKeyboard(), focus: () => this.focusPreview() })
     if (this.chatView.getVisible() && !this.panel.popoutWindow)
       panes.push({ contents: this.chatView.webContents, focus: () => this.panel.focusChat() })
     const at = panes.findIndex((pane) => pane.contents.isFocused())
@@ -1818,7 +1828,23 @@ export class ProjectTab implements ChatPanelOwner {
       contentView.addChildView(website.picker.view, chat === -1 ? undefined : chat + 1)
     }
     this.patchPreview({ website: url.toString() })
+    // Shown mid-turn: held (`holdWebsite`, from layout) until the turn ends.
     this.layout()
+  }
+
+  /**
+   * While the agent's turn uses the website, the user's pointer and keys don't reach it, so
+   * what the agent did stays the agent's and nothing the user types lands in its throwaway
+   * session: a guide's overlay lies over the page (a click there says why) and takes the
+   * keyboard (website.ts `hold`). The wheel still scrolls the page. Once the turn ends, the
+   * website is the user's to use.
+   */
+  private holdWebsite() {
+    const website = this.website
+    if (!website || website.closed) return
+    const held = this.resources.chat?.turnRunning === true
+    if (held && !website.picker.guiding) this.guideStep(website.picker, null, null)
+    website.hold(held)
   }
 
   /** Back to the app: the website closes and its session is wiped for the next one. */
@@ -1876,6 +1902,11 @@ export class ProjectTab implements ChatPanelOwner {
       clicked: () => {
         this.keyboardBeforeLoad = null
       },
+      escape: () => {
+        if (!this.host.focusMode || !this.host.isActive(this)) return false
+        this.host.setFocusMode(false)
+        return true
+      },
     }
   }
 
@@ -1909,11 +1940,11 @@ export class ProjectTab implements ChatPanelOwner {
     await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
   }
 
-  /** The user clicked the walkthrough away, or it ran its course. */
+  /** The user clicked the walkthrough away, or it ran its course. A held website keeps its own. */
   endGuide() {
     this.clearGuideEnd()
     this.picker.endGuide()
-    this.website?.picker.endGuide()
+    if (!this.website?.picker.holding) this.website?.picker.endGuide()
   }
 
   private clearGuideEnd() {
@@ -3093,12 +3124,14 @@ export class ProjectTab implements ChatPanelOwner {
     return views.find((wc) => !wc.isDestroyed() && wc.isFocused()) ?? null
   }
 
-  /** Gives the keyboard back to the view that had it before the preview's page loaded. */
+  /** Gives the keyboard back to the view that had it before the page loaded; true when it did. */
   private keepKeyboard() {
     const owner = this.keyboardBeforeLoad
-    if (!owner || owner.isDestroyed() || owner.isFocused() || this.state.preview.selecting) return
-    if (!this.host.isActive(this) || !this.host.win.isFocused()) return
+    if (!owner || owner.isDestroyed() || owner.isFocused() || this.state.preview.selecting)
+      return false
+    if (!this.host.isActive(this) || !this.host.win.isFocused()) return false
     owner.focus()
+    return true
   }
 
   /** Places the tab's views over the canvas; only the active tab's are in the window. */
@@ -3135,6 +3168,8 @@ export class ProjectTab implements ChatPanelOwner {
         if (websiteShown) website.picker.setBounds(bounds)
         else website.picker.endGuide()
       }
+      // Back in sight mid-turn: held again.
+      if (websiteShown) this.holdWebsite()
     }
     // Picking needs the page on screen, where the overlay lies over it.
     if (this.picker.picking) {

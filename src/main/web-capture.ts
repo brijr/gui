@@ -14,7 +14,7 @@ import {
  * Screenshots of public websites, for the canvas agent to look at for reference. Each capture
  * gets a hidden window in a locked-down, in-memory session apart from the user's previews
  * (web-session.ts), wiped once the window is gone, so one site never sees another's cookies or
- * storage. The page can't open windows or launch apps. Captures run one at a time.
+ * storage. The page can't open windows, launch apps or show dialogs. Captures run one at a time.
  */
 
 const LOAD_TIMEOUT_MS = 20_000
@@ -116,6 +116,8 @@ async function capture(
     webPreferences: {
       offscreen: { deviceScaleFactor: 1 },
       sandbox: true,
+      // A page's alert or confirm answers at once instead of showing over Gui.
+      disableDialogs: true,
       contextIsolation: true,
       nodeIntegration: false,
       session: web.ses,

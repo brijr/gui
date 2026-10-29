@@ -205,17 +205,33 @@ const CAPTION_GAP = 10
 const CAPTION_WIDTH = 280
 const CAPTION_HEIGHT = 64
 
+/** How long the note on a held website stays after a click */
+const HELD_NOTE_MS = 3000
+/** Between the user's pointer and that note */
+const HELD_NOTE_OFFSET = 16
+
 /**
  * The agent in the preview: its pointer gliding to each input's target, and in a walkthrough
- * (preview_point) what it points at, with its caption beside it. A click lets the page have the pointer
- * back; the wheel still scrolls the page.
+ * (preview_point) what it points at, with its caption beside it. A click lets the page have the
+ * pointer back, except on a website while the agent's turn uses it (`held`): there a click only
+ * says so, and the page is left alone. The wheel still scrolls the page.
  */
 function Guide({ guide }: { guide: GuideOverlay }) {
   // A caption on its own, with no input since, has no pointer.
   const target = guide.cursor ?? (guide.rect && center(guide.rect))
+  const [heldNote, setHeldNote] = useState<Point | null>(null)
+  useEffect(() => {
+    if (!heldNote) return
+    const timer = setTimeout(() => setHeldNote(null), HELD_NOTE_MS)
+    return () => clearTimeout(timer)
+  }, [heldNote])
   return (
     <div
-      onPointerDown={() => gui.endGuide()}
+      onPointerDown={(event) => {
+        if (!guide.held) return gui.endGuide()
+        setHeldNote({ x: event.clientX, y: event.clientY })
+      }}
+      data-guide={guide.held ? 'held' : ''}
       onWheel={(event) => {
         const lines = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? window.innerHeight : 1
         gui.pickWheel(
@@ -274,8 +290,26 @@ function Guide({ guide }: { guide: GuideOverlay }) {
           </svg>
         </div>
       )}
+      {heldNote && guide.held && (
+        <div
+          role="status"
+          data-guide-held=""
+          className="pointer-events-none absolute max-w-70 animate-row-fade rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover"
+          style={notePlace(heldNote)}
+        >
+          The agent is using this website. Stop it to use it yourself.
+        </div>
+      )}
     </div>
   )
+}
+
+/** Beside the user's pointer, kept inside the view. */
+function notePlace(at: Point) {
+  const left = Math.min(at.x + HELD_NOTE_OFFSET, Math.max(8, window.innerWidth - CAPTION_WIDTH - 8))
+  const below = at.y + HELD_NOTE_OFFSET
+  if (below + CAPTION_HEIGHT <= window.innerHeight) return { top: below, left: Math.max(8, left) }
+  return { bottom: window.innerHeight - at.y + HELD_NOTE_OFFSET, left: Math.max(8, left) }
 }
 
 /** Below what's pointed at, or above it when there's no room; top-left without it. */
