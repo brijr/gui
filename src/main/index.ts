@@ -362,7 +362,8 @@ async function pickParent(target: ProjectWindow | undefined, title: string, butt
 /** Asks where to put the repo, clones it there, and opens it. Cancelling the picker is fine. */
 async function cloneProject(target: ProjectWindow | undefined, input: string) {
   const repo = parseRepo(input)
-  if (!repo) throw new Error('Enter a GitHub repo, like owner/repo or its github.com address.')
+  if (!repo)
+    throw new Error('Enter a GitHub repository, like owner/repo or its github.com address.')
   const folder = await pickParent(target, `Clone ${repo.name} into…`, 'Clone Here')
   if (folder) openSafely(target, await cloneRepo(repo, folder))
 }
@@ -932,13 +933,13 @@ function registerIpc() {
     authorize: fromAppUi,
     clone: async (event, id) => {
       const target = windowFor(event)
-      const folder = await pickParent(target, 'Clone GitHub project', 'Clone Here')
+      const folder = await pickParent(target, 'Clone GitHub repository', 'Clone Here')
       if (folder) openSafely(target, await cloneGitHub(id, folder))
     },
   })
   handleLegacy(Invoke.cloneProject, (event, repo: unknown) =>
     reportError(async () => {
-      if (!isString(repo) || repo.length > 500) throw new Error('Enter a GitHub repo.')
+      if (!isString(repo) || repo.length > 500) throw new Error('Enter a GitHub repository.')
       await cloneProject(windowFor(event), repo)
     }),
   )
@@ -1474,7 +1475,8 @@ function menuTab() {
 
 /**
  * ⌘Z / ⇧⌘Z undo typing while a text field has focus (in Gui or the previewed app);
- * otherwise, including from an empty chat box, they undo or redo the agent's last change.
+ * otherwise, including from an empty chat box, they undo or redo the agent's last change
+ * while the chat is showing (beeping when it's hidden).
  */
 async function editHistory(direction: 'undo' | 'redo') {
   const wc = webContents.getFocusedWebContents()

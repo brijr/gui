@@ -255,7 +255,9 @@ test('a preview that fails to load says why, and Try again loads it once it can'
     const state = await session.state()
     return state.preview.error ? state : null
   }, 'the load to fail')
-  expect(failed.preview.error).toContain('ERR_CONNECTION_REFUSED')
+  // Plain words in the card; Chromium's code stays behind Details.
+  expect(failed.preview.error?.message).toContain('Nothing is answering at')
+  expect(failed.preview.error?.detail).toContain('ERR_CONNECTION_REFUSED')
   expect(failed.preview.visible).toBe(false)
   // Chromium's error page fires dom-ready like any page; the failure must outlast it.
   await sleep(1_500)

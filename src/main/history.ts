@@ -134,7 +134,7 @@ export async function loadHistory(file: string): Promise<SavedChat | null> {
 async function setAside(file: string, error: unknown, source?: HistoryStamp) {
   // An open/stat failure identifies no file version: keep its path rather than moving a
   // potentially unrelated replacement. Throw so an empty chat cannot later save over it.
-  if (!source) throw new Error(`That chat could not be read safely, so its file was kept. ${error}`)
+  if (!source) throw new Error(`That chat couldn't be read safely, so its file was kept. ${error}`)
   const current = await stat(file).catch((error: NodeJS.ErrnoException) => {
     if (error.code !== 'ENOENT') throw error
     return null
@@ -384,7 +384,7 @@ async function archiveFile(root: string, file: string) {
       if (error.code !== 'ENOENT') throw error
       return null
     })
-    if (exists) throw new Error('That chat could not be read, so its file was kept.')
+    if (exists) throw new Error("That chat couldn't be read, so its file was kept.")
   }
   await rm(file, { force: true })
   await rm(summaryFile(file), { force: true })

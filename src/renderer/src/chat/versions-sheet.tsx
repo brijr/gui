@@ -116,10 +116,10 @@ export function VersionsSheet() {
               </InlineError>
             )}
             <p className="px-1 text-caption text-pretty text-subtle">
-              Versions stay on this computer. Publish commits the files as they are now.
+              Versions stay on this Mac. To share the files as they are now, commit and push them.
             </p>
             <Button variant="primary" disabled={busy !== null} onClick={publish} className="w-full">
-              Publish…
+              Commit…
             </Button>
           </div>
         </>

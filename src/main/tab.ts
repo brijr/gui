@@ -91,6 +91,7 @@ import {
   retireHistoryFile,
 } from './history'
 import { Inspector } from './inspector'
+import { crashFailure, loadFailure } from './load-failure'
 import { isLoopback } from './loopback'
 import { describeSourceControl, describeTurns, describeVersions } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
@@ -1006,8 +1007,8 @@ export class ProjectTab implements ChatPanelOwner {
     if (!install) {
       return this.askToTrust(project.root, {
         message: `Start ${promptName(project.name)}?`,
-        detail: `To show your app, Gui runs its start command, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Gui won't ask again for this project.`,
-        buttons: ['Start App', 'Not Now'],
+        detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Gui won't ask again for this project.`,
+        buttons: ['Start Dev Server', 'Not Now'],
       })
     }
     const scripts = (await readPackageJson(project.root))?.scripts
@@ -1436,11 +1437,16 @@ export class ProjectTab implements ChatPanelOwner {
       if (!isMainFrame || code === -3) return
       this.loadFailed = true
       // The address is the one that failed, which Try again (a reload) loads again.
-      this.patchPreview({ url, error: `${description} — ${url}`, visible: false, loading: false })
+      this.patchPreview({
+        url,
+        error: loadFailure(description, url),
+        visible: false,
+        loading: false,
+      })
     })
     wc.on('render-process-gone', (_event, details) => {
       this.patchPreview({
-        error: `The preview crashed (${details.reason}).`,
+        error: crashFailure(details.reason),
         visible: false,
         selecting: false,
       })
@@ -2615,15 +2621,18 @@ export class ProjectTab implements ChatPanelOwner {
     chat.setPreviewAfter(turnId, thumbnail(shot), frame)
   }
 
-  /** Undoes the newest turn that changed files and hasn't been undone. */
+  /**
+   * Undoes the newest turn that changed files and hasn't been undone. Only with the chat in
+   * view, where its turn shows "Undone" and Redo: hidden, the change would go back unseen.
+   */
   async undoLastChange() {
-    const turnId = this.resources.chat?.lastUndoableTurnId()
+    const turnId = this.panel.chatInView ? this.resources.chat?.lastUndoableTurnId() : null
     if (!turnId) return shell.beep()
     await this.resources.chat?.restoreTurn(turnId).catch(() => shell.beep())
   }
 
   async redoLastChange() {
-    if (!this.resources.chat?.meta.redoTurnIds.length) return shell.beep()
+    if (!this.panel.chatInView || !this.resources.chat?.meta.redoTurnIds.length) return shell.beep()
     await this.resources.chat.redo().catch(() => shell.beep())
   }
 
@@ -3208,7 +3217,7 @@ export class ProjectTab implements ChatPanelOwner {
     const template: MenuItemConstructorOptions[] = [
       { label: 'Open Project…', click: openPicker },
       { label: 'New Project…', click: openNew },
-      { label: 'Clone by URL…', click: openClone },
+      { label: 'Clone…', click: openClone },
       ...(recent.length
         ? [
             { type: 'separator' } as const,

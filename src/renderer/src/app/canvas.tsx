@@ -30,7 +30,6 @@ import {
   type IconComponent,
   Info,
   KeyRound,
-  Link,
   Package,
   Play,
   Shapes,
@@ -46,6 +45,7 @@ import { needsSignIn, useAccount } from '../lib/use-account'
 import { useAction } from '../settings/use-action'
 import { Board } from './board'
 import { FixStartupButton } from './fix-startup'
+import { GitHubRepositories, matchRepository, useGitHub } from './github-repositories'
 import { useMorphDrawsFrame } from './layout-morph'
 import { recentDetail, recentTitle } from './recent-labels'
 import { crashed, stoppedOutside } from './server-status'
@@ -101,7 +101,7 @@ export function Canvas({ state }: { state: WindowState }) {
                 title="This frame didn’t load"
                 className="max-w-sm"
               >
-                {preview.error}
+                {preview.error.message}
               </Message>
             </div>
           )
@@ -270,7 +270,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={TriangleAlert}
         tone="danger"
         title="Your app couldn't load"
-        detail={preview.error}
+        detail={preview.error.message}
+        note={preview.error.detail}
         actions={
           <>
             <Button variant="primary" onClick={() => gui.reload()}>
@@ -325,7 +326,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={Info}
         title="Start building your app"
         detail="Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
-        note="Add a “dev” script to package.json, or set a start command, to let Gui start your app automatically."
+        note="Add a “dev” script to package.json, or set a dev server command, to let Gui start your app automatically."
         actions={
           <>
             <Button variant="primary" onClick={() => gui.expandChat()}>
@@ -348,7 +349,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={Package}
         title="This project needs a quick setup"
-        detail="Gui will install its packages and start it, which runs the project's own scripts."
+        detail="Gui will install its dependencies and start it, which runs the project's own scripts."
         actions={
           <Button variant="primary" onClick={() => gui.installDependencies()}>
             Install and start
@@ -367,7 +368,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         note={project.devCommand ?? ''}
         actions={
           <Button variant="primary" onClick={() => gui.startDevServer()}>
-            Start app
+            Start dev server
           </Button>
         }
         env={env}
@@ -479,7 +480,7 @@ function SetupRows({ env, start }: { env: EnvSetup | null; start: ProjectInfo | 
       {env && <EnvItem env={env} />}
       {start && (
         <ListItem
-          title={start.custom ? 'Start command (set in Gui)' : 'Start command'}
+          title={start.custom ? 'Dev server command (set in Gui)' : 'Dev server command'}
           detail={
             start.devCommand ? (
               <span className="block truncate font-mono text-caption" title={start.devCommand}>
@@ -534,7 +535,7 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
       }}
     >
       <Field
-        label="Start command"
+        label="Dev server command"
         htmlFor={START_FIELDS.command}
         hint="Runs in your shell, like a script in package.json."
       >
@@ -762,9 +763,9 @@ const FORMS: Record<
     mono: false,
   },
   cloneRepo: {
-    label: 'GitHub repo',
+    label: 'GitHub repository',
     placeholder: 'owner/repo or github.com/owner/repo',
-    hint: 'Copy a GitHub repository to your Mac. You choose where to save it next.',
+    hint: 'Copy a GitHub repository to your Mac by its name or address. You choose where to save it next.',
     submit: 'Clone…',
     busy: 'Cloning…',
     mono: true,
@@ -783,7 +784,7 @@ const TEMPLATE_HINTS: Record<ProjectTemplate, string> = {
 const TEMPLATE_SEGMENTS = PROJECT_TEMPLATES.map(({ id, name }) => ({ value: id, label: name }))
 
 /**
- * ⇧⌘N, ⇧⌘O and the menus' New Project and Clone by URL: main shows a start screen and
+ * ⇧⌘N, ⇧⌘O and the menus' New Project… and Clone…: main shows a start screen and
  * asks for a field, which may not be drawn yet (a new tab or window), so the ask waits here.
  */
 let askedForm: StartForm | null = null
@@ -795,39 +796,14 @@ gui.onCommand((command) => {
 })
 
 /**
- * Whether GitHub is connected, for the start screen's GitHub button. Asked again whenever the
- * window comes back into focus, as from Settings, where the user connects or disconnects.
- */
-function useGitHubConnected() {
-  const [connected, setConnected] = useState(false)
-  useEffect(() => {
-    let live = true
-    const check = () =>
-      void gui
-        .getGitHub()
-        .then((state) => {
-          if (live) setConnected(state.profile !== null)
-        })
-        .catch(() => undefined)
-    check()
-    window.addEventListener('focus', check)
-    return () => {
-      live = false
-      window.removeEventListener('focus', check)
-    }
-  }, [])
-  return connected
-}
-
-/**
- * The ways in: Open project, the one primary, then an even two-by-two grid of New project,
- * New canvas, Clone by URL and GitHub (Connect GitHub, then Open from GitHub; both open
- * Settings → GitHub). New project and Clone by URL swap the buttons for a name or repo field;
- * main asks where to put the folder, then opens it like any project.
+ * The ways in: Open project, the one primary, then an even row of New project, New canvas and
+ * Clone. New project and Clone swap the buttons for a name or repository field (Clone lists
+ * the user's GitHub repositories above it, or offers to connect GitHub); main asks where to
+ * put the folder, then opens it like any project.
  */
 function OpenActions({ firstRun }: { firstRun: boolean }) {
   const [form, setForm] = useState<StartForm | null>(null)
-  const githubConnected = useGitHubConnected()
+  const github = useGitHub(form === 'cloneRepo')
   const [template, setTemplate] = useState<ProjectTemplate>('website')
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
@@ -869,9 +845,9 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
           className={cell}
           onClick={() => (firstRun ? setForm('newProject') : void gui.openProject())}
         >
-          {firstRun ? 'New project' : 'Open project…'}
+          {firstRun ? 'New project…' : 'Open project…'}
         </Button>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <Button
             icon={firstRun ? FolderOpen : FolderPlus}
             className={cell}
@@ -882,35 +858,31 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
             }
             onClick={() => (firstRun ? void gui.openProject() : setForm('newProject'))}
           >
-            {firstRun ? 'Open project…' : 'New project'}
+            {firstRun ? 'Open project…' : 'New project…'}
           </Button>
           {/* No folder, install or server: a canvas to design on with the agent, open at once. */}
           <Button
             icon={Shapes}
             className={cell}
-            title="Design on a board without a project folder"
+            title="Design on a canvas without a project folder"
             shortcut="newBoard"
             onClick={() => gui.newBoard()}
           >
             New canvas
           </Button>
           <Button
-            icon={Link}
             className={cell}
-            title="Copy a GitHub project to your Mac from its link"
+            title="Copy a GitHub repository to your Mac"
             onClick={() => setForm('cloneRepo')}
           >
-            Clone by URL
-          </Button>
-          <Button className={cell} onClick={() => gui.openSettings('github')}>
             <GitHubMark />
-            {githubConnected ? 'Open from GitHub…' : 'Connect GitHub…'}
+            Clone…
           </Button>
         </div>
         {firstRun && (
           <p className="text-small text-muted">
-            New project starts a website or app. New canvas opens a design board without a project.
-            Open project uses a folder already on your Mac.
+            New project starts a website or app. New canvas lets you design without a project. Clone
+            copies one from GitHub. Open project uses a folder already on your Mac.
           </p>
         )}
       </div>
@@ -928,7 +900,13 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
     setBusy(true)
     setError(null)
     try {
-      await (form === 'newProject' ? gui.newProject(value, template) : gui.cloneProject(value))
+      const repository = form === 'cloneRepo' ? matchRepository(value, github.state) : null
+      // One of the user's own repositories goes through GitHub's access, private ones included.
+      await (form === 'newProject'
+        ? gui.newProject(value, template)
+        : repository
+          ? gui.cloneGitHub(repository.id)
+          : gui.cloneProject(value))
       close()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
@@ -964,6 +942,9 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
             stretch
           />
         </div>
+      )}
+      {form === 'cloneRepo' && (
+        <GitHubRepositories github={github} filter={value} disabled={busy} />
       )}
       <Field
         label={spec.label}

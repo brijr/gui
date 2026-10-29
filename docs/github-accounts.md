@@ -5,10 +5,10 @@ Gui requires a Gui account, made on WorkOS AuthKit with Google, Apple, GitHub, o
 ## Journey
 
 1. Sign in to Gui from the start screen.
-2. For GitHub projects, open **Connect GitHub** from the start screen or **Settings → GitHub**, and allow Gui in the browser. Cancel and denial leave local projects available.
+2. For GitHub projects, choose **Connect GitHub** in the start screen's **Clone…** form or in **Settings → GitHub**, and allow Gui in the browser. Cancel and denial leave local projects available.
 3. Gui shows the GitHub name and handle. Product updates are in **Settings → Account**.
-4. **Choose repositories on GitHub** installs Gui on selected repositories. Refresh after installation or organization approval.
-5. Create a private project under the personal GitHub account with a README, or clone an existing connected repository. Creation persists if cloning is canceled or fails.
+4. **Choose on GitHub** installs Gui on selected repositories. The **Clone…** list reads them again when Gui comes back into focus.
+5. Create a private repository under the personal GitHub account with a README in **Settings → GitHub** (**Open…** then clones it), or clone a connected repository from **Clone…** on the start screen. Creation persists if cloning is canceled or fails.
 6. Use the existing shipping sheet to review files, branch, title, and description. Gui commits, pushes, and opens a PR using the GitHub connection. Existing git identity wins; missing identity uses GitHub noreply without changing global git settings.
 7. Disconnect removes the GitHub tokens from the account, and Gui stays signed in. **Settings → Account → Sign out** ends the device's session. Account deletion is available through the authenticated service endpoint.
 

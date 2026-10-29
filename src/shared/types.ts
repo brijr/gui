@@ -315,12 +315,18 @@ export interface ViewportFrame {
   scale: number
 }
 
+/** Why the preview couldn't show a page: plain words, and the raw code behind Details */
+export interface PreviewError {
+  message: string
+  detail: string
+}
+
 export interface PreviewState {
   url: string | null
   loading: boolean
   canGoBack: boolean
   canGoForward: boolean
-  error: string | null
+  error: PreviewError | null
   viewport: Viewport
   /** The device frame the preview is shown in; null for Desktop, which fills the canvas */
   frame: ViewportFrame | null

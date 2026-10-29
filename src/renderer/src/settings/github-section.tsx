@@ -4,11 +4,10 @@ import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { Field, InlineError, Input } from '../lib/field'
 import { GitHubMark } from '../lib/github-mark'
-import { ExternalLink, GitBranch, Search } from '../lib/icons'
-import { Badge } from '../lib/status'
-import { Card, List, ListItem, Message } from '../lib/surface'
+import { ExternalLink } from '../lib/icons'
+import { Card, Message } from '../lib/surface'
 import { Button, Spinner } from '../lib/ui'
-import { GroupAction, IdentityCard, IdentityTile, SettingsGroup } from './settings-group'
+import { IdentityCard, IdentityTile, SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
 /** Said when the user closes the browser sign-in themselves: not an error. */
@@ -17,9 +16,10 @@ const SIGN_IN_CANCELLED = 'Sign-in was cancelled.'
 type Repository = GitHubState['repositories'][number]
 
 /**
- * Settings → GitHub: connect GitHub to the Gui account (in the browser), then open its
- * repositories in Gui or create a new one. Local projects never need it. Each action has
- * its own progress and its own error, shown where it was chosen.
+ * Settings → GitHub: connect GitHub to the Gui account (in the browser), choose which
+ * repositories Gui can see, and create a new one. Cloning is the start screen's Clone…, which
+ * lists them. Local projects never need it. Each action has its own progress and its own
+ * error, shown where it was chosen.
  */
 export function GitHubSection() {
   const [state, setState] = useState<GitHubState | null>(null)
@@ -28,6 +28,7 @@ export function GitHubSection() {
   const [connectError, setConnectError] = useState<string | null>(null)
   const reload = useAction()
   const disconnect = useAction()
+  const manage = useAction()
   const mounted = useRef(true)
 
   useEffect(() => {
@@ -95,7 +96,7 @@ export function GitHubSection() {
       <IdentityCard
         leading={mark}
         title="GitHub isn’t available in this build"
-        detail="You can still clone a repository by its URL from the start screen, with your own git credentials."
+        detail="You can still clone a repository by its address with Clone… on the start screen, using your own git credentials."
       />
     )
   }
@@ -126,7 +127,7 @@ export function GitHubSection() {
       <IdentityCard
         leading={mark}
         title="Connect your GitHub account"
-        detail="Open your repositories in Gui and create new projects. Local projects never need GitHub."
+        detail="Clone your repositories, private ones included, and create new ones. Local projects never need GitHub."
       >
         <Button variant="primary" className="self-start" onClick={connect}>
           Connect GitHub
@@ -157,128 +158,32 @@ export function GitHubSection() {
           </Button>
         }
       >
+        <p className="text-small text-muted">
+          Choose which repositories Gui can see. Clone them with Clone… on the start screen.
+        </p>
+        {/* Opens GitHub in the browser */}
+        <Button
+          trailingIcon={ExternalLink}
+          loading={manage.pending}
+          className="self-start"
+          onClick={() => void manage.run(() => gui.manageGitHub())}
+        >
+          Choose on GitHub
+        </Button>
+        {manage.error && <InlineError>{manage.error}</InlineError>}
         {disconnect.error && <InlineError>{disconnect.error}</InlineError>}
       </IdentityCard>
-      <Repositories state={state} refresh={refresh} />
-      <NewProject
-        login={profile.login}
-        onCreated={(repository) =>
-          setState(
-            (current) =>
-              current && {
-                ...current,
-                repositories: [
-                  ...current.repositories.filter((repo) => repo.id !== repository.id),
-                  repository,
-                ],
-              },
-          )
-        }
-      />
+      <NewProject login={profile.login} />
     </>
   )
 }
 
-/** The repositories Gui may see, searchable, each to clone and open as a project. */
-function Repositories({ state, refresh }: { state: GitHubState; refresh: () => Promise<void> }) {
-  const [search, setSearch] = useState('')
-  const reload = useAction()
-  const manage = useAction()
-  const repos = state.repositories.filter((repo) =>
-    repo.fullName.toLowerCase().includes(search.toLowerCase()),
-  )
-  return (
-    <SettingsGroup
-      title="Repositories"
-      action={
-        <span className="flex items-center gap-3">
-          <GroupAction pending={reload.pending} onClick={() => void reload.run(refresh)}>
-            Refresh
-          </GroupAction>
-          {/* Opens GitHub in the browser */}
-          <GroupAction
-            pending={manage.pending}
-            onClick={() => void manage.run(() => gui.manageGitHub())}
-          >
-            Choose on GitHub
-            <ExternalLink className="size-3 shrink-0" aria-hidden="true" />
-          </GroupAction>
-        </span>
-      }
-    >
-      {reload.error && <InlineError>{reload.error}</InlineError>}
-      {manage.error && <InlineError>{manage.error}</InlineError>}
-      {state.repositories.length === 0 ? (
-        <Message icon={GitBranch}>
-          Choose which repositories Gui can see on GitHub, then refresh here. An organization may
-          need to approve Gui before its repositories appear.
-        </Message>
-      ) : (
-        <>
-          <Input
-            aria-label="Search GitHub repositories"
-            placeholder="Search repositories…"
-            leading={
-              <span className="flex shrink-0 pr-1.5 pl-2.5">
-                <Search className="size-3.5 text-subtle" aria-hidden="true" />
-              </span>
-            }
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
-          {repos.length > 0 ? (
-            <List className="max-h-72 overflow-y-auto">
-              {repos.map((repo) => (
-                <RepositoryRow key={repo.id} repo={repo} />
-              ))}
-            </List>
-          ) : (
-            <p className="text-small text-muted">No repositories match “{search}”.</p>
-          )}
-        </>
-      )}
-    </SettingsGroup>
-  )
-}
-
-/** One repository: cloning it shows its progress on its own button, and a failure under it. */
-function RepositoryRow({ repo }: { repo: Repository }) {
-  const clone = useAction()
-  return (
-    <ListItem
-      title={
-        <>
-          <span className="truncate" title={repo.fullName}>
-            {repo.fullName}
-          </span>
-          {repo.private && <Badge className="shrink-0">Private</Badge>}
-        </>
-      }
-      trailing={
-        <Button
-          loading={clone.pending}
-          onClick={() => void clone.run(() => gui.cloneGitHub(repo.id))}
-        >
-          Clone & open
-        </Button>
-      }
-    >
-      {clone.error && <InlineError>{clone.error}</InlineError>}
-    </ListItem>
-  )
-}
-
-/** A new private repository with a README, then listed above to clone and open. */
-function NewProject({
-  login,
-  onCreated,
-}: {
-  login: string
-  onCreated: (repository: Repository) => void
-}) {
+/** A new private repository with a README, then Open… clones it and opens it as a project. */
+function NewProject({ login }: { login: string }) {
   const [name, setName] = useState('')
-  const [created, setCreated] = useState<string | null>(null)
+  const [created, setCreated] = useState<Repository | null>(null)
   const create = useAction()
+  const open = useAction()
   return (
     <SettingsGroup title="New project">
       <Card>
@@ -290,8 +195,7 @@ function NewProject({
             setCreated(null)
             void create.run(async () => {
               const repository = await gui.createGitHub(name.trim())
-              onCreated(repository)
-              setCreated(repository.fullName)
+              setCreated(repository)
               setName('')
             })
           }}
@@ -321,10 +225,20 @@ function NewProject({
           </Button>
           {create.error && <InlineError>{create.error}</InlineError>}
           {created && (
-            <p role="status" className="text-small text-muted">
-              Created {created}. Clone & open it from Repositories above.
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p role="status" className="text-small text-muted">
+                Created {created.fullName}.
+              </p>
+              <Button
+                size="sm"
+                loading={open.pending}
+                onClick={() => void open.run(() => gui.cloneGitHub(created.id))}
+              >
+                Open…
+              </Button>
+            </div>
           )}
+          {open.error && <InlineError>{open.error}</InlineError>}
         </form>
       </Card>
     </SettingsGroup>

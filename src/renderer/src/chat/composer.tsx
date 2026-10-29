@@ -459,7 +459,7 @@ function Selection({ selection }: { selection: Picked[] }) {
   return (
     <Card tone="inset" padding="none" className={cn(ARRIVE, 'max-h-36 overflow-y-auto')}>
       <ul
-        aria-label={several ? `${selection.length} picked` : 'Picked'}
+        aria-label={several ? `${selection.length} selected` : 'Selected'}
         className="divide-y divide-line"
       >
         {selection.map((picked, i) => (

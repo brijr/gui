@@ -79,7 +79,7 @@ export async function savedSession(): Promise<string | null> {
     return safeStorage.decryptString(encrypted)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-    throw new Error('Could not unlock your Gui account. Sign out and sign in again.')
+    throw new Error("Couldn't unlock your Gui account. Sign out and sign in again.")
   }
 }
 
@@ -138,7 +138,7 @@ export async function request<T>(
       await forgetSession()
     throw new AccountError(
       response.status,
-      result.error ?? 'Could not reach Gui accounts. Try again.',
+      result.error ?? "Couldn't reach Gui accounts. Try again.",
       result.code,
     )
   }
@@ -198,7 +198,7 @@ function listen(server: Server) {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address()
       if (address && typeof address === 'object') resolve(address.port)
-      else reject(new Error('Could not start signing in.'))
+      else reject(new Error("Couldn't start signing in."))
     })
   })
 }
