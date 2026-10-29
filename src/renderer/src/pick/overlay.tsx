@@ -206,8 +206,8 @@ const CAPTION_WIDTH = 280
 const CAPTION_HEIGHT = 64
 
 /**
- * The agent's walkthrough (preview_point): what it points at, its caption beside it, and its
- * pointer gliding to each step and each input's target. A click lets the page have the pointer
+ * The agent in the preview: its pointer gliding to each input's target, and in a walkthrough
+ * (preview_point) what it points at, with its caption beside it. A click lets the page have the pointer
  * back; the wheel still scrolls the page.
  */
 function Guide({ guide }: { guide: GuideOverlay }) {
@@ -248,6 +248,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
       {target && (
         <div
           aria-hidden="true"
+          data-guide-pointer=""
           className="pointer-events-none absolute top-0 left-0 transition-transform duration-(--motion-guide) ease-out motion-reduce:transition-none"
           style={{ transform: `translate(${target.x}px, ${target.y}px)` }}
         >

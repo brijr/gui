@@ -265,3 +265,17 @@ test('a walkthrough points out elements with captions and shows the agent pointe
   await overlay.locator('[data-guide-outline]').locator('..').dispatchEvent('pointerdown')
   await expect(overlay.getByRole('status')).toHaveCount(0)
 })
+
+test('the agent’s pointer shows for every click, walkthrough or not', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  const page = await setup(session)
+  const overlay = await session.pickPage()
+
+  const [clicked] = await ask(session, [{ name: 'preview_click', args: { selector: '#open' } }])
+  expect(clicked.isError, JSON.stringify(clicked)).not.toBe(true)
+  await expect(page.locator('dialog')).toBeVisible()
+  // The pointer, with no caption or outline: the agent is using the app, not pointing things out.
+  await expect(overlay.locator('[data-guide-pointer]')).toBeVisible()
+  await expect(overlay.locator('[data-guide-outline]')).toHaveCount(0)
+  await expect(overlay.getByRole('status')).toHaveCount(0)
+})

@@ -882,8 +882,10 @@ export class ProjectTab implements ChatPanelOwner {
       setStartCommand: (input) =>
         board ? Promise.resolve(BOARD_SERVER_STATUS) : this.setStartCommandForAgent(input),
       guide: (node, caption) => this.guideStep(node, caption),
+      // Every click, hover and keystroke the agent makes shows its pointer, so the user can
+      // follow along, walkthrough or not. Not while the preview is hidden or they're picking.
       guideInput: async (at, click) => {
-        if (!this.picker.guiding) return
+        if (!this.picker.guiding && !this.guideStep(null, null)) return
         this.picker.guideCursor(at, click)
         await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
       },
