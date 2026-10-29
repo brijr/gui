@@ -66,9 +66,14 @@ export async function saveVersion(name: string): Promise<boolean> {
   if (useVersions.getState().busy) return false
   useVersions.setState({ busy: 'save', error: null })
   try {
-    await gui.saveVersion(name)
-    useVersions.setState({ busy: null })
-    void loadVersions()
+    // The files are this version now (main just saved them): it leads the list as current.
+    // Listing again would take a second snapshot, and any file touched in between would cost
+    // it the mark.
+    const saved = await gui.saveVersion(name)
+    useVersions.setState(({ versions }) => ({
+      busy: null,
+      versions: [saved, ...(versions ?? []).map((version) => ({ ...version, current: false }))],
+    }))
     return true
   } catch (error) {
     useVersions.setState({ busy: null, error: readableError(error) })
