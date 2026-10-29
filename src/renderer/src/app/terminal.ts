@@ -1,17 +1,25 @@
-import { FitAddon } from '@xterm/addon-fit'
-import { type ITheme, Terminal } from '@xterm/xterm'
-import '@xterm/xterm/css/xterm.css'
+import { FitAddon, Ghostty, type ITheme, Terminal } from 'ghostty-web'
+import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url'
 import type { OutputChunk, Unsubscribe } from '../../../shared/ipc'
 import { gui } from '../lib/api'
 
 /** ESC c: resets the terminal, in turn with what's being drawn. */
 const RESET = '\u001bc'
 
+// Ghostty's terminal, compiled to WebAssembly: loaded once, with the module that draws the
+// drawer's terminals. It measures the mono font as it draws, so that loads first too.
+const [ghostty] = await Promise.all([Ghostty.load(wasmUrl), document.fonts.ready])
+
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
-/** The colors, from the design tokens of the current appearance. */
+/**
+ * The colors, from the design tokens of the current appearance. Ghostty takes them when the
+ * terminal is made, so a terminal is made again when the appearance changes
+ * (`useAppearance`). Its palette is readable on --canvas as it is: Ghostty doesn't lift
+ * colors to a contrast the way xterm.js did.
+ */
 function terminalTheme(interactive: boolean): ITheme {
   return {
     background: cssVar('--canvas'),
@@ -39,35 +47,73 @@ function terminalTheme(interactive: boolean): ITheme {
   }
 }
 
-interface XtermOptions {
+type Keys = (event: KeyboardEvent) => void
+
+interface TerminalOptions {
   /** A shell: takes keystrokes and shows its cursor. Otherwise read-only output. */
   interactive: boolean
   /** The element resized: the size in characters that fits it now */
   onResize: (cols: number, rows: number) => void
+  /** A ⌘ key the view handles itself (true), before the app's menu would */
+  onCommand?: (event: KeyboardEvent) => boolean
+}
+
+/** What a terminal's host shows: its last screen of text, for tests and tools to read. */
+export interface TerminalHost extends HTMLElement {
+  readonly terminalText?: string
 }
 
 /**
- * An xterm.js terminal in `el`, in the mono font, fitted to the element as it resizes, and in
- * the token colors of the current appearance as it changes. The drawer's dev server output
- * and terminals both draw with it.
+ * A Ghostty terminal in `el`, in the mono font and the token colors of the current
+ * appearance, fitted to the element as it resizes. The drawer's dev server output and
+ * terminals both draw with it.
  */
-export function mountXterm(el: HTMLElement, { interactive, onResize }: XtermOptions) {
+export function mountTerminal(
+  el: HTMLElement,
+  { interactive, onResize, onCommand }: TerminalOptions,
+) {
   const term = new Terminal({
+    ghostty,
     fontFamily: cssVar('--font-mono'),
     fontSize: Number.parseFloat(cssVar('--text-small')),
-    lineHeight: 1.25,
     disableStdin: !interactive,
     cursorStyle: interactive ? 'block' : 'bar',
-    cursorInactiveStyle: interactive ? 'outline' : 'none',
     scrollback: 5000,
-    // Programs pick their own colors, often for a dark background: xterm nudges any that
-    // would fall under 4.5:1 on ours.
-    minimumContrastRatio: 4.5,
     theme: terminalTheme(interactive),
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
   term.open(el)
+  // Its pixels are on a canvas; this is its text.
+  Object.defineProperty(el, 'terminalText', {
+    configurable: true,
+    get: () => screenText(term),
+  })
+
+  // ⌘ keys are the app's, as in Terminal. Ghostty would type them and keep them from the menu,
+  // so its listener never hears them; they go on, unhandled, to the page and the menu. Not ⌘C
+  // and ⌘V, which it leaves to Edit → Copy and Paste.
+  const input = (term as unknown as { inputHandler?: { keydownListener: Keys | null } })
+    .inputHandler
+  const ghosttyKeys = input?.keydownListener
+  if (!input || !ghosttyKeys) throw new Error('ghostty-web: no key listener to wrap')
+  const keys: Keys = (event) => {
+    if (!event.metaKey || event.code === 'KeyC' || event.code === 'KeyV') return ghosttyKeys(event)
+    if (onCommand?.(event)) return event.preventDefault()
+    // Edit → Select All selects the terminal's text, as it did the page's.
+    if (event.code === 'KeyA') term.selectAll()
+  }
+  el.removeEventListener('keydown', ghosttyKeys)
+  el.addEventListener('keydown', keys)
+  // Ghostty's dispose takes it off.
+  input.keydownListener = keys
+  // Edit → Copy copies what's selected in it.
+  const copy = (event: ClipboardEvent) => {
+    if (!term.hasSelection()) return
+    event.clipboardData?.setData('text/plain', term.getSelection())
+    event.preventDefault()
+  }
+  el.addEventListener('copy', copy)
 
   const resize = () => {
     // Closed, or not laid out yet: it keeps the size it had.
@@ -78,20 +124,25 @@ export function mountXterm(el: HTMLElement, { interactive, onResize }: XtermOpti
   const observer = new ResizeObserver(resize)
   observer.observe(el)
 
-  const scheme = window.matchMedia('(prefers-color-scheme: dark)')
-  const retheme = () => {
-    term.options.theme = terminalTheme(interactive)
-  }
-  scheme.addEventListener('change', retheme)
-
   return {
     term,
     dispose() {
       observer.disconnect()
-      scheme.removeEventListener('change', retheme)
+      el.removeEventListener('copy', copy)
+      delete (el as { terminalText?: string }).terminalText
       term.dispose()
     },
   }
+}
+
+/** The bottom screen of `term`'s lines, trimmed. */
+function screenText(term: Terminal) {
+  const buffer = term.buffer.active
+  const lines: string[] = []
+  for (let y = Math.max(0, buffer.length - term.rows); y < buffer.length; y++) {
+    lines.push(buffer.getLine(y)?.translateToString(true) ?? '')
+  }
+  return lines.join('\n')
 }
 
 interface OutputSource {
@@ -105,25 +156,26 @@ interface OutputSource {
  * Draws a drawer view's output into `term`: main's snapshot, then what main sends, past what's
  * drawn already. Each chunk is acknowledged once drawn: main sends more as the terminal keeps
  * up, and holds a shell printing faster than that. `replaying` is true while old output draws
- * (the snapshot, or all main kept when the view missed more than that): xterm answers the
+ * (the snapshot, or all main kept when the view missed more than that): Ghostty answers the
  * queries in it (cursor position, colors) as if just asked, and those answers mustn't reach
  * the shell.
  */
 export function drawOutput(term: Terminal, source: OutputSource) {
-  /** Drawn, or on its way to xterm, up to here; null until the snapshot is */
+  /** Drawn, or on its way to the terminal, up to here; null until the snapshot is */
   let at: number | null = null
   /** Sent before the snapshot came, which main sends after them on the same channel */
   const early: OutputChunk[] = []
-  let replays = 0
+  let replaying = false
   let disposed = false
 
   const draw = (chunk: OutputChunk, data: string, replay: boolean) => {
     at = chunk.end
-    if (replay) replays++
-    term.write(data, () => {
-      if (replay) replays--
-      if (!disposed) gui.ackOutput(chunk.id, chunk.end)
-    })
+    replaying = replay
+    // Ghostty reads it all now, answering any queries in it as it goes; its callback waits
+    // for a frame, which a hidden window never draws, and main would hold the shell meanwhile.
+    term.write(data)
+    replaying = false
+    if (!disposed) gui.ackOutput(chunk.id, chunk.end)
   }
   const receive = (chunk: OutputChunk) => {
     if (at === null) {
@@ -144,7 +196,7 @@ export function drawOutput(term: Terminal, source: OutputSource) {
     for (const chunk of early.splice(0)) receive(chunk)
   })
   return {
-    replaying: () => replays > 0,
+    replaying: () => replaying,
     dispose() {
       disposed = true
       off()

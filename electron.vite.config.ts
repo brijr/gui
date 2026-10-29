@@ -17,7 +17,7 @@ const csp: Plugin = {
       attrs: {
         'http-equiv': 'Content-Security-Policy',
         content:
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: gui-thumb:; media-src 'self' blob: gui-recording:; font-src 'self' data:",
+          "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: gui-thumb:; media-src 'self' blob: gui-recording:; font-src 'self' data:",
       },
     },
   ],

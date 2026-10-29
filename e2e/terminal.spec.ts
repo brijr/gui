@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import type { TerminalId } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
+import { screenText } from './helpers/terminal'
 import { expect, test } from './helpers/test'
 
 // The drawer's terminals: the user's own login shell at the project root, started only when
@@ -103,7 +104,7 @@ function waitForGone(pids: number[], label: string) {
 function focusedPanel(session: GuiSession) {
   return session.chrome.evaluate(() => {
     const el = document.activeElement
-    if (!el?.classList.contains('xterm-helper-textarea')) return null
+    if (!el?.hasAttribute('data-terminal')) return null
     return el.closest('[role="tabpanel"]')?.id ?? null
   })
 }
@@ -150,7 +151,7 @@ test('⌘J opens a terminal at the project root; it takes keys, copy and paste, 
 
   await run(session, 'echo gui-$((40+2))')
   await waitForOutput(session, first, /gui-42/, 'the echo')
-  await expect(panel(session, first).locator('.xterm-rows')).toContainText('gui-42')
+  await expect.poll(() => screenText(panel(session, first))).toContain('gui-42')
   await run(session, 'echo "cwd:$(pwd -P)"')
   const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   await waitForOutput(session, first, new RegExp(`cwd:${escaped}\\r?\\n`), 'the working directory')
@@ -206,9 +207,9 @@ test('⌘J opens a terminal at the project root; it takes keys, copy and paste, 
   await waitForOutput(session, first, /pasted-42/, 'the pasted command')
 
   // ⌘K clears the terminal, and what main keeps to draw it again.
-  await expect(panel(session, first).locator('.xterm-rows')).toContainText('gui-42')
+  await expect.poll(() => screenText(panel(session, first))).toContain('gui-42')
   await session.chrome.keyboard.press('Meta+k')
-  await expect(panel(session, first).locator('.xterm-rows')).not.toContainText('gui-42')
+  await expect.poll(() => screenText(panel(session, first))).not.toContain('gui-42')
   expect(await output(session, first)).not.toContain('gui-42')
   await run(session, 'echo cleared-$((2+3))')
   await waitForOutput(session, first, /cleared-5/, 'output after ⌘K')
@@ -262,7 +263,7 @@ test('a second terminal, closing one, exit and restart, other tabs, and ⌘W', a
   const exitedShell = await shellPid(session, first, 'first')
   await run(session, 'exit')
   await waitFor(async () => (await session.state()).drawer.terminals[0]?.exited, 'the exit')
-  await expect(panel(session, first).locator('.xterm-rows')).toContainText('[process exited]')
+  await expect.poll(() => screenText(panel(session, first))).toContain('[process exited]')
   await expect(tabs(session).getByRole('tab', { name: 'Terminal, exited' })).toBeVisible()
   await waitForGone([exitedShell], 'the exited shell')
   await session.shot('exited')
@@ -283,9 +284,9 @@ test('a second terminal, closing one, exit and restart, other tabs, and ⌘W', a
   await expect(drawer(session)).toHaveCount(0)
   await sleep(3_000)
   await session.chrome.evaluate((id) => window.gui.selectTab(id), projectTab)
-  const rows = panel(session, first).locator('.xterm-rows')
-  await expect(rows).toContainText('again-4')
-  await expect(rows).toContainText('later-10')
+  const rows = panel(session, first)
+  await expect.poll(() => screenText(rows)).toContain('again-4')
+  await expect.poll(() => screenText(rows)).toContain('later-10')
   await panel(session, first).click()
   await waitForFocus(session, first)
   await run(session, 'echo back-$((3+3))')
@@ -407,14 +408,14 @@ test('a flood of output keeps Gui responsive, ⌃C stops it, and what follows is
   if (!id) throw new Error('No terminal')
   await waitForFocus(session, id)
   await session.chrome.evaluate(startProbe)
-  const rows = panel(session, id).locator('.xterm-rows')
+  const rows = panel(session, id)
 
   // `yes` prints as fast as the terminal reads: the drawer gets it in a few large messages, at
   // the pace it draws them, and the page keeps up with its own work and main's replies.
   await run(session, 'yes gui-flood')
   await waitForOutput(session, id, /(gui-flood\r\n){100}/, 'the flood')
   expectResponsive(await measureFlood(session, id, 5))
-  await expect(rows).toContainText('gui-flood')
+  await expect.poll(() => screenText(rows)).toContain('gui-flood')
 
   // Out of sight (the drawer on the dev server's output), none of it is sent, and the shell
   // isn't held: main goes on reading it. Back in sight, the terminal shows where it's got to.
@@ -425,20 +426,20 @@ test('a flood of output keeps Gui responsive, ⌃C stops it, and what follows is
   expect((await outputEnd(session, id)) - hidden).toBeGreaterThan(1_000_000)
   await tabs(session).getByRole('tab', { name: 'Terminal', exact: true }).click()
   await waitForFocus(session, id)
-  await expect(rows).toContainText('gui-flood')
+  await expect.poll(() => screenText(rows)).toContain('gui-flood')
 
   // ⌃C stops it at once, and the shell's prompt comes back to run the next command.
   const stop = Date.now()
   await session.chrome.keyboard.press('Control+C')
   await run(session, 'echo after-$((2+2))')
-  await expect(rows).toContainText('after-4', { timeout: 10_000 })
+  await expect.poll(() => screenText(rows), { timeout: 10_000 }).toContain('after-4')
   console.log(`[flood] ⌃C to the next command's output: ${Date.now() - stop}ms`)
 
   // A flood that ends: all of it arrives, in order, and what follows it too.
   await run(session, 'seq 1 300000; echo seq-$((3+4))')
-  await expect(rows).toContainText('seq-7', { timeout: 60_000 })
+  await expect.poll(() => screenText(rows), { timeout: 60_000 }).toContain('seq-7')
   expect(await output(session, id)).toMatch(/\r\n299999\r\n300000\r\nseq-7\r\n/)
-  const lines = (await rows.locator(':scope > div').allInnerTexts()).map((line) => line.trim())
+  const lines = (await screenText(rows)).split('\n').map((line) => line.trim())
   const end = lines.indexOf('300000')
   expect(end).toBeGreaterThan(2)
   expect(lines.slice(end - 3, end + 2)).toEqual(['299997', '299998', '299999', '300000', 'seq-7'])
@@ -451,7 +452,7 @@ test("the dev server's flood reaches the drawer in a few messages, only while it
   await session.waitForPreview()
   await session.chrome.evaluate(startProbe)
   const logs = () => session.chrome.evaluate(() => window.gui.getLogs())
-  const rows = session.chrome.locator('[id="drawer-panel-server"] .xterm-rows')
+  const rows = session.chrome.locator('[id="drawer-panel-server"]')
 
   // The dev script, as a restart runs it, prints as fast as it can; it isn't held for the drawer.
   const file = join(session.fixture.root, 'package.json')
@@ -464,7 +465,7 @@ test("the dev server's flood reaches the drawer in a few messages, only while it
     'the flood in the logs',
   )
   expectResponsive(await measureFlood(session, 'logs-', 4))
-  await expect(rows).toContainText('gui-server-flood')
+  await expect.poll(() => screenText(rows)).toContain('gui-server-flood')
 
   // With a terminal on screen instead, none of it is sent, though it goes on.
   await session.chrome.evaluate(() => window.gui.newTerminal())
@@ -478,8 +479,8 @@ test("the dev server's flood reaches the drawer in a few messages, only while it
   await session.chrome.evaluate(() => window.gui.stopDevServer())
   await waitFor(async () => (await session.state()).devServer.status === 'idle', 'the stop')
   await session.chrome.evaluate(() => window.gui.showLogs())
-  await expect(rows).toContainText('[process exited with code')
-  await expect(rows).toContainText('gui-server-flood')
+  await expect.poll(() => screenText(rows)).toContain('[process exited with code')
+  await expect.poll(() => screenText(rows)).toContain('gui-server-flood')
 })
 
 test('closing the window ends its terminals', async ({ launch }) => {
