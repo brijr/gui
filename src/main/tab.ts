@@ -63,6 +63,8 @@ import {
   type StartCommandInput,
   type TabStatus,
   type TerminalId,
+  takesPushes,
+  UNDO_PULL_NOTE,
   VIEWPORTS,
   type Viewport,
   type ViewportFrame,
@@ -343,6 +345,8 @@ export class ProjectTab implements ChatPanelOwner {
    * `from`, so main stays as it was. Only for this opening; Stay on main clears it.
    */
   private branchOnSend: { root: string; from: string } | null = null
+  /** The project whose branch had an open pull request at the last read, for ⌘Z's Undo */
+  private pullOpenAt: string | null = null
   disposed = false
   private opening: string | null = null
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
@@ -2308,6 +2312,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (!root) return null
     if (!(await isTrusted(root))) return (await inRepository(root)) ? UNTRUSTED_PROPOSAL : null
     const proposal = await readProposal(root, refresh)
+    this.pullOpenAt = takesPushes(proposal.pull) ? root : null
     const pending = this.branchOnSend
     // Only while it's still on that branch: switched by hand, there's nothing to promise.
     const newBranchFrom =
@@ -2891,9 +2896,24 @@ export class ProjectTab implements ChatPanelOwner {
    * view, where its turn shows "Undone" and Redo: hidden, the change would go back unseen.
    */
   async undoLastChange() {
-    const turnId = this.panel.chatInView ? this.resources.chat?.lastUndoableTurnId() : null
-    if (!turnId) return shell.beep()
-    await this.resources.chat?.restoreTurn(turnId).catch(() => shell.beep())
+    const chat = this.resources.chat
+    const turnId = this.panel.chatInView ? chat?.lastUndoableTurnId() : null
+    if (!chat || !turnId) return shell.beep()
+    // As the turn's Undo button does: with an open pull request, it asks first.
+    if (this.pullOpenAt === this.state.project?.root) {
+      const { response } = await dialog.showMessageBox(this.panel.popoutWindow ?? this.host.win, {
+        type: 'question',
+        message: 'Undo this message?',
+        detail: `You can redo. ${UNDO_PULL_NOTE}`,
+        buttons: ['Undo', 'Cancel'],
+        defaultId: 0,
+        cancelId: 1,
+        noLink: true,
+      })
+      if (response !== 0 || chat !== this.resources.chat || chat.lastUndoableTurnId() !== turnId)
+        return
+    }
+    await chat.restoreTurn(turnId).catch(() => shell.beep())
   }
 
   async redoLastChange() {
@@ -3283,8 +3303,11 @@ export class ProjectTab implements ChatPanelOwner {
     return { x: Math.round(view.x + at.x), y: Math.round(view.y + at.y) }
   }
 
-  /** A frame's context menu on the board; acts on every selected frame when it's one of them. */
-  showFrameMenu(id: string, promote: (id: string) => void) {
+  /**
+   * A frame's context menu on the board; acts on every selected frame when it's one of them.
+   * `at` is where the keyboard opened it, in the window; without it, at the pointer.
+   */
+  showFrameMenu(id: string, promote: (id: string) => void, at?: Point) {
     const board = this.resources.board
     const frame = board?.frame(id)
     if (!board || !frame) return
@@ -3349,7 +3372,10 @@ export class ProjectTab implements ChatPanelOwner {
       one('Turn into Project…', () => promote(id)),
       one('Reveal in Finder', () => shell.showItemInFolder(board.framePath(id))),
     ]
-    Menu.buildFromTemplate(template).popup({ window: this.host.win })
+    Menu.buildFromTemplate(template).popup({
+      window: this.host.win,
+      ...(at && this.inWindow(null, at)),
+    })
   }
 
   /** A new section around frames, then naming it in place on the board. */
@@ -3361,7 +3387,7 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /** A section's context menu on the board: its name, its frames, exporting, deleting. */
-  showSectionMenu(id: string) {
+  showSectionMenu(id: string, at?: Point) {
     const board = this.resources.board
     const section = board?.section(id)
     if (!board || !section) return
@@ -3380,7 +3406,10 @@ export class ProjectTab implements ChatPanelOwner {
         click: () => void board.remove(section.frames),
       },
     ]
-    Menu.buildFromTemplate(template).popup({ window: this.host.win })
+    Menu.buildFromTemplate(template).popup({
+      window: this.host.win,
+      ...(at && this.inWindow(null, at)),
+    })
   }
 
   /** Saves a frame's page where the user picks. */

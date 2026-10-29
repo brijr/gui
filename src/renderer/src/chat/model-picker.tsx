@@ -344,7 +344,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         // apart from a row the pointer only passes over.
         className={cn(
           index === activeIndex &&
-            'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-accent',
+            'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-accent-fg',
         )}
         onPointerMove={() => {
           if (index !== activeIndex) setActive(choice.value)

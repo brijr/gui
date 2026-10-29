@@ -442,6 +442,16 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     const box = ref.current?.getBoundingClientRect()
     return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) }
   }
+  /** A menu opened from the keyboard: at the area's top-left corner, kept on the board, in the window. */
+  const menuAt = (area: Override | null | undefined) => {
+    const box = ref.current?.getBoundingClientRect()
+    if (!area || !box) return undefined
+    const { left, top } = toScreen(area)
+    return {
+      x: box.left + Math.min(Math.max(left, 0), box.width),
+      y: box.top + Math.min(Math.max(top, 0), box.height),
+    }
+  }
 
   /** The arrow keys' moves land: one change, so one ⌘Z, however long they were held. */
   const commitNudge = () => {
@@ -644,8 +654,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       (matchesShortcut(event, 'canvasMenu') || (plain && event.key === 'ContextMenu')) &&
       (picked || ids.length === 1)
     ) {
-      if (picked) gui.showSectionMenu(picked.id)
-      else gui.showFrameMenu(ids[0])
+      if (picked) gui.showSectionMenu(picked.id, menuAt(sectionBounds(picked, frames)))
+      else gui.showFrameMenu(ids[0], menuAt(frames.find((frame) => frame.id === ids[0])))
     } else if (plain && event.key === 'Tab' && board.frames.length) {
       // Tab and ⇧Tab step through the sections, each before its first frame, and the frames;
       // past the last, focus leaves the board.

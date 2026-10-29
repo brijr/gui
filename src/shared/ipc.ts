@@ -417,8 +417,8 @@ export interface GuiApi {
   showRecentBoardMenu(id: string): void
   /** The canvas's menu under its name in the toolbar */
   showBoardMenu(): void
-  /** A frame's context menu on the board */
-  showFrameMenu(id: string): void
+  /** A frame's context menu on the board, at `at` in the window, or at the pointer */
+  showFrameMenu(id: string, at?: Point): void
   /** The sizes a new frame can be, under the toolbar's Frame button at `at` */
   showAddFrameMenu(at: { x: number; y: number }): void
   /** The frames selected on the board, in the order they were selected */
@@ -436,8 +436,8 @@ export interface GuiApi {
   boardRenameSection(id: string, name: string): void
   /** The section goes; its frames stay */
   boardDeleteSection(id: string): void
-  /** A section's context menu on the board */
-  showSectionMenu(id: string): void
+  /** A section's context menu on the board, at `at` in the window, or at the pointer */
+  showSectionMenu(id: string, at?: Point): void
   boardRenameFrame(id: string, name: string): void
   renameBoard(name: string): void
   /** Where the board is looking, saved for next time */

@@ -13,6 +13,7 @@ const point = (value: unknown): value is Point => {
   const { x, y } = value as Record<string, unknown>
   return number(x) && number(y)
 }
+const place = (value: unknown) => (point(value) ? value : undefined)
 const ids = (value: unknown): value is string[] =>
   Array.isArray(value) && value.length <= 100 && value.every(string)
 
@@ -42,9 +43,10 @@ export function registerBoardIpc(
   onWindow(Send.openBoard, (win, id) => string(id) && void actions.open(win, id))
   onWindow(Send.showRecentBoardMenu, (win, id) => string(id) && actions.recentMenu(win, id))
   onWindow(Send.showBoardMenu, (win) => win.activeTab.showBoardMenu(() => void actions.create(win)))
-  onWindow(Send.showFrameMenu, (win, id) => {
+  onWindow(Send.showFrameMenu, (win, id, at) => {
     const tab = win.activeTab
-    if (string(id)) tab.showFrameMenu(id, (frame) => void actions.promote(win, tab, frame))
+    if (string(id))
+      tab.showFrameMenu(id, (frame) => void actions.promote(win, tab, frame), place(at))
   })
   onWindow(Send.showAddFrameMenu, (win, at) => {
     if (point(at)) win.activeTab.showAddFrameMenu(at)
@@ -72,7 +74,7 @@ export function registerBoardIpc(
     Send.boardDeleteSection,
     (tab, id) => string(id) && void tab.boardSession?.removeSection(id),
   )
-  onBoard(Send.showSectionMenu, (tab, id) => string(id) && tab.showSectionMenu(id))
+  onBoard(Send.showSectionMenu, (tab, id, at) => string(id) && tab.showSectionMenu(id, place(at)))
   onBoard(Send.boardRenameFrame, (tab, id, name) => {
     if (string(id) && string(name)) void tab.boardRenameFrame(id, name)
   })

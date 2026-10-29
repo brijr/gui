@@ -19,6 +19,14 @@ const hidden = inBackground && process.env.GUI_E2E_HIDDEN === '1'
  */
 export function keepInBackground() {
   if (inBackground && process.platform === 'darwin') app.setActivationPolicy('prohibited')
+  // A view shown under the real pointer still hears it leave (macOS, as the window lets it
+  // through): the pick overlay would drop the hover the tests' own pointer just made.
+  if (hidden)
+    app.on('web-contents-created', (_event, contents) =>
+      contents.on('before-mouse-event', (event, mouse) => {
+        if (mouse.type === 'mouseEnter' || mouse.type === 'mouseLeave') event.preventDefault()
+      }),
+    )
 }
 
 /** Shows a window, in front and with the keyboard unless Gui runs in the background. */

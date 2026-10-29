@@ -219,9 +219,9 @@ interface MenuRowProps extends ComponentProps<'div'> {
 
 /**
  * An option in a popover menu or listbox, 28px tall. Give it role="option" and its handlers.
- * Highlighted (under the pointer or the arrow keys) is accent-soft, clear enough to follow
- * with the keys; selected (the current choice) is accent text and a check, so the two read
- * apart when they're on different rows.
+ * Highlighted (under the pointer or the arrow keys) is solid accent, as in a macOS menu, with
+ * everything in it (icons, secondary text) in accent-fg. Selected (the current choice) is
+ * accent text and a check; highlighted too, it keeps the check.
  */
 export function MenuRow({
   highlighted,
@@ -238,14 +238,16 @@ export function MenuRow({
       className={cn(
         'flex h-7 items-center gap-2 rounded-md px-2 text-left text-small transition-opacity',
         PRESS,
-        highlighted === undefined ? 'hover:bg-accent-soft' : highlighted && 'bg-accent-soft',
         selected && 'text-accent-text',
+        highlighted === undefined
+          ? 'hover:bg-accent hover:text-accent-fg hover:**:text-accent-fg'
+          : highlighted && 'bg-accent text-accent-fg **:text-accent-fg',
         className,
       )}
       {...props}
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>
-      {selected && <Check className="size-3 shrink-0 text-accent-text" aria-hidden="true" />}
+      {selected && <Check className="size-3 shrink-0" aria-hidden="true" />}
     </Tag>
   )
 }
