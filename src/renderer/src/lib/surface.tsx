@@ -358,7 +358,8 @@ interface BannerProps {
   edge?: 'top' | 'bottom'
   /**
    * Text that can run long (a pause reason, a pull request's title): it wraps rather than
-   * truncating, and the actions drop under it when there's no room beside it.
+   * truncating, breaking a long path or URL anywhere, and the actions drop under it when
+   * there's no room beside it.
    */
   wrap?: boolean
   role?: 'status' | 'alert'
@@ -398,7 +399,7 @@ export function Banner({
     >
       {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
       {wrap ? (
-        <div className="min-w-0 flex-1 basis-40 text-pretty">{children}</div>
+        <div className="min-w-0 flex-1 basis-40 text-pretty wrap-anywhere">{children}</div>
       ) : (
         <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{children}</div>
       )}
@@ -560,7 +561,7 @@ export function Message({
   const message = (
     <div
       className={cn(
-        'flex flex-col items-start gap-3 text-left',
+        'flex flex-col items-start gap-3 text-left wrap-anywhere',
         fill && 'my-auto w-full max-w-sm shrink-0',
         className,
       )}
