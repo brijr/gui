@@ -76,34 +76,32 @@ const POPOVER_MAX_HEIGHT = 440
  * Places a popover against `button`'s right edge, above it unless there's more room below.
  * The chat is its own view and can't draw outside it, so the popover stays inside the panel
  * ([data-chat-panel]) and takes the height there is. Inside a [data-popover-anchor] frame (the
- * composer) it opens off the frame rather than the button, so it doesn't cover the frame's edge.
+ * composer) it opens off the frame rather than the button, so it doesn't cover the frame's edge,
+ * and spans it as the composer's command menu does: it covers what's above edge to edge rather
+ * than leaving a sliver of it showing beside it.
  */
 export function placePopover(button: HTMLElement): PopoverPlacement {
   const panel = (button.closest('[data-chat-panel]') ?? document.body).getBoundingClientRect()
   const box = button.getBoundingClientRect()
-  const frame = button.closest('[data-popover-anchor]')?.getBoundingClientRect() ?? box
-  // Across from the button; above or below the frame.
-  const at = {
-    left: box.left,
-    right: box.right,
-    width: box.width,
-    top: frame.top,
-    bottom: frame.bottom,
-  }
-  const width = Math.min(POPOVER_WIDTH, panel.width - POPOVER_EDGE * 2)
-  const left = Math.max(
-    panel.left + POPOVER_EDGE,
-    Math.min(at.right - width, panel.right - POPOVER_EDGE - width),
-  )
-  const above = at.top - POPOVER_GAP - panel.top - POPOVER_EDGE
-  const below = panel.bottom - POPOVER_EDGE - at.bottom - POPOVER_GAP
-  const x = Math.round(Math.min(Math.max(at.left + at.width / 2 - left, 0), width))
+  const anchor = button.closest('[data-popover-anchor]')?.getBoundingClientRect()
+  // Above or below the frame; it grows from the button.
+  const edge = anchor ?? box
+  const width = anchor ? anchor.width : Math.min(POPOVER_WIDTH, panel.width - POPOVER_EDGE * 2)
+  const left = anchor
+    ? anchor.left
+    : Math.max(
+        panel.left + POPOVER_EDGE,
+        Math.min(box.right - width, panel.right - POPOVER_EDGE - width),
+      )
+  const above = edge.top - POPOVER_GAP - panel.top - POPOVER_EDGE
+  const below = panel.bottom - POPOVER_EDGE - edge.bottom - POPOVER_GAP
+  const x = Math.round(Math.min(Math.max(box.left + box.width / 2 - left, 0), width))
   return above >= below
     ? {
         left,
         width,
         maxHeight: Math.min(POPOVER_MAX_HEIGHT, above),
-        bottom: window.innerHeight - at.top + POPOVER_GAP,
+        bottom: window.innerHeight - edge.top + POPOVER_GAP,
         top: null,
         origin: `${x}px 100%`,
       }
@@ -112,7 +110,7 @@ export function placePopover(button: HTMLElement): PopoverPlacement {
         width,
         maxHeight: Math.min(POPOVER_MAX_HEIGHT, below),
         bottom: null,
-        top: at.bottom + POPOVER_GAP,
+        top: edge.bottom + POPOVER_GAP,
         origin: `${x}px 0`,
       }
 }
