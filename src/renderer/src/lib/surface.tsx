@@ -71,8 +71,9 @@ interface MenuRowProps extends ComponentProps<'div'> {
 
 /**
  * An option in a popover menu or listbox, 28px tall. Give it role="option" and its handlers.
- * Highlighted (under the pointer or the arrow keys) is the hover fill; selected (the current
- * choice) is accent text and a check, so the two read apart when they're on different rows.
+ * Highlighted (under the pointer or the arrow keys) is accent-soft, clear enough to follow
+ * with the keys; selected (the current choice) is accent text and a check, so the two read
+ * apart when they're on different rows.
  */
 export function MenuRow({ highlighted, selected, className, children, ...props }: MenuRowProps) {
   return (
@@ -80,7 +81,7 @@ export function MenuRow({ highlighted, selected, className, children, ...props }
       className={cn(
         'flex h-7 items-center gap-2 rounded-md px-2 text-small transition-opacity',
         PRESS,
-        highlighted && 'bg-hover',
+        highlighted && 'bg-accent-soft',
         selected && 'text-accent-text',
         className,
       )}
@@ -449,7 +450,8 @@ export function Thumbnail({
           aria-label={removeLabel ?? 'Remove'}
           title={removeLabel ?? 'Remove'}
           onClick={onRemove}
-          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] hover:text-fg hover:tint ${PRESS}`}
+          // 20px drawn, 24px to hit: the ::before reaches 2px past each side.
+          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-0.5 before:rounded-full hover:text-fg hover:tint ${PRESS}`}
         >
           <X className="size-3" aria-hidden="true" />
         </button>

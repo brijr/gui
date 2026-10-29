@@ -2,10 +2,10 @@ import type { ComponentProps, ReactNode } from 'react'
 import { cn } from './cn'
 
 /**
- * The one field style, for inputs, textareas and selects: raised, a strong hairline, and on
+ * The one field style, for inputs, textareas and selects: raised, a control's edge, and on
  * focus an accent border with a soft accent ring instead of the outline buttons get.
  */
-const FRAME = 'rounded-md border border-line-strong bg-raised text-fg transition-colors'
+const FRAME = 'rounded-md border border-edge bg-raised text-fg transition-colors'
 const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40`
 /**
  * The field's look without its size or type, for a field sized to what it edits in place (a

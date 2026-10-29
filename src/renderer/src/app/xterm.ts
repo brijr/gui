@@ -19,7 +19,7 @@ function terminalTheme(interactive: boolean): ITheme {
     // Read-only output has no cursor to show.
     cursor: cssVar(interactive ? '--fg' : '--canvas'),
     cursorAccent: cssVar('--canvas'),
-    selectionBackground: cssVar('--terminal-selection'),
+    selectionBackground: cssVar('--selection'),
     black: cssVar('--terminal-black'),
     red: cssVar('--terminal-red'),
     green: cssVar('--terminal-green'),
@@ -60,6 +60,9 @@ export function mountXterm(el: HTMLElement, { interactive, onResize }: XtermOpti
     cursorStyle: interactive ? 'block' : 'bar',
     cursorInactiveStyle: interactive ? 'outline' : 'none',
     scrollback: 5000,
+    // Programs pick their own colors, often for a dark background: xterm nudges any that
+    // would fall under 4.5:1 on ours.
+    minimumContrastRatio: 4.5,
     theme: terminalTheme(interactive),
   })
   const fit = new FitAddon()

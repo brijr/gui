@@ -1,4 +1,9 @@
+import { ACCENT } from '../../../shared/theme'
 import type { RecordingCursor } from '../../../shared/types'
+
+/** The brand accent's channels, for the pointer's fills at their own opacities. */
+const [R, G, B] = [1, 3, 5].map((i) => Number.parseInt(ACCENT.light.slice(i, i + 2), 16))
+const accent = (alpha: number) => `rgba(${R}, ${G}, ${B}, ${alpha})`
 
 /**
  * Draws the mouse pointer into a recording's frames: the capture is of the preview's page,
@@ -37,13 +42,13 @@ export class PointerOverlay {
       const t = since / RIPPLE_MS
       context.beginPath()
       context.arc(x, y, radius * (1 + t * 1.6), 0, Math.PI * 2)
-      context.strokeStyle = `rgba(0, 122, 255, ${0.6 * (1 - t)})`
+      context.strokeStyle = accent(0.6 * (1 - t))
       context.lineWidth = 3 * unit
       context.stroke()
     }
     context.beginPath()
     context.arc(x, y, radius, 0, Math.PI * 2)
-    context.fillStyle = cursor.down ? 'rgba(0, 122, 255, 0.4)' : 'rgba(0, 122, 255, 0.14)'
+    context.fillStyle = accent(cursor.down ? 0.4 : 0.14)
     context.fill()
     context.lineWidth = 3.5 * unit
     context.strokeStyle = 'rgba(0, 0, 0, 0.45)'
@@ -53,7 +58,7 @@ export class PointerOverlay {
     context.stroke()
     context.beginPath()
     context.arc(x, y, 2.5 * unit, 0, Math.PI * 2)
-    context.fillStyle = 'rgba(0, 122, 255, 1)'
+    context.fillStyle = ACCENT.light
     context.fill()
     context.lineWidth = 1 * unit
     context.strokeStyle = 'rgba(255, 255, 255, 0.95)'

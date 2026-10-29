@@ -5,22 +5,23 @@ import type { IconComponent } from './icons'
 export type Status = 'ready' | 'busy' | 'error' | 'idle' | 'attention'
 
 /**
- * The one status indicator, 6px: green when ready or running, pulsing amber while busy
- * (starting, installing, working), red on an error, a hollow ring when idle, accent when
- * something there wants the user (a finished turn in a hidden chat). Pair it with
- * text or a tooltip; it's hidden from assistive tech.
+ * The one status indicator, 6px: green when ready or running, amber while busy (starting,
+ * installing, working), a red square on an error so it doesn't rest on color alone, a ring
+ * when idle, accent when something there wants the user (a finished turn in a hidden chat).
+ * Pair it with text or a tooltip; it's hidden from assistive tech.
  */
 export function StatusDot({ status, className }: { status: Status; className?: string }) {
   return (
     <span
       aria-hidden="true"
       className={cn(
-        'size-1.5 shrink-0 rounded-full',
+        'size-1.5 shrink-0',
+        status === 'error' ? 'rounded-none' : 'rounded-full',
         status === 'ready' && 'bg-success',
         // Solid: a spinner beside it (tab, Working, bubble) already says it's moving.
         status === 'busy' && 'bg-warning',
         status === 'error' && 'bg-danger',
-        status === 'idle' && 'border border-line-strong bg-fill',
+        status === 'idle' && 'border border-edge bg-fill',
         status === 'attention' && 'bg-accent',
         className,
       )}

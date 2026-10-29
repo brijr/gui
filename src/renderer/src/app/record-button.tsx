@@ -350,12 +350,12 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
   const idle = phase === 'idle'
   return (
     <div ref={root} className="relative no-drag flex min-w-0 items-center">
-      {/* Record and its mic are one control, highlighted together on hover. The mic shows
-          whether recordings are narrated: tinted while on, struck through while off. Their
-          own variants carry their colors (plain, live), so no class here overrides another. */}
+      {/* Record and its mic are one control, highlighted together on hover, so neither
+          fills on its own. The mic shows whether recordings are narrated: tinted while on,
+          struck through while off. While recording, Record is the danger button that stops it. */}
       <div className="group/record flex h-7 shrink-0 items-center rounded-md transition-colors has-[button:enabled:hover]:bg-hover">
         <Button
-          variant={recording ? 'live' : 'plain'}
+          variant={recording ? 'danger' : 'ghost'}
           icon={recording ? Square : CircleDot}
           disabled={phase === 'starting' || phase === 'saving' || (disabled && !recording)}
           onClick={() => (recording ? stop.current?.() : void start())}
@@ -366,7 +366,9 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
           // The seconds count up in place rather than shifting the button's width.
           className={cn(
             'pr-1.5 pl-2',
-            recording ? 'tabular-nums' : 'group-has-[button:enabled:hover]/record:text-fg',
+            recording
+              ? 'tabular-nums'
+              : 'enabled:hover:bg-transparent group-has-[button:enabled:hover]/record:text-fg',
           )}
         >
           {recording && live ? (
@@ -379,7 +381,6 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
         </Button>
         {!recording && (
           <IconButton
-            variant="plain"
             size="sm"
             icon={narrate ? Mic : MicOff}
             label="Narrate recordings"
@@ -391,7 +392,7 @@ export function RecordButton({ state, disabled }: { state: WindowState; disabled
             }
             disabled={!idle}
             onClick={toggleNarrate}
-            className="mr-0.5 -ml-0.5"
+            className={cn('mr-0.5 -ml-0.5', !narrate && 'enabled:hover:bg-transparent')}
           />
         )}
         {recording && live?.voice && <Level voice={live.voice} />}

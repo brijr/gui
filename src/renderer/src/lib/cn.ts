@@ -32,7 +32,7 @@ const merge = extendTailwindMerge({
         'danger',
         'danger-soft',
         'knob',
-        'track',
+        'edge',
         'tile',
         'tile-fg',
         'tile-edge',
@@ -59,7 +59,7 @@ const merge = extendTailwindMerge({
   },
   extend: {
     classGroups: {
-      z: [{ z: ['sticky', 'chrome', 'popover', 'sheet', 'toast'] }],
+      z: [{ z: ['sticky', 'chrome', 'popover'] }],
     },
   },
 })

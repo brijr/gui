@@ -22,7 +22,8 @@
  *   row      px-3 py-2 (ListRow, ListItem); 28px rows in menus and dense lists
  *
  * Layers, lowest first (z-* utilities below): sticky headers inside a scroller, chrome that
- * sits over its page (bars, drag regions), popovers and menus, modal sheets, then toasts.
+ * sits over its page (bars, drag regions), then popovers and menus. Modal sheets are native
+ * dialogs (lib/dialog.tsx), in the top layer above all of these.
  */
 
 /* Colors switch with the appearance, so utilities read them through the raw variables below. */
@@ -50,7 +51,7 @@
   --color-danger: var(--danger);
   --color-danger-soft: var(--danger-soft);
   --color-knob: var(--knob);
-  --color-track: var(--track);
+  --color-edge: var(--edge);
   --color-tile: var(--tile);
   --color-tile-fg: var(--tile-fg);
   --color-tile-edge: var(--tile-edge);
@@ -221,7 +222,8 @@
 
 /*
  * Light and dark values. Text tokens (fg, muted, subtle, accent-text, the status colors)
- * keep at least 4.5:1 on canvas, surface and raised; accent-fg on accent too.
+ * keep at least 4.5:1 on canvas, surface and raised, and on their soft tint (or --fill) over
+ * any of those; accent-fg on accent too. --edge keeps 3:1.
  * src/shared/theme.ts repeats --surface and --accent for native colors: keep them in sync.
  */
 :root {
@@ -252,30 +254,34 @@
   --hover: rgb(0 0 0 / 0.045);
   --fg: #18181a;
   --muted: #545458;
-  --subtle: #68686d;
+  --subtle: #626267;
   /* The brand blue from the app icon */
   --accent: #0066ff;
   --accent-hover: #005be5;
   --accent-fg: #ffffff;
   --accent-soft: rgb(0 102 255 / 0.1);
   /* Accent for text and glyphs, a step darker than the fill so it reads on accent-soft */
-  --accent-text: #0058e0;
-  --success: #147a3a;
-  --success-soft: rgb(20 122 58 / 0.1);
-  --warning: #a84d08;
-  --warning-soft: rgb(168 77 8 / 0.1);
-  --danger: #b83d0b;
-  --danger-soft: rgb(184 61 11 / 0.1);
-  /* A switch's thumb, and its track while off (stronger than --fill so it reads on raised) */
+  --accent-text: #0054d6;
+  --success: #0f6e35;
+  --success-soft: rgb(15 110 53 / 0.1);
+  /* Amber and red, apart in hue so busy and failed don't read alike */
+  --warning: #8a5300;
+  --warning-soft: rgb(138 83 0 / 0.1);
+  --danger: #b91c1c;
+  --danger-soft: rgb(185 28 28 / 0.1);
+  /* A switch's thumb */
   --knob: #ffffff;
-  --track: rgb(0 0 0 / 0.13);
+  /* The edge of a control the user sets: a field's and a checkbox's border, a switch's track
+     while off, an idle dot's ring. 3:1 on canvas, surface and raised, and against the knob;
+     dividers and panel borders stay on the quieter --line and --line-strong. */
+  --edge: rgb(0 0 0 / 0.44);
   /* Agent icons: a dark tile in either appearance, with an edge that holds on dark rows */
   --tile: #000000;
   --tile-fg: #ffffff;
   --tile-edge: rgb(0 0 0 / 0.08);
   /* Behind a modal sheet */
   --scrim: rgb(0 0 0 / 0.24);
-  /* Selected text */
+  /* Selected text, in the page and the terminals */
   --selection: rgb(0 102 255 / 0.2);
   /* Cards on the canvas */
   --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
@@ -290,7 +296,8 @@
 
   /*
    * The drawer's terminals (app/xterm.ts): the 16 ANSI colors programs print in, on --canvas.
-   * The normal ones keep 4.5:1; "white" is a gray here, as light terminal themes make it.
+   * "White" is a gray here, as light terminal themes make it. xterm lifts any color under
+   * 4.5:1 to it (minimumContrastRatio), so these can stay the familiar palette.
    */
   --terminal-black: #24292f;
   --terminal-red: #cf222e;
@@ -308,7 +315,6 @@
   --terminal-bright-magenta: #8250df;
   --terminal-bright-cyan: #1b7c83;
   --terminal-bright-white: #6e7781;
-  --terminal-selection: rgb(0 102 255 / 0.2);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -322,7 +328,7 @@
     --hover: rgb(255 255 255 / 0.06);
     --fg: #ededef;
     --muted: #ababb0;
-    --subtle: #8c8c91;
+    --subtle: #9a9a9f;
     --accent: #5c9dff;
     --accent-hover: #4b8ff7;
     --accent-fg: #04122b;
@@ -332,10 +338,10 @@
     --success-soft: rgb(74 222 128 / 0.16);
     --warning: #fbbf24;
     --warning-soft: rgb(251 191 36 / 0.16);
-    --danger: #fb923c;
-    --danger-soft: rgb(251 146 60 / 0.16);
+    --danger: #f87171;
+    --danger-soft: rgb(248 113 113 / 0.16);
     --knob: #f2f2f4;
-    --track: rgb(255 255 255 / 0.16);
+    --edge: rgb(255 255 255 / 0.35);
     --tile: #000000;
     --tile-fg: #ffffff;
     --tile-edge: rgb(255 255 255 / 0.16);
@@ -370,7 +376,6 @@
     --terminal-bright-magenta: #d2a8ff;
     --terminal-bright-cyan: #56d4dd;
     --terminal-bright-white: #f0f6fc;
-    --terminal-selection: rgb(92 157 255 / 0.3);
   }
 }
 
@@ -389,12 +394,6 @@
 }
 @utility z-popover {
   z-index: 50;
-}
-@utility z-sheet {
-  z-index: 60;
-}
-@utility z-toast {
-  z-index: 70;
 }
 
 /*
@@ -445,7 +444,8 @@
     calc(100% - 24px) 100%;
 }
 
-/* The same sideways, for a row of tabs that scrolls (SCROLLING_TABLIST in lib/tabs.tsx). */
+/* The same sideways: a row of tabs that scrolls (SCROLLING_TABLIST in lib/tabs.tsx), a code
+   block in agent markdown. */
 @property --fade-left {
   syntax: "<length>";
   inherits: false;
@@ -639,35 +639,8 @@ html.transparent body {
 .markdown code {
   @apply inline-code;
 }
-/* A code block's frame stays put; the code scrolls inside it, and the side it can scroll
-   toward fades over 16px, so a long line reads as more to come rather than cut off (as
-   scroll-fade does vertically). */
-@property --fade-left {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@property --fade-right {
-  syntax: "<length>";
-  inherits: false;
-  initial-value: 0px;
-}
-@keyframes fade-left {
-  from {
-    --fade-left: 0px;
-  }
-  to {
-    --fade-left: 16px;
-  }
-}
-@keyframes fade-right {
-  from {
-    --fade-right: 16px;
-  }
-  to {
-    --fade-right: 0px;
-  }
-}
+/* A code block's frame stays put; the code scrolls inside it, its edges fading as
+   scroll-fade-x does for tabs, so a long line reads as more to come rather than cut off. */
 .markdown pre {
   overflow: hidden;
   border: 1px solid var(--line);
@@ -677,25 +650,12 @@ html.transparent body {
   line-height: var(--text-small--line-height);
 }
 .markdown pre code {
+  @apply scroll-fade-x;
   display: block;
   overflow-x: auto;
   border-radius: 0;
   background: none;
   padding: 8px 12px;
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    #000 var(--fade-left),
-    #000 calc(100% - var(--fade-right)),
-    transparent
-  );
-  animation:
-    fade-left linear both,
-    fade-right linear both;
-  animation-timeline: scroll(self inline), scroll(self inline);
-  animation-range:
-    0 24px,
-    calc(100% - 24px) 100%;
 }
 .markdown h1,
 .markdown h2,
