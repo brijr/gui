@@ -766,9 +766,6 @@ function captureBlocked(preview: PreviewState, board: boolean): string | null {
   return null
 }
 
-/** Dimmed while aria-disabled, as `disabled` would (Record's own button too). */
-const UNAVAILABLE = 'aria-disabled:opacity-40'
-
 function SelectButton({
   unavailable,
   keys,
@@ -788,7 +785,6 @@ function SelectButton({
       emphasis="strong"
       title={unavailable ?? undefined}
       aria-disabled={unavailable !== null || undefined}
-      className={UNAVAILABLE}
       onClick={() => unavailable === null && gui.toggleSelect()}
     />
   )
@@ -844,7 +840,6 @@ function ScreenshotButton({
         title={done?.label ?? unavailable ?? undefined}
         icon={done ? Check : Camera}
         aria-disabled={unavailable !== null || undefined}
-        className={UNAVAILABLE}
         onClick={() => unavailable === null && void take()}
       />
       <span aria-live="polite" className="sr-only">

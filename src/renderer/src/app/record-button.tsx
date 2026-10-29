@@ -363,7 +363,7 @@ export function RecordButton({
       {/* Record and its mic are one control, highlighted together on hover, so neither
           fills on its own. The mic shows whether recordings are narrated: tinted while on,
           struck through while off. While recording, Record is the danger button that stops it. */}
-      <div className="group/record flex h-7 shrink-0 items-center rounded-md transition-colors has-[button:enabled:hover]:bg-hover">
+      <div className="group/record flex h-7 shrink-0 items-center rounded-md transition-colors has-[button:enabled:not([aria-disabled=true]):hover]:bg-hover">
         <Button
           variant={recording ? 'danger' : 'ghost'}
           icon={recording ? Square : CircleDot}
@@ -377,10 +377,10 @@ export function RecordButton({
           shortcut="recordPreview"
           // The seconds count up in place rather than shifting the button's width.
           className={cn(
-            'pr-1.5 pl-2 aria-disabled:opacity-40',
+            'pr-1.5 pl-2',
             recording
               ? 'tabular-nums'
-              : 'enabled:hover:bg-transparent group-has-[button:enabled:hover]/record:text-fg',
+              : 'enabled:hover:bg-transparent group-has-[button:enabled:not([aria-disabled=true]):hover]/record:text-fg',
           )}
         >
           {recording && live ? (

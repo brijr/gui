@@ -12,7 +12,8 @@ import type { IconComponent } from './icons'
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
  * tints, pressed or selected is accent-soft with accent text, disabled fades to 40% (a primary goes neutral), focus
- * is the global accent ring. Held down, a control dims at once (PRESS) and eases back when
+ * is the global accent ring. aria-disabled (still focusable, its tooltip saying why) looks and
+ * acts as disabled does: no hover, no press. Held down, a control dims at once (PRESS) and eases back when
  * let go. Icons inside controls are 14px; chevrons and other trailing glyphs 12px. A control
  * with a keyboard shortcut takes its id (`shortcut`, from src/shared/shortcuts.ts): its
  * tooltip names the keys and `aria-keyshortcuts` gives them.
@@ -23,7 +24,7 @@ import type { IconComponent } from './icons'
  * the press duration when released (the transition that applies is the one in effect after
  * the change). Pair with a transition that includes opacity.
  */
-export const PRESS = 'active:opacity-70 active:transition-none'
+export const PRESS = 'active:not-aria-disabled:opacity-70 active:transition-none'
 
 type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger'
 type ControlSize = 'sm' | 'md' | 'lg'
@@ -31,7 +32,7 @@ type ControlSize = 'sm' | 'md' | 'lg'
 const CONTROL = `no-drag inline-flex items-center whitespace-nowrap rounded-md font-medium transition-[color,background-color,border-color,opacity] ${PRESS}`
 
 /** Disabled, a control fades; a primary one goes neutral instead (VARIANT), as a pale accent still reads as live. */
-const FADE = 'disabled:opacity-40'
+const FADE = 'disabled:opacity-40 aria-disabled:opacity-40'
 
 const BUTTON_SIZE: Record<ControlSize, string> = {
   sm: 'h-6 gap-1 px-2 text-small',
@@ -41,10 +42,10 @@ const BUTTON_SIZE: Record<ControlSize, string> = {
 
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
-    'bg-accent text-accent-fg enabled:hover:bg-accent-hover disabled:bg-fill disabled:text-subtle',
-  secondary: `border border-line-strong bg-raised text-fg shadow-control enabled:hover:tint ${FADE}`,
-  ghost: `text-muted enabled:hover:bg-hover enabled:hover:text-fg ${FADE}`,
-  danger: `bg-danger-soft text-danger enabled:hover:tint ${FADE}`,
+    'bg-accent text-accent-fg enabled:not-aria-disabled:hover:bg-accent-hover disabled:bg-fill disabled:text-subtle aria-disabled:bg-fill aria-disabled:text-subtle',
+  secondary: `border border-line-strong bg-raised text-fg shadow-control enabled:not-aria-disabled:hover:tint ${FADE}`,
+  ghost: `text-muted enabled:not-aria-disabled:hover:bg-hover enabled:not-aria-disabled:hover:text-fg ${FADE}`,
+  danger: `bg-danger-soft text-danger enabled:not-aria-disabled:hover:tint ${FADE}`,
 }
 
 interface ButtonProps extends ComponentProps<'button'> {
