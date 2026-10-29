@@ -199,8 +199,10 @@ export function PickOverlay() {
   )
 }
 
-/** Between the outline and the caption */
-const CAPTION_GAP = 10
+/** Between the outline and the caption: 8px clear of the outline's 4px ring */
+const CAPTION_GAP = 12
+/** Between the caption and the view's edges */
+const CAPTION_EDGE = 8
 /** The caption's widest, and about its height for a line or two */
 const CAPTION_WIDTH = 280
 const CAPTION_HEIGHT = 64
@@ -312,16 +314,34 @@ function notePlace(at: Point) {
   return { bottom: window.innerHeight - at.y + HELD_NOTE_OFFSET, left: Math.max(8, left) }
 }
 
-/** Below what's pointed at, or above it when there's no room; top-left without it. */
+/**
+ * Beside what's pointed at, on the side with more room, so it covers the page's flow (the
+ * heading under a button) as little as it can; when neither side has room, below or above,
+ * again where there's more. It keeps clear of the outline's ring and inside the view.
+ */
 function captionPlace(rect: Rect | null) {
   if (!rect) return { top: 12, left: 12 }
-  const left = Math.min(Math.max(8, rect.x), Math.max(8, window.innerWidth - CAPTION_WIDTH - 8))
-  const below = rect.y + rect.height + CAPTION_GAP
-  if (below + CAPTION_HEIGHT <= window.innerHeight) return { top: below, left }
-  if (rect.y - CAPTION_GAP - CAPTION_HEIGHT >= 0)
-    return { bottom: window.innerHeight - rect.y + CAPTION_GAP, left }
-  // Taller than the view: inside its top edge.
-  return { top: Math.max(8, rect.y + CAPTION_GAP), left }
+  const { innerWidth: width, innerHeight: height } = window
+  const right = width - CAPTION_EDGE - (rect.x + rect.width + CAPTION_GAP)
+  const left = rect.x - CAPTION_GAP - CAPTION_EDGE
+  if (Math.max(right, left) >= CAPTION_WIDTH) {
+    const top = Math.min(Math.max(CAPTION_EDGE, rect.y), height - CAPTION_HEIGHT - CAPTION_EDGE)
+    return right >= left
+      ? { top, left: rect.x + rect.width + CAPTION_GAP }
+      : { top, right: width - rect.x + CAPTION_GAP }
+  }
+  const x = Math.min(
+    Math.max(CAPTION_EDGE, rect.x),
+    Math.max(CAPTION_EDGE, width - CAPTION_WIDTH - CAPTION_EDGE),
+  )
+  const below = height - CAPTION_EDGE - (rect.y + rect.height + CAPTION_GAP)
+  const above = rect.y - CAPTION_GAP - CAPTION_EDGE
+  if (Math.max(below, above) >= CAPTION_HEIGHT)
+    return below >= above
+      ? { top: rect.y + rect.height + CAPTION_GAP, left: x }
+      : { bottom: height - rect.y + CAPTION_GAP, left: x }
+  // Bigger than the view: inside its top edge.
+  return { top: Math.max(CAPTION_EDGE, rect.y + CAPTION_GAP), left: x }
 }
 
 const center = (rect: Rect): Point => ({
