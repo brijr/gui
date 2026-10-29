@@ -170,8 +170,9 @@ async function expectActive(owner: Locator, option: Locator) {
 }
 
 /**
- * Just above the composer's frame (or the button, outside one) and inside the chat panel,
- * against the button's right edge unless that would cross the panel's left edge.
+ * Just above the composer's frame (or the button, outside one) and inside the chat panel. In
+ * the frame it spans the frame; outside one, it's against the button's right edge unless that
+ * would cross the panel's left edge.
  */
 async function expectPlaced(session: GuiSession, dialog: Locator, button: Locator) {
   // Once it has opened: it grows into place from 97% of its size.
@@ -200,7 +201,11 @@ async function expectPlaced(session: GuiSession, dialog: Locator, button: Locato
   expect(box.y + box.height).toBeLessThanOrEqual(above.y)
   expect(above.y - (box.y + box.height)).toBeLessThanOrEqual(8)
   const right = anchor.x + anchor.width
-  if (right - box.width >= panel.x + 8) expect(Math.abs(box.x + box.width - right)).toBeLessThan(1)
+  if (above !== anchor) {
+    expect(Math.abs(box.x - above.x)).toBeLessThan(1)
+    expect(Math.abs(box.width - above.width)).toBeLessThan(1)
+  } else if (right - box.width >= panel.x + 8)
+    expect(Math.abs(box.x + box.width - right)).toBeLessThan(1)
   else expect(Math.abs(box.x - (panel.x + 8))).toBeLessThan(1)
   return { panel, box }
 }

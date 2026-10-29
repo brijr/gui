@@ -114,14 +114,15 @@ interface InlineErrorProps {
 
 /**
  * Something that went wrong, said where it happened: under a field, a row, a form. Small,
- * danger, selectable so it can be copied, and announced as it appears.
+ * danger, selectable so it can be copied, and announced as it appears. A long path breaks
+ * anywhere rather than running off the edge.
  */
 export function InlineError({ id, className, children }: InlineErrorProps) {
   return (
     <p
       id={id}
       role="alert"
-      className={cn('select-text text-pretty text-small text-danger', className)}
+      className={cn('select-text text-pretty text-small wrap-anywhere text-danger', className)}
     >
       {children}
     </p>
