@@ -193,12 +193,12 @@ export function TabStrip({ state }: { state: WindowState }) {
     }
     const spring = new Spring(offset, { target: 0, velocity })
     draw(offset)
-    if (front) el.style.zIndex = '10'
+    if (front) el.dataset.front = ''
     const stop = animateSpring(spring, {
       update: draw,
       rest: () => {
         el.style.translate = ''
-        el.style.zIndex = ''
+        delete el.dataset.front
         slides.current.delete(id)
       },
     })
@@ -318,8 +318,10 @@ export function TabStrip({ state }: { state: WindowState }) {
                 drag && !dragged
                   ? 'transition-[color,background-color,transform] motion-reduce:transition-[color,background-color]'
                   : 'transition-[color,background-color]',
-                // Lifted off the row while it's carried, above the tabs it passes.
+                // Lifted off the row while it's carried, above the tabs it passes; once
+                // dropped, it stays above them as it slides into its slot (data-front).
                 dragged && 'z-popover shadow-popover',
+                'data-front:z-sticky',
                 // The hairline sits in the 4px gap before the tab, just outside its border.
                 divided &&
                   "before:absolute before:-left-0.75 before:h-3.5 before:w-px before:bg-line before:content-['']",
@@ -423,8 +425,8 @@ function growIn(el: HTMLElement) {
 }
 
 /**
- * The agent working, a permission card waiting for an answer (an accent dot, the size of a
- * StatusDot), or something that failed, in one 12px slot so names line up whichever it is.
+ * The agent working, a permission card waiting for an answer (an accent StatusDot), or
+ * something that failed, in one 12px slot so names line up whichever it is.
  * An idle tab has none, so its name starts at the tab's inset rather than after an empty
  * slot. The tab's name says which to assistive tech.
  */
@@ -433,7 +435,7 @@ function StatusMark({ status }: { status: TabStatus }) {
     <span aria-hidden="true" className="flex size-3 shrink-0 items-center justify-center">
       {status === 'working' && <Spinner className="text-muted" />}
       {status === 'error' && <StatusDot status="error" />}
-      {status === 'attention' && <span className="size-1.5 rounded-full bg-accent" />}
+      {status === 'attention' && <StatusDot status="attention" />}
     </span>
   )
 }

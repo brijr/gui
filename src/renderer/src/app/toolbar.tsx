@@ -1,6 +1,11 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import { TOOLBAR_HEIGHT } from '../../../shared/layout'
-import { ariaShortcut, VIEWPORT_SHORTCUTS, withShortcut } from '../../../shared/shortcuts'
+import {
+  ariaShortcut,
+  type ShortcutId,
+  VIEWPORT_SHORTCUTS,
+  withShortcut,
+} from '../../../shared/shortcuts'
 import {
   type BoardState,
   type ToolbarMenuItem,
@@ -9,7 +14,8 @@ import {
   type WindowState,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { Input } from '../lib/field'
+import { cn } from '../lib/cn'
+import { FIELD_LOOK, Input } from '../lib/field'
 import {
   ArrowLeft,
   ArrowRight,
@@ -536,7 +542,7 @@ function BoardToolbar({
           autoFocus
           aria-label="Canvas name"
           defaultValue={board.name}
-          className="no-drag h-7 w-56 shrink-0 rounded-md border border-accent bg-raised px-2 text-small text-fg outline-none"
+          className={`${FIELD_LOOK} no-drag h-7 w-56 shrink-0 px-2 text-small`}
           onFocus={(event) => event.currentTarget.select()}
           onKeyDown={(event) => {
             if (event.key === 'Enter') event.currentTarget.blur()
@@ -692,15 +698,12 @@ function BoardToolbar({
           {shown('zoom') && boardView.camera && (
             <div className="flex shrink-0 items-center gap-0.5">
               <IconButton label="Zoom out" icon={Minus} onClick={() => boardView.zoomBy(0.8)} />
-              <button
-                type="button"
-                aria-label={`Zoom ${Math.round(boardView.camera.zoom * 100)}%, zoom to fit`}
+              <ZoomPercent
+                zoom={boardView.camera.zoom}
+                action="zoom to fit"
                 title="Zoom to fit"
                 onClick={() => boardView.fit()}
-                className={`no-drag flex h-7 min-w-12 items-center justify-center rounded-md px-1.5 text-caption font-medium text-muted tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg ${PRESS}`}
-              >
-                {Math.round(boardView.camera.zoom * 100)}%
-              </button>
+              />
               <IconButton label="Zoom in" icon={Plus} onClick={() => boardView.zoomBy(1.25)} />
             </div>
           )}
@@ -814,19 +817,41 @@ function ScreenshotButton({
 const ADDRESS_ID = 'preview-address'
 
 /**
- * Desktop's page zoom while it isn't 100%, at the end of the address field, like a browser's;
- * clicking it goes back to 100%. (A device frame's label shows its own.)
+ * A zoom level as a ghost button that sets it back: the canvas's (to fit, between its zoom
+ * buttons), and Desktop's page zoom while it isn't 100% (`inField`: at the end of the address
+ * field, like a browser's, filling its height). A device frame's label shows its own.
  */
-function ZoomButton({ zoom }: { zoom: number }) {
+function ZoomPercent({
+  zoom,
+  action,
+  title,
+  inField = false,
+  shortcut,
+  onClick,
+}: {
+  zoom: number
+  /** What a click does, after the level in its name: "zoom to fit" */
+  action: string
+  title: string
+  inField?: boolean
+  shortcut?: ShortcutId
+  onClick: () => void
+}) {
   const percent = Math.round(zoom * 100)
   return (
     <button
       type="button"
-      aria-label={`Zoom ${percent}%, reset to 100%`}
-      title={withShortcut('Reset zoom', 'actualSize')}
-      aria-keyshortcuts={ariaShortcut('actualSize')}
-      onClick={() => gui.zoomPreview(0)}
-      className={`flex h-full shrink-0 items-center rounded-r-md pr-2.5 pl-2 text-caption font-medium text-muted tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg focus-visible:-outline-offset-2 ${PRESS}`}
+      aria-label={`Zoom ${percent}%, ${action}`}
+      title={shortcut ? withShortcut(title, shortcut) : title}
+      aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
+      onClick={onClick}
+      className={cn(
+        'no-drag flex shrink-0 items-center text-caption font-medium text-muted tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg',
+        PRESS,
+        inField
+          ? 'h-full rounded-r-md pr-2.5 pl-2 focus-visible:-outline-offset-2'
+          : 'h-7 min-w-12 justify-center rounded-md px-1.5',
+      )}
     >
       {percent}%
     </button>
@@ -898,7 +923,17 @@ function AddressBar({ state }: { state: WindowState }) {
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
         trailing={
-          preview.viewport === 'desktop' && preview.zoom !== 1 && <ZoomButton zoom={preview.zoom} />
+          preview.viewport === 'desktop' &&
+          preview.zoom !== 1 && (
+            <ZoomPercent
+              inField
+              zoom={preview.zoom}
+              action="reset to 100%"
+              title="Reset zoom"
+              shortcut="actualSize"
+              onClick={() => gui.zoomPreview(0)}
+            />
+          )
         }
         leading={
           // A round target around the dot, its focus ring and hover drawn on the circle so

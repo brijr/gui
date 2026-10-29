@@ -477,6 +477,34 @@ export function TextButton({ tone = 'accent', className, ...props }: TextButtonP
   )
 }
 
+interface PromptButtonProps extends Omit<ComponentProps<'button'>, 'className'> {
+  /** Sending: a spinner before the text, and it's disabled */
+  loading?: boolean
+}
+
+/**
+ * A suggested prompt in a list of ideas to start with: a small secondary button whose text
+ * wraps over as many lines as it needs, rather than truncating.
+ */
+export function PromptButton({ loading = false, disabled, children, ...props }: PromptButtonProps) {
+  return (
+    <button
+      type="button"
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      className={cn(
+        'no-drag inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-left text-small font-medium transition-[color,background-color,border-color,opacity]',
+        PRESS,
+        VARIANT.secondary,
+      )}
+      {...props}
+    >
+      {loading && <Spinner />}
+      {children}
+    </button>
+  )
+}
+
 interface CheckboxProps extends Omit<ComponentProps<'input'>, 'type' | 'children'> {
   /** Visible text after the box; part of its name */
   label: ReactNode

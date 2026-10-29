@@ -1,10 +1,9 @@
 import { type FormEvent, useEffect, useId, useState } from 'react'
-import type { FileChange, Version } from '../../../shared/types'
-import { cn } from '../lib/cn'
-import { Disclosure, REVEAL } from '../lib/disclosure'
+import type { Version } from '../../../shared/types'
+import { ChangedFiles } from '../lib/changed-files'
+import { Disclosure } from '../lib/disclosure'
 import { Field, InlineError, Input } from '../lib/field'
 import { ArrowLeft, History, Info, TriangleAlert, Undo2 } from '../lib/icons'
-import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
@@ -68,14 +67,9 @@ export function VersionsSheet() {
         }
       />
       {blocked ? (
-        <div className="flex min-h-0 flex-1 items-center px-8">
-          <Message
-            icon={<Info className="size-4" aria-hidden="true" />}
-            actions={<Button onClick={closeVersions}>Back to chat</Button>}
-          >
-            {blocked}
-          </Message>
-        </div>
+        <Message fill icon={Info} actions={<Button onClick={closeVersions}>Back to chat</Button>}>
+          {blocked}
+        </Message>
       ) : versions === null ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
           <span role="status" className="sr-only">
@@ -91,16 +85,10 @@ export function VersionsSheet() {
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable scroll-fade p-3">
             <SaveVersion disabled={busy !== null || running} saving={busy === 'save'} />
             {versions.length === 0 ? (
-              <div className="flex flex-1 items-center px-5">
-                <Message
-                  icon={<History className="size-4" aria-hidden="true" />}
-                  tone="accent"
-                  title="No versions yet"
-                >
-                  Gui saves a version after each message. Save the current files above to make the
-                  first one now.
-                </Message>
-              </div>
+              <Message fill icon={History} tone="accent" title="No versions yet">
+                Gui saves a version after each message. Save the current files above to make the
+                first one now.
+              </Message>
             ) : (
               <VersionList versions={versions} busy={busy} running={running} />
             )}
@@ -261,32 +249,5 @@ function VersionRow({
         </div>
       )}
     </li>
-  )
-}
-
-const CHANGE_TONE: Record<FileChange['status'], string> = {
-  added: 'text-success',
-  modified: 'text-warning',
-  deleted: 'text-danger',
-}
-
-function ChangedFiles({ changes }: { changes: FileChange[] }) {
-  return (
-    <ul
-      aria-label="Changed files"
-      className={cn(REVEAL, 'flex flex-col gap-1 font-mono text-caption')}
-    >
-      {changes.map((change) => (
-        <li key={change.path} className="flex min-w-0 items-center gap-2">
-          <span className={cn('w-3 shrink-0', CHANGE_TONE[change.status])} title={change.status}>
-            {change.status[0]?.toUpperCase()}
-          </span>
-          <span className="sr-only">{change.status}</span>
-          <PathText path={change.path} className="flex-1 text-muted" />
-          <span className="shrink-0 text-success tabular-nums">+{change.additions}</span>
-          <span className="shrink-0 text-danger tabular-nums">−{change.deletions}</span>
-        </li>
-      ))}
-    </ul>
   )
 }

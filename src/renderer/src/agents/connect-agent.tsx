@@ -1,12 +1,11 @@
 import { useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { ChevronRight } from '../lib/icons'
-import { Card, List } from '../lib/surface'
-import { PRESS, Spinner, TextButton } from '../lib/ui'
+import { Card, List, ListRow } from '../lib/surface'
+import { Spinner, TextButton } from '../lib/ui'
 import { AgentNextStep } from './agent-card'
 import { AgentIcon } from './agent-icon'
 
@@ -66,7 +65,7 @@ export function ConnectAgent({
   }
 
   return (
-    <Card as="section" aria-labelledby="connect-heading" className="flex flex-col gap-3 p-4">
+    <Card as="section" aria-labelledby="connect-heading" className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
         <h2 id="connect-heading" className="font-semibold">
           Connect your AI
@@ -82,26 +81,21 @@ export function ConnectAgent({
           const busy = chosen === choice.id && health !== null && BUSY.has(health.status)
           return (
             <li key={choice.id}>
-              <button
-                type="button"
+              <ListRow
+                flush
                 disabled={busy}
                 onClick={() => void connect(choice.id)}
-                className={cn(
-                  'flex w-full min-w-0 items-center gap-3 px-3 py-2.5 text-left transition-[background-color,opacity] hover:bg-hover focus-visible:-outline-offset-2 disabled:pointer-events-none',
-                  PRESS,
-                )}
-              >
-                <AgentIcon agentId={choice.id} />
-                <span className="flex min-w-0 flex-1 flex-col">
-                  <span className="truncate font-medium">{choice.title}</span>
-                  <span className="truncate text-caption text-subtle">{choice.detail}</span>
-                </span>
-                {busy ? (
-                  <Spinner />
-                ) : (
-                  <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-                )}
-              </button>
+                leading={<AgentIcon agentId={choice.id} />}
+                title={choice.title}
+                detail={choice.detail}
+                trailing={
+                  busy ? (
+                    <Spinner />
+                  ) : (
+                    <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+                  )
+                }
+              />
               {/* Where it's up to: downloading, waiting for the browser, or what went wrong */}
               {chosen === choice.id && health && health.status !== 'ready' && (
                 <div className="px-3 pb-3 pl-13">

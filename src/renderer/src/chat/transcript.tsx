@@ -5,8 +5,8 @@ import { ErrorBoundary } from '../lib/error-boundary'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { Archive, MessageSquare, MousePointer2, SquarePen } from '../lib/icons'
-import { Card, Message } from '../lib/surface'
-import { Button } from '../lib/ui'
+import { Banner, Card, Message } from '../lib/surface'
+import { Button, PromptButton } from '../lib/ui'
 import { setDraft, useChat, waitingCard } from './store'
 import { type TurnHeight, TurnLayout } from './turn-layout'
 import { TurnPresentation, TurnPresentationProvider } from './turn-presentation'
@@ -48,12 +48,11 @@ function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived
   const [error, setError] = useState<string | null>(null)
   const [opening, setOpening] = useState(false)
   return (
-    <div className="flex shrink-0 flex-col gap-1 border-t border-line px-3 py-2">
-      <div className="flex items-center gap-2">
-        <Archive className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-        <p className="min-w-0 flex-1 truncate text-small text-muted">
-          Your chat with {archived.agentName} is archived.
-        </p>
+    <Banner
+      wrap
+      edge="bottom"
+      icon={Archive}
+      actions={
         <Button
           size="sm"
           variant="ghost"
@@ -70,9 +69,11 @@ function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived
         >
           Reopen
         </Button>
-      </div>
+      }
+    >
+      <p>Your chat with {archived.agentName} is archived.</p>
       {error && <InlineError>{error}</InlineError>}
-    </div>
+    </Banner>
   )
 }
 
@@ -81,7 +82,7 @@ const LONG_CHAT = 150
 
 function LongChatHint() {
   return (
-    <Card tone="inset" className="flex items-center gap-2 px-3 py-2">
+    <Card tone="inset" padding="compact" className="flex items-center gap-2">
       <p className="min-w-0 flex-1 text-small text-muted">
         This chat is long. Agents stay sharper in a fresh one; this one stays in the archive.
       </p>
@@ -363,17 +364,14 @@ function StarterPrompts({ prompts }: { prompts: readonly string[] }) {
     <ul aria-label="Ideas to start with" className="flex flex-col items-start gap-1.5">
       {prompts.map((prompt) => (
         <li key={prompt}>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-auto py-1 text-left whitespace-normal"
+          <PromptButton
             onClick={() => {
               setDraft(prompt)
               document.querySelector<HTMLTextAreaElement>('[data-composer]')?.focus()
             }}
           >
             {prompt}
-          </Button>
+          </PromptButton>
         </li>
       ))}
     </ul>
@@ -396,71 +394,53 @@ function EmptyTranscript({
   // On a canvas's frames there's no app to point at until one is open.
   if (canvas && !canSelect) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
-        <Message
-          className="my-auto shrink-0"
-          icon={<MessageSquare className="size-4" aria-hidden="true" />}
-          title="Design on the canvas"
-        >
-          Ask for a page, or a few versions of one, and each lands on the canvas as a frame. Open a
-          frame to point at any part of it to change.
-        </Message>
-      </div>
+      <Message fill icon={MessageSquare} title="Design on the canvas">
+        Ask for a page, or a few versions of one, and each lands on the canvas as a frame. Open a
+        frame to point at any part of it to change.
+      </Message>
     )
   }
   // Nothing on screen to point at yet (the app is starting, or failed to): say so, and
   // still take a message, which needs no element.
   if (!canSelect) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
-        <Message
-          className="my-auto shrink-0"
-          icon={<MessageSquare className="size-4" aria-hidden="true" />}
-          title="Ask about your project"
-        >
-          Once your app shows in the preview, you can point at any part of it to change. Until then,
-          your agent can still read and edit the code.
-        </Message>
-        <div className="mb-auto w-full max-w-sm pt-4">
-          <StarterPrompts prompts={STARTERS.build} />
-        </div>
-      </div>
+      <Message
+        fill
+        icon={MessageSquare}
+        title="Ask about your project"
+        actions={<StarterPrompts prompts={STARTERS.build} />}
+      >
+        Once your app shows in the preview, you can point at any part of it to change. Until then,
+        your agent can still read and edit the code.
+      </Message>
     )
   }
   // Something's picked: the next step is the message, not picking again.
   if (picked > 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
-        <Message
-          className="my-auto shrink-0"
-          icon={<MessageSquare className="size-4" aria-hidden="true" />}
-          title="Describe the change"
-        >
-          Say what {picked === 1 ? 'it' : 'they'} should look like or do, and send. Your agent edits
-          the code and the preview updates live.
-        </Message>
-      </div>
+      <Message fill icon={MessageSquare} title="Describe the change">
+        Say what {picked === 1 ? 'it' : 'they'} should look like or do, and send. Your agent edits
+        the code and the preview updates live.
+      </Message>
     )
   }
   return (
-    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-6">
-      <Message
-        className="my-auto w-full max-w-sm shrink-0"
-        icon={<MousePointer2 className="size-4" aria-hidden="true" />}
-        title="Select something to edit"
-        actions={
-          <Button
-            variant="primary"
-            icon={MousePointer2}
-            shortcut="selectElement"
-            onClick={() => gui.toggleSelect()}
-          >
-            Select element
-          </Button>
-        }
-      >
-        Pick something in the preview, then describe your edit below.
-      </Message>
-    </div>
+    <Message
+      fill
+      icon={MousePointer2}
+      title="Select something to edit"
+      actions={
+        <Button
+          variant="primary"
+          icon={MousePointer2}
+          shortcut="selectElement"
+          onClick={() => gui.toggleSelect()}
+        >
+          Select element
+        </Button>
+      }
+    >
+      Pick something in the preview, then describe your edit below.
+    </Message>
   )
 }

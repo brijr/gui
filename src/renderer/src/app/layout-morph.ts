@@ -9,7 +9,7 @@ import {
   type WindowState,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
+import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 
 /*
  * The chrome's side of the preview's layout morphs (main/preview-morph.ts): main resizes the
@@ -18,9 +18,6 @@ import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
  * there, over the canvas and under the toolbar and the drawer, which slide with the same
  * spring from the same moment (`useLayoutSlide`), so their edges move as one.
  */
-
-/** Reduce motion: how long the toolbar and the drawer fade in and out (--motion-fade). */
-const REDUCED_FADE_MS = 150
 
 // What moves with the morph: the canvas leaves its own device frame out while the morph draws
 // it, and the drawer and the toolbar wait for it to start moving.
@@ -258,7 +255,7 @@ export function useLayoutSlide(
       const from = spring.value
       spring.retarget(target)
       current.stop = reduced
-        ? animateFade(from, target, REDUCED_FADE_MS, {
+        ? animateFade(from, target, motionMs('--motion-fade'), {
             update: (value) => {
               spring.value = value
               spring.velocity = 0

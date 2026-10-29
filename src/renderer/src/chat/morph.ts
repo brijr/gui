@@ -1,6 +1,6 @@
 import { SPRINGS, Spring } from '../../../shared/motion'
 import { CHAT_FORMS, type ChatForm, type PanelCorner } from '../../../shared/types'
-import { animateFade, animateSpring, prefersReducedMotion } from '../lib/motion'
+import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 
 /*
  * The floating chat moving between its forms (the panel, the pill, the bubble), all drawn at
@@ -21,8 +21,6 @@ const SMALL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { pill: 0.8, bub
 const PANEL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { pill: 0.6, bubble: 0.15 }
 /** Presence is close enough to 0 or 1 to stop at this. */
 const PRECISION = 0.002
-/** Reduced motion's cross-fade (styles.css --motion-fade). */
-const FADE_MS = 150
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value))
 
@@ -124,16 +122,21 @@ export class Morph {
       rest()
     }
     const stop = this.reduced
-      ? animateFade(spring.value, spring.target, FADE_MS * Math.abs(spring.target - spring.value), {
-          update: (value) => {
-            spring.value = value
-            this.apply(form)
+      ? animateFade(
+          spring.value,
+          spring.target,
+          motionMs('--motion-fade') * Math.abs(spring.target - spring.value),
+          {
+            update: (value) => {
+              spring.value = value
+              this.apply(form)
+            },
+            rest: () => {
+              spring.finish()
+              rest()
+            },
           },
-          rest: () => {
-            spring.finish()
-            rest()
-          },
-        })
+        )
       : animateSpring(spring, { precision: PRECISION, update, rest })
     // Null when it landed at once (a hidden page): nothing is running.
     if (stop) this.stops[form] = stop

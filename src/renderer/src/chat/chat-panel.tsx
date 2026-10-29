@@ -41,7 +41,7 @@ import {
 } from '../lib/icons'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
-import { IconButton, PRESS, Spinner } from '../lib/ui'
+import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
@@ -557,24 +557,21 @@ function MoreButton() {
  */
 function AgentSwitcher({ name }: { name: string }) {
   return (
-    <button
-      type="button"
+    <Button
+      size="sm"
+      variant="ghost"
+      trailingIcon={ChevronDown}
       aria-haspopup="menu"
       title="Switch agent"
       onClick={(event) => {
         const box = event.currentTarget.getBoundingClientRect()
         gui.showAgentMenu({ x: box.left, y: box.bottom + 4 })
       }}
-      // A ghost button with its chevron, pulled into the header's inset so the name lines up
-      // with the panel's text.
-      className={cn(
-        'no-drag -ml-1 flex h-6 min-w-0 items-center gap-1 rounded-md px-1 font-medium text-fg transition-[color,background-color,opacity] hover:bg-hover',
-        PRESS,
-      )}
+      // Pulled into the header's inset so the name lines up with the panel's text.
+      className="-ml-2 min-w-0 text-body text-fg"
     >
       <span className="truncate">{name}</span>
-      <ChevronDown className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-    </button>
+    </Button>
   )
 }
 

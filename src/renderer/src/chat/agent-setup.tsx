@@ -21,7 +21,7 @@ export function AgentSetup({ meta, className }: { meta: ChatMeta; className?: st
   const { agent } = meta
   if (!agent) return null
   return (
-    <Card tone="inset" className={cn('flex gap-3 p-3', className)}>
+    <Card tone="inset" className={cn('flex gap-3', className)}>
       <AgentIcon agentId={agent.id} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <p className="font-medium">Set up {agent.name}</p>

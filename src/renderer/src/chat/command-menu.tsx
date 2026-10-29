@@ -3,8 +3,7 @@ import { filterCommands } from '../../../shared/commands'
 import type { AgentCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { motionMs, usePresence } from '../lib/motion'
-import { MenuRow, Popover } from '../lib/surface'
-import { Spinner } from '../lib/ui'
+import { MenuRow, Popover, PopoverNote } from '../lib/surface'
 
 /** `/` and the start of a name, nothing after: the menu's query. Null when it shouldn't open. */
 function menuQuery(text: string) {
@@ -145,19 +144,9 @@ export function useCommandMenu({
           ))}
         </div>
       ) : (
-        // A MenuRow's size and inset, so the list takes its place without a jump.
-        <div className="p-1">
-          <p role="status" className="flex h-7 items-center gap-2 px-2 text-small text-muted">
-            {checked ? (
-              'No commands available'
-            ) : (
-              <>
-                <Spinner />
-                Loading commands…
-              </>
-            )}
-          </p>
-        </div>
+        <PopoverNote loading={!checked}>
+          {checked ? 'No commands available' : 'Loading commands…'}
+        </PopoverNote>
       )}
     </Popover>
   )

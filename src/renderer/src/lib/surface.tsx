@@ -1,12 +1,26 @@
-import { type ComponentProps, type CSSProperties, type ReactNode, useState } from 'react'
+import {
+  type ComponentProps,
+  type CSSProperties,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+  useState,
+} from 'react'
 import { cn } from './cn'
-import { Check, type IconComponent, X } from './icons'
-import { PRESS } from './ui'
+import { Check, type IconComponent, Search, X } from './icons'
+import { PRESS, Spinner } from './ui'
 
 /*
  * Surfaces and layouts: containers, lists and the centered message. Panels and sheets are
  * radius-xl; cards, popovers, menus and thumbnails radius-lg; rows and controls radius-md.
  */
+
+const CARD_PADDING = {
+  card: 'p-3',
+  compact: 'py-2 pr-2 pl-3',
+  canvas: 'p-5',
+  none: '',
+} as const
 
 interface CardProps extends ComponentProps<'div'> {
   /**
@@ -14,21 +28,100 @@ interface CardProps extends ComponentProps<'div'> {
    * inset: a card inside a panel, on the surface color (permission, plan, queue, problems).
    */
   tone?: 'raised' | 'inset'
+  /**
+   * The card recipe (styles.css). card (default): 12px. compact: one or two lines and a small
+   * button (problems, follow-up, plan). canvas: 20px, a card alone in the middle of the
+   * canvas (setup, start your canvas). none: content that runs to the edges (a list, media).
+   */
+  padding?: keyof typeof CARD_PADDING
   as?: 'div' | 'section'
 }
 
-/** A bordered container. Padding is the caller's: content decides how much it needs. */
-export function Card({ tone = 'raised', as: Tag = 'div', className, ...props }: CardProps) {
+/** A bordered container, padded by the card recipe. */
+export function Card({
+  tone = 'raised',
+  padding = 'card',
+  as: Tag = 'div',
+  className,
+  ...props
+}: CardProps) {
   return (
     <Tag
       className={cn(
         'rounded-lg border border-line',
         tone === 'raised' ? 'bg-raised shadow-raised' : 'bg-surface',
+        CARD_PADDING[padding],
         className,
       )}
       {...props}
     />
   )
+}
+
+/** Where a popover goes, in the view's CSS pixels (placePopover). */
+export interface PopoverPlacement {
+  left: number
+  width: number
+  maxHeight: number
+  /** From the view's bottom edge when it opens above the button, else null */
+  bottom: number | null
+  /** From the view's top edge when it opens below the button, else null */
+  top: number | null
+  /** Where it grows from: the middle of the button's edge it opens from, in its own box */
+  origin: string
+}
+
+/** Room kept between a popover and the panel's edges. */
+const POPOVER_EDGE = 8
+/** Between a popover and its button. */
+const POPOVER_GAP = 4
+const POPOVER_WIDTH = 336
+/** In a tall panel a popover stops growing here and scrolls. */
+const POPOVER_MAX_HEIGHT = 440
+
+/**
+ * Places a popover against `button`'s right edge, above it unless there's more room below.
+ * The chat is its own view and can't draw outside it, so the popover stays inside the panel
+ * ([data-chat-panel]) and takes the height there is. Inside a [data-popover-anchor] frame (the
+ * composer) it opens off the frame rather than the button, so it doesn't cover the frame's edge.
+ */
+export function placePopover(button: HTMLElement): PopoverPlacement {
+  const panel = (button.closest('[data-chat-panel]') ?? document.body).getBoundingClientRect()
+  const box = button.getBoundingClientRect()
+  const frame = button.closest('[data-popover-anchor]')?.getBoundingClientRect() ?? box
+  // Across from the button; above or below the frame.
+  const at = {
+    left: box.left,
+    right: box.right,
+    width: box.width,
+    top: frame.top,
+    bottom: frame.bottom,
+  }
+  const width = Math.min(POPOVER_WIDTH, panel.width - POPOVER_EDGE * 2)
+  const left = Math.max(
+    panel.left + POPOVER_EDGE,
+    Math.min(at.right - width, panel.right - POPOVER_EDGE - width),
+  )
+  const above = at.top - POPOVER_GAP - panel.top - POPOVER_EDGE
+  const below = panel.bottom - POPOVER_EDGE - at.bottom - POPOVER_GAP
+  const x = Math.round(Math.min(Math.max(at.left + at.width / 2 - left, 0), width))
+  return above >= below
+    ? {
+        left,
+        width,
+        maxHeight: Math.min(POPOVER_MAX_HEIGHT, above),
+        bottom: window.innerHeight - at.top + POPOVER_GAP,
+        top: null,
+        origin: `${x}px 100%`,
+      }
+    : {
+        left,
+        width,
+        maxHeight: Math.min(POPOVER_MAX_HEIGHT, below),
+        bottom: null,
+        top: at.bottom + POPOVER_GAP,
+        origin: `${x}px 0`,
+      }
 }
 
 interface PopoverProps extends ComponentProps<'div'> {
@@ -37,21 +130,39 @@ interface PopoverProps extends ComponentProps<'div'> {
    * mounted for --motion-exit (usePresence) so the close can play.
    */
   open?: boolean
+  /**
+   * Floats it on the popover layer where placePopover put it, growing from its button. Without
+   * one it sits in the flow (the composer's command menu): give it a `transformOrigin`.
+   */
+  placement?: PopoverPlacement
 }
 
 /**
- * The floating surface for menus and pickers. It opens out of what opened it: give it a
- * `transformOrigin` at the trigger's edge in `style` (with its position), and it grows from
- * 97% there and fades in on the default spring's curve; it closes back into it. With reduced
- * motion it only fades.
+ * The floating surface for menus and pickers. It opens out of what opened it, growing from
+ * 97% at the trigger's edge and fading in on the default spring's curve; it closes back into
+ * it. With reduced motion it only fades.
  */
-export function Popover({ open = true, className, ...props }: PopoverProps) {
+export function Popover({ open = true, placement, style, className, ...props }: PopoverProps) {
   return (
     <div
       data-state={open ? 'open' : 'closed'}
       inert={!open}
+      style={
+        placement
+          ? {
+              left: placement.left,
+              width: placement.width,
+              maxHeight: placement.maxHeight,
+              top: placement.top ?? undefined,
+              bottom: placement.bottom ?? undefined,
+              transformOrigin: placement.origin,
+              ...style,
+            }
+          : style
+      }
       className={cn(
         'flex flex-col overflow-hidden rounded-lg border border-line bg-raised text-fg shadow-popover',
+        placement && 'fixed z-popover',
         'transition-[opacity,scale] duration-(--motion-spring) ease-spring starting:opacity-0 motion-safe:starting:scale-97',
         'data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:duration-(--motion-exit) data-[state=closed]:ease-in motion-safe:data-[state=closed]:scale-97',
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
@@ -62,11 +173,55 @@ export function Popover({ open = true, className, ...props }: PopoverProps) {
   )
 }
 
+/**
+ * A popover's search or filter field, unframed across its top edge: a search glyph, then the
+ * text. The caret shows focus and the placeholder a field's color. Give it an aria-label.
+ */
+export function PopoverSearch(props: Omit<ComponentProps<'input'>, 'className' | 'type'>) {
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
+      <Search className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
+      <input
+        type="text"
+        autoComplete="off"
+        spellCheck={false}
+        className="h-9 min-w-0 flex-1 bg-transparent text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
+        {...props}
+      />
+    </div>
+  )
+}
+
+/**
+ * A line in a popover in place of its rows: loading, nothing yet, nothing matches. A MenuRow's
+ * height inside the list's inset, with its text where theirs starts, so rows can take its place
+ * without a jump.
+ */
+export function PopoverNote({
+  loading = false,
+  children,
+}: {
+  loading?: boolean
+  children: ReactNode
+}) {
+  return (
+    <p role="status" className="flex h-9 shrink-0 items-center gap-2 px-3 text-small text-muted">
+      {loading && <Spinner />}
+      {children}
+    </p>
+  )
+}
+
 interface MenuRowProps extends ComponentProps<'div'> {
-  /** Under the keyboard or pointer */
-  highlighted: boolean
+  /** Under the keyboard or pointer. Leave it out on a button row: the pointer highlights it. */
+  highlighted?: boolean
   /** The current choice: a check at the end */
   selected: boolean
+  /**
+   * div (default): an option in a listbox, which keeps the focus and points at it. button: a
+   * choice that applies and leaves the popover open (the picker's effort levels).
+   */
+  as?: 'div' | 'button'
 }
 
 /**
@@ -74,13 +229,22 @@ interface MenuRowProps extends ComponentProps<'div'> {
  * Highlighted (under the pointer or the arrow keys) is the hover fill; selected (the current
  * choice) is accent text and a check, so the two read apart when they're on different rows.
  */
-export function MenuRow({ highlighted, selected, className, children, ...props }: MenuRowProps) {
+export function MenuRow({
+  highlighted,
+  selected,
+  as = 'div',
+  className,
+  children,
+  ...props
+}: MenuRowProps) {
+  const Tag = as as 'div'
   return (
-    <div
+    <Tag
+      {...(as === 'button' && { type: 'button' })}
       className={cn(
-        'flex h-7 items-center gap-2 rounded-md px-2 text-small transition-opacity',
+        'flex h-7 items-center gap-2 rounded-md px-2 text-left text-small transition-opacity',
         PRESS,
-        highlighted && 'bg-hover',
+        highlighted === undefined ? 'hover:bg-hover' : highlighted && 'bg-hover',
         selected && 'text-accent-text',
         className,
       )}
@@ -88,7 +252,7 @@ export function MenuRow({ highlighted, selected, className, children, ...props }
     >
       <span className="min-w-0 flex-1 truncate">{children}</span>
       {selected && <Check className="size-3 shrink-0 text-accent-text" aria-hidden="true" />}
-    </div>
+    </Tag>
   )
 }
 
@@ -196,6 +360,11 @@ interface BannerProps {
   actions?: ReactNode
   /** top: a hairline under it, for a bar above content; bottom: over it */
   edge?: 'top' | 'bottom'
+  /**
+   * Text that can run long (a pause reason, a pull request's title): it wraps rather than
+   * truncating, and the actions drop under it when there's no room beside it.
+   */
+  wrap?: boolean
   role?: 'status' | 'alert'
   className?: string
   /** For a height from shared layout, e.g. lining up with the window's toolbar */
@@ -205,13 +374,15 @@ interface BannerProps {
 
 /**
  * A bar across the top or bottom of a panel about the whole of it: the env file in use, the
- * dev server stopped. 36px, one line that truncates, actions at the end (bar recipe).
+ * dev server stopped. 36px, one line that truncates, actions at the end (bar recipe); with
+ * `wrap`, at least 36px and as many lines as it needs.
  */
 export function Banner({
   icon: Icon,
   tone = 'neutral',
   actions,
   edge = 'top',
+  wrap = false,
   role,
   className,
   style,
@@ -222,18 +393,26 @@ export function Banner({
       role={role}
       style={style}
       className={cn(
-        'flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3 text-small',
+        'flex shrink-0 items-center gap-2 pr-1.5 pl-3 text-small',
+        wrap ? 'min-h-9 flex-wrap gap-y-1.5 py-1.5' : 'h-9',
         edge === 'top' ? 'border-b border-line' : 'border-t border-line',
         BANNER_TONE[tone],
         className,
       )}
     >
       {Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
-      <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{children}</div>
+      {wrap ? (
+        <div className="min-w-0 flex-1 basis-40 text-pretty">{children}</div>
+      ) : (
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">{children}</div>
+      )}
       {actions && <div className="flex shrink-0 items-center gap-1">{actions}</div>}
     </div>
   )
 }
+
+/** A row's inset in a List (row recipe), for ListItem, a flush ListRow and their kin. */
+const ROW_INSET = 'px-3 py-2.5'
 
 /** Rows in a bordered, raised box divided by hairlines: settings groups, the app chooser. */
 export function List({ className, ...props }: ComponentProps<'ul'>) {
@@ -276,7 +455,7 @@ export function ListItem({
 }: ListItemProps) {
   return (
     <li
-      className={cn('flex gap-3 px-3 py-2.5', align === 'center' ? 'items-center' : 'items-start')}
+      className={cn('flex gap-3', ROW_INSET, align === 'center' ? 'items-center' : 'items-start')}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div
@@ -294,21 +473,28 @@ export function ListItem({
 }
 
 interface ListRowProps extends Omit<ComponentProps<'button'>, 'title'> {
+  /** The row's name, medium weight; a string truncates. A node lays out in a row (a name and its status). */
   title: ReactNode
   /** A secondary line: a PathText for paths */
   detail?: ReactNode
+  /** Before the text: an agent's icon */
+  leading?: ReactNode
   /** At the end: a chevron when it leads somewhere */
   trailing?: ReactNode
   /** Edge to edge inside a List; otherwise a rounded row in open space */
   flush?: boolean
+  /** The one in use: accent-soft, with no hover (give it aria-current) */
+  selected?: boolean
 }
 
-/** A selectable row: a recent project, an app to preview. */
+/** A selectable row: a recent project, an app to preview, an agent. */
 export function ListRow({
   title,
   detail,
+  leading,
   trailing,
   flush = false,
+  selected = false,
   className,
   ...props
 }: ListRowProps) {
@@ -316,16 +502,19 @@ export function ListRow({
     <button
       type="button"
       className={cn(
-        'flex w-full min-w-0 items-center gap-3 text-left transition-[background-color,opacity] hover:bg-hover',
-        PRESS,
-        flush ? 'px-3 py-2 focus-visible:-outline-offset-2' : 'rounded-md px-2 py-1.5',
+        'flex w-full min-w-0 items-center gap-3 text-left transition-[background-color,opacity] disabled:pointer-events-none',
+        selected ? 'bg-accent-soft' : `hover:bg-hover ${PRESS}`,
+        flush ? `${ROW_INSET} focus-visible:-outline-offset-2` : 'rounded-md px-2 py-1.5',
         className,
       )}
       {...props}
     >
+      {leading}
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="truncate font-medium">{title}</span>
-        {detail && <span className="min-w-0 text-caption text-subtle">{detail}</span>}
+        <span className="flex min-w-0 items-center gap-2 font-medium">
+          {typeof title === 'string' ? <span className="truncate">{title}</span> : title}
+        </span>
+        {detail && <span className="min-w-0 truncate text-caption text-subtle">{detail}</span>}
       </span>
       {trailing}
     </button>
@@ -339,8 +528,8 @@ const MESSAGE_TONE = {
 } as const
 
 interface MessageProps {
-  /** A 16px icon or a md Spinner, shown in a 32px circle so titles sit at the same height in every state */
-  icon: ReactNode
+  /** A 16px icon in a 32px circle, so titles sit at the same height in every state; loading: a spinner */
+  icon: IconComponent | 'loading' | ReactElement
   /** The circle's color: danger for errors, accent for a success, neutral otherwise */
   tone?: keyof typeof MESSAGE_TONE
   /** Leave it out when the explanation says it all */
@@ -349,30 +538,49 @@ interface MessageProps {
   children?: ReactNode
   /** Buttons, under the text: at most one primary */
   actions?: ReactNode
+  /**
+   * Takes the rest of a panel or sheet with nothing else to show, and sits in the middle of it
+   * at the empty-state inset, scrolling if it doesn't fit.
+   */
+  fill?: boolean
   className?: string
 }
 
 /**
  * The layout for empty, loading, error and done states, left-aligned: icon, title, explanation,
- * actions. On the canvas it sits in a Card; in the chat panel on its own.
+ * actions. On the canvas it sits in a Card; in a panel it fills the space (`fill`).
  */
 export function Message({
-  icon,
+  icon: Icon,
   tone = 'neutral',
   title,
   children,
   actions,
+  fill = false,
   className,
 }: MessageProps) {
-  return (
-    <div className={cn('flex flex-col items-start gap-3 text-left', className)}>
+  const message = (
+    <div
+      className={cn(
+        'flex flex-col items-start gap-3 text-left',
+        fill && 'my-auto w-full max-w-sm shrink-0',
+        className,
+      )}
+    >
       <span
         className={cn(
           'flex size-8 shrink-0 items-center justify-center rounded-full',
           MESSAGE_TONE[tone],
         )}
       >
-        {icon}
+        {Icon === 'loading' ? (
+          <Spinner size="md" />
+        ) : isValidElement(Icon) ? (
+          // Until proposal.tsx and ship-sheet.tsx pass the icon itself
+          Icon
+        ) : (
+          <Icon className="size-4" aria-hidden="true" />
+        )}
       </span>
       <div className="flex flex-col gap-1">
         {title && <p className="font-semibold">{title}</p>}
@@ -381,6 +589,8 @@ export function Message({
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
     </div>
   )
+  if (!fill) return message
+  return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-6">{message}</div>
 }
 
 interface ThumbnailProps {

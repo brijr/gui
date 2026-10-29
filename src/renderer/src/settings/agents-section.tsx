@@ -12,13 +12,13 @@ import { Disclosure, TechnicalDetails } from '../lib/disclosure'
 import { InlineError } from '../lib/field'
 import { ExternalLink, Plus, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
-import { List, ListItem } from '../lib/surface'
+import { Card, List, ListItem } from '../lib/surface'
 import { Button, Code } from '../lib/ui'
 import { AgentRow } from './agent-row'
 import { AgentStatusLabel } from './agent-status'
 import { CustomAgentForm } from './custom-agent-form'
 import { DefaultAgentSelect } from './default-agent-select'
-import { GroupAction, SettingsCard, SettingsGroup } from './settings-group'
+import { GroupAction, SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
 /** While an agent installs from "Not installed", it stays there until it settles. */
@@ -239,9 +239,9 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
       {empty && <p className="text-pretty text-small text-muted">No custom agents yet.</p>}
 
       {adding ? (
-        <SettingsCard>
+        <Card>
           <CustomAgentForm original={null} onDone={stopEditing} />
-        </SettingsCard>
+        </Card>
       ) : (
         <Button icon={Plus} className="self-start" disabled={addDisabled} onClick={startAdding}>
           Add agent
@@ -258,7 +258,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
 
 function AgentsFileError({ message }: { message: string }) {
   return (
-    <SettingsCard className="flex items-start gap-2">
+    <Card className="flex items-start gap-2">
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <p className="font-medium">agents.json can't be read</p>
@@ -270,7 +270,7 @@ function AgentsFileError({ message }: { message: string }) {
       <Button className="-my-0.5" onClick={() => gui.openCustomAgentsFile()}>
         Open agents.json
       </Button>
-    </SettingsCard>
+    </Card>
   )
 }
 

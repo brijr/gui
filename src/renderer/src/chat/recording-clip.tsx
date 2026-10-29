@@ -76,7 +76,7 @@ export function RecordingClip({
       setPreviewing(false)
     }
     return (
-      <Card tone="inset" className="flex items-center gap-2 p-1">
+      <Card tone="inset" padding="none" className="flex items-center gap-2 p-1">
         <button
           type="button"
           aria-label={`Play ${clip.name}`}
@@ -131,7 +131,7 @@ export function RecordingClip({
     )
   }
   return (
-    <Card tone="inset" className="w-full max-w-80 overflow-hidden">
+    <Card tone="inset" padding="none" className="w-full max-w-80 overflow-hidden">
       {failed ? (
         <div className="px-2 py-1.5">
           <Unavailable />

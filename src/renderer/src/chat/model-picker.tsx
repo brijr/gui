@@ -13,23 +13,24 @@ import { ariaShortcut, withShortcut } from '../../../shared/shortcuts'
 import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Check, ChevronDown, Search } from '../lib/icons'
+import { ChevronDown } from '../lib/icons'
 import { motionMs, usePresence } from '../lib/motion'
-import { GroupLabel, MenuRow, Popover } from '../lib/surface'
-import { Button, PRESS, SegmentedControl } from '../lib/ui'
+import {
+  GroupLabel,
+  MenuRow,
+  Popover,
+  PopoverNote,
+  type PopoverPlacement,
+  PopoverSearch,
+  placePopover,
+} from '../lib/surface'
+import { Button, SegmentedControl } from '../lib/ui'
 import { useChat } from './store'
 
 type Choice = AgentSetting['options'][number]
 
 /** Lists longer than this get a search field. */
 const SEARCH_AFTER = 8
-/** Room kept between the picker and the panel's edges. */
-const EDGE = 8
-/** Between the picker and the button. */
-const GAP = 4
-const WIDTH = 336
-/** In a tall panel the list stops growing here and scrolls. */
-const MAX_HEIGHT = 440
 /**
  * Whether the effort levels fit side by side in a picker this wide without cutting any
  * label short; if not, they go one per row. A cautious estimate of the 12px medium text,
@@ -45,61 +46,6 @@ function segmentsFit(labels: string[], width: number) {
  * stop resizing, and the panel to finish growing out of the pill or the bubble.
  */
 const SETTLE_FRAMES = 60
-
-/** Where the picker goes, in the chat view's CSS pixels. */
-export interface Placement {
-  left: number
-  width: number
-  maxHeight: number
-  /** From the view's bottom edge when it opens above the button, else null */
-  bottom: number | null
-  /** From the view's top edge when it opens below the button, else null */
-  top: number | null
-  /** Where it grows from: the middle of the button's edge it opens from, in its own box */
-  origin: string
-}
-
-/**
- * Against the button's right edge, above it unless there's more room below. The chat is
- * its own view and can't draw outside it, so the picker stays inside the panel and takes
- * the height there is. Inside the composer it opens off the composer's frame rather than the
- * button, so it doesn't cover the frame's edge.
- */
-export function place(button: HTMLElement): Placement {
-  const panel = (button.closest('[data-chat-panel]') ?? document.body).getBoundingClientRect()
-  const box = button.getBoundingClientRect()
-  const frame = button.closest('[data-popover-anchor]')?.getBoundingClientRect() ?? box
-  // Across from the button; above or below the frame.
-  const at = {
-    left: box.left,
-    right: box.right,
-    width: box.width,
-    top: frame.top,
-    bottom: frame.bottom,
-  }
-  const width = Math.min(WIDTH, panel.width - EDGE * 2)
-  const left = Math.max(panel.left + EDGE, Math.min(at.right - width, panel.right - EDGE - width))
-  const above = at.top - GAP - panel.top - EDGE
-  const below = panel.bottom - EDGE - at.bottom - GAP
-  const x = Math.round(Math.min(Math.max(at.left + at.width / 2 - left, 0), width))
-  return above >= below
-    ? {
-        left,
-        width,
-        maxHeight: Math.min(MAX_HEIGHT, above),
-        bottom: window.innerHeight - at.top + GAP,
-        top: null,
-        origin: `${x}px 100%`,
-      }
-    : {
-        left,
-        width,
-        maxHeight: Math.min(MAX_HEIGHT, below),
-        bottom: null,
-        top: at.bottom + GAP,
-        origin: `${x}px 0`,
-      }
-}
 
 /**
  * Calls `fn` once the view has kept its size for a frame, or after `frames`. ⇧⌘M can bring
@@ -188,7 +134,7 @@ function sections(choices: Choice[], grouped: boolean) {
 export function ModelButton({ models }: { models: ModelSettings }) {
   const [open, setOpen] = useState(false)
   // Kept while it closes, which it does where it was.
-  const [placement, setPlacement] = useState<Placement | null>(null)
+  const [placement, setPlacement] = useState<PopoverPlacement | null>(null)
   const shown = usePresence(open, motionMs('--motion-exit'))
   const button = useRef<HTMLButtonElement>(null)
   const pickerId = useId()
@@ -203,7 +149,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
     useChat.setState({ pickModel: false })
     whenSettled(button.current, () => {
       if (!button.current) return
-      setPlacement(place(button.current))
+      setPlacement(placePopover(button.current))
       setOpen(true)
     })
   }, [pickModel])
@@ -227,7 +173,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         aria-keyshortcuts={ariaShortcut('chooseModel')}
         onClick={(event) => {
           if (open) return close(false)
-          setPlacement(place(event.currentTarget))
+          setPlacement(placePopover(event.currentTarget))
           setOpen(true)
         }}
         // Pressed while its picker is open, as a pressed IconButton.
@@ -262,7 +208,7 @@ interface ModelPickerProps {
   /** False while it closes */
   open: boolean
   models: ModelSettings
-  placement: Placement
+  placement: PopoverPlacement
   button: RefObject<HTMLButtonElement | null>
   /** `refocus` returns focus to the button (Esc, a pick); not after a click elsewhere. */
   onClose: (refocus: boolean) => void
@@ -420,39 +366,22 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
       onKeyDown={onKeyDown}
       onMouseDown={onMouseDown}
       onBlur={onBlur}
-      style={{
-        left: placement.left,
-        width: placement.width,
-        maxHeight: placement.maxHeight,
-        top: placement.top ?? undefined,
-        bottom: placement.bottom ?? undefined,
-        transformOrigin: placement.origin,
-      }}
-      className="fixed z-popover"
+      placement={placement}
     >
       {searchable && (
-        <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
-          <Search className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
-          <input
-            ref={searchField}
-            type="text"
-            role="combobox"
-            aria-label="Search models"
-            aria-controls={listId}
-            aria-expanded
-            aria-autocomplete="list"
-            aria-activedescendant={activeId}
-            placeholder="Search models…"
-            autoComplete="off"
-            spellCheck={false}
-            value={query}
-            onChange={(event) => onSearch(event.target.value)}
-            onKeyDown={onListKeyDown}
-            // Unframed in the popover's top edge: the caret shows focus, the placeholder a
-            // field's color.
-            className="h-9 min-w-0 flex-1 bg-transparent text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
-          />
-        </div>
+        <PopoverSearch
+          ref={searchField}
+          role="combobox"
+          aria-label="Search models"
+          aria-controls={listId}
+          aria-expanded
+          aria-autocomplete="list"
+          aria-activedescendant={activeId}
+          placeholder="Search models…"
+          value={query}
+          onChange={(event) => onSearch(event.target.value)}
+          onKeyDown={onListKeyDown}
+        />
       )}
       <div
         ref={list}
@@ -492,11 +421,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
           ),
         )}
       </div>
-      {rows.length === 0 && (
-        <p role="status" className="px-3 py-5 text-small text-muted">
-          No models match
-        </p>
-      )}
+      {rows.length === 0 && <PopoverNote>No models match</PopoverNote>}
       {effort && (
         <div className="flex shrink-0 flex-col gap-1.5 border-t border-line p-2">
           <GroupLabel id={effortId} className="px-1">
@@ -515,28 +440,21 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
               stretch
             />
           ) : (
-            // Too many levels to sit side by side: one per row, like the models.
+            // Too many levels to sit side by side: one per row, like the models, as buttons
+            // that apply and leave the picker open.
             <fieldset aria-labelledby={effortId} className="flex flex-col">
               {effort.options.map((choice) => {
                 const on = choice.value === effort.value
                 return (
-                  <button
+                  <MenuRow
                     key={choice.value}
-                    type="button"
+                    as="button"
+                    selected={on}
                     aria-pressed={on}
                     onClick={() => gui.setAgentSetting(effort.id, choice.value)}
-                    // A MenuRow's look, as a button: these apply and leave the picker open.
-                    className={cn(
-                      'flex h-7 items-center gap-2 rounded-md px-2 text-left text-small transition-[background-color,opacity] hover:bg-hover',
-                      PRESS,
-                      on && 'text-accent-text',
-                    )}
                   >
-                    <span className="min-w-0 flex-1 truncate">{effortLabel(choice)}</span>
-                    {on && (
-                      <Check className="size-3 shrink-0 text-accent-text" aria-hidden="true" />
-                    )}
-                  </button>
+                    {effortLabel(choice)}
+                  </MenuRow>
                 )
               })}
             </fieldset>
