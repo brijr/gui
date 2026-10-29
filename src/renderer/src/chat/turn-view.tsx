@@ -84,14 +84,18 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
   const waiting =
     running && turn.items.some((item) => item.kind === 'permission' && item.resolved === null)
   const end = `${turn.id}:end`
+  const agent = useChat((s) => s.meta?.agentName ?? 'Agent')
   return (
     <TurnPresentationScope id={turn.id}>
       <article className="flex flex-col gap-3">
+        {/* Who said what, for a screen reader; its heading keys step from message to message. */}
         <Row rowKey={`${turn.id}:user`}>
+          <h3 className="sr-only">You</h3>
           <UserMessage turn={turn} />
         </Row>
         {/* Undone: dimmed, but still readable; the result's "Undone" badge says why. */}
         <div className={cn('flex flex-col gap-3', turn.reverted && UNDONE)}>
+          <h3 className="sr-only">{agent}</h3>
           {blocks.map((block, index) => (
             <Row key={block.id} rowKey={block.id}>
               <BlockView
