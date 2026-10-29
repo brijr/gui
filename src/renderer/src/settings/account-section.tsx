@@ -190,7 +190,7 @@ function AccountDetails() {
           {/* Applies at once, so a switch, like every other setting */}
           <ListItem
             title="Email me about new Gui features"
-            detail={account.email ?? 'Your account has no email.'}
+            detail={account.email ? undefined : 'Your account has no email.'}
             trailing={
               <Switch
                 checked={account.updates}
