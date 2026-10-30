@@ -35,7 +35,7 @@ interface DialogProps {
  * The one modal: a sheet over the window with a header (title, actions, Close), a body that
  * scrolls under it, and an optional footer. It grows in from 97% and fades on
  * --motion-panel, over a fading scrim, and goes back the way it came; with reduced motion it
- * only fades. Focus returns to what opened it. Main hides the preview and chat views while
+ * appears immediately. Focus returns to what opened it. Main hides the preview and chat views while
  * one is open in the window's own page, since they sit on top of it.
  */
 export function Dialog({
@@ -91,7 +91,7 @@ export function Dialog({
         'opacity-0 open:opacity-100 starting:open:opacity-0',
         'motion-safe:scale-97 motion-safe:open:scale-100 motion-safe:starting:open:scale-97',
         'backdrop:opacity-0 backdrop:transition-[opacity,display,overlay] backdrop:transition-discrete backdrop:duration-(--motion-panel) open:backdrop:opacity-100 starting:open:backdrop:opacity-0',
-        'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
+        'not-open:duration-(--motion-pop) not-open:backdrop:duration-(--motion-pop)',
       )}
     >
       <PanelHeader

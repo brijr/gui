@@ -130,8 +130,8 @@ interface PopoverProps extends ComponentProps<'div'> {
 
 /**
  * The floating surface for menus and pickers. It opens out of what opened it, growing from
- * 97% at the trigger's edge and fading in on the default spring's curve; it closes back into
- * it. With reduced motion it only fades.
+ * 97% at the trigger's edge and fading in quickly; it closes back into
+ * it. With reduced motion it appears immediately.
  */
 export function Popover({ open = true, placement, style, className, ...props }: PopoverProps) {
   return (
@@ -154,9 +154,8 @@ export function Popover({ open = true, placement, style, className, ...props }: 
       className={cn(
         'flex flex-col overflow-hidden rounded-lg border border-line bg-raised text-fg shadow-popover',
         placement && 'fixed z-popover',
-        'transition-[opacity,scale] duration-(--motion-spring) ease-spring starting:opacity-0 motion-safe:starting:scale-97',
+        'transition-[opacity,scale] duration-(--motion-pop) ease-out starting:opacity-0 motion-safe:starting:scale-97',
         'data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:duration-(--motion-exit) data-[state=closed]:ease-in motion-safe:data-[state=closed]:scale-97',
-        'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
         className,
       )}
       {...props}

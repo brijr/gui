@@ -105,13 +105,12 @@
      Exits are quicker than entrances and ease in. A press shows at once and eases back
      (PRESS in lib/ui.tsx).
 
-     Reduced motion is handled where each thing moves, not by a blanket rule: movement and
-     scaling go (motion-reduce:transition-none, motion-safe: scales, springs that land at
-     once), and a short cross-fade (--motion-fade) stands in where something appears or goes.
-     Color changes and spinners stay: a spinner is progress, not decoration. */
+     Reduced motion disables transitions, entrances and loaders, and script lands fades at
+     once. Scroll-linked edge masks only describe overflow; they don't move content. */
   --ease-*: initial;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
   --ease-spring: linear(
     0,
     0.055,
@@ -139,7 +138,7 @@
   --default-transition-timing-function: var(--ease-out);
 
   /* A transcript row (a step, a card, a notice) arriving while the user watches; with reduced
-     motion, a short fade in place. */
+     motion, appears immediately. */
   --animate-row-in: row-in var(--motion-pop) var(--ease-out);
   --animate-row-fade: row-fade var(--motion-fade) linear;
 
@@ -157,7 +156,7 @@
   }
 
   /* Something placed among its peers (an attached image): it settles from slightly smaller as
-     it fades in. With reduced motion, the fade alone (animate-row-fade). */
+     it fades in. With reduced motion, it appears immediately. */
   --animate-place-in: place-in var(--motion-pop) var(--ease-out);
 
   @keyframes place-in {
@@ -168,7 +167,7 @@
   }
 
   /* The agent's click in a walkthrough (pick/overlay.tsx): a ring spreading from the pointer.
-     With reduced motion, it fades where it is (animate-row-fade). */
+     With reduced motion, the ring is hidden. */
   --animate-click-ring: click-ring var(--motion-panel) var(--ease-out) both;
 
   @keyframes click-ring {
@@ -196,8 +195,7 @@
 
   /* The mark assembling on the start screen (GuiMark animated): each tile slides out from under
      the one before it into its slot (--from, set per tile); one that has to go round a corner
-     goes by way of --via. Hidden until it starts. With reduced motion the mark fades in
-     instead. */
+     goes by way of --via. Hidden until it starts. With reduced motion the mark is static. */
   --animate-mark-tile: mark-tile 150ms var(--ease-out) both;
   --animate-mark-turn: mark-turn 150ms var(--ease-out) both;
 
@@ -243,10 +241,10 @@
   --motion-spring: 417ms;
   /* Popovers closing, back along the way they came */
   --motion-exit: 100ms;
-  /* Reduced motion: the cross-fade that stands in for movement */
+  /* Short opacity feedback outside reduced-motion mode */
   --motion-fade: 150ms;
   /* The guide's pointer gliding to what it shows next: slow enough for the eye to follow */
-  --motion-guide: 650ms;
+  --motion-guide: 280ms;
 
   /* Behind the preview, and the start screen */
   --canvas: #ececec;
@@ -671,4 +669,19 @@ html.transparent body {
 .markdown h2,
 .markdown h3 {
   font-weight: 600;
+}
+
+/* Unlayered so utility durations cannot reintroduce motion. Keep scroll-linked masks: they
+   indicate overflow rather than playing a timed animation. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after,
+  ::backdrop {
+    transition: none;
+  }
+
+  [class*="animate-"] {
+    animation: none;
+  }
 }

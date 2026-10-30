@@ -446,7 +446,7 @@ test('minimizing morphs the panel into its pill and back', async ({ launch }) =>
   await expect(session.chat.getByRole('button', { name: 'Minimize' })).toBeVisible()
 })
 
-test('with reduced motion the bubble cross-fades in place', async ({ launch }) => {
+test('with reduced motion the bubble appears immediately in place', async ({ launch }) => {
   const session = await launch({
     fixture: 'vite',
     reducedMotion: 'reduce',
@@ -457,12 +457,12 @@ test('with reduced motion the bubble cross-fades in place', async ({ launch }) =
   await setSelecting(session, true)
   await layoutWhen(session, 'the bubble', ({ chat }) => chat.width === BUBBLE_VIEW)
   const frames = await session.chat.evaluate(stopRecording)
-  // Nothing scales: the panel fades out and the bubble fades in where they are.
+  // Nothing scales or fades: the forms change where they are.
   for (const frame of frames) {
     expect(frame.panel?.scale ?? 1).toBe(1)
     expect(frame.bubble?.scale ?? 1).toBe(1)
   }
-  expect(frames.some((f) => f.panel && f.panel.opacity > 0 && f.panel.opacity < 1)).toBe(true)
+  expect(frames.some((f) => f.panel && f.panel.opacity > 0 && f.panel.opacity < 1)).toBe(false)
   await setSelecting(session, false)
   const back = await layoutWhen(
     session,

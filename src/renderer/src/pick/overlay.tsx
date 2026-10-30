@@ -269,13 +269,13 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         <div
           aria-hidden="true"
           data-guide-pointer=""
-          className="pointer-events-none absolute top-0 left-0 transition-transform duration-(--motion-guide) ease-out motion-reduce:transition-none"
+          className="pointer-events-none absolute top-0 left-0 transition-transform duration-(--motion-guide) ease-in-out motion-reduce:transition-none"
           style={{ transform: `translate(${target.x}px, ${target.y}px)` }}
         >
           {guide.clicks > 0 && (
             <span
               key={guide.clicks}
-              className="absolute -top-4 -left-4 size-8 animate-click-ring rounded-full border-2 border-accent motion-reduce:animate-row-fade"
+              className="absolute -top-4 -left-4 size-8 animate-click-ring rounded-full border-2 border-accent motion-reduce:hidden"
             />
           )}
           <svg

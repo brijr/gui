@@ -7,7 +7,7 @@ import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../l
  * the view's anchored corner. Each form has a presence on a spring, 1 shown and 0 gone: the
  * one going away shrinks toward the corner and fades while the next grows out of it, so the
  * panel reads as becoming the bubble and back. Interrupted, every form turns around from where
- * it is, at the speed it was going. With reduced motion they cross-fade in place.
+ * it is, at the speed it was going. With reduced motion they change immediately in place.
  */
 
 /** How small the pill and the bubble are as they appear or go: grown out of the corner. */
@@ -58,7 +58,8 @@ export class Morph {
   constructor(form: ChatForm, options: MorphOptions) {
     this.form = form
     this.options = options
-    const spring = (shown: boolean) => new Spring(shown ? 1 : 0, { config: SPRINGS.default })
+    const spring = (shown: boolean) =>
+      new Spring(shown ? 1 : 0, { config: { ...SPRINGS.default, response: 0.22 } })
     this.presence = {
       panel: spring(form === 'panel'),
       pill: spring(form === 'pill'),

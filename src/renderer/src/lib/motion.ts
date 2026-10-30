@@ -90,8 +90,8 @@ export function animateSpring(
 }
 
 /**
- * A plain fade of `duration` ms from `from` to `to`, for reduced motion: no spring, no
- * movement, just opacity changing linearly. Null when it's done at once (a hidden page).
+ * A plain fade of `duration` ms from `from` to `to`. Lands immediately with reduced motion
+ * or on a hidden page, returning null.
  */
 export function animateFade(
   from: number,
@@ -99,7 +99,7 @@ export function animateFade(
   duration: number,
   { update, rest }: { update: (value: number) => void; rest?: () => void },
 ): (() => void) | null {
-  if (document.visibilityState === 'hidden' || duration <= 0) {
+  if (prefersReducedMotion() || document.visibilityState === 'hidden' || duration <= 0) {
     update(to)
     rest?.()
     return null
@@ -131,7 +131,7 @@ export function usePresence(open: boolean, exitMs: number) {
     const timer = setTimeout(() => setClosing(false), exitMs)
     return () => clearTimeout(timer)
   }, [closing, exitMs])
-  return open || closing
+  return open || (closing && !prefersReducedMotion())
 }
 
 /**

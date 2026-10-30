@@ -77,7 +77,7 @@ export function SettingsApp() {
         </header>
         {/* Keyed by section so each one opens scrolled to the top. */}
         <div key={section} className="min-h-0 flex-1 overflow-y-auto scroll-stable scroll-fade">
-          <div className="mx-auto flex max-w-xl animate-row-fade flex-col gap-6 px-6 pt-2 pb-5">
+          <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 pt-2 pb-5">
             {settings && <SectionContent section={section} settings={settings} />}
           </div>
         </div>

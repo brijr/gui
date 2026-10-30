@@ -160,7 +160,12 @@ function FloatingPanel({
   const composer = useRef<HTMLFormElement>(null)
   const versioning = useVersions((s) => s.open)
   /** 1 showing the conversation, 0 the message box alone */
-  const [spring] = useState(() => new Spring(float.collapsed ? 0 : 1, { config: SPRINGS.default }))
+  const [spring] = useState(
+    () =>
+      new Spring(float.collapsed ? 0 : 1, {
+        config: { ...SPRINGS.default, response: 0.22 },
+      }),
+  )
   const motion = useRef<{ stop: (() => void) | null; reduced: boolean }>({
     stop: null,
     reduced: false,

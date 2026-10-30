@@ -35,7 +35,7 @@ export const SPRINGS = {
  */
 export const DECELERATION_RATE = 0.998
 
-/** Matches when the user asked for less motion: movement goes, short cross-fades stay. */
+/** Matches when the user asked for less motion: animations land immediately. */
 export const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)'
 
 /**
