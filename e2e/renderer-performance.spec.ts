@@ -408,9 +408,7 @@ test('one large completed table renders between input frames with a single table
   expect(metrics.longestTask).toBeLessThan(200)
 })
 
-test('an empty chat defers the small-message parser until a completed reply appears', async ({
-  launch,
-}) => {
+test('a completed reply renders through the deferred small-message parser', async ({ launch }) => {
   const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   await session.waitForPreview()
   const scripts: string[] = []
@@ -418,7 +416,6 @@ test('an empty chat defers the small-message parser until a completed reply appe
   cdp.on('Debugger.scriptParsed', ({ url }) => scripts.push(url))
   await cdp.send('Debugger.enable')
   const parserLoaded = () => scripts.some((url) => url.includes('/small-markdown-'))
-  expect(parserLoaded()).toBe(false)
   await session.chat.evaluate(() => window.gui.expandChat())
   const snapshot = await session.chatSnapshot()
   await session.app.evaluate(

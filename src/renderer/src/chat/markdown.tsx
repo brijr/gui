@@ -32,7 +32,11 @@ export const markdownComponents: Components = {
     ) : null,
 }
 
-const SmallMarkdown = lazy(() => import('./small-markdown'))
+const loadSmallMarkdown = () => import('./small-markdown')
+const SmallMarkdown = lazy(loadSmallMarkdown)
+// Out of the first paint, but fetched once the window is idle: a restored chat's replies
+// shouldn't flash as plain text, or change height under the scroll position.
+if (typeof requestIdleCallback === 'function') requestIdleCallback(() => void loadSmallMarkdown())
 const runtime = {
   Fragment,
   components: markdownComponents,
