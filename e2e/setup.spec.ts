@@ -293,3 +293,112 @@ test('an env example is offered and copied to .env.local without blocking the pr
   await expect(session.chrome.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
   await session.shot('env-created')
 })
+
+/** The fixture's server.js replaced: `body` runs after `heading` is imported from the install. */
+function serverScript(root: string, body: string[]) {
+  const page =
+    "const page = () => new Response('<!doctype html><h1>' + heading + '</h1>', { headers: { 'content-type': 'text/html' } })"
+  writeFileSync(
+    join(root, 'server.js'),
+    ["import heading from 'greeting'", page, ...body, ''].join('\n'),
+  )
+}
+
+test('a server that only says which port it listens on is found and shown', async ({ open }) => {
+  // Express, Go and Python servers print "listening on port 3000", not an address.
+  const session = await open('fresh', (root) =>
+    serverScript(root, [
+      'const server = Bun.serve({ port: 0, fetch: page })',
+      "console.log('listening on port ' + server.port)",
+    ]),
+  )
+  const state = await waitForPreview(session)
+  expect(state.devServer.url).toMatch(/^http:\/\/localhost:\d+\/$/)
+  const preview = await session.previewPage()
+  await expect(preview.locator('h1')).toHaveText('Gui fresh fixture')
+})
+
+test("an API's address printed first doesn't win over the web page", async ({ open }) => {
+  const session = await open('fresh', (root) =>
+    serverScript(root, [
+      'const api = Bun.serve({ port: 0, fetch: () => Response.json({ ok: true }) })',
+      "console.log('API ready at http://localhost:' + api.port + '/')",
+      // The web server comes up a moment later, and never prints its address.
+      'await Bun.sleep(1000)',
+      'const web = Bun.serve({ port: 0, fetch: page })',
+      "console.log('web listening on ' + web.port)",
+      "await Bun.write(new URL('./ports.json', import.meta.url), JSON.stringify({ api: api.port, web: web.port }))",
+    ]),
+  )
+  const state = await waitForPreview(session)
+  const ports = JSON.parse(readFileSync(join(session.fixture.root, 'ports.json'), 'utf8'))
+  expect(state.devServer.url).toBe(`http://localhost:${ports.web}/`)
+  const preview = await session.previewPage()
+  await expect(preview.locator('h1')).toHaveText('Gui fresh fixture')
+})
+
+test('a dev script changed outside Gui asks again before it runs', async ({ open }) => {
+  const session = await open('fresh')
+  const { root, userData } = session.fixture
+  await waitForPreview(session)
+  await session.declineConsentDialogs()
+
+  // As a `git pull` would: Gui restarts the app for the change, but asks first.
+  const file = join(root, 'package.json')
+  const pkg = JSON.parse(readFileSync(file, 'utf8'))
+  writeFileSync(file, JSON.stringify({ ...pkg, scripts: { dev: 'bun server.js --changed' } }))
+  const [prompt] = await waitFor(async () => {
+    const prompts = await session.consentPrompts()
+    return prompts.length > 0 ? prompts : null
+  }, 'the changed script prompt')
+  expect(prompt?.message).toBe("gui-e2e-fresh's scripts changed")
+  expect(prompt?.detail).toContain('bun server.js --changed')
+  // Declined: nothing runs.
+  await waitFor(async () => (await session.state()).devServer.status === 'idle', 'the stop')
+  expect(devServerPids(root)).toEqual([])
+
+  // Agreed: it runs, and what was agreed to is kept, so it doesn't ask again.
+  await session.acceptConsentDialogs()
+  await session.chrome.evaluate(() => window.gui.startDevServer())
+  await waitForPreview(session)
+  const saved = JSON.parse(readFileSync(join(userData, 'trusted-scripts.json'), 'utf8'))
+  expect(saved[root].starts['.']).toContain('bun server.js --changed')
+  const asked = (await session.consentPrompts()).length
+  await session.chrome.evaluate(() => window.gui.restartDevServer())
+  await waitFor(
+    async () => (await session.state()).devServer.status !== 'running',
+    'the restart to begin',
+  ).catch(() => undefined)
+  await waitForPreview(session)
+  expect(await session.consentPrompts()).toHaveLength(asked)
+})
+
+test('a new dependency in package.json installs before the app restarts', async ({ open }) => {
+  const session = await open('fresh', (root) => {
+    mkdirSync(join(root, 'vendor', 'farewell'))
+    writeFileSync(join(root, 'vendor', 'farewell', 'index.js'), "module.exports = 'bye'\n")
+    writeFileSync(
+      join(root, 'vendor', 'farewell', 'package.json'),
+      JSON.stringify({ name: 'farewell', version: '1.0.0', main: 'index.js' }),
+    )
+  })
+  const { root } = session.fixture
+  await waitForPreview(session)
+  expect(existsSync(join(root, 'node_modules', 'farewell'))).toBe(false)
+
+  // As the agent adding a package would, without installing it.
+  const file = join(root, 'package.json')
+  const pkg = JSON.parse(readFileSync(file, 'utf8'))
+  pkg.dependencies.farewell = 'file:./vendor/farewell'
+  writeFileSync(file, JSON.stringify(pkg, null, 2))
+
+  await waitFor(
+    () => existsSync(join(root, 'node_modules', 'farewell')),
+    'the new dependency to install',
+    { timeout: 60_000 },
+  )
+  const state = await waitForPreview(session)
+  expect(state.setup).toBeNull()
+  const { data: logs } = await session.chrome.evaluate(() => window.gui.getLogs())
+  expect(logs.split('$ bun install').length - 1).toBe(2)
+})

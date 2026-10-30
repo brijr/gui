@@ -368,18 +368,30 @@ export class GuiSession {
    * Replaces the native "run this dev script?" sheet, which no test can click, with a
    * recorder that answers "Not now". Install it before opening the project.
    */
-  async declineConsentDialogs(): Promise<void> {
-    await this.app.evaluate(({ dialog }) => {
-      const prompts: ConsentPrompt[] = []
-      const store: PromptStore = { guiConsentPrompts: prompts }
-      Object.assign(globalThis, store)
-      const decline = (...args: unknown[]) => {
-        const options = args.at(-1) as Partial<ConsentPrompt> | undefined
-        prompts.push({ message: options?.message ?? '', detail: options?.detail ?? '' })
-        return Promise.resolve({ response: 1, checkboxChecked: false })
-      }
-      dialog.showMessageBox = decline as typeof dialog.showMessageBox
-    })
+  declineConsentDialogs(): Promise<void> {
+    return this.answerConsentDialogs(false)
+  }
+
+  /** Like `declineConsentDialogs`, but agrees; keeps recording into the same list. */
+  acceptConsentDialogs(): Promise<void> {
+    return this.answerConsentDialogs(true)
+  }
+
+  private async answerConsentDialogs(agree: boolean): Promise<void> {
+    await this.app.evaluate(
+      ({ dialog }, response) => {
+        const store = globalThis as unknown as PromptStore
+        const prompts = store.guiConsentPrompts ?? []
+        store.guiConsentPrompts = prompts
+        const answer = (...args: unknown[]) => {
+          const options = args.at(-1) as Partial<ConsentPrompt> | undefined
+          prompts.push({ message: options?.message ?? '', detail: options?.detail ?? '' })
+          return Promise.resolve({ response, checkboxChecked: false })
+        }
+        dialog.showMessageBox = answer as typeof dialog.showMessageBox
+      },
+      agree ? 0 : 1,
+    )
   }
 
   consentPrompts(): Promise<ConsentPrompt[]> {
