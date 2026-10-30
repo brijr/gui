@@ -60,7 +60,7 @@ import {
   type SavedChat,
   type SavedQueued,
 } from './history'
-import { getPrefs, prefsEvents, saveAgentSetting, savedAgentSettings } from './prefs'
+import { getPrefs, prefsEvents, saveAgentSetting, savedAgentSettings, setPrefs } from './prefs'
 import {
   buildPrompt,
   describeFollowUp,
@@ -309,6 +309,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       queuePaused: false,
       queuePauseReason: null,
       autoApprove: isAutoApprove(root),
+      autoNoteSeen: getPrefs().autoNoteSeen,
     }
     this.load(saved)
     this.restoreQueue(saved?.queue ?? [])
@@ -1152,6 +1153,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.meta.archived) this.patchMeta({ archived: null })
     if (!fix && !queued) this.patchMeta({ selection: [] })
     this.flushTurn(record)
+    // Auto's note under the message box was there for this first message; from now on the
+    // Auto control's tooltip says it.
+    if (this.meta.autoApprove && !getPrefs().autoNoteSeen) setPrefs({ autoNoteSeen: true })
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
     const problems = fix === 'problems' ? this.meta.problems : []
     record.settled = this.runTurn(record, selection, viewport, problems, images, this.epoch)
@@ -1747,6 +1751,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * requests. The agent's own controls follow now between turns, else before the next prompt.
    */
   private refreshAutoApprove = () => {
+    const { autoNoteSeen } = getPrefs()
+    if (autoNoteSeen !== this.meta.autoNoteSeen) this.patchMeta({ autoNoteSeen })
     const autoApprove = isAutoApprove(this.root)
     if (autoApprove === this.meta.autoApprove) return
     this.patchMeta({ autoApprove })

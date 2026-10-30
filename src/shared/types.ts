@@ -421,6 +421,8 @@ export interface TabInfo {
 export interface WindowState {
   project: ProjectInfo | null
   devServer: DevServerState
+  /** The dev server's current errors (from its output), counted on the drawer's Dev server tab */
+  serverErrors: number
   preview: PreviewState
   agentId: AgentId
   chatVisible: boolean
@@ -762,6 +764,12 @@ export interface ChatMeta {
    * own permission mode, for agents Gui knows it for (AgentDefinition.permissions).
    */
   autoApprove: boolean
+  /**
+   * What Auto mode lets the agent do has been said in full once, under the message box (it
+   * shows until the first message sent with Auto on); since then, the Auto control's tooltip
+   * says it.
+   */
+  autoNoteSeen: boolean
   /**
    * The model the next turn uses: the running session's, or before it starts, the agent's
    * list (from its last check) with the user's choice applied. Null when the agent has none.
