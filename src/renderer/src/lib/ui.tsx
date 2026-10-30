@@ -510,7 +510,7 @@ interface CheckboxProps extends Omit<ComponentProps<'input'>, 'type' | 'children
 
 /**
  * A choice that's saved with a form rather than applied at once (use Switch for that). 14px,
- * accent when checked, with its label after it.
+ * neutral when checked, with its label after it.
  */
 export function Checkbox({ label, className, disabled, ...props }: CheckboxProps) {
   return (
@@ -525,13 +525,13 @@ export function Checkbox({ label, className, disabled, ...props }: CheckboxProps
         <input
           type="checkbox"
           disabled={disabled}
-          className="peer size-3.5 appearance-none rounded-sm border border-edge bg-raised shadow-control transition-colors checked:border-accent checked:bg-accent focus-visible:outline-offset-1"
+          className="peer size-3.5 appearance-none rounded-sm border border-edge bg-raised shadow-control transition-colors checked:border-fg checked:bg-fg focus-visible:outline-offset-1"
           {...props}
         />
         <svg
           viewBox="0 0 14 14"
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 size-3.5 text-accent-fg opacity-0 peer-checked:opacity-100"
+          className="pointer-events-none absolute inset-0 size-3.5 text-raised opacity-0 peer-checked:opacity-100"
         >
           <path
             d="M3.5 7.25 6 9.5l4.5-5"
@@ -556,7 +556,7 @@ interface ProgressProps {
   className?: string
 }
 
-/** How far along something is: a 4px accent bar on a fill track. */
+/** How far along something is: a 4px neutral bar on a fill track. */
 export function Progress({ value, label, className }: ProgressProps) {
   const known = value !== undefined
   return (
@@ -570,7 +570,7 @@ export function Progress({ value, label, className }: ProgressProps) {
     >
       <div
         className={cn(
-          'h-full rounded-full bg-accent transition-[width] duration-(--motion-panel) motion-reduce:transition-none',
+          'h-full rounded-full bg-muted transition-[width] duration-(--motion-panel) motion-reduce:transition-none',
           // Unknown: a third of the bar sweeps across; with reduced motion it sits still.
           !known && 'w-1/3 animate-sweep motion-reduce:animate-none',
         )}
@@ -594,13 +594,13 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 /**
- * A count or an order on the corner of something: the number of a picked element. 16px, accent.
+ * A count or an order on the corner of something: the number of a picked element. 16px, neutral.
  */
 export function Counter({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <span
       className={cn(
-        'flex size-4 shrink-0 items-center justify-center rounded-full bg-accent text-caption font-medium text-accent-fg tabular-nums',
+        'flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-caption font-medium text-raised tabular-nums',
         className,
       )}
     >

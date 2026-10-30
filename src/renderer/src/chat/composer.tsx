@@ -305,7 +305,7 @@ export function Composer({
       <div
         data-popover-anchor=""
         className={cn(
-          'relative rounded-lg border border-edge bg-raised transition-colors focus-within:border-accent focus-within:ring-3 focus-within:ring-accent-soft',
+          'relative rounded-lg border border-edge bg-raised transition-colors focus-within:border-muted focus-within:ring-3 focus-within:ring-line-strong',
           dropping && 'border-accent bg-accent-soft',
         )}
       >

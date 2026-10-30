@@ -316,12 +316,12 @@
   --terminal-white: #59636e;
   --terminal-bright-black: #57606a;
   --terminal-bright-red: #a40e26;
-  --terminal-bright-green: #1a7f37;
+  --terminal-bright-green: #127a33;
   --terminal-bright-yellow: #633c01;
-  --terminal-bright-blue: #0969da;
-  --terminal-bright-magenta: #8250df;
-  --terminal-bright-cyan: #1b7c83;
-  --terminal-bright-white: #6e7781;
+  --terminal-bright-blue: #0165d6;
+  --terminal-bright-magenta: #7d4ad9;
+  --terminal-bright-cyan: #0f757c;
+  --terminal-bright-white: #616a74;
 }
 
 @media (prefers-color-scheme: dark) {

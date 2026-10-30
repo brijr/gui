@@ -541,7 +541,7 @@ const EDGE_CLASS: Record<PanelEdge, string> = {
     '-right-1.5 -bottom-1.5 cursor-nwse-resize after:right-1.5 after:bottom-1.5 after:rounded-br-xl after:border-r after:border-b',
 }
 /** A corner's hit area, and its hairline the size of the border's rounded part. */
-const CORNER_CLASS = 'size-3.5 after:size-3 after:border-accent'
+const CORNER_CLASS = 'size-3.5 after:size-3 after:border-muted'
 /** The docked panel's left edge is its view's, so the hit area stays inside. */
 const DOCKED_CLASS =
   'inset-y-0 right-0 w-1.5 cursor-ew-resize after:inset-y-0 after:right-0 after:w-px'
@@ -614,7 +614,7 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
             ? DOCKED_CLASS.replaceAll('right-0', 'left-0')
             : DOCKED_CLASS
           : EDGE_CLASS[edge],
-        edge.includes('-') ? CORNER_CLASS : 'after:bg-accent',
+        edge.includes('-') ? CORNER_CLASS : 'after:bg-muted',
       )}
     />
   )
