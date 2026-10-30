@@ -410,7 +410,7 @@ test('the model picker searches the models, sets the model and effort, and new s
     expect.objectContaining({
       kind: 'notice',
       tone: 'info',
-      text: "Couldn't switch the effort to Max, so this turn uses High.",
+      text: "Couldn't switch the effort to Max, so this message uses High.",
     }),
   )
   expect(third.meta.models?.effort?.value).toBe('high')
