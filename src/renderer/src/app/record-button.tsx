@@ -373,7 +373,7 @@ export function RecordButton({
           onClick={() => (recording ? stop.current?.() : !blocked && void start())}
           title={(!recording && unavailable) || label}
           aria-label={label}
-          // Its keys after the icon, like the toolbar's other tools.
+          // Its keys in the tooltip, like the toolbar's other tools.
           shortcut="recordPreview"
           // The seconds count up in place rather than shifting the button's width.
           className={cn(

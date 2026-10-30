@@ -344,6 +344,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.state = {
       project: null,
       devServer: idleDevServer(),
+      serverErrors: 0,
       preview: {
         url: null,
         loading: false,
@@ -407,7 +408,11 @@ export class ProjectTab implements ChatPanelOwner {
     })
     this.panel = new ChatPanel(this)
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
-    this.problems.on('change', (problems) => this.resources.chat?.setProblems(problems))
+    this.problems.on('change', (problems) => {
+      this.resources.chat?.setProblems(problems)
+      const serverErrors = problems.filter((problem) => problem.source === 'server').length
+      if (serverErrors !== this.state.serverErrors) this.patch({ serverErrors })
+    })
     agentHealth.on('change', this.onAgentHealth)
     nodeRuntime.on('change', this.onNodeRuntime)
     developerTools.on('change', this.onDeveloperTools)
@@ -566,6 +571,7 @@ export class ProjectTab implements ChatPanelOwner {
         queuePaused: false,
         queuePauseReason: null,
         autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
+        autoNoteSeen: getPrefs().autoNoteSeen,
       },
       turns: [],
       float: this.panel.float(),

@@ -166,7 +166,7 @@ function startRecording() {
   const record = () => {
     const edge = document.querySelector<HTMLElement>('[data-morph-frame]')
     const bars =
-      document.querySelector('[aria-label="Viewport"]')?.closest('header')?.parentElement ?? null
+      document.querySelector('[aria-label^="Viewport: "]')?.closest('header')?.parentElement ?? null
     const drawerBox = rect(document.querySelector('section[aria-label="Terminal"]'))
     frames.push({
       edge: edge

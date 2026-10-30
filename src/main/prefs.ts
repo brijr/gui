@@ -29,6 +29,11 @@ export interface Prefs {
   agentSettings: Record<AgentId, Record<string, string>>
   /** Project roots the user switched Auto mode off for; every other project is in Auto (see ChatMeta.autoApprove) */
   askRoots: string[]
+  /**
+   * The user has had Auto mode explained in full, under the message box, as they sent their
+   * first message with it on. From then on the Auto control's tooltip explains it.
+   */
+  autoNoteSeen: boolean
   /** Installed copies send a report when Gui itself fails (crash-reports.ts) */
   crashReports: boolean
 }
@@ -44,6 +49,7 @@ const DEFAULTS: Prefs = {
   disabledAgents: [],
   agentSettings: {},
   askRoots: [],
+  autoNoteSeen: false,
   crashReports: true,
 }
 /** Anything outside this isn't a size a window could have set. */
@@ -129,6 +135,7 @@ export function getPrefs(): Prefs {
         : [],
       agentSettings: agentSettings(parsed.agentSettings),
       askRoots: roots(parsed.askRoots),
+      autoNoteSeen: parsed.autoNoteSeen === true,
       crashReports:
         typeof parsed.crashReports === 'boolean' ? parsed.crashReports : DEFAULTS.crashReports,
     }

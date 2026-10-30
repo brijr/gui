@@ -11,12 +11,14 @@ import type { IconComponent } from './icons'
 /*
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
- * tints, pressed or selected is accent-soft with accent text, disabled fades to 40% (a primary goes neutral), focus
+ * tints, pressed or selected is accent-soft with accent text (solid accent is only ever the one
+ * primary action in view, while it can be taken), disabled fades to 40% (a primary goes neutral), focus
  * is the global accent ring. aria-disabled (still focusable, its tooltip saying why) looks and
  * acts as disabled does: no hover, no press. Held down, a control dims at once (PRESS) and eases back when
  * let go. Icons inside controls are 14px; chevrons and other trailing glyphs 12px. A control
  * with a keyboard shortcut takes its id (`shortcut`, from src/shared/shortcuts.ts): its
- * tooltip names the keys and `aria-keyshortcuts` gives them.
+ * tooltip names the keys and `aria-keyshortcuts` gives them. Only a labelled Button shows them
+ * as keys too, and only where they're needed to get out (Exit focus mode).
  */
 
 /**
@@ -63,8 +65,10 @@ interface ButtonProps extends ComponentProps<'button'> {
   trailingIcon?: IconComponent
   /** Working: a spinner replaces the icon and the button is disabled */
   loading?: boolean
-  /** Its keyboard shortcut, shown as keys at the end */
+  /** Its keyboard shortcut, named in the tooltip */
   shortcut?: ShortcutId
+  /** Shows the shortcut as keys at the end too: only where it's the way out (Exit focus mode) */
+  keys?: boolean
 }
 
 /** A labelled action. Use IconButton when the action is an icon alone, Toggle for on/off. */
@@ -75,6 +79,7 @@ export function Button({
   trailingIcon: Trailing,
   loading = false,
   shortcut,
+  keys = false,
   disabled,
   title,
   className,
@@ -84,7 +89,12 @@ export function Button({
   // Shortcut-only controls still need a tooltip naming the action. Native titles can
   // appear over the preview's WebContentsView, where an HTML tooltip would be covered.
   const iconOnly = Icon && (children === undefined || children === null || children === false)
-  const tooltip = title ?? (iconOnly ? props['aria-label'] : undefined)
+  // With a shortcut, a labelled button's tooltip is its label and keys.
+  const tooltip =
+    title ??
+    (iconOnly || shortcut
+      ? (props['aria-label'] ?? (typeof children === 'string' ? children : undefined))
+      : undefined)
   return (
     <button
       type="button"
@@ -98,7 +108,7 @@ export function Button({
     >
       {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
       {children}
-      {shortcut && (
+      {shortcut && keys && (
         // On a filled button the keys take its text color. Out of the button's name:
         // aria-keyshortcuts says them.
         <Kbd
@@ -124,19 +134,12 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   size?: 'sm' | 'md'
   /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
   variant?: 'ghost' | 'primary' | 'secondary'
-  /** Makes it a toggle: aria-pressed, and accent-soft with accent text while pressed */
+  /** Makes it a toggle: aria-pressed, and accent-soft with accent text while pressed (never solid) */
   pressed?: boolean
   /** Turns the icon while something loads (Reload) */
   spinning?: boolean
   /** Fills the icon's shape (Stop's square) */
   filled?: boolean
-  /** Shows its shortcut's keys after the icon (the toolbar's tools), rather than only in the tooltip */
-  keys?: boolean
-  /**
-   * While pressed: soft (default) is accent-soft, for a setting; strong is solid accent, for a
-   * mode the whole window is in (Select).
-   */
-  emphasis?: 'soft' | 'strong'
 }
 
 /** An action shown as an icon alone. Toolbars, panel headers, remove buttons in rows. */
@@ -149,16 +152,12 @@ export function IconButton({
   pressed,
   spinning = false,
   filled = false,
-  keys = false,
-  emphasis = 'soft',
   title,
   className,
   ...props
 }: IconButtonProps) {
   // A `title` of its own (what it just did) stands in for the label and keys for a moment.
   const tooltip = title ?? (shortcut ? withShortcut(label, shortcut) : label)
-  const showKeys = keys && shortcut
-  const strong = pressed && emphasis === 'strong'
   return (
     <button
       type="button"
@@ -169,12 +168,8 @@ export function IconButton({
       className={cn(
         CONTROL,
         'shrink-0 justify-center',
-        showKeys ? 'h-7 gap-1.5 pr-1.5 pl-2' : size === 'sm' ? 'size-6' : 'size-7',
-        strong
-          ? VARIANT.primary
-          : pressed
-            ? `bg-accent-soft text-accent-text ${FADE}`
-            : VARIANT[variant],
+        size === 'sm' ? 'size-6' : 'size-7',
+        pressed ? `bg-accent-soft text-accent-text ${FADE}` : VARIANT[variant],
         className,
       )}
       {...props}
@@ -183,12 +178,6 @@ export function IconButton({
         className={cn('size-3.5', spinning && 'animate-spin', filled && 'fill-current')}
         aria-hidden="true"
       />
-      {showKeys && (
-        // Out of the button's name: aria-keyshortcuts says them.
-        <Kbd aria-hidden="true" tone={strong ? 'inherit' : 'muted'}>
-          {shortcutText(shortcut)}
-        </Kbd>
-      )}
     </button>
   )
 }
@@ -197,11 +186,6 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
   pressed: boolean
   icon?: IconComponent
   children: ReactNode
-  /**
-   * soft (default): accent-soft while on, for a setting (Auto). strong: solid accent, for a
-   * mode the whole window is in (Select).
-   */
-  emphasis?: 'soft' | 'strong'
   /** Its keyboard shortcut, named after the tooltip (`title`) */
   shortcut?: ShortcutId
   /** md, the default; sm in a row of sm buttons (a turn's Follow up) */
@@ -212,7 +196,6 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
 export function Toggle({
   pressed,
   icon: Icon,
-  emphasis = 'soft',
   shortcut,
   size = 'md',
   title,
@@ -230,9 +213,7 @@ export function Toggle({
         CONTROL,
         BUTTON_SIZE[size],
         'shrink-0 justify-start',
-        !pressed && VARIANT.ghost,
-        pressed && emphasis === 'soft' && `bg-accent-soft text-accent-text ${FADE}`,
-        pressed && emphasis === 'strong' && VARIANT.primary,
+        pressed ? `bg-accent-soft text-accent-text ${FADE}` : VARIANT.ghost,
         className,
       )}
       {...props}

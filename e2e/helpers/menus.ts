@@ -1,4 +1,4 @@
-import type { ElectronApplication, Page } from '@playwright/test'
+import type { ElectronApplication, Locator, Page } from '@playwright/test'
 import { waitFor } from './env'
 
 /** State the main-process stub below keeps on `globalThis`. */
@@ -20,6 +20,14 @@ export function chooseFromChatMenu(app: ElectronApplication, chat: Page, label: 
   return chooseFromMenu(app, label, 'the chat menu', () =>
     chat.getByRole('button', { name: 'More', exact: true }).dispatchEvent('click'),
   )
+}
+
+/**
+ * Chooses `label` from the native menu a toolbar `button` opens (the viewport, the "…"), as
+ * the user would. Returns what the menu offered.
+ */
+export function chooseFromButtonMenu(app: ElectronApplication, button: Locator, label: string) {
+  return chooseFromMenu(app, label, 'the menu', () => button.click())
 }
 
 async function chooseFromMenu(

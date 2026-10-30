@@ -23,8 +23,9 @@ import {
   TriangleAlert,
   X,
 } from '../lib/icons'
+import { StatusDot } from '../lib/status'
 import { Card, Thumbnail } from '../lib/surface'
-import { Button, Counter, IconButton, Spinner } from '../lib/ui'
+import { Counter, IconButton, Spinner, TextButton } from '../lib/ui'
 import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
@@ -227,7 +228,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
       ) : (
         <AgentStatus meta={meta} />
       )}
-      {unseenProblem && <ProblemsBar meta={meta} running={running} />}
+      {unseenProblem && <ProblemsLine meta={meta} running={running} />}
       <QueuedMessages meta={meta} running={running} />
       {meta.selectionError && (
         <Line tone="error" role="alert">
@@ -338,7 +339,9 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
           }
           className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
         />
-        {firstMessage && meta.autoApprove && (
+        {/* Said in full once, before the first message with Auto on; then the Auto control's
+            tooltip says it. */}
+        {firstMessage && meta.autoApprove && !meta.autoNoteSeen && (
           <p className="px-2.5 pb-2 text-caption text-muted">
             Auto is on: your agent can edit files and run commands without asking, including
             commands outside this project. Turn Auto off to review more requests.
@@ -416,37 +419,37 @@ const ARRIVE = 'motion-safe:animate-row-in motion-reduce:animate-row-fade'
 /** An image placed among the attachments settles in from slightly smaller. */
 const PLACE = 'motion-safe:animate-place-in motion-reduce:animate-row-fade'
 
-function ProblemsBar({ meta, running }: { meta: ChatMeta; running: boolean }) {
+/**
+ * The app's current errors, quietly: a line over the message box with Fix (the agent gets
+ * them all) and an X that hides it until a new error. The latest error is in its tooltip.
+ */
+function ProblemsLine({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const latest = meta.problems.at(-1)
   return (
-    // A compact card: a line (two, with the latest error), Fix, and an X that hides it until a new error.
-    <Card tone="inset" padding="compact" className={cn(ARRIVE, 'flex items-center gap-2')}>
-      <TriangleAlert className="size-3.5 shrink-0 text-danger" aria-hidden="true" />
-      <div className="min-w-0 flex-1">
-        <p className="text-small font-medium">{problemsTitle(meta.problems)}</p>
-        {latest && (
-          <p className="truncate font-mono text-caption text-subtle" title={latest.message}>
-            {latest.message.split('\n')[0]}
-          </p>
-        )}
-      </div>
-      <Button
-        size="sm"
-        className="shrink-0"
+    <div className={cn(ARRIVE, 'flex h-6 items-center gap-1.5 pl-1 text-small')}>
+      <span className="flex w-3.5 shrink-0 items-center justify-center">
+        <StatusDot status="error" />
+      </span>
+      <p className="min-w-0 truncate text-muted" title={latest?.message}>
+        {problemsTitle(meta.problems)}
+      </p>
+      <TextButton
+        className="shrink-0 font-medium"
         disabled={running}
         title={running ? 'Wait for the agent to finish' : 'Ask the agent to fix these errors'}
         onClick={() => void gui.fixProblems()}
       >
         Fix
-      </Button>
+      </TextButton>
       <IconButton
         size="sm"
         label="Dismiss errors"
         title="Dismiss"
         icon={X}
+        className="ml-auto"
         onClick={() => dismissProblems(meta.problems.map((problem) => problem.id))}
       />
-    </Card>
+    </div>
   )
 }
 

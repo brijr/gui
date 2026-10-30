@@ -39,6 +39,8 @@ interface TabEntry {
   icon: ReactNode
   /** Read after the label, for assistive tech */
   note?: string
+  /** Errors in its output, as a small count after the label */
+  errors?: number
 }
 
 /**
@@ -81,6 +83,7 @@ export function Drawer({ state }: { state: WindowState }) {
           <StatusDot status={serverStatus(state).status} />
         </span>
       ),
+      errors: state.serverErrors,
     },
     ...terminals.map(
       (terminal): TabEntry => ({
@@ -167,8 +170,8 @@ export function Drawer({ state }: { state: WindowState }) {
                       aria-controls={panelId(entry.tab)}
                       aria-selected={selected}
                       tabIndex={selected ? 0 : -1}
-                      aria-label={entry.note ? `${entry.label}, ${entry.note}` : undefined}
-                      title={entry.label}
+                      aria-label={tabName(entry)}
+                      title={tabName(entry) ?? entry.label}
                       // A click shows it and puts the keyboard in it; Enter or Space only shows it.
                       onClick={(event) => select(entry.tab, event.detail > 0)}
                       // The middle button ends a terminal, rather than starting to scroll.
@@ -197,6 +200,11 @@ export function Drawer({ state }: { state: WindowState }) {
                       <span className={cn('truncate', entry.note && 'text-subtle')}>
                         {entry.label}
                       </span>
+                      {!!entry.errors && (
+                        <span aria-hidden="true" className="text-caption text-danger tabular-nums">
+                          {entry.errors}
+                        </span>
+                      )}
                     </button>
                     {/* Always there: tabs here are as wide as their names, so a hidden one
                         would leave a gap. */}
@@ -268,6 +276,13 @@ export function Drawer({ state }: { state: WindowState }) {
       </section>
     </>
   )
+}
+
+/** A tab's name with what's read after it (exited, its errors); undefined when it's the label alone. */
+function tabName({ label, note, errors }: TabEntry) {
+  const count = errors ? (errors === 1 ? '1 error' : `${errors} errors`) : undefined
+  const extra = [note, count].filter(Boolean)
+  return extra.length ? [label, ...extra].join(', ') : undefined
 }
 
 /** A tab's terminal: all stay laid out at the drawer's size, the ones not shown invisible. */

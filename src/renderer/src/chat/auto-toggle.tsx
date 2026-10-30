@@ -5,7 +5,7 @@ import { Shield } from '../lib/icons'
 import { Toggle } from '../lib/ui'
 
 const HELP =
-  "Auto: the agent edits files and runs commands without asking, and commands aren't confined to this project. It still asks when a request names a file outside this project, changes a sensitive file, or the agent flags it."
+  "Auto: the agent edits files and runs commands without asking, and commands aren't confined to this project. It still asks when a request names a file outside this project, changes a sensitive file, or the agent flags it. Turn Auto off to review more requests."
 
 /**
  * Auto mode, on or off: whether Gui approves this project's permission requests itself. One

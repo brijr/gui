@@ -894,8 +894,9 @@ test('zoom steps a device frame from 25% to fit and zooms the desktop page, per 
   expect(Math.abs(desktop.page.height - desktop.layout.preview.height / 1.5)).toBeLessThanOrEqual(1)
   await expect(reset).toHaveText('150%')
   await expect(reset).toHaveAttribute('aria-keyshortcuts', 'Meta+0')
-  const viewports = address.getByRole('group', { name: 'Viewport' }).getByRole('button')
-  await expect(viewports.first()).toHaveAttribute('aria-pressed', 'true')
+  await expect(
+    address.getByRole('button', { name: 'Viewport: Desktop', exact: true }),
+  ).toBeVisible()
   await session.shot('zoomed-desktop')
 
   // Each viewport keeps its own zoom.

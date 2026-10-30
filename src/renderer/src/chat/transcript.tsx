@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { shortcutText } from '../../../shared/shortcuts'
 import type { ChatMeta, Turn } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { ErrorBoundary } from '../lib/error-boundary'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
-import { Archive, MessageSquare, MousePointer2, SquarePen } from '../lib/icons'
+import { Archive, MessageSquare, SquarePen } from '../lib/icons'
 import { Banner, Card, Message } from '../lib/surface'
-import { Button, PromptButton } from '../lib/ui'
+import { Button, Kbd, PromptButton } from '../lib/ui'
 import { setDraft, useChat, waitingCard } from './store'
 import { type TurnHeight, TurnLayout } from './turn-layout'
 import { TurnPresentation, TurnPresentationProvider } from './turn-presentation'
@@ -442,32 +443,14 @@ function EmptyTranscript({
       </Message>
     )
   }
-  // Something's picked: the next step is the message, not picking again.
-  if (picked > 0) {
-    return (
-      <Message fill icon={MessageSquare} title="Describe the change">
-        Say what {picked === 1 ? 'it' : 'they'} should look like or do, and send. Your agent edits
-        the code and the preview updates live.
-      </Message>
-    )
-  }
+  // Something's picked: the message box says what's next ("Describe the change…").
+  if (picked > 0) return <div className="min-h-0 flex-1" />
+  // One quiet line over the message box, where the next step is.
   return (
-    <Message
-      fill
-      icon={MousePointer2}
-      title="Select something to edit"
-      actions={
-        <Button
-          variant="primary"
-          icon={MousePointer2}
-          shortcut="selectElement"
-          onClick={() => gui.toggleSelect()}
-        >
-          Select element
-        </Button>
-      }
-    >
-      Select something in the preview, then describe your edit below.
-    </Message>
+    <div className="flex min-h-0 flex-1 flex-col justify-end px-3 pb-1">
+      <p className="text-small text-subtle">
+        Select something in the preview <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
+      </p>
+    </div>
   )
 }
