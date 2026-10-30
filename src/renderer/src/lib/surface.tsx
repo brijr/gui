@@ -326,7 +326,7 @@ export function PanelHeader({
       {leading}
       {title !== undefined &&
         (typeof title === 'string' ? (
-          <h2 id={titleId} className="min-w-0 flex-1 truncate font-semibold">
+          <h2 id={titleId} title={title} className="min-w-0 flex-1 truncate font-semibold">
             {title}
           </h2>
         ) : (
@@ -509,9 +509,22 @@ export function ListRow({
       {leading}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-2 font-medium">
-          {typeof title === 'string' ? <span className="truncate">{title}</span> : title}
+          {typeof title === 'string' ? (
+            <span className="truncate" title={title}>
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </span>
-        {detail && <span className="min-w-0 truncate text-caption text-subtle">{detail}</span>}
+        {detail && (
+          <span
+            className="min-w-0 truncate text-caption text-subtle"
+            title={typeof detail === 'string' ? detail : undefined}
+          >
+            {detail}
+          </span>
+        )}
       </span>
       {trailing}
     </button>

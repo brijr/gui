@@ -212,7 +212,7 @@ function VersionRow({
             </Badge>
           )}
           {version.reverted && <Badge className="shrink-0">Undone</Badge>}
-          <span className="ml-auto shrink-0 text-caption text-subtle">
+          <span className="ml-auto shrink-0 text-caption text-subtle tabular-nums">
             {timeAgo(version.createdAt)}
           </span>
         </span>
