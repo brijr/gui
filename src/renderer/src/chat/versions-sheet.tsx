@@ -95,8 +95,7 @@ export function VersionsSheet() {
             <SaveVersion disabled={busy !== null || running} saving={busy === 'save'} />
             {versions.length === 0 ? (
               <Message fill icon={History} tone="accent" title="No versions yet">
-                Gui saves a version after each message. Save the current files above to make the
-                first one now.
+                Gui saves a version after each message.
               </Message>
             ) : (
               <VersionList versions={versions} busy={busy} running={running} />
@@ -210,11 +209,6 @@ function VersionRow({
           {version.current && (
             <Badge tone="success" className="shrink-0">
               Current
-            </Badge>
-          )}
-          {version.kind === 'named' && (
-            <Badge tone="accent" className="shrink-0">
-              Named
             </Badge>
           )}
           {version.reverted && <Badge className="shrink-0">Undone</Badge>}
