@@ -353,12 +353,10 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         // With the keyboard in the list, the row the arrows are on is ringed, so it reads
         // apart from a row the pointer only passes over.
         className={cn(
+          'hover:bg-accent-soft hover:text-accent-text hover:**:text-accent-text',
           index === activeIndex &&
             'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-muted',
         )}
-        onPointerMove={() => {
-          if (index !== activeIndex) setActive(choice.value)
-        }}
         onClick={() => pick(choice)}
       >
         {rowName(choice)}

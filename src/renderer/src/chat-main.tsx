@@ -4,6 +4,7 @@ import { ChatPanel } from './chat/chat-panel'
 import { watchErrors } from './lib/crash-reports'
 import { ErrorBoundary, windowFallback } from './lib/error-boundary'
 import './styles.css'
+import './lib/appearance'
 
 watchErrors()
 const root = document.getElementById('root')

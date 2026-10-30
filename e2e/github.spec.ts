@@ -78,7 +78,14 @@ test('GitHub connects to the Gui account, its repositories clone from Clone…, 
     }
     if (request.url === '/repositories')
       return reply({
-        repositories: [{ id: 1, fullName: 'gui-tester/private-project', private: true }],
+        repositories: [
+          { id: 1, fullName: 'gui-tester/private-project', private: true },
+          ...Array.from({ length: 119 }, (_, index) => ({
+            id: index + 2,
+            fullName: `gui-tester/sample-${index}`,
+            private: false,
+          })),
+        ],
       })
     if (request.url === '/repositories/1/credential')
       return reply({ token: 'test-provider-secret', fullName: 'gui-tester/private-project' })
@@ -179,6 +186,18 @@ test('GitHub connects to the Gui account, its repositories clone from Clone…, 
       .getByRole('listitem')
       .filter({ hasText: 'gui-tester/private-project' })
     await expect(privateRow.getByText('Private', { exact: true })).toBeVisible()
+    const repositoryRows = session.chrome
+      .getByRole('list')
+      .filter({ has: session.chrome.getByRole('button', { name: 'Clone…', exact: true }) })
+      .getByRole('listitem')
+    await expect(repositoryRows).toHaveCount(50)
+    const repositoryFilter = session.chrome.getByLabel('GitHub repository', { exact: true })
+    await repositoryFilter.fill('sample-118')
+    await expect(repositoryRows).toHaveCount(1)
+    await expect(session.chrome.getByText('gui-tester/sample-118', { exact: true })).toBeVisible()
+    await repositoryFilter.fill('')
+    await expect(repositoryRows).toHaveCount(50)
+    console.log('[repositories] 120 matches mount 50 rows; filtering reaches the final match')
     await expect(session.chrome.getByLabel('GitHub repository', { exact: true })).toBeVisible()
     await session.chrome.screenshot({ path: test.info().outputPath('github-clone-form.png') })
     // Existing folders survive a rejected clone.

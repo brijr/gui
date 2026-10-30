@@ -264,6 +264,7 @@ export function Drawer({ state }: { state: WindowState }) {
           <Panel tab="server" shown={shown === 'server'}>
             <LogsView
               key={project.root}
+              active={open && shown === 'server'}
               focus={open && shown === 'server' && focusRequest === 'server'}
               onFocused={() => setFocusRequest(null)}
             />
@@ -272,6 +273,7 @@ export function Drawer({ state }: { state: WindowState }) {
             <Panel key={terminal.id} tab={terminal.id} shown={shown === terminal.id}>
               <ShellView
                 id={terminal.id}
+                active={open && shown === terminal.id}
                 focus={open && shown === terminal.id && focusRequest === terminal.id}
                 onFocused={() => setFocusRequest(null)}
               />

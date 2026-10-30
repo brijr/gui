@@ -400,12 +400,33 @@ test('the floating chat is its message box until there is a conversation, and ag
   await expect(showConversation).toHaveCount(0)
   await session.shot('message-box')
 
+  const heights = await panel.evaluateHandle((el) => {
+    const samples = { heights: new Set<string>(), clips: 0 }
+    const observer = new MutationObserver(() => {
+      const style = (el as HTMLElement).style
+      samples.heights.add(style.height)
+      if (style.clipPath) samples.clips++
+    })
+    observer.observe(el, { attributes: true, attributeFilter: ['style'] })
+    return { samples, observer }
+  })
   // A question from the agent: the panel grows to show it, its bottom edge where it was.
   expect(await send(session.chat, ASK)).toBe(true)
   const open = await chatWhere(session, 'the panel', (chat) => chat.height > box.chat.height + 100)
   expect(open.chat.y + open.chat.height).toBe(box.chat.y + box.chat.height)
   await session.chat.getByRole('button', { name: "Don't allow" }).click()
   expect((await session.waitForTurn(0)).turn.status).toBe('done')
+  await expect.poll(() => panel.evaluate((el) => (el as HTMLElement).style.clipPath)).toBe('')
+  const motion = await heights.evaluate(({ samples, observer }) => {
+    observer.disconnect()
+    return { heights: [...samples.heights], clips: samples.clips }
+  })
+  await heights.dispose()
+  expect(motion.heights.length).toBeLessThanOrEqual(3)
+  expect(motion.clips).toBeGreaterThan(2)
+  console.log(
+    `[panel] expansion: ${motion.heights.length} layout heights, ${motion.clips} clip samples`,
+  )
 
   // Done, the reply stays until the user goes back to their app...
   await sleep(3000)

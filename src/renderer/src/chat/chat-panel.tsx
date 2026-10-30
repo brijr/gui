@@ -139,8 +139,8 @@ const SHOW_OVER = 0.6
  * moves; in a top corner the panel grows down from its header instead, the message box
  * riding its bottom edge. Shrinking is the reverse, and only then does main shrink the view to
  * the box (`chatCollapsed`). The header and the conversation keep their full size
- * throughout, clipped by the panel's edge, so nothing in them reflows as it moves; only the
- * panel's own height does. With reduced motion the height changes at once and the
+ * throughout, clipped by the panel's edge, so nothing in them reflows as it moves. The
+ * final height lands at rest. With reduced motion the reveal changes at once and the
  * conversation cross-fades.
  */
 function FloatingPanel({
@@ -190,17 +190,28 @@ function FloatingPanel({
     // Shown and still, it fills its box (the view), following the window as it resizes.
     if (atRest && progress === 1) {
       cardEl.style.height = ''
+      cardEl.style.clipPath = ''
+      if (composer.current) composer.current.style.transform = ''
       innerEl.style.height = ''
       upperEl.style.opacity = ''
       return
     }
     const conversation = Math.max(0, full - box.current)
-    cardEl.style.height = `${Math.round(box.current + conversation * height)}px`
+    const hidden = Math.round(conversation * (1 - height))
+    // Keep layout at its full size during motion; reveal only the anchored portion.
+    const cardHeight = atRest ? `${Math.round(box.current + conversation * height)}px` : `${full}px`
+    if (cardEl.style.height !== cardHeight) cardEl.style.height = cardHeight
+    cardEl.style.clipPath = atRest
+      ? ''
+      : `inset(${top ? 0 : hidden}px 0 ${top ? hidden : 0}px 0 round 12px)`
+    if (composer.current) {
+      composer.current.style.transform = !atRest && top ? `translateY(${-hidden}px)` : ''
+    }
     innerEl.style.height = `${conversation}px`
     upperEl.style.opacity = String(
       reduced ? progress : Math.min(1, Math.max(0, (progress - SHOW_FROM) / SHOW_OVER)),
     )
-  }, [spring])
+  }, [spring, top])
 
   // Measures the message box for main, which sizes the view to it while collapsed.
   useLayoutEffect(() => {

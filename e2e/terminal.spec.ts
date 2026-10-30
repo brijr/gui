@@ -513,3 +513,28 @@ test('quitting Gui ends its terminals', async ({ launch }) => {
   await session.close()
   await waitForGone([shell, job], 'the shell and its job to end')
 })
+
+test('terminal render loops pause while hidden and resume with queued output', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', env: SHELL })
+  await session.waitForPreview()
+  await session.chrome.evaluate(() => window.gui.newTerminal())
+  const id = (await drawerWith(session, 1)).terminals[0]?.id
+  if (!id) throw new Error('No terminal')
+  const rendering = () =>
+    panel(session, id)
+      .locator('[data-terminal]')
+      .evaluate((el) => (el as HTMLElement & { terminalRendering?: boolean }).terminalRendering)
+  await expect.poll(rendering).toBe(true)
+  await session.chrome.evaluate(() => window.gui.setDrawerOpen(false))
+  await expect.poll(rendering).toBe(false)
+  await session.chrome.evaluate((id) => window.gui.writeTerminal(id, 'echo paused-$((40+2))\n'), id)
+  await waitForOutput(session, id, /paused-42/, 'output while paused')
+  await session.chrome.evaluate(() => window.gui.setDrawerOpen(true))
+  await expect.poll(rendering).toBe(true)
+  await expect.poll(() => screenText(panel(session, id))).toContain('paused-42')
+  console.log(
+    '[terminal] pending render loops: visible 1, closed 0, reopened 1; paused output recovered',
+  )
+})

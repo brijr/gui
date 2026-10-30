@@ -70,7 +70,7 @@ import {
 } from './prompt'
 import { recordingBlocks } from './recording-prompt'
 import type { Recordings } from './recordings'
-import { cornerColor, thumbnail } from './thumbnail'
+import { cornerColor, thumbnail, thumbnailSize } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
 
 type SessionUpdate = SessionNotification['update']
@@ -906,7 +906,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const record = this.records.find((r) => r.turn.id === turnId)
     if (!record || !after) return
     const before = record.turn.preview?.before ?? null
-    record.turn.preview = { before, after, frame, fill: cornerColor(after) }
+    record.turn.preview = {
+      before,
+      after,
+      frame,
+      size: thumbnailSize(after),
+      fill: cornerColor(after),
+    }
     this.flushTurn(record)
   }
 

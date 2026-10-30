@@ -22,6 +22,7 @@ function useDark() {
 }
 
 interface ViewProps {
+  active: boolean
   /** Take the keyboard now that it shows; `onFocused` says it has */
   focus: boolean
   onFocused: () => void
@@ -41,6 +42,7 @@ export function LogsView(props: ViewProps) {
   const host = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal | null>(null)
   const dark = useDark()
+  const mounted = useRef<ReturnType<typeof mountTerminal> | null>(null)
 
   useEffect(() => {
     const el = host.current
@@ -51,16 +53,23 @@ export function LogsView(props: ViewProps) {
       interactive: false,
       onResize: (cols, rows) => gui.resizeLogs(cols, rows),
     })
+    mounted.current = terminal
     term.current = terminal.term
     const output = drawOutput(terminal.term, { snapshot: gui.getLogs, subscribe: gui.onLogs })
 
     return () => {
       output.dispose()
+      mounted.current = null
       term.current = null
       terminal.dispose()
     }
   }, [dark])
   // After the terminal is made, which a tab that's new asks for in the same render.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: appearance recreates the terminal.
+  useEffect(() => {
+    if (props.active) mounted.current?.resume()
+    else mounted.current?.pause()
+  }, [props.active, dark])
   useFocus(term, props)
 
   return <div ref={host} data-terminal="" className={HOST} />
@@ -71,6 +80,7 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
   const host = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal | null>(null)
   const dark = useDark()
+  const mounted = useRef<ReturnType<typeof mountTerminal> | null>(null)
 
   useEffect(() => {
     const el = host.current
@@ -97,6 +107,7 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
       onResize: (cols, rows) => gui.resizeTerminal(id, cols, rows),
       onCommand,
     })
+    mounted.current = terminal
     term.current = terminal.term
     const output = drawOutput(terminal.term, {
       snapshot: () => gui.getTerminal(id),
@@ -114,10 +125,16 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     return () => {
       output.dispose()
       input.dispose()
+      mounted.current = null
       term.current = null
       terminal.dispose()
     }
   }, [id, dark])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: appearance or id recreates the terminal.
+  useEffect(() => {
+    if (props.active) mounted.current?.resume()
+    else mounted.current?.pause()
+  }, [props.active, dark, id])
   useFocus(term, props)
 
   return <div ref={host} data-terminal="" className={HOST} />

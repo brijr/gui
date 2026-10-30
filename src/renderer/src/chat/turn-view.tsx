@@ -928,7 +928,8 @@ function Comparison({ turn }: { turn: Turn }) {
     { label: 'After', src: preview.after },
   ] as const
   // Frames take the shot's shape, up to a cap, so a tall element isn't shrunk into a strip.
-  const ratio = preview.frame ? preview.frame.width / preview.frame.height : loadedRatio
+  const shape = preview.frame ?? preview.size
+  const ratio = shape ? shape.width / shape.height : loadedRatio
   // A long strip (a heading, a nav bar) fit whole would be a hairline: it fills the frame's
   // height (or width) instead, from its start, so its first words read.
   const strip = !ratio ? null : ratio > 4 ? 'wide' : ratio < 1 / 4 ? 'tall' : null

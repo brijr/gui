@@ -511,6 +511,8 @@ export class ChatPanel {
       this.settleAnchor()
     }
     this.resizing = null
+    this.syncSidebarWidth()
+    this.sendSlide()
   }
 
   focusChat() {
@@ -740,7 +742,7 @@ export class ChatPanel {
   private sendSlide() {
     const slide = this.dockSlide
     let payload: SidebarSlide = null
-    if (slide && this.docked && !this.popout) {
+    if ((slide || this.resizing === 'docked') && this.docked && !this.popout) {
       const shown = Math.max(0, this.dockedWidth() - Math.round(this.dockOffset()))
       payload =
         getPrefs().chatSidebarSide === 'left'
@@ -831,6 +833,7 @@ export class ChatPanel {
   }
 
   private syncSidebarWidth() {
+    if (this.resizing === 'docked') return
     const width = this.sidebarShown ? this.dockedWidth() : 0
     const side = getPrefs().chatSidebarSide
     if (width !== this.tab.state.sidebarWidth || side !== this.tab.state.sidebarSide) {

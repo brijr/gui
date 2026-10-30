@@ -125,10 +125,10 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
 
   await chrome.evaluate(() => window.gui.boardAddFrame('desktop', null))
   await chrome.evaluate(() => window.gui.boardAddFrame('mobile', null))
-  await waitFor(
-    async () => (await board(session)).frames.every((frame) => frame.captured) || null,
-    'thumbnails',
-  )
+  await waitFor(async () => {
+    const frames = (await board(session)).frames
+    return frames.length === 2 && frames.every((frame) => frame.captured)
+  }, 'thumbnails')
   const [desktop, mobile] = (await board(session)).frames
   expect(desktop).toMatchObject({ id: 'desktop', x: 0, y: 0, width: 1440, height: 900 })
   // Beside the one before it, never on top of it.
