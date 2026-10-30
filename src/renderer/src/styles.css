@@ -169,7 +169,7 @@
 
   /* The agent's click in a walkthrough (pick/overlay.tsx): a ring spreading from the pointer.
      With reduced motion, it fades where it is (animate-row-fade). */
-  --animate-click-ring: click-ring 500ms var(--ease-out) both;
+  --animate-click-ring: click-ring var(--motion-panel) var(--ease-out) both;
 
   @keyframes click-ring {
     from {

@@ -35,7 +35,7 @@ export function SignIn() {
   return (
     <div className="flex w-full max-w-sm flex-col gap-6">
       <div className="flex flex-col gap-1">
-        <GuiMark animated className="mb-4" />
+        <GuiMark className="mb-4" />
         <h1 className="text-title font-semibold">Sign in to Gui</h1>
         <p className="text-pretty text-muted">
           Use your Gui account to design your app with your own agents. Sign in with Google, GitHub,
