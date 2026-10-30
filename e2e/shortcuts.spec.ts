@@ -22,6 +22,7 @@ import {
 } from '../src/shared/types'
 import { electronExecutable, sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
+import { terminalFocused } from './helpers/terminal'
 import { expect, test } from './helpers/test'
 
 // Keyboard shortcuts come from one registry (src/shared/shortcuts.ts): the app menu, the
@@ -778,13 +779,7 @@ test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the li
   }, 'a terminal')
   const id = drawer.terminals[0]?.id
   if (!id) throw new Error('No terminal')
-  await waitFor(
-    () =>
-      session.chrome.evaluate(
-        () => document.activeElement?.classList.contains('xterm-helper-textarea') ?? false,
-      ),
-    'the keyboard in the terminal',
-  )
+  await waitFor(() => terminalFocused(session.chrome), 'the keyboard in the terminal')
   const output = () =>
     session.chrome.evaluate(async (terminal) => (await window.gui.getTerminal(terminal)).data, id)
   await session.chrome.keyboard.type(' echo ready-$((1+1))')
