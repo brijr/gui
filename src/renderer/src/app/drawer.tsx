@@ -19,7 +19,7 @@ import {
   tabClass,
   useScrollingTabs,
 } from '../lib/tabs'
-import { Button, IconButton, PRESS } from '../lib/ui'
+import { Button, IconButton, PRESS, TIGHT_HIT_AREA } from '../lib/ui'
 import { FixStartupButton } from './fix-startup'
 import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus, stoppedOutside } from './server-status'
@@ -135,6 +135,7 @@ export function Drawer({ state }: { state: WindowState }) {
             className="pl-1.5"
             actions={
               <IconButton
+                className={TIGHT_HIT_AREA}
                 label="Hide terminal"
                 shortcut="toggleTerminal"
                 icon={ChevronDown}
@@ -219,6 +220,7 @@ export function Drawer({ state }: { state: WindowState }) {
               })}
             </div>
             <IconButton
+              className={TIGHT_HIT_AREA}
               label="New terminal"
               icon={Plus}
               size="sm"

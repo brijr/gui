@@ -15,7 +15,7 @@ export function StatusDot({ status, className }: { status: Status; className?: s
     <span
       aria-hidden="true"
       className={cn(
-        'size-1.5 shrink-0',
+        'pointer-events-none size-1.5 shrink-0 select-none',
         status === 'error' ? 'rounded-none' : 'rounded-full',
         status === 'ready' && 'bg-success',
         // Solid: a spinner beside it (tab, Working, bubble) already says it's moving.

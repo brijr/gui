@@ -24,7 +24,7 @@ import {
   PopoverSearch,
   placePopover,
 } from '../lib/surface'
-import { Button, OPEN, SegmentedControl } from '../lib/ui'
+import { Button, HIT_AREA, OPEN, SegmentedControl } from '../lib/ui'
 import { useChat, whenPanelShown } from './store'
 
 type Choice = AgentSetting['options'][number]
@@ -187,7 +187,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
           })
         }}
         // On while its picker is open, as a pressed IconButton.
-        className={cn('min-w-0', OPEN)}
+        className={cn('min-w-0', HIT_AREA, OPEN)}
       >
         {/* A long model name gives way; the effort stays readable, unless the row is too
             narrow for both (the floating chat's default width), when it's left to the
@@ -354,7 +354,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
         // apart from a row the pointer only passes over.
         className={cn(
           index === activeIndex &&
-            'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-accent-fg',
+            'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-muted',
         )}
         onPointerMove={() => {
           if (index !== activeIndex) setActive(choice.value)

@@ -73,7 +73,7 @@ export function IdentityCard({ leading, title, detail, trailing, children }: Ide
       <div className="flex items-center gap-3">
         {leading}
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{title}</p>
+          <p className="break-words font-medium">{title}</p>
           {detail && <p className="text-pretty text-small break-words text-muted">{detail}</p>}
         </div>
         {trailing && <div className="flex shrink-0 items-center gap-2">{trailing}</div>}

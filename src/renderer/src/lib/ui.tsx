@@ -53,6 +53,10 @@ export const OPEN = 'aria-expanded:bg-fill aria-expanded:text-fg'
 export const HIT_AREA =
   'relative before:absolute before:-inset-x-0.5 before:-inset-y-1 before:no-drag'
 
+/** For 24px controls spaced 2px apart: expand only to their shared midpoint. */
+export const TIGHT_HIT_AREA =
+  'relative before:absolute before:-inset-x-px before:-inset-y-1 before:no-drag'
+
 const BUTTON_SIZE: Record<ControlSize, string> = {
   sm: 'h-6 gap-1 px-2 text-small',
   md: 'h-7 gap-1.5 px-2.5 text-small',
@@ -337,7 +341,11 @@ export function Spinner({ size = 'sm', className }: { size?: 'sm' | 'md'; classN
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden="true"
-      className={cn('shrink-0 animate-spin', size === 'sm' ? 'size-3' : 'size-4', className)}
+      className={cn(
+        'pointer-events-none shrink-0 animate-spin select-none',
+        size === 'sm' ? 'size-3' : 'size-4',
+        className,
+      )}
     >
       <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
       <path
@@ -510,7 +518,7 @@ interface CheckboxProps extends Omit<ComponentProps<'input'>, 'type' | 'children
 
 /**
  * A choice that's saved with a form rather than applied at once (use Switch for that). 14px,
- * accent when checked, with its label after it.
+ * neutral when checked, with its label after it.
  */
 export function Checkbox({ label, className, disabled, ...props }: CheckboxProps) {
   return (
@@ -525,13 +533,13 @@ export function Checkbox({ label, className, disabled, ...props }: CheckboxProps
         <input
           type="checkbox"
           disabled={disabled}
-          className="peer size-3.5 appearance-none rounded-sm border border-edge bg-raised shadow-control transition-colors checked:border-accent checked:bg-accent focus-visible:outline-offset-1"
+          className="peer size-3.5 appearance-none rounded-sm border border-edge bg-raised shadow-control transition-colors checked:border-fg checked:bg-fg focus-visible:outline-offset-1"
           {...props}
         />
         <svg
           viewBox="0 0 14 14"
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 size-3.5 text-accent-fg opacity-0 peer-checked:opacity-100"
+          className="pointer-events-none absolute inset-0 size-3.5 text-raised opacity-0 peer-checked:opacity-100"
         >
           <path
             d="M3.5 7.25 6 9.5l4.5-5"
@@ -556,7 +564,7 @@ interface ProgressProps {
   className?: string
 }
 
-/** How far along something is: a 4px accent bar on a fill track. */
+/** How far along something is: a 4px neutral bar on a fill track. */
 export function Progress({ value, label, className }: ProgressProps) {
   const known = value !== undefined
   return (
@@ -570,11 +578,11 @@ export function Progress({ value, label, className }: ProgressProps) {
     >
       <div
         className={cn(
-          'h-full rounded-full bg-accent transition-[width] duration-(--motion-panel) motion-reduce:transition-none',
+          'h-full origin-left rounded-full bg-muted transition-transform duration-(--motion-panel) motion-reduce:transition-none',
           // Unknown: a third of the bar sweeps across; with reduced motion it sits still.
           !known && 'w-1/3 animate-sweep motion-reduce:animate-none',
         )}
-        style={known ? { width: `${Math.max(0, Math.min(1, value)) * 100}%` } : undefined}
+        style={known ? { transform: `scaleX(${Math.max(0, Math.min(1, value))})` } : undefined}
       />
     </div>
   )
@@ -588,13 +596,17 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={cn('block animate-pulse rounded-md bg-fill motion-reduce:animate-none', className)}
+      className={cn(
+        'pointer-events-none block animate-pulse select-none rounded-md bg-fill motion-reduce:animate-none',
+        className,
+      )}
     />
   )
 }
 
 /**
- * A count or an order on the corner of something: the number of a picked element. 16px, accent.
+ * A count or an order on the corner of something: the number of a picked element. 16px, accent,
+ * like the outlines it sits on.
  */
 export function Counter({ children, className }: { children: ReactNode; className?: string }) {
   return (

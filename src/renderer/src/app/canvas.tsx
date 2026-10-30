@@ -195,7 +195,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon="loading"
         title="Installing dependencies…"
-        detail="Getting the project ready to run. The first time can take a few minutes."
+        detail="The first install can take a few minutes."
         actions={<LogsToggle open={logsOpen} />}
         env={env}
       />
@@ -208,7 +208,6 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={TriangleAlert}
         tone="danger"
         title="Couldn't install dependencies"
-        detail="The install stopped with an error."
         note={devServer.lastLine}
         actions={
           <>
@@ -232,7 +231,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="Your app stopped"
         detail={
           failed
-            ? 'It quit with an error. The logs show what happened.'
+            ? 'It quit with an error.'
             : stoppedOutside(state)
               ? 'Something outside Gui stopped it.'
               : 'It quit on its own, without an error. Restart it to see your changes.'
@@ -291,7 +290,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon="loading"
         title="Your app is taking a while to start"
-        detail="Gui is waiting for it to show an address. Check the logs, or enter your app's address if it's already running."
+        detail="No address yet. If your app is running, enter its address."
         note={devServer.lastLine}
         actions={
           <>
@@ -329,13 +328,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title={production ? 'Your app has no dev script' : 'Start building your app'}
         detail={
           production
-            ? `Its “${production}” script runs a production build, which doesn't update as you edit, so Gui doesn't use it. Ask your agent to add a “dev” script, or set a dev server command.`
-            : "Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
-        }
-        note={
-          production
-            ? undefined
-            : 'Add a “dev” script to package.json, or set a dev server command, to let Gui start your app automatically.'
+            ? `Its “${production}” script runs a production build, which doesn't update as you edit. Ask your agent to add a “dev” script, or set a dev server command.`
+            : "Describe your app in chat. Gui will preview it when it's ready."
         }
         actions={
           <>
@@ -690,6 +684,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
   if (state.developerTools === 'installing') {
     return (
       <Banner
+        wrap
         icon={Wrench}
         actions={
           <Button size="sm" variant="ghost" onClick={() => gui.installDeveloperTools()}>
@@ -697,7 +692,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
           </Button>
         }
       >
-        <span className="truncate">
+        <span className="text-pretty">
           Finish installing Apple’s developer tools in the macOS window.
         </span>
       </Banner>
@@ -705,6 +700,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
   }
   return (
     <Banner
+      wrap
       icon={Wrench}
       tone="warning"
       actions={
@@ -713,7 +709,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
         </Button>
       }
     >
-      <span className="truncate">Undo and sharing need Apple’s free developer tools.</span>
+      <span className="text-pretty">Undo and sharing need Apple’s free developer tools.</span>
     </Banner>
   )
 }
@@ -732,6 +728,7 @@ export function EnvBanner({ state }: { state: WindowState }) {
   if (!env || dismissed || !state.preview.visible) return null
   return (
     <Banner
+      wrap
       icon={KeyRound}
       actions={
         <>
@@ -748,7 +745,7 @@ export function EnvBanner({ state }: { state: WindowState }) {
         </>
       }
     >
-      <span className="truncate">
+      <span className="text-pretty">
         This project uses environment variables. <EnvText env={env} />
       </span>
     </Banner>
@@ -890,12 +887,6 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
             Clone…
           </Button>
         </div>
-        {firstRun && (
-          <p className="text-small text-muted">
-            New project starts a website or app. New canvas lets you design without a project. Clone
-            copies one from GitHub. Open project uses a folder already on your Mac.
-          </p>
-        )}
       </div>
     )
   }
@@ -1032,7 +1023,7 @@ function StartScreen({ state }: { state: WindowState }) {
     <div className="flex w-full max-w-md flex-col gap-8">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <GuiMark animated className="mb-4" />
+          <GuiMark className="mb-4" />
           <h1 className="text-title font-semibold">
             {firstRun ? 'Design your app with your own agents' : 'Open a project'}
           </h1>
@@ -1097,7 +1088,7 @@ function StartScreen({ state }: { state: WindowState }) {
                     size="sm"
                     aria-haspopup="menu"
                     onClick={() => gui.showRecentBoardMenu(board.id)}
-                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
                   />
                 </div>
               </li>
@@ -1177,7 +1168,7 @@ function RecentRow({
               })}
           size="sm"
           disabled={remove.pending}
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>
       {remove.error && <InlineError className="px-3 pb-2">{remove.error}</InlineError>}

@@ -3,7 +3,7 @@ import { withShortcut } from '../../../shared/shortcuts'
 import type { ChatMeta } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { Shield, ShieldCheck } from '../lib/icons'
-import { IconButton } from '../lib/ui'
+import { HIT_AREA, IconButton } from '../lib/ui'
 
 const HELP =
   "Auto: the agent edits files and runs commands without asking, and commands aren't confined to this project. It still asks when a request names a file outside this project, changes a sensitive file, or the agent flags it. Turn Auto off to review more requests."
@@ -20,6 +20,7 @@ export function AutoToggle({ meta }: { meta: ChatMeta }) {
   return (
     <>
       <IconButton
+        className={HIT_AREA}
         pressed={on}
         icon={on ? ShieldCheck : Shield}
         label="Auto mode"

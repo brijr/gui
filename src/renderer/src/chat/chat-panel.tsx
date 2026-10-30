@@ -45,7 +45,7 @@ import {
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
-import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
+import { Button, IconButton, PRESS, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
@@ -160,7 +160,12 @@ function FloatingPanel({
   const composer = useRef<HTMLFormElement>(null)
   const versioning = useVersions((s) => s.open)
   /** 1 showing the conversation, 0 the message box alone */
-  const [spring] = useState(() => new Spring(float.collapsed ? 0 : 1, { config: SPRINGS.default }))
+  const [spring] = useState(
+    () =>
+      new Spring(float.collapsed ? 0 : 1, {
+        config: { ...SPRINGS.default, response: 0.22 },
+      }),
+  )
   const motion = useRef<{ stop: (() => void) | null; reduced: boolean }>({
     stop: null,
     reduced: false,
@@ -541,7 +546,7 @@ const EDGE_CLASS: Record<PanelEdge, string> = {
     '-right-1.5 -bottom-1.5 cursor-nwse-resize after:right-1.5 after:bottom-1.5 after:rounded-br-xl after:border-r after:border-b',
 }
 /** A corner's hit area, and its hairline the size of the border's rounded part. */
-const CORNER_CLASS = 'size-3.5 after:size-3 after:border-accent'
+const CORNER_CLASS = 'size-3.5 after:size-3 after:border-muted'
 /** The docked panel's left edge is its view's, so the hit area stays inside. */
 const DOCKED_CLASS =
   'inset-y-0 right-0 w-1.5 cursor-ew-resize after:inset-y-0 after:right-0 after:w-px'
@@ -614,7 +619,7 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
             ? DOCKED_CLASS.replaceAll('right-0', 'left-0')
             : DOCKED_CLASS
           : EDGE_CLASS[edge],
-        edge.includes('-') ? CORNER_CLASS : 'after:bg-accent',
+        edge.includes('-') ? CORNER_CLASS : 'after:bg-muted',
       )}
     />
   )
@@ -666,6 +671,7 @@ function Header({ meta }: { meta: ChatMeta }) {
         // panel at rest is its name and the conversation.
         <span className={HOVER_ONLY}>
           <IconButton
+            className={TIGHT_HIT_AREA}
             size="sm"
             label="New chat"
             title={withShortcut('New chat (archives this one)', 'newChat')}
@@ -675,6 +681,7 @@ function Header({ meta }: { meta: ChatMeta }) {
           />
           {!meta.popped && (
             <IconButton
+              className={TIGHT_HIT_AREA}
               size="sm"
               label={meta.docked ? 'Show as floating panel' : 'Show as sidebar'}
               shortcut="dockChat"
@@ -686,6 +693,7 @@ function Header({ meta }: { meta: ChatMeta }) {
           {/* Back to the window, from its own: the one action a popped-out chat needs at hand. */}
           {meta.popped && (
             <IconButton
+              className={TIGHT_HIT_AREA}
               size="sm"
               label="Back to window"
               shortcut="popOutChat"
@@ -696,6 +704,7 @@ function Header({ meta }: { meta: ChatMeta }) {
           <MoreButton />
           {!meta.docked && !meta.popped && (
             <IconButton
+              className={TIGHT_HIT_AREA}
               size="sm"
               label="Minimize"
               icon={Minus}
@@ -737,6 +746,7 @@ function MoreButton() {
   return (
     <>
       <IconButton
+        className={TIGHT_HIT_AREA}
         ref={button}
         size="sm"
         label="More"

@@ -71,8 +71,11 @@ export function useScrollingTabs(ref: RefObject<HTMLElement | null>, selected: s
   const placed = useRef(false)
   useLayoutEffect(() => {
     if (selected === null) return
-    // The first time, it's just there; after, it glides unless Reduce motion is on.
-    revealSelected(ref.current, !placed.current || prefersReducedMotion())
+    // Keep keyboard selection immediate; pointer selection may reveal an offscreen tab.
+    revealSelected(
+      ref.current,
+      !placed.current || prefersReducedMotion() || !!ref.current?.matches(':focus-within'),
+    )
     placed.current = true
   }, [ref, selected])
 
@@ -192,7 +195,7 @@ export function TabCloseButton({ name, onClose, reveal = 'always' }: TabCloseBut
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClose}
       className={cn(
-        'absolute right-0.5 duration-(--motion-fade)',
+        'absolute right-0.5 before:absolute before:-inset-0.5 before:no-drag duration-(--motion-fade)',
         reveal === 'hover' && 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100',
       )}
     />

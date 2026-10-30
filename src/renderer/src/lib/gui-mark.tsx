@@ -39,7 +39,7 @@ export function GuiMark({ className, animated }: { className?: string; animated?
       fill="none"
       aria-hidden="true"
       className={cn(
-        'size-8 overflow-hidden',
+        'pointer-events-none size-8 overflow-hidden select-none',
         animated && 'motion-reduce:animate-row-fade',
         className,
       )}

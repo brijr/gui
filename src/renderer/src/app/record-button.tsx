@@ -448,8 +448,7 @@ function Level({ voice }: { voice: Voice }) {
   const bar = useRef<HTMLSpanElement>(null)
   useEffect(() => {
     const timer = setInterval(() => {
-      if (bar.current)
-        bar.current.style.width = `${Math.round(Math.max(0.08, voice.level()) * 100)}%`
+      if (bar.current) bar.current.style.transform = `scaleX(${Math.max(0.08, voice.level())})`
     }, 1000 / 8)
     return () => clearInterval(timer)
   }, [voice])
@@ -464,7 +463,8 @@ function Level({ voice }: { voice: Voice }) {
       <span className="h-1 w-6 overflow-hidden rounded-full bg-hover">
         <span
           ref={bar}
-          className="block h-full w-[8%] rounded-full bg-current transition-[width]"
+          style={{ transform: 'scaleX(0.08)' }}
+          className="block h-full w-full origin-left rounded-full bg-current transition-transform"
         />
       </span>
     </span>

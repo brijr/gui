@@ -115,10 +115,15 @@ export function mountTerminal(
   }
   el.addEventListener('copy', copy)
 
+  let reportedCols = -1
+  let reportedRows = -1
   const resize = () => {
     // Closed, or not laid out yet: it keeps the size it had.
     if (el.clientHeight < 20) return
     fit.fit()
+    if (term.cols === reportedCols && term.rows === reportedRows) return
+    reportedCols = term.cols
+    reportedRows = term.rows
     onResize(term.cols, term.rows)
   }
   const observer = new ResizeObserver(resize)

@@ -2,7 +2,7 @@ import { type MouseEvent, type ReactNode, useEffect, useId, useRef } from 'react
 import { cn } from './cn'
 import { X } from './icons'
 import { PanelHeader } from './surface'
-import { IconButton } from './ui'
+import { IconButton, TIGHT_HIT_AREA } from './ui'
 
 interface DialogProps {
   open: boolean
@@ -91,6 +91,7 @@ export function Dialog({
         'opacity-0 open:opacity-100 starting:open:opacity-0',
         'motion-safe:scale-97 motion-safe:open:scale-100 motion-safe:starting:open:scale-97',
         'backdrop:opacity-0 backdrop:transition-[opacity,display,overlay] backdrop:transition-discrete backdrop:duration-(--motion-panel) open:backdrop:opacity-100 starting:open:backdrop:opacity-0',
+        'not-open:duration-(--motion-pop) not-open:backdrop:duration-(--motion-pop)',
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
       )}
     >
@@ -100,7 +101,13 @@ export function Dialog({
         actions={
           <>
             {actions}
-            <IconButton label="Close" title="Close (Esc)" icon={X} onClick={onClose} />
+            <IconButton
+              className={TIGHT_HIT_AREA}
+              label="Close"
+              title="Close (Esc)"
+              icon={X}
+              onClick={onClose}
+            />
           </>
         }
       />

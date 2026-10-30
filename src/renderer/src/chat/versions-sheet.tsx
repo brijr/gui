@@ -7,7 +7,7 @@ import { ArrowLeft, History, Info, TriangleAlert, Undo2 } from '../lib/icons'
 import { Badge } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
-import { Button, IconButton, Skeleton } from '../lib/ui'
+import { Button, IconButton, Skeleton, TIGHT_HIT_AREA } from '../lib/ui'
 import { useChat } from './store'
 import {
   closeVersions,
@@ -68,6 +68,7 @@ export function VersionsSheet() {
         leading={
           <IconButton
             size="sm"
+            className={TIGHT_HIT_AREA}
             label="Back to chat"
             icon={ArrowLeft}
             disabled={busy !== null}
@@ -94,9 +95,8 @@ export function VersionsSheet() {
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable scroll-fade p-3">
             <SaveVersion disabled={busy !== null || running} saving={busy === 'save'} />
             {versions.length === 0 ? (
-              <Message fill icon={History} tone="accent" title="No versions yet">
-                Gui saves a version after each message. Save the current files above to make the
-                first one now.
+              <Message fill icon={History} title="No versions yet">
+                Gui saves a version after each message.
               </Message>
             ) : (
               <VersionList versions={versions} busy={busy} running={running} />
@@ -127,11 +127,7 @@ function SaveVersion({ disabled, saving }: { disabled: boolean; saving: boolean 
   }
   return (
     <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-1.5">
-      <Field
-        label="Save a version"
-        htmlFor={`${id}-name`}
-        hint="Gui also saves one after every message."
-      >
+      <Field label="Save a version" htmlFor={`${id}-name`}>
         <div className="flex items-start gap-1.5">
           <Input
             id={`${id}-name`}
@@ -139,7 +135,6 @@ function SaveVersion({ disabled, saving }: { disabled: boolean; saving: boolean 
             maxLength={200}
             disabled={disabled}
             placeholder="Name this version"
-            aria-describedby={`${id}-name-hint`}
             onChange={(event) => setName(event.target.value)}
             className="min-w-0 flex-1"
           />
@@ -175,7 +170,12 @@ function VersionList({
       ))}
       {more > 0 && (
         <li>
-          <Button size="sm" variant="ghost" onClick={() => setLimit(limit + PAGE)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="tabular-nums"
+            onClick={() => setLimit(limit + PAGE)}
+          >
             Show more ({more} remaining)
           </Button>
         </li>
@@ -212,19 +212,14 @@ function VersionRow({
               Current
             </Badge>
           )}
-          {version.kind === 'named' && (
-            <Badge tone="accent" className="shrink-0">
-              Named
-            </Badge>
-          )}
           {version.reverted && <Badge className="shrink-0">Undone</Badge>}
-          <span className="ml-auto shrink-0 text-caption text-subtle">
+          <span className="ml-auto shrink-0 text-caption text-subtle tabular-nums">
             {timeAgo(version.createdAt)}
           </span>
         </span>
       </div>
       {changes.length > 0 ? (
-        <Disclosure open={open} onOpenChange={setOpen} className="self-start">
+        <Disclosure open={open} onOpenChange={setOpen} className="self-start tabular-nums">
           {plural(changes.length, 'file')} changed
           <span className="font-mono text-success tabular-nums"> +{additions}</span>
           <span className="font-mono text-danger tabular-nums"> −{deletions}</span>

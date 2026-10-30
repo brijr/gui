@@ -176,7 +176,6 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
     >
       <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 pt-2.5 pb-2">
         <GroupLabel as="h2">Archived chats</GroupLabel>
-        <p className="text-caption text-subtle">New chat archives the open one here.</p>
       </div>
       {filterable && (
         <PopoverSearch

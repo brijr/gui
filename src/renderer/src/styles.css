@@ -82,13 +82,13 @@
    */
   --text-*: initial;
   --text-caption: 11px;
-  --text-caption--line-height: 14px;
+  --text-caption--line-height: calc(14 / 11);
   --text-small: 12px;
-  --text-small--line-height: 16px;
+  --text-small--line-height: calc(16 / 12);
   --text-body: 13px;
-  --text-body--line-height: 18px;
+  --text-body--line-height: calc(18 / 13);
   --text-title: 15px;
-  --text-title--line-height: 20px;
+  --text-title--line-height: calc(20 / 15);
 
   /* sm: chips, inline code, tiny targets. md: buttons, fields, rows. lg: cards, popovers,
      thumbnails, menus. xl: panels and sheets. Bubbles and pills use rounded-full. */
@@ -112,6 +112,7 @@
   --ease-*: initial;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
   --ease-spring: linear(
     0,
     0.055,
@@ -168,8 +169,8 @@
   }
 
   /* The agent's click in a walkthrough (pick/overlay.tsx): a ring spreading from the pointer.
-     With reduced motion, it fades where it is (animate-row-fade). */
-  --animate-click-ring: click-ring 500ms var(--ease-out) both;
+     With reduced motion, the ring is hidden. */
+  --animate-click-ring: click-ring var(--motion-panel) var(--ease-out) both;
 
   @keyframes click-ring {
     from {
@@ -246,7 +247,7 @@
   /* Reduced motion: the cross-fade that stands in for movement */
   --motion-fade: 150ms;
   /* The guide's pointer gliding to what it shows next: slow enough for the eye to follow */
-  --motion-guide: 650ms;
+  --motion-guide: 400ms;
 
   /* Behind the preview, and the start screen */
   --canvas: #ececec;
@@ -289,7 +290,7 @@
   /* Behind a modal sheet */
   --scrim: rgb(0 0 0 / 0.24);
   /* Selected text, in the page and the terminals */
-  --selection: rgb(0 102 255 / 0.2);
+  --selection: oklch(0 0 0 / 0.14);
   /* Cards on the canvas */
   --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
   /* Bordered controls (secondary buttons, fields' neighbours): a lift and a lit top edge */
@@ -316,12 +317,12 @@
   --terminal-white: #59636e;
   --terminal-bright-black: #57606a;
   --terminal-bright-red: #a40e26;
-  --terminal-bright-green: #1a7f37;
+  --terminal-bright-green: #127a33;
   --terminal-bright-yellow: #633c01;
-  --terminal-bright-blue: #0969da;
-  --terminal-bright-magenta: #8250df;
-  --terminal-bright-cyan: #1b7c83;
-  --terminal-bright-white: #6e7781;
+  --terminal-bright-blue: #0165d6;
+  --terminal-bright-magenta: #7d4ad9;
+  --terminal-bright-cyan: #0f757c;
+  --terminal-bright-white: #616a74;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -353,7 +354,7 @@
     --tile-fg: #ffffff;
     --tile-edge: rgb(255 255 255 / 0.16);
     --scrim: rgb(0 0 0 / 0.5);
-    --selection: rgb(92 157 255 / 0.3);
+    --selection: oklch(1 0 0 / 0.2);
     /* A lit top edge so cards separate from the canvas, which a shadow alone can't do here */
     --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.04);
     --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.06);
@@ -508,7 +509,7 @@
   background: var(--fill);
   padding: 0 4px;
   font-family: var(--font-mono);
-  font-size: 0.92em;
+  font-size: min(1em, var(--text-small));
 }
 
 /* A scroller whose content can grow past it: the gutter is held whether or not it overflows,
@@ -563,6 +564,7 @@ body {
   background: var(--surface);
   color: var(--fg);
   font: var(--text-body) / var(--text-body--line-height) var(--font-sans);
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
@@ -586,8 +588,17 @@ html.transparent body {
 }
 
 @layer base {
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6 {
+    text-wrap: balance;
+  }
+
   /* Buttons and rows: a neutral ring, so the keyboard's place reads without adding color.
-     Fields replace it with an accent border and ring (lib/field.tsx). */
+     Fields replace it with a neutral border and ring (lib/field.tsx). */
   :focus-visible {
     outline: 2px solid var(--muted);
     outline-offset: 1px;
@@ -622,7 +633,11 @@ html.transparent body {
   animation-duration: var(--motion-pop);
 }
 
-.markdown > * + * {
+.markdown {
+  line-height: 1.5;
+}
+.markdown > * + *,
+.markdown li > * + * {
   margin-top: 0.5em;
 }
 .markdown ul {
@@ -665,9 +680,31 @@ html.transparent body {
   border-radius: 0;
   background: none;
   padding: 8px 12px;
+  font-size: inherit;
+}
+.markdown h1 {
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
 }
 .markdown h1,
 .markdown h2,
-.markdown h3 {
-  font-weight: 600;
+.markdown strong {
+  font-weight: var(--font-weight-semibold);
+}
+.markdown h3,
+.markdown h4,
+.markdown h5,
+.markdown h6,
+.markdown th {
+  font-weight: var(--font-weight-medium);
+}
+.markdown th {
+  text-align: start;
+}
+.markdown table {
+  font-variant-numeric: tabular-nums;
+}
+.markdown a {
+  text-decoration-thickness: from-font;
+  text-underline-offset: 0.16em;
 }

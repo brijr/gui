@@ -130,7 +130,7 @@ interface PopoverProps extends ComponentProps<'div'> {
 
 /**
  * The floating surface for menus and pickers. It opens out of what opened it, growing from
- * 97% at the trigger's edge and fading in on the default spring's curve; it closes back into
+ * 97% at the trigger's edge and fading in quickly; it closes back into
  * it. With reduced motion it only fades.
  */
 export function Popover({ open = true, placement, style, className, ...props }: PopoverProps) {
@@ -154,7 +154,7 @@ export function Popover({ open = true, placement, style, className, ...props }: 
       className={cn(
         'flex flex-col overflow-hidden rounded-lg border border-line bg-raised text-fg shadow-popover',
         placement && 'fixed z-popover',
-        'transition-[opacity,scale] duration-(--motion-spring) ease-spring starting:opacity-0 motion-safe:starting:scale-97',
+        'transition-[opacity,scale] duration-(--motion-pop) ease-out starting:opacity-0 motion-safe:starting:scale-97',
         'data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:duration-(--motion-exit) data-[state=closed]:ease-in motion-safe:data-[state=closed]:scale-97',
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
         className,
@@ -217,8 +217,8 @@ interface MenuRowProps extends ComponentProps<'div'> {
 
 /**
  * An option in a popover menu or listbox, 28px tall. Give it role="option" and its handlers.
- * Highlighted (under the pointer or the arrow keys) is solid accent, as in a macOS menu, with
- * everything in it (icons, secondary text) in accent-fg. Selected (the current choice) is
+ * Highlighted (under the pointer or the arrow keys) uses the accent tint, with
+ * everything in it (icons, secondary text) in accent-text. Selected (the current choice) is
  * accent text and a check; highlighted too, it keeps the check.
  */
 export function MenuRow({
@@ -238,8 +238,8 @@ export function MenuRow({
         PRESS,
         selected && 'text-accent-text',
         highlighted === undefined
-          ? 'hover:bg-accent hover:text-accent-fg hover:**:text-accent-fg'
-          : highlighted && 'bg-accent text-accent-fg **:text-accent-fg',
+          ? 'hover:bg-accent-soft hover:text-accent-text hover:**:text-accent-text'
+          : highlighted && 'bg-accent-soft text-accent-text **:text-accent-text',
         className,
       )}
       {...props}
@@ -326,7 +326,7 @@ export function PanelHeader({
       {leading}
       {title !== undefined &&
         (typeof title === 'string' ? (
-          <h2 id={titleId} className="min-w-0 flex-1 truncate font-semibold">
+          <h2 id={titleId} title={title} className="min-w-0 flex-1 truncate font-semibold">
             {title}
           </h2>
         ) : (
@@ -509,9 +509,22 @@ export function ListRow({
       {leading}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-2 font-medium">
-          {typeof title === 'string' ? <span className="truncate">{title}</span> : title}
+          {typeof title === 'string' ? (
+            <span className="truncate" title={title}>
+              {title}
+            </span>
+          ) : (
+            title
+          )}
         </span>
-        {detail && <span className="min-w-0 truncate text-caption text-subtle">{detail}</span>}
+        {detail && (
+          <span
+            className="min-w-0 truncate text-caption text-subtle"
+            title={typeof detail === 'string' ? detail : undefined}
+          >
+            {detail}
+          </span>
+        )}
       </span>
       {trailing}
     </button>
@@ -653,8 +666,8 @@ export function Thumbnail({
           aria-label={removeLabel ?? 'Remove'}
           title={removeLabel ?? 'Remove'}
           onClick={onRemove}
-          // 20px drawn, 24px to hit: the ::before reaches 2px past each side.
-          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-0.5 before:rounded-full hover:text-fg hover:tint ${PRESS}`}
+          // 20px drawn, 32px to hit; neighbouring thumbnails are at least 44px apart.
+          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-1.75 before:rounded-full hover:text-fg hover:tint ${PRESS}`}
         >
           <X className="size-3" aria-hidden="true" />
         </button>

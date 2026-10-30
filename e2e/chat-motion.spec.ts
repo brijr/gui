@@ -311,15 +311,17 @@ test('with reduced motion nothing moves: rows fade in place', async ({ launch })
 })
 
 interface ScaleStore {
+  guiScalesRecording?: boolean
   guiScales?: { t: number; scale: number; opacity: number; state: string }[]
 }
 
-/** Runs in the chat page: records the picker's scale and opacity every frame for 1.5 s. */
+/** Runs in the chat page: records the picker's scale and opacity every frame until stopped. */
 function recordPicker() {
   const store = globalThis as unknown as ScaleStore
   const frames: NonNullable<ScaleStore['guiScales']> = []
   store.guiScales = frames
   const start = performance.now()
+  store.guiScalesRecording = true
   const record = () => {
     const dialog = document.querySelector<HTMLElement>('[role="dialog"]')
     if (dialog) {
@@ -333,7 +335,7 @@ function recordPicker() {
         state: dialog.dataset.state ?? '',
       })
     }
-    if (performance.now() - start < 1500) requestAnimationFrame(record)
+    if (store.guiScalesRecording) requestAnimationFrame(record)
   }
   requestAnimationFrame(record)
 }
@@ -375,13 +377,19 @@ test('the model picker opens out of its button and closes back into it; a press 
   expect(placed.origin).toMatch(/^\d+px 100%$/)
   expect(Math.abs(Number.parseFloat(placed.origin) - placed.middle)).toBeLessThan(1.5)
 
+  await session.shot('model-picker')
+
   // Esc: it closes back the way it came, still there for a moment, then gone.
   await chat.keyboard.press('Escape')
   await expect(picker).toHaveAttribute('data-state', 'closed')
   await expect(picker).toHaveCount(0)
   await expect(button).toBeFocused()
   await sleep(1000)
-  const frames = await chat.evaluate(() => (globalThis as unknown as ScaleStore).guiScales ?? [])
+  const frames = await chat.evaluate(() => {
+    const store = globalThis as unknown as ScaleStore
+    store.guiScalesRecording = false
+    return store.guiScales ?? []
+  })
   const opening = frames.filter((f) => f.state === 'open')
   expect(opening[0]?.scale).toBeLessThan(1)
   expect(opening.some((f) => f.opacity > 0 && f.opacity < 1)).toBe(true)

@@ -1,9 +1,18 @@
 import type { Nodes } from 'hast'
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime'
-import { cloneElement, Fragment, memo, type ReactElement, useEffect, useRef, useState } from 'react'
+import {
+  cloneElement,
+  Fragment,
+  lazy,
+  memo,
+  type ReactElement,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { jsx, jsxs } from 'react/jsx-runtime'
-import ReactMarkdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
 import { ErrorBoundary } from '../lib/error-boundary'
 import { MARKDOWN_NODE_BUDGET, type MarkdownBlock } from './markdown-model'
 import { type MarkdownDisplay, MarkdownRequest } from './markdown-worker-client'
@@ -23,7 +32,11 @@ export const markdownComponents: Components = {
     ) : null,
 }
 
-const plugins = [remarkGfm]
+const loadSmallMarkdown = () => import('./small-markdown')
+const SmallMarkdown = lazy(loadSmallMarkdown)
+// Out of the first paint, but fetched once the window is idle: a restored chat's replies
+// shouldn't flash as plain text, or change height under the scroll position.
+if (typeof requestIdleCallback === 'function') requestIdleCallback(() => void loadSmallMarkdown())
 const runtime = {
   Fragment,
   components: markdownComponents,
@@ -144,16 +157,16 @@ function StreamedMarkdown({ text, live }: { text: string; live: boolean }) {
 }
 
 export function Markdown({ text, live = false }: { text: string; live?: boolean }) {
-  // Small completed messages retain immediate rendering. A large archived answer, or any
+  // Small completed messages load their parser on demand. A large archived answer, or any
   // streaming answer, uses the same GFM parser off the renderer thread.
   if (live || text.length > 16_384) return <StreamedMarkdown text={text} live={live} />
   return (
     <div className="markdown break-words" data-markdown-phase="complete">
       {/* Agent output: if it can't be drawn as Markdown, show it as written. */}
       <ErrorBoundary resetKey={text} fallback={() => <p className="whitespace-pre-wrap">{text}</p>}>
-        <ReactMarkdown remarkPlugins={plugins} components={markdownComponents}>
-          {text}
-        </ReactMarkdown>
+        <Suspense fallback={<p className="whitespace-pre-wrap">{text}</p>}>
+          <SmallMarkdown text={text} components={markdownComponents} />
+        </Suspense>
       </ErrorBoundary>
     </div>
   )
