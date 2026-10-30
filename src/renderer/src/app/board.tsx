@@ -1132,7 +1132,7 @@ function EmptyBoard({ working }: { working: boolean }) {
         </div>
         <div className="flex flex-col gap-2">
           <GroupLabel>Try</GroupLabel>
-          <div className="flex flex-col items-start gap-1.5">
+          <div className="flex flex-col gap-1.5">
             {STARTERS.map((prompt) => (
               <PromptButton
                 key={prompt}
