@@ -7,6 +7,7 @@ import heroStillDark from '../assets/hero-start-dark.png'
 import heroStillLight from '../assets/hero-start-light.png'
 import mobile from '../assets/mobile.png'
 import mobileDark from '../assets/mobile-dark.png'
+import ShapeLogo from '../assets/shape-logo.svg'
 import Demo from '../components/Demo.astro'
 import HeroVideo from '../components/HeroVideo.astro'
 import Shot from '../components/Shot.astro'
@@ -459,6 +460,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   </section>
 
   <footer>
+    <a class="sponsor" href="https://shapefs.com" target="_blank" rel="noopener">
+      Sponsored by <ShapeLogo class="sponsor-logo" role="img" aria-label="Shape" />
+    </a>
     <a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.
     <a class="footer-link" href="/brand">Brand assets</a>
     <a class="footer-link" href="/privacy">Privacy</a>
@@ -1068,5 +1072,24 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   }
   .footer-link {
     margin-left: var(--s-3);
+  }
+  /* Its own line above the credits, the logo in the footer's color like the words beside it */
+  .sponsor {
+    display: flex;
+    width: fit-content;
+    align-items: center;
+    gap: 0.45em;
+    margin-bottom: var(--s-2);
+    color: inherit;
+    text-decoration: none;
+  }
+  .sponsor:hover {
+    color: var(--fg);
+  }
+  .sponsor-logo {
+    height: 1.2em;
+    width: auto;
+    /* Sized and nudged so the wordmark's letters match the words beside it, baseline to baseline */
+    translate: 0 -0.04em;
   }
 </style>
