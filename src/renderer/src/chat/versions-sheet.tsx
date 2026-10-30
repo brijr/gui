@@ -33,6 +33,8 @@ export function VersionsSheet() {
   const error = useVersions((s) => s.error)
   const running = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
   const root = useRef<HTMLDivElement>(null)
+  const [announcementsReady, setAnnouncementsReady] = useState(false)
+  useEffect(() => setAnnouncementsReady(true), [])
 
   // The keyboard comes in with the sheet, on Back. Closed with the keyboard in it, it goes on
   // to the message box that takes the sheet's place, as after a morph (FloatingChat). A layout
@@ -76,15 +78,15 @@ export function VersionsSheet() {
           />
         }
       />
+      <span role="status" className="sr-only">
+        {announcementsReady && versions === null && !blocked ? 'Loading' : ''}
+      </span>
       {blocked ? (
         <Message fill icon={Info} actions={<Button onClick={closeVersions}>Back to chat</Button>}>
           {blocked}
         </Message>
       ) : versions === null ? (
         <div className="flex min-h-0 flex-1 flex-col gap-2 p-3">
-          <span role="status" className="sr-only">
-            Loading
-          </span>
           <Skeleton className="h-7 w-full" />
           <Skeleton className="h-16 w-full" />
           <Skeleton className="h-16 w-full" />
@@ -120,22 +122,31 @@ export function VersionsSheet() {
 function SaveVersion({ disabled, saving }: { disabled: boolean; saving: boolean }) {
   const id = useId()
   const [name, setName] = useState('')
+  const [error, setError] = useState<string | null>(null)
   const submit = async (event: FormEvent) => {
     event.preventDefault()
     if (!name.trim() || disabled) return
+    setError(null)
     if (await saveVersion(name)) setName('')
+    else {
+      setError(useVersions.getState().error)
+      useVersions.setState({ error: null })
+    }
   }
   return (
     <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-1.5">
-      <Field label="Save a version" htmlFor={`${id}-name`}>
+      <Field label="Save a version" htmlFor={`${id}-name`} error={error}>
         <div className="flex items-start gap-1.5">
           <Input
             id={`${id}-name`}
             value={name}
             maxLength={200}
-            disabled={disabled}
+            readOnly={disabled}
             placeholder="Name this version"
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value)
+              setError(null)
+            }}
             className="min-w-0 flex-1"
           />
           <Button

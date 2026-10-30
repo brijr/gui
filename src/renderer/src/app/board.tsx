@@ -1025,23 +1025,34 @@ function FrameLabel({
     // No wider than the frame: zoomed out, neighbours' names would run into each other.
     maxWidth: Math.max(width, 24),
   }
+  const finished = useRef(false)
+  const finish = (value: string | null) => {
+    if (finished.current) return
+    finished.current = true
+    onDone(value)
+  }
   if (renaming)
     return (
       <input
         // biome-ignore lint/a11y/noAutofocus: renaming starts by typing the new name.
         autoFocus
         aria-label="Frame name"
+        spellCheck={false}
         defaultValue={frame.name}
         className={`${FIELD_LOOK} px-1 text-caption`}
         style={{ ...style, width: Math.max(width, 160) }}
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={(event) => {
+          finished.current = false
+          event.currentTarget.select()
+        }}
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key === 'Enter') onDone(event.currentTarget.value.trim() || null)
-          if (event.key === 'Escape') onDone(null)
+          if (event.nativeEvent.isComposing) return
+          if (event.key === 'Enter') finish(event.currentTarget.value.trim() || null)
+          if (event.key === 'Escape') finish(null)
         }}
-        onBlur={(event) => onDone(event.currentTarget.value.trim() || null)}
+        onBlur={(event) => finish(event.currentTarget.value.trim() || null)}
       />
     )
   return (
@@ -1103,23 +1114,34 @@ function SectionLabel({
     height: LABEL_HEIGHT + 2,
     maxWidth,
   }
+  const finished = useRef(false)
+  const finish = (value: string | null) => {
+    if (finished.current) return
+    finished.current = true
+    onDone(value)
+  }
   if (renaming)
     return (
       <input
         // biome-ignore lint/a11y/noAutofocus: renaming starts by typing the new name.
         autoFocus
         aria-label="Section name"
+        spellCheck={false}
         defaultValue={name}
         className={`${FIELD_LOOK} px-2 text-small font-medium`}
         style={{ ...style, width: Math.min(maxWidth, 240) }}
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={(event) => {
+          finished.current = false
+          event.currentTarget.select()
+        }}
         onPointerDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           event.stopPropagation()
-          if (event.key === 'Enter') onDone(event.currentTarget.value.trim() || null)
-          if (event.key === 'Escape') onDone(null)
+          if (event.nativeEvent.isComposing) return
+          if (event.key === 'Enter') finish(event.currentTarget.value.trim() || null)
+          if (event.key === 'Escape') finish(null)
         }}
-        onBlur={(event) => onDone(event.currentTarget.value.trim() || null)}
+        onBlur={(event) => finish(event.currentTarget.value.trim() || null)}
       />
     )
   return (

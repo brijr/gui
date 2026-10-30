@@ -56,7 +56,9 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
       quiet={!enabled}
       title={
         <>
-          <span className="truncate">{name}</span>
+          <label htmlFor={`agent-switch-${health?.id ?? name}`} className="truncate">
+            {name}
+          </label>
           {live ? <AgentStatusLabel health={live} /> : health && <AgentOffLabel />}
           {live?.status === 'unknown' && (
             <TextButton
@@ -84,6 +86,7 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
           {actions}
           {/* The switch's name is the agent's; its track says whether it's on. */}
           <Switch
+            id={`agent-switch-${health?.id ?? name}`}
             checked={enabled}
             onCheckedChange={toggle}
             label={name}

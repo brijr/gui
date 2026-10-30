@@ -10,12 +10,13 @@ export function ChatSection({ settings }: { settings: SettingsState }) {
     <SettingsGroup title="Layout">
       <List>
         <ListItem
-          title="Show the chat as a sidebar"
+          title={<label htmlFor="chat-sidebar">Show the chat as a sidebar</label>}
           trailing={
             // The row's title says what it is; the switch repeats it only for screen readers.
             <Switch
               checked={sidebar}
               onCheckedChange={(docked) => gui.setChatDocked(docked)}
+              id="chat-sidebar"
               label="Show the chat as a sidebar"
               labelHidden
             />

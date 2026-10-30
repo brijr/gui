@@ -266,11 +266,8 @@ export function Composer({
       )}
     >
       {/* Setting the agent up is the next step; it stands in for an error saying it isn't */}
-      {shouldShowAgentSetup(meta) ? (
-        <AgentSetup meta={meta} className={ARRIVE} />
-      ) : (
-        <AgentStatus meta={meta} />
-      )}
+      <AgentSetup meta={meta} className={shouldShowAgentSetup(meta) ? ARRIVE : 'sr-only'} />
+      {!shouldShowAgentSetup(meta) && <AgentStatus meta={meta} />}
       {unseenProblem && <ProblemsLine meta={meta} running={running} />}
       {firstMessage && meta.canSelect && meta.selection.length === 0 && !unseenProblem && (
         <Line tone="info" icon={MousePointer2}>
@@ -294,11 +291,7 @@ export function Composer({
           }}
         />
       )}
-      {notice && (
-        <Line tone="info" role="status">
-          {notice}
-        </Line>
-      )}
+      <div role="status">{notice && <Line tone="info">{notice}</Line>}</div>
       {commands.element}
       {/* The field's focus look on a frame of several controls, which takes a card's radius.
           Popovers from the controls in it open off its edge (data-popover-anchor), not over it. */}
@@ -344,7 +337,10 @@ export function Composer({
                   src={image.thumbnail}
                   alt={image.name}
                   title={image.name}
-                  onRemove={() => removeAttachments([image.id])}
+                  onRemove={() => {
+                    removeAttachments([image.id])
+                    input.current?.focus({ preventScroll: true })
+                  }}
                   removeLabel={`Remove ${image.name}`}
                 />
               </li>
@@ -564,6 +560,9 @@ function Selection({ selection }: { selection: Picked[] }) {
               icon={X}
               onClick={() => {
                 gui.hoverSelection(null)
+                document
+                  .querySelector<HTMLElement>('[data-composer]')
+                  ?.focus({ preventScroll: true })
                 gui.removeSelection(picked.id)
               }}
             />

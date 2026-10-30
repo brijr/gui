@@ -95,18 +95,37 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
       await gui.saveCustomAgent(original?.name ?? null, entry)
       onDone()
     } catch (err) {
-      setStatus({ kind: 'error', message: readableError(err) })
+      const message = readableError(err)
+      setStatus({
+        kind: 'error',
+        message,
+        field: /built-in agent|already an agent called/.test(message) ? 'name' : undefined,
+      })
     }
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} noValidate className="flex flex-col gap-3">
+    <form
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing) return
+        if (event.key === 'Escape' && !saving) {
+          event.preventDefault()
+          event.stopPropagation()
+          onDone()
+        }
+        if (event.key === 'Enter' && event.metaKey) {
+          event.preventDefault()
+          event.currentTarget.requestSubmit()
+        }
+      }}
+      onSubmit={(event) => void submit(event)}
+      noValidate
+      className="flex flex-col gap-3"
+    >
       <Field label="Name" htmlFor={`${id}-name`} error={errorFor('name')}>
         <Input
           ref={nameRef}
           id={`${id}-name`}
-          aria-invalid={errorFor('name') ? true : undefined}
-          aria-describedby={errorFor('name') ? `${id}-name-error` : undefined}
           value={draft.name}
           required
           spellCheck={false}
@@ -117,8 +136,6 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
       <Field label="Command" htmlFor={`${id}-command`} error={errorFor('command')}>
         <Input
           id={`${id}-command`}
-          aria-invalid={errorFor('command') ? true : undefined}
-          aria-describedby={errorFor('command') ? `${id}-command-error` : undefined}
           mono
           value={draft.command}
           required
@@ -135,7 +152,6 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
           value={draft.args}
           rows={3}
           spellCheck={false}
-          aria-describedby={`${id}-args-hint`}
           onChange={(event) => edit({ args: event.target.value })}
           className={LINES}
         />
@@ -152,8 +168,6 @@ export function CustomAgentForm({ original, onDone }: CustomAgentFormProps) {
           value={draft.env}
           rows={3}
           spellCheck={false}
-          aria-invalid={errorFor('env') ? true : undefined}
-          aria-describedby={errorFor('env') ? `${id}-env-error` : `${id}-env-hint`}
           onChange={(event) => edit({ env: event.target.value })}
           className={LINES}
         />

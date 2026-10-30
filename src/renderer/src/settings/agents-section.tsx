@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   type AgentHealth,
   type AgentId,
@@ -188,8 +188,24 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
   const empty = customAgents.length === 0 && !adding
   const addDisabled = locked || editing !== null
 
-  const startAdding = () => setEditing({ kind: 'add' })
-  const stopEditing = () => setEditing(null)
+  const opener = useRef<HTMLElement | null>(null)
+  const startAdding = () => {
+    opener.current = document.activeElement as HTMLElement
+    setEditing({ kind: 'add' })
+  }
+  const stopEditing = () => {
+    setEditing(null)
+    requestAnimationFrame(() => {
+      const target = opener.current
+      if (target?.isConnected) target.focus()
+      else
+        (
+          document.querySelector<HTMLElement>(
+            `[data-custom-agent-edit=${JSON.stringify(editing?.kind === 'edit' ? editing.name : '')}]`,
+          ) ?? document.querySelector<HTMLElement>('[data-add-custom-agent]')
+        )?.focus()
+    })
+  }
 
   const healthFor = (entry: CustomAgentEntry) => {
     const id = `${CUSTOM_AGENT_PREFIX}${entry.name}`
@@ -211,7 +227,10 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
         health={healthFor(entry)}
         home={settings.home}
         locked={locked}
-        onEdit={() => setEditing({ kind: 'edit', name: entry.name })}
+        onEdit={() => {
+          opener.current = document.activeElement as HTMLElement
+          setEditing({ kind: 'edit', name: entry.name })
+        }}
       />
     )
   }
@@ -243,7 +262,13 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
           <CustomAgentForm original={null} onDone={stopEditing} />
         </Card>
       ) : (
-        <Button icon={Plus} className="self-start" disabled={addDisabled} onClick={startAdding}>
+        <Button
+          icon={Plus}
+          className="self-start"
+          disabled={addDisabled}
+          data-add-custom-agent=""
+          onClick={startAdding}
+        >
           Add agent
         </Button>
       )}
@@ -308,7 +333,12 @@ function CustomAgentRow({ entry, health, home, locked, onEdit }: CustomAgentRowP
     </>
   ) : (
     <>
-      <Button variant="ghost" disabled={locked} onClick={onEdit}>
+      <Button
+        data-custom-agent-edit={entry.name}
+        variant="ghost"
+        disabled={locked}
+        onClick={onEdit}
+      >
         Edit
       </Button>
       <Button variant="ghost" disabled={locked} onClick={askRemove}>

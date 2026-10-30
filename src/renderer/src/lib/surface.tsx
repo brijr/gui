@@ -1,4 +1,4 @@
-import { type ComponentProps, type CSSProperties, type ReactNode, useState } from 'react'
+import { type ComponentProps, type CSSProperties, type ReactNode, useEffect, useState } from 'react'
 import { cn } from './cn'
 import { Check, type IconComponent, Search, X } from './icons'
 import { PRESS, Spinner } from './ui'
@@ -195,10 +195,16 @@ export function PopoverNote({
   loading?: boolean
   children: ReactNode
 }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
   return (
     <p role="status" className="flex h-9 shrink-0 items-center gap-2 px-3 text-small text-muted">
-      {loading && <Spinner />}
-      {children}
+      {mounted && (
+        <>
+          {loading && <Spinner />}
+          {children}
+        </>
+      )}
     </p>
   )
 }
@@ -253,14 +259,19 @@ export function MenuRow({
 export interface GroupLabelProps {
   children: ReactNode
   id?: string
+  tabIndex?: number
   as?: 'h2' | 'h3' | 'p' | 'div' | 'span' | 'figcaption'
   className?: string
 }
 
 /** Names a group of rows or controls: caption, medium, subtle, sentence case. */
-export function GroupLabel({ children, id, as: Tag = 'p', className }: GroupLabelProps) {
+export function GroupLabel({ children, id, tabIndex, as: Tag = 'p', className }: GroupLabelProps) {
   return (
-    <Tag id={id} className={cn('text-caption font-medium text-subtle', className)}>
+    <Tag
+      id={id}
+      tabIndex={tabIndex}
+      className={cn('text-caption font-medium text-subtle', className)}
+    >
       {children}
     </Tag>
   )

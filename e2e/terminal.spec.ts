@@ -238,7 +238,11 @@ test('a second terminal, closing one, exit and restart, other tabs, and ⌘W', a
 
   // From the keyboard the tabs are one stop: the arrows, Home and End move along them and
   // show the tab they land on.
-  const tabNamed = (name: string) => tabs(session).getByRole('tab', { name, exact: true })
+  const tabNamed = (name: string) =>
+    tabs(session).getByRole('tab', {
+      name: name === 'Dev server' ? /^Dev server, / : name,
+      exact: name !== 'Dev server',
+    })
   await tabNamed('Terminal 2').focus()
   for (const [key, name] of [
     ['ArrowLeft', 'Terminal'],

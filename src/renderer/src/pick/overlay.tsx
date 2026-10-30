@@ -219,6 +219,8 @@ const HELD_NOTE_OFFSET = 16
  * says so, and the page is left alone. The wheel still scrolls the page.
  */
 function Guide({ guide }: { guide: GuideOverlay }) {
+  const [announcementsReady, setAnnouncementsReady] = useState(false)
+  useEffect(() => setAnnouncementsReady(true), [])
   // A caption on its own, with no input since, has no pointer.
   const target = guide.cursor ?? (guide.rect && center(guide.rect))
   const [heldNote, setHeldNote] = useState<Point | null>(null)
@@ -254,17 +256,17 @@ function Guide({ guide }: { guide: GuideOverlay }) {
           style={place(guide.rect)}
         />
       )}
-      {guide.caption && (
-        <div
-          key={`caption-${guide.step}`}
-          role="status"
-          aria-live="polite"
-          className="pointer-events-none absolute max-w-70 animate-row-in rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover motion-reduce:animate-row-fade"
-          style={captionPlace(guide.rect)}
-        >
-          {guide.caption}
-        </div>
-      )}
+      <div role="status" aria-live="polite">
+        {announcementsReady && guide.caption && (
+          <div
+            key={`caption-${guide.step}`}
+            className="pointer-events-none absolute max-w-70 animate-row-in rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover motion-reduce:animate-row-fade"
+            style={captionPlace(guide.rect)}
+          >
+            {guide.caption}
+          </div>
+        )}
+      </div>
       {target && (
         <div
           aria-hidden="true"
@@ -398,7 +400,7 @@ function Label({
 function Hint({ shown }: { shown: boolean }) {
   return (
     <div
-      aria-live="polite"
+      aria-hidden={!shown}
       className={cn(
         // As wide as its words, up to the overlay's width less the margins (a phone frame is
         // narrow): then whole phrases wrap to a second row, never a phrase across two.

@@ -1,4 +1,4 @@
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react'
+import { type KeyboardEvent, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { agentName, type ChatSummary } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -96,7 +96,9 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
   const loaded = chats !== null
   useEffect(() => {
     if (open && loaded)
-      root.current?.querySelector<HTMLElement>('ul input, input, ul button')?.focus()
+      (
+        root.current?.querySelector<HTMLElement>('ul input, input, ul button') ?? root.current
+      )?.focus()
   }, [open, loaded])
 
   // A click elsewhere in the chat, or anywhere outside it (the view loses focus), closes it;
@@ -147,6 +149,13 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
 
   const remove = async (chat: ChatSummary) => {
     setDeleting(null)
+    const rows = root.current?.querySelectorAll<HTMLElement>('li')
+    const index = shown.findIndex((item) => item.id === chat.id)
+    ;(
+      rows?.[index + 1]?.querySelector<HTMLElement>('button') ??
+      rows?.[index - 1]?.querySelector<HTMLElement>('button') ??
+      root.current
+    )?.focus()
     if (await act(chat.id, () => gui.deleteChat(chat.id))) await reload()
   }
 
@@ -174,6 +183,15 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
       role="dialog"
       aria-label="Archived chats"
       onKeyDown={onKeyDown}
+      tabIndex={-1}
+      onBlur={(event) => {
+        if (
+          event.relatedTarget instanceof Node &&
+          event.relatedTarget !== document.body &&
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          onClose(false)
+      }}
       placement={placement}
     >
       <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 pt-2.5 pb-2">
@@ -267,12 +285,24 @@ function ArchivedRow({
   onDelete,
   onCancelDelete,
 }: ArchivedRowProps) {
+  const row = useRef<HTMLLIElement>(null)
+  const wasEditing = useRef(false)
+  useLayoutEffect(() => {
+    if (deleting) row.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    else if (
+      wasEditing.current &&
+      !renaming &&
+      (document.activeElement === document.body || !!row.current?.contains(document.activeElement))
+    )
+      row.current?.querySelector<HTMLButtonElement>('button')?.focus()
+    wasEditing.current = renaming || deleting
+  }, [renaming, deleting])
   const name = chat.title ?? chat.prompt
   const detail = `${agentName(chat.agentId)} · ${chat.turns === 1 ? '1 message' : `${chat.turns} messages`} · ${timeAgo(chat.lastAt)}`
 
   if (renaming) {
     return (
-      <li className="px-1 py-1">
+      <li ref={row} className="px-1 py-1">
         <RenameField
           name={name}
           initial={chat.title ?? chat.prompt}
@@ -285,7 +315,7 @@ function ArchivedRow({
 
   if (deleting) {
     return (
-      <li className="flex items-center gap-2 rounded-md bg-hover px-2 py-1.5">
+      <li ref={row} className="flex items-center gap-2 rounded-md bg-hover px-2 py-1.5">
         <span className="min-w-0 flex-1 text-small text-fg">Delete this chat for good?</span>
         <Button size="sm" variant="ghost" onClick={onCancelDelete}>
           Cancel
@@ -298,12 +328,17 @@ function ArchivedRow({
   }
 
   return (
-    <li className="group flex items-center gap-0.5 rounded-md pr-1 transition-colors hover:bg-hover focus-within:bg-hover">
+    <li
+      ref={row}
+      className="group flex items-center gap-0.5 rounded-md pr-1 transition-colors hover:bg-hover focus-within:bg-hover"
+    >
       <button
         type="button"
         title={`Open “${name}”`}
-        disabled={disabled}
-        onClick={onOpen}
+        aria-disabled={disabled}
+        onClick={() => {
+          if (!disabled) onOpen()
+        }}
         // The focus ring inside the row, where the list's edge can't clip it.
         className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left focus-visible:-outline-offset-2 disabled:opacity-60"
       >
@@ -324,7 +359,7 @@ function ArchivedRow({
             label={`Rename ${name}`}
             title="Rename"
             icon={Pencil}
-            disabled={disabled}
+            aria-disabled={disabled}
             onClick={onStartRename}
           />
           <IconButton
@@ -332,7 +367,7 @@ function ArchivedRow({
             label={`Delete ${name}`}
             title="Delete"
             icon={Trash2}
-            disabled={disabled}
+            aria-disabled={disabled}
             onClick={onStartDelete}
           />
         </div>
