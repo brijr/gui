@@ -161,7 +161,9 @@ test('the composer downscales, previews and sends attached images', async ({ lau
     mimeType: 'text/plain',
     buffer: Buffer.from('hello'),
   })
-  await expect(chat.getByRole('status')).toHaveText('notes.txt isn’t an image.')
+  await expect(chat.getByRole('status').filter({ hasText: 'isn’t an image' })).toHaveText(
+    'notes.txt isn’t an image.',
+  )
 
   await picker.setInputFiles([file(big), file(small)])
   const attached = chat.getByRole('list', { name: 'Attached images' })
