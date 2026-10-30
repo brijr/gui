@@ -126,11 +126,7 @@ function SaveVersion({ disabled, saving }: { disabled: boolean; saving: boolean 
   }
   return (
     <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-1.5">
-      <Field
-        label="Save a version"
-        htmlFor={`${id}-name`}
-        hint="Gui also saves one after every message."
-      >
+      <Field label="Save a version" htmlFor={`${id}-name`}>
         <div className="flex items-start gap-1.5">
           <Input
             id={`${id}-name`}
@@ -138,7 +134,6 @@ function SaveVersion({ disabled, saving }: { disabled: boolean; saving: boolean 
             maxLength={200}
             disabled={disabled}
             placeholder="Name this version"
-            aria-describedby={`${id}-name-hint`}
             onChange={(event) => setName(event.target.value)}
             className="min-w-0 flex-1"
           />
