@@ -103,7 +103,9 @@ test('preview history stops before the internal blank page and reload recovers a
   const first = running.preview.url ?? ''
   const back = toolbar(session).getByRole('button', { name: 'Back', exact: true })
   const forward = toolbar(session).getByRole('button', { name: 'Forward', exact: true })
-  await expect(back).toBeDisabled()
+  // Back and Forward are in the address field only while there's somewhere to go.
+  await expect(back).toHaveCount(0)
+  await expect(forward).toHaveCount(0)
 
   const second = new URL('/second', first).href
   await address(session).fill(second)
@@ -112,7 +114,7 @@ test('preview history stops before the internal blank page and reload recovers a
   await expect(back).toBeEnabled()
   await back.click()
   await expect(address(session)).toHaveValue(first)
-  await expect(back).toBeDisabled()
+  await expect(back).toHaveCount(0)
   // A repeated Back request cannot enter Electron's initial about:blank entry.
   await session.chrome.evaluate(() => window.gui.back())
   const preview = await session.previewPage()
@@ -165,8 +167,12 @@ test('the start tab offers project actions; a project fills the toolbar, without
   await expect(address(session)).toHaveValue(state.preview.url ?? '')
   const bar = toolbar(session)
   await expect(bar.getByRole('button', { name: 'gui-e2e-vite' })).toBeVisible()
-  for (const name of ['Back', 'Forward', 'Reload preview', 'Screenshot', 'Hide chat']) {
+  for (const name of ['Reload preview', 'Screenshot', 'Hide chat']) {
     await expect(bar.getByRole('button', { name, exact: true })).toBeVisible()
+  }
+  // No history yet: no Back or Forward sitting there disabled.
+  for (const name of ['Back', 'Forward']) {
+    await expect(bar.getByRole('button', { name, exact: true })).toHaveCount(0)
   }
   // Each names its shortcut in its tooltip, and to assistive tech.
   // The chat shows, so its button says what a click does: hide it.

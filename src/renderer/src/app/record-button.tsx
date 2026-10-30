@@ -12,7 +12,7 @@ import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { CircleDot, Mic, MicOff, Square, X } from '../lib/icons'
-import { Button, IconButton } from '../lib/ui'
+import { Button, HIT_AREA, IconButton } from '../lib/ui'
 import { PointerOverlay } from './recording-pointer'
 import { captureVoice, type Voice } from './recording-voice'
 
@@ -377,11 +377,14 @@ export function RecordButton({
           shortcut="recordPreview"
           // The seconds count up in place rather than shifting the button's width.
           className={cn(
+            // Its hit area reaches above and below, not into the mic beside it.
+            HIT_AREA,
+            'before:inset-x-0',
             // Square while it's just the mark, as the toolbar's other tools.
             idle ? 'w-7 justify-center px-0' : 'pr-1.5 pl-2',
             recording
               ? 'tabular-nums'
-              : 'enabled:hover:bg-transparent group-has-[button:enabled:not([aria-disabled=true]):hover]/record:text-fg',
+              : 'text-subtle enabled:hover:bg-transparent group-has-[button:enabled:not([aria-disabled=true]):hover]/record:text-fg',
           )}
         >
           {recording && live ? (
@@ -404,7 +407,7 @@ export function RecordButton({
             }
             disabled={!idle}
             onClick={toggleNarrate}
-            className={cn(!narrate && 'enabled:hover:bg-transparent')}
+            className={cn(HIT_AREA, 'before:inset-x-0', !narrate && 'enabled:hover:bg-transparent')}
           />
         )}
         {recording && live?.voice && <Level voice={live.voice} />}

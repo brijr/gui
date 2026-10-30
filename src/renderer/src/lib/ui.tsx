@@ -11,9 +11,10 @@ import type { IconComponent } from './icons'
 /*
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
- * tints, pressed or selected is accent-soft with accent text (solid accent is only ever the one
- * primary action in view, while it can be taken), disabled fades to 40% (a primary goes neutral), focus
- * is the global accent ring. aria-disabled (still focusable, its tooltip saying why) looks and
+ * tints, pressed (a toggle that's on) is a neutral fill with the full text color (ON), solid
+ * accent is only ever the one primary action in view, while it can be taken, disabled fades to
+ * 40% (a primary goes neutral), focus is the global neutral ring. Icon-only controls rest in
+ * the quietest text color, so a row of them recedes until pointed at. aria-disabled (still focusable, its tooltip saying why) looks and
  * acts as disabled does: no hover, no press. Held down, a control dims at once (PRESS) and eases back when
  * let go. Icons inside controls are 14px; chevrons and other trailing glyphs 12px. A control
  * with a keyboard shortcut takes its id (`shortcut`, from src/shared/shortcuts.ts): its
@@ -36,6 +37,22 @@ const CONTROL = `no-drag inline-flex items-center whitespace-nowrap rounded-md f
 /** Disabled, a control fades; a primary one goes neutral instead (VARIANT), as a pale accent still reads as live. */
 const FADE = 'disabled:opacity-40 aria-disabled:opacity-40'
 
+/**
+ * On: a toggle that's pressed, a button whose menu or picker is open. A neutral fill and the
+ * full text color, darker again on hover; the one on-style for every control.
+ */
+export const ON = `bg-fill text-fg enabled:not-aria-disabled:hover:tint ${FADE}`
+/** The same look on a button while the menu or picker it opens is open (aria-expanded). */
+export const OPEN = 'aria-expanded:bg-fill aria-expanded:text-fg'
+
+/**
+ * A hit area 4px taller than the control and 2px wider each side, drawn by nothing: for 28px
+ * controls in a bar, set at least 4px apart so neighbours' areas never meet. Out of the
+ * window's drag region with the control.
+ */
+export const HIT_AREA =
+  'relative before:absolute before:-inset-x-0.5 before:-inset-y-1 before:no-drag'
+
 const BUTTON_SIZE: Record<ControlSize, string> = {
   sm: 'h-6 gap-1 px-2 text-small',
   md: 'h-7 gap-1.5 px-2.5 text-small',
@@ -49,6 +66,9 @@ const VARIANT: Record<ButtonVariant, string> = {
   ghost: `text-muted enabled:not-aria-disabled:hover:bg-hover enabled:not-aria-disabled:hover:text-fg ${FADE}`,
   danger: `bg-danger-soft text-danger enabled:not-aria-disabled:hover:tint ${FADE}`,
 }
+
+/** Ghost, for an icon alone: the quietest text color at rest. */
+const ICON_GHOST = `text-subtle enabled:not-aria-disabled:hover:bg-hover enabled:not-aria-disabled:hover:text-fg ${FADE}`
 
 interface ButtonProps extends ComponentProps<'button'> {
   /**
@@ -134,7 +154,7 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   size?: 'sm' | 'md'
   /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
   variant?: 'ghost' | 'primary' | 'secondary'
-  /** Makes it a toggle: aria-pressed, and accent-soft with accent text while pressed (never solid) */
+  /** Makes it a toggle: aria-pressed, and the neutral ON fill while pressed */
   pressed?: boolean
   /** Turns the icon while something loads (Reload) */
   spinning?: boolean
@@ -169,7 +189,7 @@ export function IconButton({
         CONTROL,
         'shrink-0 justify-center',
         size === 'sm' ? 'size-6' : 'size-7',
-        pressed ? `bg-accent-soft text-accent-text ${FADE}` : VARIANT[variant],
+        pressed ? ON : variant === 'ghost' ? ICON_GHOST : VARIANT[variant],
         className,
       )}
       {...props}
@@ -213,7 +233,7 @@ export function Toggle({
         CONTROL,
         BUTTON_SIZE[size],
         'shrink-0 justify-start',
-        pressed ? `bg-accent-soft text-accent-text ${FADE}` : VARIANT.ghost,
+        pressed ? ON : VARIANT.ghost,
         className,
       )}
       {...props}

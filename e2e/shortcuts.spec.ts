@@ -503,7 +503,6 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   // Controls name their shortcut, from the same registry.
   const toolbar = session.chrome.getByRole('banner')
   const controls: [string, ShortcutId][] = [
-    ['Back', 'back'],
     ['Reload preview', 'reload'],
     ['Screenshot', 'screenshot'],
     // The chat shows, so its button offers to hide it.
