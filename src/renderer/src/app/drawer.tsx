@@ -24,7 +24,8 @@ import { FixStartupButton } from './fix-startup'
 import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus, stoppedOutside } from './server-status'
 
-// xterm.js is most of the main window's code; it loads after the window's first paint.
+// Ghostty (WebAssembly) is most of the main window's code; it loads after the window's first
+// paint.
 const terminalViews = () => import('./terminal-views')
 const LogsView = lazy(() => terminalViews().then((m) => ({ default: m.LogsView })))
 const ShellView = lazy(() => terminalViews().then((m) => ({ default: m.ShellView })))

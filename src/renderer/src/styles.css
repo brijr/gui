@@ -302,9 +302,9 @@
   --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.06);
 
   /*
-   * The drawer's terminals (app/xterm.ts): the 16 ANSI colors programs print in, on --canvas.
-   * "White" is a gray here, as light terminal themes make it. xterm lifts any color under
-   * 4.5:1 to it (minimumContrastRatio), so these can stay the familiar palette.
+   * The drawer's terminals (app/terminal.ts): the 16 ANSI colors programs print in, on
+   * --canvas. "White" is a gray here, as light terminal themes make it. Each stays readable on
+   * --canvas: Ghostty draws them as they are.
    */
   --terminal-black: #24292f;
   --terminal-red: #cf222e;

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from
 import { dirname, join } from 'node:path'
 import { sleep, waitFor } from './helpers/env'
 import { devServerPids } from './helpers/processes'
+import { screenText } from './helpers/terminal'
 import { expect, test } from './helpers/test'
 
 /** Runs in the chrome page: two open requests back to back, like a double click. */
@@ -36,8 +37,7 @@ test('double openRecent yields one window and one dev server', async ({ launch }
 
   // The drawer's logs stream the dev server's own output (not just the echoed command).
   await session.chrome.evaluate(() => window.gui.showLogs())
-  const readTerminal = () =>
-    session.chrome.evaluate(() => document.querySelector('.xterm-rows')?.textContent ?? '')
+  const readTerminal = () => screenText(session.chrome.locator('[id="drawer-panel-server"]'))
   const hasServerOutput = async () => /VITE|Local:|localhost/i.test(await readTerminal())
   await waitFor(hasServerOutput, 'dev server output in the logs terminal', { timeout: 15_000 })
   await session.shot('logs')
