@@ -2,12 +2,20 @@ import { EventEmitter } from 'node:events'
 import { type IPty, spawn as spawnPty } from 'node-pty'
 import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
+import { type AddressCandidate, type PageKind, pickAddress, probePage } from './app-address'
 import { Output } from './output'
-import { listenersOn, loopbackFor, portOpen, processGroups } from './ports'
+import { listenersOf, listenersOn, loopbackFor, portOpen, processGroups } from './ports'
 import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 
 const PROBE_TIMEOUT_MS = 120_000
+/** How often a starting server's ports are looked at: often at first, then less. */
+const FIND_INTERVAL_MS = 400
+const FIND_INTERVAL_LATER_MS = 1500
+/** A port that isn't a web page yet is asked again after this long. */
+const REPROBE_MS = 1500
+/** Addresses a server prints that are kept as candidates; the first ones count. */
+const MAX_PRINTED = 10
 /** Most dev servers are up well within this; past it, the UI offers a way forward. */
 const SLOW_START_MS = 30_000
 /** After this long, accept any listener on the port even if we can't prove it's ours. */
@@ -17,7 +25,7 @@ const STOP_GRACE_MS = 3000
 const ESC = '\u001b'
 const ANSI = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^\u0007]*(?:\u0007|${ESC}\\\\)`, 'g')
 const LOCAL_URL =
-  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.localhost)(?::\d{2,5})?[^\s'"]*/
+  /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.localhost)(?::\d{2,5})?[^\s'"]*/g
 
 const stripAnsi = (text: string) => text.replace(ANSI, '')
 
@@ -77,6 +85,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private task = false
   /** The app's address when it's set rather than read from the output */
   private fixedUrl: string | null = null
+  /** Local addresses this run printed, in order: candidates for the app's address */
+  private printed: string[] = []
 
   /** `cwd` is where the dev script runs: the project root, or a monorepo app's folder. */
   constructor(private cwd: string) {
@@ -105,6 +115,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.pendingLastLine = null
     this.stopping = false
     this.partial = ''
+    this.printed = []
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
     this.update({
       status: 'starting',
@@ -130,7 +141,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (url) {
       this.update({ url })
       void this.waitUntilReachable(url, run)
-    }
+    } else void this.findApp(run)
     proc.onExit(({ exitCode: code, signal }) => {
       if (run !== this.run) return
       this.proc = null
@@ -148,10 +159,14 @@ export class DevServer extends EventEmitter<DevServerEvents> {
 
   /**
    * Runs a one-off command (e.g. `bun install`) in `cwd` while the dev server is stopped,
-   * streaming into the same log. Resolves with its exit code; null if it couldn't start,
-   * was stopped, or was superseded.
+   * streaming into the same log. Resolves with its exit code; 'timeout' when it ran past
+   * `timeoutMs` and was stopped; null if it couldn't start, was stopped, or was superseded.
    */
-  async runTask(command: string, cwd: string): Promise<number | null> {
+  async runTask(
+    command: string,
+    cwd: string,
+    timeoutMs: number | null = null,
+  ): Promise<number | 'timeout' | null> {
     if (this.proc || this.disposed) return null
     const run = ++this.run
     const env = await getShellEnv()
@@ -164,14 +179,39 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       this.print(`Couldn't run ${command}: ${error instanceof Error ? error.message : error}`)
       return null
     }
+    let timedOut = false
+    const timer =
+      timeoutMs === null
+        ? null
+        : setTimeout(() => {
+            timedOut = true
+            void this.stop()
+          }, timeoutMs)
     return new Promise((resolve) => {
       proc.onExit(({ exitCode, signal }) => {
+        if (timer) clearTimeout(timer)
         if (run !== this.run) return resolve(null)
         this.proc = null
         this.write(`\r\n${ESC}[2m[process exited with code ${exitCode}]${ESC}[0m\r\n`)
+        if (timedOut) return resolve('timeout')
         resolve(signal || this.stopping ? null : exitCode)
       })
     })
+  }
+
+  /** The server can't start (`message` says why): stopped, with the reason as its last line. */
+  fail(message: string) {
+    if (this.proc || this.disposed) return
+    this.run++
+    this.write(`${ESC}[31m${message}${ESC}[0m\r\n`)
+    this.pendingLastLine = null
+    this.update({ status: 'exited', url: null, exitCode: null, lastLine: message })
+  }
+
+  /** Restarting: an exit (a crash) is over, though nothing is running yet. */
+  clearExit() {
+    if (this.proc || this.disposed || this.state.status !== 'exited') return
+    this.update({ status: 'idle', url: null, exitCode: null })
   }
 
   /** A message from Gui itself, shown in the log and as the status line. */
@@ -199,13 +239,6 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (!this.proc) return
     const exited = this.exited
     await Promise.all([this.stop(), exited])
-  }
-
-  async restart() {
-    const command = this.state.command
-    if (!command) return
-    await this.stopAndWait()
-    await this.start(command, this.fixedUrl)
   }
 
   resize(cols: number, rows: number) {
@@ -245,7 +278,9 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       cols: this.size.cols,
       rows: this.size.rows,
       cwd,
-      env: { ...env, FORCE_COLOR: '1', BROWSER: 'none', TERM: 'xterm-256color' },
+      // Turborepo streams its tasks' output rather than drawing its full-screen UI, so the
+      // logs read as lines (addresses, errors) like any other dev server's.
+      env: { ...env, FORCE_COLOR: '1', BROWSER: 'none', TERM: 'xterm-256color', TURBO_UI: '0' },
     })
     this.proc = proc
     // Registered before the caller's exit handler, which has run by the time this settles.
@@ -266,15 +301,105 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const last = lines.at(-1)
     if (last) this.setLastLine(last)
 
-    if (this.state.status !== 'starting' || this.state.url) return
+    if (this.state.status !== 'starting' || this.fixedUrl) return
     for (const line of lines) {
-      const match = line.match(LOCAL_URL)
-      const url = match ? normalizeUrl(match[0]) : null
-      if (!url) continue
-      this.update({ url })
-      void this.waitUntilReachable(url, this.run)
-      return
+      for (const match of line.matchAll(LOCAL_URL)) {
+        const url = normalizeUrl(match[0])
+        if (!url || this.printed.includes(url) || this.printed.length >= MAX_PRINTED) continue
+        this.printed.push(url)
+        // The first address it printed, until the app is found: what "nothing answers at"
+        // messages name.
+        if (!this.state.url) this.update({ url })
+      }
     }
+  }
+
+  /**
+   * Finds the app while the server starts: the addresses it printed, and every port it (or
+   * anything it started) listens on, so a server that only says "listening on port 3000",
+   * or prints nothing, is found too. With several, the one serving a web page wins over an
+   * API's (see `pickAddress`).
+   */
+  private async findApp(run: number) {
+    const started = Date.now()
+    const live = () => run === this.run && this.state.status === 'starting'
+    const candidates = new Map<number, AddressCandidate>()
+    /** When each port was last asked what it serves, and whether that's still in flight */
+    const probes = new Map<number, { at: number; busy: boolean }>()
+    let noted = false
+    while (live()) {
+      const pid = this.proc?.pid
+      const listeners = pid ? await listenersOf(pid) : null
+      if (!live()) return
+      const now = Date.now()
+      const elapsed = now - started
+      const seen = new Map<number, { url: string; printed: number | null; host: string }>()
+      for (const [index, url] of this.printed.entries()) {
+        const port = portOf(url)
+        if (seen.has(port)) continue
+        const own = listeners?.find((l) => l.port === port)
+        // Ours, or (after a while, or without lsof) anything answering there.
+        const trusted = listeners === null || elapsed > OWNERSHIP_GRACE_MS
+        if (own) seen.set(port, { url, printed: index, host: loopbackFor(own.host) })
+        else if (trusted && (await anyLoopbackOpen(port))) {
+          seen.set(port, { url, printed: index, host: '127.0.0.1' })
+        }
+      }
+      for (const listener of listeners ?? []) {
+        if (seen.has(listener.port)) continue
+        const url = `http://localhost:${listener.port}/`
+        seen.set(listener.port, { url, printed: null, host: loopbackFor(listener.host) })
+      }
+      if (!live()) return
+
+      for (const port of candidates.keys()) if (!seen.has(port)) candidates.delete(port)
+      for (const [port, found] of seen) {
+        const known = candidates.get(port)
+        if (!known || known.url !== found.url) {
+          candidates.set(port, { ...found, port, kind: null, since: known?.since ?? now })
+        }
+        const candidate = candidates.get(port)
+        const probe = probes.get(port)
+        if (!candidate || candidate.kind === 'page' || probe?.busy) continue
+        if (probe && now - probe.at < REPROBE_MS) continue
+        probes.set(port, { at: now, busy: true })
+        void probePage(found.url, found.host).then((kind: PageKind) => {
+          probes.set(port, { at: Date.now(), busy: false })
+          const current = candidates.get(port)
+          if (current && current.url === found.url) current.kind = kind
+        })
+      }
+
+      const chosen = pickAddress([...candidates.values()], Date.now(), this.printed.length > 0)
+      if (chosen) {
+        const url = await this.pinnedUrl(chosen.url, chosen.port, pid)
+        if (live()) this.update({ status: 'running', url })
+        return
+      }
+      if (!noted && this.printed[0] && candidates.size === 0 && elapsed > PROBE_TIMEOUT_MS) {
+        noted = true
+        this.update({ lastLine: `No response from ${this.printed[0]} yet. Check the logs.` })
+      }
+      const wait = elapsed > SLOW_START_MS ? FIND_INTERVAL_LATER_MS : FIND_INTERVAL_MS
+      await new Promise((resolve) => setTimeout(resolve, wait))
+    }
+  }
+
+  /**
+   * Another project's server can hold the same port on the other address family
+   * (e.g. [::1]:3000 vs 0.0.0.0:3000), and `localhost` may resolve to it: then the
+   * address names our listener's loopback host instead.
+   */
+  private async pinnedUrl(url: string, port: number, pid: number | undefined) {
+    const parsed = new URL(url)
+    if (!pid || parsed.hostname !== 'localhost') return url
+    const listeners = await listenersOn(port)
+    if (!listeners) return url
+    const groups = await processGroups([...new Set(listeners.map((l) => l.pid))])
+    const ours = listeners.find((l) => groups.get(l.pid) === pid)
+    if (!ours || !listeners.some((l) => groups.get(l.pid) !== pid)) return url
+    parsed.hostname = loopbackFor(ours.host)
+    return parsed.toString()
   }
 
   /** Chatty servers print constantly; coalesce status-line updates. */
@@ -289,6 +414,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     }, 100)
   }
 
+  /** For an address set in Gui: running once something of ours answers there. */
   private async waitUntilReachable(url: string, run: number) {
     const parsed = new URL(url)
     const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
@@ -341,6 +467,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.state = { ...this.state, ...patch, slow }
     this.emit('change', this.state)
   }
+}
+
+function portOf(url: string) {
+  const parsed = new URL(url)
+  return Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
 }
 
 async function anyLoopbackOpen(port: number) {

@@ -12,7 +12,16 @@ const LOCKFILES: [string, PackageManager][] = [
   ['package-lock.json', 'npm'],
 ]
 
-const DEV_SCRIPTS = ['dev', 'develop', 'start', 'serve']
+/**
+ * Scripts that start a dev server, best first. `dev:web` and the like stand in for a plain
+ * `dev` in a repo whose `dev` (absent here) would start everything. `start` and `serve` come
+ * last and only count when they don't serve a production build (`next start`).
+ */
+const DEV_SCRIPTS = ['dev', 'develop']
+const WEB_DEV_SCRIPTS = ['web', 'app', 'frontend', 'client', 'site', 'www', 'ui'].flatMap(
+  (part) => [`dev:${part}`, `${part}:dev`],
+)
+const FALLBACK_SCRIPTS = ['start', 'serve']
 /** Detection reads project files before the project is trusted, so it only reads small ones. */
 const MAX_PROJECT_FILE = 256 * 1024
 
@@ -76,6 +85,28 @@ const WORKSPACE_RUNNERS = new Set([
   'ultra',
   'wireit',
 ])
+/**
+ * Commands that serve a production build rather than a dev server: `next start` needs a
+ * `next build` first, and doesn't reload as the agent edits.
+ */
+const PRODUCTION_COMMANDS: Record<string, string[]> = {
+  next: ['start'],
+  nuxt: ['start', 'preview'],
+  nuxi: ['start', 'preview'],
+  astro: ['preview'],
+  vite: ['preview'],
+  vitepress: ['preview', 'serve'],
+  'svelte-kit': ['preview'],
+  gatsby: ['serve'],
+  docusaurus: ['serve'],
+  remix: ['serve'],
+  'react-router': ['serve'],
+  ng: ['serve:ssr'],
+}
+/** Binaries that only ever serve a build (`remix-serve build/index.js`, `serve -s dist`). */
+const PRODUCTION_BINS = new Set(['remix-serve', 'react-router-serve', 'serve', 'http-server'])
+/** Where frameworks put their production server, as `node .output/server/index.mjs` runs it. */
+const BUILD_OUTPUT = /^(?:\.\/)?(?:\.output|\.next|build|dist|out)(?:\/|$)/
 const PACKAGE_MANAGERS = new Set(['bun', 'pnpm', 'yarn', 'npm'])
 /** Package manager flags that fan a script out to workspaces (`pnpm -r dev`, `bun --filter`). */
 const WORKSPACE_FLAG = /^(?:--filter|-F|-r|--recursive|--workspaces?|-ws|-w)(?:=|$)/
@@ -94,9 +125,16 @@ export interface PackageJson {
   typings?: unknown
 }
 
-interface DevScript {
+export interface DevScript {
   name: string
   body: string
+}
+
+/** The script that starts a package's dev server, and a production one passed over. */
+interface ScriptChoice {
+  script: DevScript | null
+  /** A `start`/`serve` script Gui didn't pick because it serves a production build */
+  production: string | null
 }
 
 export const exists = (path: string) =>
@@ -135,7 +173,7 @@ export async function readPackageJson(dir: string): Promise<PackageJson | null> 
   }
 }
 
-async function detectPackageManager(root: string, pkg: PackageJson | null) {
+export async function detectPackageManager(root: string, pkg: PackageJson | null) {
   const declared = pkg?.packageManager?.split('@')[0]
   if (declared === 'bun' || declared === 'pnpm' || declared === 'yarn' || declared === 'npm') {
     return declared
@@ -146,12 +184,64 @@ async function detectPackageManager(root: string, pkg: PackageJson | null) {
   return 'npm'
 }
 
-function devScriptOf(pkg: PackageJson | null): DevScript | null {
-  for (const name of DEV_SCRIPTS) {
-    const body = pkg?.scripts?.[name]
-    if (typeof body === 'string' && body.trim()) return { name, body }
+function scriptOf(pkg: PackageJson | null, name: string): DevScript | null {
+  const body = pkg?.scripts?.[name]
+  return typeof body === 'string' && body.trim() ? { name, body } : null
+}
+
+/**
+ * The package's dev server script: `dev` (or `develop`), else a web app's own (`dev:web`),
+ * else `start` or `serve` unless they serve a production build.
+ */
+export function chooseDevScript(pkg: PackageJson | null): ScriptChoice {
+  for (const name of [...DEV_SCRIPTS, ...WEB_DEV_SCRIPTS]) {
+    const script = scriptOf(pkg, name)
+    if (script) return { script, production: null }
   }
-  return null
+  let production: string | null = null
+  for (const name of FALLBACK_SCRIPTS) {
+    const script = scriptOf(pkg, name)
+    if (!script) continue
+    if (!servesProduction(script.body, pkg)) return { script, production: null }
+    production ??= name
+  }
+  return { script: null, production }
+}
+
+const devScriptOf = (pkg: PackageJson | null) => chooseDevScript(pkg).script
+
+/**
+ * True for a script that serves a production build: a framework's `start`/`preview`, a
+ * static file server, or Node running a web framework's build output.
+ */
+export function servesProduction(script: string, pkg: PackageJson | null = null): boolean {
+  const framework = pkg !== null && webFramework(pkg)
+  return commands(script).some((raw) => {
+    const words = withoutRunner(raw)
+    const [bin = '', sub = ''] = words
+    if (PRODUCTION_BINS.has(bin)) return true
+    if (PRODUCTION_COMMANDS[bin]?.includes(sub)) return true
+    if (bin === 'node' && framework) {
+      const entry = words.slice(1).find((word) => !word.startsWith('-'))
+      return entry !== undefined && BUILD_OUTPUT.test(entry)
+    }
+    return false
+  })
+}
+
+/** `npx next start` → `next start`: the command a package runner runs. */
+function withoutRunner(words: string[]): string[] {
+  const [first, second] = words
+  if (first === 'npx' || first === 'bunx' || first === 'pnpx') return words.slice(1)
+  if ((first === 'pnpm' || first === 'yarn' || first === 'bun') && second === 'exec') {
+    return words.slice(2)
+  }
+  return words
+}
+
+function webFramework(pkg: PackageJson): boolean {
+  const deps = [...dependencyNames(pkg.dependencies), ...dependencyNames(pkg.devDependencies)]
+  return deps.some((name) => WEB_FRAMEWORKS.has(name) || name.startsWith('@remix-run/'))
 }
 
 /** Keys of a package.json dependency map, tolerating malformed values. */
@@ -190,7 +280,7 @@ export function isWorkspaceRunner(script: string): boolean {
 }
 
 /** Workspace globs from package.json (`[...]` or `{ packages: [...] }`) and pnpm-workspace.yaml. */
-async function workspacePatterns(root: string, pkg: PackageJson | null): Promise<string[]> {
+export async function workspacePatterns(root: string, pkg: PackageJson | null): Promise<string[]> {
   const declared = pkg?.workspaces
   const list =
     declared && typeof declared === 'object' && !Array.isArray(declared)
@@ -268,7 +358,7 @@ async function isRealDirectory(path: string) {
  * matches are resolved to where they really are, and must be inside it: the dev server runs
  * there and env files land there. That also lists a folder reached two ways only once.
  */
-async function expandPatterns(root: string, patterns: string[]): Promise<string[]> {
+export async function expandPatterns(root: string, patterns: string[]): Promise<string[]> {
   const dirs = new Set<string>()
   for (const raw of patterns) {
     const pattern = trimTrailingSlashes(raw.trim().replace(/^\.\//, ''))
@@ -350,10 +440,7 @@ function appScore(pkg: PackageJson, script: DevScript): number {
   const watches = words.some((word) => word === '--watch' || word === '-w' || word === 'watch')
   const builds = words.some((word) => word === 'build' || BUILD_TOOLS.has(word))
   if (watches && builds) return 0
-  const deps = [...dependencyNames(pkg.dependencies), ...dependencyNames(pkg.devDependencies)]
-  const framework =
-    deps.some((name) => WEB_FRAMEWORKS.has(name) || name.startsWith('@remix-run/')) ||
-    words.some((word) => FRAMEWORK_BINS.has(word))
+  const framework = webFramework(pkg) || words.some((word) => FRAMEWORK_BINS.has(word))
   if (framework) return 2
   const library = ['main', 'module', 'exports', 'types', 'typings'].some(
     (field) => pkg[field as keyof PackageJson] !== undefined,
@@ -363,6 +450,8 @@ function appScore(pkg: PackageJson, script: DevScript): number {
 
 interface Workspace extends WorkspaceApp {
   script: DevScript
+  /** Its package.json name, for `turbo --filter` */
+  packageName: string | null
 }
 
 /** The repo root's own app, when it's offered next to workspace apps. */
@@ -376,7 +465,8 @@ async function findApps(root: string, pkg: PackageJson | null): Promise<Workspac
       const child = await readPackageJson(join(root, dir))
       const script = devScriptOf(child)
       if (!child || !script) return null
-      const app: Workspace = { dir, name: child.name || basename(dir), script }
+      const packageName = typeof child.name === 'string' && child.name ? child.name : null
+      const app: Workspace = { dir, name: packageName || basename(dir), script, packageName }
       return { app, score: appScore(child, script) }
     }),
   )
@@ -409,18 +499,24 @@ export async function detectProject(
   const pkg = await readPackageJson(root)
   const packageManager = await detectPackageManager(root, pkg)
   const base = { root, name: pkg?.name || basename(root), packageManager }
-  const run = (script: DevScript | null, appDir: string | null): ProjectInfo => ({
+  const rootChoice = chooseDevScript(pkg)
+  const run = (
+    script: DevScript | null,
+    appDir: string | null,
+    devCommand = script ? `${packageManager} run ${script.name}` : null,
+  ): ProjectInfo => ({
     ...base,
-    devCommand: script ? `${packageManager} run ${script.name}` : null,
+    devCommand,
     devScript: script?.body ?? null,
     appDir,
     custom: null,
+    productionScript: script ? null : rootChoice.production,
   })
 
-  const rootScript = devScriptOf(pkg)
+  const rootScript = rootChoice.script
   const rootApp: Workspace | null =
     rootScript && !isWorkspaceRunner(rootScript.body)
-      ? { dir: ROOT_APP_DIR, name: base.name, script: rootScript }
+      ? { dir: ROOT_APP_DIR, name: base.name, script: rootScript, packageName: null }
       : null
   const candidates = [...(rootApp ? [rootApp] : []), ...(await findApps(root, pkg))]
   // Nothing to choose between: the root's script, runner or not.
@@ -433,8 +529,113 @@ export async function detectProject(
     candidates.find((app) => app.dir === preferredApp) ??
     (candidates.length === 1 ? candidates[0] : undefined)
   if (!chosen) return { project: run(null, null), apps, choosing: true }
-  const appDir = chosen.dir === ROOT_APP_DIR ? null : chosen.dir
-  return { project: run(chosen.script, appDir), apps, choosing: false }
+  if (chosen.dir === ROOT_APP_DIR)
+    return { project: run(chosen.script, null), apps, choosing: false }
+  const turbo = await turboCommand(root, pkg, packageManager, chosen)
+  return { project: run(chosen.script, chosen.dir, turbo ?? undefined), apps, choosing: false }
+}
+
+/** How a package manager runs a binary the project installed. */
+const RUN_BIN: Record<PackageManager, string> = {
+  bun: 'bunx',
+  pnpm: 'pnpm exec',
+  yarn: 'yarn',
+  npm: 'npx',
+}
+/** A package name as `--filter` takes it, with nothing a shell would read. */
+const FILTER_NAME = /^@?[\w.-]+(?:\/[\w.-]+)?$/
+
+/**
+ * In a Turborepo, a workspace app's dev task runs through turbo, so the builds it depends
+ * on (`dependsOn: ["^build"]`) run first, as they do for the repo's own `turbo dev`. Only
+ * when turbo.json defines the task, turbo is installed by the repo, and it declares its
+ * package manager (turbo 2 refuses to run without one).
+ */
+async function turboCommand(
+  root: string,
+  pkg: PackageJson | null,
+  packageManager: PackageManager,
+  app: Workspace,
+): Promise<string | null> {
+  if (!pkg?.packageManager || !app.packageName || !FILTER_NAME.test(app.packageName)) return null
+  const deps = [...dependencyNames(pkg.dependencies), ...dependencyNames(pkg.devDependencies)]
+  if (!deps.includes('turbo')) return null
+  const tasks = await turboTasks(root)
+  const task = app.script.name
+  if (!tasks.has(task) && !tasks.has(`${app.packageName}#${task}`)) return null
+  return `${RUN_BIN[packageManager]} turbo run ${task} --filter=${app.packageName}`
+}
+
+/** The task names turbo.json defines (`tasks`, or turbo 1's `pipeline`); empty without one. */
+async function turboTasks(root: string): Promise<Set<string>> {
+  try {
+    const parsed: unknown = JSON.parse(
+      stripJsonComments(await readProjectFile(join(root, 'turbo.json'))),
+    )
+    if (!parsed || typeof parsed !== 'object') return new Set()
+    const { tasks, pipeline } = parsed as { tasks?: unknown; pipeline?: unknown }
+    const defined = tasks ?? pipeline
+    return new Set(defined && typeof defined === 'object' ? Object.keys(defined) : [])
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * JSON with comments and trailing commas (turbo.json allows both) as plain JSON. Passes over
+ * the characters rather than regexes: the file is read before the project is trusted, and a
+ * crafted one mustn't make a regex backtrack.
+ */
+export function stripJsonComments(text: string): string {
+  return dropTrailingCommas(dropComments(text))
+}
+
+/** Index just past the string starting at `start` (a `"`). */
+function stringEnd(text: string, start: number) {
+  let end = start + 1
+  while (end < text.length && text[end] !== '"') end += text[end] === '\\' ? 2 : 1
+  return end + 1
+}
+
+function dropComments(text: string) {
+  let out = ''
+  let i = 0
+  while (i < text.length) {
+    if (text[i] === '"') {
+      const end = stringEnd(text, i)
+      out += text.slice(i, end)
+      i = end
+    } else if (text.startsWith('//', i)) {
+      while (i < text.length && text[i] !== '\n') i++
+    } else if (text.startsWith('/*', i)) {
+      const end = text.indexOf('*/', i + 2)
+      i = end < 0 ? text.length : end + 2
+    } else out += text[i++]
+  }
+  return out
+}
+
+function dropTrailingCommas(text: string) {
+  let out = ''
+  let i = 0
+  while (i < text.length) {
+    if (text[i] === '"') {
+      const end = stringEnd(text, i)
+      out += text.slice(i, end)
+      i = end
+      continue
+    }
+    if (text[i] === ',') {
+      let j = i + 1
+      while (j < text.length && ' \t\r\n'.includes(text[j] ?? '')) j++
+      if (text[j] === '}' || text[j] === ']') {
+        i++
+        continue
+      }
+    }
+    out += text[i++]
+  }
+  return out
 }
 
 /** How many folders up `findWorkspaceRoot` looks; workspace apps sit a level or two down. */

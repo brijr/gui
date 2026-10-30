@@ -20,6 +20,21 @@ export function appRoot(project: ProjectInfo) {
   return project.appDir ? join(project.root, project.appDir) : project.root
 }
 
+/** Commands that run on Node.js. */
+const NODE_TOOLS = new Set(['node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'corepack'])
+
+/**
+ * Whether getting the project going needs Node.js: anything Gui detects or installs does,
+ * and so does an empty project the agent will build. A start command of the user's own that
+ * runs something else (`python manage.py runserver`), with nothing to install, doesn't.
+ */
+export function needsNode(project: ProjectInfo, installs: unknown[]) {
+  if (!project.custom || installs.length > 0) return true
+  const words = project.custom.command.trim().split(/\s+/)
+  while (words[0] && /^\w+=/.test(words[0])) words.shift()
+  return NODE_TOOLS.has(words[0] ?? '')
+}
+
 export function originOf(url: string) {
   try {
     return new URL(url).origin

@@ -84,6 +84,7 @@ import {
   retireHistoryFile,
 } from './history'
 import { Inspector } from './inspector'
+import { recordInstall } from './install-state'
 import { crashFailure, loadFailure } from './load-failure'
 import { isLoopback } from './loopback'
 import { describeTurns, describeVersions } from './mcp-app-tools'
@@ -95,7 +96,7 @@ import { PreviewMorph } from './preview-morph'
 import { PreviewTools } from './preview-tools'
 import { Problems } from './problems'
 import { execFile } from './process'
-import { detectProject, readPackageJson } from './project'
+import { detectProject } from './project'
 import { retireProject, waitForRetiredProject } from './project-handoff'
 import { ProjectResources } from './project-resources'
 import type { PromptBoard, PromptViewport } from './prompt'
@@ -109,12 +110,26 @@ import {
   detectEnv,
   detectSetup,
   envFile,
+  type InstallTarget,
   installCommand,
+  installsNeeded,
+  installTargets,
   missingPackageManager,
+  packageManagerOf,
+  recordInstalled,
   settleSetup,
 } from './setup'
 import { getShellEnv } from './shell-env'
 import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
+import {
+  agreedScripts,
+  type CurrentScripts,
+  changedInstalls,
+  scriptsOf,
+  startChanged,
+  startKey,
+} from './start-scripts'
+import { reloadsItself, StartWatch, startDirs, startSignature } from './start-watch'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
 import { PREVIEW_PARTITION } from './storage'
 import { ChatPanel, type ChatPanelOwner } from './tab-chat-panel'
@@ -123,6 +138,7 @@ import {
   chatImage,
   frameError,
   inCanvas,
+  needsNode,
   originOf,
   previewFrame,
   screenshotName,
@@ -133,7 +149,16 @@ import type { TabHost, TabState } from './tab-host'
 import { Terminals } from './terminals'
 import { collapseText, rewriteText } from './text-edit'
 import { thumbnail } from './thumbnail'
-import { askToTrust, isTrusted, promptName, promptText, trust } from './trust'
+import {
+  askToTrust,
+  isTrusted,
+  promptName,
+  promptText,
+  recordTrustedScripts,
+  type TrustedScripts,
+  trust,
+  trustedScripts,
+} from './trust'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { isPublicWebsite, LOCAL_ADDRESS } from './web-session'
 import { Website, type WebsiteHooks } from './website'
@@ -160,8 +185,13 @@ const BOARD_SERVER_STATUS =
   'This is a canvas: Gui serves its frames itself and there is no dev server to start, restart or configure. Use the canvas tools.'
 /** Frames export at this device scale factor: as sharp as on a Retina display. */
 const FRAME_EXPORT_SCALE = 2
-/** Package scripts an install runs from the project's own package.json. */
-const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
+/** A project trusted to run a start command set in Gui, and nothing of its own yet */
+const NOTHING_AGREED: TrustedScripts = { starts: {}, installs: null }
+/** An install that runs longer than this is stuck (a prompt, a hung download): Gui stops it. */
+const INSTALL_TIMEOUT_MS = 20 * 60_000
+/** At most this many automatic restarts in AUTO_RESTART_WINDOW_MS, so a loop can't run on. */
+const MAX_AUTO_RESTARTS = 3
+const AUTO_RESTART_WINDOW_MS = 60_000
 
 type ScreenshotAction = 'copy' | 'copy-full-page' | 'save' | 'attach'
 type ScreenshotResult = 'copied' | 'saved' | 'attached'
@@ -338,6 +368,21 @@ export class ProjectTab implements ChatPanelOwner {
   private agentRestartedAt = 0
   /** Getting the app going again from the top (`retryStartup`), so it runs once at a time */
   private retrying: Promise<void> | null = null
+  /**
+   * A start (`startKey`) the user saw come about in this session: a dev script the agent
+   * changed during a turn. It runs without asking again, and becomes what's trusted.
+   */
+  private watchedStart: string | null = null
+  /** The start as the running turn began, to tell what the agent changed in it */
+  private turnStartKey: Promise<string | null> | null = null
+  /** Settles once the end of the last turn has been looked at (`noteTurnScripts`) */
+  private scriptsNoted: Promise<void> = Promise.resolve()
+  /** What the app last started from (`startSignature`), to restart it only on a real change */
+  private startedSignature: string | null = null
+  /** Its start files changed mid-turn: restart once the turn is over. */
+  private restartAfterTurn = false
+  /** When Gui last restarted the app by itself, for MAX_AUTO_RESTARTS */
+  private autoRestarts: number[] = []
 
   constructor(host: TabHost) {
     this.host = host
@@ -953,6 +998,7 @@ export class ProjectTab implements ChatPanelOwner {
       // its session is cleared, before this turn's agent can act on it.
       if (turn.status === 'running' && turn.id !== this.runningTurn) {
         this.runningTurn = turn.id
+        this.turnStartKey = this.currentStartKey()
         // A reply is starting: the floating chat shows the conversation.
         this.panel.showConversation()
         this.closeWebsite()
@@ -984,6 +1030,12 @@ export class ProjectTab implements ChatPanelOwner {
     chat.on('turnEnd', (turn) => {
       // The reply stays in view until the user goes back to their app.
       this.panel.showConversation()
+      // Before anything restarts the app: what the agent changed in how it starts.
+      this.scriptsNoted = this.noteTurnScripts(true)
+      if (this.restartAfterTurn) {
+        this.restartAfterTurn = false
+        void this.scriptsNoted.then(() => this.restartForChanges())
+      }
       // The agent may have switched branches itself.
       void this.refreshBranch()
       // The walkthrough's last step stays a moment to be read, then gets out of the way.
@@ -1013,40 +1065,153 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /**
-   * Opening a folder must not run its scripts until the user has seen them once.
-   * Installing runs package scripts too, so it's agreed to in the same dialog.
+   * Opening a folder must not run its scripts until the user has seen them. Installing runs
+   * package scripts too, so it's agreed to in the same dialog. A trusted project asks again
+   * when what it runs changed since the user agreed, unless they saw it change here
+   * (`watchedStart`); an install asks about install scripts they haven't seen.
    */
-  private async confirmScripts(project: ProjectInfo, install: boolean) {
-    if (await isTrusted(project.root)) return true
-    // Scripts and folder names come from the project: shown cleaned up and cut short.
-    const devCommand = project.appDir
-      ? `${project.devCommand} in ${promptName(project.appDir)}`
-      : project.devCommand
-    const script = promptText(project.devScript ?? project.devCommand ?? '')
-    if (!install) {
-      return this.askToTrust(project.root, {
-        message: `Start ${promptName(project.name)}?`,
-        detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Gui won't ask again for this project.`,
-        buttons: ['Start Dev Server', 'Not Now'],
-      })
+  private async confirmScripts(project: ProjectInfo, installs: InstallTarget[]) {
+    await this.scriptsNoted
+    if (this.resources.chat?.turnRunning) await this.noteTurnScripts(false)
+    const installing = installs.length > 0
+    const now = await scriptsOf(project)
+    if (await isTrusted(project.root)) {
+      const saved = await trustedScripts(project.root)
+      // Trusted before Gui kept what was agreed to: what it runs now is what was agreed.
+      if (!saved) return this.keepScripts(project.root, agreedScripts(now, true, null))
+      const picked = !!project.appDir && getPrefs().apps[project.root] === project.appDir
+      const changed = startChanged(project, now, saved, picked, this.watchedStart)
+      const installsChanged = installing ? changedInstalls(saved.installs, now.installs) : []
+      if (!changed && installsChanged.length === 0) {
+        const agreed = agreedScripts(now, installing, saved)
+        if (JSON.stringify(agreed) === JSON.stringify(saved)) return true
+        return this.keepScripts(project.root, agreed)
+      }
+      return this.confirmChangedScripts(project, now, saved, changed, installsChanged, installs)
     }
-    const scripts = (await readPackageJson(project.root))?.scripts
-    const installs = INSTALL_SCRIPTS.flatMap((name) => {
-      const body = scripts?.[name]
-      return typeof body === 'string' && body.trim() ? [`${name}: ${promptText(body)}`] : []
-    })
-    const installing = installs.length ? `Installing runs:\n\n${installs.join('\n\n')}\n\n` : ''
-    return this.askToTrust(project.root, {
-      message: `Start ${promptName(project.name)}?`,
-      detail: `Gui will install dependencies (${installCommand(project.packageManager)}) and start the dev server (${devCommand}) to preview the project. ${installing}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
-      buttons: ['Install and Start', 'Not Now'],
-    })
+
+    // Scripts and folder names come from the project: shown cleaned up and cut short.
+    const devCommand = this.startDescription(project)
+    const script = promptText(project.devScript ?? project.devCommand ?? '')
+    const agreed = agreedScripts(now, installing, null)
+    if (!installing) {
+      return this.askToTrust(
+        project.root,
+        {
+          message: `Start ${promptName(project.name)}?`,
+          detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Gui won't ask again for this project unless its scripts change.`,
+          buttons: ['Start Dev Server', 'Not Now'],
+        },
+        agreed,
+      )
+    }
+    const scripts = Object.entries(now.installs).map(
+      ([name, body]) => `${promptName(name)}: ${promptText(body)}`,
+    )
+    const installScripts = scripts.length ? `Installing runs:\n\n${scripts.join('\n\n')}\n\n` : ''
+    return this.askToTrust(
+      project.root,
+      {
+        message: `Start ${promptName(project.name)}?`,
+        detail: `Gui will install dependencies (${this.installDescription(installs)}) and start the dev server (${devCommand}) to preview the project. ${installScripts}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
+        buttons: ['Install and Start', 'Not Now'],
+      },
+      agreed,
+    )
   }
 
-  /** The trust prompt; agreeing trusts the project from then on. */
-  private askToTrust(root: string, options: MessageBoxOptions) {
+  /**
+   * A trusted project whose scripts changed since the user agreed to them (a `git pull`, an
+   * edit outside Gui): shows what changed before it runs. Declining runs nothing, and asks
+   * again next time.
+   */
+  private confirmChangedScripts(
+    project: ProjectInfo,
+    now: CurrentScripts,
+    saved: TrustedScripts,
+    startChanged: boolean,
+    installsChanged: string[],
+    installs: InstallTarget[],
+  ) {
+    const changes = [
+      ...(startChanged
+        ? [
+            `The dev server, ${this.startDescription(project)}:\n${promptText(project.devScript ?? project.devCommand ?? '')}`,
+          ]
+        : []),
+      ...installsChanged.map((key) => `${promptName(key)}: ${promptText(now.installs[key] ?? '')}`),
+    ]
+    const installing = installs.length > 0
+    return this.askToTrust(
+      project.root,
+      {
+        message: `${promptName(project.name)}'s scripts changed`,
+        detail: `Since you last started it, ${changes.length > 1 ? 'these changed' : 'this changed'}:\n\n${changes.join('\n\n')}\n\n${installing ? `Gui will install dependencies (${this.installDescription(installs)}) and start it. ` : ''}It runs code on your Mac. Only continue if you trust the change.`,
+        buttons: [installing ? 'Install and Start' : 'Start Dev Server', 'Not Now'],
+      },
+      agreedScripts(now, installing, saved),
+    )
+  }
+
+  /** "bun run dev in apps/web", project text cleaned up. */
+  private startDescription(project: ProjectInfo) {
+    const command = promptName(project.devCommand ?? '')
+    return project.appDir ? `${command} in ${promptName(project.appDir)}` : command
+  }
+
+  /** "bun install", or "bun install, then npm install in web". */
+  private installDescription(installs: InstallTarget[]) {
+    return installs
+      .map((target) =>
+        target.dir
+          ? `${installCommand(target.packageManager)} in ${promptName(target.dir)}`
+          : installCommand(target.packageManager),
+      )
+      .join(', then ')
+  }
+
+  /** Records what the user agreed to run (or ran unchanged); true, to go on. */
+  private async keepScripts(root: string, scripts: TrustedScripts) {
+    await recordTrustedScripts(root, scripts).catch((error: unknown) =>
+      console.error('[gui] failed to keep the trusted scripts', error),
+    )
+    return true
+  }
+
+  /** The start as it is now, or null with nothing to start (or an app still to pick). */
+  private async currentStartKey(): Promise<string | null> {
+    const root = this.state.project?.root
+    if (!root || this.state.board) return null
+    const { project, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
+    return choosing ? null : startKey(project)
+  }
+
+  /**
+   * A dev script the agent changed during the turn (at its end, or mid-turn as it restarts
+   * the app), in a start the user had agreed to, runs without asking: the user watched the
+   * turn. Install scripts aren't covered: they ask before the next install.
+   */
+  private async noteTurnScripts(ending: boolean) {
+    const root = this.state.project?.root
+    const pending = this.turnStartKey
+    if (ending) this.turnStartKey = null
+    const before = await pending
+    if (!root || !before) return
+    const after = await this.currentStartKey()
+    if (after === null || after === before || this.state.project?.root !== root) return
+    const saved = await trustedScripts(root)
+    const agreed = Object.values(saved?.starts ?? {}).includes(before)
+    if (agreed || this.watchedStart === before) this.watchedStart = after
+  }
+
+  /** The trust prompt; agreeing trusts the project from then on, and keeps `scripts`. */
+  private askToTrust(
+    root: string,
+    options: MessageBoxOptions,
+    scripts: TrustedScripts | null = null,
+  ) {
     if (this.disposed) return Promise.resolve(false)
-    return askToTrust(root, options, this.host.win)
+    return askToTrust(root, options, this.host.win, scripts)
   }
 
   /**
@@ -1101,6 +1266,12 @@ export class ProjectTab implements ChatPanelOwner {
     this.closeWebsite()
     this.opening = null
     this.stopWatchingForApp()
+    this.watchedStart = null
+    this.turnStartKey = null
+    this.scriptsNoted = Promise.resolve()
+    this.startedSignature = null
+    this.restartAfterTurn = false
+    this.autoRestarts = []
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.rehighlightTimer = null
@@ -1144,9 +1315,9 @@ export class ProjectTab implements ChatPanelOwner {
     void this.resources.devServer?.stop()
   }
 
+  /** Restart, from the UI: from the top, so changed scripts, packages and settings are used. */
   restartDevServer() {
-    if (this.resources.devServer?.state.command) void this.resources.devServer.restart()
-    else this.startDevServer()
+    void this.retryStartup()
   }
 
   resizeLogs(cols: number, rows: number) {
@@ -2164,8 +2335,9 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /**
-   * Gets the project running: installs dependencies if they're missing, then starts the
-   * dev server. An untrusted project asks first, whether it's opening or the user clicked.
+   * Gets the project running: installs dependencies if they're missing or changed, then
+   * starts the dev server. An untrusted project asks first, whether it's opening or the user
+   * clicked; a trusted one asks again when its scripts changed.
    */
   private async setUpAndStart() {
     const { project, setup } = this.state
@@ -2174,43 +2346,138 @@ export class ProjectTab implements ChatPanelOwner {
     // Undo needs git from the first turn: find out now whether it runs, so a missing install
     // shows as a banner rather than macOS's own prompt mid-turn.
     void developerTools.gitAvailable()
-    // Nothing can install or run without Node.js, nor can the agent build an app with it:
-    // offer Gui's own first. Once it's set up, this runs again (onNodeRuntime).
-    if (await nodeRuntime.missingFor(project.packageManager)) {
-      if (devServer === this.resources.devServer) this.patchSetup({ node: nodeRuntime.state })
-      return
-    }
-    if (this.state.setup?.node) this.patchSetup({ node: null })
-    if (!project.devCommand) return
     if (this.settingUp === devServer || setup?.dependencies === 'installing') return
     this.settingUp = devServer
     try {
-      const install = setup?.dependencies === 'missing' || setup?.dependencies === 'failed'
-      if (!(await this.confirmScripts(project, install))) return
+      const installs = project.devCommand ? await this.installsFor(project) : []
       if (devServer !== this.resources.devServer) return
-      if (install && !(await this.install(devServer, project))) return
+      // Nothing can install or run without Node.js, nor can the agent build an app with it:
+      // offer Gui's own first. Once it's set up, this runs again (onNodeRuntime). A start
+      // command of the user's own that isn't Node's (`python manage.py runserver`) doesn't.
+      if (needsNode(project, installs) && (await nodeRuntime.missingFor(project.packageManager))) {
+        if (devServer === this.resources.devServer) this.patchSetup({ node: nodeRuntime.state })
+        return
+      }
+      if (this.state.setup?.node) this.patchSetup({ node: null })
+      if (!project.devCommand) return
+      if (!(await this.confirmScripts(project, installs))) return
+      if (devServer !== this.resources.devServer) return
+      this.watchStartFiles(project)
+      const installed = installs.length === 0 || (await this.install(devServer, project, installs))
+      // From now on a change to what it starts from restarts it; an install's own changes
+      // to the lockfile came before this.
+      this.startedSignature = await startSignature(project)
+      if (!installed || devServer !== this.resources.devServer) return
+      // The package manager is checked before every start: it may have gone since the install.
+      const tool = packageManagerOf(project.devCommand)
+      const missing = tool && (await missingPackageManager(tool, await getShellEnv()))
+      if (devServer !== this.resources.devServer) return
+      if (missing) return devServer.fail(missing)
       await devServer.start(project.devCommand, project.custom?.url ?? null)
     } finally {
       if (this.settingUp === devServer) this.settingUp = null
     }
   }
 
-  /** Installs at the (workspace) root, streaming into the logs. True when it succeeded. */
-  private async install(devServer: DevServer, project: ProjectInfo) {
+  /** What to install before starting: after a failed install, all of it again. */
+  private async installsFor(project: ProjectInfo) {
+    if (this.state.setup?.dependencies === 'failed') return installTargets(project)
+    return installsNeeded(project)
+  }
+
+  /**
+   * Installs where it's needed (the workspace root, an app with its own package.json),
+   * streaming into the logs. True when every install succeeded.
+   */
+  private async install(devServer: DevServer, project: ProjectInfo, installs: InstallTarget[]) {
+    const current = () => devServer === this.resources.devServer
     this.patchSetup({ dependencies: 'installing' })
-    const missing = await missingPackageManager(project.packageManager, await getShellEnv())
-    if (devServer !== this.resources.devServer) return false
-    const code = missing
-      ? null
-      : await devServer.runTask(installCommand(project.packageManager), project.root)
-    if (devServer !== this.resources.devServer) return false
-    if (missing) devServer.print(missing)
-    if (code === 0) {
-      this.patchSetup({ dependencies: 'ok' })
-      return true
+    const env = await getShellEnv()
+    for (const target of installs) {
+      const missing = await missingPackageManager(target.packageManager, env)
+      if (!current()) return false
+      if (missing) {
+        devServer.print(missing)
+        this.patchSetup({ dependencies: 'failed' })
+        return false
+      }
+      // Marked as not installed until it succeeds: an install cut short leaves a partial
+      // node_modules that must not pass for installed next time.
+      await recordInstall(project.root, target.dir, '').catch(() => undefined)
+      const dir = target.dir ? join(project.root, target.dir) : project.root
+      const command = installCommand(target.packageManager)
+      const result = await devServer.runTask(command, dir, INSTALL_TIMEOUT_MS)
+      if (!current()) return false
+      if (result === 'timeout') {
+        devServer.print(
+          `${command} ran for ${INSTALL_TIMEOUT_MS / 60_000} minutes without finishing, so Gui stopped it. The logs show where it got stuck.`,
+        )
+      }
+      if (result !== 0) {
+        this.patchSetup({ dependencies: 'failed' })
+        return false
+      }
+      await recordInstalled(project, target.dir).catch(() => undefined)
     }
-    this.patchSetup({ dependencies: 'failed' })
-    return false
+    this.patchSetup({ dependencies: 'ok' })
+    return true
+  }
+
+  /**
+   * Watches the files the app starts from, in its folder and the root, and restarts it when
+   * they change. Follows the app: a switch to another one watches its folder instead.
+   */
+  private watchStartFiles(project: ProjectInfo) {
+    const resources = this.resources
+    const generation = resources.generation
+    void reloadsItself(project).then((selfReloading) => {
+      if (!resources.stillCurrent(generation)) return
+      const dirs = startDirs(project)
+      const current = resources.startWatch
+      if (current instanceof StartWatch && current.key === StartWatch.keyOf(dirs, selfReloading)) {
+        return
+      }
+      current?.close()
+      resources.startWatch = new StartWatch(dirs, selfReloading, () => {
+        if (resources.stillCurrent(generation)) this.onStartFilesChanged()
+      })
+    })
+  }
+
+  /** The app's start files changed: restart it, once any turn in progress is over. */
+  private onStartFilesChanged() {
+    if (this.resources.chat?.turnRunning) {
+      this.restartAfterTurn = true
+      return
+    }
+    void this.restartForChanges()
+  }
+
+  /**
+   * Restarts the app because what it starts from changed: not if it isn't running (stopped,
+   * or never agreed to), nor if the files hash as they did when it started.
+   */
+  private async restartForChanges() {
+    const { project, devServer, setup } = this.state
+    if (!project?.devCommand || this.resources.chat?.turnRunning) {
+      if (project?.devCommand) this.restartAfterTurn = true
+      return
+    }
+    // Busy starting or installing: look again once that's done.
+    if (this.settingUp || this.retrying) {
+      const watch = this.resources.startWatch
+      if (watch instanceof StartWatch) watch.schedule()
+      return
+    }
+    if (devServer.status === 'idle' && setup?.dependencies !== 'failed') return
+    const signature = await startSignature(project)
+    if (signature === this.startedSignature || this.state.project?.root !== project.root) return
+    const now = Date.now()
+    this.autoRestarts = this.autoRestarts.filter((at) => now - at < AUTO_RESTART_WINDOW_MS)
+    if (this.autoRestarts.length >= MAX_AUTO_RESTARTS) return
+    this.autoRestarts.push(now)
+    this.resources.devServer?.print('Your project’s setup changed, so Gui is restarting your app.')
+    await this.retryStartup()
   }
 
   /** Switches the dev server to another monorepo app, then sets it up and starts it. */
@@ -2278,6 +2545,7 @@ export class ProjectTab implements ChatPanelOwner {
     const root = this.state.project?.root
     // A setup in flight (installing, or asking to run the project) goes on by itself.
     if (!devServer || !root || this.settingUp === devServer) return
+    devServer.clearExit()
     await devServer.stopAndWait()
     const { project, apps, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
     const setup = await detectSetup(project, choosing ? apps : null)
@@ -2353,13 +2621,18 @@ export class ProjectTab implements ChatPanelOwner {
     const start = await validateStartCommand(project.root, input)
     const where = start.dir ? ` in the ${promptName(start.dir)} folder` : ''
     const address = start.url ? `, at ${promptName(start.url)}` : ''
-    const agreed = await this.askToTrust(project.root, {
-      message: `Start ${promptName(project.name)} a different way?`,
-      detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, 2000)}\n\nGui will run it now and whenever you open this project. It runs code on your Mac: only allow commands you trust. You can go back to the detected command in Settings.`,
-      buttons: ['Use This Command', 'Cancel'],
-      // The agent asked, not the user: Return mustn't be what agrees.
-      defaultId: 1,
-    })
+    const agreed = await this.askToTrust(
+      project.root,
+      {
+        message: `Start ${promptName(project.name)} a different way?`,
+        detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, 2000)}\n\nGui will run it now and whenever you open this project. It runs code on your Mac: only allow commands you trust. You can go back to the detected command in Settings.`,
+        buttons: ['Use This Command', 'Cancel'],
+        // The agent asked, not the user: Return mustn't be what agrees.
+        defaultId: 1,
+      },
+      // The command is agreed to; the project's install scripts aren't, yet.
+      (await trustedScripts(project.root)) ?? NOTHING_AGREED,
+    )
     if (!agreed) return 'The user declined. Gui still starts the app the way it did.'
     if (this.state.project?.root !== project.root) throw new Error('The project was closed')
     await saveStartCommand(project.root, start)
@@ -2375,9 +2648,16 @@ export class ProjectTab implements ChatPanelOwner {
     if (!root) return
     const start = input ? await validateStartCommand(root, input) : null
     await saveStartCommand(root, start)
-    if (start) await trust(root)
+    // They wrote it: it runs without asking. Install scripts they haven't seen still ask.
+    if (start) await this.trustCommand(root)
     // Not waited on: installing can take minutes, and the canvas follows it.
     if (this.state.project?.root === root) void this.retryStartup()
+  }
+
+  /** The user's own start command: the project is trusted to run it. */
+  private async trustCommand(root: string) {
+    await trust(root)
+    if (!(await trustedScripts(root))) await recordTrustedScripts(root, NOTHING_AGREED)
   }
 
   removeQueued(id: string) {

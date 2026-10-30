@@ -455,6 +455,8 @@ test("the dev server's flood reaches the drawer in a few messages, only while it
   const rows = session.chrome.locator('[id="drawer-panel-server"]')
 
   // The dev script, as a restart runs it, prints as fast as it can; it isn't held for the drawer.
+  // Changed outside Gui, it's shown before it runs: agreed to here.
+  await session.acceptConsentDialogs()
   const file = join(session.fixture.root, 'package.json')
   const pkg = JSON.parse(readFileSync(file, 'utf8'))
   writeFileSync(file, JSON.stringify({ ...pkg, scripts: { dev: 'yes gui-server-flood' } }))

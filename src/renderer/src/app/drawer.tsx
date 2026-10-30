@@ -108,9 +108,12 @@ export function Drawer({ state }: { state: WindowState }) {
 
   return (
     <>
-      {!drawn && !state.focusMode && (failed || stopped) && state.preview.visible && (
-        <StoppedBar crashed={failed} agentId={state.agentId} />
-      )}
+      {!drawn &&
+        !state.focusMode &&
+        state.devServer.status === 'exited' &&
+        state.preview.visible && (
+          <StoppedBar crashed={failed} outside={stopped} agentId={state.agentId} />
+        )}
       {/* Kept mounted while closed, so the terminals keep their scrollback and place. */}
       <section
         ref={section}
@@ -305,7 +308,15 @@ function Panel({ tab, shown, children }: { tab: DrawerTab; shown: boolean; child
  * Under a preview whose app is gone: it crashed (an alert, with the logs to see why), or
  * something outside Gui stopped it (said calmly, with a way to start it again).
  */
-function StoppedBar({ crashed, agentId }: { crashed: boolean; agentId: AgentId }) {
+function StoppedBar({
+  crashed,
+  outside,
+  agentId,
+}: {
+  crashed: boolean
+  outside: boolean
+  agentId: AgentId
+}) {
   return (
     // The banner's soft tint goes over the window's surface, as the rest of the chrome's bars.
     <div className="relative z-chrome shrink-0 bg-surface">
@@ -321,13 +332,17 @@ function StoppedBar({ crashed, agentId }: { crashed: boolean; agentId: AgentId }
             </Button>
             {crashed && <FixStartupButton agentId={agentId} variant="secondary" size="sm" />}
             <Button size="sm" onClick={() => gui.restartDevServer()}>
-              {crashed ? 'Restart' : 'Start'}
+              {outside ? 'Start' : 'Restart'}
             </Button>
           </>
         }
       >
         <span className="truncate">
-          {crashed ? 'Your app stopped with an error.' : 'Your app was stopped outside Gui.'}
+          {crashed
+            ? 'Your app stopped with an error.'
+            : outside
+              ? 'Your app was stopped outside Gui.'
+              : 'Your app stopped.'}
         </span>
       </Banner>
     </div>

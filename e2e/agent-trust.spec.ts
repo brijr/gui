@@ -3,7 +3,7 @@ import { basename, join } from 'node:path'
 import { type AgentId, CUSTOM_AGENT_PREFIX } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import { git, gitStatus } from './helpers/fixtures'
-import type { ConsentPrompt, GuiSession } from './helpers/session'
+import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // Agents load the project's own agent settings (Claude Code's .claude/settings.json hooks,
@@ -36,21 +36,6 @@ async function useMarker(session: GuiSession) {
   await session.chrome.evaluate((id) => window.gui.setAgent(id), MARKER)
   const selected = async () => (await session.chatSnapshot()).meta.agentId === MARKER
   await waitFor(selected, 'the marker agent to be selected')
-}
-
-/** Like `declineConsentDialogs`, but agrees; keeps recording into the same list. */
-async function acceptConsentDialogs(session: GuiSession) {
-  await session.app.evaluate(({ dialog }) => {
-    const store = globalThis as unknown as { guiConsentPrompts?: ConsentPrompt[] }
-    const prompts = store.guiConsentPrompts ?? []
-    store.guiConsentPrompts = prompts
-    const accept = (...args: unknown[]) => {
-      const options = args.at(-1) as Partial<ConsentPrompt> | undefined
-      prompts.push({ message: options?.message ?? '', detail: options?.detail ?? '' })
-      return Promise.resolve({ response: 0, checkboxChecked: false })
-    }
-    dialog.showMessageBox = accept as typeof dialog.showMessageBox
-  })
 }
 
 const send = (session: GuiSession) =>
@@ -86,7 +71,7 @@ test('an untrusted project asks before an agent starts, and declining starts non
   expect(gitStatus(root)).toBe('')
 
   // Agreeing trusts the project from then on, and the agent starts in it.
-  await acceptConsentDialogs(session)
+  await session.acceptConsentDialogs()
   expect(await send(session)).toBe(true)
   const second = await session.waitForTurn(1, 60_000)
   expect(await session.consentPrompts()).toHaveLength(3)

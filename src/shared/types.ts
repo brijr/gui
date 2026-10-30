@@ -117,6 +117,11 @@ export interface ProjectInfo {
   appDir: string | null
   /** The start command set in Gui, in place of what it found; null when it runs what it found */
   custom: StartCommand | null
+  /**
+   * With no dev script: the `start` (or `serve`) script Gui passed over because it serves a
+   * production build (`next start`), to say why nothing starts. Absent or null otherwise.
+   */
+  productionScript?: string | null
 }
 
 /**

@@ -21,6 +21,8 @@ export class ProjectResources {
   previewTools: PreviewTools | null = null
   /** The canvas this is, when it's one rather than a project */
   board: BoardSession | null = null
+  /** Watches the files the app starts from, to restart it when they change (start-watch.ts) */
+  startWatch: { close(): void } | null = null
   historyFile: string | null = null
   historyRoot: string | null = null
   private claimedFile: string | null = null
@@ -99,12 +101,14 @@ export class ProjectResources {
       recordings,
       mcp,
       board,
+      startWatch,
       claimedFile,
       historyFile,
       historyRoot,
     } = this
     this.devServer = null
     this.board = null
+    this.startWatch = null
     this.terminals = null
     this.chat = null
     this.recordings = null
@@ -128,6 +132,7 @@ export class ProjectResources {
     ]).catch((error: unknown) => console.error('[gui] project process teardown failed', error))
     const saved = safely(() => chat?.dispose())
     safely(() => mcp?.close())
+    safely(() => startWatch?.close())
     const boardSaved = safely(() => board?.dispose())
     // History must remain claimed until the last save completes. Recordings also remain
     // available until chat persistence has captured its references.

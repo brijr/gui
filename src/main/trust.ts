@@ -45,6 +45,72 @@ function update(change: (trusted: string[]) => string[]) {
 export async function untrust(root: string) {
   const path = await canonical(root)
   await update((trusted) => trusted.filter((p) => p !== root && p !== path))
+  await updateScripts(({ [path]: _gone, [root]: _given, ...rest }) => rest)
+}
+
+/**
+ * What the user agreed to run in a trusted project, so a script that changes later (a
+ * `git pull`, an edit outside Gui) is shown again before it runs. By project root (real
+ * path), in Gui's data. A project trusted before Gui kept these has none, and starts with
+ * what it runs then.
+ */
+export interface TrustedScripts {
+  /**
+   * What each app runs (`startKey`: the command, its folder and its script), by the app's
+   * folder ('.' for the root): a monorepo's apps are agreed to one at a time
+   */
+  starts: Record<string, string>
+  /**
+   * Install lifecycle scripts (preinstall, install, postinstall, prepare) of the root and
+   * the app's folder, by "name" or "folder: name"; null until an install prompt showed them
+   */
+  installs: Record<string, string> | null
+}
+
+const scriptsFile = () => join(app.getPath('userData'), 'trusted-scripts.json')
+
+const isScripts = (value: unknown): value is TrustedScripts => {
+  if (!value || typeof value !== 'object') return false
+  const { starts, installs } = value as Record<string, unknown>
+  return isStrings(starts) && (installs === null || isStrings(installs))
+}
+
+const isStrings = (value: unknown): value is Record<string, string> =>
+  !!value &&
+  typeof value === 'object' &&
+  !Array.isArray(value) &&
+  Object.values(value).every((text) => typeof text === 'string')
+
+type SavedScripts = Record<string, TrustedScripts>
+
+async function loadScripts(): Promise<SavedScripts> {
+  try {
+    const parsed: unknown = JSON.parse(await readFile(scriptsFile(), 'utf8'))
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    return Object.fromEntries(Object.entries(parsed).filter((entry) => isScripts(entry[1])))
+  } catch {
+    return {}
+  }
+}
+
+let pendingScripts: Promise<unknown> = Promise.resolve()
+
+function updateScripts(change: (saved: SavedScripts) => SavedScripts) {
+  const task = pendingScripts.then(async () => {
+    await writeFileAtomic(scriptsFile(), JSON.stringify(change(await loadScripts()), null, 2))
+  })
+  pendingScripts = task.catch(() => undefined)
+  return task
+}
+
+/** The scripts the user last agreed to run in the project; null when none are kept. */
+export async function trustedScripts(root: string): Promise<TrustedScripts | null> {
+  return (await loadScripts())[await canonical(root)] ?? null
+}
+
+export async function recordTrustedScripts(root: string, scripts: TrustedScripts) {
+  const path = await canonical(root)
+  await updateScripts((saved) => ({ ...saved, [path]: scripts }))
 }
 
 export async function trust(root: string) {
@@ -54,13 +120,15 @@ export async function trust(root: string) {
 
 /**
  * The trust prompt, as a sheet on `parent` when there is one. Its first button agrees,
- * which trusts the project from then on; `options` names the buttons and may move the
- * default. Project text in it must go through `promptText`/`promptName`.
+ * which trusts the project from then on, and keeps `scripts` as what was agreed to run;
+ * `options` names the buttons and may move the default. Project text in it must go
+ * through `promptText`/`promptName`.
  */
 export async function askToTrust(
   root: string,
   options: MessageBoxOptions,
   parent: BrowserWindow | null,
+  scripts: TrustedScripts | null = null,
 ) {
   const prompt: MessageBoxOptions = { type: 'question', defaultId: 0, cancelId: 1, ...options }
   const { response } =
@@ -69,9 +137,9 @@ export async function askToTrust(
       : await dialog.showMessageBox(prompt)
   if (response !== 0) return false
   // If it can't be saved, this run still goes ahead and the next one asks again.
-  await trust(root).catch((error: unknown) => {
-    console.error('[gui] failed to trust the project', error)
-  })
+  await Promise.all([trust(root), scripts && recordTrustedScripts(root, scripts)]).catch(
+    (error: unknown) => console.error('[gui] failed to trust the project', error),
+  )
   return true
 }
 
