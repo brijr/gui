@@ -82,13 +82,13 @@
    */
   --text-*: initial;
   --text-caption: 11px;
-  --text-caption--line-height: 14px;
+  --text-caption--line-height: calc(14 / 11);
   --text-small: 12px;
-  --text-small--line-height: 16px;
+  --text-small--line-height: calc(16 / 12);
   --text-body: 13px;
-  --text-body--line-height: 18px;
+  --text-body--line-height: calc(18 / 13);
   --text-title: 15px;
-  --text-title--line-height: 20px;
+  --text-title--line-height: calc(20 / 15);
 
   /* sm: chips, inline code, tiny targets. md: buttons, fields, rows. lg: cards, popovers,
      thumbnails, menus. xl: panels and sheets. Bubbles and pills use rounded-full. */
@@ -563,6 +563,7 @@ body {
   background: var(--surface);
   color: var(--fg);
   font: var(--text-body) / var(--text-body--line-height) var(--font-sans);
+  font-synthesis: none;
   -webkit-font-smoothing: antialiased;
   user-select: none;
   cursor: default;
