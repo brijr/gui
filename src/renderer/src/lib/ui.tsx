@@ -598,13 +598,14 @@ export function Skeleton({ className }: { className?: string }) {
 }
 
 /**
- * A count or an order on the corner of something: the number of a picked element. 16px, neutral.
+ * A count or an order on the corner of something: the number of a picked element. 16px, accent,
+ * like the outlines it sits on.
  */
 export function Counter({ children, className }: { children: ReactNode; className?: string }) {
   return (
     <span
       className={cn(
-        'flex size-4 shrink-0 items-center justify-center rounded-full bg-muted text-caption font-medium text-raised tabular-nums',
+        'flex size-4 shrink-0 items-center justify-center rounded-full bg-accent text-caption font-medium text-accent-fg tabular-nums',
         className,
       )}
     >

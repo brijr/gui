@@ -7,7 +7,7 @@ export type Status = 'ready' | 'busy' | 'error' | 'idle' | 'attention'
 /**
  * The one status indicator, 6px: green when ready or running, amber while busy (starting,
  * installing, working), a red square on an error so it doesn't rest on color alone, a ring
- * when idle, muted when something there wants the user (a finished turn in a hidden chat).
+ * when idle, accent when something there wants the user (a finished turn in a hidden chat).
  * Pair it with text or a tooltip; it's hidden from assistive tech.
  */
 export function StatusDot({ status, className }: { status: Status; className?: string }) {
@@ -22,7 +22,7 @@ export function StatusDot({ status, className }: { status: Status; className?: s
         status === 'busy' && 'bg-warning',
         status === 'error' && 'bg-danger',
         status === 'idle' && 'border border-edge bg-fill',
-        status === 'attention' && 'bg-muted',
+        status === 'attention' && 'bg-accent',
         className,
       )}
     />

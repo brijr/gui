@@ -287,7 +287,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
           >
             <path
               d="M2 1.5v16.2l4.6-4.3 3.1 6.9 3-1.3-3-6.8 6.3-.3z"
-              className="fill-fg stroke-knob"
+              className="fill-accent stroke-knob"
               strokeWidth="1.5"
               strokeLinejoin="round"
             />
@@ -387,7 +387,7 @@ function Label({
   return (
     <div
       data-label=""
-      className="pointer-events-none absolute flex h-5 max-w-full items-center gap-1.5 truncate rounded-sm bg-surface px-1.5 text-caption text-fg shadow-raised"
+      className="pointer-events-none absolute flex h-5 max-w-full items-center gap-1.5 truncate rounded-sm bg-accent px-1.5 text-caption text-accent-fg shadow-raised"
       style={{ top, ...horizontal }}
     >
       {children}
