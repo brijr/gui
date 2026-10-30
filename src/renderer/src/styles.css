@@ -112,6 +112,7 @@
   --ease-*: initial;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
   --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.645, 0.045, 0.355, 1);
   --ease-spring: linear(
     0,
     0.055,
@@ -168,7 +169,7 @@
   }
 
   /* The agent's click in a walkthrough (pick/overlay.tsx): a ring spreading from the pointer.
-     With reduced motion, it fades where it is (animate-row-fade). */
+     With reduced motion, the ring is hidden. */
   --animate-click-ring: click-ring var(--motion-panel) var(--ease-out) both;
 
   @keyframes click-ring {
@@ -246,7 +247,7 @@
   /* Reduced motion: the cross-fade that stands in for movement */
   --motion-fade: 150ms;
   /* The guide's pointer gliding to what it shows next: slow enough for the eye to follow */
-  --motion-guide: 650ms;
+  --motion-guide: 400ms;
 
   /* Behind the preview, and the start screen */
   --canvas: #ececec;

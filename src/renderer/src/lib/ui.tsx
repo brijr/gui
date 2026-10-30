@@ -578,11 +578,11 @@ export function Progress({ value, label, className }: ProgressProps) {
     >
       <div
         className={cn(
-          'h-full rounded-full bg-muted transition-[width] duration-(--motion-panel) motion-reduce:transition-none',
+          'h-full origin-left rounded-full bg-muted transition-transform duration-(--motion-panel) motion-reduce:transition-none',
           // Unknown: a third of the bar sweeps across; with reduced motion it sits still.
           !known && 'w-1/3 animate-sweep motion-reduce:animate-none',
         )}
-        style={known ? { width: `${Math.max(0, Math.min(1, value)) * 100}%` } : undefined}
+        style={known ? { transform: `scaleX(${Math.max(0, Math.min(1, value))})` } : undefined}
       />
     </div>
   )

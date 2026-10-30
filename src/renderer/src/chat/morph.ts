@@ -58,7 +58,8 @@ export class Morph {
   constructor(form: ChatForm, options: MorphOptions) {
     this.form = form
     this.options = options
-    const spring = (shown: boolean) => new Spring(shown ? 1 : 0, { config: SPRINGS.default })
+    const spring = (shown: boolean) =>
+      new Spring(shown ? 1 : 0, { config: { ...SPRINGS.default, response: 0.22 } })
     this.presence = {
       panel: spring(form === 'panel'),
       pill: spring(form === 'pill'),

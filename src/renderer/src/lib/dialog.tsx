@@ -91,6 +91,7 @@ export function Dialog({
         'opacity-0 open:opacity-100 starting:open:opacity-0',
         'motion-safe:scale-97 motion-safe:open:scale-100 motion-safe:starting:open:scale-97',
         'backdrop:opacity-0 backdrop:transition-[opacity,display,overlay] backdrop:transition-discrete backdrop:duration-(--motion-panel) open:backdrop:opacity-100 starting:open:backdrop:opacity-0',
+        'not-open:duration-(--motion-pop) not-open:backdrop:duration-(--motion-pop)',
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
       )}
     >
