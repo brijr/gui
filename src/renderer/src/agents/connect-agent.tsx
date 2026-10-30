@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
@@ -48,6 +48,17 @@ export function ConnectAgent({
   agentId: AgentId
   onOtherAgents: () => void
 }) {
+  const root = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    const element = root.current
+    return () => {
+      if (!element?.contains(document.activeElement)) return
+      queueMicrotask(() => {
+        if (document.activeElement === document.body)
+          document.querySelector<HTMLElement>('button:not(:disabled)')?.focus()
+      })
+    }
+  }, [])
   const [chosen, setChosen] = useState<AgentId | null>(null)
   const [error, setError] = useState<string | null>(null)
   const healthOf = (id: AgentId) => agents.find((agent) => agent.id === id) ?? null
@@ -65,7 +76,7 @@ export function ConnectAgent({
   }
 
   return (
-    <Card as="section" aria-labelledby="connect-heading" className="flex flex-col gap-3">
+    <Card ref={root} as="section" aria-labelledby="connect-heading" className="flex flex-col gap-3">
       <div className="flex flex-col gap-0.5">
         <h2 id="connect-heading" className="font-semibold">
           Connect your AI
@@ -83,8 +94,10 @@ export function ConnectAgent({
             <li key={choice.id}>
               <ListRow
                 flush
-                disabled={busy}
-                onClick={() => void connect(choice.id)}
+                aria-disabled={busy}
+                onClick={() => {
+                  if (!busy) void connect(choice.id)
+                }}
                 leading={<AgentIcon agentId={choice.id} />}
                 title={choice.title}
                 detail={choice.detail}
@@ -97,7 +110,7 @@ export function ConnectAgent({
                 }
               />
               {/* Where it's up to: downloading, waiting for the browser, or what went wrong */}
-              {chosen === choice.id && health && health.status !== 'ready' && (
+              {chosen === choice.id && health && (
                 <div className="px-3 pb-3 pl-13">
                   <AgentNextStep
                     name={health.name}

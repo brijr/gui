@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react'
 import { type ChatMeta, needsSetup } from '../../../shared/types'
 import { AgentNextStep } from '../agents/agent-card'
 import { AgentIcon } from '../agents/agent-icon'
@@ -18,10 +19,17 @@ export function shouldShowAgentSetup(meta: ChatMeta) {
 }
 
 export function AgentSetup({ meta, className }: { meta: ChatMeta; className?: string }) {
+  const root = useRef<HTMLDivElement>(null)
+  const shown = shouldShowAgentSetup(meta)
+  useLayoutEffect(() => {
+    if (!shown && root.current?.contains(document.activeElement)) {
+      document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true })
+    }
+  }, [shown])
   const { agent } = meta
   if (!agent) return null
   return (
-    <Card tone="inset" className={cn('flex gap-3', className)}>
+    <Card ref={root} tone="inset" className={cn('flex gap-3', className)}>
       <AgentIcon agentId={agent.id} />
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <p className="font-medium">Set up {agent.name}</p>

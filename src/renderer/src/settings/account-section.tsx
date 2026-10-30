@@ -52,12 +52,13 @@ function CrashReports({ on }: { on: boolean }) {
     <SettingsGroup title="Privacy">
       <List>
         <ListItem
-          title="Send crash reports"
+          title={<label htmlFor="crash-reports">Send crash reports</label>}
           detail="When Gui has an error, it sends the error and the Gui and macOS versions to the Gui team. Never your code, files, or chats."
           trailing={
             <Switch
               checked={on}
               onCheckedChange={(value) => gui.setCrashReports(value)}
+              id="crash-reports"
               label="Send crash reports"
               labelHidden
             />
@@ -189,13 +190,14 @@ function AccountDetails() {
         <List>
           {/* Applies at once, so a switch, like every other setting */}
           <ListItem
-            title="Email me about new Gui features"
+            title={<label htmlFor="email-updates">Email me about new Gui features</label>}
             detail={account.email ? undefined : 'Your account has no email.'}
             trailing={
               <Switch
                 checked={account.updates}
                 disabled={saving || signingOut || !account.email}
                 onCheckedChange={setUpdates}
+                id="email-updates"
                 label="Email me about new Gui features"
                 labelHidden
               />

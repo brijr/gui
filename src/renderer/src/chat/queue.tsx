@@ -68,6 +68,7 @@ export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boo
     endDrag()
   }
   const clearAll = () => {
+    document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true })
     for (const item of meta.queue) noteRemoveQueued(item.id)
     gui.clearQueued()
   }
@@ -85,7 +86,13 @@ export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boo
                 </Button>
               )}
               {paused && (
-                <Button size="sm" onClick={() => gui.sendQueuedNow()}>
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    document.querySelector<HTMLElement>('[data-composer]')?.focus()
+                    gui.sendQueuedNow()
+                  }}
+                >
                   {meta.queuePauseReason === 'setup' ? 'Send anyway' : 'Send next'}
                 </Button>
               )}
@@ -286,8 +293,11 @@ function QueuedItem({
                 : 'Send after the current reply'
           }
           icon={Play}
-          disabled={running && index === 0}
-          onClick={() => gui.sendQueued(item.id)}
+          aria-disabled={running && index === 0}
+          onClick={(event) => {
+            if (!running) focusAfterQueueRemoval(event.currentTarget)
+            gui.sendQueued(item.id)
+          }}
         />
         <IconButton
           ref={editButton}
@@ -302,16 +312,20 @@ function QueuedItem({
           label={`Move queued message up: ${name}`}
           title={index === 0 ? 'Already first' : 'Move up'}
           icon={ChevronUp}
-          disabled={index === 0}
-          onClick={() => gui.moveQueued(item.id, index - 1)}
+          aria-disabled={index === 0}
+          onClick={() => {
+            if (index > 0) gui.moveQueued(item.id, index - 1)
+          }}
         />
         <IconButton
           size="sm"
           label={`Move queued message down: ${name}`}
           title={index === count - 1 ? 'Already last' : 'Move down'}
           icon={ChevronDown}
-          disabled={index === count - 1}
-          onClick={() => gui.moveQueued(item.id, index + 1)}
+          aria-disabled={index === count - 1}
+          onClick={() => {
+            if (index < count - 1) gui.moveQueued(item.id, index + 1)
+          }}
         />
       </div>
       <IconButton
@@ -319,11 +333,21 @@ function QueuedItem({
         label={`Remove queued message: ${name}`}
         title="Remove"
         icon={X}
-        onClick={() => {
+        onClick={(event) => {
+          focusAfterQueueRemoval(event.currentTarget)
           noteRemoveQueued(item.id)
           gui.removeQueued(item.id)
         }}
       />
     </li>
   )
+}
+
+function focusAfterQueueRemoval(control: HTMLElement) {
+  const row = control.closest('li')
+  const neighbor = row?.nextElementSibling ?? row?.previousElementSibling
+  ;(
+    neighbor?.querySelector<HTMLElement>('[aria-label^="Edit queued message:"]') ??
+    document.querySelector<HTMLElement>('[data-composer]')
+  )?.focus({ preventScroll: true })
 }

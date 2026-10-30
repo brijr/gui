@@ -477,7 +477,12 @@ function SetupCard({
 /** The env file and the start command, as List rows; changing the command takes their place. */
 function SetupRows({ env, start }: { env: EnvSetup | null; start: ProjectInfo | null }) {
   const [editing, setEditing] = useState(false)
-  if (editing && start) return <StartCommandForm project={start} onDone={() => setEditing(false)} />
+  const trigger = useRef<HTMLButtonElement>(null)
+  const finish = () => {
+    setEditing(false)
+    requestAnimationFrame(() => trigger.current?.focus())
+  }
+  if (editing && start) return <StartCommandForm project={start} onDone={finish} />
   if (!env && !start) return null
   return (
     <List>
@@ -495,7 +500,9 @@ function SetupRows({ env, start }: { env: EnvSetup | null; start: ProjectInfo | 
             )
           }
           trailing={
-            <Button onClick={() => setEditing(true)}>{start.devCommand ? 'Change' : 'Set'}</Button>
+            <Button ref={trigger} onClick={() => setEditing(true)}>
+              {start.devCommand ? 'Change' : 'Set'}
+            </Button>
           }
         />
       )}
@@ -525,7 +532,7 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
     spellCheck: false,
     autoCapitalize: 'off',
     autoCorrect: 'off',
-    disabled: save.pending,
+    readOnly: save.pending,
   } as const
   return (
     <form
@@ -548,17 +555,20 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
           id={START_FIELDS.command}
           autoFocus
           placeholder="npm run dev"
-          aria-describedby={`${START_FIELDS.command}-hint`}
           value={command}
           onChange={(event) => setCommand(event.target.value)}
         />
       </Field>
-      <Field label="Folder" htmlFor={START_FIELDS.dir} hint="In the project. Empty for its root.">
+      <Field
+        label="Folder"
+        htmlFor={START_FIELDS.dir}
+        hint="In the project. Empty for its root."
+        error={save.error?.includes("isn't a folder") ? save.error : undefined}
+      >
         <Input
           {...field}
           id={START_FIELDS.dir}
           placeholder="apps/web"
-          aria-describedby={`${START_FIELDS.dir}-hint`}
           value={dir}
           onChange={(event) => setDir(event.target.value)}
         />
@@ -567,17 +577,19 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
         label="Address"
         htmlFor={START_FIELDS.url}
         hint="Only if your app doesn't print its address."
+        error={save.error?.includes('address must') ? save.error : undefined}
       >
         <Input
           {...field}
           id={START_FIELDS.url}
           placeholder="http://localhost:3000"
-          aria-describedby={`${START_FIELDS.url}-hint`}
           value={url}
           onChange={(event) => setUrl(event.target.value)}
         />
       </Field>
-      {save.error && <InlineError>{save.error}</InlineError>}
+      {save.error && !/isn't a folder|address must/.test(save.error) && (
+        <InlineError>{save.error}</InlineError>
+      )}
       <div className="flex flex-wrap gap-2">
         <Button type="submit" variant="primary" loading={save.pending} disabled={!command.trim()}>
           Save and start
@@ -946,7 +958,21 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
         </div>
       )}
       {form === 'cloneRepo' && (
-        <GitHubRepositories github={github} filter={value} disabled={busy} />
+        <GitHubRepositories
+          github={github}
+          filter={value}
+          disabled={busy}
+          onClone={async (id) => {
+            if (busy) return
+            setBusy(true)
+            setError(null)
+            try {
+              await gui.cloneGitHub(id)
+            } finally {
+              setBusy(false)
+            }
+          }}
+        />
       )}
       <Field
         label={spec.label}
@@ -962,21 +988,19 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
             ref={input}
             autoFocus
             mono={spec.mono}
-            aria-invalid={!!error || undefined}
-            aria-describedby={error ? `${FORM_FIELD}-error` : `${FORM_FIELD}-hint`}
             placeholder={spec.placeholder}
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
             value={value}
-            disabled={busy}
+            readOnly={busy}
             onChange={(event) => {
               setValue(event.target.value)
               setError(null)
             }}
           />
           <Button type="submit" variant="primary" loading={busy} disabled={!value.trim()}>
-            {busy ? spec.busy : spec.submit}
+            {spec.submit}
           </Button>
           <Button disabled={busy} onClick={close}>
             Cancel
@@ -1041,7 +1065,7 @@ function StartScreen({ state }: { state: WindowState }) {
 
       {chats.length > 0 && (
         <section aria-labelledby="recent-chats" className="flex flex-col gap-2">
-          <GroupLabel id="recent-chats" as="h2">
+          <GroupLabel id="recent-chats" as="h2" tabIndex={-1}>
             Recent chats
           </GroupLabel>
           <List>
@@ -1099,7 +1123,7 @@ function StartScreen({ state }: { state: WindowState }) {
 
       {projects.length > 0 && (
         <section aria-labelledby="recent-projects" className="flex flex-col gap-2">
-          <GroupLabel id="recent-projects" as="h2">
+          <GroupLabel id="recent-projects" as="h2" tabIndex={-1}>
             {chats.length > 0 ? 'Recent projects' : 'Recent'}
           </GroupLabel>
           <List>
@@ -1134,8 +1158,24 @@ function RecentRow({
   detail: ReactNode
 }) {
   const remove = useAction()
+  const row = useRef<HTMLLIElement>(null)
+  const removeRow = (action: () => Promise<unknown>) =>
+    remove.run(async () => {
+      const element = row.current
+      const neighbor = element?.nextElementSibling ?? element?.previousElementSibling
+      const target =
+        neighbor?.querySelector<HTMLElement>('button') ??
+        element?.closest('section')?.querySelector<HTMLElement>('h2')
+      await action()
+      requestAnimationFrame(() => {
+        const fallback =
+          document.querySelector<HTMLElement>('#recent-projects, #recent-chats') ??
+          document.querySelector<HTMLElement>('button:not(:disabled)')
+        ;(target?.isConnected ? target : fallback)?.focus({ preventScroll: true })
+      })
+    })
   return (
-    <li>
+    <li ref={row}>
       {/* One action per row, opening it: removing it shows only under the pointer or the
           keyboard, in place of the chevron, so the row's fill runs under both. */}
       <div className="group relative">
@@ -1158,16 +1198,16 @@ function RecentRow({
                 label: `Archive chat: ${title}`,
                 title: 'Archive chat',
                 icon: Archive,
-                onClick: () => void remove.run(() => gui.archiveRecentChat(root)),
+                onClick: () => void removeRow(() => gui.archiveRecentChat(root)),
               }
             : {
                 label: `Remove recent project: ${title}`,
                 title: 'Remove from recents',
                 icon: X,
-                onClick: () => void remove.run(() => gui.removeRecent(root)),
+                onClick: () => void removeRow(() => gui.removeRecent(root)),
               })}
           size="sm"
-          disabled={remove.pending}
+          aria-disabled={remove.pending}
           className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>

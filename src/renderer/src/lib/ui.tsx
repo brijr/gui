@@ -108,10 +108,12 @@ export function Button({
   title,
   className,
   children,
+  onClick,
   ...props
 }: ButtonProps) {
   // Shortcut-only controls still need a tooltip naming the action. Native titles can
   // appear over the preview's WebContentsView, where an HTML tooltip would be covered.
+  const labelId = useId()
   const iconOnly = Icon && (children === undefined || children === null || children === false)
   // With a shortcut, a labelled button's tooltip is its label and keys.
   const tooltip =
@@ -122,16 +124,43 @@ export function Button({
   return (
     <button
       type="button"
-      disabled={disabled || loading}
+      disabled={disabled && !loading}
       aria-busy={loading || undefined}
       title={tooltip && shortcut ? withShortcut(tooltip, shortcut) : tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       // A label starts at the left, even in a button wider than it (text in Gui is never centered).
       className={cn(CONTROL, 'justify-start', BUTTON_SIZE[size], VARIANT[variant], className)}
       {...props}
+      aria-disabled={loading || props['aria-disabled']}
+      aria-label={props['aria-label']}
+      aria-labelledby={
+        props['aria-labelledby'] ?? (loading && !Icon && !props['aria-label'] ? labelId : undefined)
+      }
+      onClick={(event) => {
+        if (loading || props['aria-disabled']) {
+          event.preventDefault()
+          return
+        }
+        onClick?.(event)
+      }}
     >
-      {loading ? <Spinner /> : Icon && <Icon className="size-3.5 shrink-0" aria-hidden="true" />}
-      {children}
+      {Icon ? (
+        loading ? (
+          <Spinner className="size-3.5" />
+        ) : (
+          <Icon className="size-3.5 shrink-0" aria-hidden="true" />
+        )
+      ) : null}
+      {!iconOnly && (
+        <span className="relative">
+          <span id={labelId} className={loading && !Icon ? 'invisible' : undefined}>
+            {children}
+          </span>
+          {loading && !Icon && (
+            <Spinner className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+          )}
+        </span>
+      )}
       {shortcut && keys && (
         // On a filled button the keys take its text color. Out of the button's name:
         // aria-keyshortcuts says them.
@@ -176,6 +205,8 @@ export function IconButton({
   pressed,
   spinning = false,
   filled = false,
+  disabled,
+  onClick,
   title,
   className,
   ...props
@@ -185,6 +216,8 @@ export function IconButton({
   return (
     <button
       type="button"
+      disabled={disabled && !spinning}
+      aria-busy={spinning || undefined}
       aria-label={label}
       title={tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
@@ -197,6 +230,14 @@ export function IconButton({
         className,
       )}
       {...props}
+      aria-disabled={spinning || props['aria-disabled']}
+      onClick={(event) => {
+        if (spinning || props['aria-disabled']) {
+          event.preventDefault()
+          return
+        }
+        onClick?.(event)
+      }}
     >
       <Icon
         className={cn('size-3.5', spinning && 'animate-spin', filled && 'fill-current')}
@@ -364,6 +405,7 @@ export function Code({ children, className }: { children: ReactNode; className?:
 }
 
 interface SwitchProps {
+  id?: string
   checked: boolean
   onCheckedChange: (checked: boolean) => void
   /** Visible text beside the switch; part of its name */
@@ -379,6 +421,7 @@ interface SwitchProps {
 
 /** An on/off setting that applies at once (role="switch"): its label, then the track. */
 export function Switch({
+  id,
   checked,
   onCheckedChange,
   label,
@@ -392,6 +435,7 @@ export function Switch({
     <button
       type="button"
       role="switch"
+      id={id}
       aria-checked={checked}
       aria-labelledby={labelledBy ? `${labelledBy} ${labelId}` : labelId}
       title={labelHidden && typeof label === 'string' ? label : undefined}
@@ -490,11 +534,18 @@ interface PromptButtonProps extends Omit<ComponentProps<'button'>, 'className'> 
  * A suggested prompt in a list of ideas to start with: a small secondary button whose text
  * wraps over as many lines as it needs, rather than truncating.
  */
-export function PromptButton({ loading = false, disabled, children, ...props }: PromptButtonProps) {
+export function PromptButton({
+  loading = false,
+  disabled,
+  children,
+  onClick,
+  ...props
+}: PromptButtonProps) {
+  const labelId = useId()
   return (
     <button
       type="button"
-      disabled={disabled || loading}
+      disabled={disabled && !loading}
       aria-busy={loading || undefined}
       className={cn(
         'no-drag inline-flex max-w-full items-center gap-1 rounded-md px-2 py-1 text-left text-small font-medium transition-[color,background-color,border-color,opacity]',
@@ -502,9 +553,27 @@ export function PromptButton({ loading = false, disabled, children, ...props }: 
         VARIANT.secondary,
       )}
       {...props}
+      aria-disabled={loading || props['aria-disabled']}
+      aria-label={props['aria-label']}
+      aria-labelledby={
+        props['aria-labelledby'] ?? (loading && !props['aria-label'] ? labelId : undefined)
+      }
+      onClick={(event) => {
+        if (loading || props['aria-disabled']) {
+          event.preventDefault()
+          return
+        }
+        onClick?.(event)
+      }}
     >
-      {loading && <Spinner />}
-      {children}
+      <span className="relative">
+        <span id={labelId} className={loading ? 'invisible' : undefined}>
+          {children}
+        </span>
+        {loading && (
+          <Spinner className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+        )}
+      </span>
     </button>
   )
 }

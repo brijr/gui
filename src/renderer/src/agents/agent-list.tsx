@@ -95,9 +95,8 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
           )
         }
       />
-      {/* Not while checking: its row already says so, and a check that ends ready would
-          add a line only to take it away. */}
-      {current && health.status !== 'ready' && health.status !== 'checking' && (
+      {/* Keep the next step mounted as checks and installation change its controls. */}
+      {current && (
         <div className="px-3 pb-3 pl-13">
           <AgentNextStep name={health.name} health={health} />
         </div>

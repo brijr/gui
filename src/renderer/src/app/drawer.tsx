@@ -78,6 +78,7 @@ export function Drawer({ state }: { state: WindowState }) {
     {
       tab: 'server',
       label: 'Dev server',
+      note: serverStatus(state).label,
       icon: (
         <span className="flex size-3.5 shrink-0 items-center justify-center">
           <StatusDot status={serverStatus(state).status} />

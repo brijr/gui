@@ -65,14 +65,18 @@ export function GitHubRepositories({
   github,
   filter,
   disabled,
+  onClone,
 }: {
   github: ReturnType<typeof useGitHub>
   filter: string
   disabled: boolean
+  onClone: (id: number) => Promise<void>
 }) {
   const { state, reload } = github
   const connect = useAction()
   const manage = useAction()
+  const clone = useAction()
+  const [cloning, setCloning] = useState<number | null>(null)
   if (!state?.configured) return null
 
   if (!state.profile) {
@@ -140,7 +144,17 @@ export function GitHubRepositories({
       ) : repos.length > 0 ? (
         <List className="max-h-48 overflow-y-auto">
           {repos.map((repo) => (
-            <RepositoryRow key={repo.id} repo={repo} disabled={disabled} />
+            <RepositoryRow
+              key={repo.id}
+              repo={repo}
+              disabled={disabled}
+              loading={cloning === repo.id && clone.pending}
+              error={cloning === repo.id ? clone.error : null}
+              onClone={async (id) => {
+                setCloning(id)
+                await clone.run(() => onClone(id))
+              }}
+            />
           ))}
         </List>
       ) : (
@@ -154,8 +168,19 @@ export function GitHubRepositories({
 }
 
 /** One repository: cloning asks where to save it, then opens it. */
-function RepositoryRow({ repo, disabled }: { repo: GitHubRepository; disabled: boolean }) {
-  const clone = useAction()
+function RepositoryRow({
+  repo,
+  disabled,
+  onClone,
+  loading,
+  error,
+}: {
+  error: string | null
+  loading: boolean
+  repo: GitHubRepository
+  disabled: boolean
+  onClone: (id: number) => Promise<void>
+}) {
   return (
     <ListItem
       title={
@@ -169,15 +194,15 @@ function RepositoryRow({ repo, disabled }: { repo: GitHubRepository; disabled: b
       trailing={
         <Button
           size="sm"
-          loading={clone.pending}
+          loading={loading}
           disabled={disabled}
-          onClick={() => void clone.run(() => gui.cloneGitHub(repo.id))}
+          onClick={() => void onClone(repo.id)}
         >
           Clone…
         </Button>
       }
     >
-      {clone.error && <InlineError>{clone.error}</InlineError>}
+      {error && <InlineError>{error}</InlineError>}
     </ListItem>
   )
 }

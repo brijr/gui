@@ -664,6 +664,7 @@ function Header({ meta }: { meta: ChatMeta }) {
       leading={
         <span className="mr-0.5 flex size-3.5 shrink-0 items-center justify-center">
           <StatusDot status={agentStatus(meta, running)} />
+          <span className="sr-only">Agent {agentStatus(meta, running)}</span>
         </span>
       }
       actions={

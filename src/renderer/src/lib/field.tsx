@@ -1,4 +1,4 @@
-import type { ComponentProps, ReactNode } from 'react'
+import { type ComponentProps, createContext, type ReactNode, useContext } from 'react'
 import { cn } from './cn'
 
 /**
@@ -6,7 +6,7 @@ import { cn } from './cn'
  * focus a neutral border with a soft neutral ring instead of the outline buttons get.
  */
 const FRAME = 'rounded-md border border-edge bg-raised text-fg transition-colors'
-const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-muted focus:ring-3 focus:ring-line-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40`
+const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-muted focus:ring-3 focus:ring-line-strong focus-visible:outline-none aria-invalid:border-danger disabled:pointer-events-none disabled:opacity-40`
 /**
  * The field's look without its size or type, for a field sized to what it edits in place (a
  * frame's or section's name on the canvas).
@@ -23,6 +23,17 @@ const FILLED =
 
 /** Body text, or for code-like values (commands, branches, addresses) monospace at small */
 const text = (mono: boolean) => (mono ? 'font-mono text-small' : 'text-body')
+
+const FieldContext = createContext<{ id: string; describedBy?: string; invalid?: true } | null>(
+  null,
+)
+
+function useField() {
+  const field = useContext(FieldContext)
+  return field
+    ? { id: field.id, 'aria-describedby': field.describedBy, 'aria-invalid': field.invalid }
+    : {}
+}
 
 interface FieldStyleProps {
   /** For code-like values: monospace at the small size */
@@ -50,13 +61,17 @@ export function Input({
   className,
   ...props
 }: InputProps) {
+  const field = useField()
   if (!leading && !trailing) {
-    return <input className={cn(FIELD, 'h-7 w-full', text(mono), className)} {...props} />
+    return (
+      <input {...field} className={cn(FIELD, 'h-7 w-full', text(mono), className)} {...props} />
+    )
   }
   return (
     <div className={cn(filled ? FILLED : GROUP, 'h-7 w-full', className)}>
       {leading}
       <input
+        {...field}
         className={cn(
           'h-full min-w-0 flex-1 bg-transparent outline-none placeholder:text-subtle',
           !leading && 'pl-2.5',
@@ -76,8 +91,10 @@ export function Textarea({
   className,
   ...props
 }: ComponentProps<'textarea'> & FieldStyleProps) {
+  const field = useField()
   return (
     <textarea
+      {...field}
       className={cn(FIELD, 'w-full resize-none py-1.5', text(mono), className)}
       {...props}
     />
@@ -86,7 +103,8 @@ export function Textarea({
 
 /** A native select in the field style, as wide as its choices (or what the caller sets). */
 export function Select({ className, ...props }: ComponentProps<'select'>) {
-  return <select className={cn(FIELD, 'h-7 text-body', className)} {...props} />
+  const field = useField()
+  return <select {...field} className={cn(FIELD, 'h-7 text-body', className)} {...props} />
 }
 
 interface FieldProps {
@@ -103,21 +121,29 @@ interface FieldProps {
 /** A labelled control with an optional hint or error: label above, the line below. */
 export function Field({ label, htmlFor, hint, error, children }: FieldProps) {
   return (
-    <div className="flex flex-col gap-1">
-      <label htmlFor={htmlFor} className="text-small font-medium text-muted">
-        {label}
-      </label>
-      {children}
-      {error ? (
-        <InlineError id={`${htmlFor}-error`}>{error}</InlineError>
-      ) : (
-        hint && (
-          <p id={`${htmlFor}-hint`} className="text-caption text-subtle">
-            {hint}
-          </p>
-        )
-      )}
-    </div>
+    <FieldContext.Provider
+      value={{
+        id: htmlFor,
+        describedBy: error ? `${htmlFor}-error` : hint ? `${htmlFor}-hint` : undefined,
+        invalid: error ? true : undefined,
+      }}
+    >
+      <div className="flex flex-col gap-1">
+        <label htmlFor={htmlFor} className="text-small font-medium text-muted">
+          {label}
+        </label>
+        {children}
+        {error ? (
+          <InlineError id={`${htmlFor}-error`}>{error}</InlineError>
+        ) : (
+          hint && (
+            <p id={`${htmlFor}-hint`} className="text-caption text-subtle">
+              {hint}
+            </p>
+          )
+        )}
+      </div>
+    </FieldContext.Provider>
   )
 }
 

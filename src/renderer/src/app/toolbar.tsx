@@ -487,10 +487,12 @@ function BoardToolbar({
           // biome-ignore lint/a11y/noAutofocus: renaming starts by typing the new name.
           autoFocus
           aria-label="Canvas name"
+          spellCheck={false}
           defaultValue={board.name}
           className={`${FIELD_LOOK} no-drag h-7 w-56 shrink-0 px-2 text-small`}
           onFocus={(event) => event.currentTarget.select()}
           onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
             if (event.key === 'Enter') event.currentTarget.blur()
             if (event.key === 'Escape') {
               event.currentTarget.value = board.name
@@ -580,7 +582,8 @@ function BoardToolbar({
           {shown('section') && (
             <IconButton
               label="Add section"
-              title="Add a section around the selected frames (⌥⌘G)"
+              title="Add a section around the selected frames"
+              shortcut="canvasSection"
               icon={Group}
               disabled={!selection}
               onClick={() => gui.boardAddSection(board.selection)}
@@ -603,6 +606,7 @@ function BoardToolbar({
               {shown('export') && (
                 <IconButton
                   label={exportLabel}
+                  shortcut="canvasExport"
                   icon={ImageDown}
                   disabled={!selection}
                   onClick={() => gui.boardExport(board.selection)}
@@ -625,6 +629,7 @@ function BoardToolbar({
             <div className="flex shrink-0 items-center gap-1">
               <IconButton
                 label="Zoom out"
+                shortcut="zoomOut"
                 icon={Minus}
                 onClick={() => boardView.zoomBy(0.8)}
                 className={HIT_AREA}
@@ -637,6 +642,7 @@ function BoardToolbar({
               />
               <IconButton
                 label="Zoom in"
+                shortcut="zoomIn"
                 icon={Plus}
                 onClick={() => boardView.zoomBy(1.25)}
                 className={HIT_AREA}

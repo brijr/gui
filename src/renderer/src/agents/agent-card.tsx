@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react'
+import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
 import {
   type AgentBinarySource,
   type AgentHealth,
@@ -61,7 +61,52 @@ interface AgentNextStepProps {
   onSetUp?: () => Promise<void>
 }
 
-export function AgentNextStep({ name, health, onSetUp }: AgentNextStepProps) {
+export function AgentNextStep(props: AgentNextStepProps) {
+  const root = useRef<HTMLDivElement>(null)
+  const hadFocus = useRef(false)
+  useLayoutEffect(() => {
+    const element = root.current
+    return () => {
+      if (!hadFocus.current) return
+      queueMicrotask(() => {
+        if (element?.isConnected || document.activeElement !== document.body) return
+        ;(
+          document.querySelector<HTMLElement>('[data-composer]') ??
+          document.querySelector<HTMLElement>('button:not(:disabled)')
+        )?.focus({ preventScroll: true })
+      })
+    }
+  }, [])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each next step can replace the focused control.
+  useLayoutEffect(() => {
+    const element = root.current
+    if (!element || !hadFocus.current) return
+    if (document.activeElement === document.body || document.activeElement === element) {
+      ;(element.querySelector<HTMLElement>('button:not(:disabled)') ?? element).focus()
+    }
+  }, [props.health?.status, props.health?.enabled])
+  return (
+    <div
+      ref={root}
+      role="status"
+      tabIndex={-1}
+      onFocusCapture={() => {
+        hadFocus.current = true
+      }}
+      onBlurCapture={(event) => {
+        if (
+          event.relatedTarget instanceof Node &&
+          !event.currentTarget.contains(event.relatedTarget)
+        )
+          hadFocus.current = false
+      }}
+    >
+      <AgentNextStepContent {...props} />
+    </div>
+  )
+}
+
+function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
   const [error, setError] = useState<string | null>(null)
 
   // Install and sign-in report their own failures through `health`; this catches IPC failures.

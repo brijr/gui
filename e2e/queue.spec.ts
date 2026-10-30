@@ -313,3 +313,22 @@ test('messages sent while the agent works run in order; Stop pauses the queue', 
   expect(received(recorded(), markers)).toHaveLength(15)
   expect(received(recorded(), markers).at(-1)).toBe('QUEUE-P')
 })
+
+test('removing queued messages keeps focus in the queue and composer', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  await useQueueAgent(session)
+  await send(session, 'Focus running')
+  await send(session, 'Focus first')
+  await send(session, 'Focus second')
+  await session.chat.evaluate(() => window.gui.cancel())
+  await expect.poll(async () => (await queued(session)).length).toBe(2)
+  const list = session.chat.getByRole('list', { name: 'Queued messages' })
+  await list.getByRole('button', { name: 'Remove queued message: Focus first' }).click()
+  await expect(
+    list.getByRole('button', { name: 'Edit queued message: Focus second' }),
+  ).toBeFocused()
+  await list.getByRole('button', { name: 'Remove queued message: Focus second' }).click()
+  await expect(session.chat.locator('[data-composer]')).toBeFocused()
+})
