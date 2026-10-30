@@ -29,8 +29,6 @@ export interface Prefs {
   agentSettings: Record<AgentId, Record<string, string>>
   /** Project roots the user switched Auto mode off for; every other project is in Auto (see ChatMeta.autoApprove) */
   askRoots: string[]
-  /** Project roots the user keeps on their main branch (Stay on main): no new branch on send */
-  defaultBranchRoots: string[]
   /** Installed copies send a report when Gui itself fails (crash-reports.ts) */
   crashReports: boolean
 }
@@ -46,7 +44,6 @@ const DEFAULTS: Prefs = {
   disabledAgents: [],
   agentSettings: {},
   askRoots: [],
-  defaultBranchRoots: [],
   crashReports: true,
 }
 /** Anything outside this isn't a size a window could have set. */
@@ -132,7 +129,6 @@ export function getPrefs(): Prefs {
         : [],
       agentSettings: agentSettings(parsed.agentSettings),
       askRoots: roots(parsed.askRoots),
-      defaultBranchRoots: roots(parsed.defaultBranchRoots),
       crashReports:
         typeof parsed.crashReports === 'boolean' ? parsed.crashReports : DEFAULTS.crashReports,
     }

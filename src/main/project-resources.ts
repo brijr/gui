@@ -120,8 +120,8 @@ export class ProjectResources {
         console.error('[gui] project resource teardown failed', error)
       }
     }
-    // They stop in the background; the opening isn't over until they have exited, so a
-    // worktree's folder is never removed, nor the project reopened, under a live process.
+    // They stop in the background; the opening isn't over until they have exited, so the
+    // project is never reopened under a live process.
     const exited = Promise.all([
       safely(() => devServer?.dispose()),
       safely(() => terminals?.dispose()),

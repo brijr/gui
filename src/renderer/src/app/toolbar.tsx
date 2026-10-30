@@ -44,7 +44,7 @@ import {
 import { StatusDot } from '../lib/status'
 import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
 import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
-import { BranchButton } from './branch-button'
+import { BranchLabel } from './branch-label'
 import { barPadding, sidebarRoom, useSidebarBar, useSidebarSliding } from './layout-morph'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
@@ -90,7 +90,7 @@ const BOARD_GAP_MIN = 8
 /**
  * The order the project toolbar makes room in (toolbar-fit.ts): the tools' keys first, then
  * Back and Forward, the viewport, Screenshot and Reload go into the "…" menu, then the branch
- * button drops its name, then the project's name, then Select. Record and the chat button
+ * drops its name, then the project's name, then Select. Record and the chat button
  * always stay.
  */
 const PROJECT_STEPS: FitStep[] = [
@@ -241,7 +241,7 @@ export function Toolbar({ state }: { state: WindowState }) {
     >
       <ProjectMenuButton state={state} named={!tabbed && fit('project') !== 'compact'} />
       {project && state.branch && (
-        <BranchButton branch={state.branch} compact={fit('branch') === 'compact'} />
+        <BranchLabel branch={state.branch} compact={fit('branch') === 'compact'} />
       )}
 
       {project && (

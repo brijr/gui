@@ -26,9 +26,7 @@ import {
 } from '../shared/board'
 import { viewPointFrom } from '../shared/coords'
 import { type ChatMenuChoice, Events } from '../shared/ipc'
-import { reviewTitle } from '../shared/review'
 import { SHORTCUTS } from '../shared/shortcuts'
-import type { SourceControlRequest, SourceControlResult } from '../shared/source-control'
 import {
   type AgentId,
   agentName,
@@ -50,21 +48,14 @@ import {
   type PreviewState,
   type ProjectInfo,
   type ProjectSetup,
-  type Proposal,
   primaryPick,
   type RecentBoard,
   type RecentProject,
   type Rect,
   type RegionContext,
-  type ShipDraft,
-  type ShipInfo,
-  type ShipRequest,
-  type ShipResult,
   type StartCommandInput,
   type TabStatus,
   type TerminalId,
-  takesPushes,
-  UNDO_PULL_NOTE,
   VIEWPORTS,
   type Viewport,
   type ViewportFrame,
@@ -77,11 +68,11 @@ import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve
 import { boardIdOf, listBoards } from './board'
 import { BoardSession } from './board-session'
 import { createBoardTools } from './board-tool-workflow'
+import { branchStatus } from './branch'
 import { availableModels, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
-import { withGitMutation } from './git'
 import {
   chatReferences,
   claimHistoryFile,
@@ -95,7 +86,7 @@ import {
 import { Inspector } from './inspector'
 import { crashFailure, loadFailure } from './load-failure'
 import { isLoopback } from './loopback'
-import { describeSourceControl, describeTurns, describeVersions } from './mcp-app-tools'
+import { describeTurns, describeVersions } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
 import { type Outlined, Picker } from './picker'
@@ -108,16 +99,7 @@ import { detectProject, readPackageJson } from './project'
 import { retireProject, waitForRetiredProject } from './project-handoff'
 import { ProjectResources } from './project-resources'
 import type { PromptBoard, PromptViewport } from './prompt'
-import {
-  bringInLatest,
-  CONFLICT_PROMPT_START,
-  cancelMerge,
-  conflictPrompt,
-  finishMerge,
-  readProposal,
-  startFresh,
-} from './proposal'
-import { addRecent, loadRecent, recentSoFar, removeRecent, withChats } from './recent'
+import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
 import { type CursorFrame, CursorTrack } from './recording-cursor'
 import { RecordingTrace } from './recording-trace'
 import { Recordings } from './recordings'
@@ -132,8 +114,6 @@ import {
   settleSetup,
 } from './setup'
 import { getShellEnv } from './shell-env'
-import { inRepository, type ShipActions, ship, shipInfo, startWorkBranch } from './ship'
-import { sourceControl } from './source-control'
 import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
 import { PREVIEW_PARTITION } from './storage'
@@ -148,7 +128,6 @@ import {
   screenshotName,
   shownTools,
   sourceInProject,
-  untrustedShipInfo,
 } from './tab-helpers'
 import type { TabHost, TabState } from './tab-host'
 import { Terminals } from './terminals'
@@ -159,8 +138,6 @@ import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { isPublicWebsite, LOCAL_ADDRESS } from './web-session'
 import { Website, type WebsiteHooks } from './website'
 import { focusWindow } from './window-presentation'
-import { branchStatus } from './worktree-registry'
-import { createWorktree, removalBlocked, removeWorktree, worktreesOf } from './worktrees'
 
 export type { TabHost, TabState } from './tab-host'
 
@@ -185,23 +162,6 @@ const BOARD_SERVER_STATUS =
 const FRAME_EXPORT_SCALE = 2
 /** Package scripts an install runs from the project's own package.json. */
 const INSTALL_SCRIPTS = ['preinstall', 'install', 'postinstall', 'prepare']
-
-/** The bar for a repository Gui may not run Git in yet: empty, offering Trust project…. */
-const UNTRUSTED_PROPOSAL: Proposal = {
-  branch: null,
-  defaultBranch: null,
-  onDefaultBranch: false,
-  changes: 0,
-  ahead: 0,
-  behind: null,
-  merge: null,
-  pull: null,
-  worktree: null,
-  remote: null,
-  newBranchFrom: null,
-  stayOnBranch: false,
-  trusted: false,
-}
 
 type ScreenshotAction = 'copy' | 'copy-full-page' | 'save' | 'attach'
 type ScreenshotResult = 'copied' | 'saved' | 'attached'
@@ -336,17 +296,6 @@ export class ProjectTab implements ChatPanelOwner {
   private textEdit: { id: string; before: string; node: Promise<number | null> } | null = null
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
-  /** "Create pull request" has the chat, and ⌘↩ with it (`permissionAnswer`). */
-  private shipSheetOpen = false
-  /** source_control_propose's draft, held until the agent's turn ends */
-  private shipProposal: ShipDraft | null = null
-  /**
-   * Opened on a shared branch like main: the first message sent makes `gui/<its words>` from
-   * `from`, so main stays as it was. Only for this opening; Stay on main clears it.
-   */
-  private branchOnSend: { root: string; from: string } | null = null
-  /** The project whose branch had an open pull request at the last read, for ⌘Z's Undo */
-  private pullOpenAt: string | null = null
   disposed = false
   private opening: string | null = null
   /** Pending "after" capture and re-highlight of the element a finished turn edited. */
@@ -498,9 +447,6 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** The tab strip's name for it: the project's, or the folder opening; null on the start screen. */
   get title() {
-    // A worktree reads "my-app · pricing-page", so it's told apart from the project it's of.
-    const worktree = this.state.project && this.state.branch?.worktree
-    if (worktree) return `${worktree.of} · ${worktree.name}`
     return this.state.project?.name ?? (this.opening ? basename(this.opening) : null)
   }
 
@@ -530,8 +476,6 @@ export class ProjectTab implements ChatPanelOwner {
     // A permission card that came up in the background is what the user switched here for
     // (in a focused window: focusing the chat would raise it).
     if (this.resources.chat?.awaitingPermission && this.host.win.isFocused()) this.panel.focusChat()
-    // Its pull request is checked again while it's in front, and not while it isn't.
-    this.sendChat(Events.tabActive, true)
     void this.refreshBranch()
   }
 
@@ -556,7 +500,6 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.panel.popoutWindow) this.panel.popoutWindow.hide()
     else contentView.removeChildView(this.chatView)
     this.syncDrawerOutput()
-    this.sendChat(Events.tabActive, false)
   }
 
   /** Hands the tab to another window; its views are already out of the old one. */
@@ -639,11 +582,10 @@ export class ProjectTab implements ChatPanelOwner {
     return this.state.project?.root ?? this.opening
   }
 
-  async openProject(root: string, { branchOnSend = null }: { branchOnSend?: string | null } = {}) {
+  async openProject(root: string) {
     const closed = this.closeProject()
     if (this.disposed) return
     this.opening = root
-    this.branchOnSend = branchOnSend ? { root, from: branchOnSend } : null
     const resources = this.createProjectResources()
     this.resources = resources
     const generation = resources.generation
@@ -947,8 +889,6 @@ export class ProjectTab implements ChatPanelOwner {
       tools,
       recordings,
       {
-        sourceControlStatus: () => this.sourceControlForAgent(),
-        proposeShip: (draft) => this.proposeShipForAgent(draft),
         versions: (limit) => this.versionsForAgent(limit),
         turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
       },
@@ -1031,10 +971,6 @@ export class ProjectTab implements ChatPanelOwner {
       this.panel.untuck()
       // The agent may have switched branches itself.
       void this.refreshBranch()
-      // What the agent proposed to ship opens once it's done, for the user to review.
-      const proposed = this.shipProposal
-      this.shipProposal = null
-      if (proposed && turn.status === 'done') this.sendChat(Events.chatShipDraft, proposed)
       // The walkthrough's last step stays a moment to be read, then gets out of the way.
       if (this.picker.guiding || this.website?.picker.guiding) {
         this.clearGuideEnd()
@@ -1090,33 +1026,6 @@ export class ProjectTab implements ChatPanelOwner {
       detail: `Gui will install dependencies (${installCommand(project.packageManager)}) and start the dev server (${devCommand}) to preview the project. ${installing}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
       buttons: ['Install and Start', 'Not Now'],
     })
-  }
-
-  /**
-   * Git runs the repository's own hooks, and even `git status` can run a command set in
-   * its config (`core.fsmonitor`), so it waits for trust like the project's scripts do.
-   * Trust is one switch (Settings → Projects → Trusted projects): agreeing here also lets the
-   * dev server and agents run. `defaultId: 1` when the prompt follows Return in the composer.
-   */
-  private async confirmGit(root: string, defaultId = 0) {
-    if (await isTrusted(root)) return true
-    const name = promptName(this.state.project?.name ?? basename(root))
-    return this.askToTrust(root, {
-      message: `Trust ${name}?`,
-      detail:
-        "Gui uses Git here to keep your work on its own branch and share it. A trusted project also runs its dev server, and agents use its settings. All of these can run code from the project on your Mac. Only trust projects you know. Gui won't ask again for this project.",
-      buttons: ['Trust Project', 'Not Now'],
-      defaultId,
-    })
-  }
-
-  /** The bar's and Source Control's Trust project…: asks once more. */
-  async trustProject() {
-    const root = this.state.project?.root
-    if (!root || this.resources.board) return false
-    const agreed = await this.confirmGit(root)
-    if (agreed && this.state.project?.root === root) void this.refreshBranch()
-    return agreed
   }
 
   /** The trust prompt; agreeing trusts the project from then on. */
@@ -1176,7 +1085,6 @@ export class ProjectTab implements ChatPanelOwner {
     // A website the project's agent opened goes with it, and its session is cleared.
     this.closeWebsite()
     this.opening = null
-    this.branchOnSend = null
     this.stopWatchingForApp()
     this.cancelRehighlight()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
@@ -2173,149 +2081,15 @@ export class ProjectTab implements ChatPanelOwner {
     }
   }
 
-  /**
-   * The composer's message. After "On a new branch", the first one makes the branch first,
-   * named from its words. Every other send checks nothing: only this opening's choice.
-   */
-  async sendFromComposer(
-    text: string,
-    images: ImageAttachment[],
-    ids: string[],
-    followUp: string | null,
-  ) {
-    if (!(await this.startPromisedBranch(text))) return false
-    return this.sendChatMessage(text, images, ids, followUp)
-  }
-
-  /**
-   * Makes the branch opening on main promised, from the first message. A busy chat queues
-   * the message, and the branch was made when the first one started. An untrusted project
-   * asks first, so the agent never starts on main without its branch. False keeps the draft:
-   * the user didn't trust the project, or the branch couldn't be made and they were told why.
-   */
-  private async startPromisedBranch(prompt: string) {
-    const pending = this.branchOnSend
-    const root = this.state.project?.root
-    if (!pending || pending.root !== root || !this.resources.chat || this.resources.chat.busy)
-      return true
-    if (!(await this.confirmGit(root, 1))) return false
-    if (this.branchOnSend !== pending || this.state.project?.root !== root) return true
-    this.branchOnSend = null
-    try {
-      await startWorkBranch(root, pending.from, prompt)
-      void this.refreshBranch()
-      return true
-    } catch (error) {
-      if (this.disposed || this.state.project?.root !== root) return false
-      // Asked again on the next send.
-      this.branchOnSend = pending
-      const owner = this.panel.popoutWindow ?? this.host.win
-      if (!owner.isDestroyed())
-        await dialog.showMessageBox(owner, {
-          type: 'warning',
-          message: 'Couldn’t create a branch for this chat',
-          detail: error instanceof Error ? error.message : String(error),
-          buttons: ['OK'],
-          noLink: true,
-        })
-      return false
-    }
-  }
-
-  /** The toolbar's branch, from the HEAD file: on open, focus, a turn's end, and Git actions. */
+  /** The toolbar's branch, from the HEAD file: on open, focus and a turn's end. */
   async refreshBranch() {
     const root = this.state.project?.root
     if (!root || this.resources.board) return
     const branch = await branchStatus(root)
     if (this.disposed || this.state.project?.root !== root) return
     const now = this.state.branch
-    if (
-      now?.branch === branch?.branch &&
-      now?.worktree?.name === branch?.worktree?.name &&
-      now?.worktree?.of === branch?.worktree?.of &&
-      (now === null) === (branch === null)
-    )
-      return
+    if (now?.branch === branch?.branch && (now === null) === (branch === null)) return
     this.patch({ branch })
-  }
-
-  // Shipping (src/main/ship.ts)
-
-  async getShipInfo(): Promise<ShipInfo | null> {
-    const root = this.state.project?.root
-    const chat = this.resources.chat
-    if (!root) return null
-    if (!(await this.confirmGit(root))) return untrustedShipInfo()
-    if (this.state.project?.root !== root) return null
-    const prompts = (chat?.snapshot().turns ?? [])
-      .filter((turn) => turn.status === 'done' && !turn.reverted)
-      .map((turn) => turn.prompt)
-      .filter((prompt) => !prompt.startsWith(CONFLICT_PROMPT_START))
-      .map((prompt) => reviewTitle(prompt) ?? prompt)
-    const info = await shipInfo(root, prompts, this.staysOnBranch(root))
-    if (this.disposed || this.state.project?.root !== root) return null
-    if (this.resources.chat?.busy && info.workspace)
-      return {
-        ...info,
-        workspace: { ...info.workspace, writeBlocked: 'Wait for the agent to finish first.' },
-      }
-    return info
-  }
-
-  async ship(request: ShipRequest): Promise<ShipResult> {
-    const root = this.state.project?.root
-    if (!root) throw new Error('No project is open.')
-    if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
-    // Not trusted: nothing happens, and nothing says it failed.
-    if (!(await this.confirmGit(root)))
-      return { branch: '', commit: '', outcome: 'cancelled', url: null }
-    if (this.state.project?.root !== root) throw new Error('No project is open.')
-    return ship(root, request, this.gitActions(root)).finally(() => void this.refreshBranch())
-  }
-
-  async sourceControl(request: SourceControlRequest): Promise<SourceControlResult> {
-    const root = await this.gitRootForAction()
-    if (!root) return { outcome: 'cancelled', branch: null }
-    return sourceControl(root, request, this.gitActions(root)).finally(
-      () => void this.refreshBranch(),
-    )
-  }
-
-  private gitActions(root: string): ShipActions {
-    return {
-      assertAvailable: () => {
-        if (this.disposed || this.state.project?.root !== root)
-          throw new Error('The project changed.')
-        if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
-      },
-      confirmPush: async ({ branch, count, host }) => {
-        const owner = this.panel.popoutWindow ?? this.host.win
-        const commits = count === 1 ? '1 commit' : `${count} commits`
-        const { response } = await dialog.showMessageBox(owner, {
-          type: 'warning',
-          message: `Push ${commits} straight to ${branch}${host ? ` on ${host}` : ''}?`,
-          detail: `Everyone working on the project gets them right away, without a pull request to review first.`,
-          buttons: ['Cancel', `Push to ${branch}`],
-          defaultId: 0,
-          cancelId: 0,
-          noLink: true,
-        })
-        return response === 1
-      },
-    }
-  }
-
-  /** source_control_status: never asks to run Git; says so when the user hasn't allowed it. */
-  private async sourceControlForAgent() {
-    const root = this.state.project?.root
-    if (!root) throw new Error('No project is open')
-    if (!(await isTrusted(root)))
-      return "The user hasn't trusted this project yet, so Gui doesn't run Git here. The bar over the chat offers Trust project…."
-    const [info, proposal] = await Promise.all([
-      shipInfo(root, [], this.staysOnBranch(root)),
-      readProposal(root).catch(() => null),
-    ])
-    return describeSourceControl(info, proposal)
   }
 
   /** versions_list: what the Versions sheet shows, for an agent helping find a restore point. */
@@ -2323,116 +2097,6 @@ export class ProjectTab implements ChatPanelOwner {
     const chat = this.resources.chat
     if (!this.state.project || !chat) throw new Error('No project is open')
     return describeVersions(await chat.listVersions(), limit, chat.turnRunning)
-  }
-
-  /** source_control_propose: Source Control opens with it when the turn ends. */
-  private proposeShipForAgent(draft: ShipDraft) {
-    if (!this.state.project) throw new Error('No project is open')
-    this.shipProposal = draft
-    return 'Gui will open Source Control with this filled in when your turn ends. The user reviews it and commits or opens the pull request; nothing is committed until they do. Tell them it is ready to review.'
-  }
-
-  // The pull request's progress (src/main/proposal.ts)
-
-  /**
-   * Null without a project or a repository. Before the user trusts the project it never runs
-   * Git (or asks): the bar offers Trust project… instead.
-   */
-  async getProposal(refresh: boolean): Promise<Proposal | null> {
-    const root = this.state.project?.root
-    if (!root) return null
-    if (!(await isTrusted(root))) return (await inRepository(root)) ? UNTRUSTED_PROPOSAL : null
-    const proposal = await readProposal(root, refresh)
-    this.pullOpenAt = takesPushes(proposal.pull) ? root : null
-    const pending = this.branchOnSend
-    // Only while it's still on that branch: switched by hand, there's nothing to promise.
-    const newBranchFrom =
-      pending?.root === root && proposal.branch === pending.from ? pending.from : null
-    return { ...proposal, newBranchFrom, stayOnBranch: this.staysOnBranch(root) }
-  }
-
-  /** Stay on main was chosen for this project: work goes on the branch it's on. */
-  private staysOnBranch(root: string) {
-    return getPrefs().defaultBranchRoots.includes(root)
-  }
-
-  /** Stay on main: no new branch from the first message, for this project from now on. */
-  stayOnBranch() {
-    const root = this.state.project?.root
-    if (!root || this.branchOnSend?.root !== root) return
-    this.branchOnSend = null
-    const roots = getPrefs().defaultBranchRoots
-    if (!roots.includes(root)) setPrefs({ defaultBranchRoots: [...roots, root] })
-  }
-
-  /**
-   * The bar's one button (`GuiApi.share`): everything eligible, committed with the agent's
-   * proposed message or Gui's suggestion, then pushed with the pull request created or
-   * updated. From main it goes on a new branch named from the work, unless the project
-   * stays on main: then it's committed (and pushed, once confirmed) right there.
-   */
-  async share(draft: ShipDraft | null): Promise<ShipResult> {
-    const info = await this.getShipInfo()
-    if (!info) throw new Error('No project is open.')
-    if (info.untrusted) return { branch: '', commit: '', outcome: 'cancelled', url: null }
-    if (info.blocked) throw new Error(info.blocked)
-    if (info.files.length === 0 && !info.pendingCommits) throw new Error('No changes to share yet.')
-    const { suggestion } = info
-    // The agent's pick of files, as far as they're still there to commit; all of them otherwise.
-    const files = draft?.files?.filter((path) => info.files.some((file) => file.path === path))
-    return this.ship({
-      mode: draft?.mode ?? 'share',
-      branch: draft?.branch?.trim() || suggestion.branch,
-      title: draft?.title.trim() || suggestion.title,
-      body: draft ? draft.body : suggestion.body,
-      ...(files?.length ? { files } : {}),
-    })
-  }
-
-  async startFresh() {
-    const root = await this.gitRootForAction()
-    if (!root) return
-    await withGitMutation(root, () => startFresh(root)).finally(() => void this.refreshBranch())
-    // The finished idea's chat goes to the archive; the next one starts empty.
-    if (this.state.project?.root === root) this.newChat()
-  }
-
-  async bringInLatest() {
-    const root = await this.gitRootForAction()
-    if (!root) return
-    await withGitMutation(root, () => bringInLatest(root))
-  }
-
-  async finishMerge() {
-    const root = await this.gitRootForAction()
-    if (!root) return
-    await withGitMutation(root, () => finishMerge(root))
-  }
-
-  async cancelMerge() {
-    const root = await this.gitRootForAction()
-    if (!root) return
-    await withGitMutation(root, () => cancelMerge(root))
-  }
-
-  /** Hands the conflicts to the agent as a message the user sees in the chat. */
-  async resolveConflicts() {
-    const root = await this.gitRootForAction()
-    if (!root) return
-    const proposal = await readProposal(root)
-    if (!proposal.merge) return
-    const prompt = conflictPrompt(proposal.merge, proposal.defaultBranch ?? 'main')
-    if (!(await this.sendChatMessage(prompt, []))) throw new Error('The agent couldn’t take this.')
-  }
-
-  /** Null when the user didn't trust the project: the action ends quietly. */
-  private async gitRootForAction() {
-    const root = this.state.project?.root
-    if (!root) throw new Error('No project is open.')
-    if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
-    if (!(await this.confirmGit(root))) return null
-    if (this.state.project?.root !== root) throw new Error('No project is open.')
-    return root
   }
 
   // Project setup (WindowState.setup)
@@ -2766,10 +2430,10 @@ export class ProjectTab implements ChatPanelOwner {
   /**
    * What Agent → Allow (⌘↩) or Don't Allow (⌘⌫) answers: the oldest waiting card, with its
    * Allow or Don't Allow (`allow_once`, `reject_once`; never an "always"). Null when no card
-   * waits, it doesn't offer that, or the PR sheet has the keys.
+   * waits, or it doesn't offer that.
    */
   permissionAnswer(allow: boolean) {
-    const waiting = this.shipSheetOpen ? null : this.resources.chat?.oldestPermission()
+    const waiting = this.resources.chat?.oldestPermission()
     const kind = allow ? 'allow_once' : 'reject_once'
     const option = waiting?.item.options.find((choice) => choice.kind === kind)
     if (!waiting || !option) return null
@@ -2780,12 +2444,6 @@ export class ProjectTab implements ChatPanelOwner {
     const answer = this.permissionAnswer(allow)
     if (!answer) return shell.beep()
     this.respondPermission(answer.turnId, answer.itemId, answer.optionId)
-  }
-
-  setShipSheetOpen(open: boolean) {
-    if (open === this.shipSheetOpen) return
-    this.shipSheetOpen = open
-    this.host.tabChanged(this, false)
   }
 
   restoreTurn(turnId: string) {
@@ -2930,20 +2588,6 @@ export class ProjectTab implements ChatPanelOwner {
     const chat = this.resources.chat
     const turnId = this.panel.chatInView ? chat?.lastUndoableTurnId() : null
     if (!chat || !turnId) return shell.beep()
-    // As the turn's Undo button does: with an open pull request, it asks first.
-    if (this.pullOpenAt === this.state.project?.root) {
-      const { response } = await dialog.showMessageBox(this.panel.popoutWindow ?? this.host.win, {
-        type: 'question',
-        message: 'Undo this message?',
-        detail: `You can redo. ${UNDO_PULL_NOTE}`,
-        buttons: ['Undo', 'Cancel'],
-        defaultId: 0,
-        cancelId: 1,
-        noLink: true,
-      })
-      if (response !== 0 || chat !== this.resources.chat || chat.lastUndoableTurnId() !== turnId)
-        return
-    }
     await chat.restoreTurn(turnId).catch(() => shell.beep())
   }
 
@@ -3595,115 +3239,6 @@ export class ProjectTab implements ChatPanelOwner {
       },
     ]
     Menu.buildFromTemplate(template).popup({ window: this.host.win })
-  }
-
-  /**
-   * The toolbar's branch menu. Switching and making branches happen in Source Control, in the
-   * chat, so those open it; the worktrees listed (read only once Git may run here) open in
-   * their own tab, or show the one they're open in.
-   */
-  async showBranchMenu(openWorktree: (root: string) => void) {
-    const root = this.state.project?.root
-    if (!root || this.resources.board) return
-    const worktrees = (await isTrusted(root)) ? await worktreesOf(root).catch(() => []) : []
-    if (this.disposed || this.state.project?.root !== root) return
-    const choose = (choice: ChatMenuChoice) => {
-      // The sheet is the chat's: the chat shows first if it's hidden.
-      if (!this.state.chatVisible) this.panel.toggleChat()
-      this.sendChat(Events.chatMenuChoice, choice)
-    }
-    const listed = worktrees.filter((tree) => !tree.prunable)
-    const template: MenuItemConstructorOptions[] = [
-      { label: 'Switch Branch…', click: () => choose('switchBranch') },
-      { label: 'New Branch…', click: () => choose('newBranch') },
-      { label: 'New Worktree…', click: () => choose('newWorktree') },
-      ...(listed.length > 1
-        ? [
-            { type: 'separator' } as const,
-            ...listed.map(
-              (tree): MenuItemConstructorOptions => ({
-                label: tree.main ? `${basename(tree.path)} (original folder)` : basename(tree.path),
-                sublabel: tree.branch ?? 'No branch',
-                type: 'checkbox',
-                checked: tree.current,
-                click: () => {
-                  if (!tree.current) openWorktree(tree.root)
-                },
-              }),
-            ),
-          ]
-        : []),
-      { type: 'separator' },
-      { label: 'Source Control…', click: () => choose('sourceControl') },
-    ]
-    Menu.buildFromTemplate(template).popup({ window: this.host.win })
-  }
-
-  /** One of this repository's worktrees (from the branch picker's Open); null if it isn't one. */
-  async worktreeRoot(path: string) {
-    const root = this.state.project?.root
-    if (!root || !(await isTrusted(root))) return null
-    const trees = await worktreesOf(root)
-    return trees.find((tree) => tree.path === path && !tree.prunable)?.root ?? null
-  }
-
-  /**
-   * A new worktree of this project, named from `name`; its folder, to open in a new tab. Null
-   * when the user didn't trust the project.
-   */
-  async createWorktree(name: string) {
-    const root = await this.gitRootForAction()
-    if (!root) return null
-    const made = await createWorktree(root, name)
-    return made.path
-  }
-
-  /**
-   * Removes this worktree once the user confirms: never with uncommitted changes, and the
-   * branch and its commits stay. The dev server stops and the chat is archived as the project
-   * closes, then the folder goes and the tab is back on the start screen.
-   */
-  async removeWorktree() {
-    const root = this.state.project?.root
-    const worktree = this.state.branch?.worktree
-    if (!root || !worktree) throw new Error('This project isn’t a worktree.')
-    if (this.resources.chat?.busy) throw new Error('Wait for the agent to finish first.')
-    if (!(await this.confirmGit(root))) return
-    const blocked = await removalBlocked(root)
-    if (blocked) throw new Error(blocked)
-    const branch = this.state.branch?.branch
-    const owner = this.panel.popoutWindow ?? this.host.win
-    const { response } = await dialog.showMessageBox(owner, {
-      type: 'question',
-      message: `Remove the worktree ${promptName(worktree.name)}?`,
-      detail: `Its folder is deleted from this Mac. ${branch ? `The branch ${promptName(branch)} and its commits stay` : 'Its commits stay'}, so you can open them again from ${promptName(worktree.of)}.`,
-      buttons: ['Remove Worktree', 'Cancel'],
-      defaultId: 0,
-      cancelId: 1,
-      noLink: true,
-    })
-    if (response !== 0 || this.disposed || this.state.project?.root !== root) return
-    await this.archiveChat()
-    await this.closeProject()
-    try {
-      await removeWorktree(root)
-    } catch (error) {
-      // Git refused after all (something changed meanwhile): the worktree opens again as it was.
-      if (!this.disposed) {
-        void this.openProject(root).catch(() => undefined)
-        if (!owner.isDestroyed())
-          await dialog.showMessageBox(owner, {
-            type: 'warning',
-            message: `Couldn’t remove ${promptName(worktree.name)}`,
-            detail: error instanceof Error ? error.message : String(error),
-            buttons: ['OK'],
-            noLink: true,
-          })
-      }
-      return
-    }
-    const recent = await withChats(await removeRecent(root))
-    this.host.shareRecent(recent)
   }
 
   // Plumbing

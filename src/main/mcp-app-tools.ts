@@ -1,25 +1,15 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import type { Proposal, ShipDraft, ShipInfo, Turn, Version } from '../shared/types'
+import type { Turn, Version } from '../shared/types'
 import { failure, text, untrusted } from './mcp-results'
 
 /**
- * Tool names for Gui itself: where the project's changes stand, its saved versions, the
- * chat's earlier turns, and proposing a commit or pull request. Nothing here changes the
- * project: a proposal only fills in the Source Control sheet, and the user ships it.
+ * Tool names for Gui itself: the chat's saved versions and its earlier turns. Nothing here
+ * changes the project.
  */
-export const APP_TOOL_NAMES = [
-  'source_control_status',
-  'source_control_propose',
-  'versions_list',
-  'chat_turns',
-] as const
+export const APP_TOOL_NAMES = ['versions_list', 'chat_turns'] as const
 
 export interface AppTools {
-  /** Branch, changes and pull request in a few lines, or why Gui can't tell */
-  sourceControlStatus: () => Promise<string>
-  /** Keeps the draft to open in the Source Control sheet once the turn ends; what happens */
-  proposeShip: (draft: ShipDraft) => string
   /** This chat's versions, newest first, in a few lines each */
   versions: (limit: number) => Promise<string>
   /** This chat's turns before the running one, oldest first, in a few lines each */
@@ -27,53 +17,6 @@ export interface AppTools {
 }
 
 export function registerAppTools(server: McpServer, app: AppTools) {
-  server.registerTool(
-    'source_control_status',
-    {
-      title: 'Check source control',
-      description:
-        "Where the user's changes stand in Git: the current and default branch, uncommitted files (secret-looking files are listed as skipped and never committed), commits not pushed yet, the remote, and this branch's pull request with its review state. Read it before proposing a commit or pull request.",
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
-    },
-    async () => {
-      try {
-        return untrusted('source_control_status', await app.sourceControlStatus())
-      } catch (error) {
-        return failure(error)
-      }
-    },
-  )
-
-  server.registerTool(
-    'source_control_propose',
-    {
-      title: 'Propose a commit or pull request',
-      description:
-        'When the user asks to commit, save, ship, push or open a pull request, propose it with this instead of running git yourself. When your turn ends, Gui opens its Source Control sheet filled in with your title, description, branch and files; the user reviews it, explicitly chooses or creates a branch, commits locally, and separately pushes or opens a pull request. `share` proposes that complete workflow; `commit` proposes a local commit. Omit `branch` to use the current branch and `files` to include every changed file. Write the title as a short summary of the change and the description as a few bullets of what changed and why.',
-      inputSchema: {
-        mode: z
-          .enum(['share', 'commit'])
-          .describe('Push and open a pull request, or commit locally'),
-        title: z.string().min(1).max(200).describe('Commit and pull request title'),
-        body: z.string().max(5000).describe('Pull request description, or the commit body'),
-        branch: z.string().min(1).max(200).optional().describe('Branch to commit on'),
-        files: z
-          .array(z.string().min(1).max(1000))
-          .max(1000)
-          .optional()
-          .describe('Repository-relative paths of the changed files to include'),
-      },
-    },
-    async ({ mode, title, body, branch, files }) => {
-      try {
-        return text(app.proposeShip({ mode, title, body, branch, files }))
-      } catch (error) {
-        return failure(error)
-      }
-    },
-  )
-
   server.registerTool(
     'versions_list',
     {
@@ -125,47 +68,6 @@ export function registerAppTools(server: McpServer, app: AppTools) {
       return turns ? untrusted('chat_turns', turns) : text('No earlier turns in this chat.')
     },
   )
-}
-
-/** source_control_status: what the Source Control sheet and the bar over it would show. */
-export function describeSourceControl(info: ShipInfo, proposal: Proposal | null): string {
-  const lines: string[] = []
-  if (info.blocked || info.workspace?.writeBlocked)
-    lines.push(`Can't commit right now: ${info.blocked ?? info.workspace?.writeBlocked}`)
-  const onDefault = info.onDefaultBranch ? ' (the default branch)' : ''
-  lines.push(`Branch: ${info.branch ?? '(detached)'}${onDefault}`)
-  if (proposal?.defaultBranch) lines.push(`Default branch: ${proposal.defaultBranch}`)
-  lines.push(
-    info.remote
-      ? `Remote: ${info.remote.repo} (${info.remote.host})`
-      : 'Remote: none; commits stay local',
-  )
-  lines.push(
-    info.files.length ? `Changed files (${info.files.length}):` : 'No uncommitted changes.',
-  )
-  for (const file of info.files.slice(0, 200)) lines.push(`- ${file.status} ${file.path}`)
-  if (info.files.length > 200) lines.push(`- …and ${info.files.length - 200} more`)
-  if (info.skipped.length) lines.push(`Skipped as possible secrets: ${info.skipped.join(', ')}`)
-  if (info.workspace?.ahead) lines.push(`Commits not pushed yet: ${info.workspace.ahead}`)
-  else if (proposal?.ahead) lines.push(`Commits not pushed yet: ${proposal.ahead}`)
-  else if (info.pendingCommits) lines.push('There are commits not pushed yet.')
-  if (proposal?.behind) lines.push(`Behind the default branch by ${proposal.behind} commits`)
-  if (proposal?.merge)
-    lines.push(`Merge in progress; conflicts in: ${proposal.merge.files.join(', ')}`)
-  const pull = proposal?.pull
-  if (pull) {
-    const review =
-      pull.review === 'approved'
-        ? ', approved'
-        : pull.review === 'changes'
-          ? ', changes requested'
-          : ''
-    lines.push(`Pull request #${pull.number} (${pull.state}${review}): ${pull.title} ${pull.url}`)
-    if (pull.comments.length) lines.push(`${pull.comments.length} review comments`)
-  } else if (proposal) {
-    lines.push('No pull request for this branch.')
-  }
-  return lines.join('\n')
 }
 
 /** Changed files listed under one version before the rest are summarized. */

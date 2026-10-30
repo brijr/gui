@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import type { Version } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
-import { closeShipSheet, useShipSheet } from './shipping-state'
 
 interface VersionsStore {
   open: boolean
@@ -31,11 +30,6 @@ let generation = 0
 export function toggleVersions() {
   const { open, busy } = useVersions.getState()
   if (busy) return
-  if (!open) {
-    // One sheet at a time: Source Control gives the panel back first.
-    closeShipSheet()
-    if (useShipSheet.getState().open) return
-  }
   generation++
   useVersions.setState(open ? CLOSED : { ...CLOSED, open: true })
 }

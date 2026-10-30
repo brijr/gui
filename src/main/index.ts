@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readlinkSync, renameSync, rmSync } from 'node:fs'
 import { mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
   app,
@@ -39,7 +39,6 @@ import {
   type ShortcutSpec,
   VIEWPORT_SHORTCUTS,
 } from '../shared/shortcuts'
-import { isSourceControlRequest } from '../shared/source-control'
 import {
   type CustomAgentEntry,
   type ImageAttachment,
@@ -54,8 +53,6 @@ import {
   type ProjectTemplate,
   type Rect,
   type SettingsSection,
-  type ShipDraft,
-  type ShipRequest,
   type StartCommandInput,
   type StorageKind,
   VIEWPORTS,
@@ -79,7 +76,6 @@ import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { errorReport, sendCrashReport } from './crash-reports'
 import { developerTools } from './developer-tools'
-import { saveIdentity } from './git'
 import { cloneGitHub } from './github'
 import { flushHistorySync } from './history'
 import {
@@ -103,7 +99,6 @@ import { type Recordings, registerRecordingProtocol } from './recordings'
 import { isAppContents } from './renderer'
 import {
   archiveRecentChat,
-  askAboutBranch,
   clearRecent,
   confirmAndClear,
   deleteCustom,
@@ -140,8 +135,6 @@ import {
   shareBoards,
   windowEvents,
 } from './window'
-import { findWorktree, sharedBranchCheck, type WorktreeRecord } from './worktree-registry'
-import { forgetWorktree } from './worktrees'
 
 app.setName('Gui')
 keepInBackground()
@@ -220,11 +213,7 @@ const canonical = (path: string) => realpath(path).catch(() => path)
  * no window given, the focused one (or the one focused last) is used. A folder already open
  * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
-async function openProjectIn(
-  target: ProjectWindow | undefined,
-  root: string,
-  { ask = true }: { ask?: boolean } = {},
-) {
+async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   // Gui needs an account first: the start screen asks for it, and the folder opens after.
   if (mustSignIn()) {
     waitingForAccount.push({ target, root })
@@ -234,10 +223,7 @@ async function openProjectIn(
     return
   }
   if (!(await isDirectory(root))) {
-    // A worktree Gui made, deleted outside it: say so, and offer to clear it out of Gui.
-    const worktree = await findWorktree(root)
-    if (worktree) await offerToForget(target, worktree)
-    else dialog.showErrorBox('Project not found', `${root} is not a folder.`)
+    dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
   // A monorepo app's folder opens the monorepo with that app chosen, so installs, the
@@ -249,54 +235,11 @@ async function openProjectIn(
   try {
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    const tab = tabToOpenIn(target)
-    // On a shared branch like main, the first message starts a new branch, so main stays as
-    // it was. Reads files only; the bar over the chat says so and offers Stay on main.
-    const shared = ask ? await sharedBranchCheck(real) : null
-    await tab.openProject(real, { branchOnSend: shared?.branch ?? null })
+    await tabToOpenIn(target).openProject(real)
   } finally {
     opening.delete(real)
     syncMenuItems()
   }
-}
-
-/**
- * A worktree whose folder was deleted outside Gui. Removing it from Gui clears Git's stale
- * record of it, the recents row and the registry; its branch is untouched.
- */
-async function offerToForget(target: ProjectWindow | undefined, worktree: WorktreeRecord) {
-  const parent = target?.win ?? lastFocusedWindow()?.win
-  const name = basename(worktree.top)
-  const options = {
-    type: 'warning' as const,
-    message: `The worktree ${name} is gone`,
-    detail: `Its folder, ${worktree.top}, was deleted outside Gui. The branch ${worktree.branch} and its commits are untouched.`,
-    buttons: ['Remove from Gui', 'Cancel'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-  }
-  const { response } = parent
-    ? await dialog.showMessageBox(parent, options)
-    : await dialog.showMessageBox(options)
-  if (response !== 0) return
-  await forgetWorktree(worktree.path)
-  await removeRecent(worktree.path)
-}
-
-/**
- * One of a repository's worktrees: the tab it's open in, shown, or a new tab. It opens as it
- * is, with no new branch on the first message: the user picked this checkout.
- */
-async function openWorktreeIn(target: ProjectWindow | undefined, root: string) {
-  const open = allTabs().find((tab) => tab.projectRoot === root)
-  const shown = open && allWindows().find((win) => win.tabs.includes(open))
-  if (open && shown) {
-    shown.showTab(open)
-    focusWindow(shown.win, { steal: true })
-    return
-  }
-  await openProjectIn(target, root, { ask: false })
 }
 
 /** Folders asked for while signed out, in order. */
@@ -706,42 +649,6 @@ function isImage(value: unknown): value is ImageAttachment {
   )
 }
 
-function isShipRequest(value: unknown): value is ShipRequest {
-  if (!value || typeof value !== 'object') return false
-  const request = value as Record<string, unknown>
-  return (
-    (request.mode === undefined || request.mode === 'commit' || request.mode === 'share') &&
-    (request.files === undefined ||
-      (Array.isArray(request.files) &&
-        request.files.length <= 100_000 &&
-        request.files.every((path) => isString(path) && path.length <= 4096))) &&
-    isString(request.branch) &&
-    request.branch.length <= 200 &&
-    isString(request.title) &&
-    request.title.length <= 500 &&
-    isString(request.body) &&
-    request.body.length <= 20_000
-  )
-}
-
-/** A name and email for Git: one line each, without control characters. */
-function gitIdentity(name: unknown, email: unknown) {
-  if (!isString(name) || !isString(email)) return null
-  const clean = (text: string, max: number) =>
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what's refused
-    /[\u0000-\u001f\u007f]/.test(text) || text.trim().length > max ? '' : text.trim()
-  const kept = { name: clean(name, 200), email: clean(email, 320) }
-  return kept.name && /^[^\s@<>]+@[^\s@<>]+$/.test(kept.email) ? kept : null
-}
-
-/** The agent's proposal, as the chat hands it back with Share: a request whose branch may be left out. */
-function isShipDraft(value: unknown): value is ShipDraft {
-  if (!value || typeof value !== 'object') return false
-  const draft = value as Record<string, unknown>
-  if (draft.mode !== 'commit' && draft.mode !== 'share') return false
-  return isShipRequest({ ...draft, branch: draft.branch === undefined ? '' : draft.branch })
-}
-
 const captures = new Map<
   number,
   {
@@ -984,10 +891,9 @@ function registerIpc() {
         new Set(ids).size !== ids.length
       )
         return false
-      return tabFor(event)?.sendFromComposer(text, attached, ids, followUp ?? null) ?? false
+      return tabFor(event)?.sendChatMessage(text, attached, ids, followUp ?? null) ?? false
     },
   )
-  handleLegacy(Invoke.shipInfo, (event) => tabFor(event)?.getShipInfo() ?? null)
   handleLegacy(Invoke.showToolbarMenu, async (event, items: unknown, at: unknown) => {
     const win = windowFor(event)
     const valid = toolbarMenuItems(items)
@@ -999,80 +905,6 @@ function registerIpc() {
     const tab = tabFor(event)
     return tab?.screenshotMenu(event.sender, isPoint(at) ? at : null) ?? null
   })
-  handleLegacy(Invoke.ship, (event, request: unknown) => {
-    if (!isShipRequest(request)) throw new Error('Invalid request')
-    const tab = tabFor(event)
-    if (!tab) throw new Error('No project is open.')
-    return tab.ship(request)
-  })
-  handleLegacy(Invoke.share, (event, draft: unknown) => {
-    if (draft !== null && !isShipDraft(draft)) throw new Error('Invalid request')
-    const tab = tabFor(event)
-    if (!tab) throw new Error('No project is open.')
-    return tab.share(draft)
-  })
-  handleLegacy(Invoke.stayOnBranch, (event) =>
-    reportError(async () => requireTab(event).stayOnBranch()),
-  )
-  handleLegacy(Invoke.trustProject, (event) => tabFor(event)?.trustProject() ?? false)
-  // From a project's own chat only, as the rest of shipping is.
-  handleLegacy(Invoke.setGitIdentity, (event, name: unknown, email: unknown) =>
-    reportError(async () => {
-      requireTab(event)
-      const identity = gitIdentity(name, email)
-      if (!identity) throw new Error('Enter your name and an email address.')
-      await saveIdentity(identity.name, identity.email)
-    }),
-  )
-  handleLegacy(Invoke.openGitHubSettings, async (event) => {
-    if (tabFor(event)) openSettings('github')
-  })
-  handleLegacy(Invoke.sourceControl, (event, request: unknown) => {
-    if (!isSourceControlRequest(request)) throw new Error('Invalid source control request')
-    const tab = tabFor(event)
-    if (!tab) throw new Error('No project is open.')
-    return tab.sourceControl(request)
-  })
-  handleLegacy(Invoke.getProposal, async (event, refresh: unknown) => {
-    try {
-      return (await tabFor(event)?.getProposal(refresh === true)) ?? null
-    } catch {
-      return null // Not a repository, or git missing: the bar just isn't shown.
-    }
-  })
-  handleLegacy(Invoke.startFresh, (event) =>
-    reportError(async () => requireTab(event).startFresh()),
-  )
-  handleLegacy(Invoke.bringInLatest, (event) =>
-    reportError(async () => requireTab(event).bringInLatest()),
-  )
-  handleLegacy(Invoke.finishMerge, (event) =>
-    reportError(async () => requireTab(event).finishMerge()),
-  )
-  handleLegacy(Invoke.cancelMerge, (event) =>
-    reportError(async () => requireTab(event).cancelMerge()),
-  )
-  handleLegacy(Invoke.resolveConflicts, (event) =>
-    reportError(async () => requireTab(event).resolveConflicts()),
-  )
-  handleLegacy(Invoke.createWorktree, (event, name: unknown) =>
-    reportError(async () => {
-      if (!isString(name) || name.length > 200) throw new Error('Use a shorter name.')
-      const root = await requireTab(event).createWorktree(name)
-      if (root) await openWorktreeIn(windowFor(event), root)
-    }),
-  )
-  handleLegacy(Invoke.removeWorktree, (event) =>
-    reportError(async () => requireTab(event).removeWorktree()),
-  )
-  handleLegacy(Invoke.openWorktree, (event, path: unknown) =>
-    reportError(async () => {
-      if (!isString(path) || path.length > 4096) throw new Error('That worktree is unavailable.')
-      const root = await requireTab(event).worktreeRoot(path)
-      if (!root) throw new Error('That worktree is no longer there. Refresh the branch list.')
-      await openWorktreeIn(windowFor(event), root)
-    }),
-  )
   handleLegacy(Invoke.restoreTurn, (event, turnId: unknown) => {
     if (!isString(turnId)) throw new IpcRequestError('invalid_request', 'Invalid turn.')
     return requireTab(event).restoreTurn(turnId)
@@ -1164,18 +996,6 @@ function registerIpc() {
       () => win.showStartForm('cloneRepo'),
       (root) => openSafely(win, root),
     ),
-  )
-  onWindow(
-    Send.showBranchMenu,
-    (win) =>
-      void win.activeTab.showBranchMenu((root) => {
-        openWorktreeIn(win, root).catch((error: unknown) =>
-          dialog.showErrorBox(
-            "Couldn't open the worktree",
-            error instanceof Error ? error.message : String(error),
-          ),
-        )
-      }),
   )
   on(Send.revealProject, (tab) => {
     const root = tab.getState().project?.root
@@ -1271,9 +1091,6 @@ function registerIpc() {
   handleSettings(Invoke.resetStartCommand, (_event, root) =>
     isString(root) ? resetStartCommand(root) : undefined,
   )
-  handleSettings(Invoke.askAboutBranch, (_event, root) =>
-    isString(root) ? askAboutBranch(root) : undefined,
-  )
   handleSettings(Invoke.clearRecent, () => clearRecent())
   handleLegacy(Invoke.removeRecent, (event, root: unknown) =>
     fromAppUi(event) && isString(root) ? removeRecent(root) : undefined,
@@ -1364,7 +1181,6 @@ function registerIpc() {
   on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
   on(Send.sendQueued, (tab, id) => isString(id) && tab.sendQueued(id))
   on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
-  on(Send.setShipSheetOpen, (tab, open) => typeof open === 'boolean' && tab.setShipSheetOpen(open))
   on(Send.setAgentSetting, (tab, settingId, value) => {
     // Only a choice the composer offers right now: the chat panel renders what agents write.
     if (isString(settingId) && isString(value) && offersChoice(tab.chatModels, settingId, value)) {

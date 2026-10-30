@@ -44,11 +44,7 @@ function edge(from: string, specifier: string, runtime: boolean) {
   )
     failures.push(`${name(from)} crosses the ${owner} → ${destination} boundary: ${name(target)}`)
   if (runtime) graph.get(from)?.add(target)
-  if (
-    runtime &&
-    /\/chat\/(store|proposal-state|shipping-state)\.ts$/.test(from) &&
-    target.endsWith('.tsx')
-  )
+  if (runtime && /\/chat\/(store|versions-state)\.ts$/.test(from) && target.endsWith('.tsx'))
     failures.push(`${name(from)} loads a UI component module: ${name(target)}`)
 }
 

@@ -22,13 +22,6 @@ export function chooseFromChatMenu(app: ElectronApplication, chat: Page, label: 
   )
 }
 
-/** Chooses `label` from the toolbar's branch menu, the way into Source Control. */
-export function chooseFromBranchMenu(app: ElectronApplication, chrome: Page, label: string) {
-  return chooseFromMenu(app, label, 'the branch menu', () =>
-    chrome.getByRole('button', { name: /^Branch / }).dispatchEvent('click'),
-  )
-}
-
 async function chooseFromMenu(
   app: ElectronApplication,
   label: string,

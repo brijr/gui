@@ -41,7 +41,6 @@ interface Credential {
   fullName: string
 }
 const requests: { path: string; session: string | null }[] = []
-const reads: string[] = []
 let gitBin = ''
 let gitLog = ''
 const git = async () =>
@@ -59,7 +58,6 @@ const normalRequest = async (path: string, token: string | null) => {
 }
 let requestImpl: (path: string, token: string | null) => Promise<unknown> = normalRequest
 let requireGit = () => Promise.resolve()
-let fetchImpl = (_token: string) => Promise.resolve(Response.json({ ok: true }))
 
 mock.module('electron', () => ({ app: { on() {} }, shell: {} }))
 mock.module('../../src/main/account', () => ({
@@ -87,11 +85,6 @@ mock.module('../../src/main/developer-tools', () => ({
 mock.module('../../src/main/shell-env', () => ({
   getShellEnv: async () => ({ PATH: gitBin, GUI_GIT_PROBE: gitLog }),
 }))
-globalThis.fetch = async (_url, options) => {
-  const authorization = new Headers(options?.headers).get('Authorization') ?? ''
-  reads.push(authorization)
-  return fetchImpl(authorization)
-}
 const github = await import('../../src/main/github')
 const changed = (operation: Promise<unknown>) =>
   assert.rejects(
@@ -109,78 +102,38 @@ await mkdir(gitBin)
 await writeFile(
   join(gitBin, 'git'),
   `#!/bin/sh
-case "$1" in config) exit 0 ;; esac
 printf '%s\\t%s\\n' "$*" "$GUI_GIT_TOKEN" >> "$GUI_GIT_PROBE"
 `,
   { mode: 0o700 },
 )
 
 try {
+  // The Gui account changes while a clone waits for its credential: git never sees it.
   const accountGate = deferred<Credential>()
   requestImpl = async (url, token) =>
     url === path(1) ? accountGate.promise : normalRequest(url, token)
-  const oldRead = github.readGitHub(1, 'owner/private', '/pulls')
+  const cloning = github.cloneGitHub(1, base)
   await until(() => count(1) === 1)
   session = 'account-B'
   events.emit('change')
   requestImpl = normalRequest
   accountGate.resolve({ token: 'old-account-credential', fullName: 'owner/private' })
-  await changed(oldRead)
-  assert.equal(reads.length, 0, 'An old account credential cannot reach the GitHub API')
-  await github.readGitHub(1, 'owner/private', '/pulls')
-  await github.readGitHub(1, 'owner/private', '/pulls')
-  assert.equal(count(1), 2)
-  assert.ok(reads.every((token) => token.includes('account-B')))
+  await changed(cloning)
+  assert.equal((await git()).length, 0, 'A stale account credential must not reach git')
 
+  // GitHub is disconnected and connected again (another provider account) meanwhile.
   const providerGate = deferred<Credential>()
   requestImpl = async (url, token) =>
     url === path(2) ? providerGate.promise : normalRequest(url, token)
-  const oldProvider = github.readGitHub(2, 'owner/private', '/pulls')
+  const reconnecting = github.cloneGitHub(2, base)
   await until(() => count(2) === 1)
   await github.disconnectGitHub()
   nextProvider = 'provider-B'
   await github.connectGitHub()
   requestImpl = normalRequest
   providerGate.resolve({ token: 'old-provider-credential', fullName: 'owner/private' })
-  await changed(oldProvider)
-  const coalescedGate = deferred<Credential>()
-  requestImpl = async (url, token) =>
-    url === path(2) ? coalescedGate.promise : normalRequest(url, token)
-  const concurrent = [
-    github.readGitHub(2, 'owner/private', '/pulls'),
-    github.readGitHub(2, 'owner/private', '/pulls'),
-  ]
-  await until(() => count(2) === 2)
-  coalescedGate.resolve(credentialFor(session, 2))
-  await Promise.all(concurrent)
-  requestImpl = normalRequest
-  await github.readGitHub(2, 'owner/private', '/pulls')
-  assert.equal(count(2), 2, 'Coalesced and cached reads only request the new provider once')
-
-  const cloneGate = deferred<Credential>()
-  requestImpl = async (url, token) =>
-    url === path(3) ? cloneGate.promise : normalRequest(url, token)
-  const cloning = github.cloneGitHub(3, base)
-  await until(() => count(3) === 1)
-  session = 'account-C'
-  events.emit('change')
-  requestImpl = normalRequest
-  cloneGate.resolve({ token: 'old-clone-credential', fullName: 'owner/private' })
-  await changed(cloning)
-  assert.equal((await git()).length, 0, 'A stale fresh clone credential must not reach git')
-
-  const pushGate = deferred<Credential>()
-  requestImpl = async (url, token) =>
-    url === path(4) ? pushGate.promise : normalRequest(url, token)
-  const pushing = github.pushGitHub(4, 'owner/private', base, 'topic')
-  await until(() => count(4) === 1)
-  await github.disconnectGitHub()
-  nextProvider = 'provider-C'
-  await github.connectGitHub()
-  requestImpl = normalRequest
-  pushGate.resolve({ token: 'old-push-credential', fullName: 'owner/private' })
-  await changed(pushing)
-  assert.equal((await git()).length, 0, 'A stale fresh push credential must not reach git')
+  await changed(reconnecting)
+  assert.equal((await git()).length, 0, 'A stale provider credential must not reach git')
 
   // A valid credential can become stale while preparing its environment/developer tools.
   const toolsGate = deferred<void>()
@@ -191,9 +144,9 @@ try {
   }
   const preparedParent = join(base, 'prepared')
   await mkdir(preparedParent)
-  const preparing = github.cloneGitHub(5, preparedParent)
+  const preparing = github.cloneGitHub(3, preparedParent)
   await until(() => toolsStarted)
-  nextProvider = 'provider-D'
+  nextProvider = 'provider-C'
   await github.connectGitHub()
   toolsGate.resolve()
   await changed(preparing)
@@ -205,68 +158,36 @@ try {
   assert.equal(await stat(join(preparedParent, 'private')).catch(() => null), null)
   requireGit = () => Promise.resolve()
 
-  const validParent = join(base, 'valid')
-  await mkdir(validParent)
-  await github.readGitHub(6, 'owner/private', '/pulls')
-  assert.equal(await github.cloneGitHub(6, validParent), join(validParent, 'private'))
-  await github.pushGitHub(6, 'owner/private', base, 'topic')
-  assert.equal(count(6), 3, 'Clone and push perform fresh authorization despite a cached read')
-  const approvedCommit = 'a'.repeat(40)
-  await github.pushGitHub(6, 'owner/private', base, 'topic', approvedCommit)
-  assert.ok(
-    (await git()).at(-1)?.args?.includes(`${approvedCommit}:refs/heads/topic`),
-    'A reviewed push stays pinned to the approved commit',
-  )
-  assert.equal((await git()).length, 3)
-  assert.ok((await git()).every((operation) => operation.token === credentialFor(session, 6).token))
-
-  const responseGate = deferred<Response>()
-  let oldRequestStarted = false
-  const previousToken = `Bearer ${credentialFor(session, 7).token}`
-  fetchImpl = (authorization) => {
-    if (authorization === previousToken) {
-      oldRequestStarted = true
-      return responseGate.promise
-    }
-    return Promise.resolve(Response.json({ ok: true }))
+  // Each clone asks the service again, so revoked access is noticed at once.
+  for (const name of ['first', 'second']) {
+    const parent = join(base, name)
+    await mkdir(parent)
+    assert.equal(await github.cloneGitHub(4, parent), join(parent, 'private'))
   }
-  const lateRead = github.readGitHub(7, 'owner/private', '/pulls')
-  await until(() => oldRequestStarted)
-  session = 'account-D'
-  events.emit('change')
-  await github.readGitHub(7, 'owner/private', '/pulls')
-  responseGate.resolve(Response.json({}, { status: 401 }))
-  await changed(lateRead)
-  await github.readGitHub(7, 'owner/private', '/pulls')
-  assert.equal(count(7), 2, 'A late old-account 401 cannot evict the new credential')
-  fetchImpl = () => Promise.resolve(Response.json({ ok: true }))
+  assert.equal(count(4), 2, 'Every clone performs a fresh authorization')
+  assert.equal((await git()).length, 2)
+  assert.ok((await git()).every((operation) => operation.token === credentialFor(session, 4).token))
 
   requestImpl = async () => {
     throw new Error('Service offline')
   }
   await assert.rejects(
-    github.readGitHub(8, 'owner/private', '/pulls'),
+    github.cloneGitHub(5, base),
     (error) => error instanceof github.CredentialUnavailable,
   )
-  requestImpl = normalRequest
-  await github.readGitHub(8, 'owner/private', '/pulls')
-  assert.equal(count(8), 2, 'A service failure remains retryable')
   for (const status of [401, 403]) {
     const denied = new AccountError(status, 'Repository is disconnected')
     requestImpl = async () => {
       throw denied
     }
-    await assert.rejects(
-      github.pushGitHub(9, 'owner/private', base, 'topic'),
-      (error) => error === denied,
-    )
+    await assert.rejects(github.cloneGitHub(6, base), (error) => error === denied)
   }
 
   const staleFailure = deferred<Credential>()
   requestImpl = async () => staleFailure.promise
-  const failing = github.pushGitHub(10, 'owner/private', base, 'topic')
-  await until(() => count(10) === 1)
-  session = 'account-E'
+  const failing = github.cloneGitHub(7, base)
+  await until(() => count(7) === 1)
+  session = 'account-C'
   events.emit('change')
   staleFailure.reject(new Error('Service offline'))
   await changed(failing)

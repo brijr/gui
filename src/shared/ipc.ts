@@ -1,8 +1,7 @@
 import type { AccountProfile, AccountState } from './account'
 import type { BoardCamera, FramePreset } from './board'
 import type { ChatTurnUpdate } from './chat-transport'
-import type { GitHubRepository, GitHubState } from './github'
-import type { SourceControlRequest, SourceControlResult } from './source-control'
+import type { GitHubState } from './github'
 import type { SymbolImages } from './symbols'
 import type {
   AgentId,
@@ -20,16 +19,11 @@ import type {
   PickOverlayState,
   Point,
   ProjectTemplate,
-  Proposal,
   RecordingAttachment,
   RecordingCursor,
   Rect,
   SettingsSection,
   SettingsState,
-  ShipDraft,
-  ShipInfo,
-  ShipRequest,
-  ShipResult,
   SidebarSlide,
   StartCommandInput,
   StorageKind,
@@ -63,7 +57,6 @@ export const Invoke = {
   githubDisconnect: 'github:disconnect',
   githubManage: 'github:manage',
   githubClone: 'github:clone',
-  githubCreate: 'github:create',
   newProject: 'project:new',
   send: 'chat:send',
   listVersions: 'versions:list',
@@ -84,7 +77,6 @@ export const Invoke = {
   signIn: 'agents:sign-in',
   installAgent: 'agents:install',
   connectAgent: 'agents:connect',
-  shipInfo: 'ship:info',
   takeScreenshot: 'preview:screenshot',
   showToolbarMenu: 'toolbar:overflow-menu',
   startRecording: 'recording:start',
@@ -93,28 +85,11 @@ export const Invoke = {
   finishRecording: 'recording:finish',
   prepareNarration: 'recording:prepare-narration',
   discardRecording: 'recording:discard',
-  ship: 'ship:run',
-  share: 'ship:share',
-  stayOnBranch: 'proposal:stay-on-branch',
-  trustProject: 'proposal:trust-project',
-  setGitIdentity: 'git:set-identity',
-  openGitHubSettings: 'settings:open-github',
-  sourceControl: 'source-control:run',
-  getProposal: 'proposal:get',
-  startFresh: 'proposal:start-fresh',
-  bringInLatest: 'proposal:bring-in-latest',
-  finishMerge: 'proposal:finish-merge',
-  cancelMerge: 'proposal:cancel-merge',
-  resolveConflicts: 'proposal:resolve-conflicts',
   getSettings: 'settings:get',
   saveCustomAgent: 'settings:save-custom-agent',
   deleteCustomAgent: 'settings:delete-custom-agent',
   untrustProject: 'settings:untrust-project',
   resetStartCommand: 'settings:reset-start-command',
-  askAboutBranch: 'settings:ask-about-branch',
-  createWorktree: 'worktree:create',
-  removeWorktree: 'worktree:remove',
-  openWorktree: 'worktree:open',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
   boardChatCover: 'board:chat-cover',
@@ -129,7 +104,6 @@ export const Send = {
   showAgentMenu: 'menu:agent',
   showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
-  showBranchMenu: 'menu:branch',
   revealProject: 'project:reveal',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
@@ -189,7 +163,6 @@ export const Send = {
   sendQueued: 'chat:queue-send-one',
   clearQueued: 'chat:queue-clear',
   setAutoApprove: 'chat:auto-approve',
-  setShipSheetOpen: 'chat:ship-sheet',
   setAgentSetting: 'chat:agent-setting',
   newTab: 'tabs:new',
   selectTab: 'tabs:select',
@@ -235,14 +208,7 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 
 /** Main → renderer */
 /** What the chat's More menu hands back to the chat page to do. */
-export type ChatMenuChoice =
-  | 'archive'
-  | 'versions'
-  /** From the toolbar's branch menu: Source Control, on its own or with its branch picker or a new-branch or new-worktree dialog open */
-  | 'sourceControl'
-  | 'switchBranch'
-  | 'newBranch'
-  | 'newWorktree'
+export type ChatMenuChoice = 'archive' | 'versions'
 
 export const Events = {
   state: 'state',
@@ -255,10 +221,6 @@ export const Events = {
   chatReset: 'chat:reset',
   chatFocus: 'chat:focus',
   chatMenuChoice: 'chat:menu-choice',
-  /** The chat's tab is the one its window shows (true) or went to the background (false) */
-  tabActive: 'chat:tab-active',
-  /** The agent proposed a commit or pull request: open Source Control filled in with it */
-  chatShipDraft: 'chat:ship-draft',
   chatAttach: 'chat:attach',
   recordingAttach: 'recording:attach',
   recordingUpdate: 'recording:update',
@@ -367,9 +329,8 @@ export interface GuiApi {
   disconnectGitHub(): Promise<void>
   manageGitHub(): Promise<void>
   cloneGitHub(id: number): Promise<void>
-  createGitHub(name: string): Promise<GitHubRepository>
   /**
-   * Makes a folder named `name` (with a git repo) where the user picks, with `template`'s
+   * Makes a folder named `name` where the user picks, with `template`'s
    * files in it, then opens it. Rejects with a message to show; resolves if they cancel the
    * picker.
    */
@@ -384,30 +345,13 @@ export interface GuiApi {
    */
   showAgentMenu(at?: { x: number; y: number }): void
   /**
-   * The chat header's More menu, under the button: Source Control, Archived Chats, Pop
+   * The chat header's More menu, under the button: Versions, Archived Chats, Pop
    * Out. Main does Pop Out itself; the rest come back as `onChatMenuChoice`.
    */
   showChatMenu(at: { x: number; y: number }): void
   showProjectMenu(): void
-  /**
-   * The toolbar's branch menu: Switch Branch, New Branch, New Worktree, the repository's
-   * worktrees, Source Control
-   */
-  showBranchMenu(): void
   /** Shows the open project's folder in Finder */
   revealProject(): void
-  /**
-   * A new worktree of the open project, named from `name` (blank: the date), opened in a new
-   * tab; rejects with a message to show
-   */
-  createWorktree(name: string): Promise<void>
-  /**
-   * Confirms, then closes this worktree and deletes its folder. Refuses (rejects with a
-   * message) while it has uncommitted changes; the branch and its commits stay
-   */
-  removeWorktree(): Promise<void>
-  /** Opens one of the repository's worktrees, or shows the tab it's open in */
-  openWorktree(path: string): Promise<void>
 
   /** A new canvas, opened in this tab if it's a start screen, otherwise in a new one */
   newBoard(): void
@@ -577,10 +521,6 @@ export interface GuiApi {
   onChatFocus(cb: () => void): Unsubscribe
   /** A choice from the More menu that the chat page carries out */
   onChatMenuChoice(cb: (choice: ChatMenuChoice) => void): Unsubscribe
-  /** The chat's tab came to the front of its window, or went behind another */
-  onTabActive(cb: (active: boolean) => void): Unsubscribe
-  /** The agent's proposed commit or pull request, once its turn ended */
-  onShipDraft(cb: (draft: ShipDraft) => void): Unsubscribe
   /**
    * What the floating chat is drawn as, and the corner it's anchored by: the panel, the pill
    * while minimized, or the bubble while the user picks an element. The view grows to a larger
@@ -636,11 +576,6 @@ export interface GuiApi {
   loadCommands(): Promise<void>
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
-  /**
-   * "Create pull request" took over the chat, or gave it back: its ⌘↩ wins over the Agent
-   * menu's Allow meanwhile.
-   */
-  setShipSheetOpen(open: boolean): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
   /** This chat's versions of the project's files, newest first; null without a project */
@@ -749,41 +684,6 @@ export interface GuiApi {
   /** An image main wants added to the composer (e.g. a screenshot of the preview) */
   onChatAttach(cb: (image: ImageAttachment) => void): Unsubscribe
 
-  /** Null without a project */
-  getShipInfo(): Promise<ShipInfo | null>
-  /** Commits, pushes and opens the PR; rejects with a readable message */
-  ship(request: ShipRequest): Promise<ShipResult>
-  /**
-   * The bar's one button: commits every eligible change (secrets left out), and when the
-   * project is online pushes it and creates or updates the pull request. On main it goes on a
-   * new branch first, unless the project stays on main.
-   * `draft` is the agent's proposal, when it made one. Rejects with a readable message.
-   */
-  share(draft: ShipDraft | null): Promise<ShipResult>
-  /** The first message won't start a new branch: work stays on main, here and from now on */
-  stayOnBranch(): Promise<void>
-  /** Asks to trust the project (so Gui may run Git here); true once it is */
-  trustProject(): Promise<boolean>
-  /** Saves the name and email Git commits with, in the user's global Git config */
-  setGitIdentity(name: string, email: string): Promise<void>
-  /** Opens Settings at GitHub, from the chat (after GitHub turned a push away) */
-  openGitHubSettings(): Promise<void>
-  sourceControl(request: SourceControlRequest): Promise<SourceControlResult>
-  /**
-   * Where the work stands as a pull request; null without a project or repository, and
-   * `trusted: false` before Gui may run Git there. `refresh` also fetches (at most every few
-   * minutes).
-   */
-  getProposal(refresh?: boolean): Promise<Proposal | null>
-  /** Archives this chat and starts the next idea from the latest; rejects with a message */
-  startFresh(): Promise<void>
-  /** Merges the latest in; stopping on conflicts resolves, with `Proposal.merge` set */
-  bringInLatest(): Promise<void>
-  /** Commits the merge once the conflicts are resolved */
-  finishMerge(): Promise<void>
-  cancelMerge(): Promise<void>
-  /** Sends the agent a message to resolve the conflicts */
-  resolveConflicts(): Promise<void>
   /** Opens (or focuses) the Settings window, optionally at a section */
   openSettings(section?: SettingsSection): void
   getSettings(): Promise<SettingsState>
@@ -806,8 +706,6 @@ export interface GuiApi {
   untrustProject(root: string): Promise<void>
   /** The project starts with the command Gui detects again */
   resetStartCommand(root: string): Promise<void>
-  /** Opened on its main branch, the project's first message starts a new branch again */
-  askAboutBranch(root: string): Promise<void>
   clearRecent(): Promise<void>
   /** Asks to confirm, then clears; false when the user cancelled */
   clearStorage(kind: StorageKind): Promise<boolean>

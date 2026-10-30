@@ -92,7 +92,6 @@ export const FolderOpen = icon(SYMBOLS.FolderOpen, Lucide.FolderOpen)
 export const FolderPlus = icon(SYMBOLS.FolderPlus, Lucide.FolderPlus)
 export const GitBranch = icon(SYMBOLS.GitBranch, Lucide.GitBranch)
 // Lucide's: the system's arrow.triangle.pull doesn't read as a pull request.
-export const GitPullRequest: IconComponent = Lucide.GitPullRequest
 export const Globe = icon(SYMBOLS.Globe, Lucide.Globe)
 // Lucide's dotted grip: the system's line.3.horizontal reads as a menu, not a drag handle.
 export const GripVertical: IconComponent = Lucide.GripVertical
@@ -144,7 +143,6 @@ export const SquareArrowOutUpRight = icon(
   Lucide.SquareArrowOutUpRight,
 )
 export const SquarePen = icon(SYMBOLS.SquarePen, Lucide.SquarePen)
-export const SquareStack = icon(SYMBOLS.SquareStack, Lucide.SquareStack)
 export const SquareTerminal = icon(SYMBOLS.SquareTerminal, Lucide.SquareTerminal)
 export const Tablet = icon(SYMBOLS.Tablet, Lucide.Tablet)
 export const Trash2 = icon(SYMBOLS.Trash2, Lucide.Trash2)

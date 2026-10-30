@@ -219,8 +219,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   }
 
   /**
-   * Kills the server and everything it started. Settles once they've exited, so a worktree's
-   * folder isn't removed, nor the project opened again, while they still run.
+   * Kills the server and everything it started. Settles once they've exited, so the project
+   * isn't opened again while they still run.
    */
   dispose(): Promise<void> {
     if (this.ended) return this.ended

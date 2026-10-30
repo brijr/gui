@@ -8,7 +8,7 @@ import {
   signIn,
   signOut,
 } from './account'
-import { connectGitHub, createGitHub, disconnectGitHub, getGitHub, manageGitHub } from './github'
+import { connectGitHub, disconnectGitHub, getGitHub, manageGitHub } from './github'
 import { type createRequestRegistrar, noRequestArgs } from './ipc-handler'
 
 /** Account/provider requests share the trusted application-UI boundary, never agent content. */
@@ -55,14 +55,5 @@ export function registerAccountIpc(
         args[0] > 0,
     },
     options.clone,
-  )
-  handleRequest(
-    Invoke.githubCreate,
-    {
-      authorize: options.authorize,
-      validate: (args) =>
-        args.length === 1 && typeof args[0] === 'string' && /^[\w-][\w.-]{0,99}$/.test(args[0]),
-    },
-    (_event, name) => createGitHub(name),
   )
 }

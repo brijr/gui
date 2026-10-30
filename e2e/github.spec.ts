@@ -1,7 +1,6 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { join } from 'node:path'
-import { git } from './helpers/fixtures'
 import { expect, test } from './helpers/test'
 
 test('signed-out Projects opens without accessing Keychain', async ({ launch }) => {
@@ -37,7 +36,6 @@ test('GitHub connects to the Gui account, its repositories clone from Clone…, 
 }) => {
   let connected = false
   let loopback = 0
-  let createdName = ''
   const readBody = (request: import('node:http').IncomingMessage) =>
     new Promise<Record<string, unknown>>((resolve) => {
       let body = ''
@@ -78,19 +76,12 @@ test('GitHub connects to the Gui account, its repositories clone from Clone…, 
       connected = false
       return reply({ ok: true })
     }
-    if (request.url === '/repositories' && request.method === 'POST')
-      return void readBody(request).then((body) => {
-        createdName = String(body.name)
-        reply({ repository: { id: 2, fullName: `gui-tester/${createdName}`, private: true } })
-      })
     if (request.url === '/repositories')
       return reply({
         repositories: [{ id: 1, fullName: 'gui-tester/private-project', private: true }],
       })
     if (request.url === '/repositories/1/credential')
       return reply({ token: 'test-provider-secret', fullName: 'gui-tester/private-project' })
-    if (request.url === '/repositories/1/pulls')
-      return reply({ url: 'https://github.com/gui-tester/private-project/pull/1' })
     response.statusCode = 404
     reply({ error: 'Not found' })
   })
@@ -141,11 +132,8 @@ test('GitHub connects to the Gui account, its repositories clone from Clone…, 
     await expect(page.getByText('@gui-tester', { exact: true })).toBeVisible()
     // Settings chooses what Gui can see; cloning is the start screen's Clone….
     await expect(page.getByRole('button', { name: 'Choose on GitHub' })).toBeVisible()
-    await page.getByLabel('Repository name', { exact: true }).fill('design-project')
-    await page.getByRole('button', { name: 'Create private repository', exact: true }).click()
-    await expect.poll(() => createdName).toBe('design-project')
-    await expect(page.getByText('Created gui-tester/design-project.')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Open…', exact: true })).toBeVisible()
+    // Gui no longer makes repositories: Settings only connects and chooses.
+    await expect(page.getByLabel('Repository name', { exact: true })).toHaveCount(0)
     await page.screenshot({ path: test.info().outputPath('github-connected.png') })
     const userData = await session.app.evaluate(({ app }) => app.getPath('userData'))
     expect(readFileSync(join(userData, 'github-session')).toString()).toContain('test-encrypted:')
@@ -173,54 +161,13 @@ test('GitHub connects to the Gui account, its repositories clone from Clone…, 
             askpass: options.env.GIT_ASKPASS,
             script: fs.readFileSync(options.env.GIT_ASKPASS, 'utf8'),
           }
-          if (argv.includes('push')) callback(null as unknown as Error)
-          else callback(new Error('test-provider-secret must never appear in the renderer error'))
+          callback(new Error('test-provider-secret must never appear in the renderer error'))
           return
         }
         return original(...(args as Parameters<typeof original>))
       }) as typeof original
       process.getBuiltinModule('module').syncBuiltinESMExports()
     })
-    // Connected projects ship with the GitHub session instead of a gh login.
-    const root = session.fixture.root
-    git(root, 'branch', '-M', 'main')
-    git(root, 'remote', 'add', 'origin', 'https://github.com/gui-tester/private-project.git')
-    git(root, 'update-ref', 'refs/remotes/origin/main', 'HEAD')
-    git(root, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main')
-    git(root, 'config', 'user.name', 'Existing Designer')
-    git(root, 'config', 'user.email', 'existing@example.com')
-    git(root, 'config', 'commit.gpgsign', 'false')
-    git(root, 'config', 'core.hooksPath', '/dev/null')
-    appendFileSync(join(root, 'src/App.tsx'), '\n// GitHub connected shipping\n')
-    const result = await session.chat.evaluate(() =>
-      window.gui.ship({
-        branch: 'gui/design-test',
-        title: 'Design update',
-        body: 'Reviewed design changes',
-      }),
-    )
-    expect(result).toMatchObject({
-      outcome: 'created',
-      url: 'https://github.com/gui-tester/private-project/pull/1',
-    })
-    expect(git(root, 'log', '-1', '--format=%an <%ae>').trim()).toBe(
-      'Existing Designer <existing@example.com>',
-    )
-    expect(git(root, 'config', 'branch.gui/design-test.remote').trim()).toBe('origin')
-    const pushInspection = await session.app.evaluate(
-      () =>
-        (
-          globalThis as unknown as {
-            cloneInspection: { argv: string[]; token: string; askpass: string; script: string }
-          }
-        ).cloneInspection,
-    )
-    expect(pushInspection.argv).toContain('https://github.com/gui-tester/private-project.git')
-    // The exact commit Gui checked goes up, so a commit made meanwhile can't ride along.
-    const shipped = git(root, 'rev-parse', 'gui/design-test').trim()
-    expect(pushInspection.argv).toContain(`${shipped}:refs/heads/gui/design-test`)
-    expect(pushInspection.argv.join(' ')).not.toContain('test-provider-secret')
-    expect(existsSync(pushInspection.askpass)).toBe(false)
     // A project's untrusted preview cannot call account methods through IPC.
     const preview = await session.previewPage()
     expect(await preview.evaluate(() => 'gui' in window)).toBe(false)
