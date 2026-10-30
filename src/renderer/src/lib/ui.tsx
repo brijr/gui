@@ -337,7 +337,11 @@ export function Spinner({ size = 'sm', className }: { size?: 'sm' | 'md'; classN
       viewBox="0 0 16 16"
       fill="none"
       aria-hidden="true"
-      className={cn('shrink-0 animate-spin', size === 'sm' ? 'size-3' : 'size-4', className)}
+      className={cn(
+        'pointer-events-none shrink-0 animate-spin select-none',
+        size === 'sm' ? 'size-3' : 'size-4',
+        className,
+      )}
     >
       <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5" />
       <path
