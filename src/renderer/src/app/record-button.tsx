@@ -377,7 +377,8 @@ export function RecordButton({
           shortcut="recordPreview"
           // The seconds count up in place rather than shifting the button's width.
           className={cn(
-            'pr-1.5 pl-2',
+            // Square while it's just the mark, as the toolbar's other tools.
+            idle ? 'w-7 justify-center px-0' : 'pr-1.5 pl-2',
             recording
               ? 'tabular-nums'
               : 'enabled:hover:bg-transparent group-has-[button:enabled:not([aria-disabled=true]):hover]/record:text-fg',
@@ -393,7 +394,6 @@ export function RecordButton({
         </Button>
         {!recording && (
           <IconButton
-            size="sm"
             icon={narrate ? Mic : MicOff}
             label="Narrate recordings"
             pressed={narrate}
@@ -404,7 +404,7 @@ export function RecordButton({
             }
             disabled={!idle}
             onClick={toggleNarrate}
-            className={cn('mr-0.5 -ml-0.5', !narrate && 'enabled:hover:bg-transparent')}
+            className={cn(!narrate && 'enabled:hover:bg-transparent')}
           />
         )}
         {recording && live?.voice && <Level voice={live.voice} />}

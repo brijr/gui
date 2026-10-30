@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { shortcutText } from '../../../shared/shortcuts'
 import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -15,6 +16,7 @@ import { TechnicalDetails } from '../lib/disclosure'
 import {
   ArrowUp,
   Crop,
+  type IconComponent,
   Info,
   MousePointer2,
   Paperclip,
@@ -23,9 +25,8 @@ import {
   TriangleAlert,
   X,
 } from '../lib/icons'
-import { StatusDot } from '../lib/status'
 import { Card, Thumbnail } from '../lib/surface'
-import { Counter, IconButton, Spinner, TextButton } from '../lib/ui'
+import { Button, Counter, IconButton, Kbd, Spinner } from '../lib/ui'
 import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
@@ -229,6 +230,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         <AgentStatus meta={meta} />
       )}
       {unseenProblem && <ProblemsLine meta={meta} running={running} />}
+      {firstMessage && meta.canSelect && meta.selection.length === 0 && !unseenProblem && (
+        <Line tone="info" icon={MousePointer2}>
+          Select something in the preview <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
+        </Line>
+      )}
       <QueuedMessages meta={meta} running={running} />
       {meta.selectionError && (
         <Line tone="error" role="alert">
@@ -426,30 +432,32 @@ const PLACE = 'motion-safe:animate-place-in motion-reduce:animate-row-fade'
 function ProblemsLine({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const latest = meta.problems.at(-1)
   return (
-    <div className={cn(ARRIVE, 'flex h-6 items-center gap-1.5 pl-1 text-small')}>
-      <span className="flex w-3.5 shrink-0 items-center justify-center">
-        <StatusDot status="error" />
-      </span>
-      <p className="min-w-0 truncate text-muted" title={latest?.message}>
+    <Line
+      tone="error"
+      actions={
+        <>
+          <Button
+            size="sm"
+            disabled={running}
+            title={running ? 'Wait for the agent to finish' : 'Ask the agent to fix these errors'}
+            onClick={() => void gui.fixProblems()}
+          >
+            Fix
+          </Button>
+          <IconButton
+            size="sm"
+            label="Dismiss errors"
+            title="Dismiss"
+            icon={X}
+            onClick={() => dismissProblems(meta.problems.map((problem) => problem.id))}
+          />
+        </>
+      }
+    >
+      <span className="text-fg" title={latest?.message}>
         {problemsTitle(meta.problems)}
-      </p>
-      <TextButton
-        className="shrink-0 font-medium"
-        disabled={running}
-        title={running ? 'Wait for the agent to finish' : 'Ask the agent to fix these errors'}
-        onClick={() => void gui.fixProblems()}
-      >
-        Fix
-      </TextButton>
-      <IconButton
-        size="sm"
-        label="Dismiss errors"
-        title="Dismiss"
-        icon={X}
-        className="ml-auto"
-        onClick={() => dismissProblems(meta.problems.map((problem) => problem.id))}
-      />
-    </div>
+      </span>
+    </Line>
   )
 }
 
@@ -553,33 +561,35 @@ function PickedLabel({ picked }: { picked: Picked }) {
 function Line({
   tone,
   role,
+  icon: Icon,
+  actions,
   children,
 }: {
   tone: 'info' | 'error' | 'busy'
   /** status: read out politely as it changes; alert: an error, read out at once */
   role?: 'status' | 'alert'
+  /** In place of the tone's own */
+  icon?: IconComponent
+  /** After the text, on the right: the line's own controls */
+  actions?: ReactNode
   children: ReactNode
 }) {
+  const Tone = Icon ?? (tone === 'error' ? TriangleAlert : Info)
   return (
-    <p
+    <div
       role={role}
       className={cn(
         ARRIVE,
-        'flex gap-1.5 px-1 text-small',
+        'flex items-start gap-1.5 px-1 text-small',
         tone === 'error' ? 'text-danger' : 'text-muted',
       )}
     >
-      <span className="flex h-4 w-3.5 shrink-0 items-center justify-center">
-        {tone === 'busy' ? (
-          <Spinner />
-        ) : tone === 'error' ? (
-          <TriangleAlert className="size-3.5" aria-hidden="true" />
-        ) : (
-          <Info className="size-3.5" aria-hidden="true" />
-        )}
+      <span className="flex h-5 w-3.5 shrink-0 items-center justify-center">
+        {tone === 'busy' ? <Spinner /> : <Tone className="size-3.5" aria-hidden="true" />}
       </span>
-      <span className="min-w-0 select-text break-words">{children}</span>
-    </p>
+      <span className="min-w-0 flex-1 select-text break-words leading-5">{children}</span>
+      {actions && <span className="-my-0.5 flex shrink-0 items-center gap-1">{actions}</span>}
+    </div>
   )
 }
 

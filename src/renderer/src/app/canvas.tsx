@@ -25,11 +25,14 @@ import {
   Archive,
   ChevronRight,
   Ellipsis,
+  FolderOpen,
+  FolderPlus,
   type IconComponent,
   Info,
   KeyRound,
   Package,
   Play,
+  Shapes,
   TriangleAlert,
   Wrench,
   X,
@@ -830,18 +833,24 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
   }, [])
 
   if (!form) {
-    // One row: the primary first, at its own size, then the other ways in. Words alone, but
-    // for GitHub's mark on Clone, so the four fit on one line.
+    // One primary across the top, then the other ways in as equal cells, labels at the start,
+    // so the buttons line up with the list under them.
+    const cell = 'w-full justify-start'
     return (
       <div className="flex flex-col gap-2">
-        <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          size="lg"
+          icon={firstRun ? FolderPlus : FolderOpen}
+          className={cell}
+          onClick={() => (firstRun ? setForm('newProject') : void gui.openProject())}
+        >
+          {firstRun ? 'New project…' : 'Open project…'}
+        </Button>
+        <div className="grid grid-cols-3 gap-2">
           <Button
-            variant="primary"
-            onClick={() => (firstRun ? setForm('newProject') : void gui.openProject())}
-          >
-            {firstRun ? 'New project…' : 'Open project…'}
-          </Button>
-          <Button
+            icon={firstRun ? FolderOpen : FolderPlus}
+            className={cell}
             title={
               firstRun
                 ? 'Choose a project folder already on your Mac'
@@ -853,13 +862,19 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
           </Button>
           {/* No folder, install or server: a canvas to design on with the agent, open at once. */}
           <Button
+            icon={Shapes}
+            className={cell}
             title="Design on a canvas without a project folder"
             shortcut="newBoard"
             onClick={() => gui.newBoard()}
           >
             New canvas
           </Button>
-          <Button title="Copy a GitHub repository to your Mac" onClick={() => setForm('cloneRepo')}>
+          <Button
+            className={cell}
+            title="Copy a GitHub repository to your Mac"
+            onClick={() => setForm('cloneRepo')}
+          >
             <GitHubMark />
             Clone…
           </Button>

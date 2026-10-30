@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { shortcutText } from '../../../shared/shortcuts'
 import type { ChatMeta, Turn } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { ErrorBoundary } from '../lib/error-boundary'
@@ -7,7 +6,7 @@ import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { Archive, MessageSquare, SquarePen } from '../lib/icons'
 import { Banner, Card, Message } from '../lib/surface'
-import { Button, Kbd, PromptButton } from '../lib/ui'
+import { Button, PromptButton } from '../lib/ui'
 import { setDraft, useChat, waitingCard } from './store'
 import { type TurnHeight, TurnLayout } from './turn-layout'
 import { TurnPresentation, TurnPresentationProvider } from './turn-presentation'
@@ -21,7 +20,6 @@ export function Transcript({ turnIds, meta }: { turnIds: string[]; meta: ChatMet
           canSelect={meta.canSelect}
           canvas={meta.canvas}
           canvasEmpty={meta.canvasEmpty}
-          picked={meta.selection.length}
         />
         {meta.archived && <ArchivedNotice archived={meta.archived} />}
       </div>
@@ -410,12 +408,10 @@ function EmptyTranscript({
   canSelect,
   canvas,
   canvasEmpty,
-  picked,
 }: {
   canSelect: boolean
   canvas: boolean
   canvasEmpty: boolean
-  picked: number
 }) {
   // An empty canvas says what to ask for itself: the chat doesn't say it again.
   if (canvasEmpty && !canSelect) return <div className="min-h-0 flex-1" />
@@ -443,14 +439,6 @@ function EmptyTranscript({
       </Message>
     )
   }
-  // Something's picked: the message box says what's next ("Describe the change…").
-  if (picked > 0) return <div className="min-h-0 flex-1" />
-  // One quiet line over the message box, where the next step is.
-  return (
-    <div className="flex min-h-0 flex-1 flex-col justify-end px-3 pb-1">
-      <p className="text-small text-subtle">
-        Select something in the preview <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
-      </p>
-    </div>
-  )
+  // Nothing more to say here: the message box, and the line over it, say what's next.
+  return <div className="min-h-0 flex-1" />
 }
