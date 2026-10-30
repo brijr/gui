@@ -3,23 +3,23 @@ import { cn } from './cn'
 
 /**
  * The one field style, for inputs, textareas and selects: raised, a control's edge, and on
- * focus an accent border with a soft accent ring instead of the outline buttons get.
+ * focus a neutral border with a soft neutral ring instead of the outline buttons get.
  */
 const FRAME = 'rounded-md border border-edge bg-raised text-fg transition-colors'
-const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40`
+const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border-muted focus:ring-3 focus:ring-line-strong focus-visible:outline-none disabled:pointer-events-none disabled:opacity-40`
 /**
  * The field's look without its size or type, for a field sized to what it edits in place (a
  * frame's or section's name on the canvas).
  */
-export const FIELD_LOOK = `${FRAME} outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none`
+export const FIELD_LOOK = `${FRAME} outline-none focus:border-muted focus:ring-3 focus:ring-line-strong focus-visible:outline-none`
 /** The same frame around an input and a control at its start; it takes the focus look from the input. */
-const GROUP = `${FRAME} flex items-center has-[input:focus]:border-accent has-[input:focus]:ring-3 has-[input:focus]:ring-accent-soft`
+const GROUP = `${FRAME} flex items-center has-[input:focus]:border-muted has-[input:focus]:ring-3 has-[input:focus]:ring-line-strong`
 /**
  * A field that sits in the chrome rather than a form (the toolbar's address): a light fill with
- * no outline at rest, and the field's own raised, accent-edged look while it's being edited.
+ * no outline at rest, and the field's own raised, neutral-edged look while it's being edited.
  */
 const FILLED =
-  'flex items-center rounded-md border border-transparent bg-fill text-fg transition-colors has-[input:focus]:border-accent has-[input:focus]:bg-raised has-[input:focus]:ring-3 has-[input:focus]:ring-accent-soft'
+  'flex items-center rounded-md border border-transparent bg-fill text-fg transition-colors has-[input:focus]:border-muted has-[input:focus]:bg-raised has-[input:focus]:ring-3 has-[input:focus]:ring-line-strong'
 
 /** Body text, or for code-like values (commands, branches, addresses) monospace at small */
 const text = (mono: boolean) => (mono ? 'font-mono text-small' : 'text-body')

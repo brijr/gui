@@ -403,7 +403,7 @@ export function Switch({
         aria-hidden="true"
         className={cn(
           'flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors',
-          checked ? 'bg-accent' : 'bg-edge',
+          checked ? 'bg-muted' : 'bg-edge',
         )}
       >
         <span
