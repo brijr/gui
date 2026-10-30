@@ -1076,7 +1076,7 @@ function SectionLabel({
       data-section={id}
       className={cn(
         'flex items-center truncate rounded-md px-2 text-small font-medium whitespace-nowrap',
-        picked ? 'bg-accent text-accent-fg' : 'bg-raised text-fg shadow-raised',
+        picked ? 'bg-accent-soft text-accent-text' : 'bg-raised text-fg shadow-raised',
         !hand && 'cursor-default',
       )}
       style={style}

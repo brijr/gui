@@ -94,7 +94,7 @@ export function VersionsSheet() {
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable scroll-fade p-3">
             <SaveVersion disabled={busy !== null || running} saving={busy === 'save'} />
             {versions.length === 0 ? (
-              <Message fill icon={History} tone="accent" title="No versions yet">
+              <Message fill icon={History} title="No versions yet">
                 Gui saves a version after each message.
               </Message>
             ) : (
