@@ -289,7 +289,7 @@
   /* Behind a modal sheet */
   --scrim: rgb(0 0 0 / 0.24);
   /* Selected text, in the page and the terminals */
-  --selection: rgb(0 102 255 / 0.2);
+  --selection: oklch(0 0 0 / 0.14);
   /* Cards on the canvas */
   --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
   /* Bordered controls (secondary buttons, fields' neighbours): a lift and a lit top edge */
@@ -353,7 +353,7 @@
     --tile-fg: #ffffff;
     --tile-edge: rgb(255 255 255 / 0.16);
     --scrim: rgb(0 0 0 / 0.5);
-    --selection: rgb(92 157 255 / 0.3);
+    --selection: oklch(1 0 0 / 0.2);
     /* A lit top edge so cards separate from the canvas, which a shadow alone can't do here */
     --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.04);
     --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.06);
@@ -587,7 +587,7 @@ html.transparent body {
 
 @layer base {
   /* Buttons and rows: a neutral ring, so the keyboard's place reads without adding color.
-     Fields replace it with an accent border and ring (lib/field.tsx). */
+     Fields replace it with a neutral border and ring (lib/field.tsx). */
   :focus-visible {
     outline: 2px solid var(--muted);
     outline-offset: 1px;
