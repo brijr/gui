@@ -854,6 +854,7 @@ function Permission({
               variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
               title={option.name}
               shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
+              keys
               onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
               className={cn(
                 'min-w-0',

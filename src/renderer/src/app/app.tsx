@@ -140,6 +140,7 @@ function FocusBar({ state }: { state: WindowState }) {
         variant="ghost"
         size="sm"
         shortcut="focusMode"
+        keys
         onClick={() => gui.setFocusMode(false)}
       >
         Exit focus mode

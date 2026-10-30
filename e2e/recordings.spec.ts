@@ -288,9 +288,9 @@ test('⌥⌘R starts and stops a recording, as the toolbar button does', async (
       item.click()
       return item.accelerator
     })
-  // The button shows its keys, as the toolbar's other tools do.
+  // Its tooltip names its keys, as the toolbar's other tools do.
   const button = session.chrome.getByRole('button', { name: 'Record preview', exact: true })
-  await expect(button).toContainText('⌥⌘R')
+  await expect(button).toHaveAttribute('title', 'Record preview (⌥⌘R)')
   expect(await recordMenu()).toBe('Alt+CmdOrCtrl+R')
   const stop = session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true })
   await expect(stop).toBeVisible()

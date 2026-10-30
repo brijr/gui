@@ -57,7 +57,7 @@ const VIEWPORT_ICONS: Record<Viewport, IconComponent> = {
   mobile: Smartphone,
 }
 /** Named like the View menu's items, with their shortcut; the tooltip adds the size. */
-const VIEWPORT_SEGMENTS = VIEWPORTS.map(({ id, name, size }) => {
+const VIEWPORT_CHOICES = VIEWPORTS.map(({ id, name, size }) => {
   const detail = size ? `${size.width} × ${size.height}` : 'fills the window'
   return {
     value: id,
@@ -88,15 +88,12 @@ const FRAME_NAME_MIN = 96
 const BOARD_GAP_MIN = 8
 
 /**
- * The order the project toolbar makes room in (toolbar-fit.ts): the tools' keys first, then
- * Back and Forward, the viewport, Screenshot and Reload go into the "…" menu, then the branch
- * drops its name, then the project's name, then Select. Record and the chat button
- * always stay.
+ * The order the project toolbar makes room in (toolbar-fit.ts): Back and Forward, the
+ * viewport, Screenshot and Reload go into the "…" menu, then the branch drops its name, then
+ * the project's name, then Select. Record and the chat button always stay. Shortcuts are in
+ * the tooltips, never shown as keys here.
  */
 const PROJECT_STEPS: FitStep[] = [
-  { tool: 'screenshot', to: 'compact' },
-  { tool: 'select', to: 'compact' },
-  { tool: 'chat', to: 'compact' },
   { tool: 'history', to: 'hidden' },
   { tool: 'viewport', to: 'hidden' },
   { tool: 'screenshot', to: 'hidden' },
@@ -107,8 +104,6 @@ const PROJECT_STEPS: FitStep[] = [
 ]
 /** On a canvas's board */
 const BOARD_STEPS: FitStep[] = [
-  { tool: 'select', to: 'compact' },
-  { tool: 'chat', to: 'compact' },
   { tool: 'tool', to: 'hidden' },
   { tool: 'section', to: 'hidden' },
   { tool: 'zoom', to: 'hidden' },
@@ -118,9 +113,6 @@ const BOARD_STEPS: FitStep[] = [
 ]
 /** With a frame open on the canvas */
 const FRAME_STEPS: FitStep[] = [
-  { tool: 'screenshot', to: 'compact' },
-  { tool: 'select', to: 'compact' },
-  { tool: 'chat', to: 'compact' },
   { tool: 'viewport', to: 'hidden' },
   { tool: 'screenshot', to: 'hidden' },
   { tool: 'reload', to: 'hidden' },
@@ -128,7 +120,7 @@ const FRAME_STEPS: FitStep[] = [
 ]
 
 /** The viewports as the "…" menu lists them, with their keys. */
-const VIEWPORT_ITEMS: ToolbarMenuItem[] = VIEWPORT_SEGMENTS.map(({ value, label, shortcut }) => ({
+const VIEWPORT_ITEMS: ToolbarMenuItem[] = VIEWPORT_CHOICES.map(({ value, label, shortcut }) => ({
   type: 'radio',
   id: `viewport:${value}`,
   label,
@@ -145,8 +137,8 @@ function useBar(state: WindowState, lights: boolean) {
 
 /**
  * The window's toolbar: the project menu, then, once a project is open, the preview's
- * navigation, its address (with the dev server's status), viewport, screenshot, Record, Select
- * and the chat. Groups sit a gap apart; controls are 28px. Short of room, tools go into the
+ * navigation, its address (with the dev server's status), viewport, Select, screenshot,
+ * Record and the chat. Groups sit a gap apart; controls are 28px. Short of room, tools go into the
  * "…" menu (PROJECT_STEPS) so the address keeps ADDRESS_MIN.
  */
 export function Toolbar({ state }: { state: WindowState }) {
@@ -169,7 +161,6 @@ export function Toolbar({ state }: { state: WindowState }) {
   }
   const reloadable = !!preview.url || preview.website !== null
   const shown = (tool: string) => fit(tool) !== 'hidden'
-  const keys = (tool: string) => fit(tool) === 'full'
 
   if (state.board) return <BoardToolbar state={state} board={state.board} named={!tabbed} />
 
@@ -281,32 +272,15 @@ export function Toolbar({ state }: { state: WindowState }) {
 
           <AddressBar state={state} />
 
-          {shown('viewport') && (
-            <SegmentedControl
-              label="Viewport"
-              segments={VIEWPORT_SEGMENTS}
-              value={preview.viewport}
-              onChange={(viewport) => gui.setViewport(viewport)}
-              iconOnly
-              className="shrink-0"
-            />
-          )}
+          {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
 
           <div className="flex shrink-0 items-center gap-1">
-            {/* Mounted while it's in the "…" menu too: ⇧⌘S opens its menu from here. */}
-            <ScreenshotButton
-              unavailable={uncapturable}
-              keys={keys('screenshot')}
-              hidden={!shown('screenshot')}
-            />
-            <RecordButton state={state} unavailable={uncapturable} />
             {shown('select') && (
-              <SelectButton
-                unavailable={uncapturable}
-                keys={keys('select')}
-                selecting={preview.selecting}
-              />
+              <SelectButton unavailable={uncapturable} selecting={preview.selecting} />
             )}
+            {/* Mounted while it's in the "…" menu too: ⇧⌘S opens its menu from here. */}
+            <ScreenshotButton unavailable={uncapturable} hidden={!shown('screenshot')} />
+            <RecordButton state={state} unavailable={uncapturable} />
           </div>
 
           {overflowing && (
@@ -323,7 +297,7 @@ export function Toolbar({ state }: { state: WindowState }) {
             />
           )}
 
-          <ChatButton visible={state.chatVisible} keys={keys('chat')} />
+          <ChatButton visible={state.chatVisible} />
         </>
       )}
     </header>
@@ -331,12 +305,11 @@ export function Toolbar({ state }: { state: WindowState }) {
 }
 
 /** "Show chat" or "Hide chat", by whether it's showing (⌘B). */
-function ChatButton({ visible, keys }: { visible: boolean; keys: boolean }) {
+function ChatButton({ visible }: { visible: boolean }) {
   return (
     <IconButton
       label={visible ? 'Hide chat' : 'Show chat'}
       shortcut="toggleChat"
-      keys={keys}
       icon={MessageSquare}
       pressed={visible}
       onClick={() => gui.toggleChat()}
@@ -352,6 +325,39 @@ function viewportItem(item: ToolbarMenuItem, viewport: Viewport): ToolbarMenuIte
 function chooseViewport(id: string) {
   const viewport = VIEWPORTS.find((each) => `viewport:${each.id}` === id)
   if (viewport) gui.setViewport(viewport.id)
+}
+
+/**
+ * The preview's size: the viewport showing, as its icon, which opens a menu of the others
+ * (⌘1–⌘4 pick one straight away). A native menu, as it opens over the preview.
+ */
+function ViewportButton({ viewport }: { viewport: Viewport }) {
+  const button = useRef<HTMLButtonElement>(null)
+  const [open, setOpen] = useState(false)
+  const current =
+    VIEWPORT_CHOICES.find((choice) => choice.value === viewport) ?? VIEWPORT_CHOICES[0]
+  return (
+    <Button
+      ref={button}
+      variant="ghost"
+      icon={current?.icon}
+      trailingIcon={ChevronDown}
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-label={`Viewport: ${current?.label}`}
+      title={current?.title}
+      className="shrink-0 gap-1 px-1.5"
+      onClick={async () => {
+        const box = button.current?.getBoundingClientRect()
+        if (!box) return
+        setOpen(true)
+        const items = VIEWPORT_ITEMS.map((item) => viewportItem(item, viewport))
+        const id = await gui.showToolbarMenu(items, { x: box.left, y: box.bottom + MENU_GAP })
+        setOpen(false)
+        if (id) chooseViewport(id)
+      }}
+    />
+  )
 }
 
 /**
@@ -418,7 +424,6 @@ function BoardToolbar({
     key: open ? 'frame' : 'board',
   })
   const shown = (tool: string) => fit(tool) !== 'hidden'
-  const keys = (tool: string) => fit(tool) === 'full'
   useEffect(
     () =>
       gui.onBoardCommand((command) => {
@@ -530,7 +535,7 @@ function BoardToolbar({
     } else chooseViewport(id)
   }
 
-  const chat = <ChatButton visible={state.chatVisible} keys={keys('chat')} />
+  const chat = <ChatButton visible={state.chatVisible} />
   const nameShown = named && fit('canvas') !== 'compact'
 
   return (
@@ -601,35 +606,18 @@ function BoardToolbar({
               onClick={() => gui.reload()}
             />
           )}
-          {shown('viewport') && (
-            <SegmentedControl
-              label="Viewport"
-              segments={VIEWPORT_SEGMENTS}
-              value={preview.viewport}
-              onChange={(viewport) => gui.setViewport(viewport)}
-              iconOnly
-              className="shrink-0"
-            />
-          )}
+          {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
           {(shown('screenshot') || shown('select')) && (
             <div className="flex shrink-0 items-center gap-1">
-              <ScreenshotButton
-                unavailable={uncapturable}
-                keys={keys('screenshot')}
-                hidden={!shown('screenshot')}
-              />
               {shown('select') && (
-                <SelectButton
-                  unavailable={uncapturable}
-                  keys={keys('select')}
-                  selecting={preview.selecting}
-                />
+                <SelectButton unavailable={uncapturable} selecting={preview.selecting} />
               )}
+              <ScreenshotButton unavailable={uncapturable} hidden={!shown('screenshot')} />
             </div>
           )}
           {!shown('screenshot') && !shown('select') && (
             // ⇧⌘S still opens the screenshot menu, under the "…".
-            <ScreenshotButton unavailable={uncapturable} keys={false} hidden />
+            <ScreenshotButton unavailable={uncapturable} hidden />
           )}
           {overflowing && <MoreButton items={more} onChoose={choose} />}
           {chat}
@@ -684,9 +672,7 @@ function BoardToolbar({
                 <IconButton
                   label="Select element"
                   shortcut="selectElement"
-                  keys={keys('select')}
                   icon={MousePointer2}
-                  emphasis="strong"
                   disabled={!canPick}
                   onClick={() => gui.toggleSelect()}
                 />
@@ -768,21 +754,17 @@ function captureBlocked(preview: PreviewState, board: boolean): string | null {
 
 function SelectButton({
   unavailable,
-  keys,
   selecting,
 }: {
   unavailable: string | null
-  keys: boolean
   selecting: boolean
 }) {
   return (
     <IconButton
       label="Select element"
       shortcut="selectElement"
-      keys={keys}
       icon={MousePointer2}
       pressed={selecting}
-      emphasis="strong"
       title={unavailable ?? undefined}
       aria-disabled={unavailable !== null || undefined}
       onClick={() => unavailable === null && gui.toggleSelect()}
@@ -792,11 +774,9 @@ function SelectButton({
 
 function ScreenshotButton({
   unavailable,
-  keys,
   hidden = false,
 }: {
   unavailable: string | null
-  keys: boolean
   /** In the "…" menu: not drawn, but ⇧⌘S still opens its menu (under the "…", or the window) */
   hidden?: boolean
 }) {
@@ -835,7 +815,6 @@ function ScreenshotButton({
         ref={button}
         label="Screenshot"
         shortcut="screenshot"
-        keys={keys}
         // The tooltip says what it did, for a moment.
         title={done?.label ?? unavailable ?? undefined}
         icon={done ? Check : Camera}

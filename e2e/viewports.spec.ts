@@ -11,6 +11,7 @@ import {
   viewportSpec,
 } from '../src/shared/types'
 import { electronExecutable, sleep, waitFor } from './helpers/env'
+import { chooseFromButtonMenu } from './helpers/menus'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -266,20 +267,21 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
     { label: 'Tablet Viewport', accelerator: 'CmdOrCtrl+3' },
     { label: 'Mobile Viewport', accelerator: 'CmdOrCtrl+4' },
   ])
-  const segments = session.chrome.getByRole('group', { name: 'Viewport' }).getByRole('button')
-  await expect(segments).toHaveCount(4)
-  for (const [i, { name }] of VIEWPORTS.entries()) {
-    await expect(segments.nth(i)).toHaveAccessibleName(name)
-    await expect(segments.nth(i)).toHaveAttribute('aria-keyshortcuts', `Meta+${i + 1}`)
-  }
-  await expect(segments.nth(1)).toHaveAttribute('title', 'Laptop · 1440 × 900 (⌘2)')
-  await expect(segments.nth(0)).toHaveAttribute('aria-pressed', 'true')
+  // One button in the toolbar: the viewport showing, which opens a menu of all four.
+  const viewport = session.chrome.getByRole('button', { name: /^Viewport: / })
+  await expect(viewport).toHaveCount(1)
+  await expect(viewport).toHaveAccessibleName('Viewport: Desktop')
+  await expect(viewport).toHaveAttribute('title', 'Desktop · fills the window')
+  await expect(viewport).toHaveAttribute('aria-haspopup', 'menu')
 
   // As large as the screen allows: whatever the canvas, the page is exactly the device's size.
   await session.app.evaluate(setContentSize, LARGE_WINDOW)
   await sleep(300)
-  await segments.nth(1).click()
-  await expect(segments.nth(1)).toHaveAttribute('aria-pressed', 'true')
+  expect(await chooseFromButtonMenu(session.app, viewport, 'Laptop')).toEqual(
+    VIEWPORTS.map(({ name }) => name),
+  )
+  await expect(viewport).toHaveAccessibleName('Viewport: Laptop')
+  await expect(viewport).toHaveAttribute('title', 'Laptop · 1440 × 900')
   await expectFrame(session, 'laptop')
   await session.shot('laptop-large')
   await clickMenu(session, 'Tablet Viewport')
@@ -334,7 +336,7 @@ test('each viewport lays the page out at its device size, scaled to fit the wind
   await expectFrame(session, 'laptop')
 
   // Desktop clears the emulation: the page is the view's size again, and fills the canvas.
-  await segments.nth(0).click()
+  await chooseFromButtonMenu(session.app, viewport, 'Desktop')
   const desktop = await waitFor(async () => {
     const layout = await session.app.evaluate(views)
     const page = await session.app.evaluate(pageSize)
