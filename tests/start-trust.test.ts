@@ -35,6 +35,7 @@ const info = (root: string, patch: Partial<ProjectInfo> = {}): ProjectInfo => ({
   devScript: 'vite',
   appDir: null,
   custom: null,
+  productionScript: null,
   ...patch,
 })
 
@@ -187,5 +188,42 @@ describe('restarting when what the app starts from changes', () => {
     expect(isStartFile('.env.example', false)).toBe(false)
     expect(isStartFile('bun.lock', true)).toBe(true)
     expect(isStartFile('index.ts', false)).toBe(false)
+  })
+})
+
+describe('project record storage', () => {
+  test('filters invalid records and keeps concurrent writes', async () => {
+    const { rootStore, isStrings } = await import('../src/main/root-store')
+    const store = rootStore('records.json', isStrings)
+    write(userData, { 'records.json': { good: { stamp: 'one' }, bad: { stamp: 2 } } })
+    expect(await store.load()).toEqual({ good: { stamp: 'one' } })
+    await Promise.all([
+      store.update((saved) => ({ ...saved, first: { stamp: 'two' } })),
+      store.update((saved) => ({ ...saved, second: { stamp: 'three' } })),
+    ])
+    expect(await store.load()).toEqual({
+      good: { stamp: 'one' },
+      first: { stamp: 'two' },
+      second: { stamp: 'three' },
+    })
+    writeFileSync(join(userData, 'records.json'), '{')
+    expect(await store.load()).toEqual({})
+  })
+
+  test('preserves the trusted project list format and recovers after a failed write', async () => {
+    const { rootStore } = await import('../src/main/root-store')
+    const store = rootStore(
+      'projects.json',
+      (value): value is string => typeof value === 'string',
+      true,
+    )
+    write(userData, { 'projects.json': ['one', 2, 'one'] })
+    expect(await store.load()).toEqual(['one', 'one'])
+    rmSync(join(userData, 'projects.json'))
+    mkdirSync(join(userData, 'projects.json'))
+    await expect(store.update(() => ['two'])).rejects.toThrow()
+    rmSync(join(userData, 'projects.json'), { recursive: true })
+    await store.update(() => ['three'])
+    expect(await store.load()).toEqual(['three'])
   })
 })

@@ -13,7 +13,7 @@ function run(command: string, args: string[]) {
     execFile(command, args, { timeout: 3000 }, (error, stdout) => {
       // lsof exits 1 when nothing matches: it ran, and its output (none) is the answer.
       const ran = !error || (typeof error.code === 'number' && !error.killed)
-      resolve(ran ? String(stdout) : stdout ? String(stdout) : null)
+      resolve(ran || stdout ? String(stdout) : null)
     })
   })
 }

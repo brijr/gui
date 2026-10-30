@@ -4,6 +4,7 @@ import type { DevServer } from './dev-server'
 import type { RunningMcpServer } from './mcp-server'
 import type { PreviewTools } from './preview-tools'
 import type { Recordings } from './recordings'
+import type { StartWatch } from './start-watch'
 import type { Terminals } from './terminals'
 
 interface HistoryClaims {
@@ -22,7 +23,7 @@ export class ProjectResources {
   /** The canvas this is, when it's one rather than a project */
   board: BoardSession | null = null
   /** Watches the files the app starts from, to restart it when they change (start-watch.ts) */
-  startWatch: { close(): void } | null = null
+  startWatch: StartWatch | null = null
   historyFile: string | null = null
   historyRoot: string | null = null
   private claimedFile: string | null = null

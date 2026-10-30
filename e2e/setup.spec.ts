@@ -7,11 +7,12 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test as base, expect } from '@playwright/test'
 import type { WindowState } from '../src/shared/types'
 import { REPO_ROOT, waitFor } from './helpers/env'
@@ -401,4 +402,23 @@ test('a new dependency in package.json installs before the app restarts', async 
   expect(state.setup).toBeNull()
   const { data: logs } = await session.chrome.evaluate(() => window.gui.getLogs())
   expect(logs.split('$ bun install').length - 1).toBe(2)
+})
+
+test('a failed install record stops setup before dependencies run', async ({ open }) => {
+  const session = await open('fresh', (root) => {
+    mkdirSync(join(dirname(root), 'user-data', 'installed-dependencies.json'))
+  })
+  await waitFor(
+    async () => (await session.state()).setup?.dependencies === 'failed',
+    'the install record to fail',
+  )
+  expect(existsSync(join(session.fixture.root, 'node_modules'))).toBe(false)
+  expect((await session.state()).devServer.status).not.toBe('running')
+  rmSync(join(session.fixture.userData, 'installed-dependencies.json'), { recursive: true })
+  await session.chrome.evaluate(() => window.gui.restartDevServer())
+  await waitFor(
+    async () => (await session.state()).setup?.dependencies !== 'failed',
+    'setup to retry',
+  )
+  await waitForPreview(session)
 })

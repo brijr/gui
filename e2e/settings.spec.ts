@@ -80,10 +80,24 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   // its check fails fast.
   writeFileSync(standInsFile(session.fixture), JSON.stringify({ pi: { command: '/usr/bin/true' } }))
 
+  // Record titles from the first render, so an Agents flash cannot pass this check.
+  await session.app.context().addInitScript(() => {
+    const titles: string[] = []
+    Object.assign(window, { settingsTitles: titles })
+    new MutationObserver(() => {
+      const title = document.querySelector('h1')?.textContent?.trim()
+      if (title && titles.at(-1) !== title) titles.push(title)
+    }).observe(document, { childList: true, subtree: true, characterData: true })
+  })
   // Opened at a section from the project window; the page shows that section.
   await session.chrome.evaluate(() => window.gui.openSettings('storage'))
   const page = await settingsPage(session)
   await expect(page.getByRole('heading', { level: 1, name: 'Storage' })).toBeVisible()
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { settingsTitles: string[] }).settingsTitles[0],
+    ),
+  ).toBe('Storage')
   const measured = await settingsWhere(page, 'storage to be measured', (s) =>
     Object.values(s.storage).every((size) => size !== null),
   )

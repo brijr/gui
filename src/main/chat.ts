@@ -836,8 +836,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.lock) throw new Error('Wait for the agent to finish first.')
     const record = this.records.find((r) => r.turn.id === turnId)
     const before = record?.before
-    if (!record || !before) throw new Error('This turn has no checkpoint to restore.')
-    if (record.turn.reverted) throw new Error('This turn is already undone.')
+    if (!record || !before) throw new Error('This message has no version to restore.')
+    if (record.turn.reverted) throw new Error('This message is already undone.')
     const token = {}
     const epoch = this.epoch
     this.lock = token
@@ -852,7 +852,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         [before, baseline?.sha ?? null, ...later.map((r) => r.before)],
         "so it can't be undone",
       )
-      const message = `before restoring turn ${record.turn.index + 1}`
+      const message = `before restoring message ${record.turn.index + 1}`
       const current = await this.checkpoints.snapshot(message)
       const { paths, inferred } = await this.changedPaths(undone, current)
       if (!(await this.confirmOverwrite(baseline, current, paths, inferred, 'Undo'))) return
@@ -1040,7 +1040,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         id: `turn:${turn.id}`,
         sha: after,
         kind: 'turn',
-        name: versionName(turn.prompt) || `Turn ${turn.index + 1}`,
+        name: versionName(turn.prompt) || `Message ${turn.index + 1}`,
         createdAt: turn.endedAt ?? turn.startedAt,
         changes: turn.changes,
         turnId: turn.id,
@@ -1280,7 +1280,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         }
         await sleep(250)
       }
-      record.before = await this.trySnapshot(record, `before turn ${record.turn.index + 1}`)
+      record.before = await this.trySnapshot(record, `before message ${record.turn.index + 1}`)
       if (stopped()) {
         status = 'cancelled'
         return
@@ -1402,7 +1402,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.resolvePendingPermissions(record)
       // After dispose the final save already holds this turn as interrupted.
       if (record.before && !this.disposed) {
-        record.after = await this.trySnapshot(record, `after turn ${record.turn.index + 1}`)
+        record.after = await this.trySnapshot(record, `after message ${record.turn.index + 1}`)
         if (record.after && !this.disposed) {
           record.turn.changes = await this.checkpoints
             .diff(record.before, record.after)
@@ -1447,7 +1447,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.root,
       {
         message: `Let ${agent} work in ${promptName(basename(this.root))}?`,
-        detail: `${agent} loads this project's own agent settings (for example .claude/settings.json or opencode.json), which can run commands on your Mac. Only continue for projects you trust. Gui won't ask again for this project.`,
+        detail: `${agent} loads this project's own agent settings (for example .claude/settings.json or opencode.json), which can run commands on your Mac. Gui won't ask again for this project. Only start projects you trust.`,
         buttons: ['Continue', 'Cancel'],
         // It follows Return in the composer; pressing it again mustn't be what agrees.
         defaultId: 1,
@@ -1626,7 +1626,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       kind: 'notice',
       id: randomUUID(),
       tone: 'info',
-      text: `Started a new ${this.meta.agentName} session. It doesn't remember earlier turns.`,
+      text: `Started a new chat with ${this.meta.agentName}. It doesn't remember earlier messages.`,
     })
   }
 
@@ -1675,7 +1675,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
             kind: 'notice',
             id: randomUUID(),
             tone: 'info',
-            text: `Couldn't switch the ${key} to ${name(value)}, so this turn uses ${name(setting.value)}.`,
+            text: `Couldn't switch the ${key} to ${name(value)}, so this message uses ${name(setting.value)}.`,
             detail: describeError(error).message,
           })
         }
@@ -1722,7 +1722,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       kind: 'notice',
       id: randomUUID(),
       tone: 'info',
-      text: `Couldn't switch ${this.meta.agentName} to ${policy === 'ask' ? 'Ask' : 'Auto'}, so this turn uses its own setting${mode ? ` (${mode})` : ''}.`,
+      text: `Couldn't switch ${this.meta.agentName} to ${policy === 'ask' ? 'Ask' : 'Auto'}, so this message uses its own setting${mode ? ` (${mode})` : ''}.`,
       detail: failures.join('\n'),
     })
   }
@@ -1974,9 +1974,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private async requireCheckpoints(shas: (string | null)[], consequence: string) {
     const needed = shas.filter((sha): sha is string => sha !== null)
     if (await this.checkpoints.hasCommits(needed)) return
-    throw new Error(
-      `Gui's saved checkpoints are missing (was its checkpoints folder deleted?), ${consequence}.`,
-    )
+    throw new Error(`Gui's saved versions are missing (was their folder deleted?), ${consequence}.`)
   }
 
   /**
@@ -2006,7 +2004,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       message: certain ? 'Overwrite changes made outside Gui?' : 'Overwrite these files?',
       detail: certain
         ? `These files changed after Gui last recorded them, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and those changes will be lost.`
-        : `A turn was interrupted before Gui recorded what it changed, so Gui can't tell whether these files also have changes made outside Gui, for example in your editor:\n\n${files}\n\n${verb} replaces their contents, and any such changes will be lost.`,
+        : `A message stopped before Gui recorded its changes. These files may also have changes from your editor:\n\n${files}\n\n${verb} replaces their contents, and any such changes will be lost.`,
       buttons: [`${action} Anyway`, 'Cancel'],
       defaultId: 1,
       cancelId: 1,
@@ -2044,7 +2042,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         kind: 'notice',
         id: randomUUID(),
         tone: 'error',
-        text: "Couldn't save a checkpoint, so this turn can't be undone.",
+        text: "Couldn't save a version, so this message can't be undone.",
         detail: describeError(error).message,
       })
       return null

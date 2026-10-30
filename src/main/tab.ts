@@ -218,6 +218,7 @@ const boardProject = (root: string, name: string): ProjectInfo => ({
   devScript: null,
   appDir: null,
   custom: null,
+  productionScript: null,
 })
 
 /**
@@ -1078,14 +1079,18 @@ export class ProjectTab implements ChatPanelOwner {
     if (await isTrusted(project.root)) {
       const saved = await trustedScripts(project.root)
       // Trusted before Gui kept what was agreed to: what it runs now is what was agreed.
-      if (!saved) return this.keepScripts(project.root, agreedScripts(now, true, null))
+      if (!saved) {
+        await this.keepScripts(project.root, agreedScripts(now, true, null))
+        return true
+      }
       const picked = !!project.appDir && getPrefs().apps[project.root] === project.appDir
       const changed = startChanged(project, now, saved, picked, this.watchedStart)
       const installsChanged = installing ? changedInstalls(saved.installs, now.installs) : []
       if (!changed && installsChanged.length === 0) {
         const agreed = agreedScripts(now, installing, saved)
         if (JSON.stringify(agreed) === JSON.stringify(saved)) return true
-        return this.keepScripts(project.root, agreed)
+        await this.keepScripts(project.root, agreed)
+        return true
       }
       return this.confirmChangedScripts(project, now, saved, changed, installsChanged, installs)
     }
@@ -1099,7 +1104,7 @@ export class ProjectTab implements ChatPanelOwner {
         project.root,
         {
           message: `Start ${promptName(project.name)}?`,
-          detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nOnly start projects you trust. Gui won't ask again for this project unless its scripts change.`,
+          detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nGui won't ask again for this project unless its scripts change. Only start projects you trust.`,
           buttons: ['Start Dev Server', 'Not Now'],
         },
         agreed,
@@ -1113,7 +1118,7 @@ export class ProjectTab implements ChatPanelOwner {
       project.root,
       {
         message: `Start ${promptName(project.name)}?`,
-        detail: `Gui will install dependencies (${this.installDescription(installs)}) and start the dev server (${devCommand}) to preview the project. ${installScripts}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only continue with projects you trust.`,
+        detail: `Gui will install dependencies (${this.installDescription(installs)}) and start the dev server (${devCommand}) to preview the project. ${installScripts}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only start projects you trust.`,
         buttons: ['Install and Start', 'Not Now'],
       },
       agreed,
@@ -1146,7 +1151,7 @@ export class ProjectTab implements ChatPanelOwner {
       project.root,
       {
         message: `${promptName(project.name)}'s scripts changed`,
-        detail: `Since you last started it, ${changes.length > 1 ? 'these changed' : 'this changed'}:\n\n${changes.join('\n\n')}\n\n${installing ? `Gui will install dependencies (${this.installDescription(installs)}) and start it. ` : ''}It runs code on your Mac. Only continue if you trust the change.`,
+        detail: `Since you last started it, ${changes.length > 1 ? 'these changed' : 'this changed'}:\n\n${changes.join('\n\n')}\n\n${installing ? `Gui will install dependencies (${this.installDescription(installs)}) and start it. ` : ''}It runs code on your Mac. Only start projects you trust.`,
         buttons: [installing ? 'Install and Start' : 'Start Dev Server', 'Not Now'],
       },
       agreedScripts(now, installing, saved),
@@ -1170,12 +1175,11 @@ export class ProjectTab implements ChatPanelOwner {
       .join(', then ')
   }
 
-  /** Records what the user agreed to run (or ran unchanged); true, to go on. */
-  private async keepScripts(root: string, scripts: TrustedScripts) {
+  /** Records what the user agreed to run (or ran unchanged). */
+  private async keepScripts(root: string, scripts: TrustedScripts): Promise<void> {
     await recordTrustedScripts(root, scripts).catch((error: unknown) =>
       console.error('[gui] failed to keep the trusted scripts', error),
     )
-    return true
   }
 
   /** The start as it is now, or null with nothing to start (or an app still to pick). */
@@ -1192,14 +1196,18 @@ export class ProjectTab implements ChatPanelOwner {
    * turn. Install scripts aren't covered: they ask before the next install.
    */
   private async noteTurnScripts(ending: boolean) {
+    const resources = this.resources
+    const generation = resources.generation
     const root = this.state.project?.root
     const pending = this.turnStartKey
     if (ending) this.turnStartKey = null
     const before = await pending
     if (!root || !before) return
+    if (!resources.stillCurrent(generation)) return
     const after = await this.currentStartKey()
-    if (after === null || after === before || this.state.project?.root !== root) return
+    if (after === null || after === before || !resources.stillCurrent(generation)) return
     const saved = await trustedScripts(root)
+    if (!resources.stillCurrent(generation)) return
     const agreed = Object.values(saved?.starts ?? {}).includes(before)
     if (agreed || this.watchedStart === before) this.watchedStart = after
   }
@@ -2366,8 +2374,9 @@ export class ProjectTab implements ChatPanelOwner {
       const installed = installs.length === 0 || (await this.install(devServer, project, installs))
       // From now on a change to what it starts from restarts it; an install's own changes
       // to the lockfile came before this.
-      this.startedSignature = await startSignature(project)
+      const signature = await startSignature(project)
       if (!installed || devServer !== this.resources.devServer) return
+      this.startedSignature = signature
       // The package manager is checked before every start: it may have gone since the install.
       const tool = packageManagerOf(project.devCommand)
       const missing = tool && (await missingPackageManager(tool, await getShellEnv()))
@@ -2403,7 +2412,17 @@ export class ProjectTab implements ChatPanelOwner {
       }
       // Marked as not installed until it succeeds: an install cut short leaves a partial
       // node_modules that must not pass for installed next time.
-      await recordInstall(project.root, target.dir, '').catch(() => undefined)
+      try {
+        await recordInstall(project.root, target.dir, '')
+      } catch (error) {
+        console.error('[gui] failed to clear the installed dependencies', error)
+        if (current()) {
+          devServer.print("Gui couldn't record the dependency setup. Try installing again.")
+          this.patchSetup({ dependencies: 'failed' })
+        }
+        return false
+      }
+      if (!current()) return false
       const dir = target.dir ? join(project.root, target.dir) : project.root
       const command = installCommand(target.packageManager)
       const result = await devServer.runTask(command, dir, INSTALL_TIMEOUT_MS)
@@ -2417,7 +2436,17 @@ export class ProjectTab implements ChatPanelOwner {
         this.patchSetup({ dependencies: 'failed' })
         return false
       }
-      await recordInstalled(project, target.dir).catch(() => undefined)
+      try {
+        await recordInstalled(project, target.dir)
+      } catch (error) {
+        console.error('[gui] failed to record the installed dependencies', error)
+        if (current()) {
+          devServer.print("Gui couldn't record the installed dependencies. Try installing again.")
+          this.patchSetup({ dependencies: 'failed' })
+        }
+        return false
+      }
+      if (!current()) return false
     }
     this.patchSetup({ dependencies: 'ok' })
     return true
@@ -2434,7 +2463,7 @@ export class ProjectTab implements ChatPanelOwner {
       if (!resources.stillCurrent(generation)) return
       const dirs = startDirs(project)
       const current = resources.startWatch
-      if (current instanceof StartWatch && current.key === StartWatch.keyOf(dirs, selfReloading)) {
+      if (current?.key === StartWatch.keyOf(dirs, selfReloading)) {
         return
       }
       current?.close()
@@ -2458,6 +2487,8 @@ export class ProjectTab implements ChatPanelOwner {
    * or never agreed to), nor if the files hash as they did when it started.
    */
   private async restartForChanges() {
+    const resources = this.resources
+    const generation = resources.generation
     const { project, devServer, setup } = this.state
     if (!project?.devCommand || this.resources.chat?.turnRunning) {
       if (project?.devCommand) this.restartAfterTurn = true
@@ -2466,12 +2497,12 @@ export class ProjectTab implements ChatPanelOwner {
     // Busy starting or installing: look again once that's done.
     if (this.settingUp || this.retrying) {
       const watch = this.resources.startWatch
-      if (watch instanceof StartWatch) watch.schedule()
+      watch?.schedule()
       return
     }
     if (devServer.status === 'idle' && setup?.dependencies !== 'failed') return
     const signature = await startSignature(project)
-    if (signature === this.startedSignature || this.state.project?.root !== project.root) return
+    if (signature === this.startedSignature || !resources.stillCurrent(generation)) return
     const now = Date.now()
     this.autoRestarts = this.autoRestarts.filter((at) => now - at < AUTO_RESTART_WINDOW_MS)
     if (this.autoRestarts.length >= MAX_AUTO_RESTARTS) return
@@ -2625,7 +2656,7 @@ export class ProjectTab implements ChatPanelOwner {
       project.root,
       {
         message: `Start ${promptName(project.name)} a different way?`,
-        detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, 2000)}\n\nGui will run it now and whenever you open this project. It runs code on your Mac: only allow commands you trust. You can go back to the detected command in Settings.`,
+        detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, 2000)}\n\nGui will run it now and whenever you open this project. You can go back to the detected command in Settings. It runs code on your Mac. Only use commands you trust.`,
         buttons: ['Use This Command', 'Cancel'],
         // The agent asked, not the user: Return mustn't be what agrees.
         defaultId: 1,

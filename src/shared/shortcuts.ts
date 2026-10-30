@@ -216,7 +216,7 @@ export const SHORTCUTS = {
     alternates: ['Shift+CmdOrCtrl+C'],
     menu: 'view',
     group: 'preview',
-    description: 'Pick an element to change (Esc cancels)',
+    description: 'Select an element or area to change (Esc when done)',
   },
   screenshot: {
     label: 'Screenshot…',

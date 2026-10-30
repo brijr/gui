@@ -52,7 +52,10 @@ export function watchSettings() {
 
 export function openSettings(section?: SettingsSection) {
   if (live(win)) {
-    if (section) win.webContents.send(Events.settingsSection, section)
+    if (section) {
+      pendingSection = section
+      win.webContents.send(Events.settingsSection, section)
+    }
     showWindow(win)
     focusWindow(win)
     return
@@ -90,13 +93,9 @@ export function openSettings(section?: SettingsSection) {
 /** The state the Settings page renders; also delivers a section it was opened at. */
 export async function getSettings(sender: WebContents): Promise<SettingsState> {
   const state = await buildState()
-  const section = pendingSection
-  if (section && isSettingsContents(sender)) {
+  if (isSettingsContents(sender)) {
+    state.initialSection = pendingSection ?? 'agents'
     pendingSection = null
-    // After the reply, so the page has subscribed by the time it arrives.
-    setTimeout(() => {
-      if (!sender.isDestroyed()) sender.send(Events.settingsSection, section)
-    }, 0)
   }
   return state
 }

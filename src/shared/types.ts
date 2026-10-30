@@ -119,9 +119,9 @@ export interface ProjectInfo {
   custom: StartCommand | null
   /**
    * With no dev script: the `start` (or `serve`) script Gui passed over because it serves a
-   * production build (`next start`), to say why nothing starts. Absent or null otherwise.
+   * production build (`next start`), to say why nothing starts. Null otherwise.
    */
-  productionScript?: string | null
+  productionScript: string | null
 }
 
 /**
@@ -1047,6 +1047,9 @@ export type StorageUsage = Record<StorageKind, number | null>
 export type SettingsSection = 'agents' | 'chat' | 'projects' | 'github' | 'storage' | 'account'
 
 export interface SettingsState {
+  /** Section requested when this Settings window opened. */
+  initialSection?: SettingsSection
+
   /** Every known agent, enabled or not */
   agents: AgentHealth[]
   /** The agent new windows start with */

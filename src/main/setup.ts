@@ -3,18 +3,19 @@ import { constants } from 'node:fs'
 import { access, lstat, readFile, stat, writeFile } from 'node:fs/promises'
 import { delimiter, dirname, join, posix } from 'node:path'
 import type { PackageManager, ProjectInfo, ProjectSetup, WorkspaceApp } from '../shared/types'
-import { type InstallRecord, installedStamps, recordInstall } from './install-state'
+import { installedStamps, recordInstall } from './install-state'
 import {
   detectPackageManager,
   exists,
   expandPatterns,
+  LOCKFILES,
   type PackageJson,
   readPackageJson,
   realRelative,
   workspacePatterns,
 } from './project'
 
-const ENV_EXAMPLES = ['.env.example', '.env.sample', '.env.template']
+export const ENV_EXAMPLES = ['.env.example', '.env.sample', '.env.template']
 /** Any of these means the env is already set up. */
 const ENV_LOCALS = ['.env', '.env.local', '.env.development.local']
 /** Next.js and Vite both load it, and their templates gitignore `*.local`. */
@@ -40,11 +41,16 @@ const TOOL_OF: Record<string, PackageManager> = {
   npx: 'npm',
 }
 
-/** The package manager a start command runs with (`pnpm run dev`), or null for anything else. */
-export function packageManagerOf(command: string): PackageManager | null {
+/** The executable after any leading environment assignments. */
+export function firstCommandWord(command: string): string {
   const words = command.trim().split(/\s+/)
   while (words[0] && /^\w+=/.test(words[0])) words.shift()
-  return TOOL_OF[words[0] ?? ''] ?? null
+  return words[0] ?? ''
+}
+
+/** The package manager a start command runs with (`pnpm run dev`), or null for anything else. */
+export function packageManagerOf(command: string): PackageManager | null {
+  return TOOL_OF[firstCommandWord(command)] ?? null
 }
 
 /** What the project needs before its preview can run; null when nothing. */
@@ -79,14 +85,6 @@ export interface InstallTarget {
   stamp: string
 }
 
-const LOCKFILE_NAMES = [
-  'bun.lock',
-  'bun.lockb',
-  'pnpm-lock.yaml',
-  'yarn.lock',
-  'package-lock.json',
-  'npm-shrinkwrap.json',
-]
 /** What else decides what an install puts in node_modules (pnpm's catalogs, Yarn's settings). */
 const INSTALL_CONFIG = ['pnpm-workspace.yaml', '.yarnrc.yml', '.npmrc']
 /** The package.json fields an install reads; editing a script doesn't need a new install. */
@@ -145,7 +143,7 @@ export async function installTargets(project: ProjectInfo): Promise<InstallTarge
 export async function installsNeeded(project: ProjectInfo): Promise<InstallTarget[]> {
   const [targets, recorded] = await Promise.all([
     installTargets(project),
-    installedStamps(project.root).catch((): InstallRecord => ({})),
+    installedStamps(project.root),
   ])
   const needed: InstallTarget[] = []
   for (const target of targets) {
@@ -183,14 +181,14 @@ export async function dependencyStamp(
   for (const workspace of workspaces) {
     hash.update(`\0${workspace}\0${fields(await readPackageJson(join(dir, workspace)))}`)
   }
-  for (const name of [...LOCKFILE_NAMES, ...INSTALL_CONFIG]) {
+  for (const name of [...LOCKFILES.map(([name]) => name), ...INSTALL_CONFIG]) {
     hash.update(`\0${name}\0${await fileStamp(join(dir, name))}`)
   }
   return hash.digest('hex')
 }
 
 /** A regular file's contents (its size and time when huge); '' when there's none. */
-async function fileStamp(path: string): Promise<string> {
+export async function fileStamp(path: string): Promise<string> {
   try {
     const info = await stat(path)
     if (!info.isFile()) return ''

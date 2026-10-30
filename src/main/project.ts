@@ -4,12 +4,13 @@ import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, posix, relative, sep } from 'node:path'
 import type { PackageManager, ProjectInfo, WorkspaceApp } from '../shared/types'
 
-const LOCKFILES: [string, PackageManager][] = [
+export const LOCKFILES: [string, PackageManager][] = [
   ['bun.lock', 'bun'],
   ['bun.lockb', 'bun'],
   ['pnpm-lock.yaml', 'pnpm'],
   ['yarn.lock', 'yarn'],
   ['package-lock.json', 'npm'],
+  ['npm-shrinkwrap.json', 'npm'],
 ]
 
 /**
@@ -208,8 +209,6 @@ export function chooseDevScript(pkg: PackageJson | null): ScriptChoice {
   return { script: null, production }
 }
 
-const devScriptOf = (pkg: PackageJson | null) => chooseDevScript(pkg).script
-
 /**
  * True for a script that serves a production build: a framework's `start`/`preview`, a
  * static file server, or Node running a web framework's build output.
@@ -245,7 +244,7 @@ function webFramework(pkg: PackageJson): boolean {
 }
 
 /** Keys of a package.json dependency map, tolerating malformed values. */
-function dependencyNames(value: unknown): string[] {
+export function dependencyNames(value: unknown): string[] {
   return value && typeof value === 'object' && !Array.isArray(value) ? Object.keys(value) : []
 }
 
@@ -463,7 +462,7 @@ async function findApps(root: string, pkg: PackageJson | null): Promise<Workspac
   const found = await Promise.all(
     dirs.map(async (dir) => {
       const child = await readPackageJson(join(root, dir))
-      const script = devScriptOf(child)
+      const script = chooseDevScript(child).script
       if (!child || !script) return null
       const packageName = typeof child.name === 'string' && child.name ? child.name : null
       const app: Workspace = { dir, name: packageName || basename(dir), script, packageName }
@@ -503,10 +502,10 @@ export async function detectProject(
   const run = (
     script: DevScript | null,
     appDir: string | null,
-    devCommand = script ? `${packageManager} run ${script.name}` : null,
+    command: string | null = null,
   ): ProjectInfo => ({
     ...base,
-    devCommand,
+    devCommand: command ?? (script ? `${packageManager} run ${script.name}` : null),
     devScript: script?.body ?? null,
     appDir,
     custom: null,
@@ -532,7 +531,11 @@ export async function detectProject(
   if (chosen.dir === ROOT_APP_DIR)
     return { project: run(chosen.script, null), apps, choosing: false }
   const turbo = await turboCommand(root, pkg, packageManager, chosen)
-  return { project: run(chosen.script, chosen.dir, turbo ?? undefined), apps, choosing: false }
+  return {
+    project: run(chosen.script, chosen.dir, turbo),
+    apps,
+    choosing: false,
+  }
 }
 
 /** How a package manager runs a binary the project installed. */
@@ -682,4 +685,9 @@ async function workspaceMember(root: string, dir: string): Promise<WorkspaceMemb
   if (!(await expandPatterns(root, patterns)).includes(appDir)) return null
   const { apps } = await detectProject(root)
   return apps.some((app) => app.dir === appDir) ? { root, appDir } : null
+}
+
+/** The folder the app runs in, inside its project. */
+export function appRoot(project: ProjectInfo) {
+  return project.appDir ? join(project.root, project.appDir) : project.root
 }

@@ -71,7 +71,7 @@ export function Drawer({ state }: { state: WindowState }) {
   const { terminals } = drawer
   const shown = drawer.tab ?? 'server'
   const failed = crashed(state)
-  const stopped = stoppedOutside(state)
+  const outside = stoppedOutside(state)
   const exited = terminals.find((terminal) => terminal.id === shown)?.exited ?? false
 
   const tabs: TabEntry[] = [
@@ -112,7 +112,7 @@ export function Drawer({ state }: { state: WindowState }) {
         !state.focusMode &&
         state.devServer.status === 'exited' &&
         state.preview.visible && (
-          <StoppedBar crashed={failed} outside={stopped} agentId={state.agentId} />
+          <StoppedBar crashed={failed} outside={outside} agentId={state.agentId} />
         )}
       {/* Kept mounted while closed, so the terminals keep their scrollback and place. */}
       <section
@@ -306,7 +306,7 @@ function Panel({ tab, shown, children }: { tab: DrawerTab; shown: boolean; child
 
 /**
  * Under a preview whose app is gone: it crashed (an alert, with the logs to see why), or
- * something outside Gui stopped it (said calmly, with a way to start it again).
+ * it exited cleanly or something outside Gui stopped it (said calmly, with a way to restart).
  */
 function StoppedBar({
   crashed,

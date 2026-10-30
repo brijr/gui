@@ -481,7 +481,7 @@ function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 }
 
 function assertSha(sha: string): void {
-  if (!SHA_RE.test(sha)) throw new Error(`Invalid checkpoint sha: ${sha}`)
+  if (!SHA_RE.test(sha)) throw new Error(`Invalid version ID: ${sha}`)
 }
 
 // Normalizes a caller path to a POSIX repo path, rejecting anything outside the project or in .git.

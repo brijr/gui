@@ -1,50 +1,28 @@
-import { readFile, realpath } from 'node:fs/promises'
-import { join } from 'node:path'
-import { app, type BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
-import { writeFileAtomic } from './atomic-file'
+import { type BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
+import { canonical, isStrings, rootStore } from './root-store'
 
 /**
  * Projects whose dev script the user has agreed to run. Opening a folder must not
  * execute its package.json scripts until the user has seen and accepted them.
  */
-const file = () => join(app.getPath('userData'), 'trusted-projects.json')
-
-async function load(): Promise<string[]> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(file(), 'utf8'))
-    return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-const canonical = (root: string) => realpath(root).catch(() => root)
+const projects = rootStore(
+  'trusted-projects.json',
+  (value): value is string => typeof value === 'string',
+  true,
+)
 
 export async function isTrusted(root: string) {
-  return (await load()).includes(await canonical(root))
+  return (await projects.load()).includes(await canonical(root))
 }
 
-export function listTrusted() {
-  return load()
-}
-
-let pendingWrite: Promise<unknown> = Promise.resolve()
-
-/** One change at a time, each on the list the last one wrote, so none is lost. */
-function update(change: (trusted: string[]) => string[]) {
-  const task = pendingWrite.then(async () => {
-    const trusted = await load()
-    const next = change(trusted)
-    if (next !== trusted) await writeFileAtomic(file(), JSON.stringify(next, null, 2))
-  })
-  pendingWrite = task.catch(() => undefined)
-  return task
+export async function listTrusted() {
+  return projects.load()
 }
 
 /** The project's dev script will ask again before it runs. */
 export async function untrust(root: string) {
   const path = await canonical(root)
-  await update((trusted) => trusted.filter((p) => p !== root && p !== path))
+  await projects.update((trusted) => trusted.filter((p) => p !== root && p !== path))
   await updateScripts(({ [path]: _gone, [root]: _given, ...rest }) => rest)
 }
 
@@ -67,41 +45,13 @@ export interface TrustedScripts {
   installs: Record<string, string> | null
 }
 
-const scriptsFile = () => join(app.getPath('userData'), 'trusted-scripts.json')
-
 const isScripts = (value: unknown): value is TrustedScripts => {
   if (!value || typeof value !== 'object') return false
   const { starts, installs } = value as Record<string, unknown>
   return isStrings(starts) && (installs === null || isStrings(installs))
 }
 
-const isStrings = (value: unknown): value is Record<string, string> =>
-  !!value &&
-  typeof value === 'object' &&
-  !Array.isArray(value) &&
-  Object.values(value).every((text) => typeof text === 'string')
-
-type SavedScripts = Record<string, TrustedScripts>
-
-async function loadScripts(): Promise<SavedScripts> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(scriptsFile(), 'utf8'))
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    return Object.fromEntries(Object.entries(parsed).filter((entry) => isScripts(entry[1])))
-  } catch {
-    return {}
-  }
-}
-
-let pendingScripts: Promise<unknown> = Promise.resolve()
-
-function updateScripts(change: (saved: SavedScripts) => SavedScripts) {
-  const task = pendingScripts.then(async () => {
-    await writeFileAtomic(scriptsFile(), JSON.stringify(change(await loadScripts()), null, 2))
-  })
-  pendingScripts = task.catch(() => undefined)
-  return task
-}
+const { load: loadScripts, update: updateScripts } = rootStore('trusted-scripts.json', isScripts)
 
 /** The scripts the user last agreed to run in the project; null when none are kept. */
 export async function trustedScripts(root: string): Promise<TrustedScripts | null> {
@@ -115,7 +65,7 @@ export async function recordTrustedScripts(root: string, scripts: TrustedScripts
 
 export async function trust(root: string) {
   const path = await canonical(root)
-  await update((trusted) => (trusted.includes(path) ? trusted : [...trusted, path]))
+  await projects.update((trusted) => (trusted.includes(path) ? trusted : [...trusted, path]))
 }
 
 /**
