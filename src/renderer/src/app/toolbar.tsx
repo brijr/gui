@@ -704,7 +704,7 @@ function ProjectMenuButton({
                 </span>
               )}
               <span className="sr-only">{shown.name ? ', branch ' : 'Branch '}</span>
-              {branch}
+              <span className="font-mono">{branch}</span>
             </>
           )}
         </span>
