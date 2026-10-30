@@ -679,6 +679,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
   if (state.developerTools === 'installing') {
     return (
       <Banner
+        wrap
         icon={Wrench}
         actions={
           <Button size="sm" variant="ghost" onClick={() => gui.installDeveloperTools()}>
@@ -686,7 +687,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
           </Button>
         }
       >
-        <span className="truncate">
+        <span className="text-pretty">
           Finish installing Apple’s developer tools in the macOS window.
         </span>
       </Banner>
@@ -694,6 +695,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
   }
   return (
     <Banner
+      wrap
       icon={Wrench}
       tone="warning"
       actions={
@@ -702,7 +704,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
         </Button>
       }
     >
-      <span className="truncate">Undo and sharing need Apple’s free developer tools.</span>
+      <span className="text-pretty">Undo and sharing need Apple’s free developer tools.</span>
     </Banner>
   )
 }
@@ -721,6 +723,7 @@ export function EnvBanner({ state }: { state: WindowState }) {
   if (!env || dismissed || !state.preview.visible) return null
   return (
     <Banner
+      wrap
       icon={KeyRound}
       actions={
         <>
@@ -737,7 +740,7 @@ export function EnvBanner({ state }: { state: WindowState }) {
         </>
       }
     >
-      <span className="truncate">
+      <span className="text-pretty">
         This project uses environment variables. <EnvText env={env} />
       </span>
     </Banner>
