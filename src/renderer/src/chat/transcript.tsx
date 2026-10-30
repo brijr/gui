@@ -419,8 +419,7 @@ function EmptyTranscript({
   if (canvas && !canSelect) {
     return (
       <Message fill icon={MessageSquare} title="Design on the canvas">
-        Ask for a page, or a few versions of one, and each lands on the canvas as a frame. Open a
-        frame to point at any part of it to change.
+        Open a frame to point at what you want to change.
       </Message>
     )
   }
@@ -434,8 +433,7 @@ function EmptyTranscript({
         title="Ask about your project"
         actions={<StarterPrompts prompts={STARTERS.build} />}
       >
-        Once your app shows in the preview, you can point at any part of it to change. Until then,
-        your agent can still read and edit the code.
+        Your agent can read and edit the code while the preview starts.
       </Message>
     )
   }

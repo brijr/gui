@@ -195,7 +195,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon="loading"
         title="Installing dependencies…"
-        detail="Getting the project ready to run. The first time can take a few minutes."
+        detail="The first install can take a few minutes."
         actions={<LogsToggle open={logsOpen} />}
         env={env}
       />
@@ -208,7 +208,6 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={TriangleAlert}
         tone="danger"
         title="Couldn't install dependencies"
-        detail="The install stopped with an error."
         note={devServer.lastLine}
         actions={
           <>
@@ -232,7 +231,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title="Your app stopped"
         detail={
           failed
-            ? 'It quit with an error. The logs show what happened.'
+            ? 'It quit with an error.'
             : stoppedOutside(state)
               ? 'Something outside Gui stopped it.'
               : undefined
@@ -291,7 +290,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon="loading"
         title="Your app is taking a while to start"
-        detail="Gui is waiting for it to show an address. Check the logs, or enter your app's address if it's already running."
+        detail="No address yet. If your app is running, enter its address."
         note={devServer.lastLine}
         actions={
           <>
@@ -324,8 +323,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={Info}
         title="Start building your app"
-        detail="Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
-        note="Add a “dev” script to package.json, or set a dev server command, to let Gui start your app automatically."
+        detail="Describe your app in chat. Gui will preview it when it's ready."
         actions={
           <>
             <Button variant="primary" onClick={() => gui.expandChat()}>
@@ -882,12 +880,6 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
             Clone…
           </Button>
         </div>
-        {firstRun && (
-          <p className="text-small text-muted">
-            New project starts a website or app. New canvas lets you design without a project. Clone
-            copies one from GitHub. Open project uses a folder already on your Mac.
-          </p>
-        )}
       </div>
     )
   }

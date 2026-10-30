@@ -154,9 +154,7 @@ export function GitHubSection() {
         </Button>
       }
     >
-      <p className="text-small text-muted">
-        Choose which repositories Gui can see. Clone them with Clone… on the start screen.
-      </p>
+      <p className="text-small text-muted">Choose which repositories Gui can see.</p>
       {/* Opens GitHub in the browser */}
       <Button
         trailingIcon={ExternalLink}

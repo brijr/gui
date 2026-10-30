@@ -47,8 +47,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
             Dev server commands
           </GroupLabel>
           <p className="text-pretty text-small text-muted">
-            These projects start their dev server with a command set in Gui instead of the one Gui
-            found. Resetting goes back to the one it finds.
+            Reset to use the command Gui finds in the project.
           </p>
           <List>
             {startCommands.map(({ root, start }) => (

@@ -7,7 +7,7 @@ import { SettingsGroup } from './settings-group'
 export function ChatSection({ settings }: { settings: SettingsState }) {
   const sidebar = settings.chatSidebar
   return (
-    <SettingsGroup title="Layout" description="Chat can sit beside the preview or float over it.">
+    <SettingsGroup title="Layout">
       <List>
         <ListItem
           title="Show the chat as a sidebar"

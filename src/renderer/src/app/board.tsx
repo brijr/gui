@@ -23,7 +23,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { FIELD_LOOK, InlineError } from '../lib/field'
-import { Card, GroupLabel } from '../lib/surface'
+import { Card } from '../lib/surface'
 import { PromptButton, Spinner } from '../lib/ui'
 
 /** The frame label's height above a frame, in screen pixels. */
@@ -1125,13 +1125,9 @@ function EmptyBoard({ working }: { working: boolean }) {
       >
         <div className="flex flex-col gap-1">
           <h2 className="font-semibold">Start your canvas</h2>
-          <p className="text-pretty text-muted">
-            Ask your agent for a page or a few versions of one. Each lands here as a frame you can
-            move, compare and open.
-          </p>
+          <p className="text-pretty text-muted">Ask for a page or a few versions to compare.</p>
         </div>
         <div className="flex flex-col gap-2">
-          <GroupLabel>Try</GroupLabel>
           <div className="flex flex-col gap-1.5">
             {STARTERS.map((prompt) => (
               <PromptButton
@@ -1147,7 +1143,7 @@ function EmptyBoard({ working }: { working: boolean }) {
           {(working || sent) && (
             <p role="status" className="flex items-center gap-1.5 text-small text-muted">
               <Spinner />
-              Your agent is on it. Frames land here as it makes them.
+              Your agent is adding frames…
             </p>
           )}
           {error && <InlineError>{error}</InlineError>}

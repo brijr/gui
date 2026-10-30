@@ -249,8 +249,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
       )}
 
       <p className="text-pretty text-caption text-subtle">
-        Add any agent that supports the Agent Client Protocol. Gui looks for its command in the same
-        places your Terminal does.
+        Supports agents using the Agent Client Protocol.
       </p>
     </SettingsGroup>
   )
