@@ -199,7 +199,7 @@ function VersionRow({
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
   const restoring = busy === version.id
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-line p-3">
+    <li className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
       {/* The name gets the card's full width; badges and time go under it, so a long
           request or name stays readable instead of being cut short by its badges. */}
       <div className="flex flex-col gap-1">
@@ -238,7 +238,7 @@ function VersionRow({
             icon={Undo2}
             disabled={busy !== null || running}
             loading={restoring}
-            title="Put the project's files back to this version; how they are now is saved first"
+            title="Put the project’s files back to this version; how they are now is saved first"
             aria-label={`Restore ${version.name}`}
             onClick={() => void restoreVersion(version.id)}
           >

@@ -56,7 +56,7 @@ const SENT_WAIT_MS = 10_000
 
 /** Prompts for an empty canvas: the kinds of thing a board is good for. */
 const STARTERS = [
-  'A landing page for a neighborhood coffee roaster',
+  'Kiln, a booking app for pottery studios',
   'Three different pricing page options, side by side',
   'A mobile onboarding flow in three screens',
   'A dashboard for a small fitness studio',
@@ -1009,7 +1009,9 @@ function FrameLabel({
       }}
       onDoubleClick={hand ? undefined : onRename}
     >
-      <span className="truncate font-medium">{frame.name}</span>
+      <span className="truncate font-medium" title={frame.name}>
+        {frame.name}
+      </span>
       {/* Narrow on screen, the name matters more than the size. */}
       {width >= SIZE_LABEL_MIN && (
         <span className="shrink-0 text-subtle tabular-nums">
@@ -1081,7 +1083,9 @@ function SectionLabel({
       )}
       style={style}
     >
-      <span className="truncate">{name}</span>
+      <span className="truncate" title={name}>
+        {name}
+      </span>
     </p>
   )
 }
@@ -1109,7 +1113,7 @@ function EmptyBoard({ working }: { working: boolean }) {
     setError(null)
     try {
       if (await gui.send(prompt)) setSent(true)
-      else setError("Gui couldn't send that to your agent. Try again, or ask in the chat.")
+      else setError('Gui couldn’t send that to your agent. Try again, or ask in the chat.')
     } catch (err) {
       setError(readableError(err))
     } finally {

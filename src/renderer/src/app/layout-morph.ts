@@ -85,7 +85,7 @@ class MorphFrame {
     this.el.className = 'pointer-events-none absolute inset-0'
     this.el.dataset.morph = String(id)
     this.edge.dataset.morphFrame = ''
-    this.edge.className = 'absolute top-0 left-0 border border-line-strong shadow-popover'
+    this.edge.className = 'absolute top-0 left-0 border border-line-strong shadow-raised'
     this.label.className =
       'absolute top-0 left-0 flex items-center text-caption whitespace-nowrap text-subtle tabular-nums'
     this.label.style.height = `${FRAME_LABEL_HEIGHT}px`

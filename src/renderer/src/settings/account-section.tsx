@@ -25,7 +25,7 @@ export function AccountSection({ settings }: { settings: SettingsState }) {
         </p>
         <p className="flex gap-4 text-small">
           <a
-            className="underline underline-offset-2"
+            className="relative rounded-sm text-accent-text underline-offset-2 before:absolute before:-inset-1 hover:underline active:opacity-70 active:transition-none transition-opacity"
             href="https://usegui.com/terms"
             target="_blank"
             rel="noreferrer"
@@ -33,12 +33,12 @@ export function AccountSection({ settings }: { settings: SettingsState }) {
             Terms
           </a>
           <a
-            className="underline underline-offset-2"
+            className="relative rounded-sm text-accent-text underline-offset-2 before:absolute before:-inset-1 hover:underline active:opacity-70 active:transition-none transition-opacity"
             href="https://usegui.com/privacy"
             target="_blank"
             rel="noreferrer"
           >
-            Privacy Policy
+            Privacy policy
           </a>
         </p>
       </SettingsGroup>
@@ -239,9 +239,7 @@ function SignedOut({ expired }: { expired: boolean }) {
       }
       title={expired ? 'Sign in again' : 'You’re signed out'}
       detail={
-        expired
-          ? 'Your Gui sign-in has expired.'
-          : 'Sign in with Google, GitHub, or your email. New here? Signing in makes an account.'
+        expired ? 'Your Gui sign-in has expired.' : 'Sign in with Google, GitHub, or your email.'
       }
       trailing={
         !waiting && (
@@ -255,7 +253,7 @@ function SignedOut({ expired }: { expired: boolean }) {
         <>
           <p role="status" className="flex items-center gap-2 text-small text-muted">
             <Spinner />
-            Finish signing in in your browser…
+            Finish signing in with your browser…
           </p>
           <div className="flex flex-wrap gap-2">
             <Button onClick={signIn}>Open browser again</Button>

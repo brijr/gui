@@ -14,7 +14,7 @@ import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { ChevronDown } from '../lib/icons'
-import { motionMs, usePresence } from '../lib/motion'
+import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
 import {
   GroupLabel,
   MenuRow,
@@ -137,9 +137,13 @@ function sections(choices: Choice[], grouped: boolean) {
 /** What the next turn runs on; opens the model picker to change it. */
 export function ModelButton({ models }: { models: ModelSettings }) {
   const [open, setOpen] = useState(false)
+  const [instant, setInstant] = useState(false)
   // Kept while it closes, which it does where it was.
   const [placement, setPlacement] = useState<PopoverPlacement | null>(null)
-  const shown = usePresence(open, motionMs('--motion-exit'))
+  const shown = usePresence(
+    open,
+    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-exit'),
+  )
   const button = useRef<HTMLButtonElement>(null)
   const pickerId = useId()
   const fullName = choiceName(models.model) ?? models.model.value
@@ -150,6 +154,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   // ⇧⌘M (Agent → Choose Model…): open, searching.
   useEffect(() => {
     if (!pickModel) return
+    setInstant(true)
     useChat.setState({ pickModel: false })
     whenPanelShown(() =>
       whenSettled(button.current, () => {
@@ -179,6 +184,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         aria-keyshortcuts={ariaShortcut('chooseModel')}
         onClick={() => {
           if (open) return close(false)
+          setInstant(false)
           // The message box alone has no room for it: the panel grows first.
           whenPanelShown(() => {
             if (!button.current) return
@@ -202,6 +208,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
           // A fresh picker for each opening; the one closing goes as it was.
           key={`${placement.left},${placement.top},${placement.bottom}`}
           id={pickerId}
+          instant={instant}
           open={open}
           models={models}
           placement={placement}
@@ -214,6 +221,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
 }
 
 interface ModelPickerProps {
+  instant: boolean
   id: string
   /** False while it closes */
   open: boolean
@@ -229,7 +237,7 @@ interface ModelPickerProps {
  * effort levels when it has them. A model applies on pick and closes the picker; an
  * effort level applies and leaves it open.
  */
-function ModelPicker({ id, open, models, placement, button, onClose }: ModelPickerProps) {
+function ModelPicker({ id, instant, open, models, placement, button, onClose }: ModelPickerProps) {
   const { model, effort } = models
   const root = useRef<HTMLDivElement>(null)
   const searchField = useRef<HTMLInputElement>(null)
@@ -368,6 +376,7 @@ function ModelPicker({ id, open, models, placement, button, onClose }: ModelPick
 
   return createPortal(
     <Popover
+      instant={instant}
       ref={root}
       id={id}
       open={open}

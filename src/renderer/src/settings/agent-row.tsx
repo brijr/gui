@@ -56,7 +56,9 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
       quiet={!enabled}
       title={
         <>
-          <span className="truncate">{name}</span>
+          <span className="truncate" title={name}>
+            {name}
+          </span>
           {live ? <AgentStatusLabel health={live} /> : health && <AgentOffLabel />}
           {live?.status === 'unknown' && (
             <TextButton
@@ -96,7 +98,7 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
       {detail}
       {/* An error says what went wrong in the danger color; other states explain themselves quietly. */}
       {live?.status === 'error' ? (
-        <InlineError>{live.message ?? `${name} isn't working right now.`}</InlineError>
+        <InlineError>{live.message ?? `${name} isn’t working right now.`}</InlineError>
       ) : (
         live &&
         live.status !== 'ready' &&

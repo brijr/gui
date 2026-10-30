@@ -32,7 +32,7 @@ export function serverStatus(state: WindowState): { status: Status; label: strin
     return { status: 'busy', label: 'Installing dependencies…' }
   }
   if (setup?.dependencies === 'failed') {
-    return { status: 'error', label: "Couldn't install dependencies" }
+    return { status: 'error', label: 'Couldn’t install dependencies' }
   }
   switch (devServer.status) {
     case 'running':

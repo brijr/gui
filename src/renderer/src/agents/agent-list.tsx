@@ -82,7 +82,9 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
         leading={<AgentIcon agentId={health.id} />}
         title={
           <>
-            <span className="truncate">{health.name}</span>
+            <span className="truncate" title={health.name}>
+              {health.name}
+            </span>
             {health.enabled ? <AgentStatusLabel health={health} /> : <AgentOffLabel />}
           </>
         }

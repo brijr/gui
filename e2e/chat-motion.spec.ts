@@ -276,7 +276,7 @@ test('an answered permission card collapses into its line; new rows fade up once
   // Answered, the card's box moves into the line that records the answer.
   await chat.evaluate(recordTransitions)
   await type(chat, 'ASK Build it.')
-  const reject = chat.getByRole('button', { name: "Don't allow" })
+  const reject = chat.getByRole('button', { name: 'Don’t allow' })
   await expect(reject).toBeVisible()
   await sleep(300)
   await reject.click()

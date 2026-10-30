@@ -37,13 +37,7 @@ export function SignIn() {
       <div className="flex flex-col gap-1">
         <GuiMark className="mb-4" />
         <h1 className="text-title font-semibold">Sign in to Gui</h1>
-        <p className="text-pretty text-muted">
-          Use your Gui account to design your app with your own agents. Sign in with Google, GitHub,
-          or your email. New here? Signing in makes an account.
-        </p>
-        <p className="text-pretty text-small text-muted">
-          Gui is free during alpha. Your AI agent uses your own account and plan.
-        </p>
+        <p className="text-pretty text-muted">Sign in with Google, GitHub, or your email.</p>
       </div>
 
       {waiting ? (
@@ -61,17 +55,17 @@ export function SignIn() {
         </div>
       ) : (
         <Button variant="primary" size="lg" className="self-start" onClick={signIn}>
-          Sign in or create an account
+          Sign in
         </Button>
       )}
 
       {error && <InlineError>{error}</InlineError>}
 
-      <div className="border-t border-line pt-4">
+      <div className="pt-4">
         <p className="text-pretty text-small text-subtle">
           By continuing, you agree to Gui’s{' '}
           <a
-            className="underline underline-offset-2"
+            className="relative rounded-sm text-accent-text underline-offset-2 before:absolute before:-inset-1 hover:underline active:opacity-70 active:transition-none transition-opacity"
             href="https://usegui.com/terms"
             target="_blank"
             rel="noreferrer"
@@ -80,14 +74,14 @@ export function SignIn() {
           </a>{' '}
           and{' '}
           <a
-            className="underline underline-offset-2"
+            className="relative rounded-sm text-accent-text underline-offset-2 before:absolute before:-inset-1 hover:underline active:opacity-70 active:transition-none transition-opacity"
             href="https://usegui.com/privacy"
             target="_blank"
             rel="noreferrer"
           >
-            Privacy Policy
+            Privacy policy
           </a>
-          . Product emails are optional. You can choose them in Settings → Account.
+          .
         </p>
       </div>
     </div>

@@ -193,7 +193,7 @@ function UserMessage({ turn }: { turn: Turn }) {
       )}
       <p
         data-user-message={turn.id}
-        className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-accent-soft px-3 py-1.5 text-fg"
+        className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
       >
         {turn.prompt}
       </p>
@@ -599,8 +599,9 @@ function StepGroup({
         <div className="flex h-6 min-w-0 items-center gap-2 text-small">
           <Icon className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
           <span
+            key={latest.id}
             className={cn(
-              'min-w-0 truncate',
+              'min-w-0 truncate motion-safe:animate-fade-in motion-reduce:animate-row-fade',
               latest.status === 'failed' ? 'text-danger' : 'text-muted',
             )}
             title={stepDetail(latest) ?? undefined}
@@ -685,7 +686,7 @@ function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
 const OPTION_LABELS: Record<string, string> = {
   allow_once: 'Allow',
   allow_always: 'Always allow',
-  reject_once: "Don't allow",
+  reject_once: 'Don’t allow',
   reject_always: 'Never allow',
 }
 

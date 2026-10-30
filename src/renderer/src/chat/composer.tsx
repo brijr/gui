@@ -29,7 +29,7 @@ import {
   X,
 } from '../lib/icons'
 import { Card, Thumbnail } from '../lib/surface'
-import { Button, Counter, HIT_AREA, IconButton, Kbd, Spinner } from '../lib/ui'
+import { Button, Counter, HIT_AREA, IconButton, Kbd, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
@@ -150,7 +150,7 @@ export function Composer({
       try {
         addAttachments([await prepareImage(file)])
       } catch (error) {
-        setNotice(error instanceof ImageError ? error.message : `Couldn't attach ${file.name}.`)
+        setNotice(error instanceof ImageError ? error.message : `Couldn’t attach ${file.name}.`)
       } finally {
         processing.current -= 1
         setPending(processing.current)
@@ -306,18 +306,18 @@ export function Composer({
         data-popover-anchor=""
         className={cn(
           'relative rounded-lg border border-edge bg-raised transition-colors focus-within:border-muted focus-within:ring-3 focus-within:ring-line-strong',
-          dropping && 'border-accent bg-accent-soft',
+          dropping && 'border-muted bg-fill',
         )}
       >
         {/* Says what a drop does, over the box, until the files land or leave. */}
         {dropping && (
           <p
             aria-hidden="true"
-            // The accent tint over the box's own color, opaque so the draft doesn't show through.
+            // Opaque so the draft stays behind the drop instruction.
             style={{
-              background: 'linear-gradient(var(--accent-soft), var(--accent-soft)), var(--raised)',
+              background: 'linear-gradient(var(--fill), var(--fill)), var(--raised)',
             }}
-            className="pointer-events-none absolute inset-0 z-sticky flex items-center gap-2 rounded-lg px-3 text-small font-medium text-accent-text"
+            className="pointer-events-none absolute inset-0 z-sticky flex items-center gap-2 rounded-lg px-3 text-small font-medium text-muted"
           >
             <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
             Drop images to attach
@@ -330,7 +330,7 @@ export function Composer({
             label="Show conversation"
             icon={ChevronUp}
             onClick={onShowConversation}
-            className="absolute top-1.25 right-2 z-sticky"
+            className={cn(HIT_AREA, 'absolute top-1.25 right-2 z-sticky')}
           />
         )}
         {(attachments.length > 0 || pending > 0) && (
@@ -443,19 +443,17 @@ export function Composer({
           <span className="ml-auto" />
           {meta.models && <ModelButton models={meta.models} />}
           {/* While the agent works, a draft can still go out: it joins the queue. */}
-          {(!running || canSend) && (
-            <IconButton
-              type="submit"
-              className={HIT_AREA}
-              variant="primary"
-              label={running ? 'Queue message' : 'Send'}
-              shortcut="send"
-              title={canSend ? undefined : cantSend}
-              icon={ArrowUp}
-              disabled={!canSend}
-            />
-          )}
-          {/* Last, so it stays put while a draft's queue button comes and goes. */}
+          <IconButton
+            type="submit"
+            className={HIT_AREA}
+            variant="primary"
+            label={running ? 'Queue message' : 'Send'}
+            shortcut="send"
+            title={canSend ? undefined : cantSend}
+            icon={ArrowUp}
+            disabled={!canSend}
+          />
+          {/* Stop stays at the end while the agent works. */}
           {running && (
             <IconButton
               variant="secondary"
@@ -504,10 +502,11 @@ function ProblemsLine({ meta, running }: { meta: ChatMeta; running: boolean }) {
             title={running ? 'Wait for the agent to finish' : 'Ask the agent to fix these errors'}
             onClick={() => void gui.fixProblems()}
           >
-            Fix
+            Fix with {meta.agentName}
           </Button>
           <IconButton
             size="sm"
+            className={TIGHT_HIT_AREA}
             label="Dismiss errors"
             title="Dismiss"
             icon={X}
@@ -559,6 +558,7 @@ function Selection({ selection }: { selection: Picked[] }) {
             <PickedLabel picked={picked} />
             <IconButton
               size="sm"
+              className={TIGHT_HIT_AREA}
               label={several ? `Remove ${pickLabel(picked).name}` : 'Remove selection'}
               title="Remove"
               icon={X}
@@ -593,6 +593,7 @@ function FollowUpCard({
       </p>
       <IconButton
         size="sm"
+        className={TIGHT_HIT_AREA}
         label={`Stop following up on message ${number}`}
         title="Remove"
         icon={X}
@@ -646,10 +647,10 @@ function Line({
         tone === 'error' ? 'text-danger' : 'text-muted',
       )}
     >
-      <span className="flex h-5 w-3.5 shrink-0 items-center justify-center">
+      <span className="flex h-4 w-3.5 shrink-0 items-center justify-center">
         {tone === 'busy' ? <Spinner /> : <Tone className="size-3.5" aria-hidden="true" />}
       </span>
-      <span className="min-w-0 flex-1 select-text break-words leading-5">{children}</span>
+      <span className="min-w-0 flex-1 select-text break-words">{children}</span>
       {actions && <span className="-my-0.5 flex shrink-0 items-center gap-1">{actions}</span>}
     </div>
   )

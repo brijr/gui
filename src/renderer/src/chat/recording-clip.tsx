@@ -87,7 +87,11 @@ export function RecordingClip({
           className={`flex min-w-0 flex-1 items-center gap-2 rounded-sm p-0.5 text-left transition-[background-color,opacity] hover:bg-hover ${PRESS}`}
         >
           <span className="relative flex h-10 w-16 shrink-0 items-center justify-center overflow-hidden rounded-sm bg-canvas">
-            <img src={clip.thumbnail} alt="" className="size-full object-cover" />
+            <img
+              src={clip.thumbnail}
+              alt=""
+              className="size-full object-cover outline-1 -outline-offset-1 outline-line"
+            />
             <span className="absolute flex size-5 items-center justify-center rounded-full bg-tile/70 text-tile-fg">
               <Play className="size-3" aria-hidden="true" />
             </span>

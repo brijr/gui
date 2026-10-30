@@ -25,7 +25,7 @@ const PAUSED: Record<QueuePauseReason, string> = {
   error: 'Paused after an error',
   refused: 'Paused: the agent declined',
   limit: 'Paused: the agent hit its output limit',
-  untrusted: "Paused: this project isn't trusted",
+  untrusted: 'Paused: this project isn’t trusted',
   setup: 'Sends once your agent is set up',
   restored: 'Waiting from before Gui closed',
 }

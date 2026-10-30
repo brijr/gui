@@ -91,7 +91,7 @@ export function Dialog({
         'opacity-0 open:opacity-100 starting:open:opacity-0',
         'motion-safe:scale-97 motion-safe:open:scale-100 motion-safe:starting:open:scale-97',
         'backdrop:opacity-0 backdrop:transition-[opacity,display,overlay] backdrop:transition-discrete backdrop:duration-(--motion-panel) open:backdrop:opacity-100 starting:open:backdrop:opacity-0',
-        'not-open:duration-(--motion-pop) not-open:backdrop:duration-(--motion-pop)',
+        'not-open:duration-(--motion-pop) not-open:ease-in not-open:backdrop:duration-(--motion-pop) not-open:backdrop:ease-in',
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
       )}
     >
@@ -116,13 +116,13 @@ export function Dialog({
         tabIndex={focusSelf ? -1 : undefined}
         className={cn(
           'min-h-0 flex-1 overflow-y-auto scroll-stable overscroll-contain scroll-fade outline-none',
-          className ?? 'px-4 py-3',
+          className ?? 'px-3 py-3',
         )}
       >
         {children}
       </div>
       {footer && (
-        <footer className="flex shrink-0 items-center justify-end gap-2 border-t border-line px-3 py-2.5">
+        <footer className="flex shrink-0 items-center justify-end gap-2 border-t-hairline border-line px-3 py-2.5">
           {footer}
         </footer>
       )}

@@ -70,7 +70,10 @@ export function SettingsApp() {
       <main className="flex min-w-0 flex-1 flex-col bg-canvas">
         {/* On the content's own color with no rule under it, lined up with the column below;
             the content fades out under it as it scrolls. */}
-        <header className="drag flex shrink-0 items-center" style={{ height: TOOLBAR_HEIGHT }}>
+        <header
+          className="drag flex shrink-0 items-center pr-[10px]"
+          style={{ height: TOOLBAR_HEIGHT }}
+        >
           <div className="mx-auto w-full max-w-xl px-6">
             <h1 className="text-title font-semibold">{title}</h1>
           </div>

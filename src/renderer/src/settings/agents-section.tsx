@@ -63,10 +63,6 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
           <DefaultAgentSelect agents={settings.agents} defaultAgentId={settings.defaultAgentId} />
         }
       />
-      <p className="text-pretty text-small text-muted">
-        Your AI agent makes the changes you ask for, with your own account and plan. You pay the
-        provider directly; Gui adds no AI usage charges.
-      </p>
 
       <SettingsGroup
         title="Installed agents"
@@ -84,7 +80,7 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
           </List>
         ) : (
           <p className="text-pretty text-small text-muted">
-            None of Gui's agents are installed yet.
+            None of Gui’s agents are installed yet.
           </p>
         )}
       </SettingsGroup>
@@ -132,7 +128,7 @@ function NotInstalledRow({ agent, onInstall }: { agent: AgentHealth; onInstall: 
       agent.message
     ) : (
       <>
-        Gui can't find the <Code>{command}</Code> command on this Mac.
+        Gui can’t find the <Code>{command}</Code> command on this Mac.
       </>
     )
 
@@ -155,7 +151,9 @@ function NotInstalledRow({ agent, onInstall }: { agent: AgentHealth; onInstall: 
       align="start"
       title={
         <>
-          <span className="truncate">{agent.name}</span>
+          <span className="truncate" title={agent.name}>
+            {agent.name}
+          </span>
           {working && <AgentStatusLabel health={agent} />}
           {agent.status === 'error' && <AgentStatusLabel health={agent} />}
         </>
@@ -164,7 +162,7 @@ function NotInstalledRow({ agent, onInstall }: { agent: AgentHealth; onInstall: 
       trailing={button}
     >
       {agent.status === 'error' && (
-        <InlineError>{agent.message ?? `${agent.name} couldn't be installed.`}</InlineError>
+        <InlineError>{agent.message ?? `${agent.name} couldn’t be installed.`}</InlineError>
       )}
       {agent.status === 'error' && agent.detail && <TechnicalDetails text={agent.detail} />}
       {openedSite && agent.status === 'not-installed' && (
@@ -260,10 +258,10 @@ function AgentsFileError({ message }: { message: string }) {
     <Card className="flex items-start gap-2">
       <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-danger" aria-hidden="true" />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <p className="font-medium">agents.json can't be read</p>
+        <p className="font-medium">agents.json can’t be read</p>
         <InlineError>{message}</InlineError>
         <p className="text-pretty text-small text-muted">
-          Custom agents can't be changed here until it's fixed.
+          Custom agents can’t be changed here until it’s fixed.
         </p>
       </div>
       <Button className="-my-0.5" onClick={() => gui.openCustomAgentsFile()}>

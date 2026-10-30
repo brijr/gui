@@ -60,7 +60,7 @@ function ShortcutGroup({ name, shortcuts }: { name: string; shortcuts: Shortcut[
       </GroupLabel>
       <ul className="flex flex-col">
         {shortcuts.map((shortcut) => (
-          <li key={shortcut.id} className="flex min-h-7 items-center gap-4 py-1">
+          <li key={shortcut.id} className="flex min-h-7 items-center gapx-3 py-4 py-1">
             <span className="min-w-0 flex-1 text-pretty">{shortcut.description}</span>
             <span className="flex shrink-0 items-center gap-1.5">
               <Keys keys={acceleratorKeys(shortcut.accelerator)} />

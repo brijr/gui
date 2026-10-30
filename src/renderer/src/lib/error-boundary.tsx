@@ -36,7 +36,7 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
   render() {
     if (!this.state.failed) return this.props.children
     if (this.props.fallback) return this.props.fallback(this.retry)
-    return <p className="text-small text-danger">Couldn't show this part.</p>
+    return <p className="text-small text-danger">Couldn’t show this part.</p>
   }
 }
 
@@ -44,7 +44,7 @@ export class ErrorBoundary extends Component<Props, { failed: boolean }> {
 export function windowFallback() {
   return (
     <div className="flex h-dvh flex-col items-start justify-center gap-3 bg-raised p-6">
-      <p className="text-small text-fg">Gui couldn't draw this window.</p>
+      <p className="text-small text-fg">Gui couldn’t draw this window.</p>
       <Button onClick={() => window.location.reload()}>Reload</Button>
     </div>
   )

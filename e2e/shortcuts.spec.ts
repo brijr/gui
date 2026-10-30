@@ -201,7 +201,7 @@ async function settledViews(session: GuiSession) {
 
 // A stand-in ACP agent: it offers a model setting (a list long enough to search), asks
 // "ASK n" permission questions one after the other, each offering Always allow, Allow and
-// Don't allow, and calls Gui's preview_screenshot tool for "SHOT {...}". Every answer goes
+// Don’t allow, and calls Gui's preview_screenshot tool for "SHOT {...}". Every answer goes
 // into a log, the moment it arrives.
 
 const AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Shortcuts`
@@ -711,7 +711,7 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   const allow = card.getByRole('button', { name: /^Allow/ })
   await expect(allow).toHaveAttribute('aria-keyshortcuts', 'Meta+Enter')
   await expect(allow).toContainText('⌘↩')
-  await expect(card.getByRole('button', { name: /^Don't allow/ })).toContainText('⌘⌫')
+  await expect(card.getByRole('button', { name: /^Don’t allow/ })).toContainText('⌘⌫')
   await expect(card.getByRole('button', { name: /^Always allow/ })).not.toHaveAttribute(
     'aria-keyshortcuts',
   )
@@ -728,7 +728,7 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   )
   expect(answeredFirst).toMatchObject({ resolved: 'allow' })
 
-  // ⌘⌫ in the composer with text deletes it; empty, it answers Don't allow.
+  // ⌘⌫ in the composer with text deletes it; empty, it answers Don’t allow.
   await waitingCard(session, 'npm run step-2')
   await composer.fill('scratch that')
   await composer.press('Meta+Backspace')

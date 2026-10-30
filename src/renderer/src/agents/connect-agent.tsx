@@ -71,8 +71,8 @@ export function ConnectAgent({
           Connect your AI
         </h2>
         <p className="text-pretty text-small text-muted">
-          Gui works with the AI plan you already have. Pick one: Gui sets it up, then you sign in in
-          your browser.
+          Gui works with the AI plan you already have. Select one: Gui sets it up, then you sign in
+          with your browser.
         </p>
       </div>
       <List aria-labelledby="connect-heading">

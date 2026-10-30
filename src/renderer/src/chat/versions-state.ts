@@ -31,13 +31,13 @@ export function toggleVersions() {
   const { open, busy } = useVersions.getState()
   if (busy) return
   generation++
-  useVersions.setState(open ? CLOSED : { ...CLOSED, open: true })
+  useVersions.setState({ open: !open, busy: null, error: null })
 }
 
 export function closeVersions() {
   if (useVersions.getState().busy) return
   generation++
-  useVersions.setState(CLOSED)
+  useVersions.setState({ open: false, busy: null, error: null })
 }
 
 export async function loadVersions() {
