@@ -407,3 +407,32 @@ test('one large completed table renders between input frames with a single table
   expect(metrics.longTasks.length).toBeLessThanOrEqual(4)
   expect(metrics.longestTask).toBeLessThan(200)
 })
+
+test('an empty chat defers the small-message parser until a completed reply appears', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
+  await session.waitForPreview()
+  const scripts: string[] = []
+  const cdp = await session.chat.context().newCDPSession(session.chat)
+  cdp.on('Debugger.scriptParsed', ({ url }) => scripts.push(url))
+  await cdp.send('Debugger.enable')
+  const parserLoaded = () => scripts.some((url) => url.includes('/small-markdown-'))
+  expect(parserLoaded()).toBe(false)
+  await session.chat.evaluate(() => window.gui.expandChat())
+  const snapshot = await session.chatSnapshot()
+  await session.app.evaluate(
+    ({ webContents }, value) => {
+      const chat = webContents
+        .getAllWebContents()
+        .find((contents) => contents.getURL().endsWith('/chat.html'))
+      if (!chat) throw new Error('Missing chat renderer')
+      chat.send('chat:reset', value)
+    },
+    { ...snapshot, turns: [turn(0, '**Ready** with ~~old~~ text.')] },
+  )
+  await expect(session.chat.locator('.markdown strong')).toHaveText('Ready')
+  await expect(session.chat.locator('.markdown del')).toHaveText('old')
+  await expect.poll(parserLoaded).toBe(true)
+  await cdp.detach()
+})
