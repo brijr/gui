@@ -2,7 +2,7 @@ import { type MouseEvent, type ReactNode, useEffect, useId, useRef } from 'react
 import { cn } from './cn'
 import { X } from './icons'
 import { PanelHeader } from './surface'
-import { IconButton } from './ui'
+import { IconButton, TIGHT_HIT_AREA } from './ui'
 
 interface DialogProps {
   open: boolean
@@ -100,7 +100,13 @@ export function Dialog({
         actions={
           <>
             {actions}
-            <IconButton label="Close" title="Close (Esc)" icon={X} onClick={onClose} />
+            <IconButton
+              className={TIGHT_HIT_AREA}
+              label="Close"
+              title="Close (Esc)"
+              icon={X}
+              onClick={onClose}
+            />
           </>
         }
       />

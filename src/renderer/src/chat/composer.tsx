@@ -29,7 +29,7 @@ import {
   X,
 } from '../lib/icons'
 import { Card, Thumbnail } from '../lib/surface'
-import { Button, Counter, IconButton, Kbd, Spinner } from '../lib/ui'
+import { Button, Counter, HIT_AREA, IconButton, Kbd, Spinner } from '../lib/ui'
 import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
@@ -415,6 +415,7 @@ export function Composer({
         {/* A container: in a narrow panel, Auto and the model button get more compact. */}
         <div className="@container flex items-center gap-1 px-1.5 pb-1.5">
           <IconButton
+            className={HIT_AREA}
             label="Attach images"
             icon={Paperclip}
             disabled={attachments.length + pending >= MAX_IMAGES}
@@ -445,6 +446,7 @@ export function Composer({
           {(!running || canSend) && (
             <IconButton
               type="submit"
+              className={HIT_AREA}
               variant="primary"
               label={running ? 'Queue message' : 'Send'}
               shortcut="send"
@@ -457,6 +459,7 @@ export function Composer({
           {running && (
             <IconButton
               variant="secondary"
+              className={HIT_AREA}
               label="Stop"
               shortcut="stop"
               icon={Square}

@@ -610,7 +610,11 @@ function StepGroup({
           <ToolStatusIcon tool={latest} live={live} />
           {tools.length > 1 && (
             <span className="ml-auto shrink-0">
-              <Disclosure open={open} onOpenChange={setOpen} className="whitespace-nowrap">
+              <Disclosure
+                open={open}
+                onOpenChange={setOpen}
+                className="whitespace-nowrap tabular-nums"
+              >
                 {plural(tools.length, 'step')}
                 {failedNote}
               </Disclosure>
@@ -1082,7 +1086,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
       <Comparison turn={turn} />
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         {changes.length > 0 ? (
-          <Disclosure open={open} onOpenChange={setOpen}>
+          <Disclosure open={open} onOpenChange={setOpen} className="tabular-nums">
             {plural(changes.length, 'file')} changed
             <span className="font-mono text-success tabular-nums"> +{additions}</span>
             <span className="font-mono text-danger tabular-nums"> −{deletions}</span>

@@ -653,8 +653,8 @@ export function Thumbnail({
           aria-label={removeLabel ?? 'Remove'}
           title={removeLabel ?? 'Remove'}
           onClick={onRemove}
-          // 20px drawn, 24px to hit: the ::before reaches 2px past each side.
-          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-0.5 before:rounded-full hover:text-fg hover:tint ${PRESS}`}
+          // 20px drawn, 32px to hit; neighbouring thumbnails are at least 44px apart.
+          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-1.75 before:rounded-full hover:text-fg hover:tint ${PRESS}`}
         >
           <X className="size-3" aria-hidden="true" />
         </button>

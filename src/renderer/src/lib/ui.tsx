@@ -53,6 +53,10 @@ export const OPEN = 'aria-expanded:bg-fill aria-expanded:text-fg'
 export const HIT_AREA =
   'relative before:absolute before:-inset-x-0.5 before:-inset-y-1 before:no-drag'
 
+/** For 24px controls spaced 2px apart: expand only to their shared midpoint. */
+export const TIGHT_HIT_AREA =
+  'relative before:absolute before:-inset-x-px before:-inset-y-1 before:no-drag'
+
 const BUTTON_SIZE: Record<ControlSize, string> = {
   sm: 'h-6 gap-1 px-2 text-small',
   md: 'h-7 gap-1.5 px-2.5 text-small',
@@ -592,7 +596,10 @@ export function Skeleton({ className }: { className?: string }) {
   return (
     <span
       aria-hidden="true"
-      className={cn('block animate-pulse rounded-md bg-fill motion-reduce:animate-none', className)}
+      className={cn(
+        'pointer-events-none block animate-pulse select-none rounded-md bg-fill motion-reduce:animate-none',
+        className,
+      )}
     />
   )
 }
