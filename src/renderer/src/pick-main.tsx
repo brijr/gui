@@ -4,6 +4,7 @@ import { watchErrors } from './lib/crash-reports'
 import { ErrorBoundary } from './lib/error-boundary'
 import { PickOverlay } from './pick/overlay'
 import './styles.css'
+import './lib/appearance'
 
 watchErrors()
 const root = document.getElementById('root')

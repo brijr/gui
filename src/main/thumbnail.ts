@@ -44,3 +44,9 @@ export function cornerColor(dataUrl: string) {
   if (at + 2 >= pixels.length) return null
   return `rgb(${pixels[at + 2]} ${pixels[at + 1]} ${pixels[at]})`
 }
+
+/** Encoded thumbnail dimensions, saved with a turn to reserve its space before loading. */
+export function thumbnailSize(dataUrl: string) {
+  const image = nativeImage.createFromDataURL(dataUrl)
+  return image.isEmpty() ? undefined : image.getSize()
+}

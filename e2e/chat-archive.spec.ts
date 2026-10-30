@@ -102,3 +102,37 @@ test('a recent chat archives from the start screen', async ({ launch }) => {
   expect(existsSync(`${folder}.summary.json`)).toBe(false)
   expect(readdirSync(folder).filter((name) => name !== 'index.json')).toHaveLength(1)
 })
+
+test('archive mounts one page and filters across every archived chat', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { root, userData } = session.fixture
+  const folder = seedChat(userData, root, ['Current chat'])
+  mkdirSync(folder, { recursive: true })
+  writeFileSync(
+    join(folder, 'index.json'),
+    JSON.stringify(
+      Array.from({ length: 120 }, (_, index) => ({
+        id: index.toString(16).padStart(36, '0'),
+        title: null,
+        prompt: `Archived request ${index}`,
+        agentId: 'claude',
+        turns: 1,
+        startedAt: Date.now() - index,
+        lastAt: Date.now() - index,
+      })),
+    ),
+  )
+  await session.chrome.evaluate((at) => window.gui.openRecent(at), root)
+  await expect.poll(async () => (await session.chatSnapshot()).turns.length).toBe(1)
+  await chooseFromChatMenu(session.app, session.chat, 'Archived Chats')
+  const dialog = session.chat.getByRole('dialog', { name: 'Archived chats' })
+  await expect(dialog.getByRole('listitem')).toHaveCount(51)
+  await dialog.getByRole('button', { name: 'Show more', exact: true }).click()
+  await expect(dialog.getByRole('listitem')).toHaveCount(101)
+  await dialog.getByLabel('Filter archived chats').fill('request 119')
+  await expect(dialog.getByRole('listitem')).toHaveCount(1)
+  await expect(dialog.getByText('Archived request 119', { exact: true })).toBeVisible()
+  console.log(
+    '[archive] 120 matches mount 50 chats; Show more mounts 100; filter reaches final match',
+  )
+})

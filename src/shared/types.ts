@@ -935,6 +935,7 @@ export interface Turn {
   preview?: {
     before: string | null
     after: string | null
+    size?: { width: number; height: number }
     frame?: PreviewFrame | null
     /** The page's color around the element, behind the images where they leave their frames */
     fill?: string | null

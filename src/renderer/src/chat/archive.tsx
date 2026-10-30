@@ -20,6 +20,7 @@ import { Button, IconButton, Spinner } from '../lib/ui'
 
 /** Lists longer than this get a filter field. */
 const FILTER_AFTER = 8
+const PAGE = 50
 
 /**
  * The project's archived chats, to reopen, rename or delete: a popover under `anchor` (the
@@ -72,6 +73,7 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
   const root = useRef<HTMLDivElement>(null)
   const [chats, setChats] = useState<ChatSummary[] | null>(null)
   const [query, setQuery] = useState('')
+  const [limit, setLimit] = useState(PAGE)
   const [error, setError] = useState<string | null>(null)
   /** The chat being opened, renamed, or asked about deleting; one at a time. */
   const [busy, setBusy] = useState<string | null>(null)
@@ -182,7 +184,10 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
           aria-label="Filter archived chats"
           placeholder="Filter chats…"
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={(event) => {
+            setQuery(event.target.value)
+            setLimit(PAGE)
+          }}
         />
       )}
       {chats === null ? (
@@ -193,7 +198,7 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
         <PopoverNote>No chats match</PopoverNote>
       ) : (
         <ul className="min-h-0 overflow-y-auto scroll-stable overscroll-contain p-1">
-          {shown.map((chat) => (
+          {shown.slice(0, limit).map((chat) => (
             <ArchivedRow
               key={chat.id}
               chat={chat}
@@ -216,6 +221,13 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
               onCancelDelete={() => setDeleting(null)}
             />
           ))}
+          {shown.length > limit && (
+            <li>
+              <Button variant="ghost" onClick={() => setLimit(limit + PAGE)}>
+                Show more
+              </Button>
+            </li>
+          )}
         </ul>
       )}
       {error && (

@@ -279,7 +279,7 @@ test('the model picker searches the models, sets the model and effort, and new s
   await expect(dialog.getByText('No models match')).toBeVisible()
   await session.shot('model-picker-empty')
 
-  // ↑/↓ move the highlight from the first match and stop at the ends; so does hovering.
+  // ↑/↓ move keyboard selection; pointer highlighting leaves aria-activedescendant in place.
   await search.fill('gpt 5')
   await expect(options).toHaveText(['GPT-5', 'GPT-5 Mini', 'GPT-5 Nano'])
   await expectActive(search, options.nth(0))
@@ -290,7 +290,11 @@ test('the model picker searches the models, sets the model and effort, and new s
   await search.press('ArrowUp')
   await expectActive(search, options.nth(1))
   await options.nth(0).hover()
-  await expectActive(search, options.nth(0))
+  await expectActive(search, options.nth(1))
+  await expect(options.nth(0)).toHaveCSS(
+    'background-color',
+    await options.nth(1).evaluate((el) => getComputedStyle(el).backgroundColor),
+  )
   await session.shot('model-picker-search')
 
   // Enter picks the highlighted model: it applies now (between turns), the picker closes

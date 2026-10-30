@@ -157,7 +157,51 @@ type Gesture =
 export function Board({ board, working = false }: { board: BoardState; working?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
-  const [camera, setCamera] = useState<BoardCamera | null>(board.camera)
+  const [camera, commitCamera] = useState<BoardCamera | null>(board.camera)
+  const liveCamera = useRef(camera)
+  const layer = useRef<HTMLDivElement>(null)
+  const cameraTimers = useRef<{
+    cull?: ReturnType<typeof setTimeout>
+    rest?: ReturnType<typeof setTimeout>
+  }>({})
+  const drawCamera = () => {
+    const current = liveCamera.current
+    if (!current || !ref.current || !layer.current) return
+    const { x, y, zoom } = current
+    layer.current.style.transform = `translate(${-x * zoom}px, ${-y * zoom}px) scale(${zoom})`
+    layer.current.style.setProperty('--board-px', `${1 / zoom}px`)
+    ref.current.style.backgroundPosition = `${-x * zoom}px ${-y * zoom}px`
+    ref.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
+  }
+  const setCamera = (
+    next: BoardCamera | null | ((current: BoardCamera | null) => BoardCamera | null),
+  ) => {
+    liveCamera.current = typeof next === 'function' ? next(liveCamera.current) : next
+    commitCamera(liveCamera.current)
+  }
+  const moveCamera = (
+    next: BoardCamera | null | ((current: BoardCamera | null) => BoardCamera | null),
+  ) => {
+    liveCamera.current = typeof next === 'function' ? next(liveCamera.current) : next
+    drawCamera()
+    unsaved.current = liveCamera.current
+    const timers = cameraTimers.current
+    // Refresh culling during long gestures without rebuilding the board for every event.
+    timers.cull ??= setTimeout(() => {
+      timers.cull = undefined
+      commitCamera(liveCamera.current)
+    }, 100)
+    clearTimeout(timers.rest)
+    timers.rest = setTimeout(() => commitCamera(liveCamera.current), 150)
+  }
+  useLayoutEffect(drawCamera)
+  useEffect(
+    () => () => {
+      clearTimeout(cameraTimers.current.cull)
+      clearTimeout(cameraTimers.current.rest)
+    },
+    [],
+  )
   const [overrides, setOverrides] = useState<Record<string, Override>>({})
   const [gesture, setGestureState] = useState<Gesture | null>(null)
   /** The gesture under way, for listeners that run between renders (pointer-up, the wheel) */
@@ -248,7 +292,12 @@ export function Board({ board, working = false }: { board: BoardState; working?:
 
   // The latest of what the board's listeners read, without subscribing them again each render.
   const latest = useRef({ frames: board.frames, sections: board.sections, camera, size })
-  latest.current = { frames: board.frames, sections: board.sections, camera, size }
+  latest.current = {
+    frames: board.frames,
+    sections: board.sections,
+    camera: liveCamera.current,
+    size,
+  }
   // Everything in sight, around the floating chat when it covers part of the board.
   const fit = () => {
     const el = ref.current
@@ -260,7 +309,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     })
   }
   const zoomAt = (factor: number, at: { x: number; y: number }) =>
-    setCamera((current) => {
+    moveCamera((current) => {
       if (!current) return current
       const zoom = clampZoom(current.zoom * factor)
       // The board point under `at` stays under it.
@@ -335,7 +384,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   // biome-ignore lint/correctness/useExhaustiveDependencies: only as the board goes.
   useEffect(
     () => () => {
-      if (unsaved.current) gui.boardCamera(unsaved.current, board.id)
+      if (unsaved.current) gui.boardCamera(liveCamera.current ?? unsaved.current, board.id)
     },
     [],
   )
@@ -395,7 +444,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         zoomAt(Math.exp(-delta * (event.ctrlKey ? 0.01 : 0.002)), at)
         return
       }
-      setCamera((current) =>
+      moveCamera((current) =>
         current
           ? {
               ...current,
@@ -476,7 +525,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     const at = local(event)
     event.currentTarget.setPointerCapture(event.pointerId)
     if (hand || event.button === 1) {
-      setGesture({ kind: 'pan', start: at, from: camera })
+      setGesture({ kind: 'pan', start: at, from: liveCamera.current ?? camera })
       return
     }
     const target = event.target as HTMLElement
@@ -533,7 +582,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     const dx = (at.x - current.start.x) / camera.zoom
     const dy = (at.y - current.start.y) / camera.zoom
     if (current.kind === 'pan') {
-      setCamera({ ...current.from, x: current.from.x - dx, y: current.from.y - dy })
+      moveCamera({ ...current.from, x: current.from.x - dx, y: current.from.y - dy })
     } else if (current.kind === 'move') {
       const far = Math.hypot(at.x - current.start.x, at.y - current.start.y) > DRAG_SLOP
       if (!current.moved && !far) return
@@ -563,6 +612,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     const done = gestureRef.current
     if (!done) return
     setGesture(null)
+    if (done.kind === 'pan') setCamera(liveCamera.current)
     if (done.kind === 'move') {
       if (done.moved) {
         gui.boardArrange(
@@ -769,6 +819,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         size (`pinned`); lines are a screen pixel wide (--board-px).
       */}
       <div
+        ref={layer}
         className="absolute top-0 left-0 origin-top-left"
         style={
           {

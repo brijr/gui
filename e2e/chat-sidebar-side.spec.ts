@@ -37,11 +37,27 @@ test('chat sidebar switches sides, resizes from its inner edge, and saves the ch
   await session.shot('sidebar-right', true)
 
   const before = (await session.state()).sidebarWidth
+  await session.chrome.evaluate((width) => {
+    document.documentElement.dataset.resizePatches = '0'
+    window.gui.onState((state) => {
+      if (state.sidebarWidth === width) return
+      width = state.sidebarWidth
+      const root = document.documentElement
+      root.dataset.resizePatches = String(Number(root.dataset.resizePatches) + 1)
+    })
+  }, before)
   await session.chat.evaluate(() => {
-    window.gui.resizeChat('left', -40, 0)
-    window.gui.endResizeChat()
+    for (let i = 0; i < 20; i++) window.gui.resizeChat('left', -2, 0)
   })
+  await expect.poll(async () => (await bounds()).chat.width).toBe(before + 40)
+  expect((await session.state()).sidebarWidth).toBe(before)
+  const patches = () =>
+    session.chrome.evaluate(() => Number(document.documentElement.dataset.resizePatches))
+  expect(await patches()).toBe(0)
+  await session.chat.evaluate(() => window.gui.endResizeChat())
   await expect.poll(async () => (await session.state()).sidebarWidth).toBe(before + 40)
+  await expect.poll(patches).toBe(1)
+  console.log('[resize] 20 live width updates: 0 sidebar state patches during drag, 1 on release')
   layout = await bounds()
   expect(layout.chat.x + layout.chat.width).toBe(layout.width)
 

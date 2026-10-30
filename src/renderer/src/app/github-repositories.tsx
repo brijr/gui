@@ -139,13 +139,18 @@ export function GitHubRepositories({
         </p>
       ) : repos.length > 0 ? (
         <List className="max-h-48 overflow-y-auto">
-          {repos.map((repo) => (
+          {repos.slice(0, 50).map((repo) => (
             <RepositoryRow key={repo.id} repo={repo} disabled={disabled} />
           ))}
         </List>
       ) : (
         <p className="text-small text-muted">
           None of your repositories match. Clone it by address.
+        </p>
+      )}
+      {repos.length > 50 && (
+        <p className="text-small text-muted">
+          {repos.length - 50} more match. Type to narrow the list.
         </p>
       )}
       {manage.error && <InlineError>{manage.error}</InlineError>}

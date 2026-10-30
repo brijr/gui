@@ -60,6 +60,7 @@ interface TerminalOptions {
 
 /** What a terminal's host shows: its last screen of text, for tests and tools to read. */
 export interface TerminalHost extends HTMLElement {
+  readonly terminalRendering?: boolean
   readonly terminalText?: string
 }
 
@@ -84,6 +85,27 @@ export function mountTerminal(
   const fit = new FitAddon()
   term.loadAddon(fit)
   term.open(el)
+  // Ghostty exposes these only at runtime. Own the loop so hidden terminals keep
+  // parsing output without scheduling canvas work (including indirect restarts).
+  const loop = term as unknown as {
+    animationFrameId: number | null
+    startRenderLoop: () => void
+  }
+  const start = loop.startRenderLoop.bind(term)
+  let paused = false
+  let disposed = false
+  loop.startRenderLoop = () => {
+    if (!paused && !disposed && loop.animationFrameId === null) start()
+  }
+  const pause = () => {
+    paused = true
+    if (loop.animationFrameId !== null) cancelAnimationFrame(loop.animationFrameId)
+    loop.animationFrameId = null
+  }
+  Object.defineProperty(el, 'terminalRendering', {
+    configurable: true,
+    get: () => loop.animationFrameId !== null,
+  })
   // Its pixels are on a canvas; this is its text.
   Object.defineProperty(el, 'terminalText', {
     configurable: true,
@@ -131,10 +153,20 @@ export function mountTerminal(
 
   return {
     term,
+    pause,
+    resume() {
+      if (disposed) return
+      paused = false
+      resize()
+      loop.startRenderLoop()
+    },
     dispose() {
+      disposed = true
+      pause()
       observer.disconnect()
       el.removeEventListener('copy', copy)
       delete (el as { terminalText?: string }).terminalText
+      delete (el as { terminalRendering?: boolean }).terminalRendering
       term.dispose()
     },
   }

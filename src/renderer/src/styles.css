@@ -708,3 +708,12 @@ html.transparent body {
   text-decoration-thickness: from-font;
   text-underline-offset: 0.16em;
 }
+
+.appearance-changing,
+/* biome-ignore lint/style/noDescendingSpecificity: global appearance override. */
+.appearance-changing *,
+.appearance-changing *::before,
+.appearance-changing *::after {
+  /* biome-ignore lint/complexity/noImportantStyles: override every transition utility during native appearance changes. */
+  transition: none !important;
+}
