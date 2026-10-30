@@ -29,7 +29,7 @@ export function imageFiles(files: Iterable<File>) {
   let rejected: string | null = null
   for (const file of files) {
     if (isImageFile(file)) images.push(file)
-    else rejected ??= `${file.name || 'That file'} isn't an image.`
+    else rejected ??= `${file.name || 'That file'} isn’t an image.`
   }
   return { images, rejected }
 }
@@ -44,13 +44,13 @@ export function imageFiles(files: Iterable<File>) {
  */
 export async function prepareImage(file: File): Promise<DraftImage> {
   const name = (file.name || 'image').slice(0, 200)
-  if (!isImageFile(file)) throw new ImageError(`${name} isn't an image.`)
+  if (!isImageFile(file)) throw new ImageError(`${name} isn’t an image.`)
   if (file.size > MAX_FILE_BYTES) throw new ImageError(`${name} is over 20 MB.`)
   let bitmap: ImageBitmap
   try {
     bitmap = await createImageBitmap(file)
   } catch {
-    throw new ImageError(`Couldn't read ${name}. Try a PNG or JPEG.`)
+    throw new ImageError(`Couldn’t read ${name}. Try a PNG or JPEG.`)
   }
   try {
     let full = await encode(
@@ -78,7 +78,7 @@ function encode(bitmap: ImageBitmap, edge: number, type: string) {
   const height = Math.max(1, Math.round(bitmap.height * scale))
   const canvas = new OffscreenCanvas(width, height)
   const ctx = canvas.getContext('2d')
-  if (!ctx) throw new ImageError("Couldn't process the image.")
+  if (!ctx) throw new ImageError('Couldn’t process the image.')
   // JPEG has no alpha: transparent areas would turn black.
   if (type === 'image/jpeg') {
     ctx.fillStyle = '#fff'
@@ -94,7 +94,7 @@ function dataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(new ImageError("Couldn't process the image."))
+    reader.onerror = () => reject(new ImageError('Couldn’t process the image.'))
     reader.readAsDataURL(blob)
   })
 }

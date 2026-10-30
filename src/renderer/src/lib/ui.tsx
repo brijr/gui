@@ -7,6 +7,7 @@ import {
 } from '../../../shared/shortcuts'
 import { cn } from './cn'
 import type { IconComponent } from './icons'
+import { useDelayedLoading } from './use-delayed-loading'
 
 /*
  * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
@@ -211,6 +212,7 @@ export function IconButton({
   className,
   ...props
 }: IconButtonProps) {
+  const showSpin = useDelayedLoading(spinning)
   // A `title` of its own (what it just did) stands in for the label and keys for a moment.
   const tooltip = title ?? (shortcut ? withShortcut(label, shortcut) : label)
   return (
@@ -240,7 +242,7 @@ export function IconButton({
       }}
     >
       <Icon
-        className={cn('size-3.5', spinning && 'animate-spin', filled && 'fill-current')}
+        className={cn('size-3.5', showSpin && 'animate-spin', filled && 'fill-current')}
         aria-hidden="true"
       />
     </button>
@@ -480,7 +482,7 @@ export function Kbd({ children, tone = 'muted', className, ...props }: KbdProps)
     <kbd
       className={cn(
         'inline-flex h-4 min-w-4 items-center justify-center rounded-sm px-1 font-sans text-caption font-medium',
-        tone === 'muted' ? 'bg-fill text-muted' : 'bg-current/15 text-current',
+        tone === 'muted' ? 'bg-fill text-muted' : 'ring-1 ring-current/40 text-current',
         className,
       )}
       {...props}
@@ -515,7 +517,7 @@ export function TextButton({ tone = 'accent', className, ...props }: TextButtonP
     <button
       type="button"
       className={cn(
-        'no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40',
+        'relative before:absolute before:-inset-1 no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40',
         PRESS,
         tone === 'accent' ? 'text-accent-text' : 'text-muted hover:text-fg',
         className,
@@ -648,8 +650,8 @@ export function Progress({ value, label, className }: ProgressProps) {
       <div
         className={cn(
           'h-full origin-left rounded-full bg-muted transition-transform duration-(--motion-panel) motion-reduce:transition-none',
-          // Unknown: a third of the bar sweeps across; with reduced motion it sits still.
-          !known && 'w-1/3 animate-sweep motion-reduce:animate-none',
+          // Unknown: a third of the bar sweeps across; with reduced motion it pulses in place.
+          !known && 'w-1/3 animate-sweep motion-reduce:w-full motion-reduce:animate-pulse',
         )}
         style={known ? { transform: `scaleX(${Math.max(0, Math.min(1, value))})` } : undefined}
       />

@@ -1,10 +1,11 @@
-import { useId, useState } from 'react'
+import { useState } from 'react'
 import type { SettingsState, StartCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { InlineError } from '../lib/field'
 import { PathText } from '../lib/path-text'
-import { GroupLabel, List, ListItem } from '../lib/surface'
+import { List, ListItem } from '../lib/surface'
 import { Button } from '../lib/ui'
+import { SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
 function recentLabel(count: number) {
@@ -15,19 +16,13 @@ function recentLabel(count: number) {
 
 export function ProjectsSection({ settings }: { settings: SettingsState }) {
   const { trustedProjects, startCommands, recentProjects, home } = settings
-  const trustedId = useId()
-  const startId = useId()
-  const recentId = useId()
   const count = recentProjects.length
 
   return (
     <>
-      <section aria-labelledby={trustedId} className="flex flex-col gap-2">
-        <GroupLabel as="h2" id={trustedId}>
-          Trusted projects
-        </GroupLabel>
+      <SettingsGroup title="Trusted projects">
         <p className="text-pretty text-small text-muted">
-          In a trusted project, Gui runs the dev server, and agents use the project's own settings,
+          In a trusted project, Gui runs the dev server, and agents use the project’s own settings,
           without asking. Revoking makes Gui ask again next time.
         </p>
         {trustedProjects.length > 0 ? (
@@ -37,15 +32,12 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
             ))}
           </List>
         ) : (
-          <p className="text-pretty text-small text-muted">No trusted projects.</p>
+          <p className="text-pretty text-small text-muted">Projects you let Gui run show here.</p>
         )}
-      </section>
+      </SettingsGroup>
 
       {startCommands.length > 0 && (
-        <section aria-labelledby={startId} className="flex flex-col gap-2">
-          <GroupLabel as="h2" id={startId}>
-            Dev server commands
-          </GroupLabel>
+        <SettingsGroup title="Dev server commands">
           <p className="text-pretty text-small text-muted">
             Reset to use the command Gui finds in the project.
           </p>
@@ -54,17 +46,14 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
               <StartCommandRow key={root} root={root} start={start} home={home} />
             ))}
           </List>
-        </section>
+        </SettingsGroup>
       )}
 
-      <section aria-labelledby={recentId} className="flex flex-col gap-2">
-        <GroupLabel as="h2" id={recentId}>
-          Recent projects
-        </GroupLabel>
+      <SettingsGroup title="Recent projects">
         <List>
           <RecentRow count={count} />
         </List>
-      </section>
+      </SettingsGroup>
     </>
   )
 }

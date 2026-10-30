@@ -45,7 +45,7 @@ import {
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
-import { Button, IconButton, PRESS, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
+import { Button, IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
@@ -735,7 +735,7 @@ function Header({ meta }: { meta: ChatMeta }) {
         <AgentSwitcher name={meta.agentName} />
         {meta.modeName && !meta.modeFollowsPolicy && (
           // Out of the title bar's drag area, or its tooltip never shows.
-          <Badge title="The agent's mode" className="no-drag">
+          <Badge title={meta.modeName} className="no-drag">
             <span className="truncate">{meta.modeName}</span>
           </Badge>
         )}
@@ -854,12 +854,17 @@ function ChatBubble({ running, picking }: { running: boolean; picking: boolean }
         onClick={() => (picking ? gui.stopSelecting() : gui.expandChat())}
         // Floats over the page like the panel, so the same strong hairline and shadow.
         className={cn(
-          'relative flex size-full items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-[color,opacity] hover:text-fg hover:tint',
-          PRESS,
+          'group relative flex size-full items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-panel transition-[color,opacity] hover:text-fg hover:tint',
         )}
       >
         {/* 16px: a control's 14px icon looks lost in the 44px bubble */}
-        {running ? <Spinner size="md" /> : <MessageSquare className="size-4" aria-hidden="true" />}
+        <span className="transition-opacity group-active:opacity-70 group-active:transition-none">
+          {running ? (
+            <Spinner size="md" />
+          ) : (
+            <MessageSquare className="size-4" aria-hidden="true" />
+          )}
+        </span>
         {/* Larger than a status dot, with a ring of the bubble's color, so it reads on the edge */}
         {waiting && (
           <StatusDot

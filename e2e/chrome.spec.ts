@@ -268,7 +268,7 @@ test('a preview that fails to load says why, and Try again loads it once it can'
   // Chromium's error page fires dom-ready like any page; the failure must outlast it.
   await sleep(1_500)
   expect((await session.state()).preview).toMatchObject({ visible: false, url })
-  await expect(session.chrome.getByText("Your app couldn't load")).toBeVisible()
+  await expect(session.chrome.getByText('Your app couldn’t load')).toBeVisible()
   await expect(address(session)).toHaveValue(url)
   await session.shot('load-failed')
 
@@ -285,7 +285,7 @@ test('a preview that fails to load says why, and Try again loads it once it can'
       return state.preview.visible && !state.preview.error ? state : null
     }, 'the page to load')
     expect(loaded.preview.url).toBe(url)
-    await expect(session.chrome.getByText("Your app couldn't load")).toHaveCount(0)
+    await expect(session.chrome.getByText('Your app couldn’t load')).toHaveCount(0)
 
     // And the app itself loads as before.
     const app = running.preview.url ?? ''

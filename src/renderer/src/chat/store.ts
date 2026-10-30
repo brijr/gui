@@ -148,7 +148,7 @@ export function removeRecordings(ids: string[], discard = false) {
   }))
   if (discard)
     for (const id of ids)
-      void gui.discardRecording(id).catch(() => setNotice("Couldn't remove the recording."))
+      void gui.discardRecording(id).catch(() => setNotice('Couldn’t remove the recording.'))
 }
 
 export function removeAttachments(ids: string[]) {
@@ -512,7 +512,7 @@ let recoveryRequired = false
 let recoveryRetry: ReturnType<typeof setTimeout> | null = null
 const RECOVERY_DELAYS_MS = [250, 750]
 const RECOVERY_FAILURE_NOTICE =
-  "Couldn't refresh the chat after three attempts. Reload the chat to try again."
+  'Couldn’t refresh the chat after three attempts. Reload the chat to try again.'
 
 function cancelRecoveryRetry() {
   if (recoveryRetry) clearTimeout(recoveryRetry)

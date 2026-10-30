@@ -43,6 +43,7 @@ import {
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, HIT_AREA, IconButton, OPEN, PRESS, SegmentedControl } from '../lib/ui'
+import { useDelayedLoading } from '../lib/use-delayed-loading'
 import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
 import { barPadding, sidebarRoom, useSidebarBar, useSidebarSliding } from './layout-morph'
 import { RecordButton } from './record-button'
@@ -197,7 +198,7 @@ export function Toolbar({ state }: { state: WindowState }) {
   return (
     <header
       ref={header}
-      className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface"
+      className="drag flex shrink-0 items-center gap-2 border-b-hairline border-line bg-surface"
       style={{ height: TOOLBAR_HEIGHT }}
     >
       <ProjectMenuButton
@@ -479,7 +480,7 @@ function BoardToolbar({
   return (
     <header
       ref={header}
-      className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface"
+      className="drag flex shrink-0 items-center gap-2 border-b-hairline border-line bg-surface"
       style={{ height: TOOLBAR_HEIGHT }}
     >
       {renaming ? (
@@ -489,7 +490,7 @@ function BoardToolbar({
           aria-label="Canvas name"
           spellCheck={false}
           defaultValue={board.name}
-          className={`${FIELD_LOOK} no-drag h-7 w-56 shrink-0 px-2 text-small`}
+          className={`${FIELD_LOOK} no-drag h-7 min-w-20 max-w-64 field-sizing-content shrink-0 px-2 text-small`}
           onFocus={(event) => event.currentTarget.select()}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing) return
@@ -516,7 +517,11 @@ function BoardToolbar({
           className={cn(HIT_AREA, 'max-w-64')}
           onClick={() => gui.showBoardMenu()}
         >
-          {nameShown && <span className="min-w-0 truncate text-fg">{board.name}</span>}
+          {nameShown && (
+            <span title={board.name} className="min-w-0 truncate text-fg">
+              {board.name}
+            </span>
+          )}
         </Button>
       )}
 
@@ -530,9 +535,14 @@ function BoardToolbar({
           >
             Canvas
           </Button>
-          <p data-fit-flex="" className="min-w-0 flex-1 truncate text-small font-medium text-fg">
-            {open.name}
-            <span className="ml-2 font-normal text-subtle tabular-nums">
+          <p
+            data-fit-flex=""
+            className="flex min-w-0 flex-1 items-center gap-2 text-small font-medium text-fg"
+          >
+            <span className="truncate" title={open.name}>
+              {open.name}
+            </span>
+            <span className="shrink-0 font-normal text-subtle tabular-nums">
               {open.width} × {open.height}
             </span>
           </p>
@@ -847,6 +857,7 @@ function FieldIconButton({
   spinning?: boolean
   onClick: () => void
 }) {
+  const showSpin = useDelayedLoading(spinning)
   return (
     <button
       type="button"
@@ -856,7 +867,7 @@ function FieldIconButton({
       onClick={onClick}
       className={cn(IN_FIELD, 'w-5 justify-center')}
     >
-      <Icon className={cn('size-3.5', spinning && 'animate-spin')} aria-hidden="true" />
+      <Icon className={cn('size-3.5', showSpin && 'animate-spin')} aria-hidden="true" />
     </button>
   )
 }
@@ -961,7 +972,7 @@ function AddressBar({ state }: { state: WindowState }) {
   const { status, label } = serverStatus(state)
   // Like the canvas: without a dev script (or an app picked), the address is the way in.
   const noCommand = !project?.devCommand && !setup?.apps
-  const placeholder = devServer.status === 'idle' && noCommand ? "Enter your app's address" : label
+  const placeholder = devServer.status === 'idle' && noCommand ? 'Enter your app’s address' : label
   // The label already says whether it stopped with an error; the exit code is in the logs.
   const tooltip = [label, devServer.command].filter(Boolean).join(' — ')
 
@@ -980,7 +991,7 @@ function AddressBar({ state }: { state: WindowState }) {
         title={withShortcut('App address', 'focusAddress')}
         aria-keyshortcuts={ariaShortcut('focusAddress')}
         // Addresses in monospace; the status in its place in the UI's font.
-        mono={value !== '' || draft !== null}
+        mono={value !== ''}
         value={value}
         spellCheck={false}
         placeholder={placeholder}

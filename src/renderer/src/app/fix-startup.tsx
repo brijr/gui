@@ -4,7 +4,7 @@ import { gui } from '../lib/api'
 import { InlineError } from '../lib/field'
 import { Button } from '../lib/ui'
 
-const NOT_READY = "The chat isn't ready yet. Try again in a moment."
+const NOT_READY = 'The chat isn’t ready yet. Try again in a moment.'
 /** How long a compact button says it couldn't act before it reads as itself again. */
 const NOTICE_MS = 4000
 

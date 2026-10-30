@@ -284,7 +284,7 @@ export function TabStrip({ state }: { state: WindowState }) {
     <nav
       ref={nav}
       aria-label="Tabs"
-      className="drag flex shrink-0 items-center gap-1 border-b border-line bg-surface"
+      className="drag flex shrink-0 items-center gap-1 border-b-hairline border-line bg-surface"
       style={{ height: TAB_ROW_HEIGHT }}
     >
       <div

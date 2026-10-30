@@ -121,6 +121,8 @@ interface PopoverProps extends ComponentProps<'div'> {
    * mounted for --motion-exit (usePresence) so the close can play.
    */
   open?: boolean
+  /** Keyboard menus appear immediately; closing still fades. */
+  instant?: boolean
   /**
    * Floats it on the popover layer where placePopover put it, growing from its button. Without
    * one it sits in the flow (the composer's command menu): give it a `transformOrigin`.
@@ -133,7 +135,14 @@ interface PopoverProps extends ComponentProps<'div'> {
  * 97% at the trigger's edge and fading in quickly; it closes back into
  * it. With reduced motion it only fades.
  */
-export function Popover({ open = true, placement, style, className, ...props }: PopoverProps) {
+export function Popover({
+  open = true,
+  instant = false,
+  placement,
+  style,
+  className,
+  ...props
+}: PopoverProps) {
   return (
     <div
       data-state={open ? 'open' : 'closed'}
@@ -154,7 +163,8 @@ export function Popover({ open = true, placement, style, className, ...props }: 
       className={cn(
         'flex flex-col overflow-hidden rounded-lg border border-line bg-raised text-fg shadow-popover',
         placement && 'fixed z-popover',
-        'transition-[opacity,scale] duration-(--motion-pop) ease-out starting:opacity-0 motion-safe:starting:scale-97',
+        'transition-[opacity,scale] duration-(--motion-pop) ease-out',
+        !instant && 'starting:opacity-0 motion-safe:starting:scale-97',
         'data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:duration-(--motion-exit) data-[state=closed]:ease-in motion-safe:data-[state=closed]:scale-97',
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
         className,
@@ -170,7 +180,7 @@ export function Popover({ open = true, placement, style, className, ...props }: 
  */
 export function PopoverSearch(props: Omit<ComponentProps<'input'>, 'className' | 'type'>) {
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-line px-2.5">
+    <div className="flex shrink-0 items-center gap-2 border-b-hairline border-line px-2.5">
       <Search className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
       <input
         type="text"
@@ -329,7 +339,7 @@ export function PanelHeader({
     <header
       className={cn(
         'flex h-9 shrink-0 items-center gap-1.5 pr-1.5 pl-3',
-        !borderless && 'border-b border-line',
+        !borderless && 'border-b-hairline border-line',
         className,
       )}
       {...props}
@@ -401,7 +411,7 @@ export function Banner({
       className={cn(
         'flex shrink-0 items-center gap-2 pr-1.5 pl-3 text-small',
         wrap ? 'min-h-9 flex-wrap gap-y-1.5 py-1.5' : 'h-9',
-        edge === 'top' ? 'border-b border-line' : 'border-t border-line',
+        edge === 'top' ? 'border-b-hairline border-line' : 'border-t-hairline border-line',
         BANNER_TONE[tone],
         className,
       )}
@@ -427,7 +437,7 @@ export function List({ className, ...props }: ComponentProps<'ul'>) {
   return (
     <ul
       className={cn(
-        'divide-y divide-line overflow-hidden rounded-lg border border-line bg-raised',
+        'divide-y divide-hairline divide-line overflow-hidden rounded-lg border border-line bg-raised',
         className,
       )}
       {...props}
@@ -678,9 +688,12 @@ export function Thumbnail({
           title={removeLabel ?? 'Remove'}
           onClick={onRemove}
           // 20px drawn, 32px to hit; neighbouring thumbnails are at least 44px apart.
-          className={`absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-1.75 before:rounded-full hover:text-fg hover:tint ${PRESS}`}
+          className={`group absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full border border-line-strong bg-raised text-muted shadow-control transition-[color,opacity] before:absolute before:-inset-1.75 before:rounded-full hover:text-fg hover:tint`}
         >
-          <X className="size-3" aria-hidden="true" />
+          <X
+            className="size-3 transition-opacity group-active:opacity-70 group-active:transition-none"
+            aria-hidden="true"
+          />
         </button>
       )}
     </div>

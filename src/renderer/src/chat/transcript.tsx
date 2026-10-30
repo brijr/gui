@@ -375,7 +375,7 @@ function TurnRow({
 /** Something to start from in an empty chat: building an app from nothing, or changing one. */
 const STARTERS = {
   build: [
-    'Build a landing page for a coffee shop',
+    'Build Kiln, a booking app for pottery studios',
     'Build a portfolio site with a project gallery',
     'Build a sign-up form with friendly validation',
   ],
@@ -431,7 +431,7 @@ function EmptyTranscript({
         fill
         icon={MessageSquare}
         title="Ask about your project"
-        actions={<StarterPrompts prompts={STARTERS.build} />}
+        actions={canvasEmpty ? <StarterPrompts prompts={STARTERS.build} /> : undefined}
       >
         Your agent can read and edit the code while the preview starts.
       </Message>

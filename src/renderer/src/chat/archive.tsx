@@ -6,7 +6,7 @@ import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError, Input } from '../lib/field'
 import { Pencil, Trash2 } from '../lib/icons'
-import { motionMs, usePresence } from '../lib/motion'
+import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
 import {
   GroupLabel,
   Popover,
@@ -36,7 +36,10 @@ export function ArchivePopover({
   onClose: (refocus: boolean) => void
 }) {
   const [placement, setPlacement] = useState<PopoverPlacement | null>(null)
-  const shown = usePresence(open, motionMs('--motion-exit'))
+  const shown = usePresence(
+    open,
+    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-exit'),
+  )
   const listId = useId()
   // Placed under the button each time it opens.
   useEffect(() => {
@@ -211,7 +214,7 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
       {chats === null ? (
         <PopoverNote loading>Loading…</PopoverNote>
       ) : chats.length === 0 ? (
-        <PopoverNote>No archived chats yet.</PopoverNote>
+        <PopoverNote>No archived chats yet</PopoverNote>
       ) : shown.length === 0 ? (
         <PopoverNote>No chats match</PopoverNote>
       ) : (

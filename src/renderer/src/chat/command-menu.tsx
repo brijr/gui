@@ -2,7 +2,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState 
 import { filterCommands } from '../../../shared/commands'
 import type { AgentCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { motionMs, usePresence } from '../lib/motion'
+import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
 import { MenuRow, Popover, PopoverNote } from '../lib/surface'
 
 /** `/` and the start of a name, nothing after: the menu's query. Null when it shouldn't open. */
@@ -66,7 +66,10 @@ export function useCommandMenu({
   // gone (a command chosen, the message sent or cleared).
   const last = useRef({ shown, activeIndex })
   if (open) last.current = { shown, activeIndex }
-  const present = usePresence(open, motionMs('--motion-exit'))
+  const present = usePresence(
+    open,
+    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-exit'),
+  )
 
   useEffect(() => {
     if (!awaiting) return
@@ -117,6 +120,7 @@ export function useCommandMenu({
   const menu = present && (
     // In the composer's stack, right above the message box: it grows up out of the box.
     <Popover
+      instant
       open={open}
       // Focus stays in the message box; clicks mustn't take it.
       onMouseDown={(event) => event.preventDefault()}
@@ -163,7 +167,10 @@ export function useCommandMenu({
       <>
         {menu}
         {hinted && (
-          <p className="truncate px-1 text-small text-muted">
+          <p
+            title={`/${hinted.name} ${hinted.hint ?? ''}`}
+            className="truncate px-1 text-small text-muted"
+          >
             <span className="font-mono">/{hinted.name}</span> <span>{hinted.hint}</span>
           </p>
         )}

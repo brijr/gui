@@ -40,7 +40,9 @@ export function AgentCard({ agentId, health, change, caption }: AgentCardProps) 
           {caption ? (
             <p className="text-pretty text-small text-muted">{caption}</p>
           ) : (
-            <p className="truncate font-medium">{name}</p>
+            <p className="truncate font-medium" title={name}>
+              {name}
+            </p>
           )}
         </div>
         {change}
@@ -121,7 +123,7 @@ function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
 
   if (!health) {
     return (
-      <Step tone="danger" text={`Gui can't find ${name}. Pick another agent or add it back.`}>
+      <Step tone="danger" text={`Gui can’t find ${name}. Pick another agent or add it back.`}>
         <Button onClick={() => gui.openSettings('agents')}>Agent settings</Button>
       </Step>
     )
@@ -157,7 +159,7 @@ function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
     case 'not-installed':
       if (health.install) {
         return (
-          <Step text={health.message ?? `${name} isn't installed yet.`} error={error}>
+          <Step text={health.message ?? `${name} isn’t installed yet.`} error={error}>
             <Button variant="primary" onClick={install}>
               Install {name}
             </Button>
@@ -166,9 +168,9 @@ function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
       }
       return (
         <Step
-          text={`${name} isn't installed yet. Install it, then come back. Gui picks it up on its own.`}
+          text={`${name} isn’t installed yet. Install it, then come back. Gui picks it up on its own.`}
           details={
-            health.command ? `Gui can't find the ${health.command} command on this Mac.` : undefined
+            health.command ? `Gui can’t find the ${health.command} command on this Mac.` : undefined
           }
           error={error}
         >
@@ -206,7 +208,7 @@ function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
       return (
         <Step
           tone="danger"
-          text={health.message ?? `${name} isn't working right now.`}
+          text={health.message ?? `${name} isn’t working right now.`}
           error={error}
         >
           {/* `install` stays set after a failed download, so the same button retries it */}
@@ -218,7 +220,7 @@ function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
       )
     default:
       return (
-        <Step text={`${name} hasn't been checked yet.`}>
+        <Step text={`${name} hasn’t been checked yet.`}>
           <Button onClick={check}>Check now</Button>
         </Step>
       )

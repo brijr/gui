@@ -100,7 +100,7 @@ export function Canvas({ state }: { state: WindowState }) {
                 title="This frame didn’t load"
                 className="max-w-sm"
               >
-                {preview.error.message}
+                <span className="select-text">{preview.error.message}</span>
               </Message>
             </div>
           )
@@ -124,7 +124,7 @@ export function Canvas({ state }: { state: WindowState }) {
           scrolls from the top in a short window. */}
       <div
         className={cn(
-          'absolute inset-0 flex flex-col overflow-y-auto scroll-stable p-8',
+          'absolute inset-0 flex flex-col overflow-y-auto [scrollbar-gutter:stable_both-edges] p-8',
           !state.project && 'pt-20',
         )}
       >
@@ -207,7 +207,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={TriangleAlert}
         tone="danger"
-        title="Couldn't install dependencies"
+        title="Couldn’t install dependencies"
         note={devServer.lastLine}
         actions={
           <>
@@ -267,7 +267,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={TriangleAlert}
         tone="danger"
-        title="Your app couldn't load"
+        title="Your app couldn’t load"
         detail={preview.error.message}
         note={preview.error.detail}
         actions={
@@ -328,8 +328,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
         title={production ? 'Your app has no dev script' : 'Start building your app'}
         detail={
           production
-            ? `Its “${production}” script runs a production build, which doesn't update as you edit. Ask your agent to add a “dev” script, or set a dev server command.`
-            : "Describe your app in chat. Gui will preview it when it's ready."
+            ? `Its “${production}” script runs a production build, which doesn’t update as you edit. Ask your agent to add a “dev” script, or set a dev server command.`
+            : 'Describe your app in chat. Gui will preview it when it’s ready.'
         }
         actions={
           <>
@@ -352,8 +352,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={Package}
-        title="This project needs a quick setup"
-        detail="Gui will install its dependencies and start it, which runs the project's own scripts."
+        title="Install this project’s dependencies"
+        detail="Gui will install its dependencies and start it, which runs the project’s own scripts."
         actions={
           <Button variant="primary" onClick={() => gui.installDependencies()}>
             Install and start
@@ -368,7 +368,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={Play}
-        title="Your app isn't running"
+        title="Your app isn’t running"
         note={project.devCommand ?? ''}
         actions={
           <Button variant="primary" onClick={() => gui.startDevServer()}>
@@ -394,7 +394,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
       <SetupCard
         icon="loading"
         title="Setting up Node.js…"
-        detail="Your app starts as soon as it's ready."
+        detail="Your app starts as soon as it’s ready."
       >
         <InstallProgress name="Node.js" progress={node.progress} />
       </SetupCard>
@@ -405,7 +405,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
       <SetupCard
         icon={TriangleAlert}
         tone="danger"
-        title="Couldn't set up Node.js"
+        title="Couldn’t set up Node.js"
         detail={node.error ?? 'The download stopped with an error.'}
         note="You can also install Node.js yourself from nodejs.org. Gui uses yours when it finds it."
         actions={
@@ -576,7 +576,7 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
       <Field
         label="Address"
         htmlFor={START_FIELDS.url}
-        hint="Only if your app doesn't print its address."
+        hint="Only if your app doesn’t print its address."
         error={save.error?.includes('address must') ? save.error : undefined}
       >
         <Input
@@ -594,7 +594,7 @@ function StartCommandForm({ project, onDone }: { project: ProjectInfo; onDone: (
         <Button type="submit" variant="primary" loading={save.pending} disabled={!command.trim()}>
           Save and start
         </Button>
-        <Button disabled={save.pending} onClick={onDone}>
+        <Button variant="ghost" disabled={save.pending} onClick={onDone}>
           Cancel
         </Button>
         {project.custom && (
@@ -721,7 +721,7 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
         </Button>
       }
     >
-      <span className="text-pretty">Undo and sharing need Apple’s free developer tools.</span>
+      <span className="text-pretty">Undo needs Apple’s free developer tools.</span>
     </Banner>
   )
 }
@@ -820,7 +820,7 @@ gui.onCommand((command) => {
  * the user's GitHub repositories above it, or offers to connect GitHub); main asks where to
  * put the folder, then opens it like any project.
  */
-function OpenActions({ firstRun }: { firstRun: boolean }) {
+function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolean }) {
   const [form, setForm] = useState<StartForm | null>(null)
   const github = useGitHub(form === 'cloneRepo')
   const [template, setTemplate] = useState<ProjectTemplate>('website')
@@ -859,7 +859,7 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
     return (
       <div className="flex flex-col gap-2">
         <Button
-          variant="primary"
+          variant={connect ? 'secondary' : 'primary'}
           size="lg"
           icon={firstRun ? FolderPlus : FolderOpen}
           className={cell}
@@ -1002,7 +1002,7 @@ function OpenActions({ firstRun }: { firstRun: boolean }) {
           <Button type="submit" variant="primary" loading={busy} disabled={!value.trim()}>
             {spec.submit}
           </Button>
-          <Button disabled={busy} onClick={close}>
+          <Button variant="ghost" disabled={busy} onClick={close}>
             Cancel
           </Button>
         </div>
@@ -1048,9 +1048,9 @@ function StartScreen({ state }: { state: WindowState }) {
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <GuiMark className="mb-4" />
-          <h1 className="text-title font-semibold">
-            {firstRun ? 'Design your app with your own agents' : 'Open a project'}
-          </h1>
+          {firstRun && (
+            <h1 className="text-title font-semibold">Design your app with your own agents</h1>
+          )}
         </div>
         {/* Nothing works without an agent, so setting one up comes before opening a project */}
         {connect && (
@@ -1060,7 +1060,7 @@ function StartScreen({ state }: { state: WindowState }) {
             onOtherAgents={() => setOtherAgents(true)}
           />
         )}
-        <OpenActions firstRun={firstRun} />
+        <OpenActions firstRun={firstRun} connect={connect} />
       </div>
 
       {chats.length > 0 && (
@@ -1089,7 +1089,7 @@ function StartScreen({ state }: { state: WindowState }) {
       {boards.length > 0 && (
         <section aria-labelledby="recent-canvases" className="flex flex-col gap-2">
           <GroupLabel id="recent-canvases" as="h2">
-            Canvases
+            Recent canvases
           </GroupLabel>
           <List>
             {boards.map((board) => (
@@ -1101,7 +1101,7 @@ function StartScreen({ state }: { state: WindowState }) {
                     title={board.name}
                     detail={`${board.frames === 1 ? '1 frame' : `${board.frames} frames`} · ${timeAgo(board.editedAt)}`}
                     trailing={
-                      <span className="transition-opacity duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
+                      <span className="transition-opacity duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
                         {CHEVRON}
                       </span>
                     }
@@ -1112,7 +1112,7 @@ function StartScreen({ state }: { state: WindowState }) {
                     size="sm"
                     aria-haspopup="menu"
                     onClick={() => gui.showRecentBoardMenu(board.id)}
-                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
                   />
                 </div>
               </li>
@@ -1186,7 +1186,7 @@ function RecentRow({
           title={title}
           detail={detail}
           trailing={
-            <span className="transition-opacity duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
+            <span className="transition-opacity duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
               {CHEVRON}
             </span>
           }
@@ -1208,7 +1208,7 @@ function RecentRow({
               })}
           size="sm"
           aria-disabled={remove.pending}
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>
       {remove.error && <InlineError className="px-3 pb-2">{remove.error}</InlineError>}

@@ -158,7 +158,7 @@ export function RecordButton({
       still.width = Math.max(1, Math.round(canvas.width * shrink))
       still.height = Math.max(1, Math.round(canvas.height * shrink))
       const stillContext = still.getContext('2d')
-      if (!context || !stillContext) throw new Error("Couldn't capture preview frames.")
+      if (!context || !stillContext) throw new Error('Couldn’t capture preview frames.')
       // Canvas pixels per CSS pixel of the page: the capture is in device pixels.
       const unit = (canvas.width / Math.max(1, video.videoWidth)) * window.devicePixelRatio
       const pointer = new PointerOverlay()
@@ -218,17 +218,17 @@ export function RecordButton({
               new Uint8Array(await data.arrayBuffer()),
             )
             if (!accepted && !failure) {
-              failure = 'Recording interrupted because the preview became unavailable.'
+              failure = 'Recording stopped because the preview closed. Record again.'
               finish()
             }
           })
           .catch((cause: unknown) => {
-            failure ??= readableError(cause) || "Couldn't save the recording."
+            failure ??= readableError(cause) || 'Couldn’t save the recording.'
             finish()
           })
       }
       recorder.onerror = () => {
-        failure = "Couldn't encode the recording."
+        failure = 'Couldn’t encode the recording.'
         finish()
       }
       recorder.onstop = async () => {
@@ -247,7 +247,7 @@ export function RecordButton({
           )
         } catch (cause) {
           await gui.discardRecording(recordingId).catch(() => undefined)
-          setError(readableError(cause) || "Couldn't save the recording.")
+          setError(readableError(cause) || 'Couldn’t save the recording.')
         } finally {
           voice?.dispose()
           video.srcObject = null
@@ -273,7 +273,7 @@ export function RecordButton({
         stillContext.drawImage(canvas, 0, 0, still.width, still.height)
         pending = new Promise<Blob>((resolve, reject) =>
           still.toBlob(
-            (blob) => (blob ? resolve(blob) : reject(new Error("Couldn't encode a frame."))),
+            (blob) => (blob ? resolve(blob) : reject(new Error('Couldn’t encode a frame.'))),
             'image/jpeg',
             0.88,
           ),
@@ -285,12 +285,12 @@ export function RecordButton({
               new Uint8Array(await blob.arrayBuffer()),
             )
             if (!accepted && !stopping) {
-              failure = 'Recording interrupted because the preview became unavailable.'
+              failure = 'Recording stopped because the preview closed. Record again.'
               finish()
             }
           })
           .catch((cause: unknown) => {
-            failure ??= readableError(cause) || "Couldn't save frames."
+            failure ??= readableError(cause) || 'Couldn’t save frames.'
             finish()
           })
           .finally(() => {
@@ -334,7 +334,7 @@ export function RecordButton({
       busy.current = false
       setLive(null)
       setPhase('idle')
-      setError(readableError(cause) || "Couldn't start recording.")
+      setError(readableError(cause) || 'Couldn’t start recording.')
     }
   }
 
@@ -403,7 +403,7 @@ export function RecordButton({
             title={
               narrate
                 ? 'Recordings include your voice, transcribed for the agent. Click to turn off.'
-                : 'Talk while you record: your voice is transcribed for the agent. Click to turn on.'
+                : 'Talk while you record. Gui transcribes your voice for the agent. Click to turn on.'
             }
             disabled={!idle}
             onClick={toggleNarrate}

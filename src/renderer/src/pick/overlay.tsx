@@ -141,7 +141,7 @@ export function PickOverlay() {
   return (
     <div
       role="application"
-      aria-label="Pick in the preview"
+      aria-label="Select in the preview"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -252,7 +252,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
           // next step, and leave it on the page.
           key={`outline-${guide.step}`}
           data-guide-outline=""
-          className="pointer-events-none absolute animate-row-fade rounded-sm border-2 border-accent ring-4 ring-accent-soft"
+          className="pointer-events-none absolute motion-safe:animate-fade-in motion-reduce:animate-row-fade rounded-sm border-2 border-accent ring-4 ring-accent-soft"
           style={place(guide.rect)}
         />
       )}
@@ -284,7 +284,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
             width="20"
             height="22"
             viewBox="0 0 20 22"
-            className="drop-shadow-sm"
+            className="drop-shadow-pointer"
             aria-hidden="true"
           >
             <path
@@ -300,7 +300,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         <div
           role="status"
           data-guide-held=""
-          className="pointer-events-none absolute max-w-70 animate-row-fade rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover"
+          className="pointer-events-none absolute max-w-70 motion-safe:animate-fade-in motion-reduce:animate-row-fade rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover"
           style={notePlace(heldNote)}
         >
           The agent is using this website. Stop it to use it yourself.
@@ -358,7 +358,9 @@ function Outline({
       data-outline={kind}
       className={cn(
         'pointer-events-none absolute rounded-sm border-accent',
-        kind === 'hover' ? 'border bg-accent-soft' : 'animate-row-fade border-2',
+        kind === 'hover'
+          ? 'border bg-accent-soft'
+          : 'motion-safe:animate-fade-in motion-reduce:animate-row-fade border-2',
       )}
       style={place(rect)}
     >
@@ -405,7 +407,9 @@ function Hint({ shown }: { shown: boolean }) {
         // As wide as its words, up to the overlay's width less the margins (a phone frame is
         // narrow): then whole phrases wrap to a second row, never a phrase across two.
         'pointer-events-none absolute top-2 right-2 left-2 flex w-fit flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-raised px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel) *:whitespace-nowrap',
-        shown ? 'opacity-100' : 'opacity-0',
+        shown
+          ? 'opacity-100'
+          : 'opacity-0 duration-(--motion-exit) ease-in motion-reduce:duration-(--motion-fade)',
       )}
     >
       {/* Gestures in words, keys as keycaps */}
@@ -416,7 +420,7 @@ function Hint({ shown }: { shown: boolean }) {
         <span className="font-medium text-fg">Drag</span> for a screenshot
       </span>
       <span className="flex items-center gap-1">
-        <Kbd>⇧</Kbd> to pick more
+        <Kbd>⇧</Kbd> to select more
       </span>
       <span className="flex items-center gap-1">
         <Kbd>Esc</Kbd> when done

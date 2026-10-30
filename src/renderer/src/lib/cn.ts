@@ -45,16 +45,7 @@ const merge = extendTailwindMerge({
       shadow: ['raised', 'popover', 'panel', 'sheet', 'control'],
       radius: ['sm', 'md', 'lg', 'xl'],
       ease: ['out', 'in', 'spring'],
-      animate: [
-        'spin',
-        'row-in',
-        'row-fade',
-        'place-in',
-        'click-ring',
-        'sweep',
-        'mark-tile',
-        'mark-turn',
-      ],
+      animate: ['spin', 'row-in', 'row-fade', 'place-in', 'click-ring', 'sweep', 'fade-in'],
     },
   },
   extend: {

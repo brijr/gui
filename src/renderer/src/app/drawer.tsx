@@ -239,7 +239,10 @@ export function Drawer({ state }: { state: WindowState }) {
             <div className="flex min-w-0 flex-1 items-center justify-end gap-2 pl-2">
               {shown === 'server' ? (
                 <>
-                  <span className="min-w-0 truncate font-mono text-caption text-subtle">
+                  <span
+                    title={state.devServer.command ?? undefined}
+                    className="min-w-0 truncate font-mono text-caption text-subtle"
+                  >
                     {state.devServer.command}
                   </span>
                   {failed && (
