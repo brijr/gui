@@ -118,7 +118,6 @@ async function buildState(): Promise<SettingsState> {
     customAgentsError: custom.error,
     trustedProjects,
     startCommands,
-    defaultBranchProjects: prefs.defaultBranchRoots,
     recentProjects,
     storage,
     openProjects: openRoots(),
@@ -212,13 +211,6 @@ export async function resetStartCommand(root: string) {
 }
 
 /** Opened on its main branch again, the project's first message starts a new branch. */
-export async function askAboutBranch(root: string) {
-  const roots = getPrefs().defaultBranchRoots
-  if (roots.includes(root))
-    setPrefs({ defaultBranchRoots: roots.filter((saved) => saved !== root) })
-  await refreshSettings()
-}
-
 export async function clearRecent() {
   await clearRecentFile()
   for (const tab of allTabs()) tab.setRecent([])

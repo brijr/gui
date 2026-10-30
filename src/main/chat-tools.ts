@@ -24,8 +24,6 @@ export const GUI_TOOL_LABELS: Record<string, string> = {
   dev_server_status: 'Check dev server',
   dev_server_restart: 'Restart dev server',
   set_start_command: 'Change dev server command',
-  source_control_status: 'Check source control',
-  source_control_propose: 'Propose changes to ship',
   chat_turns: 'Read earlier turns',
 }
 const PREVIEW_TOOLS = Object.keys(GUI_TOOL_LABELS).join('|')

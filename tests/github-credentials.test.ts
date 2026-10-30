@@ -225,7 +225,7 @@ test('invalidation between the asynchronous identity check and dispatch prevents
   expect(used).toBe(false)
 })
 
-test('github.ts guards account/provider races, fresh mutations, and service fallback', async () => {
+test('github.ts clones guard account/provider races and service fallback', async () => {
   const result = await promisify(execFile)(process.execPath, [
     join(import.meta.dirname, 'fast', 'github-credentials.ts'),
   ])

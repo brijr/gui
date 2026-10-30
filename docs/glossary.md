@@ -7,7 +7,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 - **Capitalization.** Native menus, menu-bar items, context menus (`Menu.buildFromTemplate`) and native dialog buttons use macOS Title Case: "Move Tab to New Window", "New Chat", "Restart Now". Everything else in the app UI uses sentence case: "Close tab", "Get latest", "Archived chats". When app UI names a menu command (the Keyboard Shortcuts list, "Settings → Agents"), it keeps the menu's casing.
 - **"…" means "asks for more first".** Use the single `…` character, only on items that open a dialog, sheet or picker before acting.
 - **Name what the user sees.** Say "your app", "the preview", "this chat", not the mechanism behind it (process, session, PATH, ACP).
-- **Plain words over git and dev jargon.** The exceptions are the source control words below, which users also see on GitHub.
+- **Plain words over git and dev jargon.** Gui leaves Git to the agent and the terminal; where it does name Git things (the toolbar's branch, Clone…), it uses the words below, which users also see on GitHub.
 - **A label says what happens.** Use "Show chat" or "Hide chat", never "Toggle chat". A status word describes the current state, and a button names the next action.
 - **Stop is for things that run.** Cancel only closes a dialog without doing anything, and closing it shows no message. Never show "Cancelled." as an error.
 - **Contractions, no "please".** "Couldn't save the recording", not "Could not" or "Please try again". Errors say what happened and what to do next.
@@ -24,7 +24,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | preview | page, browser view | toolbar, shortcuts | **page** is one address inside the preview. **browser** is the user's own browser ("Open in Browser") |
 | website | site, external page, off-site page | address bar, agent prompt and tool results | A public site that isn't the user's app, which the agent opens in the preview to use like a user ("how does linear.app do onboarding?"), in a separate, signed-out session. The address bar shows its address; the way back is **Back to your app** |
 | dev server | server, start command, "Start app" | drawer, View menu, setup cards | Sentences about what the user sees say "your app": "Your app stopped". The command field is "Dev server command"; the button is "Start dev server" ("Start Dev Server" in menus and dialogs) |
-| Trust project, Trusted projects | Allow, approve, "Use source control?" | trust prompt, bar, Source Control, Settings → Projects | One switch: a trusted project runs its dev server, Git and agents without asking |
+| Trust project, Trusted projects | Allow, approve | trust prompts (dev server, agent), Settings → Projects | One switch: a trusted project runs its dev server and agents without asking |
 | dependencies | packages | setup cards, address bar status | "Installing dependencies…", "Gui will install its dependencies and start it" |
 | select | pick, picked | "Select element" (⌘D), composer and message lists ("Selected", "2 selected"), empty chat | Code names (`Picked`, `pick/`) stay |
 | Show as sidebar / Show as floating panel | Float panel, Dock | chat header (`chat-panel.tsx`) | Menu: "Chat as Sidebar". Settings: "Show the chat as a sidebar" |
@@ -36,7 +36,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | logs | output | dev server and install errors (`LogsToggle noun="output"`) | "Show logs" / "Hide logs" |
 | chat | conversation, thread, session | chat UI, errors (`store.ts:489`) | "New Chat", "Archived Chats" in menus |
 | message | turn | "before this turn" tooltip (`turn-view.tsx:1076`), Settings clear dialog | "Restore files to how they were before this message". "You can no longer undo changes from past chats." |
-| version | checkpoint, snapshot | Settings → Storage ("Checkpoints · Snapshots that power Undo") | Matches "Versions…". Use "Versions · Saved states that power Undo". The Versions sheet's way to share is "Commit…", not "Publish…" |
+| version | checkpoint, snapshot | Settings → Storage ("Checkpoints · Snapshots that power Undo") | Matches "Versions…". Use "Versions · Saved states that power Undo" |
 | Ready | Installed (as a status) | agent status on start screen and Settings (`agent-status.tsx`) | An agent Gui found but hasn't checked yet reads **Not checked**, with a **Check now** button. Replaces "Check" |
 | Not installed | not on your PATH | Settings, Agent menu sublabel | Button: "Install {name}". Hint: "Gui can't find the `x` command on this Mac." |
 | Turn on / Off | Enable, Enabled | agent card, Settings agent switch (`agent-row.tsx:75`) | Status "Off". The switch's label is the agent's name |
@@ -47,16 +47,9 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | this Mac | this computer | everywhere | "Versions stay on this Mac." |
 | the Gui team | WIP | crash reports (`account-section.tsx:31`) | "…sends the error and the Gui and macOS versions to the Gui team." |
 
-## Source control words
+## Git words
 
 | Use | Don't use | Note |
 |---|---|---|
-| branch | ref, HEAD | "Detached HEAD" → "No branch" |
-| worktree | workspace, sandbox, copy | Same word as git and other agent tools. On first appearance in a surface, explain it once: "a separate copy of your project on its own branch, so this chat's changes stay apart from your other work." |
-| uncommitted changes | working tree, uncommitted edits/files, dirty | "Working tree clean" → "No uncommitted changes". The "Clean" badge → "No changes". Count: "3 uncommitted changes" |
-| commit (verb and noun) | save, saved commits | "Push sends your commits. Uncommitted changes stay on this Mac." |
-| push | publish, sync, upload | Status: "2 commits ready to push", "All commits pushed" |
-| pull request | PR, merge request, "Share for review" | "Create pull request", "Open pull request", "Update pull request" (the strip's bare "Update") |
-| Get latest | Bring in latest, Pull, Sync | One button everywhere (`proposal.tsx:303,342,362`). Status: "main has 3 new commits" |
-| online | remote, "No remote configured" | "This project isn't online yet. Commits stay on this Mac." |
+| branch | ref, HEAD | The toolbar shows it, read only. "Detached HEAD" → "No branch" |
 | repository | repo | In sentences and labels ("GitHub repository"). A placeholder like `owner/repo` is fine |

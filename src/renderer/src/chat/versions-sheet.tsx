@@ -8,7 +8,6 @@ import { Badge } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, IconButton, Skeleton } from '../lib/ui'
-import { toggleShipSheet } from './shipping-state'
 import { useChat } from './store'
 import {
   closeVersions,
@@ -62,11 +61,6 @@ export function VersionsSheet() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const publish = () => {
-    closeVersions()
-    if (!useVersions.getState().open) toggleShipSheet()
-  }
-
   return (
     <div ref={root} className="flex min-h-0 flex-1 flex-col">
       <PanelHeader
@@ -108,20 +102,14 @@ export function VersionsSheet() {
               <VersionList versions={versions} busy={busy} running={running} />
             )}
           </div>
-          <div className="flex shrink-0 flex-col gap-2 border-t border-line p-2">
-            {error && (
+          {error && (
+            <div className="shrink-0 border-t border-line p-2">
               <InlineError className="flex max-h-40 gap-1.5 overflow-y-auto scroll-stable px-1">
                 <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>
               </InlineError>
-            )}
-            <p className="px-1 text-caption text-pretty text-subtle">
-              Versions stay on this Mac. To share the files as they are now, commit and push them.
-            </p>
-            <Button variant="primary" disabled={busy !== null} onClick={publish} className="w-full">
-              Commit…
-            </Button>
-          </div>
+            </div>
+          )}
         </>
       )}
     </div>

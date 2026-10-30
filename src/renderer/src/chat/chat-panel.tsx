@@ -46,13 +46,9 @@ import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
-import { ProposalBar, ReviewSheet, useProposal, useProposalUpdates } from './proposal'
-import { proposeDraft } from './proposal-state'
-import { openShipSheet, ShipSheet, useShipSheet } from './ship-sheet'
-import { showSourceControl } from './shipping-state'
 import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
 import { Transcript } from './transcript'
-import { closeVersions, toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
+import { toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
 
 /** Fields ⌘⌫ deletes typing in. */
 const TEXT_INPUT = /^(text|search|url|email|password|tel|number)$/
@@ -67,8 +63,8 @@ function typing(target: EventTarget | null) {
 /**
  * ⌘↩ and ⌘⌫ answer the oldest waiting permission card from anywhere in the panel, with its
  * Allow or Don't Allow, as Agent → Allow and Don't Allow do from elsewhere; otherwise the
- * composer would send on ⌘↩ and a text field take ⌘⌫. Not while the PR sheet is open (its
- * ⌘↩ creates the pull request), nor ⌘⌫ in a field with text in it, which it deletes. Ahead
+ * composer would send on ⌘↩ and a text field take ⌘⌫. Not while the Versions sheet is open,
+ * nor ⌘⌫ in a field with text in it, which it deletes. Ahead
  * of the panel's own handlers: a key answered here goes no further, the menu included.
  */
 function answerPermissionKeys() {
@@ -77,7 +73,7 @@ function answerPermissionKeys() {
     if (!event.metaKey || modifiers || event.isComposing) return
     const allow = event.key === 'Enter'
     if (!allow && event.key !== 'Backspace') return
-    if (useShipSheet.getState().open || useVersions.getState().open) return
+    if (useVersions.getState().open) return
     if (!allow && typing(event.target)) return
     const answer = keyedAnswer(useChat.getState().turns, allow)
     if (!answer) return
@@ -92,24 +88,6 @@ function answerPermissionKeys() {
 export function ChatPanel() {
   useEffect(() => connectChat(), [])
   useEffect(() => answerPermissionKeys(), [])
-  // Main gives ⌘↩ to the PR sheet while it's open: Agent → Allow waits.
-  useEffect(
-    () =>
-      useShipSheet.subscribe((sheet, before) => {
-        if (sheet.open !== before.open) gui.setShipSheetOpen(sheet.open)
-      }),
-    [],
-  )
-  // The agent's proposal goes on the bar's button, and into Source Control when it's open.
-  useEffect(
-    () =>
-      gui.onShipDraft((draft) => {
-        proposeDraft(draft)
-        if (useShipSheet.getState().open) openShipSheet(draft)
-      }),
-    [],
-  )
-  useProposalUpdates()
   const meta = useChat((s) => s.meta)
   const turnIds = useChat((s) => s.turnIds)
   const running = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
@@ -155,20 +133,12 @@ export function ChatPanel() {
   )
 }
 
-/**
- * Under the header: "Create pull request" or the review comments take over the transcript and
- * composer until closed; otherwise the pull request's bar sits over the transcript.
- */
+/** Under the header: the Versions sheet takes over the transcript and composer until closed. */
 function Body({ meta, turnIds, running }: { meta: ChatMeta; turnIds: string[]; running: boolean }) {
-  const shipping = useShipSheet((s) => s.open)
   const versioning = useVersions((s) => s.open)
-  const reviewing = useProposal((s) => s.reviewing)
-  if (shipping) return <ShipSheet />
   if (versioning) return <VersionsSheet />
-  if (reviewing) return <ReviewSheet />
   return (
     <>
-      <ProposalBar />
       <Transcript turnIds={turnIds} meta={meta} />
       <Composer meta={meta} running={running} />
     </>
@@ -490,8 +460,7 @@ function Header({ meta }: { meta: ChatMeta }) {
           : undefined
       }
       className={titleBar ? 'drag' : 'cursor-grab active:cursor-grabbing'}
-      // In an icon's 14px box, so the dot and the name sit over the source control bar's
-      // branch icon and branch name.
+      // In an icon's 14px box, like the icons beside it.
       leading={
         <span className="mr-0.5 flex size-3.5 shrink-0 items-center justify-center">
           <StatusDot status={agentStatus(meta, running)} />
@@ -553,9 +522,9 @@ function Header({ meta }: { meta: ChatMeta }) {
 }
 
 /**
- * The header's less-used actions in one native menu (main's `showChatMenu`): Create Pull
- * Request, Archived Chats, Pop Out. The pull request sheet and the archived chats are this
- * page's, so main says which was chosen; the archived chats open under this button.
+ * The header's less-used actions in one native menu (main's `showChatMenu`): Versions,
+ * Archived Chats, Pop Out. The Versions sheet and the archived chats are this page's, so main
+ * says which was chosen; the archived chats open under this button.
  */
 function MoreButton() {
   const button = useRef<HTMLButtonElement>(null)
@@ -565,11 +534,6 @@ function MoreButton() {
       gui.onChatMenuChoice((choice) => {
         if (choice === 'versions') toggleVersions()
         else if (choice === 'archive') setArchive(true)
-        else {
-          // The toolbar's branch menu
-          closeVersions()
-          showSourceControl(choice)
-        }
       }),
     [],
   )

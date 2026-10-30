@@ -94,9 +94,6 @@ const test = base.extend<Fixtures>({
           fixture: 'vite',
           trusted: false,
           open: recent === undefined ? 'project' : 'recent',
-          // On main without asking, as "Always open on main" saves it: for the monorepo's
-          // root, which is what opens, even from an app's folder.
-          prefs: { defaultBranchRoots: [copy.root] },
         },
         testInfo,
       )

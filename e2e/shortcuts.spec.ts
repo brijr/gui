@@ -21,7 +21,6 @@ import {
   viewportSpec,
 } from '../src/shared/types'
 import { electronExecutable, sleep, waitFor } from './helpers/env'
-import { chooseFromBranchMenu } from './helpers/menus'
 import type { GuiSession } from './helpers/session'
 import { terminalFocused } from './helpers/terminal'
 import { expect, test } from './helpers/test'
@@ -718,19 +717,6 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
     'aria-keyshortcuts',
   )
   await session.shot('permission-keys')
-
-  // The PR sheet has ⌘↩ while it's open: the card waits.
-  await chooseFromBranchMenu(session.app, session.chrome, 'Source Control…')
-  await expect(chat.getByRole('button', { name: 'Back to chat' }).first()).toBeVisible()
-  await waitFor(async () => !(await keys()).allow, 'Allow off under the sheet')
-  expect(await keys()).toEqual({ allow: false, dontAllow: false })
-  await chat.keyboard.press('Meta+Enter')
-  await chat.keyboard.press('Meta+Backspace')
-  await clickMenu(session, 'Allow')
-  await sleep(500)
-  expect(outcomes()).toEqual([])
-  await chat.getByRole('button', { name: 'Back to chat' }).first().click()
-  await waitFor(async () => (await keys()).allow, 'Allow back on')
 
   // Agent → Allow: its Allow, not Always allow.
   await clickMenu(session, 'Allow')

@@ -52,10 +52,6 @@ test('saving a version, restoring it, and restoring back', async ({ launch }) =>
       readFileSync(join(root, 'src/extra.txt'), 'utf8') === 'extra\n',
     'files restored back',
   )
-
-  // Commit… hands over to Source Control with the files as they are now.
-  await session.chat.getByRole('button', { name: 'Commit…' }).dispatchEvent('click')
-  await expect(session.chat.getByText('Source control', { exact: true })).toBeVisible()
 })
 
 // A stand-in ACP agent that appends a marker on its prompt: no login or usage needed.

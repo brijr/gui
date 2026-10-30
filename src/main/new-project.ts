@@ -1,9 +1,6 @@
 import { cp, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ProjectTemplate } from '../shared/types'
-import { developerTools } from './developer-tools'
-import { execFile } from './process'
-import { getShellEnv } from './shell-env'
 import { writeTemplate } from './templates'
 import { trust } from './trust'
 
@@ -48,10 +45,9 @@ export function projectName(input: string): string | null {
 }
 
 /**
- * A folder, `parent/<name>`, with the template's files (none for Blank) and a git repo so
- * checkpoints work from the first change. Gui made it, so its scripts don't ask: there's
- * nothing in it but Gui's template and what the agent writes. Fails if the folder is
- * already there.
+ * A folder, `parent/<name>`, with the template's files (none for Blank). Gui made it, so its
+ * scripts don't ask: there's nothing in it but Gui's template and what the agent writes.
+ * Fails if the folder is already there.
  */
 export async function createProject(
   name: string,
@@ -71,16 +67,6 @@ export async function createProject(
     console.error('[gui] failed to write the project template', error)
     throw new Error(`Couldn't set up ${dest}. It may be partly created.`)
   }
-  const [env, gitReady] = await Promise.all([getShellEnv(), developerTools.gitAvailable()])
-  // Without git (or with it failing) the project still works, just without a repo. Not
-  // even tried without Apple's developer tools: macOS would pop up its offer to install them.
-  await new Promise<void>((done) => {
-    if (!gitReady) return done()
-    execFile('git', ['init', '--quiet'], { cwd: dest, env }, (error) => {
-      if (error) console.error('[gui] git init failed', error)
-      done()
-    })
-  })
   await trust(dest).catch((error: unknown) => {
     console.error('[gui] failed to trust the new project', error)
   })

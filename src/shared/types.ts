@@ -181,18 +181,12 @@ export interface RecentProject {
   openedAt: number
   /** Its chat's last message and when it was sent; absent with no chat (or in the saved list) */
   chat?: { prompt: string; at: number } | null
-  /** A worktree Gui made: the project it's of, and its branch (read as the list is read) */
-  worktree?: { of: string; branch: string } | null
-  /** Its folder is gone (a worktree deleted outside Gui) */
-  missing?: boolean
 }
 
 /** The branch a project is on, read from Git's HEAD file. */
 export interface BranchStatus {
   /** Null when no branch is checked out */
   branch: string | null
-  /** In a worktree: the main project's folder name and this worktree's */
-  worktree: { of: string; name: string } | null
 }
 
 /** An archived chat, as a project's list of them shows it */
@@ -990,79 +984,10 @@ export interface ImageAttachment {
   thumbnail: string
 }
 
-export interface ShipFile {
-  /** POSIX path relative to the repository root */
-  path: string
-  status: 'added' | 'modified' | 'deleted' | 'renamed'
-}
-
-/** Repository status and editable suggestions for the Source control workspace. */
-export interface ShipInfo {
-  workspace?: import('./source-control').SourceControlWorkspace
-  /** Why repository status is unavailable; action restrictions live in workspace. */
-  blocked: string | null
-  /** Current branch; null when detached */
-  branch: string | null
-  /** The checked-out branch is the repository's default branch. */
-  onDefaultBranch: boolean
-  /** Current branch has commits that can be pushed without committing more files. */
-  pendingCommits?: boolean
-  files: ShipFile[]
-  /** Changed files left out because they may hold secrets (e.g. `.env.local`) */
-  skipped: string[]
-  /** Where the branch is pushed; null without a remote (the commit stays local) */
-  remote: { host: 'github' | 'gitlab' | 'other'; repo: string } | null
-  suggestion: { branch: string; title: string; body: string }
-  /** The user hasn't let Gui run Git here yet; `blocked` says so, and the sheet asks again */
-  untrusted?: boolean
-  /** Stay on main: commits go on the current branch, even a shared one, never a new one */
-  stayOnBranch?: boolean
-}
-
-export interface ShipRequest {
-  /** Save locally or also push and open a review. Omitted by older callers: share. */
-  mode?: 'commit' | 'share'
-  /** Repository-relative changed paths to commit; omitted means all eligible files. */
-  files?: string[]
-  /** Branch to commit on; created from the current one when it differs */
-  branch: string
-  title: string
-  body: string
-}
-
-/**
- * A commit or pull request the agent proposed (source_control_propose): fills in the
- * Source Control sheet once its turn ends, for the user to review and ship.
- */
-export interface ShipDraft {
-  mode: 'commit' | 'share'
-  title: string
-  body: string
-  /** Gui's suggestion when omitted */
-  branch?: string
-  /** Every eligible file when omitted */
-  files?: string[]
-}
-
-export interface ShipResult {
-  branch: string
-  /** Short commit sha */
-  commit: string
-  /**
-   * `created`: the PR exists (`url`). `compare`: pushed, and `url` opens the host's
-   * new-PR page to finish in the browser. `pushed`: pushed to a host Gui can't link.
-   * `committed`: committed locally only. `cancelled`: the user said no (to trusting the
-   * project, or to pushing straight to a shared branch) before anything changed.
-   */
-  outcome: 'created' | 'compare' | 'pushed' | 'committed' | 'cancelled'
-  url: string | null
-}
-
 /**
  * One saved state of the project's files, from Gui's checkpoints: a finished turn's
  * end, a version the user named, or the state saved automatically just before a
- * restore. Versions live on this computer; publishing commits the current files
- * through Source Control.
+ * restore. Versions live on this computer, apart from the project's own Git history.
  */
 export interface Version {
   id: string
@@ -1080,79 +1005,6 @@ export interface Version {
   reverted?: boolean
   /** The project's files match this version now, as far as checkpoints record them */
   current?: boolean
-}
-
-/**
- * Where the project's work stands on its way into the shared codebase: the bar over the
- * chat. Said without Git's words where it can: "the latest" is the default branch.
- */
-export interface Proposal {
-  /** Current branch; null when detached */
-  branch: string | null
-  /** e.g. `main`; null when Gui can't tell */
-  defaultBranch: string | null
-  onDefaultBranch: boolean
-  /** Changed files not committed yet (secret-looking files aside) */
-  changes: number
-  /** Commits here that the remote's copy of this branch doesn't have yet (e.g. a merge) */
-  ahead: number
-  /** Commits on the remote's default branch that this one doesn't have; null without a remote */
-  behind: number | null
-  /** Bringing in the latest stopped on conflicts: every conflicted file, and those still marked */
-  merge: { files: string[]; marked: string[] } | null
-  /** This branch's newest pull request; null when there isn't one or Gui can't read the host */
-  pull: ProposalPull | null
-  /** In a worktree: its folder name. Finishing removes it rather than starting something new */
-  worktree: string | null
-  /** Where it's pushed: GitHub and GitLab take pull requests; null when it isn't online */
-  remote: 'github' | 'gitlab' | 'other' | null
-  /**
-   * The shared branch (main) the project opened on, while the first message will start a new
-   * branch from it; null once it has, or when the user chose to stay on it.
-   */
-  newBranchFrom: string | null
-  /** Stay on main: work goes on the current branch, and the bar commits and pushes there */
-  stayOnBranch: boolean
-  /**
-   * Gui may run Git here (the project is trusted). Untrusted, the rest is empty and the bar
-   * offers Trust project… instead.
-   */
-  trusted: boolean
-}
-
-export interface ProposalPull {
-  number: number
-  title: string
-  url: string
-  state: 'open' | 'draft' | 'merged' | 'closed'
-  /** The reviewers' latest verdict */
-  review: 'approved' | 'changes' | null
-  /** What people wrote on it, oldest first; bots' status posts left out */
-  comments: ReviewComment[]
-}
-
-/** A pull request that still takes pushes. Undo asks first while there's one. */
-export function takesPushes(pull: ProposalPull | null | undefined) {
-  return pull?.state === 'open' || pull?.state === 'draft'
-}
-
-/**
- * What Undo says while the branch has an open pull request (the button's confirm and ⌘Z's).
- * Gui can't tell which of the changes were pushed, so it says what's true either way.
- */
-export const UNDO_PULL_NOTE =
-  'Your pull request keeps anything already pushed to it until you push again.'
-
-export interface ReviewComment {
-  /** Unique across kinds, e.g. `review-123` */
-  id: string
-  author: string
-  body: string
-  /** The file and line it's on, for a comment on the code */
-  path: string | null
-  line: number | null
-  url: string
-  createdAt: string
 }
 
 /** An agent the user added in Settings (stored in agents.json). */
@@ -1185,8 +1037,6 @@ export interface SettingsState {
   trustedProjects: string[]
   /** Projects started with a command set in Gui rather than the one it detected */
   startCommands: { root: string; start: StartCommand }[]
-  /** Projects the user chose to always open on their main branch, without asking */
-  defaultBranchProjects: string[]
   recentProjects: RecentProject[]
   storage: StorageUsage
   /** Project roots open in a tab of any window; clearing storage keeps their data */

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { type AgentId, CUSTOM_AGENT_PREFIX } from '../src/shared/types'
 import { waitFor } from './helpers/env'
-import { gitStatus } from './helpers/fixtures'
+import { git, gitStatus } from './helpers/fixtures'
 import type { ConsentPrompt, GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -97,10 +97,13 @@ test('an untrusted project asks before an agent starts, and declining starts non
   expect(second.turn.status).toBe('error')
 })
 
-test('a trusted project starts the agent without asking', async ({ launch }) => {
+test('a trusted project starts the agent without asking, and Gui leaves its branch alone', async ({
+  launch,
+}) => {
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
   const { root } = session.fixture
+  git(root, 'branch', '-M', 'main')
   const runs = await addMarkerAgent(session)
   const open = async () => (await session.state()).project !== null
   await waitFor(open, 'the project to open')
@@ -112,4 +115,10 @@ test('a trusted project starts the agent without asking', async ({ launch }) => 
   expect(turn.turn.status).toBe('error')
   expect(turn.turn.items).not.toContainEqual(expect.objectContaining({ text: NOT_STARTED }))
   expect(await session.consentPrompts()).toEqual([])
+
+  // The first message on main starts no branch: Git is the agent's and the terminal's.
+  expect(git(root, 'branch', '--format=%(refname:short)').trim()).toBe('main')
+  // The toolbar names the branch, read only: no menu behind it.
+  await expect(session.chrome.getByTitle('Branch main', { exact: true })).toBeVisible()
+  await expect(session.chrome.getByRole('button', { name: /^Branch / })).toHaveCount(0)
 })

@@ -1,10 +1,9 @@
-import { access, readFile } from 'node:fs/promises'
-import { basename, join } from 'node:path'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app } from 'electron'
 import type { RecentProject } from '../shared/types'
 import { writeFileAtomic } from './atomic-file'
 import { lastMessage } from './history'
-import { loadWorktrees } from './worktree-registry'
 
 const MAX_RECENT = 12
 const file = () => join(app.getPath('userData'), 'recent-projects.json')
@@ -34,32 +33,16 @@ let lastWithChats: RecentProject[] | null = null
 
 export const recentSoFar = () => lastWithChats
 
-/**
- * The list with each project's last message, for the start screen's recent chats, and for a
- * worktree Gui made, what it's a worktree of and whether its folder is still there.
- */
+/** The list with each project's last message, for the start screen's recent chats. */
 export async function withChats(recent: RecentProject[]): Promise<RecentProject[]> {
-  const worktrees = new Map((await loadWorktrees()).map((record) => [record.path, record]))
   lastWithChats = await Promise.all(
-    recent.slice(0, MAX_RECENT).map(async (project) => {
-      const record = worktrees.get(project.root)
-      const missing = record ? !(await exists(project.root)) : false
-      return {
-        ...project,
-        chat: missing ? null : await lastMessage(project.root),
-        worktree: record ? { of: basename(record.main), branch: record.branch } : null,
-        missing,
-      }
-    }),
+    recent.slice(0, MAX_RECENT).map(async (project) => ({
+      ...project,
+      chat: await lastMessage(project.root),
+    })),
   )
   return lastWithChats
 }
-
-const exists = (path: string) =>
-  access(path).then(
-    () => true,
-    () => false,
-  )
 
 export async function clearRecent() {
   await updateRecent(() => [])

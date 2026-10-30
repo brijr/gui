@@ -11,7 +11,6 @@ import type {
 } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { type DraftImage, MAX_IMAGES } from './images'
-import { closeShipSheet, useShipSheet } from './shipping-state'
 import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
 import { closeVersions, useVersions } from './versions-state'
 
@@ -145,10 +144,9 @@ function attachFromMain(image: ImageAttachment) {
  */
 function chooseModel() {
   if (!useChat.getState().meta?.models) return
-  // The sheets hide the composer; their drafts are kept. They stay while busy.
-  closeShipSheet()
+  // The Versions sheet hides the composer. It stays while busy.
   closeVersions()
-  if (!useShipSheet.getState().open && !useVersions.getState().open) {
+  if (!useVersions.getState().open) {
     useChat.setState({ pickModel: true })
   }
 }

@@ -27,7 +27,6 @@ export interface AllIpcRequests {
   [Invoke.githubDisconnect]: Contract<'disconnectGitHub'>
   [Invoke.githubManage]: Contract<'manageGitHub'>
   [Invoke.githubClone]: Contract<'cloneGitHub'>
-  [Invoke.githubCreate]: Contract<'createGitHub'>
   [Invoke.newProject]: Contract<'newProject'>
   [Invoke.send]: Contract<'send'>
   [Invoke.listVersions]: Contract<'getVersions'>
@@ -48,7 +47,6 @@ export interface AllIpcRequests {
   [Invoke.signIn]: Contract<'signIn'>
   [Invoke.installAgent]: Contract<'installAgent'>
   [Invoke.connectAgent]: Contract<'connectAgent'>
-  [Invoke.shipInfo]: Contract<'getShipInfo'>
   [Invoke.takeScreenshot]: Contract<'takeScreenshot'>
   [Invoke.showToolbarMenu]: Contract<'showToolbarMenu'>
   [Invoke.startRecording]: Contract<'startRecording'>
@@ -57,28 +55,11 @@ export interface AllIpcRequests {
   [Invoke.finishRecording]: Contract<'finishRecording'>
   [Invoke.prepareNarration]: Contract<'prepareNarration'>
   [Invoke.discardRecording]: Contract<'discardRecording'>
-  [Invoke.ship]: Contract<'ship'>
-  [Invoke.share]: Contract<'share'>
-  [Invoke.stayOnBranch]: Contract<'stayOnBranch'>
-  [Invoke.trustProject]: Contract<'trustProject'>
-  [Invoke.setGitIdentity]: Contract<'setGitIdentity'>
-  [Invoke.openGitHubSettings]: Contract<'openGitHubSettings'>
-  [Invoke.sourceControl]: Contract<'sourceControl'>
-  [Invoke.getProposal]: Contract<'getProposal'>
-  [Invoke.startFresh]: Contract<'startFresh'>
-  [Invoke.bringInLatest]: Contract<'bringInLatest'>
-  [Invoke.finishMerge]: Contract<'finishMerge'>
-  [Invoke.cancelMerge]: Contract<'cancelMerge'>
-  [Invoke.resolveConflicts]: Contract<'resolveConflicts'>
   [Invoke.getSettings]: Contract<'getSettings'>
   [Invoke.saveCustomAgent]: Contract<'saveCustomAgent'>
   [Invoke.deleteCustomAgent]: Contract<'deleteCustomAgent'>
   [Invoke.untrustProject]: Contract<'untrustProject'>
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
-  [Invoke.askAboutBranch]: Contract<'askAboutBranch'>
-  [Invoke.createWorktree]: Contract<'createWorktree'>
-  [Invoke.removeWorktree]: Contract<'removeWorktree'>
-  [Invoke.openWorktree]: Contract<'openWorktree'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
   [Invoke.boardChatCover]: Contract<'boardChatCover'>
@@ -96,7 +77,6 @@ export interface IpcRequests {
   [Invoke.githubDisconnect]: Contract<'disconnectGitHub'>
   [Invoke.githubManage]: Contract<'manageGitHub'>
   [Invoke.githubClone]: Contract<'cloneGitHub'>
-  [Invoke.githubCreate]: Contract<'createGitHub'>
   [Invoke.listChats]: Contract<'listChats'>
   [Invoke.openChat]: Contract<'openChat'>
   [Invoke.renameChat]: Contract<'renameChat'>
@@ -140,16 +120,6 @@ export type LegacyErrorChannel =
   | typeof Invoke.cloneProject
   | typeof Invoke.newProject
   | typeof Invoke.setStartCommand
-  | typeof Invoke.startFresh
-  | typeof Invoke.bringInLatest
-  | typeof Invoke.stayOnBranch
-  | typeof Invoke.setGitIdentity
-  | typeof Invoke.finishMerge
-  | typeof Invoke.cancelMerge
-  | typeof Invoke.resolveConflicts
-  | typeof Invoke.createWorktree
-  | typeof Invoke.removeWorktree
-  | typeof Invoke.openWorktree
   | typeof Invoke.saveCustomAgent
   | typeof Invoke.deleteCustomAgent
 export type LegacyChannel = Exclude<keyof AllIpcRequests, RequestChannel>
