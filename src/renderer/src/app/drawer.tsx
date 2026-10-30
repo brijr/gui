@@ -58,6 +58,15 @@ export function Drawer({ state }: { state: WindowState }) {
   // Focus mode hides it, with the rest of the chrome.
   const open = state.drawer.open && !state.focusMode && state.project !== null
   const section = useRef<HTMLElement>(null)
+  // Hidden with the keyboard in it (⌘J, the chevron), it goes to the preview, not nowhere.
+  const wasOpen = useRef(open)
+  useEffect(() => {
+    const closed = wasOpen.current && !open
+    wasOpen.current = open
+    if (!closed || !document.hasFocus()) return
+    const active = document.activeElement
+    if (active === document.body || section.current?.contains(active)) gui.focusPreview()
+  }, [open])
   // It slides up from the window's bottom edge as the preview's edge rises over it, and back
   // down; while it goes it's still drawn open, over the canvas that already has its room.
   const leaving = useLayoutSlide(open, section, { edge: 'bottom' })

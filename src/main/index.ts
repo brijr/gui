@@ -1024,6 +1024,7 @@ function registerIpc() {
     onWindow(channel, (win, ...args) => handler(win.activeTab, ...args))
   onDrawer(Send.setDrawerOpen, (tab, open) => typeof open === 'boolean' && tab.setDrawerOpen(open))
   onDrawer(Send.showLogs, (tab) => tab.showLogs())
+  onDrawer(Send.focusPreview, (tab) => tab.focusPreview())
   onDrawer(Send.selectDrawerTab, (tab, drawerTab) => {
     if (isDrawerTab(drawerTab)) tab.selectDrawerTab(drawerTab)
   })

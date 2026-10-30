@@ -542,3 +542,37 @@ test('terminal render loops pause while hidden and resume with queued output', a
     '[terminal] pending render loops: visible 1, closed 0, reopened 1; paused output recovered',
   )
 })
+
+test('hiding the terminal with the keyboard in it gives the keyboard to the preview', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', env: SHELL })
+  await session.waitForPreview()
+  // A hidden test window never has the keyboard itself, so this checks the hand-off is asked for.
+  await session.app.evaluate(({ ipcMain }) => {
+    const store = globalThis as unknown as { guiFocusPreview: number }
+    store.guiFocusPreview = 0
+    ipcMain.on('drawer:focus-preview', () => {
+      store.guiFocusPreview++
+    })
+  })
+  const asked = () =>
+    session.app.evaluate(
+      () => (globalThis as unknown as { guiFocusPreview: number }).guiFocusPreview,
+    )
+  await clickMenu(session, 'Show Terminal')
+  const id = (await drawerWith(session, 1)).terminals[0]?.id
+  if (!id) throw new Error('No terminal')
+  await waitForFocus(session, id)
+  await session.chrome.getByRole('button', { name: 'Hide terminal' }).click()
+  await expect.poll(async () => (await session.state()).drawer.open).toBe(false)
+  await expect.poll(asked).toBe(1)
+  // Hidden while the keyboard is elsewhere (the address bar), it stays where it is.
+  await clickMenu(session, 'Show Terminal')
+  await expect.poll(async () => (await session.state()).drawer.open).toBe(true)
+  await session.chrome.getByRole('textbox', { name: /address/i }).focus()
+  await clickMenu(session, 'Hide Terminal')
+  await expect.poll(async () => (await session.state()).drawer.open).toBe(false)
+  await sleep(300)
+  expect(await asked()).toBe(1)
+})

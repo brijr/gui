@@ -619,6 +619,11 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
       aria-label={keyboard ? 'Resize chat' : undefined}
       aria-orientation={keyboard ? (sideways ? 'vertical' : 'horizontal') : undefined}
       aria-valuenow={keyboard ? size : undefined}
+      // Its real bounds are main's; the screen is the range it can't pass. The text says the size.
+      aria-valuemin={keyboard ? 0 : undefined}
+      aria-valuemax={
+        keyboard ? (sideways ? window.screen.availWidth : window.screen.availHeight) : undefined
+      }
       aria-valuetext={keyboard ? `${size} pixels ${sideways ? 'wide' : 'tall'}` : undefined}
       onKeyDown={keyboard ? onKeyDown : undefined}
       onKeyUp={keyboard ? () => gui.endResizeChat() : undefined}

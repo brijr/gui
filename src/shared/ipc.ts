@@ -130,6 +130,7 @@ export const Send = {
   setShortcutsOpen: 'layout:shortcuts',
   toggleChat: 'chat:toggle',
   setDrawerOpen: 'drawer:open',
+  focusPreview: 'drawer:focus-preview',
   showLogs: 'drawer:logs',
   selectDrawerTab: 'drawer:select',
   resizeLogs: 'logs:resize',
@@ -490,6 +491,8 @@ export interface GuiApi {
    * output and the project's terminals. Opening it shows the tab it showed last.
    */
   setDrawerOpen(open: boolean): void
+  /** The keyboard to the preview: the drawer hid while it had it, so it isn't left nowhere */
+  focusPreview(): void
   /** Opens the drawer on the dev server's output: "Show logs" */
   showLogs(): void
   selectDrawerTab(tab: DrawerTab): void

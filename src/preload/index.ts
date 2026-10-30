@@ -125,6 +125,7 @@ const api: GuiApi = {
   setShortcutsOpen: send(Send.setShortcutsOpen),
   toggleChat: send(Send.toggleChat),
   setDrawerOpen: send(Send.setDrawerOpen),
+  focusPreview: send(Send.focusPreview),
   showLogs: send(Send.showLogs),
   selectDrawerTab: send(Send.selectDrawerTab),
   onDrawerFocus: (cb) => subscribe(Events.drawerFocus, cb),
