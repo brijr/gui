@@ -7,7 +7,7 @@ import { ArrowLeft, History, Info, TriangleAlert, Undo2 } from '../lib/icons'
 import { Badge } from '../lib/status'
 import { Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
-import { Button, IconButton, Skeleton } from '../lib/ui'
+import { Button, IconButton, Skeleton, TIGHT_HIT_AREA } from '../lib/ui'
 import { useChat } from './store'
 import {
   closeVersions,
@@ -68,6 +68,7 @@ export function VersionsSheet() {
         leading={
           <IconButton
             size="sm"
+            className={TIGHT_HIT_AREA}
             label="Back to chat"
             icon={ArrowLeft}
             disabled={busy !== null}
@@ -174,7 +175,12 @@ function VersionList({
       ))}
       {more > 0 && (
         <li>
-          <Button size="sm" variant="ghost" onClick={() => setLimit(limit + PAGE)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="tabular-nums"
+            onClick={() => setLimit(limit + PAGE)}
+          >
             Show more ({more} remaining)
           </Button>
         </li>
@@ -218,7 +224,7 @@ function VersionRow({
         </span>
       </div>
       {changes.length > 0 ? (
-        <Disclosure open={open} onOpenChange={setOpen} className="self-start">
+        <Disclosure open={open} onOpenChange={setOpen} className="self-start tabular-nums">
           {plural(changes.length, 'file')} changed
           <span className="font-mono text-success tabular-nums"> +{additions}</span>
           <span className="font-mono text-danger tabular-nums"> −{deletions}</span>

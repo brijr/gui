@@ -40,6 +40,8 @@ function Player({
       ref={videoRef}
       controls
       preload={preload}
+      width={clip.width}
+      height={clip.height}
       poster={clip.thumbnail}
       src={clip.url}
       // Its captions come from Gui's recording scheme, which a <track> loads with CORS.

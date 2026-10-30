@@ -192,7 +192,7 @@ export function TabCloseButton({ name, onClose, reveal = 'always' }: TabCloseBut
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClose}
       className={cn(
-        'absolute right-0.5 duration-(--motion-fade)',
+        'absolute right-0.5 before:absolute before:-inset-0.5 before:no-drag duration-(--motion-fade)',
         reveal === 'hover' && 'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100',
       )}
     />

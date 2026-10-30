@@ -1089,7 +1089,7 @@ function StartScreen({ state }: { state: WindowState }) {
                     size="sm"
                     aria-haspopup="menu"
                     onClick={() => gui.showRecentBoardMenu(board.id)}
-                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
                   />
                 </div>
               </li>
@@ -1169,7 +1169,7 @@ function RecentRow({
               })}
           size="sm"
           disabled={remove.pending}
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>
       {remove.error && <InlineError className="px-3 pb-2">{remove.error}</InlineError>}
