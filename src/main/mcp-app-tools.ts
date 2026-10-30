@@ -49,9 +49,9 @@ export function registerAppTools(server: McpServer, app: AppTools) {
   server.registerTool(
     'chat_turns',
     {
-      title: "Read this chat's earlier turns",
+      title: "Read this chat's earlier messages",
       description:
-        "This chat's earlier requests, oldest first: what the user asked, how each turn ended, whether they undid it, and the files it changed with lines added and removed. Covers turns from other agents and earlier sessions too. Use it to summarize the work, e.g. for a pull request description.",
+        "This chat's earlier requests, oldest first: what the user asked, how each message ended, whether they undid it, and the files it changed with lines added and removed. Covers messages from other agents and earlier chats too. Use it to summarize the work, e.g. for a pull request description.",
       inputSchema: {
         limit: z
           .number()
@@ -59,13 +59,13 @@ export function registerAppTools(server: McpServer, app: AppTools) {
           .min(1)
           .max(100)
           .optional()
-          .describe('Most recent turns (default 30)'),
+          .describe('Most recent messages (default 30)'),
       },
       annotations: { readOnlyHint: true },
     },
     async ({ limit }) => {
       const turns = app.turns(limit ?? 30)
-      return turns ? untrusted('chat_turns', turns) : text('No earlier turns in this chat.')
+      return turns ? untrusted('chat_turns', turns) : text('No earlier messages in this chat.')
     },
   )
 }
@@ -80,7 +80,7 @@ export function describeVersions(versions: Version[], limit: number, turnRunning
   const lines = [
     `Versions (${versions.length}, newest first${shown.length < versions.length ? `; showing ${shown.length}` : ''}):`,
   ]
-  if (turnRunning) lines.push("The current turn's version will appear when it finishes.")
+  if (turnRunning) lines.push("The current message's version will appear when it finishes.")
   for (const version of shown) {
     const name = version.name.replace(/\s+/g, ' ').trim()
     lines.push(

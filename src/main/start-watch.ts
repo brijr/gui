@@ -1,21 +1,14 @@
 import { createHash } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ProjectInfo } from '../shared/types'
-import { readPackageJson } from './project'
+import { appRoot, dependencyNames, LOCKFILES, readPackageJson } from './project'
+import { ENV_EXAMPLES, fileStamp } from './setup'
 
 /** Changes come in bursts (an install, a save that writes twice): one restart after them. */
 const DEBOUNCE_MS = 1000
 
-const LOCKFILES = new Set([
-  'bun.lock',
-  'bun.lockb',
-  'pnpm-lock.yaml',
-  'yarn.lock',
-  'package-lock.json',
-  'npm-shrinkwrap.json',
-])
 /** Config files a dev server reads once, at its start. */
 const CONFIG =
   /^(?:vite|next|astro|nuxt|svelte|remix|react-router|webpack|vue|craco|gatsby-config|gatsby-node|rsbuild|rspack)\.config\.[cm]?[jt]s$|^angular\.json$/
@@ -44,30 +37,24 @@ const START_FIELDS = [
   'workspaces',
   'packageManager',
 ] as const
-const MAX_FILE = 64 * 1024 * 1024
-/** Templates for env files: no dev server reads them. */
-const ENV_EXAMPLES = new Set(['.env.example', '.env.sample', '.env.template'])
-
 /** The folders whose files decide how the app starts: the project root and the app's own. */
 export function startDirs(project: ProjectInfo): string[] {
-  const app = project.appDir ? join(project.root, project.appDir) : project.root
+  const app = appRoot(project)
   return app === project.root ? [project.root] : [project.root, app]
 }
 
 /** Whether the app's dev server picks up its own config and env changes. */
 export async function reloadsItself(project: ProjectInfo): Promise<boolean> {
-  const pkg = await readPackageJson(startDirs(project).at(-1) ?? project.root)
-  const deps = [pkg?.dependencies, pkg?.devDependencies].flatMap((map) =>
-    map && typeof map === 'object' ? Object.keys(map) : [],
-  )
+  const pkg = await readPackageJson(appRoot(project))
+  const deps = [pkg?.dependencies, pkg?.devDependencies].flatMap(dependencyNames)
   return deps.some((name) => SELF_RELOADING.has(name))
 }
 
 /** Whether a change to the file `name` can need the app restarted. */
 export function isStartFile(name: string, selfReloading: boolean): boolean {
-  if (name === 'package.json' || LOCKFILES.has(name)) return true
+  if (name === 'package.json' || LOCKFILES.some(([file]) => file === name)) return true
   if (selfReloading) return false
-  const env = name === '.env' || (name.startsWith('.env.') && !ENV_EXAMPLES.has(name))
+  const env = name === '.env' || (name.startsWith('.env.') && !ENV_EXAMPLES.includes(name))
   return env || CONFIG.test(name)
 }
 
@@ -86,23 +73,10 @@ export async function startSignature(project: ProjectInfo): Promise<string> {
     const names = await readdir(dir).catch((): string[] => [])
     for (const name of names.sort()) {
       if (name === 'package.json' || !isStartFile(name, selfReloading)) continue
-      hash.update(`\0${dir}/${name}\0${await fileHash(join(dir, name))}`)
+      hash.update(`\0${dir}/${name}\0${await fileStamp(join(dir, name))}`)
     }
   }
   return hash.digest('hex')
-}
-
-async function fileHash(path: string) {
-  try {
-    const info = await stat(path)
-    if (!info.isFile()) return ''
-    if (info.size > MAX_FILE) return `${info.size}:${info.mtimeMs}`
-    return createHash('sha256')
-      .update(await readFile(path))
-      .digest('hex')
-  } catch {
-    return ''
-  }
 }
 
 /**

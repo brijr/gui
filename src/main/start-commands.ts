@@ -1,21 +1,16 @@
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { stat } from 'node:fs/promises'
 import { join, posix } from 'node:path'
-import { app } from 'electron'
 import type { StartCommand, StartCommandInput } from '../shared/types'
-import { writeFileAtomic } from './atomic-file'
 import { isLoopback } from './loopback'
 import { type DetectedProject, detectProject, realRelative } from './project'
+import { canonical, rootStore } from './root-store'
 
 /**
  * Start commands set in Gui, by project root: how to start a project whose app Gui can't
  * find or starts wrong (another script, another folder, a command outside package.json).
  * In Gui's data rather than the project, so a project can't set its own.
  */
-const file = () => join(app.getPath('userData'), 'start-commands.json')
-
 const MAX_COMMAND = 2000
-
-type Saved = Record<string, StartCommand>
 
 const isStartCommand = (value: unknown): value is StartCommand => {
   if (!value || typeof value !== 'object') return false
@@ -27,32 +22,7 @@ const isStartCommand = (value: unknown): value is StartCommand => {
   )
 }
 
-async function load(): Promise<Saved> {
-  try {
-    const parsed: unknown = JSON.parse(await readFile(file(), 'utf8'))
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, StartCommand] =>
-        isStartCommand(entry[1]),
-      ),
-    )
-  } catch {
-    return {}
-  }
-}
-
-const canonical = (root: string) => realpath(root).catch(() => root)
-
-let pendingWrite: Promise<unknown> = Promise.resolve()
-
-/** One change at a time, each on what the last one wrote, so none is lost. */
-function update(change: (saved: Saved) => Saved) {
-  const task = pendingWrite.then(async () => {
-    await writeFileAtomic(file(), JSON.stringify(change(await load()), null, 2))
-  })
-  pendingWrite = task.catch(() => undefined)
-  return task
-}
+const { load, update } = rootStore('start-commands.json', isStartCommand)
 
 export async function getStartCommand(root: string): Promise<StartCommand | null> {
   return (await load())[await canonical(root)] ?? null

@@ -12,7 +12,6 @@ import { ChatSection } from './chat-section'
 import { GitHubSection } from './github-section'
 import { ProjectsSection } from './projects-section'
 import { StorageSection } from './storage-section'
-import { useSettings } from './use-settings'
 
 interface SectionInfo {
   id: SettingsSection
@@ -30,9 +29,24 @@ const SECTIONS: readonly SectionInfo[] = [
 ]
 
 export function SettingsApp() {
-  const settings = useSettings()
-  const [section, setSection] = useState<SettingsSection>('agents')
-  useEffect(() => gui.onSettingsSection(setSection), [])
+  const [settings, setSettings] = useState<SettingsState | null>(null)
+  const [selected, setSection] = useState<SettingsSection | null>(null)
+  useEffect(() => {
+    let live = true
+    const offSection = gui.onSettingsSection(setSection)
+    const offSettings = gui.onSettings((next) => setSettings((current) => (current ? next : null)))
+    void gui.getSettings().then((initial) => {
+      if (!live) return
+      setSettings(initial)
+      setSection((current) => current ?? initial.initialSection ?? 'agents')
+    })
+    return () => {
+      live = false
+      offSection()
+      offSettings()
+    }
+  }, [])
+  const section = settings ? selected : null
   const title = SECTIONS.find((item) => item.id === section)?.label
 
   return (
@@ -78,7 +92,7 @@ export function SettingsApp() {
         {/* Keyed by section so each one opens scrolled to the top. */}
         <div key={section} className="min-h-0 flex-1 overflow-y-auto scroll-stable scroll-fade">
           <div className="mx-auto flex max-w-xl flex-col gap-6 px-6 pt-2 pb-5">
-            {settings && <SectionContent section={section} settings={settings} />}
+            {settings && section && <SectionContent section={section} settings={settings} />}
           </div>
         </div>
       </main>

@@ -70,7 +70,7 @@ export function probePage(url: string, host: string): Promise<PageKind> {
     }
     const req = request({
       host: host.replace(/^\[|\]$/g, ''),
-      port: Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80)),
+      port: portOf(url),
       path: '/',
       method: 'GET',
       // Dev servers check the Host header (Vite's allowedHosts): the address it printed.
@@ -91,4 +91,10 @@ export function probePage(url: string, host: string): Promise<PageKind> {
     req.on('error', () => done('other'))
     req.end()
   })
+}
+
+/** The explicit port, or the protocol's default. */
+export function portOf(url: string) {
+  const parsed = new URL(url)
+  return Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
 }

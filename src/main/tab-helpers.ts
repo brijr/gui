@@ -1,7 +1,8 @@
-import { isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { dialog, type NativeImage } from 'electron'
 import type { ImageAttachment, PreviewFrame, ProjectInfo, Rect } from '../shared/types'
 import type { DeveloperToolsStatus } from './developer-tools'
+import { firstCommandWord, type InstallTarget } from './setup'
 import type { TabState } from './tab-host'
 
 const ATTACH_EDGE = 1568
@@ -16,9 +17,7 @@ export function sourceInProject(root: string, file: string) {
   return inside.split(sep).includes('node_modules') ? null : path
 }
 
-export function appRoot(project: ProjectInfo) {
-  return project.appDir ? join(project.root, project.appDir) : project.root
-}
+export { appRoot } from './project'
 
 /** Commands that run on Node.js. */
 const NODE_TOOLS = new Set(['node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'corepack'])
@@ -28,11 +27,9 @@ const NODE_TOOLS = new Set(['node', 'npm', 'npx', 'pnpm', 'pnpx', 'yarn', 'corep
  * and so does an empty project the agent will build. A start command of the user's own that
  * runs something else (`python manage.py runserver`), with nothing to install, doesn't.
  */
-export function needsNode(project: ProjectInfo, installs: unknown[]) {
+export function needsNode(project: ProjectInfo, installs: InstallTarget[]) {
   if (!project.custom || installs.length > 0) return true
-  const words = project.custom.command.trim().split(/\s+/)
-  while (words[0] && /^\w+=/.test(words[0])) words.shift()
-  return NODE_TOOLS.has(words[0] ?? '')
+  return NODE_TOOLS.has(firstCommandWord(project.custom.command))
 }
 
 export function originOf(url: string) {

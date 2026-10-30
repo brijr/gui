@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events'
 import { type IPty, spawn as spawnPty } from 'node-pty'
 import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
-import { type AddressCandidate, type PageKind, pickAddress, probePage } from './app-address'
+import { type AddressCandidate, type PageKind, pickAddress, portOf, probePage } from './app-address'
 import { Output } from './output'
 import { listenersOf, listenersOn, loopbackFor, portOpen, processGroups } from './ports'
 import { endProcessGroups } from './process-groups'
@@ -417,7 +417,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   /** For an address set in Gui: running once something of ours answers there. */
   private async waitUntilReachable(url: string, run: number) {
     const parsed = new URL(url)
-    const port = Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
+    const port = portOf(url)
     const started = Date.now()
     const live = () => run === this.run && this.state.status === 'starting'
     while (live() && Date.now() - started < PROBE_TIMEOUT_MS) {
@@ -467,11 +467,6 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.state = { ...this.state, ...patch, slow }
     this.emit('change', this.state)
   }
-}
-
-function portOf(url: string) {
-  const parsed = new URL(url)
-  return Number(parsed.port || (parsed.protocol === 'https:' ? 443 : 80))
 }
 
 async function anyLoopbackOpen(port: number) {
