@@ -244,6 +244,19 @@ export class GuiSession {
     return state
   }
 
+  /**
+   * Grows the floating chat from its message box to the full panel (its Show conversation)
+   * and waits for it to settle there. The panel starts as the box alone until there's a
+   * conversation; specs about the panel itself (dragging, resizing, morphing) start here.
+   */
+  async expandChat(): Promise<void> {
+    await this.chat.evaluate(() => window.gui.expandChat())
+    await this.chat.waitForFunction(() => {
+      const panel = document.querySelector<HTMLElement>('[data-chat-panel]')
+      return !!panel && !panel.hasAttribute('data-collapsed') && panel.style.height === ''
+    })
+  }
+
   /** Waits for a turn to stop running and returns it with the chat meta at that moment. */
   async waitForTurn(index: number, timeout = 60_000) {
     const finished = async () => {

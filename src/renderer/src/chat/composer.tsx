@@ -3,7 +3,9 @@ import {
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
+  type PointerEvent,
   type ReactNode,
+  type Ref,
   useEffect,
   useRef,
   useState,
@@ -15,6 +17,7 @@ import { cn } from '../lib/cn'
 import { TechnicalDetails } from '../lib/disclosure'
 import {
   ArrowUp,
+  ChevronUp,
   Crop,
   type IconComponent,
   Info,
@@ -52,7 +55,36 @@ const NOTICE_MS = 5000
 
 const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
 
-export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }) {
+interface ComposerProps {
+  meta: ChatMeta
+  running: boolean
+  /** The form, for the floating panel to measure */
+  formRef?: Ref<HTMLFormElement>
+  /** Its tallest, in px, with the rest scrolling; otherwise three fifths of the panel */
+  maxHeight?: number
+  /** The floating panel is the message box alone: no divider over it */
+  alone?: boolean
+  /**
+   * While it's alone with a conversation to show: a quiet control in the message box's top
+   * corner, in line with Send, that grows the panel to show it.
+   */
+  onShowConversation?: () => void
+  /**
+   * Floating, the room around the message box (its padding and the gaps between its lines)
+   * drags the panel, as the header does: all there is to hold while it's the box alone.
+   */
+  onGrab?: (event: PointerEvent<HTMLFormElement>) => void
+}
+
+export function Composer({
+  meta,
+  running,
+  formRef,
+  maxHeight,
+  alone = false,
+  onShowConversation,
+  onGrab,
+}: ComposerProps) {
   // The draft lives in the store: docking, floating and minimizing remount this component.
   const text = useChat((s) => s.draft)
   const firstMessage = useChat((s) => s.turnIds.length === 0)
@@ -215,13 +247,23 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
     void attach([...event.dataTransfer.files])
   }
 
+  // Room at the message box's top right for Show conversation, so nothing runs under it.
+  const cornered = onShowConversation ? 'pr-8' : undefined
   return (
     <form
+      ref={formRef}
       onSubmit={(event) => void submit(event)}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
       onDrop={onDrop}
-      className="flex max-h-3/5 min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t border-line p-2"
+      onPointerDown={(event) => event.target === event.currentTarget && onGrab?.(event)}
+      style={maxHeight ? { maxHeight } : undefined}
+      className={cn(
+        'flex min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t p-2 transition-colors',
+        !maxHeight && 'max-h-3/5',
+        onGrab && 'cursor-grab active:cursor-grabbing *:cursor-auto',
+        alone ? 'border-transparent' : 'border-line',
+      )}
     >
       {/* Setting the agent up is the next step; it stands in for an error saying it isn't */}
       {shouldShowAgentSetup(meta) ? (
@@ -281,8 +323,21 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
             Drop images to attach
           </p>
         )}
+        {onShowConversation && (
+          // Centered on the same line as Send below it, level with the first line of text.
+          <IconButton
+            size="sm"
+            label="Show conversation"
+            icon={ChevronUp}
+            onClick={onShowConversation}
+            className="absolute top-1.25 right-2 z-sticky"
+          />
+        )}
         {(attachments.length > 0 || pending > 0) && (
-          <ul aria-label="Attached images" className="flex flex-wrap gap-2 px-2 pt-2">
+          <ul
+            aria-label="Attached images"
+            className={cn('flex flex-wrap gap-2 px-2 pt-2', cornered)}
+          >
             {attachments.map((image) => (
               <li key={image.id} className={PLACE}>
                 <Thumbnail
@@ -307,7 +362,7 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
         {recordings.length > 0 && (
           <fieldset
             aria-label="Attached recordings"
-            className="flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2"
+            className={cn('flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2', cornered)}
           >
             {recordings.map((clip) => (
               <RecordingClip
@@ -343,7 +398,11 @@ export function Composer({ meta, running }: { meta: ChatMeta; running: boolean }
                 ? 'Describe the change…'
                 : `Ask ${meta.agentName}…`
           }
-          className="field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle"
+          className={cn(
+            'field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
+            // Clear of Show conversation only where it sits: on the first line.
+            onShowConversation && attachments.length + pending + recordings.length === 0 && 'pr-8',
+          )}
         />
         {/* Said in full once, before the first message with Auto on; then the Auto control's
             tooltip says it. */}

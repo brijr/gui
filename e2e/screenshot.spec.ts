@@ -401,6 +401,7 @@ test("a new window's chat panel starts at the bottom-right and stays in its corn
 }) => {
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
+  await session.expandChat()
 
   // In the canvas's bottom-right corner, where pages tend to have least, at the usual margin.
   const start = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
@@ -472,6 +473,7 @@ test('the chat panel resizes from its edges and corners and remembers the size',
 }) => {
   const session = await launch({ fixture: 'vite' })
   await session.waitForPreview()
+  await session.expandChat()
 
   const first = await layoutWhere(session, 'the floating chat panel', (chat) => chat.width > 0)
   expect(first.chat.width - SHADOW * 2).toBe(360)

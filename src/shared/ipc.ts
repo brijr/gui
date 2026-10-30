@@ -156,6 +156,9 @@ export const Send = {
   endResizeChat: 'chat:resize-end',
   endDragChat: 'chat:drag-end',
   chatMorphed: 'chat:morphed',
+  chatCollapsed: 'chat:collapsed',
+  chatBoxHeight: 'chat:box-height',
+  holdChat: 'chat:hold',
   removeQueued: 'chat:queue-remove',
   editQueued: 'chat:queue-edit',
   moveQueued: 'chat:queue-move',
@@ -533,6 +536,18 @@ export interface GuiApi {
    */
   chatMorphed(form: ChatForm, seq: number): void
   /**
+   * The floating panel has shrunk to its message box (the float numbered `seq`), so main can
+   * shrink the view to it. Without this main shrinks it after a short while anyway.
+   */
+  chatCollapsed(seq: number): void
+  /** How tall the floating panel is as its message box alone, its border included */
+  chatBoxHeight(height: number): void
+  /**
+   * The user is at the floating panel (the pointer is over it, or a sheet in it is open):
+   * it doesn't shrink to its message box meanwhile.
+   */
+  holdChat(held: boolean): void
+  /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project). `followUp` is the id of
    * an earlier turn the message is about.
@@ -600,7 +615,7 @@ export interface GuiApi {
   /** The pointer is over a picked element's chip (null: it left), so the page outlines it */
   hoverSelection(id: string | null): void
   setMinimized(minimized: boolean): void
-  /** Brings the floating panel back out of the bubble it tucked into */
+  /** Shows the conversation: the floating panel grows from its message box */
   expandChat(): void
   /** Moves the chat into a window of its own, or back into the project's window */
   togglePopOut(): void

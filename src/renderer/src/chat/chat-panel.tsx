@@ -3,6 +3,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
   useEffect,
   useId,
   useLayoutEffect,
@@ -17,6 +18,7 @@ import {
   TOOLBAR_HEIGHT,
   TRAFFIC_LIGHTS_INSET,
 } from '../../../shared/layout'
+import { SPRINGS, Spring } from '../../../shared/motion'
 import { withShortcut } from '../../../shared/shortcuts'
 import {
   CHAT_FORMS,
@@ -40,13 +42,14 @@ import {
   SquareArrowOutDownLeft,
   SquarePen,
 } from '../lib/icons'
+import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { Badge, type Status, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
 import { Button, IconButton, PRESS, Spinner } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
-import { connectChat, keyedAnswer, useChat, waitingCard } from './store'
+import { connectChat, keyedAnswer, useChat, waitingCard, whenPanelShown } from './store'
 import { Transcript } from './transcript'
 import { toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
 
@@ -100,7 +103,7 @@ export function ChatPanel() {
       <div
         data-chat-panel
         className={cn(
-          'relative flex h-dvh flex-col bg-raised',
+          'group/chat relative flex h-dvh flex-col bg-raised',
           !meta.popped && 'border-line-strong',
           !meta.popped && (meta.sidebarSide === 'left' ? 'border-r' : 'border-l'),
         )}
@@ -116,20 +119,208 @@ export function ChatPanel() {
 
   return (
     <FloatingChat float={float} meta={meta} running={running}>
-      {/* The strong hairline is deliberate: the panel floats over whatever page is in the
-          preview, often white on white, where the regular one disappears. */}
-      <div
-        data-chat-panel
-        className="flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel"
-      >
-        <Header meta={meta} />
-        <Body meta={meta} turnIds={turnIds} running={running} />
-      </div>
-      {/* Every edge and corner resizes the panel; the opposite ones stay put. */}
-      {PANEL_EDGES.map((edge) => (
-        <ResizeHandle key={edge} edge={edge} />
-      ))}
+      <FloatingPanel float={float} meta={meta} turnIds={turnIds} running={running} />
+      {/* Every edge and corner resizes the panel; the opposite ones stay put. Not the message
+          box alone: it's as tall as what's in it. */}
+      {!float.collapsed && PANEL_EDGES.map((edge) => <ResizeHandle key={edge} edge={edge} />)}
     </FloatingChat>
+  )
+}
+
+/** How far the panel has to grow before the conversation starts to show, and how soon it's solid. */
+const SHOW_FROM = 0.2
+const SHOW_OVER = 0.6
+
+/**
+ * The floating panel, which is its message box alone while collapsed (ChatFloat): no
+ * conversation yet, or the user went back to their app. The box sits at the panel's anchored
+ * edge. In a bottom corner, growing, its top edge rises from the message box to the panel's
+ * top, the header riding it, as the conversation fades in above the message box, which never
+ * moves; in a top corner the panel grows down from its header instead, the message box
+ * riding its bottom edge. Shrinking is the reverse, and only then does main shrink the view to
+ * the box (`chatCollapsed`). The header and the conversation keep their full size
+ * throughout, clipped by the panel's edge, so nothing in them reflows as it moves; only the
+ * panel's own height does. With reduced motion the height changes at once and the
+ * conversation cross-fades.
+ */
+function FloatingPanel({
+  float,
+  meta,
+  turnIds,
+  running,
+}: {
+  float: ChatFloat
+  meta: ChatMeta
+  turnIds: string[]
+  running: boolean
+}) {
+  const card = useRef<HTMLDivElement>(null)
+  const upper = useRef<HTMLDivElement>(null)
+  const inner = useRef<HTMLDivElement>(null)
+  const composer = useRef<HTMLFormElement>(null)
+  const versioning = useVersions((s) => s.open)
+  /** 1 showing the conversation, 0 the message box alone */
+  const [spring] = useState(() => new Spring(float.collapsed ? 0 : 1, { config: SPRINGS.default }))
+  const motion = useRef<{ stop: (() => void) | null; reduced: boolean }>({
+    stop: null,
+    reduced: false,
+  })
+  /** The message box's height with the panel's border, as last measured */
+  const box = useRef(0)
+  const latest = useRef({ seq: float.seq, panelHeight: float.panelHeight })
+  latest.current = { seq: float.seq, panelHeight: float.panelHeight }
+  const [hovered, setHovered] = useState(false)
+  const top = float.corner.y === 'top'
+
+  const apply = useCallback(() => {
+    const cardEl = card.current
+    const upperEl = upper.current
+    const innerEl = inner.current
+    if (!cardEl || !upperEl || !innerEl) return
+    const progress = spring.value
+    const atRest = !motion.current.stop
+    const reduced = motion.current.reduced
+    const full = latest.current.panelHeight
+    const height = reduced ? spring.target : progress
+    // Shown and still, it fills its box (the view), following the window as it resizes.
+    if (atRest && progress === 1) {
+      cardEl.style.height = ''
+      innerEl.style.height = ''
+      upperEl.style.opacity = ''
+      return
+    }
+    const conversation = Math.max(0, full - box.current)
+    cardEl.style.height = `${Math.round(box.current + conversation * height)}px`
+    innerEl.style.height = `${conversation}px`
+    upperEl.style.opacity = String(
+      reduced ? progress : Math.min(1, Math.max(0, (progress - SHOW_FROM) / SHOW_OVER)),
+    )
+  }, [spring])
+
+  // Measures the message box for main, which sizes the view to it while collapsed.
+  useLayoutEffect(() => {
+    const el = composer.current
+    if (!el || versioning) return
+    const measure = () => {
+      const border = card.current ? card.current.offsetHeight - card.current.clientHeight : 2
+      const height = el.offsetHeight + border
+      if (height === box.current) return
+      box.current = height
+      apply()
+      gui.chatBoxHeight(height)
+    }
+    measure()
+    const observer = new ResizeObserver(measure)
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [apply, versioning])
+
+  // Collapsing or growing, on a spring from wherever it is.
+  useLayoutEffect(() => {
+    const target = float.collapsed ? 0 : 1
+    if (spring.target === target && !motion.current.stop) {
+      apply()
+      if (target === 0) gui.chatCollapsed(latest.current.seq)
+      return
+    }
+    motion.current.stop?.()
+    spring.retarget(target)
+    const reduced = prefersReducedMotion()
+    motion.current = { stop: null, reduced }
+    const rest = () => {
+      motion.current.stop = null
+      apply()
+      if (spring.target === 0) gui.chatCollapsed(latest.current.seq)
+    }
+    const stop = reduced
+      ? animateFade(
+          spring.value,
+          target,
+          motionMs('--motion-fade') * Math.abs(target - spring.value),
+          {
+            update: (value) => {
+              spring.value = value
+              apply()
+            },
+            rest: () => {
+              spring.finish()
+              rest()
+            },
+          },
+        )
+      : animateSpring(spring, { precision: 0.001, update: apply, rest })
+    motion.current.stop = stop
+    apply()
+  }, [float.collapsed, spring, apply])
+  // The panel's full height changing (the window resizing) while it's collapsed or moving.
+  const { panelHeight } = float
+  useLayoutEffect(() => {
+    if (panelHeight > 0) apply()
+  }, [panelHeight, apply])
+  useEffect(() => () => motion.current.stop?.(), [])
+
+  // At the panel: it stays as it is until the user leaves it.
+  const held = hovered || versioning
+  useEffect(() => {
+    gui.holdChat(held)
+  }, [held])
+  // Versions asked for from the menu bar while collapsed: they need the panel.
+  useEffect(() => {
+    if (versioning && float.collapsed) gui.expandChat()
+  }, [versioning, float.collapsed])
+
+  return (
+    // The strong hairline is deliberate: the panel floats over whatever page is in the
+    // preview, often white on white, where the regular one disappears.
+    <div
+      ref={card}
+      data-chat-panel
+      data-collapsed={float.collapsed || undefined}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      className={cn(
+        'group/chat absolute inset-x-0 flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel',
+        // It grows from, and shrinks to, its anchored edge.
+        top ? 'top-0' : 'bottom-0',
+      )}
+    >
+      {versioning ? (
+        <>
+          <Header meta={meta} />
+          <VersionsSheet />
+        </>
+      ) : (
+        <>
+          <div
+            ref={upper}
+            inert={float.collapsed}
+            className="relative min-h-0 flex-1 overflow-hidden"
+          >
+            <div
+              ref={inner}
+              className={cn('absolute inset-x-0 flex h-full flex-col', top ? 'top-0' : 'bottom-0')}
+            >
+              <Header meta={meta} />
+              <Transcript turnIds={turnIds} meta={meta} />
+            </div>
+          </div>
+          <Composer
+            formRef={composer}
+            meta={meta}
+            running={running}
+            maxHeight={float.panelHeight > 0 ? Math.round(float.panelHeight * 0.6) : undefined}
+            alone={float.collapsed}
+            onGrab={onDragStart}
+            // With a conversation to show, or the chat New chat just archived to reopen.
+            onShowConversation={
+              float.collapsed && (turnIds.length > 0 || meta.archived)
+                ? () => gui.expandChat()
+                : undefined
+            }
+          />
+        </>
+      )}
+    </div>
   )
 }
 
@@ -429,6 +620,10 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
   )
 }
 
+/** Shown while the pointer is over the chat panel (`group/chat`) or the keyboard is in it. */
+const HOVER_ONLY =
+  'flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within/chat:opacity-100 group-hover/chat:opacity-100'
+
 /** The agent's state as a dot: busy while it starts or works. */
 function agentStatus(meta: ChatMeta, running: boolean): Status {
   if (meta.status === 'error') return 'error'
@@ -467,7 +662,9 @@ function Header({ meta }: { meta: ChatMeta }) {
         </span>
       }
       actions={
-        <>
+        // Only while the pointer is over the panel or something in it has the keyboard: the
+        // panel at rest is its name and the conversation.
+        <span className={HOVER_ONLY}>
           <IconButton
             size="sm"
             label="New chat"
@@ -505,7 +702,7 @@ function Header({ meta }: { meta: ChatMeta }) {
               onClick={() => gui.setMinimized(true)}
             />
           )}
-        </>
+        </span>
       }
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -533,7 +730,7 @@ function MoreButton() {
     () =>
       gui.onChatMenuChoice((choice) => {
         if (choice === 'versions') toggleVersions()
-        else if (choice === 'archive') setArchive(true)
+        else if (choice === 'archive') whenPanelShown(() => setArchive(true))
       }),
     [],
   )
@@ -607,9 +804,9 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
 }
 
 /**
- * The floating panel out of the way: while the user picks an element, or tucked once they
- * went back to the page. The panel morphs into this bubble at its anchored corner and main
- * shrinks the view to it. Clicking it brings the panel back (and stops picking).
+ * The floating panel out of the way while the user picks an element. The panel morphs into
+ * this bubble at its anchored corner and main shrinks the view to it. Clicking it brings the
+ * panel back (and stops picking).
  */
 function ChatBubble({ running, picking }: { running: boolean; picking: boolean }) {
   const statusId = useId()

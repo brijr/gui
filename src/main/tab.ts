@@ -423,10 +423,10 @@ export class ProjectTab implements ChatPanelOwner {
     this.chatView.webContents.on('did-start-loading', () => {
       this.panel.clearFloatShown()
     })
-    // The keyboard leaving the floating panel tucks it away; coming back (a click on the
-    // bubble, ⌘L) brings it out.
-    this.chatView.webContents.on('blur', () => this.panel.scheduleTuck())
-    this.chatView.webContents.on('focus', () => this.panel.untuck())
+    // The keyboard leaving the floating panel is the user going back to their app: once the
+    // agent is done, the panel shrinks to its message box. Coming back to it holds it open.
+    this.chatView.webContents.on('blur', () => this.panel.leftChat(false))
+    this.chatView.webContents.on('focus', () => this.panel.cancelCollapse())
     loadRenderer(this.chatView.webContents, 'chat').catch((error) =>
       console.error('[gui] failed to load chat', error),
     )
@@ -953,6 +953,8 @@ export class ProjectTab implements ChatPanelOwner {
       // its session is cleared, before this turn's agent can act on it.
       if (turn.status === 'running' && turn.id !== this.runningTurn) {
         this.runningTurn = turn.id
+        // A reply is starting: the floating chat shows the conversation.
+        this.panel.showConversation()
         this.closeWebsite()
         this.websiteClosedNote = null
       }
@@ -961,7 +963,13 @@ export class ProjectTab implements ChatPanelOwner {
       // Working, or a permission card answered: the tab strip shows it.
       this.host.tabChanged(this, false)
     })
-    chat.on('reset', (snapshot) => this.sendChat(Events.chatReset, snapshot))
+    chat.on('reset', (snapshot) => {
+      this.sendChat(Events.chatReset, snapshot)
+      // A chat opened from the archive shows; a new one has nothing to show yet, so the
+      // floating panel is its message box.
+      if (snapshot.turns.length > 0) this.panel.showConversation()
+      else this.panel.newConversation()
+    })
     chat.on('startupFixEnd', (turn) => {
       // The agent fixed things without getting the app going again itself: Gui does.
       if (turn.status !== 'done' || this.agentRestartedAt >= turn.startedAt) return
@@ -974,7 +982,8 @@ export class ProjectTab implements ChatPanelOwner {
       this.host.tabChanged(this, false)
     })
     chat.on('turnEnd', (turn) => {
-      this.panel.untuck()
+      // The reply stays in view until the user goes back to their app.
+      this.panel.showConversation()
       // The agent may have switched branches itself.
       void this.refreshBranch()
       // The walkthrough's last step stays a moment to be read, then gets out of the way.
@@ -1424,6 +1433,8 @@ export class ProjectTab implements ChatPanelOwner {
     // clicks into the page meanwhile: then it's theirs.
     wc.on('input-event', (_event, input) => {
       if (input.type === 'mouseDown') this.keyboardBeforeLoad = null
+      // Using the app: the floating chat can get out of its way.
+      if (input.type === 'mouseDown' || input.type === 'keyDown') this.panel.leftChat(true)
     })
     wc.on('focus', () => this.keepKeyboard())
     wc.on('dom-ready', () => {
@@ -2532,7 +2543,8 @@ export class ProjectTab implements ChatPanelOwner {
     if (!this.resources.chat) return
     if (this.panel.popoutWindow) return this.panel.togglePopOut()
     this.leaveFocusMode()
-    this.panel.untuck()
+    // Floating again, it shows the conversation the sidebar did.
+    this.panel.showConversation()
     this.morphLayout('dock')
     const docked = !this.resources.chat.meta.docked
     setPrefs({ chatSidebar: docked })
@@ -2646,9 +2658,21 @@ export class ProjectTab implements ChatPanelOwner {
     this.panel.setMinimized(minimized)
   }
 
-  /** The tucked bubble was clicked: the panel comes back, ready to type in. */
+  /** The message box's Show conversation: the floating panel grows to show it. */
   expandChat() {
     this.panel.expandChat()
+  }
+
+  chatCollapsed(seq: number) {
+    this.panel.chatCollapsed(seq)
+  }
+
+  chatBoxHeight(height: number) {
+    this.panel.setBoxHeight(height)
+  }
+
+  holdChat(held: boolean) {
+    this.panel.hold(held)
   }
 
   /** The chat's own window while popped out, so menus and ⌘W can tell it's this tab's. */

@@ -552,8 +552,19 @@ export function isChatForm(value: unknown): value is ChatForm {
 export interface ChatFloat {
   form: ChatForm
   corner: PanelCorner
-  /** Counts changes of form; the chat names it when it reports a morph done (`chatMorphed`) */
+  /**
+   * Counts changes of form and of `collapsed`; the chat names it when it reports a morph done
+   * (`chatMorphed`, `chatCollapsed`)
+   */
   seq: number
+  /**
+   * The panel is just its message box, at the panel's bottom: there's no conversation yet, or
+   * the user went back to their app once the agent was done. It grows to the full panel for a
+   * reply, for anything waiting on the user, and when asked (`expandChat`).
+   */
+  collapsed: boolean
+  /** The full panel's height, which the panel grows to from its message box */
+  panelHeight: number
 }
 
 /**

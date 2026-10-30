@@ -39,7 +39,13 @@ const THROW_SPEED = 500
 const MAX_THROW_SPEED = 8000
 const GRAB_SLOP = 240
 const MORPH_TIMEOUT_MS = 700
-const TUCK_DELAY_MS = 2500
+/**
+ * How long after the user went back to their app the floating panel shrinks to its message
+ * box: long enough that a glance at the page and back doesn't fold the conversation away.
+ */
+const COLLAPSE_DELAY_MS = 2500
+/** The message box's height until the chat says (one line, its tools and the panel's border) */
+const BOX_HEIGHT = 96
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
 
 /** What the chat panel needs from its tab: views, project resources, and layout hooks. */
@@ -64,7 +70,8 @@ export interface ChatPanelOwner {
 }
 
 /**
- * The chat as a native view: docked, floating (panel / pill / bubble), tucked, or popped out.
+ * The chat as a native view: docked, floating (panel, or its message box alone / pill /
+ * bubble), or popped out.
  * ProjectTab owns preview layout; this owns the chat view's place and springs.
  */
 export class ChatPanel {
@@ -91,8 +98,21 @@ export class ChatPanel {
   private formSeq = 0
   private lastForm: ChatForm = 'panel'
   private attentionWaiting = false
-  private tucked = false
-  private tuckTimer: NodeJS.Timeout | null = null
+  /**
+   * The floating panel shows the conversation: since a reply started, the agent asked for
+   * attention, or the user asked for it; until they went back to their app (`leftChat`).
+   */
+  private conversationShown = false
+  /** The view is sized to the message box alone; it shrinks only once the panel has (`chatCollapsed`) */
+  private viewCollapsed = true
+  private collapsing: { seq: number; timer: NodeJS.Timeout } | null = null
+  private collapseTimer: NodeJS.Timeout | null = null
+  /** The user went back to their app (`byPage`: by using the page) and the panel may collapse */
+  private collapseDue: { byPage: boolean } | null = null
+  /** The pointer is over the panel, or a sheet in it is open: it stays as it is */
+  private held = false
+  private boxHeight = BOX_HEIGHT
+  private lastCollapsed: boolean | null = null
   private popout: BrowserWindow | null = null
 
   constructor(private readonly tab: ChatPanelOwner) {}
@@ -126,10 +146,10 @@ export class ChatPanel {
 
   /**
    * Where the floating chat lies over the window's content, for the board to frame its view
-   * around it; null when the chat is docked, hidden, popped out or tucked away.
+   * around it; null when the chat is docked, hidden, popped out or a bubble.
    */
   coverRect(): Rect | null {
-    if (!this.chatShown || this.docked || this.bubbled || this.tucked) return null
+    if (!this.chatShown || this.docked || this.bubbled) return null
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     return this.floatingRect(contentWidth, contentHeight, undefined, true)
   }
@@ -160,13 +180,13 @@ export class ChatPanel {
   }
 
   setMinimized(minimized: boolean) {
-    this.cancelTuck()
-    this.tucked = false
     this.tab.resources.chat?.setMinimized(minimized)
     this.tab.layout()
   }
 
+  /** The message box's Show conversation: the panel grows, its message box keeping the keyboard. */
   expandChat() {
+    this.showConversation()
     this.focusChat()
   }
 
@@ -179,8 +199,7 @@ export class ChatPanel {
   private popOut() {
     this.tab.leaveFocusMode()
     if (this.tab.state.preview.selecting) void this.tab.setSelecting(false)
-    this.cancelTuck()
-    this.tucked = false
+    this.cancelCollapse()
     this.flight?.finish()
     if (this.sidebarShown) this.tab.morphLayout('dock')
     const bounds = this.popoutBounds()
@@ -276,43 +295,119 @@ export class ChatPanel {
     return { x: Math.round(x), y: Math.max(workArea.y, main.y), width, height }
   }
 
-  scheduleTuck() {
-    this.cancelTuck()
-    this.tuckTimer = setTimeout(() => {
-      this.tuckTimer = null
-      if (!this.shouldTuck()) return
-      this.tucked = true
-      this.tab.layout()
-    }, TUCK_DELAY_MS)
+  /**
+   * Whether the floating panel is its message box alone: with no conversation yet (a new chat,
+   * a project just opened), or once the user went back to their app after the agent was done.
+   * Never while a reply runs or a card waits for an answer.
+   */
+  private collapsed() {
+    const chat = this.tab.resources.chat
+    if (!chat || this.docked || this.popout) return false
+    if (chat.turnRunning || chat.awaitingPermission) return false
+    return !this.conversationShown
   }
 
-  private shouldTuck() {
+  /** A new chat: nothing to show yet, so the panel is its message box. */
+  newConversation() {
+    this.cancelCollapse()
+    this.conversationShown = false
+    this.tab.layout()
+  }
+
+  /** A reply started, a turn ended, the agent wants attention, or the user asked: it grows. */
+  showConversation() {
+    this.cancelCollapse()
+    if (this.conversationShown) return
+    this.conversationShown = true
+    this.tab.layout()
+  }
+
+  /**
+   * The user went back to their app: they used the page (`byPage`), or the keyboard left the
+   * chat. A while later, if the agent's done and the user isn't at the panel, it collapses.
+   */
+  leftChat(byPage: boolean) {
+    if (this.tab.disposed || !this.conversationShown || this.docked || this.popout) return
+    this.collapseDue = { byPage: byPage || !!this.collapseDue?.byPage }
+    this.scheduleCollapse()
+  }
+
+  private scheduleCollapse() {
+    if (this.collapseTimer) clearTimeout(this.collapseTimer)
+    this.collapseTimer = setTimeout(() => {
+      this.collapseTimer = null
+      if (!this.shouldCollapse()) return
+      this.collapseDue = null
+      this.conversationShown = false
+      this.tab.layout()
+    }, COLLAPSE_DELAY_MS)
+  }
+
+  private shouldCollapse() {
+    const chat = this.tab.resources.chat
+    const due = this.collapseDue
     return (
-      !this.tucked &&
+      due !== null &&
       !this.tab.disposed &&
       this.chatShown &&
       !this.docked &&
-      !this.tab.resources.chat?.meta.minimized &&
-      !this.tab.resources.chat?.awaitingPermission &&
+      !this.held &&
+      !chat?.turnRunning &&
+      !chat?.awaitingPermission &&
       !this.tab.state.preview.selecting &&
       !this.resizing &&
       !this.flight &&
       this.tab.host.isActive(this.tab) &&
-      this.tab.host.win.isFocused() &&
-      !this.tab.chatView.webContents.isFocused()
+      // Using the page is going back to the app; the keyboard merely leaving the chat is only
+      // if it stayed in this window, and not back in the chat.
+      (due.byPage || (this.tab.host.win.isFocused() && !this.tab.chatView.webContents.isFocused()))
     )
   }
 
-  cancelTuck() {
-    if (this.tuckTimer) clearTimeout(this.tuckTimer)
-    this.tuckTimer = null
+  /** The user is back at the chat: nothing collapses until they leave it again. */
+  cancelCollapse() {
+    if (this.collapseTimer) clearTimeout(this.collapseTimer)
+    this.collapseTimer = null
+    this.collapseDue = null
   }
 
-  untuck() {
-    this.cancelTuck()
-    if (!this.tucked) return
-    this.tucked = false
-    this.tab.layout()
+  /** The pointer is over the panel (or a sheet in it is open); leaving it, it may collapse. */
+  hold(held: boolean) {
+    this.held = held
+    if (held) {
+      if (this.collapseTimer) clearTimeout(this.collapseTimer)
+      this.collapseTimer = null
+    } else if (this.collapseDue) {
+      this.scheduleCollapse()
+    }
+  }
+
+  setBoxHeight(height: number) {
+    const rounded = Math.max(1, Math.round(height))
+    if (rounded === this.boxHeight) return
+    this.boxHeight = rounded
+    if (this.viewCollapsed) this.layoutChat()
+  }
+
+  chatCollapsed(seq: number) {
+    if (this.collapsing?.seq !== seq) return
+    this.settleCollapse(true)
+    this.layoutChat()
+  }
+
+  private settleCollapse(collapsed: boolean) {
+    this.viewCollapsed = collapsed
+    if (this.collapsing) clearTimeout(this.collapsing.timer)
+    this.collapsing = null
+  }
+
+  /** Keeps the view at the full panel until the chat has shrunk to its message box. */
+  private awaitCollapse() {
+    if (this.collapsing?.seq === this.formSeq) return
+    if (this.collapsing) clearTimeout(this.collapsing.timer)
+    const seq = this.formSeq
+    const timer = setTimeout(() => this.chatCollapsed(seq), MORPH_TIMEOUT_MS)
+    this.collapsing = { seq, timer }
   }
 
   grabChat(at: ChatGrab) {
@@ -376,7 +471,7 @@ export class ChatPanel {
       this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
       this.resizing = 'docked'
     } else {
-      if (this.tab.resources.chat?.meta.minimized || this.bubbled) return
+      if (this.tab.resources.chat?.meta.minimized || this.bubbled || this.collapsed()) return
       this.holdFlight()
       const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
       const area = this.anchorArea(contentWidth, contentHeight)
@@ -420,8 +515,7 @@ export class ChatPanel {
 
   focusChat() {
     this.tab.leaveFocusMode()
-    this.cancelTuck()
-    this.tucked = false
+    this.cancelCollapse()
     if (this.popout) {
       if (!this.tab.host.isActive(this.tab)) return
       focusWindow(this.popout)
@@ -450,6 +544,8 @@ export class ChatPanel {
   }
 
   onAttention() {
+    // Whatever waits on the user is in the conversation: the panel shows it.
+    this.showConversation()
     if (!this.tab.state.preview.selecting || this.docked) return this.focusChat()
     this.attentionWaiting = true
     if (!this.tab.state.chatVisible) {
@@ -481,6 +577,7 @@ export class ChatPanel {
     if (!showChat || docked) {
       this.flight?.finish()
       this.settleForm(form)
+      this.settleCollapse(float.collapsed)
       this.showFloat(float)
     }
     this.tab.chatView.setVisible((showChat || leaving) && !covered)
@@ -507,24 +604,37 @@ export class ChatPanel {
     if (FORM_SIZE[form] > FORM_SIZE[this.viewForm]) this.settleForm(form)
     else if (form !== this.viewForm) this.awaitMorph(form)
     else this.settleForm(form)
+    // Growing from the message box, the view is the full panel at once; shrinking to it, only
+    // once the panel has (a bubble or pill drawn meanwhile takes the box's corner at once).
+    if (!float.collapsed) this.settleCollapse(false)
+    else if (this.viewCollapsed) this.settleCollapse(true)
+    else if (form === 'panel' && this.viewForm === 'panel') this.awaitCollapse()
+    else this.settleCollapse(true)
     this.tab.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, this.viewForm))
     this.showFloat(float)
   }
 
   wantedForm(): ChatForm {
     if (this.bubbled) return 'bubble'
-    if (this.tucked && this.chatShown && !this.docked && !this.tab.resources.chat?.meta.minimized)
-      return 'bubble'
     return this.tab.resources.chat?.meta.minimized ? 'pill' : 'panel'
   }
 
   float(): ChatFloat {
     const form = this.wantedForm()
-    if (form !== this.lastForm) {
+    const collapsed = this.collapsed()
+    if (form !== this.lastForm || collapsed !== this.lastCollapsed) {
       this.lastForm = form
+      this.lastCollapsed = collapsed
       this.formSeq++
     }
-    return { form, corner: { x: this.anchor.x, y: this.anchor.y }, seq: this.formSeq }
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    return {
+      form,
+      corner: { x: this.anchor.x, y: this.anchor.y },
+      seq: this.formSeq,
+      collapsed,
+      panelHeight: this.floatingSize(contentWidth, contentHeight).height,
+    }
   }
 
   settleForm(form: ChatForm) {
@@ -562,7 +672,7 @@ export class ChatPanel {
     atRest = false,
   ): Rect {
     const { width, height } =
-      shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight)
+      shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight, this.viewCollapsed)
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
     const corner = (!atRest && this.flight?.point) || {
@@ -707,7 +817,9 @@ export class ChatPanel {
     const same =
       shown?.form === float.form &&
       shown.corner.x === float.corner.x &&
-      shown.corner.y === float.corner.y
+      shown.corner.y === float.corner.y &&
+      shown.collapsed === float.collapsed &&
+      shown.panelHeight === float.panelHeight
     if (same) return
     this.floatShown = float
     this.tab.sendChat(Events.chatFloat, float)
@@ -726,16 +838,21 @@ export class ChatPanel {
     }
   }
 
-  private floatingSize(contentWidth: number, contentHeight: number): ChatSize {
+  /**
+   * The panel's size; `box`, the message box alone, as tall as the chat says, at the same
+   * anchored corner: it's laid out, dragged and thrown as itself, and the panel grows from it.
+   */
+  private floatingSize(contentWidth: number, contentHeight: number, box = false): ChatSize {
     const max = maxFloatingSize(
       contentWidth,
       this.anchorArea(contentWidth, contentHeight),
       PANEL_MIN.height,
     )
     const height = Math.min(clamp(this.panelSize.height, PANEL_MIN.height, max.height), max.height)
+    const full = Math.round(Math.max(height, PANEL_SHORTEST))
     return {
       width: Math.round(clamp(this.panelSize.width, PANEL_MIN.width, max.width)),
-      height: Math.round(Math.max(height, PANEL_SHORTEST)),
+      height: box ? Math.min(this.boxHeight, full) : full,
     }
   }
 
@@ -783,10 +900,12 @@ export class ChatPanel {
     this.slideSent = 'null'
     this.flight?.finish()
     this.settleForm(this.wantedForm())
+    this.settleCollapse(this.collapsed())
   }
 
   dispose() {
-    this.cancelTuck()
+    this.cancelCollapse()
+    if (this.collapsing) clearTimeout(this.collapsing.timer)
     this.closePopout()
     this.flight?.stop()
     this.dockSlide?.flight?.stop()

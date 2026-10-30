@@ -48,8 +48,36 @@ export const useChat = create<ChatStore>(() => ({
   notice: null,
   dismissedProblems: [],
   pickModel: false,
-  float: { form: 'panel', corner: { x: 'right', y: 'bottom' }, seq: 0 },
+  float: {
+    form: 'panel',
+    corner: { x: 'right', y: 'bottom' },
+    seq: 0,
+    collapsed: true,
+    panelHeight: 0,
+  },
 }))
+
+/** At most this many frames for the floating panel to grow from its message box. */
+const GROW_FRAMES = 60
+
+/** The panel shows the conversation and has stopped growing (or isn't floating at all). */
+function panelShown() {
+  const panel = document.querySelector<HTMLElement>('[data-chat-panel]')
+  return !panel || (!panel.hasAttribute('data-collapsed') && panel.style.height === '')
+}
+
+/**
+ * Runs `fn` once the floating panel shows the conversation: at once, unless it's the message
+ * box alone, which grows first (`expandChat`). For what opens inside the panel (the model
+ * picker, the archived chats), which the box has no room for.
+ */
+export function whenPanelShown(fn: () => void) {
+  if (panelShown()) return fn()
+  gui.expandChat()
+  let left = GROW_FRAMES
+  const check = () => (panelShown() || --left <= 0 ? fn() : requestAnimationFrame(check))
+  requestAnimationFrame(check)
+}
 
 /** The permission card waiting longest for an answer, and its turn; null when none is. */
 export function waitingCard(turns: Turn[]) {

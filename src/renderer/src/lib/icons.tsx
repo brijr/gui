@@ -131,6 +131,8 @@ export const Search = icon(SYMBOLS.Search, Lucide.Search)
 export const Shapes = icon(SYMBOLS.Shapes, Lucide.Shapes)
 export const Share = icon(SYMBOLS.Share, Lucide.Share)
 export const Shield = icon(SYMBOLS.Shield, Lucide.Shield)
+/** Auto while it's on: requests approved without asking. */
+export const ShieldCheck = icon(SYMBOLS.ShieldCheck, Lucide.ShieldCheck)
 export const ShieldOff = icon(SYMBOLS.ShieldOff, Lucide.ShieldOff)
 export const Smartphone = icon(SYMBOLS.Smartphone, Lucide.Smartphone)
 export const Square = icon(SYMBOLS.Square, Lucide.Square)

@@ -147,6 +147,9 @@ const api: GuiApi = {
   onChatMenuChoice: (cb) => subscribe(Events.chatMenuChoice, cb),
   onChatFloat: (cb) => subscribe(Events.chatFloat, cb),
   chatMorphed: send(Send.chatMorphed),
+  chatCollapsed: send(Send.chatCollapsed),
+  chatBoxHeight: send(Send.chatBoxHeight),
+  holdChat: send(Send.holdChat),
   send: (text, images, recordings, followUp) =>
     legacyInvoke(Invoke.send, text, images, recordings, followUp),
   cancel: send(Send.cancel),

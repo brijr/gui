@@ -62,6 +62,7 @@ export const SYMBOLS = {
   Shapes: 'square.on.circle',
   Share: 'square.and.arrow.up',
   Shield: 'shield',
+  ShieldCheck: 'checkmark.shield',
   ShieldOff: 'shield.slash',
   Smartphone: 'iphone',
   Square: 'stop.fill',
