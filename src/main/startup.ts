@@ -29,15 +29,18 @@ export function startupFailure({ project, setup, devServer, preview }: StartupSt
   if (setup?.dependencies === 'failed') return 'Installing dependencies failed.'
   if (devServer.status === 'exited') {
     return devServer.exitCode === 0
-      ? 'The dev server exited (code 0) right after starting.'
+      ? 'The dev server exited (code 0): it stopped on its own, without an error.'
       : `The dev server quit with an error (exit code ${devServer.exitCode ?? 'unknown'}).`
   }
   if (devServer.status === 'starting' && devServer.slow) {
     return devServer.url
       ? `The dev server printed ${devServer.url}, but nothing answers there yet.`
-      : "The dev server is still starting and hasn't printed a local address."
+      : "The dev server is still starting: it hasn't printed a local address or opened a port yet."
   }
   if (preview.error) return `The preview couldn't load the app: ${oneLine(preview.error.detail)}`
+  if (!project.devCommand && project.productionScript) {
+    return `Gui found no dev script to start the app. package.json's "${oneLine(project.productionScript)}" script serves a production build, so Gui doesn't run it; add a "dev" script that starts the dev server.`
+  }
   if (!project.devCommand) {
     return 'Gui found no script to start the app (no dev, develop, start or serve script in package.json).'
   }
@@ -86,7 +89,7 @@ export function startupReport(state: StartupState, logs: string, tools: boolean)
   const failure = startupFailure(state) ?? "The user's app isn't showing in the preview."
   const fixing = tools
     ? [
-        "Don't start the dev server yourself: Gui runs it, and the preview only shows Gui's. Once you've made a fix, call dev_server_restart. It installs dependencies when they're missing, starts the app, waits for it, and returns whether it's running along with its latest output. Repeat until it runs.",
+        "Don't start the dev server yourself: Gui runs it, and the preview only shows Gui's. Once you've made a fix, call dev_server_restart. It installs dependencies when they're missing or changed, starts the app, waits for it, and returns whether it's running along with its latest output. Repeat until it runs.",
         'If the app is started some other way than Gui’s start command (another script, another folder, a command outside package.json, a fixed address), call set_start_command; the user is asked to approve it. Fix errors in the project itself rather than working around them with another command.',
       ]
     : [

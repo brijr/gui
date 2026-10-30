@@ -235,7 +235,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
             ? 'It quit with an error. The logs show what happened.'
             : stoppedOutside(state)
               ? 'Something outside Gui stopped it.'
-              : undefined
+              : 'It quit on its own, without an error. Restart it to see your changes.'
         }
         note={
           devServer.lastLine ||
@@ -320,12 +320,23 @@ function CanvasMessage({ state }: { state: WindowState }) {
   }
 
   if (!project.devCommand && !preview.url) {
+    // A `start` that serves a production build (`next start`) needs a build, and doesn't
+    // update as the agent edits: Gui passed it over, and says so.
+    const production = project.productionScript
     return (
       <SetupCard
         icon={Info}
-        title="Start building your app"
-        detail="Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
-        note="Add a “dev” script to package.json, or set a dev server command, to let Gui start your app automatically."
+        title={production ? 'Your app has no dev script' : 'Start building your app'}
+        detail={
+          production
+            ? `Its “${production}” script runs a production build, which doesn't update as you edit, so Gui doesn't use it. Ask your agent to add a “dev” script, or set a dev server command.`
+            : "Describe what you want to build in chat. Your agent can set up the project, and Gui will show the app when it's ready. If your app is already running, enter its address."
+        }
+        note={
+          production
+            ? undefined
+            : 'Add a “dev” script to package.json, or set a dev server command, to let Gui start your app automatically.'
+        }
         actions={
           <>
             <Button variant="primary" onClick={() => gui.expandChat()}>
