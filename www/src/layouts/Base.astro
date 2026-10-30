@@ -38,6 +38,15 @@ const fontFace = `@font-face {
   line-gap-override: 0%;
 }
 @font-face {
+  font-family: 'Inter Tight Fallback Light';
+  src: local('HelveticaNeue-Medium'), local('Helvetica Neue Medium');
+  font-weight: 501 900;
+  size-adjust: 101.54%;
+  ascent-override: 95.41%;
+  descent-override: 23.76%;
+  line-gap-override: 0%;
+}
+@font-face {
   font-family: 'Inter Tight Fallback';
   src: local('Arial'), local('ArialMT'), local('Liberation Sans'), local('LiberationSans');
   size-adjust: 98.72%;
@@ -52,6 +61,12 @@ const url = path === undefined ? undefined : `${site}${path}`
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    {path === "/" && <script is:inline>
+      try {
+        if (sessionStorage.getItem("gui-seen-intro")) document.documentElement.classList.add("seen-intro")
+        sessionStorage.setItem("gui-seen-intro", "1")
+      } catch {}
+    </script>}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
@@ -76,7 +91,9 @@ const url = path === undefined ? undefined : `${site}${path}`
           <meta property="og:image" content={`${site}/og.jpg`} />
           <meta property="og:image:width" content="1200" />
           <meta property="og:image:height" content="630" />
-          <meta property="og:image:alt" content="Gui shows a website and a chat with an AI agent." />
+          <meta property="og:image:alt" content="The Gui logo above a Gui canvas with page designs and an AI agent chat." />
+          <meta name="twitter:site" content="@bridgertower" />
+          <meta name="twitter:creator" content="@bridgertower" />
           <meta name="twitter:card" content="summary_large_image" />
           <meta name="twitter:title" content={title} />
           <meta name="twitter:description" content={description} />
@@ -101,6 +118,10 @@ const url = path === undefined ? undefined : `${site}${path}`
 <style is:global>
   :root {
     /* Spacing scale: every margin, padding and gap on the site is one of these. */
+    --t-small: 0.875rem;
+    --t-body: 1.125rem;
+    --t-section: 1.5rem;
+    --t-title: 2.5rem;
     --s-1: 0.25rem;
     --s-2: 0.5rem;
     --s-3: 1rem;
@@ -116,7 +137,7 @@ const url = path === undefined ? undefined : `${site}${path}`
     :root {
       --bg: #161616;
       --fg: #f2f2f2;
-      --muted: #9a9a9a;
+      --muted: #b3b3b3;
       --rule: rgba(255, 255, 255, 0.12);
     }
     /* Light text on dark reads heavier without it; dark text on light gets too thin with it. */
@@ -130,15 +151,18 @@ const url = path === undefined ? undefined : `${site}${path}`
   }
   html {
     color-scheme: light dark;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
   }
   body {
     background: var(--bg);
     color: var(--fg);
     font-family: 'Inter Tight Variable', 'Inter Tight Fallback Light', 'Inter Tight Fallback', ui-sans-serif, -apple-system, 'Helvetica Neue', sans-serif;
     font-weight: 300;
-    font-size: 1.125rem;
+    font-size: var(--t-body);
     line-height: 1.45;
     text-rendering: optimizeLegibility;
+    font-synthesis: none;
   }
   @media (max-width: 30rem) {
     body {
@@ -162,6 +186,8 @@ const url = path === undefined ? undefined : `${site}${path}`
   h3 {
     font-size: inherit;
     font-weight: inherit;
+    text-wrap: balance;
+    line-height: 1.15;
   }
   p,
   li,
@@ -174,8 +200,8 @@ const url = path === undefined ? undefined : `${site}${path}`
     text-underline-offset: 0.15em;
     text-decoration-thickness: 1px;
   }
-  a:hover {
-    text-decoration-color: currentColor;
+  @media (hover: hover) and (pointer: fine) {
+    a:hover { text-decoration-color: currentColor; }
   }
   abbr {
     text-decoration: none;

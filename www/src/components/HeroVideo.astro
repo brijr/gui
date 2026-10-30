@@ -2,7 +2,7 @@
 import type { ImageMetadata } from 'astro'
 import Shot from './Shot.astro'
 
-// A muted loop of a real Gui session, light or dark with the visitor's appearance. A frame from
+// A muted recording of a real Gui session, light or dark with the visitor's appearance. A frame from
 // START seconds in sits underneath as a still: it shows until the video plays (which starts from
 // that frame, so the swap can't be seen), and stays for reduced motion.
 interface Props {
@@ -19,7 +19,7 @@ const { light, dark, stillLight, stillDark, alt, sizes } = Astro.props
 
 <div class="hero-video">
   <Shot light={stillLight} dark={stillDark} widths={[960, 1440, 1920]} sizes={sizes} alt={alt} eager />
-  <video muted loop playsinline autoplay preload="auto" aria-hidden="true" data-hero-video>
+  <video muted playsinline preload="none" aria-hidden="true" data-hero-video>
     <source src={dark} type="video/mp4" media="(prefers-color-scheme: dark)" />
     <source src={light} type="video/mp4" />
   </video>
@@ -31,10 +31,10 @@ const { light, dark, stillLight, stillDark, alt, sizes } = Astro.props
   const video = document.querySelector<HTMLVideoElement>('[data-hero-video]')
   const still = matchMedia('(prefers-reduced-motion: reduce)')
   if (video) {
-    if (video.currentTime < START) video.currentTime = START
     let visible = false
     const update = () => {
-      if (visible && !still.matches) {
+      if (visible && !still.matches && !video.ended) {
+        if (video.currentTime < START) video.currentTime = START
         video.play().catch(() => {})
       } else {
         video.pause()

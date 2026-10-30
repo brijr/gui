@@ -12,14 +12,14 @@
   --hover: rgb(0 0 0 / 0.045);
   --c-fg: #18181a;
   --c-muted: #545458;
-  --subtle: #68686d;
+  --subtle: #626267;
   --accent: #0066ff;
   --accent-hover: #005be5;
   --accent-fg: #ffffff;
   --accent-soft: rgb(0 102 255 / 0.1);
-  --accent-text: #0058e0;
-  --success: #147a3a;
-  --danger: #b83d0b;
+  --accent-text: #0054d6;
+  --success: #0f6e35;
+  --danger: #b91c1c;
   --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
   --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.06);
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
@@ -37,14 +37,14 @@
     --hover: rgb(255 255 255 / 0.06);
     --c-fg: #ededef;
     --c-muted: #ababb0;
-    --subtle: #8c8c91;
+    --subtle: #9a9a9f;
     --accent: #5c9dff;
     --accent-hover: #4b8ff7;
     --accent-fg: #04122b;
     --accent-soft: rgb(92 157 255 / 0.16);
     --accent-text: #5c9dff;
     --success: #4ade80;
-    --danger: #fb923c;
+    --danger: #f87171;
     --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
     --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.5), 0 0 0 0.5px rgb(255 255 255 / 0.08);
   }

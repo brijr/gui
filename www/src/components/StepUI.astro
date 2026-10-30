@@ -119,10 +119,6 @@ const foot = (stop: boolean) =>
       kind === 'compare' && (
         <div class="panel">
           <Fragment set:html={head(true)} />
-          <div class="banner">
-            <span>1 uncommitted change</span>
-            <span class="share">Create pull request</span>
-          </div>
           <div class="transcript">
             <p class="reply">
               I changed the weight of “real app” from 250 to 450. The rest of the headline stays light.
@@ -260,6 +256,7 @@ const foot = (stop: boolean) =>
 <script>
   // The "Working" timer counts up while it is on screen, as it does in the app.
   for (const timer of document.querySelectorAll<HTMLElement>('[data-timer]')) {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) continue
     let seconds = 4
     let tick = 0
     new IntersectionObserver(([entry]) => {
@@ -275,6 +272,8 @@ const foot = (stop: boolean) =>
 
 <style>
   .stage {
+    user-select: none;
+    pointer-events: none;
     container-type: inline-size;
     aspect-ratio: 4 / 3;
     overflow: hidden;
@@ -358,7 +357,6 @@ const foot = (stop: boolean) =>
     font-variant-numeric: tabular-nums;
   }
   .label span {
-    opacity: 0.8;
     font-weight: 400;
   }
   .arrow {
@@ -526,11 +524,6 @@ const foot = (stop: boolean) =>
       opacity: 0;
     }
   }
-  @media (prefers-reduced-motion: reduce) {
-    .caret {
-      animation: none;
-    }
-  }
   .panel :global(.foot) {
     display: flex;
     align-items: center;
@@ -646,25 +639,6 @@ const foot = (stop: boolean) =>
     color: var(--danger);
   }
 
-  .banner {
-    flex: none;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.46em;
-    padding: 0.62em 0.92em;
-    border-bottom: 1px solid var(--line);
-    background: var(--surface);
-    color: var(--c-muted);
-    font-size: 0.923em;
-  }
-  .share {
-    padding: 0.25em 0.67em;
-    border-radius: 0.5em;
-    background: var(--accent);
-    color: var(--accent-fg);
-    font-weight: 500;
-  }
   .reply {
     color: var(--c-fg);
   }
@@ -815,5 +789,8 @@ const foot = (stop: boolean) =>
       var(--elevation-control);
     color: var(--c-fg);
     font-weight: 500;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .caret, .spinner { animation: none; }
   }
 </style>

@@ -38,13 +38,19 @@ export default {
     if (url.pathname === '/crash' && request.method === 'POST') return crash(request, env)
     const file = url.pathname.match(/^\/releases\/([\w.-]+)$/)?.[1]
     if (file) return release(env, file)
-    return secure(await env.ASSETS.fetch(request))
+    return secure(await env.ASSETS.fetch(request), url.pathname)
   },
 }
 
 /** The site's pages and files, with the headers that keep browsers on HTTPS and off frames. */
-function secure(/** @type {Response} */ asset) {
+function secure(/** @type {Response} */ asset, /** @type {string} */ pathname) {
   const response = new Response(asset.body, asset)
+  response.headers.set(
+    'cache-control',
+    pathname.startsWith('/_astro/') && asset.ok
+      ? 'public, max-age=31536000, immutable'
+      : 'no-cache',
+  )
   response.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains')
   response.headers.set('x-content-type-options', 'nosniff')
   response.headers.set('x-frame-options', 'DENY')
