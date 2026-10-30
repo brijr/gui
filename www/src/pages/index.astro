@@ -76,19 +76,7 @@ const steps = [
 const questions = [
   {
     q: 'What does Gui cost?',
-    a: 'Gui is free to use during alpha. It connects to your own AI coding agent through ACP. You pay your agent provider under your existing account and plan; Gui adds no AI usage charges.',
-  },
-  {
-    q: 'How is Gui different from the browser in Claude Code, Codex, or Cursor?',
-    a: 'In those apps, the browser is a panel next to the chat. In Gui, your app fills the window and the chat floats on it, and you can use each of those agents. Gui is for many small design changes: each change shows before and after, with Undo and Follow up. Gui also records the page with your voice, and has a canvas for designs without a project.',
-  },
-  {
-    q: 'Do I need a project to start?',
-    a: 'No. Open a canvas and ask the agent for a design. When a frame is satisfactory, make it into a Vite project.',
-  },
-  {
-    q: 'Do I have to write code?',
-    a: 'No. You select the element and write the change in your words. The agent finds the correct file and writes the code.',
+    a: 'Gui is free to use during alpha. It connects to your own AI coding agent. You pay your agent provider under your existing account and plan; Gui adds no AI usage charges.',
   },
   {
     q: 'Which AI model does Gui use?',
@@ -104,7 +92,7 @@ const questions = [
   },
   {
     q: 'How do I give the changes to my team?',
-    a: 'Gui puts the changes on a new branch and opens a pull request. A developer can then examine the changes. Gui does not commit env files or keys.',
+    a: 'Ask your agent to commit the changes and open a pull request. Gui does not change your git history.',
   },
   {
     q: 'Does Gui listen to my microphone all the time?',
@@ -139,6 +127,7 @@ const structuredData = {
       name: 'Gui',
       url: `${site}/`,
       description,
+      offers: { '@type': 'Offer', price: '0', priceCurrency: 'USD' },
       applicationCategory: 'DesignApplication',
       operatingSystem: 'macOS',
       downloadUrl: `${site}/download`,
@@ -161,7 +150,8 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
 <Base title={title} description={description} path="/" structuredData={structuredData}>
   <div class="brand wide">
-    <img class="mark" src="/mark-animated.svg" alt="" width="40" height="40" />
+    <img class="mark intro-animated" src="/mark-animated.svg" alt="" width="40" height="40" />
+    <img class="mark intro-static" src="/brand/gui-mark.svg" alt="" width="40" height="40" />
     <span class="wordmark">Gui</span>
     <span class="pill">Alpha</span>
   </div>
@@ -172,11 +162,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   </h1>
   <p class="sub">Gui is a Mac app. Select an element, describe a change, and your AI coding agent edits the code. Start with a canvas or open a project.</p>
 
-  <nav class="launch-links" aria-label="Before you start">
-    <a href="#cost">Cost and setup</a>
-    <a href="/privacy">Privacy</a>
-    <a href="/terms">Terms</a>
-  </nav>
 
   <div class="try">
     <a class="try-button download-button" href="/download">
@@ -198,7 +183,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   <p class="download-help" data-download-help hidden role="status">
     After the download finishes, open Gui.dmg, drag Gui to Applications, then open Gui. Sign in, choose an agent, and select New canvas to start.
   </p>
-  <p class="demo-note">Free during alpha. Use your own AI agent account and plan.</p>
   <p class="demo-note">The browser demo needs no account. It supports bold text, a serif font, and blue text.</p>
 
   <!-- Phones are sent here by the worker when there is no script to open the dialog. -->
@@ -297,7 +281,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
   <section id="cost">
     <h2>Cost and setup</h2>
-    <p>Gui is free to use during alpha. Connect your own AI coding agent through ACP and use your existing account and plan. You pay the agent provider directly; Gui adds no AI usage charges.</p>
+    <p>Gui is free to use during alpha. Connect your own AI coding agent and use your existing account and plan. You pay the agent provider directly; Gui adds no AI usage charges.</p>
     <p>The Mac app needs a Gui account and an AI coding agent. Gui can install Claude Code or Codex and help you sign in. You can start with New canvas without a project.</p>
   </section>
 
@@ -310,8 +294,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     <p>
       Open a project folder. Gui installs the dependencies, starts the dev server, and shows the
       real page, with real data and real states. In a monorepo, Gui asks which app to show. You do
-      not have to configure Gui. When the design is satisfactory, Gui opens a pull request for
-      your team.
+      not have to configure Gui.
     </p>
   </section>
 
@@ -333,7 +316,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       kind="narrate"
       label="The composer shows Recording 1, 14.2 seconds, narrated. The message is what the user said: This card slides in too fast. And here, at the end, the shadow comes in after the card stops."
     />
-    <figcaption>Gui puts what you said in the message. Correct it, then send it.</figcaption>
+    <figcaption>Gui puts what you said in the message.</figcaption>
   </figure>
 
   <section>
@@ -620,6 +603,10 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .mark {
     display: block;
   }
+  .intro-static { display: none; }
+  :global(html.seen-intro) .intro-animated { display: none; }
+  :global(html.seen-intro) .intro-static { display: block; }
+  :global(html.seen-intro) .wordmark { animation: none; }
   .wordmark {
     font-size: 2rem;
     font-weight: 600;
@@ -632,7 +619,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     padding: var(--s-1) var(--s-3);
     border: 1px solid var(--rule);
     border-radius: 999px;
-    font-size: 0.875rem;
+    font-size: var(--t-small);
     font-weight: 400;
     line-height: 1.2;
     color: var(--muted);
@@ -642,9 +629,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     to { opacity: 1; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .wordmark {
-      animation: none;
-    }
+    .wordmark { animation: none; }
+    .intro-animated { display: none; }
+    .intro-static { display: block; }
   }
   .lede {
     font-size: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
@@ -674,13 +661,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     margin-top: var(--s-3);
     color: var(--muted);
   }
-  .launch-links {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--s-3);
-    margin-top: var(--s-3);
-    font-size: 1rem;
-  }
   .demo-note,
   .download-help {
     margin-top: var(--s-3);
@@ -705,7 +685,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     display: block;
   }
   .dialog-note {
-    font-size: 0.875rem;
+    font-size: var(--t-small);
   }
   .waitlist {
     margin-top: var(--s-4);
@@ -724,7 +704,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     text-decoration-thickness: 1px;
     cursor: pointer;
   }
-  @media (hover: hover) {
+  @media (hover: hover) and (pointer: fine) {
     .waitlist-open:hover {
       text-decoration-color: currentColor;
     }
@@ -749,7 +729,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     background: var(--bg);
     color: var(--fg);
     font-size: 1rem;
-    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18);
   }
   /* The page behind the open dialog does not scroll. */
   :global(html:has(dialog.dialog[open])) {
@@ -765,22 +744,24 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .dialog:focus {
     outline: none;
   }
+  .dialog {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+    transition: opacity 160ms ease, transform 160ms ease, display 160ms allow-discrete, overlay 160ms allow-discrete;
+  }
+  .dialog[open] { opacity: 1; transform: none; }
   .dialog::backdrop {
     background: rgba(0, 0, 0, 0.32);
+    opacity: 0;
+    transition: opacity 160ms ease, display 160ms allow-discrete, overlay 160ms allow-discrete;
   }
-  .dialog[open] {
-    animation: waitlist-in 160ms cubic-bezier(0.2, 0, 0, 1);
-  }
-  @keyframes waitlist-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px) scale(0.98);
-    }
+  .dialog[open]::backdrop { opacity: 1; }
+  @starting-style {
+    .dialog[open] { opacity: 0; transform: translateY(6px) scale(0.98); }
+    .dialog[open]::backdrop { opacity: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
-    .dialog[open] {
-      animation: none;
-    }
+    .dialog, .dialog::backdrop { transition: none; transform: none; }
   }
   .dialog h2 {
     padding-right: var(--s-5);
@@ -809,7 +790,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     color: var(--muted);
     cursor: pointer;
   }
-  @media (hover: hover) {
+  @media (hover: hover) and (pointer: fine) {
     .dialog-close:hover {
       background: var(--rule);
       color: var(--fg);
@@ -846,7 +827,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .waitlist-field legend {
     padding: 0;
     margin-bottom: var(--s-1);
-    font-size: 0.875rem;
+    font-size: var(--t-small);
     font-weight: 400;
   }
   .waitlist-field input[type='email'] {
@@ -921,7 +902,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     display: none;
   }
   .dialog .waitlist-status[data-state="error"] {
-    color: #d93025;
+    color: light-dark(#d93025, #ff7b72);
   }
   .try-button {
     display: inline-flex;
@@ -930,8 +911,9 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     padding: 0.625rem 1.125rem 0.625rem 0.875rem;
     border: 0;
     border-radius: 999px;
-    background: var(--fg);
-    color: var(--bg);
+    background: transparent;
+    color: var(--fg);
+    box-shadow: inset 0 0 0 1px var(--rule);
     font: inherit;
     font-size: 1rem;
     font-weight: 420;
@@ -949,6 +931,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     stroke-linejoin: round;
   }
   .download-button {
+    box-shadow: none;
     background: #0066ff;
     color: #fff;
     min-width: 10.25rem;
@@ -959,8 +942,10 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     stroke-width: 2;
     stroke-linecap: round;
   }
-  .try-button:hover {
-    opacity: 0.86;
+  @media (hover: hover) and (pointer: fine) {
+    .try-button:hover {
+      opacity: 0.86;
+    }
   }
   .try-button:active {
     transform: scale(0.97);
@@ -1003,7 +988,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   /* Small text: a heavier weight and slightly open tracking, so thin grey strokes still read. */
   figcaption,
   footer {
-    font-size: 0.875rem;
+    font-size: var(--t-small);
     font-weight: 380;
     letter-spacing: 0.01em;
     color: var(--muted);
@@ -1016,7 +1001,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     margin-top: var(--s-6);
   }
   h2 {
-    font-size: 1.5rem;
+    font-size: var(--t-section);
     line-height: 1.15;
     letter-spacing: -0.03em;
     font-weight: 400;
@@ -1083,8 +1068,10 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     color: inherit;
     text-decoration: none;
   }
-  .sponsor:hover {
-    color: var(--fg);
+  @media (hover: hover) and (pointer: fine) {
+    .sponsor:hover {
+      color: var(--fg);
+    }
   }
   .sponsor-logo {
     height: 1.2em;
@@ -1092,4 +1079,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     /* Sized and nudged so the wordmark's letters match the words beside it, baseline to baseline */
     translate: 0 -0.04em;
   }
+  footer a { position: relative; }
+  footer a::after { content: ""; position: absolute; inset: 50% 0 auto; height: max(100%, 44px); transform: translateY(-50%); }
 </style>

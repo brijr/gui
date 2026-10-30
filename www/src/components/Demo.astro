@@ -199,6 +199,8 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .page.is-picking * {
     cursor: default !important;
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
   }
 
 </style>
@@ -271,7 +273,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     backdrop-filter: blur(24px) saturate(1.6);
     -webkit-backdrop-filter: blur(24px) saturate(1.6);
     color: rgb(0 0 0 / 0.85);
-    font: 13px/16px -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+    font: 13px/1.231 -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
     -webkit-font-smoothing: antialiased;
     white-space: nowrap;
   }
@@ -319,7 +321,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     color: var(--c-fg);
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
     font-size: 13px;
-    line-height: 18px;
+    line-height: 1.385;
     font-weight: 400;
     letter-spacing: 0;
     -webkit-font-smoothing: antialiased;
@@ -374,9 +376,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .mark.is-gliding {
     transition:
       opacity 120ms var(--ease-out),
-      transform 160ms var(--ease-out),
-      width 160ms var(--ease-out),
-      height 160ms var(--ease-out);
+      transform 160ms var(--ease-out);
   }
   .demo .mark-label {
     position: absolute;
@@ -390,7 +390,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     border-radius: 4px;
     background: var(--accent);
     color: var(--accent-fg);
-    font: 500 11px/14px -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    font: 500 11px/1.273 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     white-space: nowrap;
     font-variant-numeric: tabular-nums;
     -webkit-font-smoothing: antialiased;
@@ -447,10 +447,10 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     opacity: 0;
     stroke-width: 3.5;
   }
-  .demo .lights:hover .light.close svg,
-  .demo .light.close:focus-visible svg {
-    opacity: 1;
+  @media (hover: hover) and (pointer: fine) {
+    .demo .lights:hover .light.close svg { opacity: 1; }
   }
+  .demo .light.close:focus-visible svg { opacity: 1; }
   .demo .light.min {
     background: #febc2e;
   }
@@ -495,7 +495,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     background: var(--raised);
     box-shadow: inset 0 0 0 1px var(--line);
     color: var(--c-fg);
-    font: 12px/16px 'SF Mono', ui-monospace, Menlo, monospace;
+    font: 12px/1.333 'SF Mono', ui-monospace, Menlo, monospace;
     white-space: nowrap;
   }
   .demo .url-text {
@@ -531,13 +531,17 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     cursor: pointer;
     transition: background-color 120ms var(--ease-out), color 120ms var(--ease-out);
   }
-  button.tool:hover {
-    background: var(--hover);
-    color: var(--c-fg);
+  @media (hover: hover) and (pointer: fine) {
+    button.tool:hover {
+      background: var(--hover);
+      color: var(--c-fg);
+    }
   }
-  button.tool[aria-pressed='true']:hover {
-    background: var(--accent-soft);
-    color: var(--accent-text);
+  @media (hover: hover) and (pointer: fine) {
+    button.tool[aria-pressed='true']:hover {
+      background: var(--accent-soft);
+      color: var(--accent-text);
+    }
   }
   .demo .done {
     flex: none;
@@ -554,8 +558,10 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     cursor: pointer;
     transition: opacity 120ms var(--ease-out);
   }
-  .demo .done:hover {
-    opacity: 0.85;
+  @media (hover: hover) and (pointer: fine) {
+    .demo .done:hover {
+      opacity: 0.85;
+    }
   }
   button:focus-visible,
   textarea:focus-visible {
@@ -691,8 +697,10 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
       opacity 120ms var(--ease-out),
       transform 120ms var(--ease-out);
   }
-  .demo .button:hover:not(:disabled) {
-    background: color-mix(in srgb, var(--raised), var(--c-fg) 4%);
+  @media (hover: hover) and (pointer: fine) {
+    .demo .button:hover:not(:disabled) {
+      background: color-mix(in srgb, var(--raised), var(--c-fg) 4%);
+    }
   }
   .demo .button:active:not(:disabled) {
     transform: scale(0.97);
@@ -712,7 +720,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     padding: 4px 12px 8px;
     color: var(--c-muted);
     font-size: 12px;
-    line-height: 16px;
+    line-height: 1.333;
   }
   .demo[data-narrow] .suggest p {
     display: none;
@@ -809,7 +817,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     cursor: default;
   }
   .demo .send.is-pressed {
-    transform: scale(0.88);
+    transform: scale(0.96);
   }
 
   /* Rows that demo.ts adds to the transcript */
@@ -853,7 +861,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     background: var(--accent-soft);
     color: var(--accent-text);
     font-size: 11px;
-    line-height: 14px;
+    line-height: 1.273;
     white-space: nowrap;
     overflow: hidden;
   }
@@ -901,11 +909,11 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 8px;
     color: var(--c-muted);
     font-size: 12px;
-    line-height: 16px;
+    line-height: 1.333;
   }
   .demo .transcript .step code {
     color: var(--c-fg);
-    font: 11.5px/16px 'SF Mono', ui-monospace, Menlo, monospace;
+    font: 11.5px/1.391 'SF Mono', ui-monospace, Menlo, monospace;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -935,7 +943,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   }
   .demo .transcript .diffstat {
     margin-left: auto;
-    font: 11px/14px 'SF Mono', ui-monospace, Menlo, monospace;
+    font: 11px/1.273 'SF Mono', ui-monospace, Menlo, monospace;
     white-space: nowrap;
   }
   .demo .transcript .plus {
@@ -951,7 +959,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     padding: 1px 4px;
     border-radius: 4px;
     background: var(--fill);
-    font: 11.5px/16px 'SF Mono', ui-monospace, Menlo, monospace;
+    font: 11.5px/1.391 'SF Mono', ui-monospace, Menlo, monospace;
   }
   .demo .transcript .word {
     animation: word-in 220ms var(--ease-out);
@@ -977,7 +985,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     margin: 0;
     color: var(--c-muted);
     font-size: 11px;
-    line-height: 14px;
+    line-height: 1.273;
   }
   .demo .transcript .shot {
     display: flex;
@@ -1002,7 +1010,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 6px;
     color: var(--c-muted);
     font-size: 12px;
-    line-height: 16px;
+    line-height: 1.333;
   }
   .demo .transcript .card-foot .button {
     margin-left: auto;
@@ -1010,15 +1018,28 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .transcript .meta {
     color: var(--subtle);
     font-size: 11px;
-    line-height: 14px;
+    line-height: 1.273;
   }
 
   .demo[data-narrow] .button,
   .demo[data-narrow] .send,
   .demo[data-narrow] button.tool,
   .demo[data-narrow] .done {
+    position: relative;
+  }
+  .demo[data-narrow] :is(.button, .send, button.tool, .done)::before {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 50%;
     min-width: 44px;
     min-height: 44px;
+    width: 100%;
+    height: 100%;
+    transform: translate(-50%, -50%);
+  }
+  @media (pointer: coarse) {
+    .demo .composer textarea { font-size: 16px; }
   }
   .demo[data-narrow] .chat-head {
     min-height: 44px;

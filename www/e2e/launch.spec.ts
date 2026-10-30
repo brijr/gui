@@ -91,9 +91,26 @@ test('launch mobile preview keeps text readable and actions fit a finger', async
   expect(scale).toBeGreaterThan(0.85)
   await page.locator('[data-demo-target]').click()
   for (const button of await page.locator('[data-suggestion]').all()) {
-    const box = await button.boundingBox()
-    expect(box?.height).toBeGreaterThanOrEqual(44)
-    expect(box?.width).toBeGreaterThanOrEqual(44)
+    const hit = await button.evaluate((el) => {
+      const style = getComputedStyle(el, '::before')
+      return { height: parseFloat(style.height), width: parseFloat(style.width) }
+    })
+    expect(hit.height).toBeGreaterThanOrEqual(44)
+    expect(hit.width).toBeGreaterThanOrEqual(44)
   }
+  await page.locator('[data-desk]').dispatchEvent('click')
+  await expect(page.locator('[data-demo]')).toHaveAttribute('data-state', 'idle')
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(375)
+})
+
+test('launch reduced motion keeps the video, spinner, and working timer still', async ({
+  page,
+}) => {
+  await expect(page.locator('[data-hero-video]')).toHaveJSProperty('currentTime', 0)
+  await expect(page.locator('.spinner').first()).toHaveCSS('animation-name', 'none')
+  const timer = page.locator('[data-timer]').first()
+  await timer.scrollIntoViewIfNeeded()
+  const seconds = await timer.innerText()
+  await page.waitForTimeout(1100)
+  await expect(timer).toHaveText(seconds)
 })

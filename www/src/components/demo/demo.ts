@@ -984,7 +984,9 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   for (const button of root.querySelectorAll<HTMLButtonElement>('[data-close]')) {
     button.addEventListener('click', close)
   }
-  desk.addEventListener('click', close)
+  desk.addEventListener('click', () => {
+    if (!geo.narrow) close()
+  })
   for (const button of selectButtons) {
     button.addEventListener('click', () => {
       if (state === 'idle') setPicking(!picking)
