@@ -14,6 +14,12 @@ const FIELD = `${FRAME} px-2.5 outline-none placeholder:text-subtle focus:border
 export const FIELD_LOOK = `${FRAME} outline-none focus:border-accent focus:ring-3 focus:ring-accent-soft focus-visible:outline-none`
 /** The same frame around an input and a control at its start; it takes the focus look from the input. */
 const GROUP = `${FRAME} flex items-center has-[input:focus]:border-accent has-[input:focus]:ring-3 has-[input:focus]:ring-accent-soft`
+/**
+ * A field that sits in the chrome rather than a form (the toolbar's address): a light fill with
+ * no outline at rest, and the field's own raised, accent-edged look while it's being edited.
+ */
+const FILLED =
+  'flex items-center rounded-md border border-transparent bg-fill text-fg transition-colors has-[input:focus]:border-accent has-[input:focus]:bg-raised has-[input:focus]:ring-3 has-[input:focus]:ring-accent-soft'
 
 /** Body text, or for code-like values (commands, branches, addresses) monospace at small */
 const text = (mono: boolean) => (mono ? 'font-mono text-small' : 'text-body')
@@ -31,15 +37,24 @@ interface InputProps extends ComponentProps<'input'>, FieldStyleProps {
   leading?: ReactNode
   /** The same after the text, flush with the right edge: the address bar's zoom */
   trailing?: ReactNode
+  /** In the chrome: a light fill at rest, the field's look while editing (with `leading`) */
+  filled?: boolean
 }
 
 /** A single-line text field, 28px tall. */
-export function Input({ mono = false, leading, trailing, className, ...props }: InputProps) {
+export function Input({
+  mono = false,
+  leading,
+  trailing,
+  filled = false,
+  className,
+  ...props
+}: InputProps) {
   if (!leading && !trailing) {
     return <input className={cn(FIELD, 'h-7 w-full', text(mono), className)} {...props} />
   }
   return (
-    <div className={cn(GROUP, 'h-7 w-full', className)}>
+    <div className={cn(filled ? FILLED : GROUP, 'h-7 w-full', className)}>
       {leading}
       <input
         className={cn(

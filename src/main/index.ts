@@ -1206,6 +1206,9 @@ function registerIpc() {
   on(Send.chatMorphed, (tab, form, seq) => {
     if (isChatForm(form) && isNumber(seq)) tab.chatMorphed(form, seq)
   })
+  on(Send.chatCollapsed, (tab, seq) => isNumber(seq) && tab.chatCollapsed(seq))
+  on(Send.chatBoxHeight, (tab, height) => isNumber(height) && tab.chatBoxHeight(height))
+  on(Send.holdChat, (tab, held) => tab.holdChat(held === true))
   on(Send.resizeChat, (tab, edge, dx, dy) => {
     if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) tab.resizeChat(edge, dx, dy)
   })

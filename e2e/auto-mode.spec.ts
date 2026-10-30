@@ -325,7 +325,6 @@ test('Auto mode is on per project; off, it asks; on, it still asks about outside
   // A fresh profile starts in Auto.
   expect(await autoApprove(chat)).toBe(true)
   await expect(autoChip(chat)).toHaveAttribute('aria-pressed', 'true')
-  await expect(autoChip(chat)).toHaveText('Auto')
   await expect(autoChip(chat)).toHaveAccessibleDescription(/outside this project/)
   expect(await autoModeItem(session)).toEqual({ label: 'Auto Mode', checked: true })
 
@@ -333,8 +332,8 @@ test('Auto mode is on per project; off, it asks; on, it still asks about outside
   await autoChip(chat).click()
   await autoModeIs(session, false)
   await expect(autoChip(chat)).toHaveAttribute('aria-pressed', 'false')
-  // One fixed label: only the pressed state changes.
-  await expect(autoChip(chat)).toHaveText('Auto')
+  // One fixed name: only the pressed state (and the shield's fill) changes.
+  await expect(autoChip(chat)).toHaveAccessibleName('Auto mode')
   expect(await autoModeItem(session)).toEqual({ label: 'Auto Mode', checked: false })
 
   // Off, the command waits for the user, and so does the edit.

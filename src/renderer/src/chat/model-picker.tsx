@@ -24,8 +24,8 @@ import {
   PopoverSearch,
   placePopover,
 } from '../lib/surface'
-import { Button, SegmentedControl } from '../lib/ui'
-import { useChat } from './store'
+import { Button, OPEN, SegmentedControl } from '../lib/ui'
+import { useChat, whenPanelShown } from './store'
 
 type Choice = AgentSetting['options'][number]
 
@@ -93,9 +93,13 @@ function effortName(setting: AgentSetting) {
   return choice ? effortLabel(choice) : setting.value
 }
 
-/** "OpenCode Zen/Big Pickle" reads as "Big Pickle"; the picker keeps the full name. */
+/**
+ * "OpenCode Zen/Big Pickle" reads as "Big Pickle", and "Default (recommended)" as "Default";
+ * the picker keeps the full name.
+ */
 function shortName(name: string) {
-  return name.split('/').at(-1)?.trim() || name
+  const last = name.split('/').at(-1)?.trim() || name
+  return last.replace(/\s*\(recommended\)$/i, '') || last
 }
 
 /** Under its provider's header, "Anthropic/Claude Sonnet 4" reads as "Claude Sonnet 4". */
@@ -147,11 +151,13 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   useEffect(() => {
     if (!pickModel) return
     useChat.setState({ pickModel: false })
-    whenSettled(button.current, () => {
-      if (!button.current) return
-      setPlacement(placePopover(button.current))
-      setOpen(true)
-    })
+    whenPanelShown(() =>
+      whenSettled(button.current, () => {
+        if (!button.current) return
+        setPlacement(placePopover(button.current))
+        setOpen(true)
+      }),
+    )
   }, [pickModel])
 
   const close = (refocus: boolean) => {
@@ -171,13 +177,17 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
         title={withShortcut(effort ? `${fullName} · ${effort}` : fullName, 'chooseModel')}
         aria-keyshortcuts={ariaShortcut('chooseModel')}
-        onClick={(event) => {
+        onClick={() => {
           if (open) return close(false)
-          setPlacement(placePopover(event.currentTarget))
-          setOpen(true)
+          // The message box alone has no room for it: the panel grows first.
+          whenPanelShown(() => {
+            if (!button.current) return
+            setPlacement(placePopover(button.current))
+            setOpen(true)
+          })
         }}
-        // Pressed while its picker is open, as a pressed IconButton.
-        className="min-w-0 aria-expanded:bg-accent-soft aria-expanded:text-accent-text"
+        // On while its picker is open, as a pressed IconButton.
+        className={cn('min-w-0', OPEN)}
       >
         {/* A long model name gives way; the effort stays readable, unless the row is too
             narrow for both (the floating chat's default width), when it's left to the

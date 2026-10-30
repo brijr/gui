@@ -572,11 +572,12 @@ html.transparent body {
   background: transparent;
 }
 
-.drag {
+/* Utilities, so a pseudo-element can take them too (HIT_AREA in lib/ui.tsx). */
+@utility drag {
   app-region: drag;
 }
 
-.no-drag {
+@utility no-drag {
   app-region: no-drag;
 }
 
@@ -585,9 +586,10 @@ html.transparent body {
 }
 
 @layer base {
-  /* Buttons and rows; fields replace it with an accent border and ring (lib/field.tsx). */
+  /* Buttons and rows: a neutral ring, so the keyboard's place reads without adding color.
+     Fields replace it with an accent border and ring (lib/field.tsx). */
   :focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--muted);
     outline-offset: 1px;
   }
 

@@ -118,7 +118,7 @@ test('a trusted project starts the agent without asking, and Gui leaves its bran
 
   // The first message on main starts no branch: Git is the agent's and the terminal's.
   expect(git(root, 'branch', '--format=%(refname:short)').trim()).toBe('main')
-  // The toolbar names the branch, read only: no menu behind it.
-  await expect(session.chrome.getByTitle('Branch main', { exact: true })).toBeVisible()
+  // The project button names the branch after the project, read only: no menu of its own.
+  await expect(session.chrome.getByRole('button', { name: /, branch main$/ })).toBeVisible()
   await expect(session.chrome.getByRole('button', { name: /^Branch / })).toHaveCount(0)
 })

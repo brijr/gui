@@ -100,6 +100,7 @@ function setContentSize(
 /** The app at WINDOW's size, its panel 200 px shorter than usual, resting bottom-left. */
 async function ready(session: GuiSession) {
   await session.waitForPreview()
+  await session.expandChat()
   await session.app.evaluate(setContentSize, WINDOW)
   const sized = await layoutWhen(
     session,

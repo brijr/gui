@@ -42,9 +42,8 @@ import {
   Tablet,
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
-import { Button, IconButton, PRESS, SegmentedControl } from '../lib/ui'
+import { Button, HIT_AREA, IconButton, OPEN, PRESS, SegmentedControl } from '../lib/ui'
 import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
-import { BranchLabel } from './branch-label'
 import { barPadding, sidebarRoom, useSidebarBar, useSidebarSliding } from './layout-morph'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
@@ -81,23 +80,24 @@ const DONE_MS = 1500
 
 /** The "…" button, where the screenshot menu opens while Screenshot is in it */
 const MORE_ID = 'toolbar-more'
-/** The address field's room before anything else gives way: an address like localhost:5173/. */
-const ADDRESS_MIN = 200
+/**
+ * The address field's room before anything else gives way: an address like localhost:5173/,
+ * with the status dot before it and Back, Forward and Reload after it.
+ */
+const ADDRESS_MIN = 240
 /** The frame's name on a canvas, and the room before the board's zoom, likewise */
 const FRAME_NAME_MIN = 96
 const BOARD_GAP_MIN = 8
 
 /**
- * The order the project toolbar makes room in (toolbar-fit.ts): Back and Forward, the
- * viewport, Screenshot and Reload go into the "…" menu, then the branch drops its name, then
- * the project's name, then Select. Record and the chat button always stay. Shortcuts are in
- * the tooltips, never shown as keys here.
+ * The order the project toolbar makes room in (toolbar-fit.ts): the viewport and Screenshot
+ * go into the "…" menu, then the project button drops the branch, then the project's name,
+ * then Select. Back, Forward and Reload are the address field's own; Record and the chat
+ * button always stay. Shortcuts are in the tooltips, never shown as keys here.
  */
 const PROJECT_STEPS: FitStep[] = [
-  { tool: 'history', to: 'hidden' },
   { tool: 'viewport', to: 'hidden' },
   { tool: 'screenshot', to: 'hidden' },
-  { tool: 'reload', to: 'hidden' },
   { tool: 'branch', to: 'compact' },
   { tool: 'project', to: 'compact' },
   { tool: 'select', to: 'hidden' },
@@ -136,10 +136,11 @@ function useBar(state: WindowState, lights: boolean) {
 }
 
 /**
- * The window's toolbar: the project menu, then, once a project is open, the preview's
- * navigation, its address (with the dev server's status), viewport, Select, screenshot,
- * Record and the chat. Groups sit a gap apart; controls are 28px. Short of room, tools go into the
- * "…" menu (PROJECT_STEPS) so the address keeps ADDRESS_MIN.
+ * The window's toolbar: the project menu (naming the project and its branch), then, once a
+ * project is open, the address (with the dev server's status, and the preview's history and
+ * Reload at its end), viewport, Select, screenshot, Record and the chat. Groups sit a gap
+ * apart; controls are 28px, in the quietest text color until pointed at. Short of room, tools
+ * go into the "…" menu (PROJECT_STEPS) so the address keeps ADDRESS_MIN.
  */
 export function Toolbar({ state }: { state: WindowState }) {
   const { project, preview } = state
@@ -154,12 +155,6 @@ export function Toolbar({ state }: { state: WindowState }) {
   })
   const uncapturable = captureBlocked(preview, false)
   const capturable = uncapturable === null
-  // A website the agent opened has no history of the app's; Back to your app leaves it.
-  const history = {
-    back: preview.website === null && preview.canGoBack,
-    forward: preview.website === null && preview.canGoForward,
-  }
-  const reloadable = !!preview.url || preview.website !== null
   const shown = (tool: string) => fit(tool) !== 'hidden'
 
   if (state.board) return <BoardToolbar state={state} board={state.board} named={!tabbed} />
@@ -168,31 +163,6 @@ export function Toolbar({ state }: { state: WindowState }) {
   const section = (...items: ToolbarMenuItem[]) => {
     if (more.length) more.push({ type: 'separator' })
     more.push(...items)
-  }
-  if (!shown('history') || !shown('reload')) {
-    section(
-      ...(shown('history')
-        ? []
-        : [
-            { id: 'back', label: 'Back', shortcut: 'back', enabled: history.back } as const,
-            {
-              id: 'forward',
-              label: 'Forward',
-              shortcut: 'forward',
-              enabled: history.forward,
-            } as const,
-          ]),
-      ...(shown('reload')
-        ? []
-        : [
-            {
-              id: 'reload',
-              label: 'Reload Preview',
-              shortcut: 'reload',
-              enabled: reloadable,
-            } as const,
-          ]),
-    )
   }
   if (!shown('viewport')) {
     section(...VIEWPORT_ITEMS.map((item) => viewportItem(item, preview.viewport)))
@@ -230,46 +200,14 @@ export function Toolbar({ state }: { state: WindowState }) {
       className="drag flex shrink-0 items-center gap-2 border-b border-line bg-surface"
       style={{ height: TOOLBAR_HEIGHT }}
     >
-      <ProjectMenuButton state={state} named={!tabbed && fit('project') !== 'compact'} />
-      {project && state.branch && (
-        <BranchLabel branch={state.branch} compact={fit('branch') === 'compact'} />
-      )}
+      <ProjectMenuButton
+        state={state}
+        named={!tabbed && fit('project') !== 'compact'}
+        branched={fit('branch') !== 'compact'}
+      />
 
       {project && (
         <>
-          {(shown('history') || shown('reload')) && (
-            <div className="flex shrink-0 items-center gap-0.5">
-              {shown('history') && (
-                <>
-                  <IconButton
-                    label="Back"
-                    shortcut="back"
-                    icon={ArrowLeft}
-                    disabled={!history.back}
-                    onClick={() => gui.back()}
-                  />
-                  <IconButton
-                    label="Forward"
-                    shortcut="forward"
-                    icon={ArrowRight}
-                    disabled={!history.forward}
-                    onClick={() => gui.forward()}
-                  />
-                </>
-              )}
-              {shown('reload') && (
-                <IconButton
-                  label="Reload preview"
-                  shortcut="reload"
-                  icon={RotateCw}
-                  spinning={preview.loading && preview.website === null}
-                  disabled={!reloadable}
-                  onClick={() => gui.reload()}
-                />
-              )}
-            </div>
-          )}
-
           <AddressBar state={state} />
 
           {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
@@ -287,10 +225,7 @@ export function Toolbar({ state }: { state: WindowState }) {
             <MoreButton
               items={more}
               onChoose={(id, button) => {
-                if (id === 'back') gui.back()
-                else if (id === 'forward') gui.forward()
-                else if (id === 'reload') gui.reload()
-                else if (id === 'select') gui.toggleSelect()
+                if (id === 'select') gui.toggleSelect()
                 else if (id === 'screenshot') void screenshotUnder(button)
                 else chooseViewport(id)
               }}
@@ -313,6 +248,7 @@ function ChatButton({ visible }: { visible: boolean }) {
       icon={MessageSquare}
       pressed={visible}
       onClick={() => gui.toggleChat()}
+      className={HIT_AREA}
     />
   )
 }
@@ -346,7 +282,8 @@ function ViewportButton({ viewport }: { viewport: Viewport }) {
       aria-expanded={open}
       aria-label={`Viewport: ${current?.label}`}
       title={current?.title}
-      className="shrink-0 gap-1 px-1.5"
+      // An icon tool like its neighbours: their quiet color, and on while its menu is open.
+      className={cn(HIT_AREA, OPEN, 'shrink-0 gap-1 px-1.5 text-subtle')}
       onClick={async () => {
         const box = button.current?.getBoundingClientRect()
         if (!box) return
@@ -381,6 +318,7 @@ function MoreButton({
       icon={Ellipsis}
       aria-haspopup="menu"
       aria-expanded={open}
+      className={cn(HIT_AREA, OPEN)}
       onClick={async () => {
         const box = button.current?.getBoundingClientRect()
         if (!box) return
@@ -573,7 +511,7 @@ function BoardToolbar({
           aria-haspopup="menu"
           aria-label={nameShown ? undefined : 'Canvas menu'}
           title="Canvas menu"
-          className="max-w-64"
+          className={cn(HIT_AREA, 'max-w-64')}
           onClick={() => gui.showBoardMenu()}
         >
           {nameShown && <span className="min-w-0 truncate text-fg">{board.name}</span>}
@@ -585,7 +523,7 @@ function BoardToolbar({
           <Button
             variant="ghost"
             icon={ArrowLeft}
-            className="shrink-0"
+            className={cn(HIT_AREA, 'shrink-0')}
             onClick={() => gui.boardOpenFrame(null)}
           >
             Canvas
@@ -604,6 +542,7 @@ function BoardToolbar({
               spinning={preview.loading}
               disabled={!preview.url}
               onClick={() => gui.reload()}
+              className={HIT_AREA}
             />
           )}
           {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
@@ -630,7 +569,7 @@ function BoardToolbar({
             icon={Plus}
             trailingIcon={ChevronDown}
             aria-haspopup="menu"
-            className="shrink-0"
+            className={cn(HIT_AREA, 'shrink-0')}
             onClick={() => {
               const box = frameButton.current?.getBoundingClientRect()
               if (box) gui.showAddFrameMenu({ x: box.left, y: box.bottom + MENU_GAP })
@@ -645,6 +584,7 @@ function BoardToolbar({
               icon={Group}
               disabled={!selection}
               onClick={() => gui.boardAddSection(board.selection)}
+              className={HIT_AREA}
             />
           )}
           {shown('tool') && (
@@ -666,6 +606,7 @@ function BoardToolbar({
                   icon={ImageDown}
                   disabled={!selection}
                   onClick={() => gui.boardExport(board.selection)}
+                  className={HIT_AREA}
                 />
               )}
               {shown('select') && (
@@ -675,20 +616,31 @@ function BoardToolbar({
                   icon={MousePointer2}
                   disabled={!canPick}
                   onClick={() => gui.toggleSelect()}
+                  className={HIT_AREA}
                 />
               )}
             </div>
           )}
           {shown('zoom') && boardView.camera && (
-            <div className="flex shrink-0 items-center gap-0.5">
-              <IconButton label="Zoom out" icon={Minus} onClick={() => boardView.zoomBy(0.8)} />
+            <div className="flex shrink-0 items-center gap-1">
+              <IconButton
+                label="Zoom out"
+                icon={Minus}
+                onClick={() => boardView.zoomBy(0.8)}
+                className={HIT_AREA}
+              />
               <ZoomPercent
                 zoom={boardView.camera.zoom}
                 action="zoom to fit"
                 title="Zoom to fit"
                 onClick={() => boardView.fit()}
               />
-              <IconButton label="Zoom in" icon={Plus} onClick={() => boardView.zoomBy(1.25)} />
+              <IconButton
+                label="Zoom in"
+                icon={Plus}
+                onClick={() => boardView.zoomBy(1.25)}
+                className={HIT_AREA}
+              />
             </div>
           )}
           {overflowing && <MoreButton items={more} onChoose={choose} />}
@@ -701,28 +653,61 @@ function BoardToolbar({
 
 /**
  * Opens the project menu (open, recent projects, switch app, reveal). It names the project,
- * unless the tab row does already; then it's the folder alone.
+ * unless the tab row does already, then its branch, quieter and read only (Git is the agent's
+ * and the terminal's), so a switch doesn't go unnoticed: "gui · main". Short of room, the
+ * branch goes, then the name; long ones end in "…", and the tooltip has them whole.
  */
-function ProjectMenuButton({ state, named }: { state: WindowState; named: boolean }) {
+function ProjectMenuButton({
+  state,
+  named,
+  branched,
+}: {
+  state: WindowState
+  named: boolean
+  /** Room for the branch's name */
+  branched: boolean
+}) {
   const { project } = state
   // The monorepo app being previewed
   const app = project?.appDir?.slice(project.appDir.lastIndexOf('/') + 1)
+  const name = project ? `${project.name}${app ? ` / ${app}` : ''}` : 'Gui'
+  const branch = project && state.branch ? (state.branch.branch ?? 'No branch') : null
+  const shown = { name: named, branch: branch !== null && branched }
+  // The project and branch whole, for when the line is cut short or left out.
+  const full = [name, branch].filter(Boolean).join(' · ')
   return (
     <Button
       variant="ghost"
       icon={Folder}
       trailingIcon={ChevronDown}
       aria-haspopup="menu"
-      aria-label={named ? undefined : 'Project menu'}
-      title={named ? undefined : 'Project menu'}
-      className="max-w-64"
+      aria-label={shown.name || shown.branch ? undefined : 'Project menu'}
+      title={project ? full : 'Project menu'}
+      className={cn(HIT_AREA, 'max-w-120')}
       onClick={() => gui.showProjectMenu()}
     >
-      {named && (
-        <>
-          <span className="min-w-0 truncate text-fg">{project?.name ?? 'Gui'}</span>
-          {app && <span className="min-w-0 truncate font-normal text-subtle">/ {app}</span>}
-        </>
+      {(shown.name || shown.branch) && (
+        // One line that ends in "…" once, where it runs out: the branch gives way before the
+        // name, so the project always reads first.
+        <span className="min-w-0 truncate font-normal text-subtle">
+          {shown.name && (
+            <>
+              <span className="font-medium text-fg">{project?.name ?? 'Gui'}</span>
+              {app && ` / ${app}`}
+            </>
+          )}
+          {shown.branch && (
+            <>
+              {shown.name && (
+                <span aria-hidden="true" className="mx-1.5">
+                  ·
+                </span>
+              )}
+              <span className="sr-only">{shown.name ? ', branch ' : 'Branch '}</span>
+              {branch}
+            </>
+          )}
+        </span>
       )}
     </Button>
   )
@@ -765,6 +750,7 @@ function SelectButton({
       shortcut="selectElement"
       icon={MousePointer2}
       pressed={selecting}
+      className={HIT_AREA}
       title={unavailable ?? undefined}
       aria-disabled={unavailable !== null || undefined}
       onClick={() => unavailable === null && gui.toggleSelect()}
@@ -818,6 +804,7 @@ function ScreenshotButton({
         // The tooltip says what it did, for a moment.
         title={done?.label ?? unavailable ?? undefined}
         icon={done ? Check : Camera}
+        className={HIT_AREA}
         aria-disabled={unavailable !== null || undefined}
         onClick={() => unavailable === null && void take()}
       />
@@ -831,10 +818,43 @@ function ScreenshotButton({
 const ADDRESS_ID = 'preview-address'
 
 /**
- * A zoom level as a ghost button that sets it back: the canvas's (to fit, between its zoom
- * buttons), and Desktop's page zoom while it isn't 100% (`inField`: at the end of the address
- * field, like a browser's, filling its height). A device frame's label shows its own.
+ * A control inside the address field, at its end: 20px tall, 4px in from the field's edge,
+ * quiet until pointed at. Back, Forward, Reload, the page's zoom, Back to your app.
  */
+const IN_FIELD = cn(
+  HIT_AREA,
+  'no-drag flex h-5 shrink-0 items-center rounded-sm text-subtle transition-[color,background-color,opacity] hover:bg-hover hover:text-fg disabled:opacity-40',
+  PRESS,
+)
+
+/** An icon in the address field: Back, Forward, Reload. */
+function FieldIconButton({
+  label,
+  shortcut,
+  icon: Icon,
+  spinning = false,
+  onClick,
+}: {
+  label: string
+  shortcut: ShortcutId
+  icon: IconComponent
+  spinning?: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={withShortcut(label, shortcut)}
+      aria-keyshortcuts={ariaShortcut(shortcut)}
+      onClick={onClick}
+      className={cn(IN_FIELD, 'w-5 justify-center')}
+    >
+      <Icon className={cn('size-3.5', spinning && 'animate-spin')} aria-hidden="true" />
+    </button>
+  )
+}
+
 /**
  * In the address field while the agent has a website open in the preview: closes it (and
  * clears its signed-out session), and the user's app shows again.
@@ -844,16 +864,18 @@ function BackToApp() {
     <button
       type="button"
       onClick={() => gui.backToApp()}
-      className={cn(
-        'no-drag flex h-full shrink-0 items-center rounded-r-md pr-2.5 pl-2 text-caption font-medium text-fg transition-[color,background-color,opacity] hover:bg-hover focus-visible:-outline-offset-2',
-        PRESS,
-      )}
+      className={cn(IN_FIELD, 'px-1.5 text-caption font-medium text-fg')}
     >
       Back to your app
     </button>
   )
 }
 
+/**
+ * A zoom level as a ghost button that sets it back: the canvas's (to fit, between its zoom
+ * buttons), and Desktop's page zoom while it isn't 100% (`inField`: in the address field,
+ * like a browser's). A device frame's label shows its own.
+ */
 function ZoomPercent({
   zoom,
   action,
@@ -878,13 +900,15 @@ function ZoomPercent({
       title={shortcut ? withShortcut(title, shortcut) : title}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       onClick={onClick}
-      className={cn(
-        'no-drag flex shrink-0 items-center text-caption font-medium text-muted tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg',
-        PRESS,
+      className={
         inField
-          ? 'h-full rounded-r-md pr-2.5 pl-2 focus-visible:-outline-offset-2'
-          : 'h-7 min-w-12 justify-center rounded-md px-1.5',
-      )}
+          ? cn(IN_FIELD, 'px-1.5 text-caption font-medium tabular-nums')
+          : cn(
+              HIT_AREA,
+              'no-drag flex h-7 min-w-12 shrink-0 items-center justify-center rounded-md px-1.5 text-caption font-medium text-subtle tabular-nums transition-[color,background-color,opacity] hover:bg-hover hover:text-fg',
+              PRESS,
+            )
+      }
     >
       {percent}%
     </button>
@@ -908,10 +932,19 @@ export function focusAddressBar(frames = FOCUS_FRAMES) {
 /**
  * The preview's address, led by the dev server's status: a dot that opens the dev-server menu
  * (restart, stop, logs, open in browser). Until there's a page to show the field says what
- * the server is doing rather than a made-up address.
+ * the server is doing rather than a made-up address. A light fill in the toolbar, the field's
+ * own look while editing.
+ *
+ * Its end holds the page's controls, as Safari's does Reload: Back and Forward only while
+ * there's somewhere to go, then Reload once there's a page. They come and go at the field's
+ * end, in room the address doesn't use, so neither the field's edges nor the address move.
  */
 function AddressBar({ state }: { state: WindowState }) {
   const { preview, devServer, project, setup } = state
+  // A website the agent opened has no history of the app's; Back to your app leaves it.
+  const back = preview.website === null && preview.canGoBack
+  const forward = preview.website === null && preview.canGoForward
+  const reloadable = !!preview.url || preview.website !== null
   // While focused, the field shows the user's draft; otherwise it follows navigation.
   const [draft, setDraft] = useState<string | null>(null)
   // The address of what's on screen, or being loaded, or failed to load: the website the agent
@@ -954,22 +987,50 @@ function AddressBar({ state }: { state: WindowState }) {
         onKeyDown={(event) => {
           if (event.key === 'Escape') event.currentTarget.blur()
         }}
+        filled
         trailing={
-          preview.website ? (
-            <BackToApp />
-          ) : (
-            preview.viewport === 'desktop' &&
-            preview.zoom !== 1 && (
-              <ZoomPercent
-                inField
-                zoom={preview.zoom}
-                action="reset to 100%"
-                title="Reset zoom"
-                shortcut="actualSize"
-                onClick={() => gui.zoomPreview(0)}
+          <span className="flex shrink-0 items-center gap-1 pr-1 pl-1.5">
+            {preview.website ? (
+              <BackToApp />
+            ) : (
+              preview.viewport === 'desktop' &&
+              preview.zoom !== 1 && (
+                <ZoomPercent
+                  inField
+                  zoom={preview.zoom}
+                  action="reset to 100%"
+                  title="Reset zoom"
+                  shortcut="actualSize"
+                  onClick={() => gui.zoomPreview(0)}
+                />
+              )
+            )}
+            {back && (
+              <FieldIconButton
+                label="Back"
+                shortcut="back"
+                icon={ArrowLeft}
+                onClick={() => gui.back()}
               />
-            )
-          )
+            )}
+            {forward && (
+              <FieldIconButton
+                label="Forward"
+                shortcut="forward"
+                icon={ArrowRight}
+                onClick={() => gui.forward()}
+              />
+            )}
+            {reloadable && (
+              <FieldIconButton
+                label="Reload preview"
+                shortcut="reload"
+                icon={RotateCw}
+                spinning={preview.loading && preview.website === null}
+                onClick={() => gui.reload()}
+              />
+            )}
+          </span>
         }
         leading={
           // A round target around the dot, its focus ring and hover drawn on the circle so
@@ -980,9 +1041,9 @@ function AddressBar({ state }: { state: WindowState }) {
             aria-haspopup="menu"
             title={tooltip}
             onClick={() => gui.showDevServerMenu()}
-            className={`group flex h-full shrink-0 items-center pr-1.5 pl-1 outline-none ${PRESS}`}
+            className={`group no-drag flex h-full shrink-0 items-center pr-1.5 pl-1 outline-none ${PRESS}`}
           >
-            <span className="flex size-5 items-center justify-center rounded-full transition-[background-color,opacity] group-hover:bg-hover group-focus-visible:outline-2 group-focus-visible:outline-offset-0 group-focus-visible:outline-accent">
+            <span className="flex size-5 items-center justify-center rounded-full transition-[background-color,opacity] group-hover:bg-hover group-focus-visible:outline-2 group-focus-visible:outline-offset-0 group-focus-visible:outline-muted">
               <StatusDot status={status} />
             </span>
           </button>

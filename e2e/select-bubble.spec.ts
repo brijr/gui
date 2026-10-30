@@ -2,7 +2,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type PanelCorner, type Rect } from '../src/shared/types'
-import { electronExecutable, sleep, TAKES_FOCUS, takesFocus, waitFor } from './helpers/env'
+import { electronExecutable, sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -116,6 +116,7 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   await session.waitForPreview()
   const preview = await session.previewPage()
   await expect(preview.locator(SELECTOR)).toBeVisible({ timeout: 30_000 })
+  await session.expandChat()
   const panel = await chatWhere(session, 'the floating panel', (chat) => !isBubble(chat))
 
   // Picking: the view shrinks to the bubble at the panel's bottom-left corner.
@@ -335,13 +336,13 @@ test('the bubble shows a running turn, and a permission card waits behind it', a
   await session.declineConsentDialogs()
   await useStandIn(session)
   await session.waitForPreview()
-  const panel = await chatWhere(session, 'the floating panel', (chat) => !isBubble(chat))
   const bubble = showChat(session.chat)
 
-  // A running turn: the bubble spins.
+  // A running turn: the panel shows the conversation, and the bubble spins.
   expect(await send(session.chat, WORK)).toBe(true)
   const working = async () => (await session.chatSnapshot()).meta.status === 'working'
   await waitFor(working, 'the agent to be working')
+  const panel = await chatWhere(session, 'the floating panel', (chat) => chat.height > 300)
   await startSelecting(session)
   await chatWhere(session, 'the bubble', isBubble)
   await expect(bubble).toHaveAccessibleDescription('The agent is working. Stops selecting.')
@@ -373,40 +374,65 @@ test('the bubble shows a running turn, and a permission card waits behind it', a
   expect((await session.waitForTurn(1)).turn.status).toBe('done')
 })
 
-test('the floating chat tucks into its bubble when the page takes the keyboard', async ({
+test('the floating chat is its message box until there is a conversation, and again once the user is back in the app', async ({
   launch,
 }) => {
-  // Where the keyboard goes depends on Gui being the active app.
-  test.skip(takesFocus, TAKES_FOCUS)
   const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
+  await session.declineConsentDialogs()
+  await useStandIn(session)
   await session.waitForPreview()
-  await session.app.evaluate(({ app, BrowserWindow }) => {
-    app.focus({ steal: true })
-    BrowserWindow.getAllWindows()[0]?.focus()
-  })
-  const panel = await chatWhere(session, 'the open panel', (chat) => !isBubble(chat))
-  await session.chat.getByRole('textbox', { name: /^Message / }).focus()
+  const panel = session.chat.locator('[data-chat-panel]')
+  const showConversation = session.chat.getByRole('button', { name: 'Show conversation' })
 
-  // The keyboard into the page (a click there): the panel tucks into a bubble at its corner.
-  await session.app.evaluate(({ BrowserWindow, WebContentsView }) => {
-    const views = BrowserWindow.getAllWindows()[0]?.contentView.children ?? []
-    const page = views.find(
-      (view): view is InstanceType<typeof WebContentsView> =>
-        view instanceof WebContentsView && /^https?:\/\//.test(view.webContents.getURL()),
-    )
-    page?.webContents.focus()
-  })
-  const tucked = await chatWhere(session, 'the tucked bubble', isBubble)
-  expect(tucked.chat).toEqual(bubbleAt(panel.chat))
-  expect((await session.state()).chatVisible).toBe(true)
-  await session.shot('tucked')
-
-  // The bubble brings it back as it was, with the cursor in the message box.
-  await session.chat.getByRole('button', { name: 'Show chat' }).click()
-  const back = await chatWhere(session, 'the panel back', (chat) => !isBubble(chat))
-  expect(back.chat).toEqual(panel.chat)
-  await waitFor(
-    () => session.chat.evaluate(() => document.activeElement?.matches('[data-composer]')),
-    'the cursor in the message box',
+  // No conversation: the message box alone, its view no taller than the box and its shadow,
+  // in the panel's bottom-left corner. Nothing to show yet, so nothing offers to.
+  await expect(panel).toHaveAttribute('data-collapsed', 'true')
+  const boxHeight = await panel.evaluate((el) => Math.round(el.getBoundingClientRect().height))
+  const box = await chatWhere(
+    session,
+    'the message box',
+    (chat) => chat.height === boxHeight + SHADOW * 2,
   )
+  expect(box.chat.x + SHADOW).toBe(box.preview.x + PANEL_MARGIN)
+  expect(box.chat.y + box.chat.height - SHADOW).toBe(
+    box.preview.y + box.preview.height - PANEL_MARGIN,
+  )
+  await expect(showConversation).toHaveCount(0)
+  await session.shot('message-box')
+
+  // A question from the agent: the panel grows to show it, its bottom edge where it was.
+  expect(await send(session.chat, ASK)).toBe(true)
+  const open = await chatWhere(session, 'the panel', (chat) => chat.height > box.chat.height + 100)
+  expect(open.chat.y + open.chat.height).toBe(box.chat.y + box.chat.height)
+  await session.chat.getByRole('button', { name: "Don't allow" }).click()
+  expect((await session.waitForTurn(0)).turn.status).toBe('done')
+
+  // Done, the reply stays until the user goes back to their app...
+  await sleep(3000)
+  expect((await session.app.evaluate(views))?.chat).toEqual(open.chat)
+  await expect(panel).not.toHaveAttribute('data-collapsed')
+
+  // ...and a moment after they use the page, it's the message box again.
+  await session.chat.mouse.move(1, 1)
+  const preview = await session.previewPage()
+  await preview.locator('h1').click()
+  await expect(panel).toHaveAttribute('data-collapsed', 'true', { timeout: 10_000 })
+  const back = await chatWhere(
+    session,
+    'the message box again',
+    (chat) => chat.height < open.chat.height - 100,
+  )
+  expect(back.chat.y + back.chat.height).toBe(box.chat.y + box.chat.height)
+  await expect(showConversation).toBeVisible()
+  await session.shot('message-box-history')
+
+  // Its corner control brings the conversation back, as it was.
+  await showConversation.click()
+  const shown = await chatWhere(
+    session,
+    'the panel again',
+    (chat) => chat.height === open.chat.height,
+  )
+  expect(shown.chat).toEqual(open.chat)
+  await expect(session.chat.getByRole('article')).toHaveCount(1)
 })
