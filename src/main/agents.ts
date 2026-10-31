@@ -113,6 +113,15 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     installUrl: 'https://docs.devin.ai/cli',
     terminalSignIn: { command: 'devin auth login', hint: 'Continue in your browser to sign in.' },
   },
+  fx: {
+    launch: cli('fx', 'acp'),
+    signIn: 'Sign in from Settings → Agents, or run `fx login` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://fx.sh/docs/getting-started/installation',
+    terminalSignIn: { command: 'fx login', hint: 'Pick a provider, then follow the steps.' },
+    // Keep fx's own permission mode: choosing one over ACP also saves it as the user's
+    // default for every fx session, not just Gui's.
+  },
   claude: {
     launch: adapter('@agentclientprotocol/claude-agent-acp'),
     signIn: 'Run `claude` in a terminal and use /login, then try again.',

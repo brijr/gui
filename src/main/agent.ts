@@ -240,7 +240,7 @@ function errorDetail(error: unknown) {
  * substring also matches unrelated errors (e.g. "author", "OAuth").
  */
 const AUTH_ERROR =
-  /\b(?:auth(?:entication)? (?:is )?required|authenticat(?:e|ion)\b|unauthori[sz]ed|not (?:logged|signed) in|(?:log ?in|sign ?in) (?:is )?required|please (?:log|sign) ?in|(?:invalid|missing|expired) (?:api key|credentials?|token)|no credentials|401\b)/i
+  /\b(?:auth(?:entication)? (?:is )?required|authenticat(?:e|ion)\b|unauthori[sz]ed|not (?:logged|signed) in|(?:log ?in|sign ?in) (?:is )?required|please (?:log|sign) ?in|(?:invalid|missing|expired) (?:api key|credentials?|token)|no credentials|run [\w-]+(?: auth)? login\b|401\b)/i
 
 function isAuthError(error: unknown) {
   const code = (error as { code?: unknown } | null)?.code
@@ -487,7 +487,11 @@ export class AgentSession {
         },
         clientInfo: { name: 'gui', version: '0.1.0' },
       }),
-    )
+    ).catch((error: unknown) => {
+      // Some agents (fx) refuse to start at all without a login.
+      if (!isAuthError(error)) throw error
+      throw new AgentAuthError(signInMessage(definition, error, false), [])
+    })
 
     // Only offer sign-in flows Gui knows open a browser; others are run in a terminal.
     const methods = definition.inAppSignIn

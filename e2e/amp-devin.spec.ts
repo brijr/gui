@@ -6,7 +6,7 @@ import { expect, test } from './helpers/test'
 
 // Exercise the real launch paths and Amp's bundled adapter with local fake CLIs.
 // No credentials, network calls, or paid agent turns are used.
-for (const id of ['amp', 'devin', 'cursor'] as const) {
+for (const id of ['amp', 'devin', 'cursor', 'fx'] as const) {
   test(`${id} is selectable and streams a CLI response`, async ({ launch }) => {
     const scratch = mkdtempSync(join(tmpdir(), 'gui-cli-'))
     const log = join(scratch, 'calls.jsonl')
@@ -93,6 +93,43 @@ for (const id of ['amp', 'devin', 'cursor'] as const) {
     }
   })
 }
+
+// fx refuses to start without a login; Gui offers its sign-in rather than "Try again".
+test('an agent that needs a login before it starts reads as signed out', async ({ launch }) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'gui-cli-'))
+  const cli = join(scratch, 'fx')
+  writeFileSync(cli, `#!${process.execPath}\n${SIGNED_OUT_SCRIPT}`)
+  chmodSync(cli, 0o755)
+  try {
+    const session = await launch({
+      fixture: 'vite',
+      env: { PATH: `${scratch}:${process.env.PATH}` },
+    })
+    await session.waitForPreview()
+    await session.chrome.evaluate(() => window.gui.setAgent('fx'))
+    const health = await waitFor(async () => {
+      const agent = (await session.state()).agents.find((item) => item.id === 'fx')
+      return agent && agent.status !== 'checking' && agent.status !== 'unknown' ? agent : null
+    }, 'fx checked')
+    expect(health.status).toBe('signed-out')
+    expect(health.signIn?.label).toBe('Sign in')
+    expect(health.message).toContain('fx login')
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+})
+
+const SIGNED_OUT_SCRIPT = String.raw`
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', chunk => {
+  for (const line of chunk.split('\n')) {
+    if (!line.trim()) continue
+    const { id } = JSON.parse(line)
+    if (id === undefined) continue
+    console.log(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32600, message: 'fx needs access to Vercel AI Gateway. Run fx login to sign in, fx setup to use an API key, or set AI_GATEWAY_API_KEY.' } }))
+  }
+})
+`
 
 const AMP_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')

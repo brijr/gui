@@ -18,6 +18,7 @@ A browser-first Mac app for designing real interfaces with your own AI agents. G
   | Amp | `amp` (via the bundled community [`amp-acp`](https://github.com/tao12345666333/amp-acp) adapter) | `amp login` |
   | Devin | `devin acp` | `devin auth login` |
   | Cursor | `cursor-agent acp` | `cursor-agent login` |
+  | fx | `fx acp` | `fx login` |
 
   The start screen and **Settings → Agents** show your agent's state with one next step: **Install** downloads Claude Code or Codex (other agents: opens their install page), and **Sign in** runs its login in Terminal (Claude Code and Codex sign in from Gui directly); Gui re-checks when you come back. Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Gui's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
 
@@ -132,7 +133,7 @@ The preview is a native view, so HTML can't overlay it: the chat panel is its ow
 - `bun run dist`: packaged macOS app in `release/` (see below)
 - `bun run install-app`: builds Gui and installs it as `/Applications/Gui.app` (quits and reopens a running Gui) and the `gui` terminal command. To update, `git pull && bun run install-app`
 - `bun run release`: builds, signs, notarizes and publishes the version in `package.json` (see Packaging)
-- `bun run test:e2e`: end-to-end tests against real dev servers (agent turns run only with `GUI_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, `grok`, `kiro`, `opencode`, `pi`, `muse`, `amp`, `devin`, or `cursor`, since they use real usage)
+- `bun run test:e2e`: end-to-end tests against real dev servers (agent turns run only with `GUI_E2E_AGENT=<agent id>`, e.g. `claude`, `codex`, `grok`, `kiro`, `opencode`, `pi`, `muse`, `amp`, `devin`, `cursor`, or `fx`, since they use real usage)
 - `bun run typecheck` / `bun run lint` / `bun run format`
 - `bun run check`: type checks, lint, architecture boundaries/cycles, fast desktop checks, and account-service tests
 - `bun run test:fast`: lifecycle, IPC, worker/persistence, and chat transport/recovery checks without launching Electron or using paid agents
