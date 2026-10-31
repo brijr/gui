@@ -99,7 +99,7 @@ export function ConnectAgent({
                   if (!busy) void connect(choice.id)
                 }}
                 leading={<AgentIcon agentId={choice.id} />}
-                title={choice.title}
+                heading={choice.title}
                 detail={choice.detail}
                 trailing={
                   busy ? (
@@ -124,7 +124,7 @@ export function ConnectAgent({
         })}
       </List>
       {error && <InlineError>{error}</InlineError>}
-      <TextButton tone="muted" className="self-start text-small" onClick={onOtherAgents}>
+      <TextButton tone="muted" className="self-start" onClick={onOtherAgents}>
         Use another agent
       </TextButton>
     </Card>

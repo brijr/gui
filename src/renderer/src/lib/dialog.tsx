@@ -14,7 +14,7 @@ interface DialogProps {
    */
   onClosed?: () => void
   /** Named in the header; also the dialog's accessible name */
-  title: ReactNode
+  heading: ReactNode
   /** More actions in the header, before Close */
   actions?: ReactNode
   /** md: text and lists (512px). lg: media (672px). */
@@ -32,7 +32,7 @@ interface DialogProps {
 }
 
 /**
- * The one modal: a sheet over the window with a header (title, actions, Close), a body that
+ * The one modal: a sheet over the window with a header (heading, actions, Close), a body that
  * scrolls under it, and an optional footer. It grows in from 97% and fades on
  * --motion-panel, over a fading scrim, and goes back the way it came; with reduced motion it
  * only fades. Focus returns to what opened it. Main hides the preview and chat views while
@@ -42,7 +42,7 @@ export function Dialog({
   open,
   onClose,
   onClosed,
-  title,
+  heading,
   actions,
   size = 'md',
   footer,
@@ -96,7 +96,7 @@ export function Dialog({
       )}
     >
       <PanelHeader
-        title={<h2 className="min-w-0 truncate font-semibold">{title}</h2>}
+        heading={<h2 className="min-w-0 truncate font-semibold">{heading}</h2>}
         titleId={titleId}
         actions={
           <>

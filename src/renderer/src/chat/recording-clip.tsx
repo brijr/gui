@@ -113,7 +113,7 @@ export function RecordingClip({
           // While the modal is open the composer is inert and can't take focus back.
           onClosed={onPreviewClose}
           size="lg"
-          title={
+          heading={
             <>
               {clip.name} · <span className="tabular-nums">{duration}</span>
             </>

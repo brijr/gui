@@ -133,7 +133,7 @@ export function Drawer({ state }: { state: WindowState }) {
           // Chrome over the canvas while it slides away on top of it.
           'z-chrome shrink-0 bg-surface',
           leaving ? 'absolute inset-x-0 bottom-0' : 'relative',
-          drawn && 'border-t border-line',
+          drawn && 'border-t-hairline border-line',
         )}
       >
         {drawn && (
@@ -336,6 +336,7 @@ function StoppedBar({
     // The banner's soft tint goes over the window's surface, as the rest of the chrome's bars.
     <div className="relative z-chrome shrink-0 bg-surface">
       <Banner
+        wrap={false}
         edge="bottom"
         tone={crashed ? 'danger' : 'neutral'}
         icon={crashed ? TriangleAlert : Info}

@@ -260,19 +260,13 @@ function PickedChip({ picked }: { picked: Picked }) {
   const region = isRegion(picked)
   const Icon = region ? Crop : MousePointer2
   return (
-    // A neutral badge's look, but only the name takes the label weight: the size and the
-    // source after it are detail, at body weight.
-    <span
-      title={title}
-      className="inline-flex h-5 max-w-full min-w-0 items-center gap-1 rounded-sm bg-fill px-1.5 text-caption text-muted"
-    >
-      <Icon className="size-3 shrink-0" aria-hidden="true" />
+    <Badge icon={Icon} title={title} className="max-w-full">
       <span className="min-w-0 truncate font-medium text-fg">{name}</span>
-      {region && detail && <span className="shrink-0 tabular-nums">{detail}</span>}
+      {region && detail && <span className="shrink-0 font-normal tabular-nums">{detail}</span>}
       {!region && picked.source && where && (
-        <span className="min-w-0 truncate font-mono">{where}</span>
+        <span className="min-w-0 truncate font-mono font-normal">{where}</span>
       )}
-    </span>
+    </Badge>
   )
 }
 
@@ -391,7 +385,14 @@ function Note({
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 select-text break-words">{children}</span>
       </p>
-      {detail && <TechnicalDetails text={detail} className={NOTE_INSET} state={details} />}
+      {detail && (
+        <TechnicalDetails
+          text={detail}
+          className={NOTE_INSET}
+          open={details[0]}
+          onOpenChange={details[1]}
+        />
+      )}
     </div>
   )
 }

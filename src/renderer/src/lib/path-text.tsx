@@ -13,8 +13,6 @@ interface PathTextProps {
   path: string
   /** The user's home folder (from main's state), shown as ~ */
   home?: string | null
-  /** Tooltip; the full path by default */
-  title?: string
   /** Size and color; it inherits both */
   className?: string
 }
@@ -24,7 +22,7 @@ interface PathTextProps {
  * part that tells paths apart: "~/Projects/…/northwind-web". Use it wherever a path (or
  * branch, or command) is shown. It's a flex row, so give its parent room or a min-w-0.
  */
-export function PathText({ path, home, title, className }: PathTextProps) {
+export function PathText({ path, home, className }: PathTextProps) {
   const shown = displayPath(path, home)
   // The last segment keeps its leading slash (and a trailing one), so a cut head still reads
   // as a path: "~/Proj…/web".
@@ -35,7 +33,7 @@ export function PathText({ path, home, title, className }: PathTextProps) {
   // it stays whole, and the tail truncates instead.
   const shortHead = head.length <= SHORT_HEAD
   return (
-    <span title={title ?? path} className={cn('flex min-w-0 font-mono', className)}>
+    <span title={path} className={cn('flex min-w-0 font-mono', className)}>
       {/* Read as one string; the two halves are only there to truncate in the middle. */}
       <span className="sr-only">{shown}</span>
       {head && (

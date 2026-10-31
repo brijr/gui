@@ -1,4 +1,4 @@
-import { type ComponentProps, type CSSProperties, type ReactNode, useEffect, useState } from 'react'
+import { type ComponentProps, type ReactNode, useEffect, useState } from 'react'
 import { cn } from './cn'
 import { Check, type IconComponent, Search, X } from './icons'
 import { PRESS, Spinner } from './ui'
@@ -15,7 +15,7 @@ const CARD_PADDING = {
   none: '',
 } as const
 
-interface CardProps extends ComponentProps<'div'> {
+interface CardRecipeProps {
   /**
    * raised (default): a card on the canvas, white with a subtle shadow (setup, agent).
    * inset: a card inside a panel, on the surface color (permission, plan, queue, problems).
@@ -27,28 +27,25 @@ interface CardProps extends ComponentProps<'div'> {
    * canvas (setup, start your canvas). none: content that runs to the edges (a list, media).
    */
   padding?: keyof typeof CARD_PADDING
-  as?: 'div' | 'section'
 }
 
+type CardProps = CardRecipeProps &
+  ((ComponentProps<'div'> & { as?: 'div' | 'section' }) | (ComponentProps<'li'> & { as: 'li' }))
+
 /** A bordered container, padded by the card recipe. */
-export function Card({
-  tone = 'raised',
-  padding = 'card',
-  as: Tag = 'div',
-  className,
-  ...props
-}: CardProps) {
-  return (
-    <Tag
-      className={cn(
-        'rounded-lg border border-line',
-        tone === 'raised' ? 'bg-raised shadow-raised' : 'bg-surface',
-        CARD_PADDING[padding],
-        className,
-      )}
-      {...props}
-    />
+export function Card({ tone = 'raised', padding = 'card', className, ...props }: CardProps) {
+  const look = cn(
+    'rounded-lg border border-line',
+    tone === 'raised' ? 'bg-raised shadow-raised' : 'bg-surface',
+    CARD_PADDING[padding],
+    className,
   )
+  if (props.as === 'li') {
+    const { as: _as, ...rest } = props
+    return <li className={look} {...rest} />
+  }
+  const { as: Tag = 'div', ...rest } = props
+  return <Tag className={look} {...rest} />
 }
 
 /** Where a popover goes, in the view's CSS pixels (placePopover). */
@@ -270,7 +267,7 @@ export interface GroupLabelProps {
   children: ReactNode
   id?: string
   tabIndex?: number
-  as?: 'h2' | 'h3' | 'p' | 'div' | 'span' | 'figcaption'
+  as?: 'h2' | 'h3' | 'p' | 'div' | 'figcaption'
   className?: string
 }
 
@@ -291,17 +288,16 @@ interface SectionHeaderProps {
   /** The GroupLabel's text */
   children: ReactNode
   id?: string
-  as?: GroupLabelProps['as']
   /** A small action at the end: a ghost sm Button, a TextButton */
   action?: ReactNode
   className?: string
 }
 
 /** A GroupLabel with an action at the end of its line: "Agents ... Settings". */
-export function SectionHeader({ children, id, as = 'h2', action, className }: SectionHeaderProps) {
+export function SectionHeader({ children, id, action, className }: SectionHeaderProps) {
   return (
     <div className={cn('flex min-h-6 items-center justify-between gap-2', className)}>
-      <GroupLabel id={id} as={as}>
+      <GroupLabel id={id} as="h2">
         {children}
       </GroupLabel>
       {action && <div className="-my-1 flex shrink-0 items-center gap-1">{action}</div>}
@@ -311,9 +307,9 @@ export function SectionHeader({ children, id, as = 'h2', action, className }: Se
 
 interface PanelHeaderProps extends Omit<ComponentProps<'header'>, 'title'> {
   /** The panel's name; body size, semibold, left-aligned and truncated. Or your own node. */
-  title?: ReactNode
+  heading?: ReactNode
   titleId?: string
-  /** Before the title: a status dot, a back button */
+  /** Before the heading: a status dot, a back button */
   leading?: ReactNode
   /** IconButtons (sm) and other actions at the end */
   actions?: ReactNode
@@ -322,11 +318,11 @@ interface PanelHeaderProps extends Omit<ComponentProps<'header'>, 'title'> {
 }
 
 /**
- * The one header for panels, sheets and dialogs: 36px, title at the start, actions at the end
+ * The one header for panels, sheets and dialogs: 36px, heading at the start, actions at the end
  * (header recipe in styles.css). Children go between the two, for a header that needs more.
  */
 export function PanelHeader({
-  title,
+  heading,
   titleId,
   leading,
   actions,
@@ -345,14 +341,14 @@ export function PanelHeader({
       {...props}
     >
       {leading}
-      {title !== undefined &&
-        (typeof title === 'string' ? (
-          <h2 id={titleId} title={title} className="min-w-0 flex-1 truncate font-semibold">
-            {title}
+      {heading !== undefined &&
+        (typeof heading === 'string' ? (
+          <h2 id={titleId} title={heading} className="min-w-0 flex-1 truncate font-semibold">
+            {heading}
           </h2>
         ) : (
           <div id={titleId} className="flex min-w-0 flex-1 items-center">
-            {title}
+            {heading}
           </div>
         ))}
       {children}
@@ -383,31 +379,27 @@ interface BannerProps {
   wrap?: boolean
   role?: 'status' | 'alert'
   className?: string
-  /** For a height from shared layout, e.g. lining up with the window's toolbar */
-  style?: CSSProperties
   children: ReactNode
 }
 
 /**
  * A bar across the top or bottom of a panel about the whole of it: the env file in use, the
- * dev server stopped. 36px, one line that truncates, actions at the end (bar recipe); with
- * `wrap`, at least 36px and as many lines as it needs.
+ * dev server stopped. At least 36px, wrapping as needed; `wrap={false}` keeps a single
+ * truncated line with actions at the end.
  */
 export function Banner({
   icon: Icon,
   tone = 'neutral',
   actions,
   edge = 'top',
-  wrap = false,
+  wrap = true,
   role,
   className,
-  style,
   children,
 }: BannerProps) {
   return (
     <div
       role={role}
-      style={style}
       className={cn(
         'flex shrink-0 items-center gap-2 pr-1.5 pl-3 text-small',
         wrap ? 'min-h-9 flex-wrap gap-y-1.5 py-1.5' : 'h-9',
@@ -447,23 +439,23 @@ export function List({ className, ...props }: ComponentProps<'ul'>) {
 
 interface ListItemProps {
   /** The row's name, at body size and medium weight */
-  title: ReactNode
+  heading: ReactNode
   titleId?: string
-  /** A secondary line under the title (small, muted); a PathText for paths */
+  /** A secondary line under the heading (small, muted); a PathText for paths */
   detail?: ReactNode
   /** Controls at the end of the row */
   trailing?: ReactNode
   /** More lines under the detail: messages, errors, details toggles */
   children?: ReactNode
-  /** start: trailing controls line up with the title rather than the row's middle */
+  /** start: trailing controls line up with the heading rather than the row's middle */
   align?: 'center' | 'start'
-  /** Dims the title, e.g. for something switched off */
+  /** Dims the heading, e.g. for something switched off */
   quiet?: boolean
 }
 
-/** A static row in a List: title, a secondary line, trailing controls. */
+/** A static row in a List: heading, a secondary line, trailing controls. */
 export function ListItem({
-  title,
+  heading,
   titleId,
   detail,
   trailing,
@@ -480,7 +472,7 @@ export function ListItem({
           id={titleId}
           className={cn('flex min-w-0 items-center gap-2 font-medium', quiet && 'text-muted')}
         >
-          {title}
+          {heading}
         </div>
         {detail && <div className="min-w-0 text-pretty text-small text-muted">{detail}</div>}
         {children}
@@ -490,15 +482,17 @@ export function ListItem({
   )
 }
 
-interface ListRowProps extends Omit<ComponentProps<'button'>, 'title'> {
+interface ListRowProps extends ComponentProps<'button'> {
   /** The row's name, medium weight; a string truncates. A node lays out in a row (a name and its status). */
-  title: ReactNode
+  heading: ReactNode
   /** A secondary line: a PathText for paths */
   detail?: ReactNode
   /** Before the text: an agent's icon */
   leading?: ReactNode
   /** At the end: a chevron when it leads somewhere */
   trailing?: ReactNode
+  /** Independent controls beside the open button. */
+  actions?: ReactNode
   /** Edge to edge inside a List; otherwise a rounded row in open space */
   flush?: boolean
   /** The one in use: accent-soft, with no hover (give it aria-current) */
@@ -507,22 +501,24 @@ interface ListRowProps extends Omit<ComponentProps<'button'>, 'title'> {
 
 /** A selectable row: a recent project, an app to preview, an agent. */
 export function ListRow({
-  title,
+  heading,
   detail,
   leading,
   trailing,
+  actions,
   flush = false,
   selected = false,
   className,
   ...props
 }: ListRowProps) {
-  return (
+  const button = (
     <button
       type="button"
       className={cn(
         'flex w-full min-w-0 items-center gap-3 text-left transition-[background-color,opacity] disabled:pointer-events-none',
         selected ? 'bg-accent-soft' : `hover:bg-hover ${PRESS}`,
         flush ? `${ROW_INSET} focus-visible:-outline-offset-2` : 'rounded-md px-2 py-1.5',
+        !!actions && 'flex-1',
         className,
       )}
       {...props}
@@ -530,12 +526,12 @@ export function ListRow({
       {leading}
       <span className="flex min-w-0 flex-1 flex-col">
         <span className="flex min-w-0 items-center gap-2 font-medium">
-          {typeof title === 'string' ? (
-            <span className="truncate" title={title}>
-              {title}
+          {typeof heading === 'string' ? (
+            <span className="truncate" title={heading}>
+              {heading}
             </span>
           ) : (
-            title
+            heading
           )}
         </span>
         {detail && (
@@ -550,22 +546,29 @@ export function ListRow({
       {trailing}
     </button>
   )
+  return actions ? (
+    <div className="group flex min-w-0 items-center gap-0.5 rounded-md pr-1 transition-colors hover:bg-hover focus-within:bg-hover">
+      {button}
+      {actions}
+    </div>
+  ) : (
+    button
+  )
 }
 
 const MESSAGE_TONE = {
   neutral: 'bg-fill text-muted',
-  accent: 'bg-accent-soft text-accent-text',
   danger: 'bg-danger-soft text-danger',
 } as const
 
 interface MessageProps {
   /** A 16px icon in a 32px circle, so titles sit at the same height in every state; loading: a spinner */
   icon: IconComponent | 'loading'
-  /** The circle's color: danger for errors, accent for a success, neutral otherwise */
+  /** The circle's color: danger for errors, neutral otherwise */
   tone?: keyof typeof MESSAGE_TONE
   /** Leave it out when the explanation says it all */
-  title?: ReactNode
-  /** Plain explanation under the title */
+  heading?: ReactNode
+  /** Plain explanation under the heading */
   children?: ReactNode
   /** Buttons, under the text: at most one primary */
   actions?: ReactNode
@@ -578,13 +581,13 @@ interface MessageProps {
 }
 
 /**
- * The layout for empty, loading, error and done states, left-aligned: icon, title, explanation,
+ * The layout for empty, loading, error and done states, left-aligned: icon, heading, explanation,
  * actions. On the canvas it sits in a Card; in a panel it fills the space (`fill`).
  */
 export function Message({
   icon: Icon,
   tone = 'neutral',
-  title,
+  heading,
   children,
   actions,
   fill = false,
@@ -611,7 +614,7 @@ export function Message({
         )}
       </span>
       <div className="flex flex-col gap-1">
-        {title && <p className="font-semibold">{title}</p>}
+        {heading && <p className="font-semibold">{heading}</p>}
         {children && <div className="flex flex-col gap-1 text-pretty text-muted">{children}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

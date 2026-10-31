@@ -18,7 +18,7 @@ export function AccountSection({ settings }: { settings: SettingsState }) {
   return (
     <>
       <AccountDetails />
-      <SettingsGroup title="Cost and policies">
+      <SettingsGroup heading="Cost and policies">
         <p className="text-pretty text-small text-muted">
           Gui is free during alpha. Connect your own AI agent account and plan; you pay the agent
           provider directly. Gui adds no AI usage charges.
@@ -49,10 +49,10 @@ export function AccountSection({ settings }: { settings: SettingsState }) {
 
 function CrashReports({ on }: { on: boolean }) {
   return (
-    <SettingsGroup title="Privacy">
+    <SettingsGroup heading="Privacy">
       <List>
         <ListItem
-          title={<label htmlFor="crash-reports">Send crash reports</label>}
+          heading={<label htmlFor="crash-reports">Send crash reports</label>}
           detail="When Gui has an error, it sends the error and the Gui and macOS versions to the Gui team. Never your code, files, or chats."
           trailing={
             <Switch
@@ -60,7 +60,6 @@ function CrashReports({ on }: { on: boolean }) {
               onCheckedChange={(value) => gui.setCrashReports(value)}
               id="crash-reports"
               label="Send crash reports"
-              labelHidden
             />
           }
         />
@@ -125,7 +124,7 @@ function AccountDetails() {
             <CircleUser className="size-4" aria-hidden="true" />
           </IdentityTile>
         }
-        title="Your account didn’t load"
+        heading="Your account didn’t load"
         detail="You’re still signed in. Check your connection, then try again."
       >
         <InlineError>{profile.message}</InlineError>
@@ -176,7 +175,7 @@ function AccountDetails() {
             <CircleUser className="size-4" aria-hidden="true" />
           </IdentityTile>
         }
-        title={account.name ?? account.email ?? 'Gui account'}
+        heading={account.name ?? account.email ?? 'Gui account'}
         detail={account.name && account.email ? account.email : undefined}
         trailing={
           <Button variant="ghost" loading={signingOut} onClick={signOut}>
@@ -186,11 +185,11 @@ function AccountDetails() {
       >
         {signOutError && <InlineError>{signOutError}</InlineError>}
       </IdentityCard>
-      <SettingsGroup title="Email">
+      <SettingsGroup heading="Email">
         <List>
           {/* Applies at once, so a switch, like every other setting */}
           <ListItem
-            title={<label htmlFor="email-updates">Email me about new Gui features</label>}
+            heading={<label htmlFor="email-updates">Email me about new Gui features</label>}
             detail={account.email ? undefined : 'Your account has no email.'}
             trailing={
               <Switch
@@ -199,7 +198,6 @@ function AccountDetails() {
                 onCheckedChange={setUpdates}
                 id="email-updates"
                 label="Email me about new Gui features"
-                labelHidden
               />
             }
           />
@@ -239,7 +237,7 @@ function SignedOut({ expired }: { expired: boolean }) {
           <CircleUser className="size-4" aria-hidden="true" />
         </IdentityTile>
       }
-      title={expired ? 'Sign in again' : 'You’re signed out'}
+      heading={expired ? 'Sign in again' : 'You’re signed out'}
       detail={
         expired ? 'Your Gui sign-in has expired.' : 'Sign in with Google, GitHub, or your email.'
       }

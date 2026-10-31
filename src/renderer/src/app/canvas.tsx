@@ -97,7 +97,7 @@ export function Canvas({ state }: { state: WindowState }) {
               <Message
                 icon={TriangleAlert}
                 tone="danger"
-                title="This frame didn’t load"
+                heading="This frame didn’t load"
                 className="max-w-sm"
               >
                 <span className="select-text">{preview.error.message}</span>
@@ -194,7 +194,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon="loading"
-        title="Installing dependencies…"
+        heading="Installing dependencies…"
         detail="The first install can take a few minutes."
         actions={<LogsToggle open={logsOpen} />}
         env={env}
@@ -207,7 +207,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={TriangleAlert}
         tone="danger"
-        title="Couldn’t install dependencies"
+        heading="Couldn’t install dependencies"
         note={devServer.lastLine}
         actions={
           <>
@@ -228,7 +228,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={failed ? TriangleAlert : Info}
         tone={failed ? 'danger' : 'neutral'}
-        title="Your app stopped"
+        heading="Your app stopped"
         detail={
           failed
             ? 'It quit with an error.'
@@ -267,7 +267,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
       <SetupCard
         icon={TriangleAlert}
         tone="danger"
-        title="Your app couldn’t load"
+        heading="Your app couldn’t load"
         detail={preview.error.message}
         note={preview.error.detail}
         actions={
@@ -289,7 +289,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon="loading"
-        title="Your app is taking a while to start"
+        heading="Your app is taking a while to start"
         detail="No address yet. If your app is running, enter its address."
         note={devServer.lastLine}
         actions={
@@ -311,7 +311,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon="loading"
-        title={devServer.status === 'starting' ? 'Starting your app…' : 'Loading your app…'}
+        heading={devServer.status === 'starting' ? 'Starting your app…' : 'Loading your app…'}
         note={devServer.lastLine || devServer.command || ''}
         env={env}
       />
@@ -325,7 +325,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={Info}
-        title={production ? 'Your app has no dev script' : 'Start building your app'}
+        heading={production ? 'Your app has no dev script' : 'Start building your app'}
         detail={
           production
             ? `Its “${production}” script runs a production build, which doesn’t update as you edit. Ask your agent to add a “dev” script, or set a dev server command.`
@@ -352,7 +352,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={Package}
-        title="Install this project’s dependencies"
+        heading="Install this project’s dependencies"
         detail="Gui will install its dependencies and start it, which runs the project’s own scripts."
         actions={
           <Button variant="primary" onClick={() => gui.installDependencies()}>
@@ -368,7 +368,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
     return (
       <SetupCard
         icon={Play}
-        title="Your app isn’t running"
+        heading="Your app isn’t running"
         note={project.devCommand ?? ''}
         actions={
           <Button variant="primary" onClick={() => gui.startDevServer()}>
@@ -393,7 +393,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
     return (
       <SetupCard
         icon="loading"
-        title="Setting up Node.js…"
+        heading="Setting up Node.js…"
         detail="Your app starts as soon as it’s ready."
       >
         <InstallProgress name="Node.js" progress={node.progress} />
@@ -405,7 +405,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
       <SetupCard
         icon={TriangleAlert}
         tone="danger"
-        title="Couldn’t set up Node.js"
+        heading="Couldn’t set up Node.js"
         detail={node.error ?? 'The download stopped with an error.'}
         note="You can also install Node.js yourself from nodejs.org. Gui uses yours when it finds it."
         actions={
@@ -419,7 +419,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
   return (
     <SetupCard
       icon={Package}
-      title="Your app needs Node.js"
+      heading="Your app needs Node.js"
       detail="Gui runs your app with Node.js, and your agent uses it to build. Gui can set it up for you: a one-time download of about 30 MB that stays inside Gui."
       actions={
         <Button variant="primary" onClick={() => gui.installNode()}>
@@ -433,7 +433,7 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
 interface SetupCardProps {
   icon: IconComponent | 'loading'
   tone?: 'neutral' | 'danger'
-  title: string
+  heading: string
   /** Plain explanation */
   detail?: string
   /** The specifics (command, last output line), behind a Details toggle for people who want them */
@@ -454,7 +454,7 @@ interface SetupCardProps {
 function SetupCard({
   icon,
   tone,
-  title,
+  heading,
   detail,
   note,
   actions,
@@ -464,7 +464,7 @@ function SetupCard({
 }: SetupCardProps) {
   return (
     <Card padding="canvas" className="flex w-full max-w-sm flex-col gap-4">
-      <Message icon={icon} tone={tone} title={title} actions={actions}>
+      <Message icon={icon} tone={tone} heading={heading} actions={actions}>
         {detail}
       </Message>
       {children}
@@ -489,7 +489,7 @@ function SetupRows({ env, start }: { env: EnvSetup | null; start: ProjectInfo | 
       {env && <EnvItem env={env} />}
       {start && (
         <ListItem
-          title={start.custom ? 'Dev server command (set in Gui)' : 'Dev server command'}
+          heading={start.custom ? 'Dev server command (set in Gui)' : 'Dev server command'}
           detail={
             start.devCommand ? (
               <span className="block truncate font-mono text-caption" title={start.devCommand}>
@@ -624,7 +624,7 @@ function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
   return (
     <SetupCard
       icon={AppWindow}
-      title="Which app should Gui preview?"
+      heading="Which app should Gui preview?"
       detail={`This project has ${apps.length} apps. You can switch later from the project menu.`}
     >
       <List>
@@ -633,7 +633,7 @@ function AppChooser({ apps }: { apps: WorkspaceApp[] }) {
             <ListRow
               flush
               onClick={() => gui.chooseApp(app.dir)}
-              title={app.name}
+              heading={app.name}
               detail={app.dir === '.' ? 'project root' : <PathText path={app.dir} />}
               trailing={CHEVRON}
             />
@@ -680,7 +680,7 @@ function EnvButton({ env, size }: { env: EnvSetup; size?: 'sm' | 'md' }) {
 function EnvItem({ env }: { env: EnvSetup }) {
   return (
     <ListItem
-      title="Environment variables"
+      heading="Environment variables"
       detail={<EnvText env={env} />}
       trailing={<EnvButton env={env} />}
     />
@@ -696,7 +696,6 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
   if (state.developerTools === 'installing') {
     return (
       <Banner
-        wrap
         icon={Wrench}
         actions={
           <Button size="sm" variant="ghost" onClick={() => gui.installDeveloperTools()}>
@@ -712,7 +711,6 @@ export function DeveloperToolsBanner({ state }: { state: WindowState }) {
   }
   return (
     <Banner
-      wrap
       icon={Wrench}
       tone="warning"
       actions={
@@ -740,7 +738,6 @@ export function EnvBanner({ state }: { state: WindowState }) {
   if (!env || dismissed || !state.preview.visible) return null
   return (
     <Banner
-      wrap
       icon={KeyRound}
       actions={
         <>
@@ -952,7 +949,7 @@ function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolea
             segments={TEMPLATE_SEGMENTS}
             value={template}
             onChange={setTemplate}
-            labelledBy="start-template-label"
+            aria-labelledby="start-template-label"
             stretch
           />
         </div>
@@ -1098,7 +1095,7 @@ function StartScreen({ state }: { state: WindowState }) {
                   <ListRow
                     flush
                     onClick={() => gui.openBoard(board.id)}
-                    title={board.name}
+                    heading={board.name}
                     detail={`${board.frames === 1 ? '1 frame' : `${board.frames} frames`} · ${timeAgo(board.editedAt)}`}
                     trailing={
                       <span className="transition-opacity duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">
@@ -1183,7 +1180,7 @@ function RecentRow({
           flush
           onClick={() => void gui.openRecent(root)}
           disabled={remove.pending}
-          title={title}
+          heading={title}
           detail={detail}
           trailing={
             <span className="transition-opacity duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-0 group-hover:opacity-0">

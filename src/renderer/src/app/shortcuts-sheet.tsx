@@ -33,7 +33,7 @@ function Sheet({ open }: { open: boolean }) {
     <Dialog
       open={open}
       onClose={() => gui.setShortcutsOpen(false)}
-      title="Keyboard shortcuts"
+      heading="Keyboard shortcuts"
       // Only read: the sheet itself has the keyboard, so the arrow keys scroll it, rather than
       // its close button showing a focus ring from the start.
       focusSelf

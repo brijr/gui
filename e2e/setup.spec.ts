@@ -204,15 +204,15 @@ test('a failed install says so in the address bar and offers its output', async 
   // Not "Stopped": the address bar's status is the install's, and red.
   const toolbar = session.chrome.getByRole('banner')
   await expect(toolbar.getByRole('button', { name: /^Dev server: / })).toHaveAccessibleName(
-    "Dev server: Couldn't install dependencies",
+    'Dev server: Couldn’t install dependencies',
   )
   await expect(toolbar.getByLabel('App address')).toHaveAttribute(
     'placeholder',
-    "Couldn't install dependencies",
+    'Couldn’t install dependencies',
   )
   // The output waits behind the card's button rather than opening on its own.
   expect(failed.drawer.open).toBe(false)
-  await expect(session.chrome.getByText("Couldn't install dependencies")).toHaveCount(1)
+  await expect(session.chrome.getByText('Couldn’t install dependencies')).toHaveCount(1)
   await session.shot('install-failed')
   await session.chrome.getByRole('button', { name: 'Show logs' }).click()
   await waitFor(async () => (await session.state()).drawer.open, 'the output to open')

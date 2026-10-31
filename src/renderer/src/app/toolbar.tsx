@@ -43,7 +43,6 @@ import {
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, HIT_AREA, IconButton, OPEN, PRESS, SegmentedControl } from '../lib/ui'
-import { useDelayedLoading } from '../lib/use-delayed-loading'
 import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
 import { barPadding, sidebarRoom, useSidebarBar, useSidebarSliding } from './layout-morph'
 import { RecordButton } from './record-button'
@@ -551,7 +550,7 @@ function BoardToolbar({
               label="Reload frame"
               shortcut="reload"
               icon={RotateCw}
-              spinning={preview.loading}
+              loading={preview.loading}
               disabled={!preview.url}
               onClick={() => gui.reload()}
               className={HIT_AREA}
@@ -843,35 +842,6 @@ const IN_FIELD = cn(
   PRESS,
 )
 
-/** An icon in the address field: Back, Forward, Reload. */
-function FieldIconButton({
-  label,
-  shortcut,
-  icon: Icon,
-  spinning = false,
-  onClick,
-}: {
-  label: string
-  shortcut: ShortcutId
-  icon: IconComponent
-  spinning?: boolean
-  onClick: () => void
-}) {
-  const showSpin = useDelayedLoading(spinning)
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      title={withShortcut(label, shortcut)}
-      aria-keyshortcuts={ariaShortcut(shortcut)}
-      onClick={onClick}
-      className={cn(IN_FIELD, 'w-5 justify-center')}
-    >
-      <Icon className={cn('size-3.5', showSpin && 'animate-spin')} aria-hidden="true" />
-    </button>
-  )
-}
-
 /**
  * In the address field while the agent has a website open in the preview: closes it (and
  * clears its signed-out session), and the user's app shows again.
@@ -1023,7 +993,9 @@ function AddressBar({ state }: { state: WindowState }) {
               )
             )}
             {back && (
-              <FieldIconButton
+              <IconButton
+                size="xs"
+                className={HIT_AREA}
                 label="Back"
                 shortcut="back"
                 icon={ArrowLeft}
@@ -1031,7 +1003,9 @@ function AddressBar({ state }: { state: WindowState }) {
               />
             )}
             {forward && (
-              <FieldIconButton
+              <IconButton
+                size="xs"
+                className={HIT_AREA}
                 label="Forward"
                 shortcut="forward"
                 icon={ArrowRight}
@@ -1039,11 +1013,13 @@ function AddressBar({ state }: { state: WindowState }) {
               />
             )}
             {reloadable && (
-              <FieldIconButton
+              <IconButton
+                size="xs"
+                className={HIT_AREA}
                 label="Reload preview"
                 shortcut="reload"
                 icon={RotateCw}
-                spinning={preview.loading && preview.website === null}
+                loading={preview.loading && preview.website === null}
                 onClick={() => gui.reload()}
               />
             )}

@@ -69,7 +69,7 @@ export function GitHubSection() {
     return loadError ? (
       <IdentityCard
         leading={mark}
-        title="GitHub didn’t load"
+        heading="GitHub didn’t load"
         detail="Check your connection, then try again."
       >
         <InlineError>{reload.error ?? loadError}</InlineError>
@@ -92,7 +92,7 @@ export function GitHubSection() {
     return (
       <IdentityCard
         leading={mark}
-        title="GitHub isn’t available in this build"
+        heading="GitHub isn’t available in this build"
         detail="You can still clone a repository by its address with Clone… on the start screen, using your own git credentials."
       />
     )
@@ -102,7 +102,7 @@ export function GitHubSection() {
     return (
       <IdentityCard
         leading={mark}
-        title="Finish connecting in your browser"
+        heading="Finish connecting in your browser"
         detail="Sign in to GitHub there and allow Gui. Then come back here."
       >
         <p role="status" className="flex items-center gap-2 text-small text-muted">
@@ -123,7 +123,7 @@ export function GitHubSection() {
     return (
       <IdentityCard
         leading={mark}
-        title="Connect your GitHub account"
+        heading="Connect your GitHub account"
         detail="Clone your repositories, private ones included. Local projects never need GitHub."
       >
         <Button variant="primary" className="self-start" onClick={connect}>
@@ -137,7 +137,7 @@ export function GitHubSection() {
   return (
     <IdentityCard
       leading={mark}
-      title={profile.name ?? profile.login}
+      heading={profile.name ?? profile.login}
       detail={`@${profile.login}`}
       trailing={
         <Button

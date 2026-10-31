@@ -5,7 +5,7 @@ import { Disclosure } from '../lib/disclosure'
 import { Field, InlineError, Input } from '../lib/field'
 import { ArrowLeft, History, Info, TriangleAlert, Undo2 } from '../lib/icons'
 import { Badge } from '../lib/status'
-import { Message, PanelHeader } from '../lib/surface'
+import { Card, Message, PanelHeader } from '../lib/surface'
 import { timeAgo } from '../lib/time'
 import { Button, IconButton, Skeleton, TIGHT_HIT_AREA } from '../lib/ui'
 import { useChat } from './store'
@@ -66,7 +66,7 @@ export function VersionsSheet() {
   return (
     <div ref={root} className="flex min-h-0 flex-1 flex-col">
       <PanelHeader
-        title="Versions"
+        heading="Versions"
         leading={
           <IconButton
             size="sm"
@@ -97,7 +97,7 @@ export function VersionsSheet() {
           <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto scroll-stable scroll-fade p-3">
             <SaveVersion disabled={busy !== null || running} saving={busy === 'save'} />
             {versions.length === 0 ? (
-              <Message fill icon={History} title="No versions yet">
+              <Message fill icon={History} heading="No versions yet">
                 Gui saves a version after each message.
               </Message>
             ) : (
@@ -210,7 +210,7 @@ function VersionRow({
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
   const restoring = busy === version.id
   return (
-    <li className="flex flex-col gap-2 rounded-lg border border-line bg-surface p-3">
+    <Card as="li" tone="inset" className="flex flex-col gap-2">
       {/* The name gets the card's full width; badges and time go under it, so a long
           request or name stays readable instead of being cut short by its badges. */}
       <div className="flex flex-col gap-1">
@@ -257,6 +257,6 @@ function VersionRow({
           </Button>
         </div>
       )}
-    </li>
+    </Card>
   )
 }

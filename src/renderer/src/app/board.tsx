@@ -17,12 +17,14 @@ import {
   regroupSections,
   sectionBounds,
 } from '../../../shared/board'
+import { Spring } from '../../../shared/motion'
 import { matchesShortcut } from '../../../shared/shortcuts'
 import type { BoardFrame, BoardState, Rect } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { FIELD_LOOK, InlineError } from '../lib/field'
+import { animateSpring, prefersReducedMotion } from '../lib/motion'
 import { Card } from '../lib/surface'
 import { PromptButton, Spinner } from '../lib/ui'
 
@@ -173,13 +175,19 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     ref.current.style.backgroundPosition = `${-x * zoom}px ${-y * zoom}px`
     ref.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
   }
+  const cameraFlight = useRef<(() => void) | null>(null)
+  const stopCameraFlight = () => {
+    cameraFlight.current?.()
+    cameraFlight.current = null
+  }
   const setCamera = (
     next: BoardCamera | null | ((current: BoardCamera | null) => BoardCamera | null),
   ) => {
+    stopCameraFlight()
     liveCamera.current = typeof next === 'function' ? next(liveCamera.current) : next
     commitCamera(liveCamera.current)
   }
-  const moveCamera = (
+  const updateCamera = (
     next: BoardCamera | null | ((current: BoardCamera | null) => BoardCamera | null),
   ) => {
     liveCamera.current = typeof next === 'function' ? next(liveCamera.current) : next
@@ -194,9 +202,16 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     clearTimeout(timers.rest)
     timers.rest = setTimeout(() => commitCamera(liveCamera.current), 150)
   }
+  const moveCamera = (
+    next: BoardCamera | null | ((current: BoardCamera | null) => BoardCamera | null),
+  ) => {
+    stopCameraFlight()
+    updateCamera(next)
+  }
   useLayoutEffect(drawCamera)
   useEffect(
     () => () => {
+      cameraFlight.current?.()
       clearTimeout(cameraTimers.current.cull)
       clearTimeout(cameraTimers.current.rest)
     },
@@ -207,6 +222,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   /** The gesture under way, for listeners that run between renders (pointer-up, the wheel) */
   const gestureRef = useRef<Gesture | null>(null)
   const setGesture = (next: Gesture | null) => {
+    if (next) stopCameraFlight()
     gestureRef.current = next
     setGestureState(next)
   }
@@ -290,6 +306,30 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     return () => observer.disconnect()
   }, [])
 
+  const glideCamera = (target: BoardCamera) => {
+    stopCameraFlight()
+    const from = liveCamera.current
+    if (!from || prefersReducedMotion()) {
+      setCamera(target)
+      return
+    }
+    const spring = new Spring(0, { target: 1 })
+    cameraFlight.current = animateSpring(spring, {
+      precision: 0.5 / Math.max(1, Math.hypot(target.x - from.x, target.y - from.y) * from.zoom),
+      update: (progress) => {
+        updateCamera({
+          ...target,
+          x: from.x + (target.x - from.x) * progress,
+          y: from.y + (target.y - from.y) * progress,
+        })
+      },
+      rest: () => {
+        cameraFlight.current = null
+        setCamera(target)
+      },
+    })
+  }
+
   // The latest of what the board's listeners read, without subscribing them again each render.
   const latest = useRef({ frames: board.frames, sections: board.sections, camera, size })
   latest.current = {
@@ -355,18 +395,23 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     known.current = new Set(frames.map((frame) => frame.id))
     const el = ref.current
     if (!added.length || !el || !camera || !size.width) return
+    let current = true
     void clearArea(el, size).then((area) => {
-      const camera = latest.current.camera
+      if (!current) return
+      const camera = liveCamera.current
       if (!camera) return
       const inSight = added.some((frame) => shownShare(boardToScreen(frame, camera), area) >= 0.5)
       const bounds = boardBounds(added)
       if (inSight || !bounds) return
-      setCamera({
+      glideCamera({
         ...camera,
         x: bounds.x + bounds.width / 2 - (area.left + area.width / 2) / camera.zoom,
         y: bounds.y + bounds.height / 2 - (area.top + area.height / 2) / camera.zoom,
       })
     })
+    return () => {
+      current = false
+    }
   }, [layout])
 
   // Saved once it rests, for the next time the canvas opens, and as the board goes (opening a

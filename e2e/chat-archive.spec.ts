@@ -158,7 +158,7 @@ test('archive confirmation keeps keyboard focus through cancel and delete', asyn
   await dialog.getByRole('button', { name: 'Delete Focus archive' }).press('Enter')
   await dialog.getByRole('button', { name: 'Delete Focus archive' }).focus()
   await dialog.getByRole('button', { name: 'Delete Focus archive' }).press('Enter')
-  await expect(dialog.getByText('No archived chats yet.')).toBeVisible()
+  await expect(dialog.getByText('No archived chats yet')).toBeVisible()
   await expect(dialog).toBeFocused()
   await session.chat.keyboard.press('Escape')
   await expect(dialog).toBeHidden()

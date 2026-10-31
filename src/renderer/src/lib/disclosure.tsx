@@ -61,15 +61,18 @@ export function Disclosure({
 export function TechnicalDetails({
   text,
   className,
-  state,
+  open: controlledOpen,
+  onOpenChange,
 }: {
   text: string
   className?: string
   /** A transcript can retain the disclosure while its virtual row is unmounted. */
-  state?: readonly [boolean, (open: boolean) => void]
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
 }) {
-  const local = useState(false)
-  const [open, setOpen] = state ?? local
+  const [localOpen, setLocalOpen] = useState(false)
+  const open = controlledOpen ?? localOpen
+  const setOpen = onOpenChange ?? setLocalOpen
   return (
     <div className={cn('flex flex-col items-start gap-1', className)}>
       <Disclosure open={open} onOpenChange={setOpen}>

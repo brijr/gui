@@ -10,7 +10,7 @@ import type { IconComponent } from './icons'
 import { useDelayedLoading } from './use-delayed-loading'
 
 /*
- * Controls. Sizes: sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
+ * Controls. Sizes: xs 20px inside the address field; sm 24px for in-row actions (queue, turn footer, list rows), md 28px the
  * default, lg 32px only for the canvas's primary call to action. One look per state: hover
  * tints, pressed (a toggle that's on) is a neutral fill with the full text color (ON), solid
  * accent is only ever the one primary action in view, while it can be taken, disabled fades to
@@ -185,13 +185,13 @@ interface IconButtonProps extends Omit<ComponentProps<'button'>, 'children'> {
   /** A tooltip other than the label, such as what it just did */
   title?: string
   icon: IconComponent
-  size?: 'sm' | 'md'
+  size?: 'xs' | 'sm' | 'md'
   /** ghost, the default; primary for Send; secondary for a bordered one like Stop */
   variant?: 'ghost' | 'primary' | 'secondary'
   /** Makes it a toggle: aria-pressed, and the neutral ON fill while pressed */
   pressed?: boolean
   /** Turns the icon while something loads (Reload) */
-  spinning?: boolean
+  loading?: boolean
   /** Fills the icon's shape (Stop's square) */
   filled?: boolean
 }
@@ -204,7 +204,7 @@ export function IconButton({
   size = 'md',
   variant = 'ghost',
   pressed,
-  spinning = false,
+  loading = false,
   filled = false,
   disabled,
   onClick,
@@ -212,14 +212,14 @@ export function IconButton({
   className,
   ...props
 }: IconButtonProps) {
-  const showSpin = useDelayedLoading(spinning)
+  const showSpin = useDelayedLoading(loading)
   // A `title` of its own (what it just did) stands in for the label and keys for a moment.
   const tooltip = title ?? (shortcut ? withShortcut(label, shortcut) : label)
   return (
     <button
       type="button"
-      disabled={disabled && !spinning}
-      aria-busy={spinning || undefined}
+      disabled={disabled && !loading}
+      aria-busy={loading || undefined}
       aria-label={label}
       title={tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
@@ -227,14 +227,14 @@ export function IconButton({
       className={cn(
         CONTROL,
         'shrink-0 justify-center',
-        size === 'sm' ? 'size-6' : 'size-7',
+        size === 'xs' ? 'size-5 rounded-sm' : size === 'sm' ? 'size-6' : 'size-7',
         pressed ? ON : variant === 'ghost' ? ICON_GHOST : VARIANT[variant],
         className,
       )}
       {...props}
-      aria-disabled={spinning || props['aria-disabled']}
+      aria-disabled={loading || props['aria-disabled']}
       onClick={(event) => {
-        if (spinning || props['aria-disabled']) {
+        if (loading || props['aria-disabled']) {
           event.preventDefault()
           return
         }
@@ -253,8 +253,6 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
   pressed: boolean
   icon?: IconComponent
   children: ReactNode
-  /** Its keyboard shortcut, named after the tooltip (`title`) */
-  shortcut?: ShortcutId
   /** md, the default; sm in a row of sm buttons (a turn's Follow up) */
   size?: 'sm' | 'md'
 }
@@ -263,7 +261,6 @@ interface ToggleProps extends Omit<ComponentProps<'button'>, 'children'> {
 export function Toggle({
   pressed,
   icon: Icon,
-  shortcut,
   size = 'md',
   title,
   className,
@@ -274,8 +271,7 @@ export function Toggle({
     <button
       type="button"
       aria-pressed={pressed}
-      title={title && shortcut ? withShortcut(title, shortcut) : title}
-      aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
+      title={title}
       className={cn(
         CONTROL,
         BUTTON_SIZE[size],
@@ -305,9 +301,9 @@ interface SegmentedControlProps<T extends string> {
   segments: readonly Segment<T>[]
   value: T
   onChange: (value: T) => void
-  /** Names the group (or use labelledBy) */
+  /** Names the group (or use aria-labelledby) */
   label?: string
-  labelledBy?: string
+  'aria-labelledby'?: string
   /** Icons only; each label becomes the segment's name and tooltip */
   iconOnly?: boolean
   /** Segments share the width and truncate (effort levels) */
@@ -326,7 +322,7 @@ export function SegmentedControl<T extends string>({
   value,
   onChange,
   label,
-  labelledBy,
+  'aria-labelledby': labelledBy,
   iconOnly = false,
   stretch = false,
   disabled = false,
@@ -410,37 +406,23 @@ interface SwitchProps {
   id?: string
   checked: boolean
   onCheckedChange: (checked: boolean) => void
-  /** Visible text beside the switch; part of its name */
-  label: ReactNode
-  /** Id of an element that names what this controls; read before the label */
-  labelledBy?: string
-  /** The label is for screen readers only, where the row already says what the switch is */
-  labelHidden?: boolean
+  /** Accessible name and tooltip; the row provides its visible label. */
+  label: string
   disabled?: boolean
-  /** Text size and color for the label (the switch sets none of its own), and layout */
+  /** Layout beside the row label */
   className?: string
 }
 
-/** An on/off setting that applies at once (role="switch"): its label, then the track. */
-export function Switch({
-  id,
-  checked,
-  onCheckedChange,
-  label,
-  labelledBy,
-  labelHidden = false,
-  disabled,
-  className,
-}: SwitchProps) {
-  const labelId = useId()
+/** An on/off setting that applies at once (role="switch"): named for its visible row label. */
+export function Switch({ id, checked, onCheckedChange, label, disabled, className }: SwitchProps) {
   return (
     <button
       type="button"
       role="switch"
       id={id}
       aria-checked={checked}
-      aria-labelledby={labelledBy ? `${labelledBy} ${labelId}` : labelId}
-      title={labelHidden && typeof label === 'string' ? label : undefined}
+      aria-label={label}
+      title={label}
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
@@ -450,9 +432,6 @@ export function Switch({
         className,
       )}
     >
-      <span id={labelId} className={labelHidden ? 'sr-only' : undefined}>
-        {label}
-      </span>
       <span
         aria-hidden="true"
         className={cn(
@@ -506,24 +485,46 @@ export function Keys({ keys }: { keys: readonly string[] }) {
 interface TextButtonProps extends ComponentProps<'button'> {
   /** accent (default): an action in running text. muted: a quieter one beside a label. */
   tone?: 'accent' | 'muted'
+  loading?: boolean
 }
 
 /**
  * An action that reads as text: "Check now" beside a status, a link-like step inside a
- * sentence. It takes the size of the text around it; hover underlines it.
+ * sentence. Small and medium weight; hover underlines it.
  */
-export function TextButton({ tone = 'accent', className, ...props }: TextButtonProps) {
+export function TextButton({
+  tone = 'accent',
+  loading = false,
+  disabled,
+  onClick,
+  children,
+  className,
+  ...props
+}: TextButtonProps) {
   return (
     <button
       type="button"
       className={cn(
-        'relative before:absolute before:-inset-1 no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40',
+        'text-small font-medium relative before:absolute before:-inset-1 no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40',
         PRESS,
         tone === 'accent' ? 'text-accent-text' : 'text-muted hover:text-fg',
         className,
       )}
       {...props}
-    />
+      disabled={disabled && !loading}
+      aria-disabled={loading || props['aria-disabled']}
+      aria-busy={loading || undefined}
+      onClick={(event) => {
+        if (loading || props['aria-disabled']) {
+          event.preventDefault()
+          return
+        }
+        onClick?.(event)
+      }}
+    >
+      {loading && <Spinner />}
+      {children}
+    </button>
   )
 }
 
@@ -577,53 +578,6 @@ export function PromptButton({
         )}
       </span>
     </button>
-  )
-}
-
-interface CheckboxProps extends Omit<ComponentProps<'input'>, 'type' | 'children'> {
-  /** Visible text after the box; part of its name */
-  label: ReactNode
-  /** Text size and color for the label, and layout */
-  className?: string
-}
-
-/**
- * A choice that's saved with a form rather than applied at once (use Switch for that). 14px,
- * neutral when checked, with its label after it.
- */
-export function Checkbox({ label, className, disabled, ...props }: CheckboxProps) {
-  return (
-    <label
-      className={cn(
-        'flex min-h-7 items-center gap-2',
-        disabled && 'pointer-events-none opacity-40',
-        className,
-      )}
-    >
-      <span className="relative flex size-3.5 shrink-0">
-        <input
-          type="checkbox"
-          disabled={disabled}
-          className="peer size-3.5 appearance-none rounded-sm border border-edge bg-raised shadow-control transition-colors checked:border-fg checked:bg-fg focus-visible:outline-offset-1"
-          {...props}
-        />
-        <svg
-          viewBox="0 0 14 14"
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-0 size-3.5 text-raised opacity-0 peer-checked:opacity-100"
-        >
-          <path
-            d="M3.5 7.25 6 9.5l4.5-5"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.75"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      </span>
-      <span className="min-w-0">{label}</span>
-    </label>
   )
 }
 

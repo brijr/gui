@@ -20,7 +20,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
 
   return (
     <>
-      <SettingsGroup title="Trusted projects">
+      <SettingsGroup heading="Trusted projects">
         <p className="text-pretty text-small text-muted">
           In a trusted project, Gui runs the dev server, and agents use the project’s own settings,
           without asking. Revoking makes Gui ask again next time.
@@ -37,7 +37,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
       </SettingsGroup>
 
       {startCommands.length > 0 && (
-        <SettingsGroup title="Dev server commands">
+        <SettingsGroup heading="Dev server commands">
           <p className="text-pretty text-small text-muted">
             Reset to use the command Gui finds in the project.
           </p>
@@ -49,7 +49,7 @@ export function ProjectsSection({ settings }: { settings: SettingsState }) {
         </SettingsGroup>
       )}
 
-      <SettingsGroup title="Recent projects">
+      <SettingsGroup heading="Recent projects">
         <List>
           <RecentRow count={count} />
         </List>
@@ -69,7 +69,7 @@ function RecentRow({ count }: { count: number }) {
     })
   return (
     <ListItem
-      title={<span className="tabular-nums">{recentLabel(count)}</span>}
+      heading={<span className="tabular-nums">{recentLabel(count)}</span>}
       trailing={
         confirming && count > 0 ? (
           <>
@@ -110,7 +110,7 @@ function StartCommandRow({
   const where = [start.dir, start.url].filter(Boolean).join(' · ')
   return (
     <ListItem
-      title={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
+      heading={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
       detail={
         <span className="flex min-w-0 flex-col">
           <span className="truncate select-text font-mono text-caption" title={start.command}>
@@ -140,7 +140,7 @@ function TrustedRow({ root, home }: { root: string; home: string }) {
   return (
     <ListItem
       // The folder name leads, since the path below it truncates in the middle.
-      title={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
+      heading={<span className="truncate">{root.split('/').filter(Boolean).at(-1) ?? root}</span>}
       detail={<PathText path={root} home={home} className="select-text text-caption text-subtle" />}
       trailing={
         <Button

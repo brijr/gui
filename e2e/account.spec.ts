@@ -100,7 +100,7 @@ test('a new user signs in before Gui opens a project, then the project opens', a
 
     // Signing up agrees to product emails, so there's nothing to tick.
     await expect(chrome.getByRole('checkbox')).toHaveCount(0)
-    await chrome.getByRole('button', { name: 'Sign in or create an account' }).click()
+    await chrome.getByRole('button', { name: 'Sign in', exact: true }).click()
     await expect(chrome.getByText('Continue in your browser to sign in…')).toBeVisible()
     const opened = await session.app.evaluate(
       () => (globalThis as unknown as { opened: string[] }).opened,
@@ -134,7 +134,7 @@ test('a sign-in that fails says so; cancelling and signing out ask again', async
       safeStorage.decryptString = (value) => value.toString().replace(/^test-encrypted:/, '')
     })
     const chrome = session.chrome
-    const signIn = chrome.getByRole('button', { name: 'Sign in or create an account' })
+    const signIn = chrome.getByRole('button', { name: 'Sign in', exact: true })
 
     // Cancelling goes back without an error.
     await signIn.click()

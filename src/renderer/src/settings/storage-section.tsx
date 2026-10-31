@@ -49,7 +49,7 @@ function formatBytes(bytes: number | null) {
 export function StorageSection({ settings }: { settings: SettingsState }) {
   const { storage, openProjects } = settings
   return (
-    <SettingsGroup title="Stored on this Mac">
+    <SettingsGroup heading="Stored on this Mac">
       <List>
         {ROWS.map((row) => (
           <StorageRow key={row.kind} row={row} bytes={storage[row.kind]} />
@@ -72,7 +72,7 @@ function StorageRow({ row, bytes }: { row: StorageInfo; bytes: number | null }) 
 
   return (
     <ListItem
-      title={row.title}
+      heading={row.title}
       titleId={titleId}
       detail={row.detail}
       trailing={
