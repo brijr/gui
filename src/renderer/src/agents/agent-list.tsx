@@ -6,13 +6,13 @@ import { Check, ChevronRight } from '../lib/icons'
 import { List, ListRow, SectionHeader } from '../lib/surface'
 import { TextButton } from '../lib/ui'
 import { AgentOffLabel, AgentStatusLabel } from '../settings/agent-status'
-import { AgentNextStep } from './agent-card'
+import { AgentNextStep, binaryLabel } from './agent-card'
 import { AgentIcon } from './agent-icon'
 
 /**
  * Every agent the user has on, with its status: the one in use is marked, and choosing
  * another switches to it. The one in use shows its next step (install, sign in, try again)
- * under its row, unless it's ready or still being checked. Agents that aren't installed
+ * under its row; once it's ready, only which CLI Gui runs. Agents that aren't installed
  * fold into one row, so the few that can work aren't lost among the many that can't.
  */
 export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId: AgentId }) {
@@ -63,6 +63,8 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
 }
 
 function AgentListRow({ health, current }: { health: AgentHealth; current: boolean }) {
+  // Ready says so beside the name, so the one in use needs no next step, only its CLI.
+  const ready = health.enabled && health.status === 'ready'
   return (
     // The one in use has the selected look, its next step under it too.
     <li className={cn(current && 'bg-accent-soft')}>
@@ -76,6 +78,7 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
           if (!current) gui.setAgent(health.id)
         }}
         leading={<AgentIcon agentId={health.id} />}
+        detail={current && ready && health.binary ? binaryLabel(health.binary) : undefined}
         heading={
           <>
             <span className="truncate" title={health.name}>
@@ -94,7 +97,7 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
         }
       />
       {/* Keep the next step mounted as checks and installation change its controls. */}
-      {current && (
+      {current && !ready && (
         <div className="px-3 pb-3 pl-13">
           <AgentNextStep name={health.name} health={health} />
         </div>

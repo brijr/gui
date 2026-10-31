@@ -233,6 +233,11 @@ const BINARY_SOURCES: Record<AgentBinarySource, string> = {
   bundled: 'Bundled (dev)',
 }
 
+/** Which CLI Gui runs for an agent: "Your install · 2.1.314" */
+export function binaryLabel(binary: NonNullable<AgentHealth['binary']>) {
+  return BINARY_SOURCES[binary.source] + (binary.version ? ` · ${binary.version}` : '')
+}
+
 /** Ready, and which CLI Gui runs for it when it knows (Claude Code and Codex). */
 function Ready({ binary }: { binary: AgentHealth['binary'] }) {
   return (
@@ -243,8 +248,7 @@ function Ready({ binary }: { binary: AgentHealth['binary'] }) {
       </p>
       {binary && (
         <p className="min-w-0 select-text truncate text-caption text-subtle tabular-nums">
-          {BINARY_SOURCES[binary.source]}
-          {binary.version && ` · ${binary.version}`}
+          {binaryLabel(binary)}
         </p>
       )}
     </div>
