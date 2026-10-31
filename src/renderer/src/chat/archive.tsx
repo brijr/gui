@@ -9,6 +9,7 @@ import { Pencil, Trash2 } from '../lib/icons'
 import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
 import {
   GroupLabel,
+  ListRow,
   Popover,
   PopoverNote,
   type PopoverPlacement,
@@ -331,50 +332,46 @@ function ArchivedRow({
   }
 
   return (
-    <li
-      ref={row}
-      className="group flex items-center gap-0.5 rounded-md pr-1 transition-colors hover:bg-hover focus-within:bg-hover"
-    >
-      <button
-        type="button"
+    <li ref={row}>
+      <ListRow
+        heading={<span className="w-full truncate text-small font-normal text-fg">{name}</span>}
+        detail={detail}
         title={`Open “${name}”`}
         aria-disabled={disabled}
         onClick={() => {
           if (!disabled) onOpen()
         }}
-        // The focus ring inside the row, where the list's edge can't clip it.
-        className="flex min-w-0 flex-1 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left focus-visible:-outline-offset-2 disabled:opacity-60"
-      >
-        <span className="w-full truncate text-small text-fg">{name}</span>
-        <span className="w-full truncate text-caption text-subtle">{detail}</span>
-      </button>
-      {busy ? (
-        <Spinner className="mx-1.5 text-muted" />
-      ) : (
-        <div
-          className={cn(
-            'flex shrink-0 items-center opacity-0 transition-opacity',
-            'group-hover:opacity-100 group-focus-within:opacity-100',
-          )}
-        >
-          <IconButton
-            size="sm"
-            label={`Rename ${name}`}
-            title="Rename"
-            icon={Pencil}
-            aria-disabled={disabled}
-            onClick={onStartRename}
-          />
-          <IconButton
-            size="sm"
-            label={`Delete ${name}`}
-            title="Delete"
-            icon={Trash2}
-            aria-disabled={disabled}
-            onClick={onStartDelete}
-          />
-        </div>
-      )}
+        className="focus-visible:-outline-offset-2 disabled:opacity-60 [&>span]:gap-0.5"
+        actions={
+          busy ? (
+            <Spinner className="mx-1.5 text-muted" />
+          ) : (
+            <div
+              className={cn(
+                'flex shrink-0 items-center opacity-0 transition-opacity',
+                'group-hover:opacity-100 group-focus-within:opacity-100',
+              )}
+            >
+              <IconButton
+                size="sm"
+                label={`Rename ${name}`}
+                title="Rename"
+                icon={Pencil}
+                aria-disabled={disabled}
+                onClick={onStartRename}
+              />
+              <IconButton
+                size="sm"
+                label={`Delete ${name}`}
+                title="Delete"
+                icon={Trash2}
+                aria-disabled={disabled}
+                onClick={onStartDelete}
+              />
+            </div>
+          )
+        }
+      />
     </li>
   )
 }

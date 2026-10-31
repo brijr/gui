@@ -6,10 +6,10 @@ import { SettingsGroup } from './settings-group'
 
 export function ChatSection({ settings }: { settings: SettingsState }) {
   return (
-    <SettingsGroup title="Layout">
+    <SettingsGroup heading="Layout">
       <List>
         <ListItem
-          title="Chat position"
+          heading="Chat position"
           trailing={
             <SegmentedControl
               label="Chat position"

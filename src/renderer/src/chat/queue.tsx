@@ -76,7 +76,6 @@ export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boo
     <Card tone="inset" padding="none" className="overflow-hidden">
       {/* The reason can be long ("Paused: the agent hit its output limit"): it wraps. */}
       <Banner
-        wrap
         actions={
           (meta.queue.length > 1 || paused) && (
             <>

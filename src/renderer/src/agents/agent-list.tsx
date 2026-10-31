@@ -25,11 +25,7 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
     <section aria-labelledby="agents-heading" className="flex flex-col gap-2">
       <SectionHeader
         id="agents-heading"
-        action={
-          <TextButton className="text-small font-medium" onClick={() => gui.openSettings('agents')}>
-            Settings
-          </TextButton>
-        }
+        action={<TextButton onClick={() => gui.openSettings('agents')}>Settings</TextButton>}
       >
         Agents
       </SectionHeader>
@@ -44,7 +40,7 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
               aria-expanded={showMissing}
               onClick={() => setShowMissing((open) => !open)}
               className="text-small text-muted"
-              title={
+              heading={
                 showMissing
                   ? 'Hide agents that aren’t installed'
                   : `${missing.length} more ${missing.length === 1 ? 'agent' : 'agents'}, not installed`
@@ -80,7 +76,7 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
           if (!current) gui.setAgent(health.id)
         }}
         leading={<AgentIcon agentId={health.id} />}
-        title={
+        heading={
           <>
             <span className="truncate" title={health.name}>
               {health.name}

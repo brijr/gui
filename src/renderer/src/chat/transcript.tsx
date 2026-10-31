@@ -48,7 +48,6 @@ function ArchivedNotice({ archived }: { archived: NonNullable<ChatMeta['archived
   const [opening, setOpening] = useState(false)
   return (
     <Banner
-      wrap
       edge="bottom"
       icon={Archive}
       actions={
@@ -418,7 +417,7 @@ function EmptyTranscript({
   // On a canvas's frames there's no app to point at until one is open.
   if (canvas && !canSelect) {
     return (
-      <Message fill icon={MessageSquare} title="Design on the canvas">
+      <Message fill icon={MessageSquare} heading="Design on the canvas">
         Open a frame to point at what you want to change.
       </Message>
     )
@@ -430,7 +429,7 @@ function EmptyTranscript({
       <Message
         fill
         icon={MessageSquare}
-        title="Ask about your project"
+        heading="Ask about your project"
         actions={canvasEmpty ? <StarterPrompts prompts={STARTERS.build} /> : undefined}
       >
         Your agent can read and edit the code while the preview starts.

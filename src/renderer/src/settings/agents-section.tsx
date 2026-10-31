@@ -65,9 +65,9 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       />
 
       <SettingsGroup
-        title="Installed agents"
+        heading="Installed agents"
         action={
-          <GroupAction pending={checking} onClick={() => gui.checkAgents()}>
+          <GroupAction loading={checking} onClick={() => gui.checkAgents()}>
             Check again
           </GroupAction>
         }
@@ -86,7 +86,7 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       </SettingsGroup>
 
       {missing.length > 0 && (
-        <SettingsGroup title="Not installed">
+        <SettingsGroup heading="Not installed">
           <List>
             {missing.map((agent) => (
               <NotInstalledRow
@@ -149,7 +149,7 @@ function NotInstalledRow({ agent, onInstall }: { agent: AgentHealth; onInstall: 
   return (
     <ListItem
       align="start"
-      title={
+      heading={
         <>
           <span className="truncate" title={agent.name}>
             {agent.name}
@@ -242,11 +242,11 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
     </Disclosure>
   )
 
-  if (!open) return <SettingsGroup title={disclosure} />
+  if (!open) return <SettingsGroup heading={disclosure} />
 
   return (
     <SettingsGroup
-      title={disclosure}
+      heading={disclosure}
       action={
         <GroupAction onClick={() => gui.openCustomAgentsFile()}>Edit agents.json</GroupAction>
       }

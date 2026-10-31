@@ -446,7 +446,7 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
           </GroupLabel>
           {segmentsFit(effort.options.map(effortLabel), placement.width) ? (
             <SegmentedControl
-              labelledBy={effortId}
+              aria-labelledby={effortId}
               segments={effort.options.map((choice) => ({
                 value: choice.value,
                 label: effortLabel(choice),

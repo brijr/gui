@@ -54,18 +54,14 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
     <ListItem
       align="start"
       quiet={!enabled}
-      title={
+      heading={
         <>
           <label htmlFor={`agent-switch-${health?.id ?? name}`} className="truncate" title={name}>
             {name}
           </label>
           {live ? <AgentStatusLabel health={live} /> : health && <AgentOffLabel />}
           {live?.status === 'unknown' && (
-            <TextButton
-              tone="muted"
-              className="shrink-0 text-small font-medium"
-              onClick={() => gui.checkAgents(live.id)}
-            >
+            <TextButton tone="muted" className="shrink-0" onClick={() => gui.checkAgents(live.id)}>
               Check now
             </TextButton>
           )}
@@ -90,7 +86,6 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
             checked={enabled}
             onCheckedChange={toggle}
             label={name}
-            labelHidden
             disabled={!health}
           />
         </>

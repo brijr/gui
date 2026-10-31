@@ -188,7 +188,7 @@ function RepositoryRow({
 }) {
   return (
     <ListItem
-      title={
+      heading={
         <>
           <span className="truncate" title={repo.fullName}>
             {repo.fullName}
