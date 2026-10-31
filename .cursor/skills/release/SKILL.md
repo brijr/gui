@@ -7,7 +7,7 @@ description: Sign, notarize, and publish a Gui macOS build. Use when cutting a v
 
 Do not publish from an agent session. Do not put certificates or notary passwords in the repo.
 
-1. Bump `version` in `package.json`. Each version publishes once, tagged `v<version>`. Prereleases (`0.1.0-alpha.N`) write `alpha-mac.yml`; stable writes `latest-mac.yml`.
+1. Each version publishes once, tagged `v<version>`. If `package.json`'s version is already tagged, the script bumps the last number and commits it (`chore: release <version> [skip ci]`); commit a version yourself to pick a different one. The bump commit and tag are pushed after the upload. Prereleases (`0.1.0-alpha.N`) write `alpha-mac.yml`; stable writes `latest-mac.yml`.
 2. Work on **main**, with a clean tree except `www/` (the site is not packaged).
 3. Needs, once per Mac:
    - Developer ID Application in the login keychain (Xcode → Settings → Accounts → Manage Certificates), or `CSC_LINK` + `CSC_KEY_PASSWORD` (and `CSC_NAME` if several identities).

@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds a signed, notarized Gui and publishes it to the update feed (electron-builder.yml
-# `publish`) and https://usegui.com/download. Bump "version" in package.json first; each
-# version publishes once, and is tagged v<version>.
+# `publish`) and https://usegui.com/download. Each version publishes once, tagged v<version>.
+# If package.json's version is already tagged, this bumps it (0.1.0-alpha.9 → 0.1.0-alpha.10,
+# 1.2.3 → 1.2.4) and commits that; to pick a version yourself, commit it first.
 #
 # Needs, once per Mac:
 #   - A "Developer ID Application" certificate in the login keychain (Xcode → Settings →
@@ -20,20 +21,11 @@ fail() {
   exit 1
 }
 
-version=$(node -p 'require("./package.json").version')
-tag="v$version"
 bucket=gui-releases
-case "$version" in
-  *-*) channel=$(echo "${version#*-}" | sed 's/\..*//') ;;
-  *) channel=latest ;;
-esac
 
 # The site (www/) isn't part of the app, so work on it can be in progress.
 [ -z "$(git status --porcelain -- . ':!www')" ] || fail "Commit or stash your changes first: a release is built from a commit."
 [ "$(git branch --show-current)" = main ] || fail "Release from main."
-if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
-  fail "$tag is already released. Bump \"version\" in package.json."
-fi
 
 if [ -z "${DEVELOPER_DIR:-}" ] && ! xcrun --find actool >/dev/null 2>&1; then
   if [ -d /Applications/Xcode.app/Contents/Developer ]; then
@@ -61,6 +53,22 @@ else
 fi
 (cd www && bunx wrangler r2 bucket info "$bucket" >/dev/null 2>&1) ||
   fail "Wrangler can't reach the $bucket R2 bucket. Run: cd www && bunx wrangler login"
+
+version=$(node -p 'require("./package.json").version')
+if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+  # Bump the last number: 0.1.0-alpha.9 → 0.1.0-alpha.10, 1.2.3 → 1.2.4.
+  next=$(echo "$version" | awk -F. -v OFS=. '{ $NF = $NF + 1; print }')
+  git rev-parse -q --verify "refs/tags/v$next" >/dev/null && fail "v$next is already tagged too."
+  sed -i '' "s/\"version\": \"$version\"/\"version\": \"$next\"/" package.json
+  [ "$(node -p 'require("./package.json").version')" = "$next" ] || fail "Couldn't bump package.json to $next."
+  git commit -q -m "chore: release $next [skip ci]" -- package.json
+  version=$next
+fi
+tag="v$version"
+case "$version" in
+  *-*) channel=$(echo "${version#*-}" | sed 's/\..*//') ;;
+  *) channel=latest ;;
+esac
 
 echo "Releasing Gui $version ($channel channel)…"
 bun run check
@@ -101,5 +109,5 @@ put "Gui-$channel-arm64.dmg" "$dmg" application/x-apple-diskimage
 put "$channel-mac.yml" "$feed" text/yaml
 
 git tag -a "$tag" -m "Gui $version"
-git push origin "$tag"
+git push origin main "$tag"
 echo "Released Gui $version: https://usegui.com/download"
