@@ -23,6 +23,24 @@ const csp: Plugin = {
   ],
 }
 
+/**
+ * ghostty-web inlines its wasm as base64 (~560 kB) for callers that pass no path.
+ * The terminal always loads the separate ghostty-vt.wasm, so drop the inline copy.
+ */
+const ghosttyInlineWasm: Plugin = {
+  name: 'gui-ghostty-inline-wasm',
+  apply: 'build',
+  transform(code, id) {
+    if (!id.endsWith('/ghostty-web/dist/ghostty-web.js')) return
+    const stripped = code.replace(
+      /data:application\/wasm;base64,[A-Za-z0-9+/=]+/,
+      'data:application/wasm;base64,',
+    )
+    if (stripped === code) this.warn('ghostty-web no longer inlines its wasm; remove this plugin')
+    return stripped
+  },
+}
+
 export default defineConfig({
   main: {
     // Minified (electron-vite leaves it off), keeping function and class names so stack
@@ -74,7 +92,12 @@ export default defineConfig({
     },
     // Keep Gui's own UI server off 5173/3000 so it never collides with the projects it previews.
     server: { port: 5737, strictPort: true },
-    plugins: [react({ babel: { plugins: ['babel-plugin-react-compiler'] } }), tailwindcss(), csp],
+    plugins: [
+      react({ babel: { plugins: ['babel-plugin-react-compiler'] } }),
+      tailwindcss(),
+      csp,
+      ghosttyInlineWasm,
+    ],
     build: {
       // electron-vite leaves it off; every tab's chat view parses this code again.
       minify: 'esbuild',
