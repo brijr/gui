@@ -888,11 +888,11 @@ function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolea
             New canvas
           </Button>
           <Button
+            icon={GitHubMark}
             className={cell}
             title="Copy a GitHub repository to your Mac"
             onClick={() => setForm('cloneRepo')}
           >
-            <GitHubMark />
             Clone…
           </Button>
         </div>

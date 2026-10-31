@@ -84,6 +84,7 @@ export function GitHubRepositories({
       <div className="flex flex-col gap-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <Button
+            icon={GitHubMark}
             loading={connect.pending}
             disabled={disabled}
             onClick={() =>
@@ -98,7 +99,6 @@ export function GitHubRepositories({
               })
             }
           >
-            <GitHubMark />
             {connect.pending ? 'Waiting for GitHub…' : 'Connect GitHub'}
           </Button>
           {connect.pending && (
