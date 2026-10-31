@@ -368,9 +368,9 @@ test('the bubble shows a running turn, and a permission card waits behind it', a
   await pressEscape(session)
   const restored = await chatWhere(session, 'the panel with the card', (chat) => !isBubble(chat))
   expect(restored.chat).toEqual(panel.chat)
-  await expect(session.chat.getByRole('button', { name: "Don't allow" })).toBeVisible()
+  await expect(session.chat.getByRole('button', { name: 'Don’t allow' })).toBeVisible()
   await shot(session, 'bubble-card')
-  await session.chat.getByRole('button', { name: "Don't allow" }).click()
+  await session.chat.getByRole('button', { name: 'Don’t allow' }).click()
   expect((await session.waitForTurn(1)).turn.status).toBe('done')
 })
 
@@ -414,7 +414,7 @@ test('the floating chat is its message box until there is a conversation, and ag
   expect(await send(session.chat, ASK)).toBe(true)
   const open = await chatWhere(session, 'the panel', (chat) => chat.height > box.chat.height + 100)
   expect(open.chat.y + open.chat.height).toBe(box.chat.y + box.chat.height)
-  await session.chat.getByRole('button', { name: "Don't allow" }).click()
+  await session.chat.getByRole('button', { name: 'Don’t allow' }).click()
   expect((await session.waitForTurn(0)).turn.status).toBe('done')
   await expect.poll(() => panel.evaluate((el) => (el as HTMLElement).style.clipPath)).toBe('')
   const motion = await heights.evaluate(({ samples, observer }) => {
