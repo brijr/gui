@@ -54,16 +54,20 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await chrome.emulateMedia({ colorScheme })
     const images = await chrome.evaluate(() => window.gui.getSymbols())
     for (const name of new Set(Object.values(SYMBOLS))) {
-      expect(images[name], name).toMatch(/^data:image\/png;base64,/)
+      expect(images[name]?.src, name).toMatch(/^data:image\/png;base64,/)
     }
+    // Sized against a plain circle: it fills the box; a chevron is narrower, a laptop wider.
+    expect(images.circle).toMatchObject({ width: 1, height: 1 })
+    expect(images['chevron.right']?.width).toBeLessThan(1)
+    expect(images.laptopcomputer?.width).toBeGreaterThan(1)
     const symbol = chrome.locator('[data-symbol="folder.badge.plus"]').first()
     await expect(symbol).toBeVisible()
     const style = await symbol.evaluate((el) => {
-      const css = getComputedStyle(el)
+      const glyph = getComputedStyle(el, '::before')
       return {
-        color: css.color,
-        background: css.backgroundColor,
-        mask: css.maskImage,
+        color: getComputedStyle(el).color,
+        background: glyph.backgroundColor,
+        mask: glyph.maskImage,
         width: el.getBoundingClientRect().width,
       }
     })

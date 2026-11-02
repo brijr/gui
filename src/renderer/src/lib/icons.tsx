@@ -44,12 +44,19 @@ export function SFSymbol({
   name: SymbolName
   fallback: IconComponent
 }) {
-  const source = useSyncExternalStore(subscribe, snapshot)[name]
-  if (!source) return <Fallback className={className} style={style} {...props} />
+  const symbol = useSyncExternalStore(subscribe, snapshot)[name]
+  if (!symbol) return <Fallback className={className} style={style} {...props} />
   return (
     <span
       className={cn('sf-symbol', className)}
-      style={{ ...style, maskImage: `url("${source}")` }}
+      style={
+        {
+          ...style,
+          '--symbol': `url("${symbol.src}")`,
+          '--symbol-width': symbol.width,
+          '--symbol-height': symbol.height,
+        } as CSSProperties
+      }
       role={props['aria-label'] ? 'img' : undefined}
       data-symbol={name}
       {...props}

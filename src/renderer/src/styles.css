@@ -578,15 +578,26 @@ html.transparent body {
     outline-offset: 1px;
   }
 
+  /* The box keeps the layout; the symbol is drawn at its own size, centered on it, so a wide
+     one may reach past the box's sides (src/main/symbols.ts). */
   .sf-symbol {
+    position: relative;
     display: inline-block;
+    flex-shrink: 0;
     width: 24px;
     height: 24px;
-    background-color: currentColor;
-    mask-size: contain;
-    mask-position: center;
-    mask-repeat: no-repeat;
     vertical-align: middle;
+  }
+  .sf-symbol::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: calc(var(--symbol-width) * 100%);
+    height: calc(var(--symbol-height) * 100%);
+    translate: -50% -50%;
+    background-color: currentColor;
+    mask: var(--symbol) center / 100% 100% no-repeat;
   }
 
   /* Fallback icons match the system's lighter stroke. */

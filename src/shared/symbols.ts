@@ -79,4 +79,14 @@ export const SYMBOLS = {
 } as const
 
 export type SymbolName = (typeof SYMBOLS)[keyof typeof SYMBOLS]
-export type SymbolImages = Partial<Record<SymbolName, string>>
+/**
+ * A symbol as macOS draws it, and its size in icon boxes: a plain circle fills the box, and
+ * every other symbol keeps its size beside it (a chevron is narrower, a laptop wider).
+ */
+export interface SymbolImage {
+  src: string
+  width: number
+  height: number
+}
+
+export type SymbolImages = Partial<Record<SymbolName, SymbolImage>>
