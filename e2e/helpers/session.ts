@@ -112,35 +112,42 @@ function overlayGesture({ webContents }: ElectronModule, { from, to, add }: Over
   if (!overlay) throw new Error('The pick overlay is missing')
   const modifiers: ('shift' | 'leftbuttondown')[] = add ? ['shift'] : []
   const at = ({ x, y }: Point) => ({ x: Math.round(x), y: Math.round(y) })
-  overlay.sendInputEvent({ type: 'mouseMove', ...at(from), modifiers })
-  overlay.sendInputEvent({
-    type: 'mouseDown',
-    ...at(from),
-    button: 'left',
-    clickCount: 1,
-    modifiers,
-  })
-  if (to) {
-    const steps = 8
-    for (let i = 1; i <= steps; i++) {
-      const point = {
-        x: from.x + ((to.x - from.x) * i) / steps,
-        y: from.y + ((to.y - from.y) * i) / steps,
+  // Hidden windows let only marked moves reach the overlay (src/main/window-presentation.ts).
+  const marked = globalThis as { guiE2eInput?: boolean }
+  marked.guiE2eInput = true
+  try {
+    overlay.sendInputEvent({ type: 'mouseMove', ...at(from), modifiers })
+    overlay.sendInputEvent({
+      type: 'mouseDown',
+      ...at(from),
+      button: 'left',
+      clickCount: 1,
+      modifiers,
+    })
+    if (to) {
+      const steps = 8
+      for (let i = 1; i <= steps; i++) {
+        const point = {
+          x: from.x + ((to.x - from.x) * i) / steps,
+          y: from.y + ((to.y - from.y) * i) / steps,
+        }
+        overlay.sendInputEvent({
+          type: 'mouseMove',
+          ...at(point),
+          modifiers: [...modifiers, 'leftbuttondown'],
+        })
       }
-      overlay.sendInputEvent({
-        type: 'mouseMove',
-        ...at(point),
-        modifiers: [...modifiers, 'leftbuttondown'],
-      })
     }
+    overlay.sendInputEvent({
+      type: 'mouseUp',
+      ...at(to ?? from),
+      button: 'left',
+      clickCount: 1,
+      modifiers,
+    })
+  } finally {
+    marked.guiE2eInput = false
   }
-  overlay.sendInputEvent({
-    type: 'mouseUp',
-    ...at(to ?? from),
-    button: 'left',
-    clickCount: 1,
-    modifiers,
-  })
 }
 
 /** Runs in the app chrome page: stacks the layers on a canvas in z-order. */
@@ -298,7 +305,14 @@ export class GuiSession {
           .find((wc) => wc.getURL().endsWith('/pick.html'))
         const x = Math.round(at.x)
         const y = Math.round(at.y)
-        overlay?.sendInputEvent({ type: 'mouseMove', x, y })
+        // Hidden windows let only marked moves reach the overlay (window-presentation.ts).
+        const marked = globalThis as { guiE2eInput?: boolean }
+        marked.guiE2eInput = true
+        try {
+          overlay?.sendInputEvent({ type: 'mouseMove', x, y })
+        } finally {
+          marked.guiE2eInput = false
+        }
         // Chromium's wheel deltas point the way the content moves: negative scrolls down.
         if (deltaY) overlay?.sendInputEvent({ type: 'mouseWheel', x, y, deltaY: -deltaY })
       },

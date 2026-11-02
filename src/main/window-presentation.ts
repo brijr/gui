@@ -19,12 +19,20 @@ const hidden = inBackground && process.env.GUI_E2E_HIDDEN === '1'
  */
 export function keepInBackground() {
   if (inBackground && process.platform === 'darwin') app.setActivationPolicy('prohibited')
-  // A view shown under the real pointer still hears it leave (macOS, as the window lets it
-  // through): the pick overlay would drop the hover the tests' own pointer just made.
+  // A view shown under the real pointer still hears it (macOS, as the window lets it
+  // through): leaving would drop the hover the tests' own pointer just made, and moving would
+  // hover whatever the user's pointer is over. The pick overlay takes only the tests' moves,
+  // which mark themselves with `guiE2eInput` (e2e/helpers/session.ts) as they send them.
   if (hidden)
     app.on('web-contents-created', (_event, contents) =>
       contents.on('before-mouse-event', (event, mouse) => {
         if (mouse.type === 'mouseEnter' || mouse.type === 'mouseLeave') event.preventDefault()
+        else if (
+          mouse.type === 'mouseMove' &&
+          !(globalThis as { guiE2eInput?: boolean }).guiE2eInput &&
+          contents.getURL().endsWith('/pick.html')
+        )
+          event.preventDefault()
       }),
     )
 }
