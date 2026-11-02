@@ -5,6 +5,7 @@
   "description": "Design real interfaces with your own AI agents",
   "author": "Bridger Tower <bridgertower@gmail.com>",
   "private": true,
+  "license": "Apache-2.0",
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {

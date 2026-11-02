@@ -61,6 +61,8 @@ export default defineConfig({
     // Agent CLIs aren't bundled; this pins the versions (and hashes) Gui downloads.
     define: {
       __GUI_AGENT_BINARIES__: JSON.stringify(agentBinaries(resolve('.'))),
+      // Set by scripts/release.sh; see src/main/official-build.ts.
+      __GUI_OFFICIAL_BUILD__: JSON.stringify(process.env.GUI_OFFICIAL_BUILD === '1'),
       __GUI_ACCOUNTS_URL__: JSON.stringify(
         process.env.GUI_ACCOUNTS_URL ?? 'https://accounts.usegui.com',
       ),

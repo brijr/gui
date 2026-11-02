@@ -1,5 +1,6 @@
 import { app, dialog } from 'electron'
 import type { AppUpdater } from 'electron-updater'
+import { officialBuild } from './official-build'
 
 /** How often a running Gui looks for a new version, after the check at launch. */
 const CHECK_EVERY = 4 * 60 * 60 * 1000
@@ -36,19 +37,19 @@ function failed(error: Error) {
  * Keeps an installed Gui up to date from the feed in electron-builder.yml (`publish`). New
  * versions download in the background; once one is ready Gui offers to restart into it, and
  * otherwise installs it when the user next quits. Squirrel.Mac only applies an update signed
- * by the same Developer ID, so dev and ad-hoc builds never check.
+ * by the same Developer ID, so only official releases check; builds from source never do.
  */
 export function startUpdates() {
-  if (!app.isPackaged) return
+  if (!officialBuild) return
   void check()
   setInterval(() => void check(), CHECK_EVERY).unref()
 }
 
 /** Gui → Check for Updates…: says what it found, unlike the quiet background checks. */
 export async function checkForUpdatesByHand() {
-  if (!app.isPackaged) {
+  if (!officialBuild) {
     await dialog.showMessageBox({
-      message: 'Updates are off in development builds',
+      message: 'Updates are off in builds from source',
       detail: 'Pull the latest main and rebuild instead.',
     })
     return

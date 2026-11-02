@@ -73,7 +73,8 @@ esac
 echo "Releasing Gui $version ($channel channel)…"
 bun run check
 rm -rf release
-bun run build
+# Official: asks for a Gui account, takes updates and sends crash reports (official-build.ts).
+GUI_OFFICIAL_BUILD=1 bun run build
 # electron-builder signs and notarizes the app; it doesn't publish (that's below).
 bunx --bun electron-builder --mac --publish never
 

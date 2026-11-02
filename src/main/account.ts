@@ -11,6 +11,7 @@ import {
   type AccountState,
   invalidatesAccountSession,
 } from '../shared/account'
+import { officialBuild } from './official-build'
 
 declare const __GUI_ACCOUNTS_URL__: string
 
@@ -54,13 +55,15 @@ function configured() {
 
 /**
  * Read from the file alone, so the start screen knows at once and without a Keychain prompt.
- * Unpackaged builds started with GUI_ACCOUNT_REQUIRED=0 (the end-to-end tests) don't ask.
+ * Only official releases require an account; a build from source can still sign in from
+ * Settings. Unpackaged builds started with GUI_ACCOUNT_REQUIRED=1 (the account tests) ask too.
  */
 export function accountState(): AccountState {
   const service = configured()
   return {
     configured: service,
-    required: service && (app.isPackaged || process.env.GUI_ACCOUNT_REQUIRED !== '0'),
+    required:
+      service && (officialBuild || (!app.isPackaged && process.env.GUI_ACCOUNT_REQUIRED === '1')),
     signedIn: existsSync(sessionFile()),
   }
 }

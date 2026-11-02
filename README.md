@@ -140,6 +140,8 @@ The preview is a native view, so HTML can't overlay it: the chat panel is its ow
 
 ## Packaging
 
+Builds from source are yours: they don't ask for a Gui account (you can still sign in from **Settings → Account** to connect GitHub), don't take updates from usegui.com, and never send crash reports. Only releases from `bun run release` do those (`src/main/official-build.ts`).
+
 `CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist` builds an unsigned arm64 `.app`, `.dmg`, and `.zip` (the agent CLIs aren't included; see Agents above). For a signed, notarized build, put a Developer ID Application certificate in your keychain (or set `CSC_LINK` + `CSC_KEY_PASSWORD`) and one set of notarization credentials (`APPLE_ID` + `APPLE_APP_SPECIFIC_PASSWORD` + `APPLE_TEAM_ID`, or an App Store Connect API key) before `bun run dist`. `electron-builder.yml` explains each fuse and entitlement. Unsigned builds get a new ad-hoc signature each time, so macOS asks for keychain access on first launch.
 
 `bun run release` publishes a version from main. If the version in `package.json` is already released, it bumps the last number (`0.1.0-alpha.9` → `0.1.0-alpha.10`) and commits that; to pick a version yourself, commit it first. It runs `bun run check`, builds, verifies the signature, notarization and Gatekeeper, notarizes the DMG, uploads the build to the `gui-releases` R2 bucket, and tags and pushes `v<version>`. The setup it needs is at the top of `scripts/release.sh`. Installed copies check `usegui.com/releases` at launch and every 4 hours, download a new version in the background, and offer to restart into it (**Gui → Check for Updates…** checks now). A prerelease version publishes to its own channel (`alpha-mac.yml`), and `usegui.com/download` serves the newest alpha DMG.
@@ -159,3 +161,11 @@ Before shipping a signed build, note that the `runAsNode` fuse is on because the
 ## Not yet
 
 Drawing on a picked area, quick direct-manipulation tweaks, Vue/Svelte source mapping, exact Next.js webpack mapping, and parallel variations.
+
+## Contributing
+
+Issues and pull requests are welcome. Run `bun run check` before you open one; [AGENTS.md](AGENTS.md) explains how the code is laid out and the rules it keeps. Report security issues privately, as [SECURITY.md](SECURITY.md) describes.
+
+## License
+
+[Apache License 2.0](LICENSE). The Gui name and logo aren't covered by the license; please don't use them for a fork. Agent logos belong to their owners.
