@@ -18,6 +18,7 @@ import Base from '../layouts/Base.astro'
 const site = 'https://usegui.com'
 // Where feedback goes: a direct message on X.
 const feedback = 'https://x.com/bridgertower'
+const github = 'https://github.com/brijr/gui'
 const title = 'Gui — Web design and UI design with your AI agent, on Mac'
 const description =
   'Gui is a Mac app for web design and UI design. Select an element in your real app and tell your AI agent what to change. The agent changes the code.'
@@ -77,7 +78,7 @@ const steps = [
 const questions = [
   {
     q: 'What does Gui cost?',
-    a: 'Gui is free to use during alpha. It connects to your own AI coding agent. You pay your agent provider under your existing account and plan; Gui adds no AI usage charges.',
+    a: 'Gui is free to use during alpha. It connects to your own AI coding agent. You pay your agent provider under your existing account and plan; Gui adds no AI usage charges. Gui is open source under the Apache 2.0 license.',
   },
   {
     q: 'Which AI model does Gui use?',
@@ -191,7 +192,8 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
 
   <section class="waitlist" id="waitlist">
     <p>
-      For Macs with Apple silicon and macOS 13 or later. Windows and Linux are coming soon.{' '}
+      For Macs with Apple silicon and macOS 13 or later. Gui is{' '}
+      <a href={github} target="_blank" rel="noopener">open source</a>. Windows and Linux are coming soon.{' '}
       <button class="waitlist-open" type="button" commandfor="waitlist-dialog" command="show-modal">
         Sign up for the waitlist
       </button>
@@ -447,10 +449,13 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     <a class="sponsor" href="https://shapefs.com" target="_blank" rel="noopener">
       Sponsored by <ShapeLogo class="sponsor-logo" role="img" aria-label="Shape" />
     </a>
-    <a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.
-    <a class="footer-link" href="/brand">Brand assets</a>
-    <a class="footer-link" href="/privacy">Privacy</a>
-    <a class="footer-link" href="/terms">Terms</a>
+    <div class="footer-links">
+      <span><a href="https://wip.is" target="_blank" rel="noopener">WIP</a> makes Gui.</span>
+      <a href={github} target="_blank" rel="noopener">GitHub</a>
+      <a href="/brand">Brand assets</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </div>
   </footer>
 
   <Demo slot="after" />
@@ -1056,8 +1061,12 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   footer {
     margin-top: var(--s-6);
   }
-  .footer-link {
-    margin-left: var(--s-3);
+  /* Wraps between links on a narrow screen, never inside one */
+  .footer-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--s-2) var(--s-3);
+    white-space: nowrap;
   }
   /* Its own line above the credits, the logo in the footer's color like the words beside it */
   .sponsor {
@@ -1065,7 +1074,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     width: fit-content;
     align-items: center;
     gap: 0.45em;
-    margin-bottom: var(--s-2);
+    margin-bottom: var(--s-4);
     color: inherit;
     text-decoration: none;
   }
