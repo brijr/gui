@@ -10,12 +10,7 @@ for (const id of ['amp', 'devin', 'cursor', 'fx'] as const) {
   test(`${id} is selectable and streams a CLI response`, async ({ launch }) => {
     const scratch = mkdtempSync(join(tmpdir(), 'gui-cli-'))
     const log = join(scratch, 'calls.jsonl')
-    const shell = join(scratch, 'shell')
-    writeFileSync(
-      shell,
-      '#!/bin/sh\ncase "$*" in *\'__GUI_ENV__\'*) printf \'__GUI_ENV__\'; /usr/bin/env -0;; *) exec /bin/sh "$@";; esac\n',
-    )
-    chmodSync(shell, 0o755)
+    const shell = fakeShell(scratch)
     const script = id === 'amp' ? AMP_SCRIPT : DEVIN_SCRIPT
     const command = id === 'cursor' ? 'cursor-agent' : id
     const cli = join(scratch, command)
@@ -103,7 +98,7 @@ test('an agent that needs a login before it starts reads as signed out', async (
   try {
     const session = await launch({
       fixture: 'vite',
-      env: { PATH: `${scratch}:${process.env.PATH}` },
+      env: { SHELL: fakeShell(scratch), PATH: `${scratch}:${process.env.PATH}` },
     })
     await session.waitForPreview()
     await session.chrome.evaluate(() => window.gui.setAgent('fx'))
@@ -118,6 +113,20 @@ test('an agent that needs a login before it starts reads as signed out', async (
     rmSync(scratch, { recursive: true, force: true })
   }
 })
+
+/**
+ * A login shell that keeps the test's PATH, so Gui finds the fake CLIs rather than the
+ * developer's own installs (Gui reads PATH from the user's login shell).
+ */
+function fakeShell(scratch: string) {
+  const shell = join(scratch, 'shell')
+  writeFileSync(
+    shell,
+    '#!/bin/sh\ncase "$*" in *\'__GUI_ENV__\'*) printf \'__GUI_ENV__\'; /usr/bin/env -0;; *) exec /bin/sh "$@";; esac\n',
+  )
+  chmodSync(shell, 0o755)
+  return shell
+}
 
 const SIGNED_OUT_SCRIPT = String.raw`
 process.stdin.setEncoding('utf8')

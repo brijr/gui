@@ -12,8 +12,9 @@ import { AgentIcon } from './agent-icon'
 /**
  * Every agent the user has on, with its status: the one in use is marked, and choosing
  * another switches to it. The one in use shows its next step (install, sign in, try again)
- * under its row; once it's ready, only which CLI Gui runs. Agents that aren't installed
- * fold into one row, so the few that can work aren't lost among the many that can't.
+ * under its row, except while it's ready or being checked, which its status already says.
+ * Agents that aren't installed fold into one row, so the few that can work aren't lost
+ * among the many that can't.
  */
 export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId: AgentId }) {
   const [showMissing, setShowMissing] = useState(false)
@@ -63,14 +64,17 @@ export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId:
 }
 
 function AgentListRow({ health, current }: { health: AgentHealth; current: boolean }) {
-  // Ready says so beside the name, so the one in use needs no next step, only its CLI.
   const ready = health.enabled && health.status === 'ready'
+  // The status beside the name already says Ready or Checking; the next step has nothing to add.
+  const quiet = ready || (health.enabled && health.status === 'checking')
   return (
-    // The one in use has the selected look, its next step under it too.
+    // The one in use has the selected look, its next step under it too: one tint for both,
+    // as accent-soft is translucent and would darken the row where it doubled.
     <li className={cn(current && 'bg-accent-soft')}>
       <ListRow
         flush
         selected={current}
+        className={current ? 'bg-transparent' : undefined}
         // Named with its status ("Codex Ready"); the one in use says so.
         aria-current={current || undefined}
         // Choosing an agent that hasn't been checked yet checks it as it switches.
@@ -96,9 +100,9 @@ function AgentListRow({ health, current }: { health: AgentHealth; current: boole
           )
         }
       />
-      {/* Keep the next step mounted as checks and installation change its controls. */}
-      {current && !ready && (
-        <div className="px-3 pb-3 pl-13">
+      {/* Kept mounted while hidden, so focus moves to its next control once a check ends. */}
+      {current && (
+        <div className={cn('px-3 pb-3 pl-13', quiet && 'hidden')}>
           <AgentNextStep name={health.name} health={health} />
         </div>
       )}

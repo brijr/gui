@@ -251,14 +251,14 @@ function isAuthError(error: unknown) {
 
 /**
  * The agent's own reason (when it says more than "auth required") plus how to sign in, unless
- * Gui can run the sign-in itself (`inApp`), when its Sign in button is the how.
+ * Gui can run the sign-in itself (`inApp`, or in Terminal), when its Sign in button is the how.
  */
 function signInMessage(agent: AgentDefinition, error: unknown, inApp: boolean) {
   const detail = errorDetail(error)
     .replace(/^Authentication required:?\s*/i, '')
     .trim()
   const lead = detail ? detail.replace(/[.\s]*$/, '.') : `${agent.name} is not signed in.`
-  return agent.signIn && !inApp ? `${lead} ${agent.signIn}` : lead
+  return agent.signIn && !inApp && !agent.terminalSignIn ? `${lead} ${agent.signIn}` : lead
 }
 
 /**
