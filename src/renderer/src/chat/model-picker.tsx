@@ -75,6 +75,8 @@ function choiceName(setting: AgentSetting) {
  * agent offers them ("xhigh" isn't "Xhigh"). Any other level keeps the agent's name.
  */
 const EFFORT_LABELS: Record<string, string> = {
+  // fx names it "default"; it picks the level itself.
+  auto: 'Auto',
   minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',
@@ -107,6 +109,17 @@ function rowName(choice: Choice) {
   const prefix = choice.group && `${choice.group}/`
   if (!prefix || !choice.name.startsWith(prefix)) return choice.name
   return choice.name.slice(prefix.length).trim() || choice.name
+}
+
+/**
+ * Ungrouped models all named `provider/model` (fx's "openai/gpt-5") are grouped by that
+ * provider, so each row reads as the model alone under its provider's header.
+ */
+function withProviderGroups(choices: Choice[]): Choice[] {
+  if (choices.some((choice) => choice.group !== null || !/^[^/\s]+\/./.test(choice.name))) {
+    return choices
+  }
+  return choices.map((choice) => ({ ...choice, group: choice.name.split('/')[0] }))
 }
 
 /** Every typed word appears somewhere in the name, value or group, ignoring case. */
@@ -250,9 +263,10 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
   const [active, setActive] = useState<string | null>(model.value)
 
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-  const grouped = model.options.some((choice) => choice.group !== null)
+  const options = withProviderGroups(model.options)
+  const grouped = options.some((choice) => choice.group !== null)
   const shown = sections(
-    model.options.filter((choice) => matches(choice, words)),
+    options.filter((choice) => matches(choice, words)),
     grouped,
   )
   const rows = shown.flatMap((section) => section.rows)

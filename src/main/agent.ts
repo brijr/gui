@@ -264,12 +264,16 @@ function signInMessage(agent: AgentDefinition, error: unknown, inApp: boolean) {
 /**
  * The model and effort settings among an agent's session config options. Found by
  * category, since every agent names them differently (`effort`, `reasoning_effort`, …).
- * Null when the agent offers no model choice.
+ * An agent may put other settings in the model category too (fx: its provider, and fast
+ * mode, before the model), so one with the id `model` wins. Null when the agent offers no
+ * model choice.
  */
 export function parseModelSettings(
   configOptions: acp.SessionConfigOption[] | null | undefined,
 ): ModelSettings | null {
-  const model = selectSetting(configOptions, 'model')
+  const model =
+    findSetting(configOptions, (option) => option.category === 'model' && option.id === 'model') ??
+    selectSetting(configOptions, 'model')
   return model ? { model, effort: selectSetting(configOptions, 'thought_level') } : null
 }
 
