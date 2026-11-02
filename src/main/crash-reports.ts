@@ -1,5 +1,6 @@
 import { homedir } from 'node:os'
 import { app, net } from 'electron'
+import { officialBuild } from './official-build'
 import { getPrefs } from './prefs'
 
 /**
@@ -41,7 +42,7 @@ export function errorReport(kind: CrashKind, error: unknown): CrashReport {
 }
 
 export function sendCrashReport(report: CrashReport) {
-  if (!app.isPackaged || !getPrefs().crashReports) return
+  if (!officialBuild || !getPrefs().crashReports) return
   const message = scrub(report.message || 'No message', MAX_MESSAGE)
   const stack = report.stack ? scrub(report.stack, MAX_STACK) : null
   // The same failure once per session: the first line of its stack says where.
