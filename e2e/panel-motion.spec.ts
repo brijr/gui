@@ -345,7 +345,7 @@ async function setSelecting(session: GuiSession, on: boolean) {
     if (on) window.gui.toggleSelect()
     else window.gui.stopSelecting()
   }, on)
-  const label = on ? 'selection mode' : 'selection mode to end'
+  const label = on ? 'design mode' : 'design mode to end'
   await waitFor(async () => (await session.state()).preview.selecting === on, label)
 }
 

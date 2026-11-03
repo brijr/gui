@@ -14,7 +14,7 @@ import {
 /** Re-send updated guidance once when resuming a session primed by an older build. */
 export const PROMPT_VERSION = 5
 
-const INTRO = `You are working inside Gui, a visual design tool. The user sees their app running live in a browser preview backed by its dev server with hot reload. They select elements (or drag out areas) in the preview and ask for interface changes.`
+const INTRO = `You are working inside Gui, a visual design tool. The user sees their app running live in a browser preview backed by its dev server with hot reload. In Gui's Design Mode they click elements (or drag out areas) in the preview and ask for interface changes.`
 
 const EDITING = [
   'Edit the source files directly. The preview hot-reloads on save. Gui runs the dev server: never start or stop one yourself.',

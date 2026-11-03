@@ -88,7 +88,7 @@ const overlaps = (a: Rect, b: Rect) =>
   a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 
 async function selecting(session: GuiSession, on: boolean) {
-  const label = on ? 'selection mode' : 'selection mode to end'
+  const label = on ? 'design mode' : 'design mode to end'
   await waitFor(async () => (await session.state()).preview.selecting === on, label)
 }
 
@@ -124,7 +124,7 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   await chatWhere(session, 'the bubble', isBubble)
   expect((await session.app.evaluate(views))?.chat).toEqual(bubbleAt(panel.chat))
   await expect(showChat(session.chat)).toBeVisible()
-  await expect(showChat(session.chat)).toHaveAccessibleDescription('Stops selecting.')
+  await expect(showChat(session.chat)).toHaveAccessibleDescription('Exits design mode.')
   await shot(session, 'bubble-idle')
 
   // The toolbar's chat button hides the bubble and brings it back without ending the pick.
@@ -398,11 +398,11 @@ test('the bubble shows a running turn, and a permission card waits behind it', a
   const panel = await chatWhere(session, 'the floating panel', (chat) => chat.height > 300)
   await startSelecting(session)
   await chatWhere(session, 'the bubble', isBubble)
-  await expect(bubble).toHaveAccessibleDescription('The agent is working. Stops selecting.')
+  await expect(bubble).toHaveAccessibleDescription('The agent is working. Exits design mode.')
   await shot(session, 'bubble-running')
   await session.chat.evaluate(() => window.gui.cancel())
   expect((await session.waitForTurn(0)).turn.status).toBe('cancelled')
-  await expect(bubble).toHaveAccessibleDescription('Stops selecting.')
+  await expect(bubble).toHaveAccessibleDescription('Exits design mode.')
 
   // A permission card while picking: a badge on the bubble, and the pick goes on.
   expect(await send(session.chat, ASK)).toBe(true)
@@ -411,7 +411,9 @@ test('the bubble shows a running turn, and a permission card waits behind it', a
     return turn?.items.some((item) => item.kind === 'permission' && item.resolved === null)
   }
   await waitFor(waiting, 'the permission card')
-  await expect(bubble).toHaveAccessibleDescription('The agent is waiting for you. Stops selecting.')
+  await expect(bubble).toHaveAccessibleDescription(
+    'The agent is waiting for you. Exits design mode.',
+  )
   await sleep(500)
   expect((await session.state()).preview.selecting).toBe(true)
   expect((await session.app.evaluate(views))?.chat).toEqual(bubbleAt(panel.chat))

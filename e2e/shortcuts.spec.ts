@@ -530,14 +530,14 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   await expect(send).toHaveAttribute('aria-keyshortcuts', 'Enter')
   await message.fill('')
 
-  // Select Element is ⌘D, shown in the menu and tooltips; ⇧⌘C still works, as a hidden item.
-  const select = entries.filter((entry) => entry.label === 'Select Element')
+  // Design Mode is ⌘D, shown in the menu and tooltips; ⇧⌘C still works, as a hidden item.
+  const select = entries.filter((entry) => entry.label === 'Design Mode')
   expect(select.map(({ accelerator, visible }) => ({ accelerator, visible }))).toEqual([
     { accelerator: 'CmdOrCtrl+D', visible: true },
     { accelerator: 'Shift+CmdOrCtrl+C', visible: false },
   ])
-  const selectToggle = toolbar.getByRole('button', { name: 'Select element', exact: true })
-  await expect(selectToggle).toHaveAttribute('title', 'Select element (⌘D)')
+  const selectToggle = toolbar.getByRole('button', { name: 'Design mode', exact: true })
+  await expect(selectToggle).toHaveAttribute('title', 'Design mode (⌘D)')
   await expect(selectToggle).toHaveAttribute('aria-keyshortcuts', 'Meta+D Shift+Meta+C')
   // ⌘D is the app's even in a text field: nothing there uses it, so it goes on to the menu
   // (and ⇧⌘D, Dock Chat, is another key; the menu check above found no key used twice).
@@ -795,7 +795,7 @@ test('in a terminal, ⌘D and ⌘↩ go on to the app, and ⌘⌫ deletes the li
       }
     })
   })
-  // A line typed, then ⌘D (Select Element), ⌘↩ (Allow) and ⌘⌫ (here, the line).
+  // A line typed, then ⌘D (Design Mode), ⌘↩ (Allow) and ⌘⌫ (here, the line).
   await session.chrome.keyboard.type(' echo stray-$((3+4))')
   await session.chrome.keyboard.press('Meta+d')
   await session.chrome.keyboard.press('Meta+Enter')

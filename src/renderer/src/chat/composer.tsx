@@ -279,7 +279,7 @@ export function Composer({
         {unseenProblem && <ProblemsLine meta={meta} running={running} />}
         {firstMessage && meta.canSelect && meta.selection.length === 0 && !unseenProblem && (
           <Line tone="info" icon={MousePointer2}>
-            Select something in the preview <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
+            Click something in design mode <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
           </Line>
         )}
         <QueuedMessages meta={meta} running={running} />

@@ -899,7 +899,7 @@ function ChatBubble({ running, picking }: { running: boolean; picking: boolean }
         type="button"
         aria-label="Show chat"
         aria-describedby={statusId}
-        title={picking ? 'Show chat (stops selecting)' : 'Show chat'}
+        title={picking ? 'Show chat (exits design mode)' : 'Show chat'}
         onClick={() => (picking ? gui.stopSelecting() : gui.expandChat())}
         // Floats over the page like the panel, so the same strong hairline and shadow.
         className={cn(
@@ -924,7 +924,7 @@ function ChatBubble({ running, picking }: { running: boolean; picking: boolean }
       </button>
       <span id={statusId} hidden>
         {status}
-        {picking && 'Stops selecting.'}
+        {picking && 'Exits design mode.'}
       </span>
     </>
   )

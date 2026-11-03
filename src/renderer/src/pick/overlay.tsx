@@ -158,7 +158,7 @@ export function PickOverlay() {
   return (
     <div
       role="application"
-      aria-label="Select in the preview"
+      aria-label="Design mode"
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

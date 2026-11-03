@@ -9,7 +9,7 @@ const github = 'https://github.com/brijr/gui'
 const sections = [
   ['start', 'What you need'],
   ['projects', 'Open a project'],
-  ['select', 'Select and ask'],
+  ['select', 'Design mode'],
   ['chat', 'The chat'],
   ['sizes', 'Screen sizes'],
   ['recordings', 'Screenshots and recordings'],
@@ -26,7 +26,7 @@ const shortcuts = [
   ['New canvas', '⌥⌘N'],
   ['New tab', '⌘T'],
   ['Close the tab', '⌘W'],
-  ['Select an element or area', '⌘D'],
+  ['Design mode', '⌘D'],
   ['Screenshot', '⇧⌘S'],
   ['Record the page', '⌥⌘R'],
   ['Desktop, Laptop, Tablet, Mobile', '⌘1 – ⌘4'],
@@ -48,7 +48,7 @@ const shortcuts = [
 
 <TextPage
   title="Docs"
-  description="How to use Gui: open a project, select an element, work with your agent, record the page, and design on a canvas."
+  description="How to use Gui: open a project, select an element in design mode, work with your agent, record the page, and design on a canvas."
   path="/docs"
 >
   <p>
@@ -111,10 +111,10 @@ const shortcuts = [
     different one.
   </p>
 
-  <h2 id="select">Select and ask</h2>
+  <h2 id="select">Design mode</h2>
   <p>
-    Click <strong>Select</strong> in the toolbar, or press ⌘D. Gui outlines the element under the
-    pointer and shows its component and its size.
+    Click <strong>Design mode</strong> in the toolbar, or press ⌘D. Gui outlines the element under
+    the pointer and shows its component and its size.
   </p>
   <ul>
     <li>Click an element to select it.</li>
@@ -222,7 +222,7 @@ const shortcuts = [
     <li>Drag across the board, or Shift-click, to select frames. Your next message is about them.</li>
     <li>⌥⌘G puts the selected frames in a section, ⌥⌘D duplicates them, and ⇧⌘E exports them as PNGs.</li>
     <li>
-      Double-click a frame to open it live. You can select elements and change the size as in a
+      Double-click a frame to open it live. You can use design mode and change the size as in a
       project. Click <strong>Canvas</strong> or press Esc to go back.
     </li>
   </ul>

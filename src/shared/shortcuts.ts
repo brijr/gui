@@ -210,13 +210,13 @@ export const SHORTCUTS = {
     description: 'Page at 100%, or a device frame back to fit',
   },
   selectElement: {
-    label: 'Select Element',
+    label: 'Design Mode',
     accelerator: 'CmdOrCtrl+D',
     // Chrome DevTools' key for the same, which Gui had first.
     alternates: ['Shift+CmdOrCtrl+C'],
     menu: 'view',
     group: 'preview',
-    description: 'Select an element or area to change (Esc when done)',
+    description: 'Design mode: click an element or drag out an area to change (Esc when done)',
   },
   screenshot: {
     label: 'Screenshot…',

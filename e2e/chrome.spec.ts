@@ -180,7 +180,7 @@ test('the start tab offers project actions; a project fills the toolbar, without
   await expect(chat).toHaveAttribute('title', 'Hide chat (⌘B)')
   await expect(chat).toHaveAttribute('aria-keyshortcuts', 'Meta+B')
   await expect(bar.getByRole('button', { name: 'Viewport: Desktop', exact: true })).toBeVisible()
-  await expect(bar.getByRole('button', { name: 'Select element', exact: true })).toBeVisible()
+  await expect(bar.getByRole('button', { name: 'Design mode', exact: true })).toBeVisible()
   // The agent is switched from the chat's header (and the start screen), not the toolbar.
   await expect(bar.getByRole('button', { name: agentName(state.agentId) })).toHaveCount(0)
   await session.shot('running')

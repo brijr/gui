@@ -26,7 +26,8 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | dev server | server, start command, "Start app" | drawer, View menu, setup cards | Sentences about what the user sees say "your app": "Your app stopped". The command field is "Dev server command"; the button is "Start dev server" ("Start Dev Server" in menus and dialogs) |
 | Trust project, Trusted projects | Allow, approve | trust prompts (dev server, agent), Settings → Projects | One switch: a trusted project runs its dev server and agents without asking |
 | dependencies | packages | setup cards, address bar status | "Installing dependencies…", "Gui will install its dependencies and start it" |
-| select | pick, picked | "Select element" (⌘D), composer and message lists ("Selected", "2 selected"), empty chat | Code names (`Picked`, `pick/`) stay |
+| Design mode | Select element, selection mode, picking (as the mode's name) | toolbar tooltip, View menu ("Design Mode"), chat bubble ("Exits design mode"), empty chat, agent prompt | The ⌘D mode. Inside it the user selects elements and areas. Code names (`selectElement`, `selecting`) stay |
+| select | pick, picked | composer and message lists ("Selected", "2 selected") | Code names (`Picked`, `pick/`) stay |
 | Show as sidebar / Show as floating panel | Float panel, Dock | chat header (`chat-panel.tsx`) | Menu: "Chat as Sidebar". Settings: "Show the chat as a sidebar" |
 | Clone… | Clone by URL, Open from GitHub | start screen, File and project menus (⇧⌘O) | One form: connected GitHub repositories above the address field, or Connect GitHub |
 | Undo / Undo to here | — | message result (`turn-view.tsx`) | "Undo to here" on an older message undoes the later ones too, and asks first: "Undo this and 2 later messages? You can redo." ⌘Z acts on the agent's change only while the chat is showing |

@@ -185,7 +185,7 @@ export function Toolbar({ state }: { state: WindowState }) {
             {
               type: 'checkbox',
               id: 'select',
-              label: 'Select Element',
+              label: 'Design Mode',
               shortcut: 'selectElement',
               checked: preview.selecting,
               enabled: capturable,
@@ -403,7 +403,7 @@ function BoardToolbar({
             {
               type: 'checkbox',
               id: 'select',
-              label: 'Select Element',
+              label: 'Design Mode',
               shortcut: 'selectElement',
               checked: preview.selecting,
               enabled: capturable,
@@ -444,7 +444,7 @@ function BoardToolbar({
           : [
               {
                 id: 'select',
-                label: 'Select Element',
+                label: 'Design Mode',
                 shortcut: 'selectElement',
                 enabled: canPick,
               } as const,
@@ -624,7 +624,7 @@ function BoardToolbar({
               )}
               {shown('select') && (
                 <IconButton
-                  label="Select element"
+                  label="Design mode"
                   shortcut="selectElement"
                   icon={MousePointer2}
                   disabled={!canPick}
@@ -765,7 +765,7 @@ function SelectButton({
 }) {
   return (
     <IconButton
-      label="Select element"
+      label="Design mode"
       shortcut="selectElement"
       icon={MousePointer2}
       pressed={selecting}
