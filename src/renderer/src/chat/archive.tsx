@@ -195,7 +195,7 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
       }}
       placement={placement}
     >
-      <div className="flex shrink-0 flex-col gap-0.5 border-b border-line px-3 pt-2.5 pb-2">
+      <div className="flex shrink-0 flex-col gap-0.5 border-b-hairline border-line px-3 pt-2.5 pb-2">
         <GroupLabel as="h2">Archived chats</GroupLabel>
       </div>
       {filterable && (
@@ -250,7 +250,9 @@ function ArchiveList({ id, open, placement, button, onClose }: ArchiveListProps)
         </ul>
       )}
       {error && (
-        <InlineError className="shrink-0 border-t border-line px-3 py-2">{error}</InlineError>
+        <InlineError className="shrink-0 border-t-hairline border-line px-3 py-2">
+          {error}
+        </InlineError>
       )}
     </Popover>,
     document.body,

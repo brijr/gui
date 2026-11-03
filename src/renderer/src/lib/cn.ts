@@ -13,6 +13,7 @@ const merge = extendTailwindMerge({
         'canvas',
         'surface',
         'raised',
+        'overlay',
         'line',
         'line-strong',
         'fill',

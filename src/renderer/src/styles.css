@@ -37,6 +37,7 @@
   --color-canvas: var(--canvas);
   --color-surface: var(--surface);
   --color-raised: var(--raised);
+  --color-overlay: var(--overlay);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-fill: var(--fill);
@@ -229,6 +230,8 @@
   --surface: #f7f7f7;
   /* Cards, popovers, fields, the chat panel's body */
   --raised: #ffffff;
+  /* Popovers, menus and dialogs: in dark, a step lighter than whatever they open over */
+  --overlay: #ffffff;
   --line: rgb(0 0 0 / 0.08);
   --line-strong: rgb(0 0 0 / 0.14);
   /* Neutral fills: switch tracks, idle dots, inline code, badges, segmented tracks */
@@ -260,15 +263,15 @@
   /* Agent icons: a dark tile in either appearance, with an edge that holds on dark rows */
   --tile: #000000;
   --tile-fg: #ffffff;
-  --tile-edge: rgb(0 0 0 / 0.08);
+  --tile-edge: transparent;
   /* Behind a modal sheet */
   --scrim: rgb(0 0 0 / 0.24);
   /* Selected text, in the page and the terminals */
   --selection: oklch(0 0 0 / 0.14);
   /* Cards on the canvas */
   --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.06);
-  /* Bordered controls (secondary buttons, fields' neighbours): a lift and a lit top edge */
-  --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
+  /* Bordered controls (secondary buttons, fields' neighbours): a slight lift */
+  --elevation-control: 0 1px 1px rgb(0 0 0 / 0.04);
   /* Menus and pickers */
   --elevation-popover: 0 8px 24px rgb(0 0 0 / 0.14), 0 1px 3px rgb(0 0 0 / 0.08);
   /* Modal sheets and dialogs, a step above popovers */
@@ -304,6 +307,7 @@
     --canvas: #0e0e0f;
     --surface: #18181a;
     --raised: #202023;
+    --overlay: #2a2a2d;
     --line: rgb(255 255 255 / 0.08);
     --line-strong: rgb(255 255 255 / 0.15);
     --fill: rgb(255 255 255 / 0.08);
@@ -329,18 +333,14 @@
     --tile-edge: rgb(255 255 255 / 0.16);
     --scrim: rgb(0 0 0 / 0.5);
     --selection: oklch(1 0 0 / 0.2);
-    /* A lit top edge so cards separate from the canvas, which a shadow alone can't do here */
-    --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4), inset 0 1px 0 rgb(255 255 255 / 0.04);
-    --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.06);
-    --elevation-sheet:
-      0 24px 64px rgb(0 0 0 / 0.6), 0 0 0 1px rgb(0 0 0 / 0.5),
-      inset 0 1px 0 rgb(255 255 255 / 0.07);
-    --elevation-popover:
-      0 8px 24px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
-    /* Stronger, with a dark outline and an inner highlight, so it holds over dark previews. */
-    --elevation-panel:
-      0 4px 14px rgb(0 0 0 / 0.55), 0 0 0 1px rgb(0 0 0 / 0.5),
-      inset 0 1px 0 rgb(255 255 255 / 0.07);
+    /* Shadows only; every elevated surface draws its own 1px border, which carries the edge
+       here where a shadow barely shows. */
+    --elevation-raised: 0 1px 2px rgb(0 0 0 / 0.4);
+    --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3);
+    --elevation-sheet: 0 24px 64px rgb(0 0 0 / 0.6);
+    --elevation-popover: 0 8px 24px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.3);
+    /* Stronger, so the panel holds over dark previews. */
+    --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.55);
 
     --terminal-black: #768390;
     --terminal-red: #ff7b72;
@@ -747,6 +747,12 @@ html.transparent body {
 }
 @utility border-t-hairline {
   border-top-width: var(--hairline);
+}
+@utility border-l-hairline {
+  border-left-width: var(--hairline);
+}
+@utility border-r-hairline {
+  border-right-width: var(--hairline);
 }
 @utility divide-hairline {
   :where(& > :not(:last-child)) {

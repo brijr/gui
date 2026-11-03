@@ -451,7 +451,7 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
       </div>
       {rows.length === 0 && <PopoverNote>No models match</PopoverNote>}
       {effort && (
-        <div className="flex shrink-0 flex-col gap-1.5 border-t border-line p-2">
+        <div className="flex shrink-0 flex-col gap-1.5 border-t-hairline border-line p-2">
           <GroupLabel id={effortId} className="px-1">
             Effort
           </GroupLabel>

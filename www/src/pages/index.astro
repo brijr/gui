@@ -744,7 +744,8 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     padding: var(--s-4);
     border: 1px solid var(--rule);
     border-radius: 1rem;
-    background: var(--bg);
+    /* In the dark, a step lighter than the page, so it reads as above it. */
+    background: light-dark(var(--bg), #1e1e1e);
     color: var(--fg);
     font-size: 1rem;
   }
@@ -775,9 +776,15 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
   }
   .dialog::backdrop {
-    background: rgba(0, 0, 0, 0.32);
+    background: rgb(0 0 0 / 0.24);
     opacity: 0;
     transition: opacity 120ms cubic-bezier(0.4, 0, 1, 1), display 120ms allow-discrete, overlay 120ms allow-discrete;
+  }
+  /* A media query, not light-dark(): the backdrop does not reliably inherit color-scheme. */
+  @media (prefers-color-scheme: dark) {
+    .dialog::backdrop {
+      background: rgb(0 0 0 / 0.5);
+    }
   }
   .dialog[open]::backdrop {
     opacity: 1;

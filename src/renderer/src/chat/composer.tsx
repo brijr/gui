@@ -267,7 +267,7 @@ export function Composer({
         onPointerDown={(event) => event.target === event.currentTarget && onGrab?.(event)}
         style={maxHeight ? { maxHeight } : undefined}
         className={cn(
-          'flex min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t p-2 transition-colors',
+          'flex min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t-hairline p-2 transition-colors',
           !maxHeight && 'max-h-3/5',
           onGrab && 'cursor-grab active:cursor-grabbing *:cursor-auto',
           alone ? 'border-transparent' : 'border-line',

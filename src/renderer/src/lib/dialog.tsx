@@ -84,7 +84,7 @@ export function Dialog({
       onClick={onClick}
       onClose={onClosed}
       className={cn(
-        'no-drag m-auto flex w-full flex-col overflow-hidden rounded-xl border border-line bg-raised p-0 text-fg shadow-sheet outline-none not-open:hidden backdrop:bg-scrim',
+        'no-drag m-auto flex w-full flex-col overflow-hidden rounded-xl border border-line bg-overlay p-0 text-fg shadow-sheet outline-none not-open:hidden backdrop:bg-scrim',
         size === 'md' ? 'max-w-lg' : 'max-w-2xl',
         // In and out: the dialog and its backdrop stay in the top layer while they fade.
         'transition-[opacity,scale,display,overlay] transition-discrete duration-(--motion-panel) ease-out',

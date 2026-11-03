@@ -105,7 +105,7 @@ export function ChatPanel() {
         className={cn(
           'group/chat relative flex h-dvh flex-col bg-raised',
           !meta.popped && 'border-line-strong',
-          !meta.popped && (meta.sidebarSide === 'left' ? 'border-r' : 'border-l'),
+          !meta.popped && (meta.sidebarSide === 'left' ? 'border-r-hairline' : 'border-l-hairline'),
         )}
       >
         {!meta.popped && (

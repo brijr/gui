@@ -197,14 +197,14 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
 <style is:global>
   /* Gui's tokens are in src/styles/gui.css; these are the desktop's own. */
   .demo {
-    --desk: linear-gradient(#f3d3a8, #b9c4d6);
+    /* Under the photo while it loads: its average color (flat, so it cannot band). */
+    --desk: #a59fa2;
     --desk-dim: transparent;
     --elevation-window: 0 30px 80px rgb(0 0 0 / 0.18), 0 8px 24px rgb(0 0 0 / 0.08);
     display: contents;
   }
   @media (prefers-color-scheme: dark) {
     .demo {
-      --desk: linear-gradient(#3a2e2a, #141a24);
       --desk-dim: rgb(8 10 16 / 0.45);
       --elevation-window: 0 30px 80px rgb(0 0 0 / 0.6), 0 8px 24px rgb(0 0 0 / 0.4);
     }
@@ -318,7 +318,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .edge {
     z-index: 5;
     pointer-events: none;
-    box-shadow: inset 0 0 0 0.5px var(--line-strong);
+    box-shadow: inset 0 0 0 var(--hairline) var(--line-strong);
   }
   .demo .cursor {
     z-index: 6;
@@ -411,7 +411,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 6px;
     padding: 0 8px 0 14px;
     background: var(--surface);
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--hairline) solid var(--line);
     border-radius: 12px 12px 0 0;
     pointer-events: auto;
     color: var(--c-muted);
@@ -575,12 +575,12 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     display: flex;
     flex-direction: column;
     background: var(--raised);
-    box-shadow: 1px 0 0 var(--line);
+    box-shadow: 1px 0 0 var(--line-strong);
     border-radius: 0 0 0 12px;
     pointer-events: auto;
   }
   .demo[data-narrow] .chat {
-    box-shadow: 0 -1px 0 var(--line);
+    box-shadow: 0 -1px 0 var(--line-strong);
     border-radius: 0 0 12px 12px;
   }
   .demo .chat-head {
@@ -590,7 +590,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 6px;
     height: 36px;
     padding: 0 6px 0 12px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--hairline) solid var(--line);
     color: var(--c-muted);
   }
   .demo .chat-head .tool {
@@ -613,7 +613,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .demo-guide {
     flex: none;
     padding: 8px 12px;
-    border-bottom: 1px solid var(--line);
+    border-bottom: var(--hairline) solid var(--line);
     color: var(--c-muted);
     font-size: 12px;
     line-height: 1.4;

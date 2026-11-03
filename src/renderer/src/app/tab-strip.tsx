@@ -324,7 +324,7 @@ export function TabStrip({ state }: { state: WindowState }) {
                 'data-front:z-sticky',
                 // The hairline sits in the 4px gap before the tab, just outside its border.
                 divided &&
-                  "before:absolute before:-left-0.75 before:h-3.5 before:w-px before:bg-line before:content-['']",
+                  "before:absolute before:-left-0.75 before:h-3.5 before:w-(--hairline) before:bg-line before:content-['']",
               )}
             >
               <button

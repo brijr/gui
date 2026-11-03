@@ -105,7 +105,7 @@ export function VersionsSheet() {
             )}
           </div>
           {error && (
-            <div className="shrink-0 border-t border-line p-2">
+            <div className="shrink-0 border-t-hairline border-line p-2">
               <InlineError className="flex max-h-40 gap-1.5 overflow-y-auto scroll-stable px-1">
                 <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden="true" />
                 <span className="min-w-0 whitespace-pre-wrap break-words">{error}</span>

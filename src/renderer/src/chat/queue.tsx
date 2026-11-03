@@ -49,8 +49,9 @@ const ROW_HIT_AREA =
   'relative before:absolute before:-inset-x-px before:-inset-y-0.5 before:no-drag'
 
 const REVEAL =
-  'absolute inset-y-0 right-7 flex items-center pl-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
-const REVEAL_FADE = { background: 'linear-gradient(to right, transparent, var(--surface) 16px)' }
+  'absolute inset-y-0 right-7 flex items-center bg-surface pl-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
+/** The fade is a mask, so the backing matches the row's under it, drop-target tint and all. */
+const REVEAL_FADE = { maskImage: 'linear-gradient(to right, transparent, #000 16px)' }
 
 /**
  * Messages sent while the agent was busy, oldest first, just above the composer. Each
@@ -293,7 +294,10 @@ function QueuedItem({
           <span className="sr-only">{item.attachments.length === 1 ? ' image' : ' images'}</span>
         </span>
       )}
-      <div className={REVEAL} style={REVEAL_FADE}>
+      <div
+        className={cn(REVEAL, isOver && 'bg-[image:linear-gradient(var(--hover),var(--hover))]')}
+        style={REVEAL_FADE}
+      >
         <IconButton
           className={ROW_HIT_AREA}
           size="sm"

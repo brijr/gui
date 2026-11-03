@@ -272,7 +272,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         {announcementsReady && guide.caption && (
           <div
             key={`caption-${guide.step}`}
-            className="pointer-events-none absolute max-w-70 animate-row-in rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover motion-reduce:animate-row-fade"
+            className="pointer-events-none absolute max-w-70 animate-row-in rounded-lg border border-line bg-overlay px-3 py-2 text-small text-fg shadow-popover motion-reduce:animate-row-fade"
             style={captionPlace(guide.rect)}
           >
             {guide.caption}
@@ -313,7 +313,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         <div
           role="status"
           data-guide-held=""
-          className="pointer-events-none absolute max-w-70 motion-safe:animate-fade-in motion-reduce:animate-row-fade rounded-lg border border-line bg-raised px-3 py-2 text-small text-fg shadow-popover"
+          className="pointer-events-none absolute max-w-70 motion-safe:animate-fade-in motion-reduce:animate-row-fade rounded-lg border border-line bg-overlay px-3 py-2 text-small text-fg shadow-popover"
           style={notePlace(heldNote)}
         >
           The agent is using this website. Stop it to use it yourself.
@@ -422,7 +422,7 @@ function Hint({ shown }: { shown: boolean }) {
       className={cn(
         // As wide as its words, up to the overlay's width less the margins (a phone frame is
         // narrow): then whole phrases wrap to a second row, never a phrase across two.
-        'pointer-events-none absolute top-2 right-2 left-2 flex w-fit flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-raised px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel) *:whitespace-nowrap',
+        'pointer-events-none absolute top-2 right-2 left-2 flex w-fit flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-line bg-overlay px-2.5 py-1.5 text-small text-muted shadow-popover transition-opacity duration-(--motion-panel) *:whitespace-nowrap',
         shown
           ? 'opacity-100'
           : 'opacity-0 duration-(--motion-exit) ease-in motion-reduce:duration-(--motion-fade)',

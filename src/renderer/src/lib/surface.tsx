@@ -158,7 +158,7 @@ export function Popover({
           : style
       }
       className={cn(
-        'flex flex-col overflow-hidden rounded-lg border border-line bg-raised text-fg shadow-popover',
+        'flex flex-col overflow-hidden rounded-xl border border-line bg-overlay text-fg shadow-popover',
         placement && 'fixed z-popover',
         'transition-[opacity,scale] duration-(--motion-pop) ease-out',
         !instant && 'starting:opacity-0 motion-safe:starting:scale-97',
