@@ -1,11 +1,13 @@
 ---
 import Base from '../layouts/Base.astro'
 
+// A page of text: the docs, the changelog, and the legal pages.
 interface Props {
   title: string
   description: string
   path: string
-  updated: string
+  /** For a page that is changed by hand, such as the terms: when it last changed */
+  updated?: string
 }
 
 const { title, description, path, updated } = Astro.props
@@ -16,9 +18,12 @@ const { title, description, path, updated } = Astro.props
     <img src="/brand/gui-mark.svg" alt="" width="40" height="40" />
   </a>
   <h1>{title}</h1>
-  <p class="updated">Updated {updated}</p>
-  <div class="legal"><slot /></div>
-  <footer><a href="/">Gui</a> · <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a></footer>
+  {updated && <p class="updated">Updated {updated}</p>}
+  <div class="prose"><slot /></div>
+  <footer>
+    <a href="/">Gui</a> · <a href="/docs">Docs</a> · <a href="/changelog">Changelog</a> ·{' '}
+    <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a>
+  </footer>
 </Base>
 
 <style>
@@ -32,29 +37,40 @@ const { title, description, path, updated } = Astro.props
     line-height: 1.08;
     letter-spacing: -0.035em;
     font-weight: 250;
+    margin-bottom: var(--s-5);
+  }
+  h1:has(+ .updated) {
     margin-bottom: var(--s-2);
   }
   .updated {
     color: var(--muted);
     margin-bottom: var(--s-5);
   }
-  .legal {
+  .prose {
     max-width: 40rem;
   }
-  .legal :global(h2) {
+  .prose :global(h2) {
     font-size: 1.25rem;
     font-weight: 400;
     margin: var(--s-5) 0 var(--s-3);
+    scroll-margin-top: var(--s-4);
   }
-  .legal :global(p),
-  .legal :global(ul) {
+  .prose :global(p),
+  .prose :global(ul) {
     margin-bottom: var(--s-3);
   }
-  .legal :global(ul) {
+  .prose :global(ul) {
     padding-left: var(--s-4);
   }
-  .legal :global(li) {
+  .prose :global(li) {
     margin-bottom: var(--s-2);
+  }
+  .prose :global(strong) {
+    font-weight: 400;
+  }
+  .prose :global(code) {
+    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+    font-size: 0.85em;
   }
   footer {
     margin-top: var(--s-6);

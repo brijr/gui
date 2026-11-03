@@ -1,0 +1,334 @@
+---
+import TextPage from '../components/TextPage.astro'
+
+// For people who download Gui, about the released app. The source is docs/using-gui.md and
+// the shortcuts in src/shared/shortcuts.ts; leave out what has not shipped yet.
+const feedback = 'https://x.com/bridgertower'
+const github = 'https://github.com/brijr/gui'
+
+const sections = [
+  ['start', 'What you need'],
+  ['projects', 'Open a project'],
+  ['select', 'Select and ask'],
+  ['chat', 'The chat'],
+  ['sizes', 'Screen sizes'],
+  ['recordings', 'Screenshots and recordings'],
+  ['terminal', 'Terminal and logs'],
+  ['canvases', 'Canvases'],
+  ['github', 'GitHub'],
+  ['shortcuts', 'Keyboard shortcuts'],
+  ['data', 'Your data'],
+  ['help', 'Help'],
+] as const
+
+const shortcuts = [
+  ['Open a project folder', '⌘O'],
+  ['New canvas', '⌥⌘N'],
+  ['New tab', '⌘T'],
+  ['Close the tab', '⌘W'],
+  ['Select an element or area', '⌘D'],
+  ['Screenshot', '⇧⌘S'],
+  ['Record the page', '⌥⌘R'],
+  ['Desktop, Laptop, Tablet, Mobile', '⌘1 – ⌘4'],
+  ['Zoom in, zoom out, fit', '⌘+ ⌘− ⌘0'],
+  ['Focus mode', '⌘\\'],
+  ['Show or hide the chat', '⌘B'],
+  ['Go to the message box', '⌘L'],
+  ['Chat as a sidebar, or floating', '⇧⌘D'],
+  ['New chat', '⇧⌘K'],
+  ['Stop the agent', '⌘.'],
+  ['Auto or Ask', '⇧⌘A'],
+  ['Allow, or don’t allow', '⌘↩ ⌘⌫'],
+  ['Undo the agent’s last change', '⌘Z'],
+  ['Terminal and logs', '⌘J'],
+  ['Settings', '⌘,'],
+  ['All shortcuts', '⌘/'],
+] as const
+---
+
+<TextPage
+  title="Docs"
+  description="How to use Gui: open a project, select an element, work with your agent, record the page, and design on a canvas."
+  path="/docs"
+>
+  <p>
+    Gui shows your web app in a window and puts your coding agent on top of it. Select part of
+    the page, say what to change, and the agent edits your code. This page covers the parts of
+    Gui that you use every day.
+  </p>
+
+  <nav class="contents" aria-label="On this page">
+    <ul>
+      {sections.map(([id, name]) => <li><a href={`#${id}`}>{name}</a></li>)}
+    </ul>
+  </nav>
+
+  <h2 id="start">What you need</h2>
+  <ul>
+    <li>A Mac with Apple silicon (M1 or later) and macOS 13 or later.</li>
+    <li>A Gui account. Sign in with Google, GitHub, or a code sent to your email. Gui is free during the alpha.</li>
+    <li>
+      A coding agent, for example Claude Code or Codex. Gui does not include an AI model. It uses
+      the agent on your Mac, with your login and your plan.
+    </li>
+  </ul>
+  <p>
+    <a href="/download">Download Gui</a>, open Gui.dmg, and drag Gui to Applications. When you
+    first open it, Gui shows your agents. <strong>Install</strong> gets Claude Code or Codex for
+    you, and <strong>Sign in</strong> starts the agent’s login.
+  </p>
+  <p>
+    Gui also works with Cursor, Amp, OpenCode, Grok Build, Kiro, Devin, Pi, Muse Code and fx, and
+    with other agents that use ACP. Add an agent, or turn off the ones you don’t use, in{' '}
+    <strong>Settings&nbsp;→ Agents</strong>.
+  </p>
+  <p>Gui updates itself. To check now, choose <strong>Gui&nbsp;→ Check for Updates…</strong></p>
+
+  <h2 id="projects">Open a project</h2>
+  <p>
+    On the start screen, click <strong>Open project…</strong> and choose your project folder. Gui
+    finds the package manager and the dev script. The first time, it shows you the command and
+    asks before it runs it. If the dependencies are missing, Gui installs them in the same step.
+    In a monorepo, Gui asks which app to show. If the project has a <code>.env.example</code>,
+    Gui offers to make <code>.env.local</code> from it.
+  </p>
+  <p>
+    Then Gui starts the dev server and shows your app. Any app on a local dev server works. For
+    React (Vite and Next.js) and Astro, Gui also finds the source file of each element.
+  </p>
+  <p>
+    To start from nothing, click <strong>New project…</strong> and choose Website, Dashboard, or
+    Blank.
+  </p>
+  <p>
+    Each project opens in its own tab, with its own preview, chat, dev server and agent. Tabs in
+    the background keep running. A tab shows when its agent is working, is waiting for you, or
+    has failed.
+  </p>
+  <p>
+    To open folders from Terminal, choose <strong>Gui&nbsp;→ Install 'gui' Command…</strong> once.
+    Then <code>gui</code> opens the current folder, and <code>gui path/to/app</code> opens a
+    different one.
+  </p>
+
+  <h2 id="select">Select and ask</h2>
+  <p>
+    Click <strong>Select</strong> in the toolbar, or press ⌘D. Gui outlines the element under the
+    pointer and shows its component and its size.
+  </p>
+  <ul>
+    <li>Click an element to select it.</li>
+    <li>Drag across the page to select an area.</li>
+    <li>Hold Shift to select more than one. Shift-click a selected element to remove it.</li>
+    <li>Press Esc when you are done.</li>
+  </ul>
+  <p>
+    Then write the change in the chat. Each selection goes with your message: a screenshot, its
+    HTML and styles, and the file and line it came from. You can also paste or drag a reference
+    image into the chat. The agent sees it.
+  </p>
+  <p>To change a few words, double-click the text on the page and type.</p>
+
+  <h2 id="chat">The chat</h2>
+  <p>
+    The agent’s name at the top of the chat switches agents or starts a new chat. The model
+    button chooses the agent’s model and effort.
+  </p>
+  <p>
+    While the agent works, the chat shows each step. When it is done, the steps fold into one
+    line, and the chat shows what changed: the selected element before and after, and the files.
+    Click <strong>Undo</strong> to put the files back, or <strong>Follow up</strong> to ask for
+    more. On an earlier message, <strong>Undo to here</strong> undoes that change and each change
+    after it. Gui asks first.
+  </p>
+  <p>
+    Gui keeps a copy of your project files before and after each change, and Undo uses these
+    copies. Gui does not change your git history. It also does not commit, push or make branches.
+    Ask your agent for that, or use the terminal.
+  </p>
+  <p>
+    Messages that you send while the agent works wait in a queue above the message box, and run
+    in order. You can edit a queued message, drag it to a new place, remove it, or click{' '}
+    <strong>Send now</strong>. <strong>Stop</strong> stops the agent and pauses the queue.
+  </p>
+  <p>
+    <strong>Auto</strong> and <strong>Ask</strong> set what the agent can do without you. Auto is
+    on by default. In Auto, Gui lets the agent edit project files and run commands. It still asks
+    you about files outside the project, sensitive files such as config files, lockfiles,{' '}
+    <code>package.json</code> and git hooks, and anything the agent flags. Commands do not run in
+    a sandbox. In Ask, Gui asks you about everything except edits to ordinary project files. Each
+    project keeps its own setting. When the agent waits for you, press ⌘↩ to allow or ⌘⌫ to not
+    allow.
+  </p>
+  <p>
+    The chat floats on the page. Drag it by its header to a different corner, and drag an edge to
+    resize it. ⇧⌘D shows it as a sidebar, and ⌘B hides it. Errors from the console and the build
+    show above the message box, with a button that gives the error to your agent.
+  </p>
+
+  <h2 id="sizes">Screen sizes</h2>
+  <p>The size menu in the toolbar shows your app at four sizes:</p>
+  <ul>
+    <li>Desktop (⌘1) fills the window.</li>
+    <li>Laptop (⌘2) is 1440 × 900.</li>
+    <li>Tablet (⌘3) is 820 × 1180.</li>
+    <li>Mobile (⌘4) is 390 × 844.</li>
+  </ul>
+  <p>
+    In a small window, Gui draws the device frame smaller and shows how much. The page still lays
+    out at the full size, and the agent knows which size you look at. ⌘+ and ⌘− zoom, and ⌘0
+    goes back. Focus mode (⌘\) hides everything except the page, until you press Esc.
+  </p>
+
+  <h2 id="recordings">Screenshots and recordings</h2>
+  <p>
+    The camera button in the toolbar copies or saves a screenshot of the page, or attaches it to
+    the chat. It takes the visible area or the full page.
+  </p>
+  <p>
+    <strong>Record</strong> makes a video of the page only, up to 60 seconds long. When you stop,
+    the clip goes with your next message. The agent can examine each frame of an animation.
+    Agents that cannot read images cannot see the clip.
+  </p>
+  <p>
+    To talk while you record, turn on the microphone next to <strong>Record</strong>, then point at
+    the problem as you speak. Your Mac makes the transcript, so your voice does not go to a
+    server. The agent gets your words and where the pointer was when you said them. Narrated
+    recordings can be up to 3 minutes long and need macOS 26 or later. Gui uses the microphone
+    only while you record with narration on.
+  </p>
+
+  <h2 id="terminal">Terminal and logs</h2>
+  <p>
+    The dot at the start of the address bar shows the dev server’s status. Click it to restart or
+    stop the server, show its logs, or open your app in your browser. If the server stops with an
+    error, a bar under the page shows its logs and a button to restart it.
+  </p>
+  <p>
+    ⌘J opens the drawer under the page, with the dev server’s logs and your terminals. A terminal
+    is your own shell, in the project folder. Click <strong>+</strong> to add one, and press ⌘K
+    to clear it. Terminals keep running when you go to a different tab.
+  </p>
+
+  <h2 id="canvases">Canvases</h2>
+  <p>
+    A canvas is a board for designs, with no project folder and no dev server. Click{' '}
+    <strong>New canvas</strong> on the start screen. Ask the agent for a page, or for a few
+    versions of one. Each version is a frame on the board, in one HTML file. You can move,
+    resize, name and compare frames, like artboards in Figma.
+  </p>
+  <ul>
+    <li>Scroll to pan. Pinch or ⌘-scroll to zoom. Press H for the hand tool and V to move frames.</li>
+    <li>Drag across the board, or Shift-click, to select frames. Your next message is about them.</li>
+    <li>⌥⌘G puts the selected frames in a section, ⌥⌘D duplicates them, and ⇧⌘E exports them as PNGs.</li>
+    <li>
+      Double-click a frame to open it live. You can select elements and change the size as in a
+      project. Click <strong>Canvas</strong> or press Esc to go back.
+    </li>
+  </ul>
+  <p>
+    The agent can take screenshots of a website to use as a reference, for example “make it feel
+    like linear.app”. When a design is ready, right-click its frame and choose{' '}
+    <strong>Turn into Project…</strong> to make a Vite project from it. The project opens in a new
+    tab.
+  </p>
+
+  <h2 id="github">GitHub</h2>
+  <p>
+    <strong>Clone…</strong> on the start screen copies a repository to your Mac. Type its name or
+    address, or connect GitHub to choose from your repositories, private ones too. In{' '}
+    <strong>Settings&nbsp;→ GitHub</strong>, you can connect or disconnect GitHub and choose the
+    repositories that Gui can get. Gui uses the connection only to clone.
+  </p>
+
+  <h2 id="shortcuts">Keyboard shortcuts</h2>
+  <p>
+    <strong>Help&nbsp;→ Keyboard Shortcuts</strong> (⌘/) shows all of them, and each button shows its
+    shortcut in its tooltip. These are the ones you use most:
+  </p>
+  <table class="keys">
+    <tbody>
+      {
+        shortcuts.map(([action, keys]) => (
+          <tr>
+            <td>{action}</td>
+            <td><kbd>{keys}</kbd></td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+
+  <h2 id="data">Your data</h2>
+  <p>
+    Your projects stay on your Mac. Gui keeps your chats, the copies for Undo, recordings and
+    canvases in <code>~/Library/Application Support/Gui</code>. Gui does not send your code,
+    files, chats or screenshots to us. Your agent sends your prompts and code to the company that
+    makes it, under that company’s terms.
+  </p>
+  <p>
+    When Gui has an error, it sends us a crash report without your code or files. To stop them,
+    turn off <strong>Send crash reports</strong> in <strong>Settings&nbsp;→ Account</strong>. The{' '}
+    <a href="/privacy">Privacy</a> page has the details.
+  </p>
+
+  <h2 id="help">Help</h2>
+  <p>
+    Gui is in alpha, so some things will break. Tell us when they do.
+  </p>
+  <ul>
+    <li>
+      <strong>Help&nbsp;→ Contact Support</strong> starts an email to{' '}
+      <a href="mailto:hello@usegui.com">hello@usegui.com</a> with your Gui and macOS versions in
+      it.
+    </li>
+    <li><a href={feedback} target="_blank" rel="noopener">Send a message on X</a>.</li>
+    <li>
+      Report a problem or read the code on <a href={github} target="_blank" rel="noopener">GitHub</a>.
+    </li>
+  </ul>
+</TextPage>
+
+<style>
+  .contents {
+    margin: var(--s-4) 0 var(--s-5);
+  }
+  .contents ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    columns: 2;
+    column-gap: var(--s-4);
+  }
+  .contents li {
+    margin: 0 0 var(--s-1);
+  }
+  @media (max-width: 30rem) {
+    .contents ul {
+      columns: 1;
+    }
+  }
+  .keys {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--s-3);
+  }
+  .keys td {
+    padding: var(--s-2) 0;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: baseline;
+  }
+  .keys tr:first-child td {
+    border-top: 1px solid var(--rule);
+  }
+  .keys td:last-child {
+    text-align: right;
+    padding-left: var(--s-3);
+    white-space: nowrap;
+  }
+  kbd {
+    font: inherit;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.04em;
+  }
+</style>

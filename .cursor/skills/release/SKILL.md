@@ -17,6 +17,7 @@ Do not publish from an agent session. Do not put certificates or notary password
 5. Run `bun run release` (`scripts/release.sh`). It runs `bun run check`, builds, then `electron-builder --mac --publish never`.
 6. `CSC_IDENTITY_AUTO_DISCOVERY` must stay unset for a signed build. Unsigned/ad-hoc builds (`CSC_IDENTITY_AUTO_DISCOVERY=false bun run dist`) get a new signature each time; macOS then re-prompts for the keychain item and the preview stays blank until that is answered.
 7. After the build: `codesign --verify --deep --strict` on `Gui.app`, staple the DMG, confirm `release/$channel-mac.yml` exists. The script refuses to publish if any of that fails.
-8. CI `release-dry-run` only packs when `CSC_LINK` is set; without secrets it checks `electron-builder.yml` and that `scripts/release.sh` parses.
+8. Add the release to the top of `www/src/changelog.ts` (the site's /changelog): its version, the tag's date, and a few plain bullets of what a user would notice.
+9. CI `release-dry-run` only packs when `CSC_LINK` is set; without secrets it checks `electron-builder.yml` and that `scripts/release.sh` parses.
 
 Human review before changing this path.

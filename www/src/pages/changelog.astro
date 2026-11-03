@@ -1,0 +1,38 @@
+---
+import { releases } from '../changelog'
+import TextPage from '../components/TextPage.astro'
+
+const long = new Intl.DateTimeFormat('en-US', { dateStyle: 'long', timeZone: 'UTC' })
+---
+
+<TextPage
+  title="Changelog"
+  description="What changed in each release of Gui, newest first."
+  path="/changelog"
+>
+  <p>What changed in each release of Gui, newest first. Gui updates itself.</p>
+  {
+    releases.map(({ version, date, changes }) => (
+      <section class="release" aria-labelledby={`v${version}`}>
+        <h2 id={`v${version}`}>{version}</h2>
+        <p class="date">
+          <time datetime={date}>{long.format(new Date(`${date}T00:00:00Z`))}</time>
+        </p>
+        <ul>
+          {changes.map((change) => (
+            <li>{change}</li>
+          ))}
+        </ul>
+      </section>
+    ))
+  }
+</TextPage>
+
+<style>
+  .release h2 {
+    margin-bottom: var(--s-1);
+  }
+  .date {
+    color: var(--muted);
+  }
+</style>
