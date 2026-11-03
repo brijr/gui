@@ -307,6 +307,9 @@ function Guide({ guide }: { guide: GuideOverlay }) {
               strokeLinejoin="round"
             />
           </svg>
+          <span className="absolute top-4 left-3 rounded-full bg-accent px-1.5 py-0.5 text-caption font-medium whitespace-nowrap text-knob drop-shadow-pointer select-none">
+            Gui
+          </span>
         </div>
       )}
       {heldNote && guide.held && (
