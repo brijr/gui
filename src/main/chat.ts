@@ -289,7 +289,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       error: null,
       errorDetail: null,
       modeName: null,
-      modeFollowsPolicy: false,
+      modeIsUsual: false,
       selection: [],
       selectionError: null,
       selecting: false,
@@ -437,7 +437,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       error: null,
       errorDetail: null,
       modeName: null,
-      modeFollowsPolicy: false,
+      modeIsUsual: false,
       redoTurnIds: next?.redo?.turnIds ?? [],
       // Offered back only from an empty chat; one brought back was opened from the list.
       archived:
@@ -1603,7 +1603,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.patchMeta({
         status: 'ready',
         modeName: info.modeName,
-        modeFollowsPolicy: agent.modeFollowsPolicy,
+        modeIsUsual: agent.modeIsUsual,
         models: this.nextModels(),
       })
       if (info.commands) this.rememberCommands(agent.agentId, info.commands)
@@ -2034,9 +2034,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   private refreshModeName() {
     const modeName = this.agent?.modeName ?? null
-    const modeFollowsPolicy = this.agent?.modeFollowsPolicy ?? false
-    if (modeName !== this.meta.modeName || modeFollowsPolicy !== this.meta.modeFollowsPolicy) {
-      this.patchMeta({ modeName, modeFollowsPolicy })
+    const modeIsUsual = this.agent?.modeIsUsual ?? false
+    if (modeName !== this.meta.modeName || modeIsUsual !== this.meta.modeIsUsual) {
+      this.patchMeta({ modeName, modeIsUsual })
     }
   }
 

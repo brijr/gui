@@ -582,15 +582,21 @@ export class AgentSession {
   }
 
   /**
-   * Whether the session's mode is one Gui sets for Ask or Auto, rather than one the agent
-   * (or the user, through it) picked, like Plan.
+   * Whether the session's mode goes without saying: one Gui sets for Ask or Auto, or the
+   * first the agent lists, its default (OpenCode's Build). The header names any other, like Plan.
    */
-  get modeFollowsPolicy(): boolean {
-    const wanted = this.controls?.mode
-    if (!wanted) return false
+  get modeIsUsual(): boolean {
     const option = selectSetting(this.configOptions, 'mode')
     const current = option ? option.value : this.modes?.currentModeId
-    return current !== undefined && [...wanted.ask, ...wanted.auto].includes(current)
+    if (current === undefined) return false
+    const listed = option
+      ? settingValues(option)
+      : Array.isArray(this.modes?.availableModes)
+        ? this.modes.availableModes.map((mode) => mode.id)
+        : []
+    if (listed[0] === current) return true
+    const wanted = this.controls?.mode
+    return wanted !== undefined && [...wanted.ask, ...wanted.auto].includes(current)
   }
 
   /** The session's mode, by name: its `mode` config option's, else its ACP session mode's. */

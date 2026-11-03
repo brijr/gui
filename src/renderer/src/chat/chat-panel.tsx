@@ -771,7 +771,7 @@ function Header({ meta }: { meta: ChatMeta }) {
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <AgentSwitcher name={meta.agentName} />
-        {meta.modeName && !meta.modeFollowsPolicy && (
+        {meta.modeName && !meta.modeIsUsual && (
           // Out of the title bar's drag area, or its tooltip never shows.
           <Badge title={meta.modeName} className="no-drag">
             <span className="truncate">{meta.modeName}</span>

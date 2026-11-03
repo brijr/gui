@@ -602,7 +602,7 @@ export class ProjectTab implements ChatPanelOwner {
         errorDetail: null,
         agent: agentHealth.list().find((agent) => agent.id === this.state.agentId) ?? null,
         modeName: null,
-        modeFollowsPolicy: false,
+        modeIsUsual: false,
         commands: [],
         selection: [],
         selectionError: null,
