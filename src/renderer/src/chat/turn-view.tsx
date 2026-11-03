@@ -445,7 +445,9 @@ function Thought({ id, text }: { id: string; text: string }) {
         Thinking
       </Disclosure>
       {open && (
-        <p className={cn(reveal, 'whitespace-pre-wrap pl-4 text-small text-muted')}>{text}</p>
+        <p className={cn(reveal, 'whitespace-pre-wrap break-words pl-4 text-small text-muted')}>
+          {text}
+        </p>
       )}
     </div>
   )
@@ -1132,21 +1134,21 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               )}
             </>
           ) : (
-            !confirming && (
-              <Button
-                size="sm"
-                icon={Undo2}
-                loading={busy === 'undo'}
-                title={
-                  later > 0
-                    ? 'Restore files to how they were before this message, undoing later messages too'
-                    : 'Restore files to how they were before this message'
-                }
-                onClick={() => (later > 0 ? setConfirming(true) : undo())}
-              >
-                {later > 0 ? 'Undo to here' : 'Undo'}
-              </Button>
-            )
+            // Stays while asking, so the row doesn't shift and focus isn't lost; it toggles the question.
+            <Button
+              size="sm"
+              icon={Undo2}
+              loading={busy === 'undo'}
+              aria-expanded={later > 0 ? confirming : undefined}
+              title={
+                later > 0
+                  ? 'Restore files to how they were before this message, undoing later messages too'
+                  : 'Restore files to how they were before this message'
+              }
+              onClick={() => (later > 0 ? setConfirming(!confirming) : undo())}
+            >
+              {later > 0 ? 'Undo to here' : 'Undo'}
+            </Button>
           )}
         </span>
       </div>

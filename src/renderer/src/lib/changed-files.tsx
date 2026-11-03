@@ -36,8 +36,12 @@ export function ChangedFiles({ changes, open }: { changes: FileChange[]; open: b
         <li key={change.path} className="flex min-w-0 items-center gap-2">
           <ChangeMark status={change.status} />
           <PathText path={change.path} className="flex-1 text-muted" />
-          <span className="shrink-0 text-success tabular-nums">+{change.additions}</span>
-          <span className="shrink-0 text-danger tabular-nums">−{change.deletions}</span>
+          <span className="min-w-7 shrink-0 text-right text-success tabular-nums">
+            +{change.additions}
+          </span>
+          <span className="min-w-7 shrink-0 text-right text-danger tabular-nums">
+            −{change.deletions}
+          </span>
         </li>
       ))}
     </ul>

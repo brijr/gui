@@ -64,6 +64,13 @@ const BUTTON_SIZE: Record<ControlSize, string> = {
   lg: 'h-8 gap-1.5 px-3 text-body',
 }
 
+/**
+ * 2px less on the side with an icon: an icon's box is mostly empty at its edges, so even
+ * padding reads as more room on that side than beside the text.
+ */
+const ICON_SIDE: Record<ControlSize, string> = { sm: 'pl-1.5', md: 'pl-2', lg: 'pl-2.5' }
+const TRAILING_SIDE: Record<ControlSize, string> = { sm: 'pr-1.5', md: 'pr-2', lg: 'pr-2.5' }
+
 const VARIANT: Record<ButtonVariant, string> = {
   primary:
     'bg-accent text-accent-fg enabled:not-aria-disabled:hover:bg-accent-hover disabled:bg-fill disabled:text-subtle aria-disabled:bg-fill aria-disabled:text-subtle',
@@ -130,7 +137,15 @@ export function Button({
       title={tooltip && shortcut ? withShortcut(tooltip, shortcut) : tooltip}
       aria-keyshortcuts={shortcut && ariaShortcut(shortcut)}
       // A label starts at the left, even in a button wider than it (text in Gui is never centered).
-      className={cn(CONTROL, 'justify-start', BUTTON_SIZE[size], VARIANT[variant], className)}
+      className={cn(
+        CONTROL,
+        'justify-start',
+        BUTTON_SIZE[size],
+        Icon && !iconOnly && ICON_SIDE[size],
+        Trailing && TRAILING_SIDE[size],
+        VARIANT[variant],
+        className,
+      )}
       {...props}
       aria-disabled={loading || props['aria-disabled']}
       aria-label={props['aria-label']}
@@ -153,8 +168,9 @@ export function Button({
         )
       ) : null}
       {!iconOnly && (
-        <span className="relative">
-          <span id={labelId} className={loading && !Icon ? 'invisible' : undefined}>
+        // Shrinks with the button and ends in "…" where it runs out (min-w-0, block truncate).
+        <span className="relative min-w-0">
+          <span id={labelId} className={cn('block truncate', loading && !Icon && 'invisible')}>
             {children}
           </span>
           {loading && !Icon && (
@@ -426,7 +442,7 @@ export function Switch({ id, checked, onCheckedChange, label, disabled, classNam
       disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        'no-drag flex h-7 shrink-0 items-center gap-2 rounded-md transition-[color,opacity]',
+        'group no-drag flex h-7 shrink-0 items-center gap-2 rounded-md outline-none transition-[color,opacity]',
         PRESS,
         'disabled:opacity-40',
         className,
@@ -435,7 +451,7 @@ export function Switch({ id, checked, onCheckedChange, label, disabled, classNam
       <span
         aria-hidden="true"
         className={cn(
-          'flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors',
+          'flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors group-focus-visible:outline-2 group-focus-visible:outline-offset-1 group-focus-visible:outline-muted',
           checked ? 'bg-accent' : 'bg-edge',
         )}
       >
@@ -505,7 +521,7 @@ export function TextButton({
     <button
       type="button"
       className={cn(
-        'text-small font-medium relative before:absolute before:-inset-1 no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40',
+        'text-small font-medium relative before:absolute before:-inset-1 before:no-drag no-drag inline-flex items-center gap-1 rounded-sm underline-offset-2 transition-[color,opacity] hover:underline disabled:pointer-events-none disabled:opacity-40 aria-disabled:pointer-events-none aria-disabled:opacity-40',
         PRESS,
         tone === 'accent' ? 'text-accent-text' : 'text-muted hover:text-fg',
         className,
@@ -522,8 +538,13 @@ export function TextButton({
         onClick?.(event)
       }}
     >
-      {loading && <Spinner />}
-      {children}
+      {/* Over the label rather than before it, so the button keeps its width while it loads */}
+      <span className="relative">
+        <span className={loading ? 'invisible' : undefined}>{children}</span>
+        {loading && (
+          <Spinner className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+        )}
+      </span>
     </button>
   )
 }

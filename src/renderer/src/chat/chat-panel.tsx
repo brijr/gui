@@ -859,11 +859,14 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
       onPointerDown={onDragStart}
       className="flex size-full cursor-grab items-center gap-2 rounded-full border border-line-strong bg-raised pr-1.5 pl-4 shadow-panel active:cursor-grabbing"
     >
-      {running ? (
-        <Spinner className="text-muted" />
-      ) : (
-        <StatusDot status={agentStatus(meta, running)} />
-      )}
+      {/* One slot for both, so the name doesn't move when it starts or stops working. */}
+      <span className="flex size-3 shrink-0 items-center justify-center">
+        {running ? (
+          <Spinner className="text-muted" />
+        ) : (
+          <StatusDot status={agentStatus(meta, running)} />
+        )}
+      </span>
       <span className="min-w-0 flex-1 truncate font-medium">
         {running ? 'Working…' : meta.agentName}
       </span>

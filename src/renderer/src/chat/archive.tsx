@@ -17,7 +17,7 @@ import {
   placePopover,
 } from '../lib/surface'
 import { timeAgo } from '../lib/time'
-import { Button, IconButton, Spinner } from '../lib/ui'
+import { Button, IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 
 /** Lists longer than this get a filter field. */
 const FILTER_AFTER = 8
@@ -350,6 +350,7 @@ function ArchivedRow({
               )}
             >
               <IconButton
+                className={TIGHT_HIT_AREA}
                 size="sm"
                 label={`Rename ${name}`}
                 title="Rename"
@@ -358,6 +359,7 @@ function ArchivedRow({
                 onClick={onStartRename}
               />
               <IconButton
+                className={TIGHT_HIT_AREA}
                 size="sm"
                 label={`Delete ${name}`}
                 title="Delete"

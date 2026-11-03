@@ -299,7 +299,10 @@ export function Composer({
             }}
           />
         )}
-        <div role="status">{notice && <Line tone="info">{notice}</Line>}</div>
+        {/* Empty, it takes back the gap it would add above the message box. */}
+        <div role="status" className="empty:-mt-2">
+          {notice && <Line tone="info">{notice}</Line>}
+        </div>
         {commands.element}
         {/* The field's focus look on a frame of several controls, which takes a card's radius.
           Popovers from the controls in it open off its edge (data-popover-anchor), not over it. */}
@@ -366,7 +369,10 @@ export function Composer({
           {recordings.length > 0 && (
             <fieldset
               aria-label="Attached recordings"
-              className={cn('flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2', cornered)}
+              className={cn(
+                'scroll-stable flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2',
+                cornered,
+              )}
             >
               {recordings.map((clip) => (
                 <RecordingClip
@@ -403,7 +409,7 @@ export function Composer({
                   : `Ask ${meta.agentName}…`
             }
             className={cn(
-              'field-sizing-content block max-h-40 min-h-8.5 w-full resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
+              'field-sizing-content scroll-stable block max-h-40 min-h-8.5 w-full resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
               // Clear of Show conversation only where it sits: on the first line.
               onShowConversation &&
                 attachments.length + pending + recordings.length === 0 &&
@@ -547,7 +553,11 @@ function Selection({ selection }: { selection: Picked[] }) {
   const several = selection.length > 1
   const arrive = useArrive()
   return (
-    <Card tone="inset" padding="none" className={cn(arrive, 'max-h-36 overflow-y-auto')}>
+    <Card
+      tone="inset"
+      padding="none"
+      className={cn(arrive, 'scroll-stable max-h-36 overflow-y-auto')}
+    >
       <ul
         aria-label={several ? `${selection.length} selected` : 'Selected'}
         className="divide-y divide-line"

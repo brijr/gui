@@ -47,7 +47,7 @@ function parseEnv(text: string): ParsedEnv {
     const eq = line.indexOf('=')
     const key = eq > 0 ? line.slice(0, eq).trim() : ''
     if (!key) {
-      const message = `Environment line "${line}" needs the form KEY=value.`
+      const message = `Environment line “${line}” needs the form KEY=value.`
       return { ok: false, message }
     }
     entries.push([key, line.slice(eq + 1).trim()])

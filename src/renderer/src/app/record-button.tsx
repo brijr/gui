@@ -12,7 +12,7 @@ import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { CircleDot, Mic, MicOff, Square, X } from '../lib/icons'
-import { Button, HIT_AREA, IconButton } from '../lib/ui'
+import { Button, HIT_AREA, IconButton, TIGHT_HIT_AREA } from '../lib/ui'
 import { PointerOverlay } from './recording-pointer'
 import { captureVoice, type Voice } from './recording-voice'
 
@@ -375,7 +375,7 @@ export function RecordButton({
           aria-label={label}
           // Its keys in the tooltip, like the toolbar's other tools.
           shortcut="recordPreview"
-          // The seconds count up in place rather than shifting the button's width.
+          // The time counts up in place (m:ss, tabular) rather than shifting the button's width.
           className={cn(
             // Its hit area reaches above and below, not into the mic beside it.
             HIT_AREA,
@@ -425,14 +425,23 @@ export function RecordButton({
               {shown}
             </p>
           )}
-          <IconButton size="sm" icon={X} label="Dismiss" onClick={dismiss} />
+          <IconButton
+            className={TIGHT_HIT_AREA}
+            size="sm"
+            icon={X}
+            label="Dismiss"
+            onClick={dismiss}
+          />
         </div>
       )}
     </div>
   )
 }
 
-/** Seconds since `started`, counting up. Only this redraws as they pass. */
+/**
+ * Time since `started`, as m:ss, counting up: one width the whole recording (with tabular
+ * digits), where "9s" to "10s" would widen the button. Only this redraws as they pass.
+ */
 function Elapsed({ started }: { started: number }) {
   const [seconds, setSeconds] = useState(() => Math.floor((performance.now() - started) / 1000))
   useEffect(() => {
@@ -440,7 +449,7 @@ function Elapsed({ started }: { started: number }) {
     const timer = setInterval(tick, 250)
     return () => clearInterval(timer)
   }, [started])
-  return <>{seconds}s</>
+  return <>{`${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`}</>
 }
 
 /** The mic is hearing them: a level that moves as they talk, set on the bar without a render. */

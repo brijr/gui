@@ -40,7 +40,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Banner, Card, GroupLabel, List, ListItem, ListRow, Message } from '../lib/surface'
 import { timeAgo } from '../lib/time'
-import { Button, Code, IconButton, SegmentedControl } from '../lib/ui'
+import { Button, Code, IconButton, SegmentedControl, TIGHT_HIT_AREA } from '../lib/ui'
 import { needsSignIn, useAccount } from '../lib/use-account'
 import { useAction } from '../settings/use-action'
 import { Board } from './board'
@@ -743,6 +743,7 @@ export function EnvBanner({ state }: { state: WindowState }) {
         <>
           <EnvButton env={env} size="sm" />
           <IconButton
+            className={TIGHT_HIT_AREA}
             label="Dismiss"
             icon={X}
             size="sm"
@@ -954,23 +955,6 @@ function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolea
           />
         </div>
       )}
-      {form === 'cloneRepo' && (
-        <GitHubRepositories
-          github={github}
-          filter={value}
-          disabled={busy}
-          onClone={async (id) => {
-            if (busy) return
-            setBusy(true)
-            setError(null)
-            try {
-              await gui.cloneGitHub(id)
-            } finally {
-              setBusy(false)
-            }
-          }}
-        />
-      )}
       <Field
         label={spec.label}
         htmlFor={FORM_FIELD}
@@ -1004,6 +988,24 @@ function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolea
           </Button>
         </div>
       </Field>
+      {/* Under the field that filters it, so typing (or the list arriving) never moves the field. */}
+      {form === 'cloneRepo' && (
+        <GitHubRepositories
+          github={github}
+          filter={value}
+          disabled={busy}
+          onClone={async (id) => {
+            if (busy) return
+            setBusy(true)
+            setError(null)
+            try {
+              await gui.cloneGitHub(id)
+            } finally {
+              setBusy(false)
+            }
+          }}
+        />
+      )}
     </form>
   )
 }
@@ -1109,7 +1111,7 @@ function StartScreen({ state }: { state: WindowState }) {
                     size="sm"
                     aria-haspopup="menu"
                     onClick={() => gui.showRecentBoardMenu(board.id)}
-                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+                    className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-2 before:no-drag duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
                   />
                 </div>
               </li>
@@ -1205,7 +1207,7 @@ function RecentRow({
               })}
           size="sm"
           aria-disabled={remove.pending}
-          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-1 before:no-drag duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
+          className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 before:absolute before:-inset-2 before:no-drag duration-(--motion-pop) motion-reduce:duration-(--motion-fade) group-focus-within:opacity-100 group-hover:opacity-100"
         />
       </div>
       {remove.error && <InlineError className="px-3 pb-2">{remove.error}</InlineError>}

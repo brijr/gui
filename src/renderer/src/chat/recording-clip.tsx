@@ -3,7 +3,7 @@ import type { RecordingAttachment } from '../../../shared/types'
 import { Dialog } from '../lib/dialog'
 import { Play, X } from '../lib/icons'
 import { Card } from '../lib/surface'
-import { IconButton, PRESS } from '../lib/ui'
+import { IconButton, PRESS, TIGHT_HIT_AREA } from '../lib/ui'
 
 /** Said in place of the video when its file can't be played (moved, or deleted). */
 function Unavailable() {
@@ -93,7 +93,8 @@ export function RecordingClip({
               className="size-full object-cover outline-1 -outline-offset-1 outline-line"
             />
             <span className="absolute flex size-5 items-center justify-center rounded-full bg-tile/70 text-tile-fg">
-              <Play className="size-3" aria-hidden="true" />
+              {/* A pixel toward its point: centered by its box, a triangle looks left of center. */}
+              <Play className="size-3 translate-x-px" aria-hidden="true" />
             </span>
           </span>
           <span className="min-w-0">
@@ -105,7 +106,13 @@ export function RecordingClip({
           </span>
         </button>
         {onRemove && (
-          <IconButton size="sm" icon={X} label={`Remove ${clip.name}`} onClick={onRemove} />
+          <IconButton
+            className={TIGHT_HIT_AREA}
+            size="sm"
+            icon={X}
+            label={`Remove ${clip.name}`}
+            onClick={onRemove}
+          />
         )}
         <Dialog
           open={previewing}
@@ -157,7 +164,13 @@ export function RecordingClip({
           {clip.narration && <span className="truncate">· {narrationNote(clip)}</span>}
         </span>
         {onRemove && (
-          <IconButton size="sm" icon={X} label={`Remove ${clip.name}`} onClick={onRemove} />
+          <IconButton
+            className={TIGHT_HIT_AREA}
+            size="sm"
+            icon={X}
+            label={`Remove ${clip.name}`}
+            onClick={onRemove}
+          />
         )}
       </div>
     </Card>

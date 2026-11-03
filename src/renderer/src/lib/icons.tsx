@@ -13,7 +13,8 @@ interface IconProps {
 
 export type IconComponent = ComponentType<IconProps>
 
-let images: SymbolImages = {}
+/** The symbols, once main has answered (`settled`), even with none (another platform, a failure) */
+let symbols: { images: SymbolImages; settled: boolean } = { images: {}, settled: false }
 const listeners = new Set<() => void>()
 const subscribe = (listener: () => void) => {
   listeners.add(listener)
@@ -21,18 +22,18 @@ const subscribe = (listener: () => void) => {
     listeners.delete(listener)
   }
 }
-const snapshot = () => images
+const snapshot = () => symbols
+const settle = (images: SymbolImages) => {
+  symbols = { images, settled: true }
+  for (const listener of listeners) listener()
+}
 
 // One request per renderer, including the separate chat and settings windows.
 void gui
   .getSymbols()
-  .then((loaded) => {
-    images = loaded
-    for (const listener of listeners) listener()
-  })
-  .catch(() => {
-    // The existing icons keep controls usable if the native image bridge fails.
-  })
+  .then(settle)
+  // The existing icons keep controls usable if the native image bridge fails.
+  .catch(() => settle({}))
 
 export function SFSymbol({
   name,
@@ -44,7 +45,14 @@ export function SFSymbol({
   name: SymbolName
   fallback: IconComponent
 }) {
-  const symbol = useSyncExternalStore(subscribe, snapshot)[name]
+  const { images, settled } = useSyncExternalStore(subscribe, snapshot)
+  const symbol = images[name]
+  // While main answers, an empty box of the icon's size: drawing the fallback first would
+  // show one icon on the first frame and swap it for another.
+  if (!symbol && !settled)
+    return (
+      <span aria-hidden="true" className={cn('inline-block shrink-0', className)} style={style} />
+    )
   if (!symbol) return <Fallback className={className} style={style} {...props} />
   return (
     <span

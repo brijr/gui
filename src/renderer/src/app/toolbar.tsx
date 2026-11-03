@@ -634,8 +634,12 @@ function BoardToolbar({
               )}
             </div>
           )}
-          {shown('zoom') && boardView.camera && (
-            <div className="flex shrink-0 items-center gap-1">
+          {shown('zoom') && (
+            // Its place is kept until the board has a camera, so nothing beside it moves then.
+            <div
+              aria-hidden={!boardView.camera || undefined}
+              className={cn('flex shrink-0 items-center gap-1', !boardView.camera && 'invisible')}
+            >
               <IconButton
                 label="Zoom out"
                 shortcut="zoomOut"
@@ -644,7 +648,7 @@ function BoardToolbar({
                 className={HIT_AREA}
               />
               <ZoomPercent
-                zoom={boardView.camera.zoom}
+                zoom={boardView.camera?.zoom ?? 1}
                 action="zoom to fit"
                 title="Zoom to fit"
                 onClick={() => boardView.fit()}

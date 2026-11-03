@@ -168,15 +168,27 @@ export function PickOverlay() {
     >
       {state.picked.map((picked, i) => (
         <Outline key={picked.id} rect={picked.rect} kind="picked">
-          {several && <Counter className="absolute -top-2 -left-2 shadow-raised">{i + 1}</Counter>}
+          {several && (
+            <Counter
+              className={cn(
+                'absolute shadow-raised',
+                // Inside the corner when the element is at the view's edge, where it'd be cut off.
+                picked.rect.x < 8 || picked.rect.y < 8 ? 'top-0.5 left-0.5' : '-top-2 -left-2',
+              )}
+            >
+              {i + 1}
+            </Counter>
+          )}
         </Outline>
       ))}
       {state.hover && !area && (
         <>
           <Outline rect={state.hover.rect} kind="hover" />
           <Label rect={state.hover.rect}>
-            {state.hover.name && <span className="font-medium">{state.hover.name}</span>}
-            <span className="tabular-nums">{state.hover.size}</span>
+            {state.hover.name && (
+              <span className="min-w-0 truncate font-medium">{state.hover.name}</span>
+            )}
+            <span className="shrink-0 tabular-nums">{state.hover.size}</span>
           </Label>
         </>
       )}
@@ -284,7 +296,8 @@ function Guide({ guide }: { guide: GuideOverlay }) {
             width="20"
             height="22"
             viewBox="0 0 20 22"
-            className="drop-shadow-pointer"
+            // The tip (2, 1.5) on the point, not the box's corner.
+            className="-mt-[1.5px] -ml-0.5 drop-shadow-pointer"
             aria-hidden="true"
           >
             <path
@@ -385,13 +398,16 @@ function Label({
     : rect.y >= LABEL_HEIGHT + LABEL_GAP
       ? rect.y - LABEL_HEIGHT - LABEL_GAP
       : Math.max(rect.y + LABEL_GAP, 2)
+  const right = Math.max(2, window.innerWidth - rect.x - rect.width)
+  const left = Math.max(2, rect.x)
+  // Never past the view's far edge: a long name truncates instead.
   const horizontal = nearRight
-    ? { right: Math.max(2, window.innerWidth - rect.x - rect.width) }
-    : { left: Math.max(2, rect.x) }
+    ? { right, maxWidth: window.innerWidth - right - 2 }
+    : { left, maxWidth: window.innerWidth - left - 2 }
   return (
     <div
       data-label=""
-      className="pointer-events-none absolute flex h-5 max-w-full items-center gap-1.5 truncate rounded-sm bg-accent px-1.5 text-caption text-accent-fg shadow-raised"
+      className="pointer-events-none absolute flex h-5 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-sm bg-accent px-1.5 text-caption text-accent-fg shadow-raised"
       style={{ top, ...horizontal }}
     >
       {children}

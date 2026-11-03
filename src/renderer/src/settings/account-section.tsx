@@ -5,7 +5,7 @@ import { gui } from '../lib/api'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { CircleUser } from '../lib/icons'
-import { List, ListItem, Message } from '../lib/surface'
+import { List, ListItem } from '../lib/surface'
 import { Button, Spinner, Switch } from '../lib/ui'
 import { useAccount } from '../lib/use-account'
 import { IdentityCard, IdentityTile, SettingsGroup } from './settings-group'
@@ -70,7 +70,8 @@ function CrashReports({ on }: { on: boolean }) {
 
 type Profile =
   | { kind: 'loading' }
-  | { kind: 'loaded'; profile: AccountProfile | null }
+  /** `signedIn`: the sign-in state it was loaded for; another one's result isn't this one's */
+  | { kind: 'loaded'; profile: AccountProfile | null; signedIn: boolean }
   | { kind: 'failed'; message: string }
 
 /**
@@ -91,24 +92,35 @@ function AccountDetails() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: `attempt` is how Try again reloads
   useEffect(() => {
     if (!signedIn) {
-      setProfile({ kind: 'loaded', profile: null })
+      setProfile({ kind: 'loaded', profile: null, signedIn: false })
       return
     }
     let live = true
     setProfile({ kind: 'loading' })
     gui
       .getAccountProfile()
-      .then((value) => live && setProfile({ kind: 'loaded', profile: value }))
+      .then((value) => live && setProfile({ kind: 'loaded', profile: value, signedIn: true }))
       .catch((err: unknown) => live && setProfile({ kind: 'failed', message: readableError(err) }))
     return () => {
       live = false
     }
   }, [signedIn, attempt])
 
-  if (!state || profile.kind === 'loading')
+  // Until the profile is the one for this sign-in state: just signed in, the signed-out result
+  // from a moment ago would otherwise say the sign-in expired.
+  const stale = profile.kind === 'loaded' && profile.signedIn !== signedIn
+  if (!state || profile.kind === 'loading' || stale)
     return (
+      // The signed-in card's shape, so what's below doesn't move much when it loads.
       <div role="status">
-        <Message icon="loading">Checking your Gui account…</Message>
+        <IdentityCard
+          leading={
+            <IdentityTile>
+              <Spinner />
+            </IdentityTile>
+          }
+          heading="Checking your Gui account…"
+        />
       </div>
     )
 
@@ -146,13 +158,13 @@ function AccountDetails() {
 
   const setUpdates = (updates: boolean) => {
     const previous = account
-    setProfile({ kind: 'loaded', profile: { ...account, updates } })
+    setProfile({ kind: 'loaded', profile: { ...account, updates }, signedIn: true })
     setSaving(true)
     setSaveError(null)
     gui
       .setAccountUpdates(updates)
       .catch((err: unknown) => {
-        setProfile({ kind: 'loaded', profile: previous })
+        setProfile({ kind: 'loaded', profile: previous, signedIn: true })
         setSaveError(readableError(err))
       })
       .finally(() => setSaving(false))

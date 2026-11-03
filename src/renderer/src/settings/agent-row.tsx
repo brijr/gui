@@ -70,8 +70,12 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
       trailing={
         <>
           {live?.signIn && live.status !== 'ready' && (
-            <Button disabled={busy} onClick={() => void signIn(live.id)}>
-              {live.status === 'signing-in' ? 'Waiting…' : live.signIn.label}
+            <Button
+              disabled={busy}
+              loading={live.status === 'signing-in'}
+              onClick={() => void signIn(live.id)}
+            >
+              {live.signIn.label}
             </Button>
           )}
           {live?.status === 'error' && (

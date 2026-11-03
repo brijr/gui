@@ -997,7 +997,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
             {single === frame.id && !hand && (
               <div
                 data-resize={frame.id}
-                className="absolute cursor-nwse-resize rounded-sm border-2 border-accent bg-raised"
+                // 10px drawn, 26px to grab: nothing else sits at the corner.
+                className="absolute cursor-nwse-resize rounded-sm border-2 border-accent bg-raised before:absolute before:-inset-2"
                 style={{
                   left: box.left + box.width - HANDLE / 2,
                   top: box.top + box.height - HANDLE / 2,

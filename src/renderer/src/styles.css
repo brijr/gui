@@ -695,6 +695,13 @@ html.transparent body {
   padding: 8px 12px;
   font-size: inherit;
 }
+/* A heading starts a section: more room above it than between paragraphs. */
+.markdown > :is(h1, h2, h3, h4, h5, h6):not(:first-child) {
+  margin-top: 1em;
+}
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  text-wrap: balance;
+}
 .markdown h1 {
   font-size: var(--text-title);
   line-height: var(--text-title--line-height);

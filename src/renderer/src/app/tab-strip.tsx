@@ -15,7 +15,7 @@ import {
   tabClass,
   useScrollingTabs,
 } from '../lib/tabs'
-import { IconButton, PRESS, Spinner } from '../lib/ui'
+import { HIT_AREA, IconButton, PRESS, Spinner } from '../lib/ui'
 import { sidebarRoom, useSidebarBar } from './layout-morph'
 
 /** How far a pressed tab moves before it's dragged rather than clicked. */
@@ -390,7 +390,13 @@ export function TabStrip({ state }: { state: WindowState }) {
           )
         })}
       </div>
-      <IconButton label="New tab" shortcut="newTab" icon={Plus} onClick={() => gui.newTab()} />
+      <IconButton
+        className={HIT_AREA}
+        label="New tab"
+        shortcut="newTab"
+        icon={Plus}
+        onClick={() => gui.newTab()}
+      />
     </nav>
   )
 }

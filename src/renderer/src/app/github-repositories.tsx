@@ -58,7 +58,7 @@ export function matchRepository(value: string, state: GitHubState | null) {
 }
 
 /**
- * Above the Clone form's field: the user's GitHub repositories, filtered by what's typed, each
+ * Under the Clone form's field: the user's GitHub repositories, filtered by what's typed, each
  * cloned with GitHub's access. Without GitHub connected, a way to connect it here.
  */
 export function GitHubRepositories({

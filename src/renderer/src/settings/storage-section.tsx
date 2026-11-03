@@ -77,7 +77,7 @@ function StorageRow({ row, bytes }: { row: StorageInfo; bytes: number | null }) 
       detail={row.detail}
       trailing={
         <>
-          <span className="text-small tabular-nums text-muted">{size}</span>
+          <span className="min-w-16 text-right text-small tabular-nums text-muted">{size}</span>
           <Button
             id={buttonId}
             aria-labelledby={`${buttonId} ${titleId}`}

@@ -616,7 +616,7 @@ export function Message({
         )}
       </span>
       <div className="flex flex-col gap-1">
-        {heading && <p className="font-semibold">{heading}</p>}
+        {heading && <p className="font-semibold text-balance">{heading}</p>}
         {children && <div className="flex flex-col gap-1 text-pretty text-muted">{children}</div>}
       </div>
       {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}

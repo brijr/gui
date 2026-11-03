@@ -41,6 +41,13 @@ function excerpt(prompt: string) {
  * Laid over the end of the message rather than beside it, so while they're hidden the message
  * has the row's width; a fade on their left edge runs the text under them.
  */
+/**
+ * The row's 24px buttons, side by side in 28px rows with nothing between: each hit area is
+ * the row's height and a pixel wider each side, meeting its neighbours' without overlapping.
+ */
+const ROW_HIT_AREA =
+  'relative before:absolute before:-inset-x-px before:-inset-y-0.5 before:no-drag'
+
 const REVEAL =
   'absolute inset-y-0 right-7 flex items-center pl-4 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100'
 const REVEAL_FADE = { background: 'linear-gradient(to right, transparent, var(--surface) 16px)' }
@@ -286,6 +293,7 @@ function QueuedItem({
       )}
       <div className={REVEAL} style={REVEAL_FADE}>
         <IconButton
+          className={ROW_HIT_AREA}
           size="sm"
           label={running ? `Send queued message next: ${name}` : `Send queued message now: ${name}`}
           title={
@@ -304,6 +312,7 @@ function QueuedItem({
         />
         <IconButton
           ref={editButton}
+          className={ROW_HIT_AREA}
           size="sm"
           label={`Edit queued message: ${name}`}
           title="Edit"
@@ -311,6 +320,7 @@ function QueuedItem({
           onClick={startEdit}
         />
         <IconButton
+          className={ROW_HIT_AREA}
           size="sm"
           label={`Move queued message up: ${name}`}
           title={index === 0 ? 'Already first' : 'Move up'}
@@ -321,6 +331,7 @@ function QueuedItem({
           }}
         />
         <IconButton
+          className={ROW_HIT_AREA}
           size="sm"
           label={`Move queued message down: ${name}`}
           title={index === count - 1 ? 'Already last' : 'Move down'}
@@ -332,6 +343,7 @@ function QueuedItem({
         />
       </div>
       <IconButton
+        className={ROW_HIT_AREA}
         size="sm"
         label={`Remove queued message: ${name}`}
         title="Remove"
