@@ -323,7 +323,7 @@ export function Composer({
             label="Show conversation"
             icon={ChevronUp}
             onClick={onShowConversation}
-            className={cn(HIT_AREA, 'absolute top-1.25 right-2 z-sticky')}
+            className={cn(HIT_AREA, 'absolute top-0.75 right-2 z-sticky')}
           />
         )}
         {(attachments.length > 0 || pending > 0) && (
@@ -395,7 +395,7 @@ export function Composer({
                 : `Ask ${meta.agentName}…`
           }
           className={cn(
-            'field-sizing-content block max-h-40 min-h-9 w-full resize-none bg-transparent px-2.5 pt-2 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
+            'field-sizing-content block max-h-40 min-h-8.5 w-full resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
             // Clear of Show conversation only where it sits: on the first line.
             onShowConversation && attachments.length + pending + recordings.length === 0 && 'pr-8',
           )}
@@ -409,7 +409,7 @@ export function Composer({
           </p>
         )}
         {/* A container: in a narrow panel, Auto and the model button get more compact. */}
-        <div className="@container flex items-center gap-1 px-1.5 pb-1.5">
+        <div className="@container flex items-center gap-1 px-2 pb-2">
           <IconButton
             className={HIT_AREA}
             label="Attach images"
