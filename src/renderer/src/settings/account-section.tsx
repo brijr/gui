@@ -164,7 +164,10 @@ function AccountDetails() {
     gui
       .setAccountUpdates(updates)
       .catch((err: unknown) => {
-        setProfile({ kind: 'loaded', profile: previous, signedIn: true })
+        // Only while still signed in: signing out meanwhile already cleared it.
+        setProfile((now) =>
+          now.kind === 'loaded' && now.signedIn ? { ...now, profile: previous } : now,
+        )
         setSaveError(readableError(err))
       })
       .finally(() => setSaving(false))

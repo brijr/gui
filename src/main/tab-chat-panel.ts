@@ -930,6 +930,8 @@ export class ChatPanel {
       element.y < panel.y + panel.height &&
       element.y + element.height > panel.y
     if (!overlaps) return
+    // The dodge moves the panel now; a morph moving later mustn't fly it from the old corner.
+    this.heldAt = null
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const area = this.anchorArea(contentWidth, contentHeight)
     const elementCenter = element.x + element.width / 2

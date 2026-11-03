@@ -204,7 +204,11 @@ function FloatingPanel({
     const cardEl = card.current
     const upperEl = upper.current
     const innerEl = inner.current
-    if (!cardEl || !upperEl || !innerEl) return
+    if (!cardEl || !upperEl || !innerEl) {
+      // Nothing to reveal (Versions in its place): no stray edge left mid-motion.
+      if (edge.current) edge.current.style.display = 'none'
+      return
+    }
     const progress = spring.value
     const atRest = !motion.current.stop
     const reduced = motion.current.reduced

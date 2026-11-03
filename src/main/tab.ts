@@ -3236,6 +3236,8 @@ export class ProjectTab implements ChatPanelOwner {
       !win.isMinimized()
     this.morph.request(kind, eligible)
     this.panel.holdFloat()
+    // Mid-move a request only retargets, so `moving` won't come again: fly now.
+    if (this.morph.moving) this.panel.flyHeld()
   }
 
   /** The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). */

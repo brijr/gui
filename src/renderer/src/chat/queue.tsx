@@ -177,6 +177,8 @@ function QueuedItem({
   useEffect(() => {
     if (editing) {
       wasEditing.current = true
+      // Edit mid-rise cuts the rise short: it counts as played, so leaving editing won't replay it.
+      setFresh(false)
       const el = field.current
       el?.focus({ preventScroll: true })
       el?.setSelectionRange(el.value.length, el.value.length)

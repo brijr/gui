@@ -49,10 +49,16 @@ export function SFSymbol({
   const symbol = images[name]
   // While main answers, an empty box of the icon's size: drawing the fallback first would
   // show one icon on the first frame and swap it for another.
-  if (!symbol && !settled)
+  if (!symbol && !settled) {
+    const label = props['aria-label']
     return (
-      <span aria-hidden="true" className={cn('inline-block shrink-0', className)} style={style} />
+      <span
+        {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
+        className={cn('inline-block shrink-0', className)}
+        style={style}
+      />
     )
+  }
   if (!symbol) return <Fallback className={className} style={style} {...props} />
   return (
     <span

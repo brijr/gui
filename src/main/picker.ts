@@ -255,6 +255,8 @@ export class Picker {
   }
 
   dispose() {
+    // A walkthrough click timed before the page went away finds nothing to show.
+    this.guided = null
     this.stop()
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }

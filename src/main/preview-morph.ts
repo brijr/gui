@@ -93,6 +93,11 @@ export class PreviewMorph {
     return this.phase !== 'idle'
   }
 
+  /** Past arming: the springs are carrying the view. */
+  get moving() {
+    return this.phase === 'moving'
+  }
+
   /**
    * Before a change that moves or resizes the preview. Out of a morph, and `eligible` (the
    * preview on screen, nothing being picked), it arms one from where the view is; mid-morph,

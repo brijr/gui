@@ -1070,6 +1070,8 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
         return !!next && !next.reverted && (!!next.changes?.length || !!next.changesUnknown)
       }).length,
   )
+  // The question is about later messages: with none left (undone from their own cards), it's gone.
+  const asking = confirming && later > 0
   const changes = turn.changes ?? []
   const additions = changes.reduce((sum, change) => sum + change.additions, 0)
   const deletions = changes.reduce((sum, change) => sum + change.deletions, 0)
@@ -1139,20 +1141,20 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               size="sm"
               icon={Undo2}
               loading={busy === 'undo'}
-              aria-expanded={later > 0 ? confirming : undefined}
+              aria-expanded={later > 0 ? asking : undefined}
               title={
                 later > 0
                   ? 'Restore files to how they were before this message, undoing later messages too'
                   : 'Restore files to how they were before this message'
               }
-              onClick={() => (later > 0 ? setConfirming(!confirming) : undo())}
+              onClick={() => (later > 0 ? setConfirming(!asking) : undo())}
             >
               {later > 0 ? 'Undo to here' : 'Undo'}
             </Button>
           )}
         </span>
       </div>
-      {confirming && !turn.reverted && (
+      {asking && !turn.reverted && (
         <div className="flex flex-wrap items-center gap-2">
           <p role="status" className="min-w-0 flex-1 text-small text-pretty text-muted">
             {later > 0 ? `Undo this and ${plural(later, 'later message')}?` : 'Undo this message?'}{' '}
