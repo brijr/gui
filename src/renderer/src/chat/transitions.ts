@@ -20,6 +20,20 @@ export interface Move {
   to: () => Element | null
   /** New with this update (a queued message arriving), so it fades in with no `from` */
   enters?: boolean
+  /**
+   * Changes shape on the way (the message box into a bubble, a permission card into its line):
+   * its pictures keep their size, clipped by the box that moves, rather than being stretched
+   * to fit it (styles.css, `.reflow`).
+   */
+  reflow?: boolean
+}
+
+/** Names `el` for a move, or clears it (`null`). */
+function name(el: Element, move: Move | null) {
+  const style = (el as HTMLElement).style
+  style.viewTransitionName = move?.name ?? ''
+  if (move?.reflow) style.setProperty('view-transition-class', 'reflow')
+  else style.removeProperty('view-transition-class')
 }
 
 /** Rows (`rowKeys`) that have been on screen, or arrived while the transcript wasn't. */
@@ -94,7 +108,7 @@ export function transition(update: () => void, moves: Move[], rows: string[] = [
   const named = able
     ? moves.flatMap((move) => {
         const el = move.from()
-        return el && inSight(el) ? [{ el, name: move.name }] : []
+        return el && inSight(el) ? [{ el, move }] : []
       })
     : []
   const entering = able && moves.some((move) => move.enters)
@@ -102,13 +116,13 @@ export function transition(update: () => void, moves: Move[], rows: string[] = [
     applyInOrder(update)
     return
   }
-  for (const { el, name } of named) (el as HTMLElement).style.viewTransitionName = name
+  for (const { el, move } of named) name(el, move)
   markSeen(rows)
   deferred = []
   const after: HTMLElement[] = []
   try {
     current = document.startViewTransition(() => {
-      for (const { el } of named) (el as HTMLElement).style.viewTransitionName = ''
+      for (const { el } of named) name(el, null)
       const queued = deferred ?? []
       deferred = null
       flushSync(() => {
@@ -118,12 +132,12 @@ export function transition(update: () => void, moves: Move[], rows: string[] = [
       for (const move of moves) {
         const el = move.to()
         if (!(el instanceof HTMLElement) || !inSight(el)) continue
-        el.style.viewTransitionName = move.name
+        name(el, move)
         after.push(el)
       }
     })
   } catch {
-    for (const { el } of named) (el as HTMLElement).style.viewTransitionName = ''
+    for (const { el } of named) name(el, null)
     const queued = deferred ?? []
     deferred = null
     update()
@@ -132,7 +146,7 @@ export function transition(update: () => void, moves: Move[], rows: string[] = [
   }
   const transition = current
   const settled = () => {
-    for (const el of after) el.style.viewTransitionName = ''
+    for (const el of after) name(el, null)
     if (current === transition) current = null
   }
   transition.finished.then(settled, settled)

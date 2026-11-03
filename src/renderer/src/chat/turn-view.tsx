@@ -12,7 +12,7 @@ import {
 import { gui } from '../lib/api'
 import { ChangedFiles } from '../lib/changed-files'
 import { cn } from '../lib/cn'
-import { Disclosure, REVEAL, TechnicalDetails } from '../lib/disclosure'
+import { Disclosure, TechnicalDetails, useReveal } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import {
@@ -438,13 +438,14 @@ function SignInAgain() {
 
 function Thought({ id, text }: { id: string; text: string }) {
   const [open, setOpen] = useTurnPresentation(`thought:${id}`, false)
+  const reveal = useReveal(open)
   return (
     <div className="flex flex-col items-start gap-1">
       <Disclosure open={open} onOpenChange={setOpen}>
         Thinking
       </Disclosure>
       {open && (
-        <p className={cn(REVEAL, 'whitespace-pre-wrap pl-4 text-small text-muted')}>{text}</p>
+        <p className={cn(reveal, 'whitespace-pre-wrap pl-4 text-small text-muted')}>{text}</p>
       )}
     </div>
   )
@@ -571,6 +572,7 @@ function StepGroup({
   turnEnd: number | null
 }) {
   const [open, setOpen] = useTurnPresentation(`steps:${stateKey}`, false)
+  const reveal = useReveal(open)
   const tools = steps.filter((step): step is ToolItem => step.kind === 'tool')
   const latest = tools.at(-1)
   // Thinking with no tool calls around it stays a plain "Thinking" disclosure.
@@ -587,7 +589,7 @@ function StepGroup({
   const failedNote = failed > 0 && (
     <span className="text-danger tabular-nums"> · {failed} failed</span>
   )
-  const list = open && <StepList steps={steps} live={live} />
+  const list = open && <StepList steps={steps} live={live} className={reveal} />
   // Earlier groups of a running turn fold once the agent has moved on.
   const active = live && (last || tools.some(isInFlight))
 
@@ -641,9 +643,17 @@ function StepGroup({
   )
 }
 
-function StepList({ steps, live }: { steps: Step[]; live: boolean }) {
+function StepList({
+  steps,
+  live,
+  className,
+}: {
+  steps: Step[]
+  live: boolean
+  className?: string
+}) {
   return (
-    <Card tone="inset" padding="none" className={cn(REVEAL, 'w-full')}>
+    <Card tone="inset" padding="none" className={cn(className, 'w-full')}>
       <ul aria-label="Steps" className="flex flex-col py-1">
         {steps.map((step) => {
           if (step.kind === 'thought') {
@@ -1156,7 +1166,7 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
           </span>
         </div>
       )}
-      {open && <ChangedFiles changes={changes} />}
+      <ChangedFiles changes={changes} open={open} />
       {error && <InlineError>{error}</InlineError>}
     </Card>
   )

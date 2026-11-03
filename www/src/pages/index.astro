@@ -157,6 +157,19 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     <span class="wordmark">Gui</span>
     <span class="pill">Alpha</span>
   </div>
+  <script is:inline>
+    // The wordmark's fade waits for the mark: its animation starts when the image loads, which
+    // on a slow first visit can be after the wordmark's delay has run out.
+    ;(() => {
+      const mark = document.querySelector('.intro-animated')
+      if (!mark || mark.complete) return
+      const root = document.documentElement
+      root.classList.add('mark-loading')
+      const done = () => root.classList.remove('mark-loading')
+      mark.addEventListener('load', done, { once: true })
+      mark.addEventListener('error', done, { once: true })
+    })()
+  </script>
 
   <h1 class="lede">
     Design on your <span data-demo-target>real app</span>.{' '}<br />
@@ -613,6 +626,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   :global(html.seen-intro) .intro-animated { display: none; }
   :global(html.seen-intro) .intro-static { display: block; }
   :global(html.seen-intro) .wordmark { animation: none; }
+  :global(html.mark-loading) .wordmark { animation-play-state: paused; }
   .wordmark {
     font-size: 2rem;
     font-weight: 600;
@@ -750,18 +764,28 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .dialog:focus {
     outline: none;
   }
+  /* Opens in 160ms easing out; closes quicker, 120ms easing in (the closed state's timing). */
   .dialog {
     opacity: 0;
     transform: translateY(6px) scale(0.98);
-    transition: opacity 160ms ease, transform 160ms ease, display 160ms allow-discrete, overlay 160ms allow-discrete;
+    transition: opacity 120ms cubic-bezier(0.4, 0, 1, 1), transform 120ms cubic-bezier(0.4, 0, 1, 1), display 120ms allow-discrete, overlay 120ms allow-discrete;
   }
-  .dialog[open] { opacity: 1; transform: none; }
+  .dialog[open] {
+    opacity: 1;
+    transform: none;
+    transition-duration: 160ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
   .dialog::backdrop {
     background: rgba(0, 0, 0, 0.32);
     opacity: 0;
-    transition: opacity 160ms ease, display 160ms allow-discrete, overlay 160ms allow-discrete;
+    transition: opacity 120ms cubic-bezier(0.4, 0, 1, 1), display 120ms allow-discrete, overlay 120ms allow-discrete;
   }
-  .dialog[open]::backdrop { opacity: 1; }
+  .dialog[open]::backdrop {
+    opacity: 1;
+    transition-duration: 160ms;
+    transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  }
   @starting-style {
     .dialog[open] { opacity: 0; transform: translateY(6px) scale(0.98); }
     .dialog[open]::backdrop { opacity: 0; }

@@ -214,7 +214,12 @@ function upsertTurn(turn: Turn) {
 
 function transcriptShown() {
   const { meta, float } = useChat.getState()
-  return document.visibilityState === 'visible' && (meta?.docked || float.form === 'panel')
+  // The Versions sheet takes the transcript's place while it's open.
+  return (
+    document.visibilityState === 'visible' &&
+    (meta?.docked || float.form === 'panel') &&
+    !useVersions.getState().open
+  )
 }
 
 // Elements that move between states, by what they show.
@@ -403,7 +408,12 @@ function onMeta(meta: ChatMeta) {
   if (newest && message) {
     // Sent while the agent works: it rises from the composer into the queue.
     const index = moves.findIndex((move) => move.name === `queue-${newest.id}`)
-    moves[index] = { name: `queue-${newest.id}`, from: composerInput, to: queueItem(newest.id) }
+    moves[index] = {
+      name: `queue-${newest.id}`,
+      from: composerInput,
+      to: queueItem(newest.id),
+      reflow: true,
+    }
     transition(
       () => {
         apply()
@@ -433,7 +443,12 @@ function onTurn(turn: Turn) {
           upsertTurn(turn)
         },
         [
-          { name: 'chat-message', from: queueItem(held.item.id), to: userMessage(turn.id) },
+          {
+            name: 'chat-message',
+            from: queueItem(held.item.id),
+            to: userMessage(turn.id),
+            reflow: true,
+          },
           ...queueMoves(useChat.getState().meta?.queue ?? [], held.meta.queue).filter(
             (move) => move.name !== `queue-${held.item.id}`,
           ),
@@ -449,7 +464,7 @@ function onTurn(turn: Turn) {
           upsertTurn(turn)
           clearSent(message.prompt, message.images, message.recordings, message.followUp)
         },
-        [{ name: 'chat-message', from: composerInput, to: userMessage(turn.id) }],
+        [{ name: 'chat-message', from: composerInput, to: userMessage(turn.id), reflow: true }],
         [`${turn.id}:user`],
       )
       return
@@ -476,6 +491,7 @@ function onTurn(turn: Turn) {
       name: `chat-permission-${i}`,
       from: permission(item.id),
       to: permission(item.id),
+      reflow: true,
     })),
   )
 }

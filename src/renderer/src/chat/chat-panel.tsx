@@ -130,6 +130,27 @@ export function ChatPanel() {
 /** How far the panel has to grow before the conversation starts to show, and how soon it's solid. */
 const SHOW_FROM = 0.2
 const SHOW_OVER = 0.6
+/** The card's corner radius (rounded-xl) */
+const CARD_RADIUS = 12
+
+/** A rounded rectangle from (x0, y0) to (x1, y1), clockwise, as path commands. */
+function roundedRect(x0: number, y0: number, x1: number, y1: number, r: number) {
+  return `M${x0 + r} ${y0}H${x1 - r}A${r} ${r} 0 0 1 ${x1} ${y0 + r}V${y1 - r}A${r} ${r} 0 0 1 ${x1 - r} ${y1}H${x0 + r}A${r} ${r} 0 0 1 ${x0} ${y1 - r}V${y0 + r}A${r} ${r} 0 0 1 ${x0 + r} ${y0}Z`
+}
+
+/**
+ * What of the card shows while it grows or shrinks from its anchored edge: the visible part,
+ * rounded like the card, plus its shadow on the three edges that stay put (an inset() would
+ * cut the shadow off along with the hidden part). Beside the moving edge's corners the shadow
+ * starts a radius in, where it's faint anyway.
+ */
+function revealPath(width: number, height: number, hidden: number, top: boolean) {
+  const r = CARD_RADIUS
+  const m = PANEL_SHADOW_MARGIN
+  return top
+    ? `path('${roundedRect(0, 0, width, height - hidden, r)}M${-m} ${-m}H${width + m}V${height - hidden - r}H${-m}Z')`
+    : `path('${roundedRect(0, hidden, width, height, r)}M${-m} ${hidden + r}H${width + m}V${height + m}H${-m}Z')`
+}
 
 /**
  * The floating panel, which is its message box alone while collapsed (ChatFloat): no
@@ -155,6 +176,8 @@ function FloatingPanel({
   running: boolean
 }) {
   const card = useRef<HTMLDivElement>(null)
+  /** The card's border along its moving edge, which the clip hides while it moves */
+  const edge = useRef<HTMLDivElement>(null)
   const upper = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLFormElement>(null)
@@ -188,6 +211,8 @@ function FloatingPanel({
     const full = latest.current.panelHeight
     const height = reduced ? spring.target : progress
     // Shown and still, it fills its box (the view), following the window as it resizes.
+    const edgeEl = edge.current
+    if (edgeEl) edgeEl.style.display = atRest ? 'none' : ''
     if (atRest && progress === 1) {
       cardEl.style.height = ''
       cardEl.style.clipPath = ''
@@ -201,9 +226,11 @@ function FloatingPanel({
     // Keep layout at its full size during motion; reveal only the anchored portion.
     const cardHeight = atRest ? `${Math.round(box.current + conversation * height)}px` : `${full}px`
     if (cardEl.style.height !== cardHeight) cardEl.style.height = cardHeight
-    cardEl.style.clipPath = atRest
-      ? ''
-      : `inset(${top ? 0 : hidden}px 0 ${top ? hidden : 0}px 0 round 12px)`
+    cardEl.style.clipPath = atRest ? '' : revealPath(cardEl.offsetWidth, full, hidden, top)
+    if (edgeEl && !atRest) {
+      const y = cardEl.offsetTop + (top ? full - hidden - CARD_RADIUS : hidden)
+      edgeEl.style.transform = `translateY(${y}px)`
+    }
     if (composer.current) {
       composer.current.style.transform = !atRest && top ? `translateY(${-hidden}px)` : ''
     }
@@ -286,57 +313,72 @@ function FloatingPanel({
   }, [versioning, float.collapsed])
 
   return (
-    // The strong hairline is deliberate: the panel floats over whatever page is in the
-    // preview, often white on white, where the regular one disappears.
-    <div
-      ref={card}
-      data-chat-panel
-      data-collapsed={float.collapsed || undefined}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
-      className={cn(
-        'group/chat absolute inset-x-0 flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel',
-        // It grows from, and shrinks to, its anchored edge.
-        top ? 'top-0' : 'bottom-0',
-      )}
-    >
-      {versioning ? (
-        <>
-          <Header meta={meta} />
-          <VersionsSheet />
-        </>
-      ) : (
-        <>
-          <div
-            ref={upper}
-            inert={float.collapsed}
-            className="relative min-h-0 flex-1 overflow-hidden"
-          >
+    <>
+      {/* The strong hairline is deliberate: the panel floats over whatever page is in the
+          preview, often white on white, where the regular one disappears. */}
+      <div
+        ref={card}
+        data-chat-panel
+        data-collapsed={float.collapsed || undefined}
+        onPointerEnter={() => setHovered(true)}
+        onPointerLeave={() => setHovered(false)}
+        className={cn(
+          'group/chat absolute inset-x-0 flex h-full flex-col overflow-hidden rounded-xl border border-line-strong bg-raised shadow-panel',
+          // It grows from, and shrinks to, its anchored edge.
+          top ? 'top-0' : 'bottom-0',
+        )}
+      >
+        {versioning ? (
+          <>
+            <Header meta={meta} />
+            <VersionsSheet />
+          </>
+        ) : (
+          <>
             <div
-              ref={inner}
-              className={cn('absolute inset-x-0 flex h-full flex-col', top ? 'top-0' : 'bottom-0')}
+              ref={upper}
+              inert={float.collapsed}
+              className="relative min-h-0 flex-1 overflow-hidden"
             >
-              <Header meta={meta} />
-              <Transcript turnIds={turnIds} meta={meta} />
+              <div
+                ref={inner}
+                className={cn(
+                  'absolute inset-x-0 flex h-full flex-col',
+                  top ? 'top-0' : 'bottom-0',
+                )}
+              >
+                <Header meta={meta} />
+                <Transcript turnIds={turnIds} meta={meta} />
+              </div>
             </div>
-          </div>
-          <Composer
-            formRef={composer}
-            meta={meta}
-            running={running}
-            maxHeight={float.panelHeight > 0 ? Math.round(float.panelHeight * 0.6) : undefined}
-            alone={float.collapsed}
-            onGrab={onDragStart}
-            // With a conversation to show, or the chat New chat just archived to reopen.
-            onShowConversation={
-              float.collapsed && (turnIds.length > 0 || meta.archived)
-                ? () => gui.expandChat()
-                : undefined
-            }
-          />
-        </>
-      )}
-    </div>
+            <Composer
+              formRef={composer}
+              meta={meta}
+              running={running}
+              maxHeight={float.panelHeight > 0 ? Math.round(float.panelHeight * 0.6) : undefined}
+              alone={float.collapsed}
+              onGrab={onDragStart}
+              // With a conversation to show, or the chat New chat just archived to reopen.
+              onShowConversation={
+                float.collapsed && (turnIds.length > 0 || meta.archived)
+                  ? () => gui.expandChat()
+                  : undefined
+              }
+            />
+          </>
+        )}
+      </div>
+      {/* The hairline along the moving edge, rounded into the corners like the card's own. */}
+      <div
+        ref={edge}
+        aria-hidden="true"
+        style={{ display: 'none' }}
+        className={cn(
+          'pointer-events-none absolute inset-x-0 top-0 h-3 border-line-strong',
+          top ? 'rounded-b-xl border-b' : 'rounded-t-xl border-t',
+        )}
+      />
+    </>
   )
 }
 

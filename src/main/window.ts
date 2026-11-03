@@ -10,7 +10,6 @@ import {
   TRAFFIC_LIGHTS,
 } from '../shared/layout'
 import type { RecentBoard, RecentProject, Rect, TabInfo, WindowState } from '../shared/types'
-import { prefersReducedMotion } from './panel-flight'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
 import { followSurface, surfaceColor } from './theme'
@@ -23,11 +22,10 @@ const windows = new Set<ProjectWindow>()
 let lastFocused: ProjectWindow | null = null
 
 /**
- * How long the shortcuts sheet takes to fade out (lib/dialog.tsx): --motion-panel, or
- * --motion-fade with reduced motion, in styles.css. The tab's views wait it out.
+ * How long the shortcuts sheet takes to fade out (lib/dialog.tsx closes in --motion-pop, with
+ * or without reduced motion, in styles.css). The tab's views wait it out.
  */
-const SHEET_EXIT_MS = 220
-const SHEET_FADE_MS = 150
+const SHEET_EXIT_MS = 160
 
 /**
  * A window showed another tab, so menus that act on the active tab may now mean another; or
@@ -244,13 +242,10 @@ export class ProjectWindow implements TabHost {
       return
     }
     // The views come back once the sheet has faded out, rather than over it as it goes.
-    this.sheetLeaving = setTimeout(
-      () => {
-        this.sheetLeaving = null
-        if (!this.disposed) this.active.layout()
-      },
-      prefersReducedMotion() ? SHEET_FADE_MS : SHEET_EXIT_MS,
-    )
+    this.sheetLeaving = setTimeout(() => {
+      this.sheetLeaving = null
+      if (!this.disposed) this.active.layout()
+    }, SHEET_EXIT_MS)
   }
 
   // Shortcuts for the chrome's own controls (UiCommand)

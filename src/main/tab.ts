@@ -449,8 +449,14 @@ export class ProjectTab implements ChatPanelOwner {
         this.preview.setBounds(rect)
         this.emulation.set(emulation)
       },
-      moving: (reduced) => this.panel.slideDock(reduced),
-      ended: () => this.panel.landDock(),
+      moving: (reduced) => {
+        this.panel.slideDock(reduced)
+        this.panel.flyHeld()
+      },
+      ended: () => {
+        this.panel.landDock()
+        this.panel.landFloat()
+      },
     })
     this.panel = new ChatPanel(this)
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
@@ -1520,9 +1526,10 @@ export class ProjectTab implements ChatPanelOwner {
 
   /**
    * View → Zoom In (`step` 1), Zoom Out (-1) or Actual Size (0), for the viewport shown: the
-   * page, or a device frame's scale. The page keeps its CSS size either way.
+   * page, or a device frame's scale. The page keeps its CSS size either way. `morph` false (a
+   * keyboard shortcut) lands it at once, unless a morph is already under way.
    */
-  zoom(step: 1 | -1 | 0) {
+  zoom(step: 1 | -1 | 0, morph = true) {
     // On a canvas's board, the board zooms.
     if (this.resources.board && !this.resources.board.openId) {
       this.send(Events.board, { type: 'zoom', step })
@@ -1531,7 +1538,7 @@ export class ProjectTab implements ChatPanelOwner {
     const { viewport } = this.state.preview
     const next = zoomed(viewport, this.previewArea(), this.zooms[viewport], step)
     if (next === undefined) return shell.beep()
-    if (next !== this.zooms[viewport]) this.morphLayout('zoom')
+    if (next !== this.zooms[viewport] && morph) this.morphLayout('zoom')
     this.zooms = { ...this.zooms, [viewport]: next }
     this.patchPreview({ zoom: this.zooms.desktop ?? 1 })
     this.layout()
@@ -2044,8 +2051,10 @@ export class ProjectTab implements ChatPanelOwner {
    */
   private async guideInput(picker: Picker, at: Point, click: boolean) {
     if (!picker.guiding && !this.guideStep(picker, null, null)) return
-    picker.guideCursor(at, click)
+    picker.guideCursor(at)
     await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
+    // Once the pointer is there, as the click it shows goes through
+    if (click) picker.guideClick()
   }
 
   /** The user clicked the walkthrough away, or it ran its course. A held website keeps its own. */
@@ -3209,7 +3218,8 @@ export class ProjectTab implements ChatPanelOwner {
 
   /**
    * Before a change that moves or resizes the preview: it morphs into its new layout (when the
-   * preview is on screen and nothing's being picked), rather than jumping there.
+   * preview is on screen and nothing's being picked or walked through, whose overlay is placed
+   * at the final layout), rather than jumping there.
    */
   morphLayout(kind: MorphKind) {
     const { win } = this.host
@@ -3220,10 +3230,12 @@ export class ProjectTab implements ChatPanelOwner {
       this.host.isActive(this) &&
       this.state.preview.visible &&
       !this.state.preview.selecting &&
+      !this.picker.guiding &&
       !this.host.sheetShown &&
       win.isVisible() &&
       !win.isMinimized()
     this.morph.request(kind, eligible)
+    this.panel.holdFloat()
   }
 
   /** The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). */

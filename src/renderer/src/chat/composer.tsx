@@ -1,11 +1,13 @@
 import {
   type ClipboardEvent,
+  createContext,
   type DragEvent,
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
   type Ref,
+  useContext,
   useEffect,
   useRef,
   useState,
@@ -14,7 +16,7 @@ import { shortcutText } from '../../../shared/shortcuts'
 import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { TechnicalDetails } from '../lib/disclosure'
+import { TechnicalDetails, useReveal } from '../lib/disclosure'
 import {
   ArrowUp,
   ChevronUp,
@@ -96,6 +98,11 @@ export function Composer({
   const unseenProblem = meta.problems.some((problem) => !dismissed.includes(problem.id))
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
+  // What's above the box when it mounts (docking, floating and minimizing remount it) was
+  // already showing: only what comes after rises in.
+  const [settled, setSettled] = useState(false)
+  useEffect(() => setSettled(true), [])
+  const setupArrives = useReveal(shouldShowAgentSetup(meta))
   /** Images still being downscaled; a ref so overlapping pastes count each other. */
   const processing = useRef(0)
   const [pending, setPending] = useState(0)
@@ -250,220 +257,224 @@ export function Composer({
   // Room at the message box's top right for Show conversation, so nothing runs under it.
   const cornered = onShowConversation ? 'pr-8' : undefined
   return (
-    <form
-      ref={formRef}
-      onSubmit={(event) => void submit(event)}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
-      onDrop={onDrop}
-      onPointerDown={(event) => event.target === event.currentTarget && onGrab?.(event)}
-      style={maxHeight ? { maxHeight } : undefined}
-      className={cn(
-        'flex min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t p-2 transition-colors',
-        !maxHeight && 'max-h-3/5',
-        onGrab && 'cursor-grab active:cursor-grabbing *:cursor-auto',
-        alone ? 'border-transparent' : 'border-line',
-      )}
-    >
-      {/* Setting the agent up is the next step; it stands in for an error saying it isn't */}
-      <AgentSetup meta={meta} className={shouldShowAgentSetup(meta) ? ARRIVE : 'sr-only'} />
-      {!shouldShowAgentSetup(meta) && <AgentStatus meta={meta} />}
-      {unseenProblem && <ProblemsLine meta={meta} running={running} />}
-      {firstMessage && meta.canSelect && meta.selection.length === 0 && !unseenProblem && (
-        <Line tone="info" icon={MousePointer2}>
-          Select something in the preview <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
-        </Line>
-      )}
-      <QueuedMessages meta={meta} running={running} />
-      {meta.selectionError && (
-        <Line tone="error" role="alert">
-          {meta.selectionError}
-        </Line>
-      )}
-      {meta.selection.length > 0 && <Selection selection={meta.selection} />}
-      {followUp && (
-        <FollowUpCard
-          number={followUp.index + 1}
-          prompt={followUp.prompt}
-          onRemove={() => {
-            setFollowUp(null)
-            input.current?.focus({ preventScroll: true })
-          }}
-        />
-      )}
-      <div role="status">{notice && <Line tone="info">{notice}</Line>}</div>
-      {commands.element}
-      {/* The field's focus look on a frame of several controls, which takes a card's radius.
-          Popovers from the controls in it open off its edge (data-popover-anchor), not over it. */}
-      <div
-        data-popover-anchor=""
+    <ComposerSettled value={settled}>
+      <form
+        ref={formRef}
+        onSubmit={(event) => void submit(event)}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        onDrop={onDrop}
+        onPointerDown={(event) => event.target === event.currentTarget && onGrab?.(event)}
+        style={maxHeight ? { maxHeight } : undefined}
         className={cn(
-          'relative rounded-lg border border-edge bg-raised transition-colors focus-within:border-muted focus-within:ring-3 focus-within:ring-line-strong',
-          dropping && 'border-muted bg-fill',
+          'flex min-h-0 shrink-0 flex-col gap-2 overflow-y-auto border-t p-2 transition-colors',
+          !maxHeight && 'max-h-3/5',
+          onGrab && 'cursor-grab active:cursor-grabbing *:cursor-auto',
+          alone ? 'border-transparent' : 'border-line',
         )}
       >
-        {/* Says what a drop does, over the box, until the files land or leave. */}
-        {dropping && (
-          <p
-            aria-hidden="true"
-            // Opaque so the draft stays behind the drop instruction.
-            style={{
-              background: 'linear-gradient(var(--fill), var(--fill)), var(--raised)',
-            }}
-            className="pointer-events-none absolute inset-0 z-sticky flex items-center gap-2 rounded-lg px-3 text-small font-medium text-muted"
-          >
-            <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
-            Drop images to attach
-          </p>
+        {/* Setting the agent up is the next step; it stands in for an error saying it isn't */}
+        <AgentSetup meta={meta} className={shouldShowAgentSetup(meta) ? setupArrives : 'sr-only'} />
+        {!shouldShowAgentSetup(meta) && <AgentStatus meta={meta} />}
+        {unseenProblem && <ProblemsLine meta={meta} running={running} />}
+        {firstMessage && meta.canSelect && meta.selection.length === 0 && !unseenProblem && (
+          <Line tone="info" icon={MousePointer2}>
+            Select something in the preview <Kbd>{shortcutText('selectElement')}</Kbd>, or just ask.
+          </Line>
         )}
-        {onShowConversation && (
-          // Centered on the same line as Send below it, level with the first line of text.
-          <IconButton
-            size="sm"
-            label="Show conversation"
-            icon={ChevronUp}
-            onClick={onShowConversation}
-            className={cn(HIT_AREA, 'absolute top-0.75 right-2 z-sticky')}
+        <QueuedMessages meta={meta} running={running} />
+        {meta.selectionError && (
+          <Line tone="error" role="alert">
+            {meta.selectionError}
+          </Line>
+        )}
+        {meta.selection.length > 0 && <Selection selection={meta.selection} />}
+        {followUp && (
+          <FollowUpCard
+            number={followUp.index + 1}
+            prompt={followUp.prompt}
+            onRemove={() => {
+              setFollowUp(null)
+              input.current?.focus({ preventScroll: true })
+            }}
           />
         )}
-        {(attachments.length > 0 || pending > 0) && (
-          <ul
-            aria-label="Attached images"
-            className={cn('flex flex-wrap gap-2 px-2 pt-2', cornered)}
-          >
-            {attachments.map((image) => (
-              <li key={image.id} className={PLACE}>
-                <Thumbnail
-                  src={image.thumbnail}
-                  alt={image.name}
-                  title={image.name}
-                  onRemove={() => {
-                    removeAttachments([image.id])
-                    input.current?.focus({ preventScroll: true })
-                  }}
-                  removeLabel={`Remove ${image.name}`}
-                />
-              </li>
-            ))}
-            {pending > 0 && (
-              <li>
-                <Thumbnail>
-                  <Spinner />
-                  <span className="sr-only">Preparing image</span>
-                </Thumbnail>
-              </li>
-            )}
-          </ul>
-        )}
-        {recordings.length > 0 && (
-          <fieldset
-            aria-label="Attached recordings"
-            className={cn('flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2', cornered)}
-          >
-            {recordings.map((clip) => (
-              <RecordingClip
-                key={clip.id}
-                clip={clip}
-                compact
-                onPreviewClose={() => input.current?.focus({ preventScroll: true })}
-                onRemove={() => {
-                  removeRecordings([clip.id], true)
-                  input.current?.focus({ preventScroll: true })
-                }}
-              />
-            ))}
-          </fieldset>
-        )}
-        <textarea
-          ref={input}
-          // Empty, ⌘Z here undoes the agent's last change instead of typing.
-          data-undo-passthrough=""
-          // ⌘L hides the chat from here (main checks for it).
-          data-composer=""
-          value={text}
-          rows={1}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-          {...commands.inputProps}
-          aria-label={`Message ${meta.agentName}`}
-          placeholder={
-            running
-              ? 'Queue a message…'
-              : meta.selection.length > 0 || attachments.length > 0 || recordings.length > 0
-                ? 'Describe the change…'
-                : `Ask ${meta.agentName}…`
-          }
+        <div role="status">{notice && <Line tone="info">{notice}</Line>}</div>
+        {commands.element}
+        {/* The field's focus look on a frame of several controls, which takes a card's radius.
+          Popovers from the controls in it open off its edge (data-popover-anchor), not over it. */}
+        <div
+          data-popover-anchor=""
           className={cn(
-            'field-sizing-content block max-h-40 min-h-8.5 w-full resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
-            // Clear of Show conversation only where it sits: on the first line.
-            onShowConversation && attachments.length + pending + recordings.length === 0 && 'pr-8',
+            'relative rounded-lg border border-edge bg-raised focus-within:border-muted focus-within:ring-3 focus-within:ring-line-strong',
+            dropping && 'border-muted bg-fill',
           )}
-        />
-        {/* Said in full once, before the first message with Auto on; then the Auto control's
-            tooltip says it. */}
-        {firstMessage && meta.autoApprove && !meta.autoNoteSeen && (
-          <p className="px-2.5 pb-2 text-caption text-muted">
-            Auto is on: your agent can edit files and run commands without asking, including
-            commands outside this project. Turn Auto off to review more requests.
-          </p>
-        )}
-        {/* A container: in a narrow panel, Auto and the model button get more compact. */}
-        <div className="@container flex items-center gap-1 px-2 pb-2">
-          <IconButton
-            className={HIT_AREA}
-            label="Attach images"
-            icon={Paperclip}
-            disabled={attachments.length + pending >= MAX_IMAGES}
-            title={
-              attachments.length + pending >= MAX_IMAGES
-                ? `Up to ${MAX_IMAGES} images per message`
-                : undefined
-            }
-            onClick={() => picker.current?.click()}
-          />
-          <input
-            ref={picker}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(event) => {
-              const files = [...(event.target.files ?? [])]
-              // Cleared so choosing the same file again still fires a change.
-              event.target.value = ''
-              void attach(files)
-            }}
-          />
-          <AutoToggle meta={meta} />
-          <span className="ml-auto" />
-          {meta.models && <ModelButton models={meta.models} />}
-          {/* While the agent works, a draft can still go out: it joins the queue. */}
-          <IconButton
-            type="submit"
-            className={HIT_AREA}
-            variant="primary"
-            label={running ? 'Queue message' : 'Send'}
-            shortcut="send"
-            title={canSend ? undefined : cantSend}
-            icon={ArrowUp}
-            disabled={!canSend}
-          />
-          {/* Stop stays at the end while the agent works. */}
-          {running && (
+        >
+          {/* Says what a drop does, over the box, until the files land or leave. */}
+          {dropping && (
+            <p
+              aria-hidden="true"
+              // Opaque so the draft stays behind the drop instruction.
+              style={{
+                background: 'linear-gradient(var(--fill), var(--fill)), var(--raised)',
+              }}
+              className="pointer-events-none absolute inset-0 z-sticky flex items-center gap-2 rounded-lg px-3 text-small font-medium text-muted"
+            >
+              <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
+              Drop images to attach
+            </p>
+          )}
+          {onShowConversation && (
+            // Centered on the same line as Send below it, level with the first line of text.
             <IconButton
-              variant="secondary"
-              className={HIT_AREA}
-              label="Stop"
-              shortcut="stop"
-              icon={Square}
-              filled
-              onClick={() => gui.cancel()}
+              size="sm"
+              label="Show conversation"
+              icon={ChevronUp}
+              onClick={onShowConversation}
+              className={cn(HIT_AREA, 'absolute top-0.75 right-2 z-sticky')}
             />
           )}
+          {(attachments.length > 0 || pending > 0) && (
+            <ul
+              aria-label="Attached images"
+              className={cn('flex flex-wrap gap-2 px-2 pt-2', cornered)}
+            >
+              {attachments.map((image) => (
+                <li key={image.id} className={PLACE}>
+                  <Thumbnail
+                    src={image.thumbnail}
+                    alt={image.name}
+                    title={image.name}
+                    onRemove={() => {
+                      removeAttachments([image.id])
+                      input.current?.focus({ preventScroll: true })
+                    }}
+                    removeLabel={`Remove ${image.name}`}
+                  />
+                </li>
+              ))}
+              {pending > 0 && (
+                <li>
+                  <Thumbnail>
+                    <Spinner />
+                    <span className="sr-only">Preparing image</span>
+                  </Thumbnail>
+                </li>
+              )}
+            </ul>
+          )}
+          {recordings.length > 0 && (
+            <fieldset
+              aria-label="Attached recordings"
+              className={cn('flex max-h-36 flex-col gap-2 overflow-y-auto px-2 pt-2', cornered)}
+            >
+              {recordings.map((clip) => (
+                <RecordingClip
+                  key={clip.id}
+                  clip={clip}
+                  compact
+                  onPreviewClose={() => input.current?.focus({ preventScroll: true })}
+                  onRemove={() => {
+                    removeRecordings([clip.id], true)
+                    input.current?.focus({ preventScroll: true })
+                  }}
+                />
+              ))}
+            </fieldset>
+          )}
+          <textarea
+            ref={input}
+            // Empty, ⌘Z here undoes the agent's last change instead of typing.
+            data-undo-passthrough=""
+            // ⌘L hides the chat from here (main checks for it).
+            data-composer=""
+            value={text}
+            rows={1}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+            {...commands.inputProps}
+            aria-label={`Message ${meta.agentName}`}
+            placeholder={
+              running
+                ? 'Queue a message…'
+                : meta.selection.length > 0 || attachments.length > 0 || recordings.length > 0
+                  ? 'Describe the change…'
+                  : `Ask ${meta.agentName}…`
+            }
+            className={cn(
+              'field-sizing-content block max-h-40 min-h-8.5 w-full resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
+              // Clear of Show conversation only where it sits: on the first line.
+              onShowConversation &&
+                attachments.length + pending + recordings.length === 0 &&
+                'pr-8',
+            )}
+          />
+          {/* Said in full once, before the first message with Auto on; then the Auto control's
+            tooltip says it. */}
+          {firstMessage && meta.autoApprove && !meta.autoNoteSeen && (
+            <p className="px-2.5 pb-2 text-caption text-muted">
+              Auto is on: your agent can edit files and run commands without asking, including
+              commands outside this project. Turn Auto off to review more requests.
+            </p>
+          )}
+          {/* A container: in a narrow panel, Auto and the model button get more compact. */}
+          <div className="@container flex items-center gap-1 px-2 pb-2">
+            <IconButton
+              className={HIT_AREA}
+              label="Attach images"
+              icon={Paperclip}
+              disabled={attachments.length + pending >= MAX_IMAGES}
+              title={
+                attachments.length + pending >= MAX_IMAGES
+                  ? `Up to ${MAX_IMAGES} images per message`
+                  : undefined
+              }
+              onClick={() => picker.current?.click()}
+            />
+            <input
+              ref={picker}
+              type="file"
+              accept="image/*"
+              multiple
+              hidden
+              onChange={(event) => {
+                const files = [...(event.target.files ?? [])]
+                // Cleared so choosing the same file again still fires a change.
+                event.target.value = ''
+                void attach(files)
+              }}
+            />
+            <AutoToggle meta={meta} />
+            <span className="ml-auto" />
+            {meta.models && <ModelButton models={meta.models} />}
+            {/* While the agent works, a draft can still go out: it joins the queue. */}
+            <IconButton
+              type="submit"
+              className={HIT_AREA}
+              variant="primary"
+              label={running ? 'Queue message' : 'Send'}
+              shortcut="send"
+              title={canSend ? undefined : cantSend}
+              icon={ArrowUp}
+              disabled={!canSend}
+            />
+            {/* Stop stays at the end while the agent works. */}
+            {running && (
+              <IconButton
+                variant="secondary"
+                className={HIT_AREA}
+                label="Stop"
+                shortcut="stop"
+                icon={Square}
+                filled
+                onClick={() => gui.cancel()}
+              />
+            )}
+          </div>
         </div>
-      </div>
-    </form>
+      </form>
+    </ComposerSettled>
   )
 }
 
@@ -478,6 +489,16 @@ function problemsTitle(problems: Problem[]) {
 
 /** What arrives above the message box (a notice, the problems, the picks) rises in as a transcript row does. */
 const ARRIVE = 'motion-safe:animate-row-in motion-reduce:animate-row-fade'
+
+/** True once the composer has been on screen a frame (Composer's `settled`). */
+const ComposerSettled = createContext(true)
+
+/** ARRIVE, for something that shows up after the composer did; nothing if it came with it. */
+function useArrive() {
+  const settled = useContext(ComposerSettled)
+  const [arrives] = useState(settled)
+  return arrives ? ARRIVE : undefined
+}
 /** An image placed among the attachments settles in from slightly smaller. */
 const PLACE = 'motion-safe:animate-place-in motion-reduce:animate-row-fade'
 
@@ -524,8 +545,9 @@ function ProblemsLine({ meta, running }: { meta: ChatMeta; running: boolean }) {
  */
 function Selection({ selection }: { selection: Picked[] }) {
   const several = selection.length > 1
+  const arrive = useArrive()
   return (
-    <Card tone="inset" padding="none" className={cn(ARRIVE, 'max-h-36 overflow-y-auto')}>
+    <Card tone="inset" padding="none" className={cn(arrive, 'max-h-36 overflow-y-auto')}>
       <ul
         aria-label={several ? `${selection.length} selected` : 'Selected'}
         className="divide-y divide-line"
@@ -583,8 +605,9 @@ function FollowUpCard({
   prompt: string
   onRemove: () => void
 }) {
+  const arrive = useArrive()
   return (
-    <Card tone="inset" padding="compact" className={cn(ARRIVE, 'flex items-center gap-2')}>
+    <Card tone="inset" padding="compact" className={cn(arrive, 'flex items-center gap-2')}>
       <Reply className="size-3.5 shrink-0 text-subtle" aria-hidden="true" />
       <p className="min-w-0 flex-1 truncate text-small" title={prompt}>
         <span className="text-muted">Following up on </span>
@@ -637,11 +660,12 @@ function Line({
   children: ReactNode
 }) {
   const Tone = Icon ?? (tone === 'error' ? TriangleAlert : Info)
+  const arrive = useArrive()
   return (
     <div
       role={role}
       className={cn(
-        ARRIVE,
+        arrive,
         'flex items-start gap-1.5 px-1 text-small',
         tone === 'error' ? 'text-danger' : 'text-muted',
       )}

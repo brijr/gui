@@ -606,16 +606,40 @@ html.transparent body {
   }
 }
 
-/* Moves between chat states (chat/transitions.ts): what moves rides the default spring, the
-   rest of the panel cross-fades quickly underneath. */
+/* Moves between chat states (chat/transitions.ts): what moves rides the default spring. The
+   rest of the panel is in its new state at once: cross-fading it would show anything that
+   shifted (the transcript scrolling up for a new message) twice. */
 ::view-transition-group(*) {
   animation-duration: var(--motion-spring);
   animation-timing-function: var(--ease-spring);
 }
 
-::view-transition-old(root),
+::view-transition-old(root) {
+  display: none;
+}
+
 ::view-transition-new(root) {
-  animation-duration: var(--motion-pop);
+  animation: none;
+}
+
+/* Clicks go to the real elements, already where they're going, while things move. */
+::view-transition {
+  pointer-events: none;
+}
+
+/* Something that changes shape as it moves keeps its pictures' size, pinned to the start
+   corner and clipped by the moving box, so text doesn't stretch and a collapsing card doesn't
+   spill over the rows below. */
+::view-transition-group(.reflow) {
+  overflow: clip;
+}
+
+::view-transition-old(.reflow),
+::view-transition-new(.reflow) {
+  width: 100%;
+  height: 100%;
+  object-fit: none;
+  object-position: left top;
 }
 
 .markdown > :not(pre, table) {

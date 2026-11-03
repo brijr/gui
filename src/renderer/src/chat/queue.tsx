@@ -158,7 +158,8 @@ function QueuedItem({
   onDragEnd,
 }: QueuedItemProps) {
   const key = `queue:${item.id}`
-  const [fresh] = useState(() => isNewRow(key))
+  // New until its rise has played once, so coming back from editing doesn't play it again.
+  const [fresh, setFresh] = useState(() => isNewRow(key))
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(item.prompt)
   const field = useRef<HTMLTextAreaElement>(null)
@@ -245,6 +246,9 @@ function QueuedItem({
         onDrop(item.id, event.dataTransfer.getData('text/plain'))
       }}
       onDragEnd={onDragEnd}
+      onAnimationEnd={(event) => {
+        if (event.target === event.currentTarget) setFresh(false)
+      }}
       className={cn(
         'group relative flex h-7 items-center gap-2 pr-1 pl-1.5',
         fresh && 'animate-row-in motion-reduce:animate-row-fade',

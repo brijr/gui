@@ -92,7 +92,8 @@ export function Dialog({
         'motion-safe:scale-97 motion-safe:open:scale-100 motion-safe:starting:open:scale-97',
         'backdrop:opacity-0 backdrop:transition-[opacity,display,overlay] backdrop:transition-discrete backdrop:duration-(--motion-panel) open:backdrop:opacity-100 starting:open:backdrop:opacity-0',
         'not-open:duration-(--motion-pop) not-open:ease-in not-open:backdrop:duration-(--motion-pop) not-open:backdrop:ease-in',
-        'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
+        // Reduced motion: both fade in the same short, even fade (closing keeps not-open:).
+        'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear motion-reduce:backdrop:duration-(--motion-fade) motion-reduce:backdrop:ease-linear',
       )}
     >
       <PanelHeader

@@ -82,6 +82,13 @@ export class ChatPanel {
   private anchor: Anchor = { ...getPrefs().chatCorner, dx: PANEL_MARGIN, dy: PANEL_MARGIN }
   private flight: Flight | null = null
   /**
+   * Floating, where the panel was drawn when the preview's morph was asked for: it stays there
+   * while the canvas changes under it (the drawer taking its space at once, out of sight), then
+   * flies to its new corner as the morph moves (`morphFlight`), rather than jumping.
+   */
+  private heldAt: Rect | null = null
+  private morphFlight: Flight | null = null
+  /**
    * The sidebar sliding in (or, `leaving`, out) at the window's edge with the preview's morph:
    * how far out of the window it is, from `from` (held there until the preview moves) to 0 in,
    * or its width out.
@@ -411,7 +418,7 @@ export class ChatPanel {
   }
 
   grabChat(at: ChatGrab) {
-    if (!this.flight) return
+    if (!this.flight && !this.heldAt) return
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const drawn = this.floatingRect(contentWidth, contentHeight)
     const view = this.floatingBounds(contentWidth, contentHeight, this.viewForm)
@@ -677,15 +684,22 @@ export class ChatPanel {
       shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight, this.viewCollapsed)
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
-    const corner = (!atRest && this.flight?.point) || {
-      x: x === 'left' ? area.x + dx : area.x + area.width - dx,
-      y: y === 'top' ? area.y + dy : area.y + area.height - dy,
-    }
+    const held = !atRest && this.heldAt ? cornerPoint(this.heldAt, this.anchor) : null
+    const corner = (!atRest && this.flight?.point) ||
+      held || {
+        x: x === 'left' ? area.x + dx : area.x + area.width - dx,
+        y: y === 'top' ? area.y + dy : area.y + area.height - dy,
+      }
     const left = x === 'left' ? corner.x : corner.x - width
     const top = y === 'top' ? corner.y : corner.y - height
+    // Held or flying with a morph, the canvas has already changed under it: it keeps to the
+    // window, not to the canvas, or it would jump there.
+    const free =
+      !atRest && (held !== null || (this.flight !== null && this.flight === this.morphFlight))
+    const bottom = free ? contentHeight - height : area.y + area.height - height
     return {
       x: Math.round(clamp(left, 0, contentWidth - width)),
-      y: Math.round(clamp(top, this.tab.host.chromeHeight, area.y + area.height - height)),
+      y: Math.round(clamp(top, this.tab.host.chromeHeight, bottom)),
       width,
       height,
     }
@@ -720,12 +734,41 @@ export class ChatPanel {
   }
 
   private holdFlight(at?: Rect) {
-    if (!this.flight) return
+    if (!this.flight && !this.heldAt) return
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const rect = at ?? this.floatingRect(contentWidth, contentHeight)
-    this.flight.stop()
+    this.flight?.stop()
     this.flight = null
+    this.heldAt = null
+    this.morphFlight = null
     this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
+  }
+
+  /** A morph was asked for: the floating panel stays where it's drawn until it moves. */
+  holdFloat() {
+    if (this.heldAt || this.flight || this.docked || this.popout || !this.chatShown) return
+    if (!this.tab.morph.active || !this.tab.host.isActive(this.tab)) return
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    this.heldAt = this.floatingRect(contentWidth, contentHeight)
+  }
+
+  /** The morph moves: the panel flies to its corner on the same spring, from the same moment. */
+  flyHeld() {
+    const from = this.heldAt
+    if (!from) return
+    this.heldAt = null
+    this.fly(from, { x: 0, y: 0 }, SPRINGS.default)
+    this.morphFlight = this.flight
+  }
+
+  /** The morph rests (or never moved): so does the panel, in its corner. */
+  landFloat() {
+    const flight = this.morphFlight
+    this.morphFlight = null
+    if (flight && this.flight === flight) flight.finish()
+    if (!this.heldAt) return
+    this.heldAt = null
+    this.layoutChat()
   }
 
   /** How far the docked sidebar is out of the window now: 0 in place, its width out of sight. */

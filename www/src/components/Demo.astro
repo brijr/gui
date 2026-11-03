@@ -362,10 +362,14 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .mark.is-on {
     opacity: 1;
   }
+  /* Its size glides with it: scaling would stretch the outline and the label. A small box
+     alone in a clipped layer, so the layout is cheap. */
   .demo .mark.is-gliding {
     transition:
       opacity 120ms var(--ease-out),
-      transform 160ms var(--ease-out);
+      transform 160ms var(--ease-out),
+      width 160ms var(--ease-out),
+      height 160ms var(--ease-out);
   }
   .demo .mark-label {
     position: absolute;
@@ -897,6 +901,8 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     color: var(--c-muted);
   }
   .demo .transcript .thinking {
+    /* As wide as its words, so the shimmer's sweep crosses them, not the whole column */
+    align-self: flex-start;
     color: var(--c-muted);
     background: linear-gradient(
       90deg,
@@ -1066,16 +1072,14 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo[data-narrow] .demo-guide [data-demo-status] {
     display: none;
   }
-  @media (max-width: 759px) {
-    .page.is-demo {
-      padding: 24px;
-    }
-  }
   @media (prefers-reduced-motion: reduce) {
     .demo .transcript .thinking {
       animation: row-fade 150ms linear;
       -webkit-text-fill-color: currentColor;
       background: none;
+    }
+    .demo .transcript .spinner {
+      animation: none;
     }
   }
 </style>

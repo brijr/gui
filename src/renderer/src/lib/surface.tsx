@@ -163,6 +163,7 @@ export function Popover({
         'transition-[opacity,scale] duration-(--motion-pop) ease-out',
         !instant && 'starting:opacity-0 motion-safe:starting:scale-97',
         'data-[state=closed]:pointer-events-none data-[state=closed]:opacity-0 data-[state=closed]:duration-(--motion-exit) data-[state=closed]:ease-in motion-safe:data-[state=closed]:scale-97',
+        // Opening with reduced motion; closing keeps its --motion-exit (data-[state=closed]).
         'motion-reduce:duration-(--motion-fade) motion-reduce:ease-linear',
         className,
       )}
@@ -516,7 +517,8 @@ export function ListRow({
       type="button"
       className={cn(
         'flex w-full min-w-0 items-center gap-3 text-left transition-[background-color,opacity] disabled:pointer-events-none',
-        selected ? 'bg-accent-soft' : `hover:bg-hover ${PRESS}`,
+        // With actions, the row around it takes the hover, so the button doesn't add its own.
+        selected ? 'bg-accent-soft' : cn(!actions && 'hover:bg-hover', PRESS),
         flush ? `${ROW_INSET} focus-visible:-outline-offset-2` : 'rounded-md px-2 py-1.5',
         !!actions && 'flex-1',
         className,

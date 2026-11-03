@@ -24,7 +24,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { FIELD_LOOK, InlineError } from '../lib/field'
-import { animateSpring, prefersReducedMotion } from '../lib/motion'
+import { onFrames, prefersReducedMotion } from '../lib/motion'
 import { Card } from '../lib/surface'
 import { PromptButton, Spinner } from '../lib/ui'
 
@@ -176,9 +176,12 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     ref.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
   }
   const cameraFlight = useRef<(() => void) | null>(null)
+  /** The camera's position on its way, kept while it glides so a new glide keeps its speed */
+  const cameraSprings = useRef<{ x: Spring; y: Spring } | null>(null)
   const stopCameraFlight = () => {
     cameraFlight.current?.()
     cameraFlight.current = null
+    cameraSprings.current = null
   }
   const setCamera = (
     next: BoardCamera | null | ((current: BoardCamera | null) => BoardCamera | null),
@@ -307,26 +310,31 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }, [])
 
   const glideCamera = (target: BoardCamera) => {
-    stopCameraFlight()
     const from = liveCamera.current
-    if (!from || prefersReducedMotion()) {
+    // Mid-glide, it turns toward the new spot at the speed it has.
+    const springs = cameraSprings.current
+    stopCameraFlight()
+    if (!from || prefersReducedMotion() || document.visibilityState === 'hidden') {
       setCamera(target)
       return
     }
-    const spring = new Spring(0, { target: 1 })
-    cameraFlight.current = animateSpring(spring, {
-      precision: 0.5 / Math.max(1, Math.hypot(target.x - from.x, target.y - from.y) * from.zoom),
-      update: (progress) => {
-        updateCamera({
-          ...target,
-          x: from.x + (target.x - from.x) * progress,
-          y: from.y + (target.y - from.y) * progress,
-        })
-      },
-      rest: () => {
-        cameraFlight.current = null
-        setCamera(target)
-      },
+    const { x, y } = springs ?? { x: new Spring(from.x), y: new Spring(from.y) }
+    x.retarget(target.x)
+    y.retarget(target.y)
+    cameraSprings.current = { x, y }
+    // Half a screen pixel, in the board's units
+    const precision = 0.5 / Math.max(target.zoom, 0.01)
+    cameraFlight.current = onFrames((dt) => {
+      x.step(dt)
+      y.step(dt)
+      if (!x.atRest(precision) || !y.atRest(precision)) {
+        updateCamera({ ...target, x: x.value, y: y.value })
+        return false
+      }
+      cameraFlight.current = null
+      cameraSprings.current = null
+      setCamera(target)
+      return true
     })
   }
 

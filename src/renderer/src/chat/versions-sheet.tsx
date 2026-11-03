@@ -241,7 +241,7 @@ function VersionRow({
           <span className="text-caption text-subtle">Changes not recorded</span>
         )
       )}
-      {open && changes.length > 0 && <ChangedFiles changes={changes} />}
+      {changes.length > 0 && <ChangedFiles changes={changes} open={open} />}
       {!version.current && (
         <div>
           <Button

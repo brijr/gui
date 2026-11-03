@@ -1,6 +1,6 @@
 import type { FileChange } from '../../../shared/types'
 import { cn } from './cn'
-import { REVEAL } from './disclosure'
+import { useReveal } from './disclosure'
 import { PathText } from './path-text'
 
 export type ChangeStatus = FileChange['status']
@@ -24,11 +24,13 @@ export function ChangeMark({ status }: { status: ChangeStatus }) {
 }
 
 /** What a turn or a version changed, file by file: the kind of change, the path, lines added and removed. */
-export function ChangedFiles({ changes }: { changes: FileChange[] }) {
+export function ChangedFiles({ changes, open }: { changes: FileChange[]; open: boolean }) {
+  const reveal = useReveal(open)
+  if (!open) return null
   return (
     <ul
       aria-label="Changed files"
-      className={cn(REVEAL, 'flex flex-col gap-1 font-mono text-caption')}
+      className={cn(reveal, 'flex flex-col gap-1 font-mono text-caption')}
     >
       {changes.map((change) => (
         <li key={change.path} className="flex min-w-0 items-center gap-2">

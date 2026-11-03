@@ -602,6 +602,8 @@ export function Progress({ value, label, className }: ProgressProps) {
       className={cn('h-1 w-full overflow-hidden rounded-full bg-fill', className)}
     >
       <div
+        // Remounted when it becomes known, so the sweep doesn't slide into the value.
+        key={known ? 'known' : 'unknown'}
         className={cn(
           'h-full origin-left rounded-full bg-muted transition-transform duration-(--motion-panel) motion-reduce:transition-none',
           // Unknown: a third of the bar sweeps across; with reduced motion it pulses in place.

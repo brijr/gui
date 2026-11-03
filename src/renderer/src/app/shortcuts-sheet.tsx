@@ -7,7 +7,7 @@ import {
 } from '../../../shared/shortcuts'
 import { gui } from '../lib/api'
 import { Dialog } from '../lib/dialog'
-import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
+import { motionMs, usePresence } from '../lib/motion'
 import { GroupLabel } from '../lib/surface'
 import { Keys } from '../lib/ui'
 
@@ -19,10 +19,8 @@ import { Keys } from '../lib/ui'
  */
 export function ShortcutsSheet({ open }: { open: boolean }) {
   // Mounted on through the Dialog's fade out: --motion-panel, or --motion-fade when reduced.
-  const shown = usePresence(
-    open,
-    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-panel'),
-  )
+  // A Dialog closes in --motion-pop, with or without reduced motion.
+  const shown = usePresence(open, motionMs('--motion-pop'))
   if (!shown) return null
   return <Sheet open={open} />
 }

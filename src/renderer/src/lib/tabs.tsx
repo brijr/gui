@@ -69,13 +69,14 @@ const REVEAL_INSET = 24
  */
 export function useScrollingTabs(ref: RefObject<HTMLElement | null>, selected: string | null) {
   const placed = useRef(false)
+  /** When a pointer last went down on the list */
+  const pointedAt = useRef(-Infinity)
   useLayoutEffect(() => {
     if (selected === null) return
-    // Keep keyboard selection immediate; pointer selection may reveal an offscreen tab.
-    revealSelected(
-      ref.current,
-      !placed.current || prefersReducedMotion() || !!ref.current?.matches(':focus-within'),
-    )
+    // A tab the pointer chose may glide into view; one chosen from the keyboard (arrows, ⌃Tab,
+    // ⌘1–9, a new tab) is there at once.
+    const pointed = performance.now() - pointedAt.current < 1000
+    revealSelected(ref.current, !placed.current || prefersReducedMotion() || !pointed)
     placed.current = true
   }, [ref, selected])
 
@@ -90,11 +91,16 @@ export function useScrollingTabs(ref: RefObject<HTMLElement | null>, selected: s
       list.scrollLeft += event.deltaY
     }
     // The window narrowing keeps the selected tab in the row.
+    const onPointerDown = () => {
+      pointedAt.current = performance.now()
+    }
     const resized = new ResizeObserver(() => revealSelected(list, true))
     list.addEventListener('wheel', onWheel, { passive: false })
+    list.addEventListener('pointerdown', onPointerDown)
     resized.observe(list)
     return () => {
       list.removeEventListener('wheel', onWheel)
+      list.removeEventListener('pointerdown', onPointerDown)
       resized.disconnect()
     }
   }, [ref, shown])

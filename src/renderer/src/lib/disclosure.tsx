@@ -14,7 +14,17 @@ interface DisclosureProps extends Omit<ComponentProps<'button'>, 'onToggle'> {
  * What a Disclosure shows, coming in as its chevron turns: a 4px rise and fade (a transcript
  * row's), or the fade alone with reduced motion. Closing is instant.
  */
-export const REVEAL = 'motion-safe:animate-row-in motion-reduce:animate-row-fade'
+const REVEAL = 'motion-safe:animate-row-in motion-reduce:animate-row-fade'
+
+/**
+ * REVEAL, only once the user opens it: content that was already open when it mounted (a
+ * transcript row scrolled back into view, its open state kept) shows as it was.
+ */
+export function useReveal(open: boolean) {
+  const [openAtMount, setOpenAtMount] = useState(open)
+  if (openAtMount && !open) setOpenAtMount(false)
+  return open && !openAtMount ? REVEAL : undefined
+}
 
 /**
  * The one show/hide toggle: a chevron on the left that turns down when open, then the label.
@@ -73,6 +83,7 @@ export function TechnicalDetails({
   const [localOpen, setLocalOpen] = useState(false)
   const open = controlledOpen ?? localOpen
   const setOpen = onOpenChange ?? setLocalOpen
+  const reveal = useReveal(open)
   return (
     <div className={cn('flex flex-col items-start gap-1', className)}>
       <Disclosure open={open} onOpenChange={setOpen}>
@@ -81,7 +92,7 @@ export function TechnicalDetails({
       {open && (
         <pre
           className={cn(
-            REVEAL,
+            reveal,
             'max-h-48 w-full select-text overflow-y-auto scroll-stable whitespace-pre-wrap break-words pl-4 text-left font-mono text-caption text-muted',
           )}
         >

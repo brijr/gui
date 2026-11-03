@@ -307,6 +307,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
 
   const shrunk = () => `translate(${geo.page.x}px, ${geo.page.y}px) scale(${geo.s})`
   const full = 'translate(0px, 0px) scale(1)'
+  /** The page shrinking into the window, while it does: a resize turns it toward the new spot */
+  let pageOpening: Animation | null = null
 
   // Open and close
 
@@ -389,9 +391,11 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
             fill: 'both',
           }),
         ]
+    pageOpening = motion[0] ?? null
     settled(motion).then(
       () => {
         if (id !== run) return
+        pageOpening = null
         page.style.transform = shrunk()
         for (const a of motion) a.cancel()
         setState('intro')
@@ -426,6 +430,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       }),
     )
     for (const el of moving) for (const a of el.getAnimations()) a.cancel()
+    pageOpening = null
     const start = (el: HTMLElement) => from.get(el) ?? { transform: 'none', opacity: 1 }
     const out = (el: HTMLElement, to: Keyframe, options: KeyframeAnimationOptions) =>
       el.animate([start(el) as Keyframe, to], { fill: 'both', ...options })
@@ -888,8 +893,11 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   ): Change {
     remember(el)
     const before = el.style.getPropertyValue(prop)
+    /** A font change's dip, while it's on its way down */
+    let dip: Animation | null = null
     const set = (v: string) => {
-      el.style.transition = transition
+      // With reduced motion the words change in place: no weight or color easing across.
+      el.style.transition = reduce.matches ? 'none' : transition
       if (v) el.style.setProperty(prop, v)
       else el.style.removeProperty(prop)
     }
@@ -897,14 +905,19 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     // family changes once the dip has bottomed out, never while the old one still shows.
     const swap = (v: string) => {
       if (!fade || reduce.matches) return set(v)
+      dip?.cancel()
       const out = el.animate([{ opacity: 1 }, { opacity: 0.08 }], {
         duration: 250,
         easing: EASE_IN,
         fill: 'forwards',
       })
+      dip = out
       out.finished
         .catch(() => {})
         .then(() => {
+          // Reverted or swapped again meanwhile: that change stands.
+          if (dip !== out) return
+          dip = null
           set(v)
           el.animate([{ opacity: 0.08 }, { opacity: 1 }], { duration: 310, easing: EASE_OUT })
           out.cancel()
@@ -917,6 +930,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       apply: () => swap(value),
       revert: (instant = false) => {
         if (!instant) return swap(before)
+        dip?.cancel()
+        dip = null
         el.style.transition = 'none'
         if (before) el.style.setProperty(prop, before)
         else el.style.removeProperty(prop)
@@ -1144,11 +1159,31 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     if (event.key === 'Escape' && state !== 'closed') close()
   })
   addEventListener('resize', () => {
-    if (state === 'closed' || state === 'closing') return
+    if (state === 'closed') return
     cancelAnimationFrame(resizing)
     resizing = requestAnimationFrame(() => {
+      if (state === 'closing') {
+        // Growing back, it grows to the window's new size.
+        page.style.width = `${document.documentElement.clientWidth}px`
+        page.style.height = `${innerHeight}px`
+        return
+      }
       layout()
-      if (state !== 'opening') page.style.transform = shrunk()
+      if (state !== 'opening') {
+        page.style.transform = shrunk()
+        return
+      }
+      // Mid-open: the same animation, at the same point, heading for where the page goes now.
+      const effect = pageOpening?.effect
+      if (!(effect instanceof KeyframeEffect)) return
+      effect.setKeyframes(
+        reduce.matches
+          ? [
+              { opacity: 0, transform: shrunk() },
+              { opacity: 1, transform: shrunk() },
+            ]
+          : [{ transform: full }, { transform: shrunk() }],
+      )
     })
   })
 }

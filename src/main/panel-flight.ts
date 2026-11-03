@@ -60,14 +60,16 @@ export function onDisplayFrames(contents: WebContents, tick: () => void): () => 
     frameTicks.set(contents, ticks)
     if (!contents.isDestroyed()) contents.send(Events.displayFrames, true)
   }
-  let last = performance.now()
+  /** When the page last sent a frame; the timer's own steps don't count, so once it takes
+   *  over it steps on every tick, not every third, until the page's frames come back. */
+  let lastFrame = performance.now()
   const step = () => {
-    last = performance.now()
+    lastFrame = performance.now()
     tick()
   }
   ticks.add(step)
   const fallback = setInterval(() => {
-    if (performance.now() - last > FALLBACK_MS) step()
+    if (performance.now() - lastFrame > FALLBACK_MS) tick()
   }, FALLBACK_INTERVAL_MS)
   return () => {
     clearInterval(fallback)

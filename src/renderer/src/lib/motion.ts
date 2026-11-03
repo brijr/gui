@@ -139,7 +139,14 @@ export function usePresence(open: boolean, exitMs: number) {
  * has to wait for a CSS transition or run its own, so the two can't drift apart.
  */
 export function motionMs(name: `--motion-${string}`): number {
+  const known = motionTokens.get(name)
+  if (known !== undefined) return known
   const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
-  const ms = Number.parseFloat(value)
-  return value.endsWith('s') && !value.endsWith('ms') ? ms * 1000 : ms
+  const parsed = Number.parseFloat(value)
+  const ms = value.endsWith('s') && !value.endsWith('ms') ? parsed * 1000 : parsed
+  // Callers read these while rendering; the tokens never change, so each is read once.
+  if (Number.isFinite(ms)) motionTokens.set(name, ms)
+  return ms
 }
+
+const motionTokens = new Map<string, number>()

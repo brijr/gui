@@ -165,12 +165,19 @@ export class Picker {
     return true
   }
 
-  /** The agent's pointer goes to `at` (the page's CSS pixels), clicking there with `click`. */
-  guideCursor(at: Point, click: boolean) {
+  /** The agent's pointer glides to `at` (the page's CSS pixels). */
+  guideCursor(at: Point) {
     const guided = this.guided
     if (!guided) return
     guided.cursor = at
-    if (click) guided.clicks++
+    this.schedule()
+  }
+
+  /** The agent's pointer clicks where it is: its ring spreads as the real click lands. */
+  guideClick() {
+    const guided = this.guided
+    if (!guided) return
+    guided.clicks++
     this.schedule()
   }
 

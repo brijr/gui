@@ -2,7 +2,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState 
 import { filterCommands } from '../../../shared/commands'
 import type { AgentCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
+import { motionMs, usePresence } from '../lib/motion'
 import { MenuRow, Popover, PopoverNote } from '../lib/surface'
 
 /** `/` and the start of a name, nothing after: the menu's query. Null when it shouldn't open. */
@@ -66,10 +66,7 @@ export function useCommandMenu({
   // gone (a command chosen, the message sent or cleared).
   const last = useRef({ shown, activeIndex })
   if (open) last.current = { shown, activeIndex }
-  const present = usePresence(
-    open,
-    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-exit'),
-  )
+  const present = usePresence(open, motionMs('--motion-exit'))
 
   useEffect(() => {
     if (!awaiting) return

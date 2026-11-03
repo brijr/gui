@@ -1463,10 +1463,11 @@ function buildMenu() {
   builtAgents = shownAgents(agents)
   /** For the active tab of the window menus act on (`menuTab`): the project it shows. */
   const withWindow =
-    (fn: (tab: ProjectTab) => void): MenuItemConstructorOptions['click'] =>
-    () => {
+    (fn: (tab: ProjectTab, byKey: boolean) => void): MenuItemConstructorOptions['click'] =>
+    (_item, _win, event) => {
       const tab = menuTab()
-      if (tab) fn(tab)
+      // From the item's shortcut rather than the menu bar
+      if (tab) fn(tab, event.triggeredByAccelerator === true)
     }
   /** For the tabs of the window menus act on (`menuWindow`). */
   const withTabs =
@@ -1600,9 +1601,11 @@ function buildMenu() {
           item(VIEWPORT_SHORTCUTS[id], { click: withWindow((w) => w.setViewport(id)) }),
         ),
         { type: 'separator' },
-        ...item('zoomIn', { click: withWindow((w) => w.zoom(1)) }),
-        ...item('zoomOut', { click: withWindow((w) => w.zoom(-1)) }),
-        ...item('actualSize', { click: withWindow((w) => w.zoom(0)) }),
+        // From the keyboard, zoom lands at once: ⌘+ pressed again and again shouldn't make
+        // the page lay itself out at every size in between.
+        ...item('zoomIn', { click: withWindow((w, byKey) => w.zoom(1, !byKey)) }),
+        ...item('zoomOut', { click: withWindow((w, byKey) => w.zoom(-1, !byKey)) }),
+        ...item('actualSize', { click: withWindow((w, byKey) => w.zoom(0, !byKey)) }),
         { type: 'separator' },
         ...item('screenshot', { click: withTabs((w) => w.screenshot()) }),
         ...item('recordPreview', { click: withTabs((w) => w.recordPreview()) }),

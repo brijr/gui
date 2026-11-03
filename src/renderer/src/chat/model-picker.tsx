@@ -14,7 +14,7 @@ import type { AgentSetting, ModelSettings } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { ChevronDown } from '../lib/icons'
-import { motionMs, prefersReducedMotion, usePresence } from '../lib/motion'
+import { motionMs, usePresence } from '../lib/motion'
 import {
   GroupLabel,
   MenuRow,
@@ -153,10 +153,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   const [instant, setInstant] = useState(false)
   // Kept while it closes, which it does where it was.
   const [placement, setPlacement] = useState<PopoverPlacement | null>(null)
-  const shown = usePresence(
-    open,
-    motionMs(prefersReducedMotion() ? '--motion-fade' : '--motion-exit'),
-  )
+  const shown = usePresence(open, motionMs('--motion-exit'))
   const button = useRef<HTMLButtonElement>(null)
   const pickerId = useId()
   const fullName = choiceName(models.model) ?? models.model.value

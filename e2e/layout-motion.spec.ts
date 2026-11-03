@@ -364,6 +364,16 @@ function viewPath(samples: ViewSample[]) {
  * The steps from one of the view's bounds to the next that move further than the spring
  * could in the time between them: none, for a continuous resize. Logs the largest step.
  */
+/** The chat view's distinct bounds, in order, while it shows. */
+function chatPath(samples: ViewSample[]) {
+  const path: (Rect & { t: number })[] = []
+  for (const { t, chat } of samples) {
+    if (!chat || near(path.at(-1), chat, 0)) continue
+    path.push({ ...chat, t })
+  }
+  return path
+}
+
 function jumps(path: (Rect & { t: number })[], label: string) {
   const found: { t: number; ms: number; step: number }[] = []
   let largest = { step: 0, ms: 0 }
@@ -529,6 +539,12 @@ test('the drawer slides with the preview it pushes, and both land exactly', asyn
   expect(gapsOpen.length).toBeGreaterThan(5)
   console.log(`[e2e] drawer opening: its edge at most ${Math.round(Math.max(...gapsOpen))} px off`)
   expect(Math.max(...gapsOpen)).toBeLessThan(MAX_TRAIL)
+  // The floating chat in its bottom corner rises with the drawer, rather than jumping the
+  // drawer's height when the canvas changes.
+  const chatRising = chatPath(open.samples)
+  expect(chatRising.length).toBeGreaterThan(5)
+  expect(chatRising.at(-1)?.y ?? 0).toBeLessThan(chatRising[0]?.y ?? 0)
+  expect(jumps(chatRising, 'chat over the opening drawer')).toEqual([])
 
   // Closing: the drawer goes down and the page's edge follows it.
   const close = await withEvidence(session, 'drawer-close', () =>
@@ -548,6 +564,11 @@ test('the drawer slides with the preview it pushes, and both land exactly', asyn
   expect(gapsClose.length).toBeGreaterThan(5)
   console.log(`[e2e] drawer closing: its edge at most ${Math.round(Math.max(...gapsClose))} px off`)
   expect(Math.max(...gapsClose)).toBeLessThan(MAX_TRAIL)
+  // And comes back down with it, not over the drawer still on its way out.
+  const chatFalling = chatPath(close.samples)
+  expect(chatFalling.length).toBeGreaterThan(5)
+  expect(chatFalling.at(-1)?.y ?? 0).toBeGreaterThan(chatFalling[0]?.y ?? 0)
+  expect(jumps(chatFalling, 'chat over the closing drawer')).toEqual([])
   // The drawer is gone from the layout, with nothing left of its slide.
   const drawer = await session.chrome.evaluate(() => {
     const section = document.querySelector<HTMLElement>('section[aria-label="Terminal"]')
