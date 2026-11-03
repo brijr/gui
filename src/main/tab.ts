@@ -980,6 +980,7 @@ export class ProjectTab implements ChatPanelOwner {
     })
     this.bindChat(chat)
     this.resources.chat = chat
+    this.panel.untuck()
     resources.attachHistory(root, file)
     chat.setCanSelect(this.canSelect)
     if (board) chat.setCanvasEmpty(board.frames.length === 0)
@@ -1621,6 +1622,7 @@ export class ProjectTab implements ChatPanelOwner {
       if (input.type === 'mouseDown') this.keyboardBeforeLoad = null
       // Using the app: the floating chat can get out of its way.
       if (input.type === 'mouseDown' || input.type === 'keyDown') this.panel.leftChat(true)
+      if (input.type === 'mouseDown') this.panel.pagePressed()
     })
     wc.on('focus', () => this.keepKeyboard())
     wc.on('dom-ready', () => {
@@ -1762,6 +1764,8 @@ export class ProjectTab implements ChatPanelOwner {
     void this.inspector.clearHighlight()
     this.syncOutlined()
     this.picker.start(this.placement, this.cursorOverPreview())
+    // Picking has its own bubble, and the panel comes back once it ends.
+    this.panel.untuck()
     this.patchPreview({ selecting: true })
   }
 
@@ -1862,6 +1866,7 @@ export class ProjectTab implements ChatPanelOwner {
         chat.setSelection([{ ...element, kind: 'element' }])
       }
       chat.send(`Change the text “${before}” to “${collapseText(after)}”.`)
+      if (this.panel.untuck()) this.layout()
       for (const [pick, pickNode] of nodes) this.pickedNodes.set(pick, pickNode)
       chat.setSelection(picked)
     })
@@ -2016,6 +2021,7 @@ export class ProjectTab implements ChatPanelOwner {
       },
       clicked: () => {
         this.keyboardBeforeLoad = null
+        this.panel.pagePressed()
       },
       escape: () => {
         if (!this.host.focusMode || !this.host.isActive(this)) return false
@@ -2280,6 +2286,8 @@ export class ProjectTab implements ChatPanelOwner {
       if (this.resources.chat !== chat) return false
       const accepted = chat.send(text, images, clips, followUp)
       if (accepted) recordings.retain(ids)
+      // A message from outside the chat (the board's starters): the chat shows it going.
+      if (accepted && this.panel.untuck()) this.layout()
       return accepted
     } catch {
       return false
@@ -2865,6 +2873,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.leaveFocusMode()
     // Floating again, it shows the conversation the sidebar did.
     this.panel.showConversation()
+    this.panel.untuck()
     this.morphLayout('dock')
     const docked = !this.resources.chat.meta.docked
     setPrefs({ chatSidebar: docked })
@@ -2993,6 +3002,15 @@ export class ProjectTab implements ChatPanelOwner {
 
   holdChat(held: boolean) {
     this.panel.hold(held)
+  }
+
+  chatDrafted(drafted: boolean) {
+    this.panel.setDrafted(drafted)
+  }
+
+  /** A press in the page (the board's, from the chrome): see `ChatPanel.pagePressed`. */
+  pagePressed() {
+    this.panel.pagePressed()
   }
 
   /** The chat's own window while popped out, so menus and ⌘W can tell it's this tab's. */

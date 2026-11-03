@@ -56,6 +56,7 @@ export function registerBoardIpc(
       if (win.activeTab.boardSession) handler(win.activeTab, ...args)
     })
   onBoard(Send.boardSelect, (tab, value) => ids(value) && tab.boardSelect(value))
+  onBoard(Send.boardPressed, (tab) => tab.pagePressed())
   onBoard(Send.boardArrange, (tab, frames) => {
     if (Array.isArray(frames) && frames.length <= 100 && frames.every(arrangement))
       void tab.boardArrange(frames)

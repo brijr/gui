@@ -544,7 +544,7 @@ export interface PanelCorner {
 
 /**
  * What the floating chat is drawn as: the panel, the pill while minimized, or the bubble while
- * the user picks an element. Each sits at the anchored corner.
+ * the user picks an element or uses the page. Each sits at the anchored corner.
  */
 export type ChatForm = 'panel' | 'pill' | 'bubble'
 

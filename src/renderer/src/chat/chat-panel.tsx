@@ -95,6 +95,13 @@ export function ChatPanel() {
   const turnIds = useChat((s) => s.turnIds)
   const running = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
   const float = useChat((s) => s.float)
+  // Something to send keeps the floating panel open when the user presses in the page.
+  const drafted = useChat(
+    (s) => s.draft.trim() !== '' || s.attachments.length > 0 || s.recordings.length > 0,
+  )
+  useEffect(() => {
+    gui.chatDrafted(drafted)
+  }, [drafted])
   if (!meta) return null
 
   // The sidebar, or popped out into a window of its own, which it fills.
@@ -872,9 +879,10 @@ function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
 }
 
 /**
- * The floating panel out of the way while the user picks an element. The panel morphs into
- * this bubble at its anchored corner and main shrinks the view to it. Clicking it brings the
- * panel back (and stops picking).
+ * The floating panel out of the way while the user picks an element, or once they press in
+ * the page with nothing in the panel for them. The panel morphs into this bubble at its
+ * anchored corner and main shrinks the view to it. Clicking it brings the panel back (and
+ * stops picking).
  */
 function ChatBubble({ running, picking }: { running: boolean; picking: boolean }) {
   const statusId = useId()

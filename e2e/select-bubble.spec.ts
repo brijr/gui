@@ -227,6 +227,59 @@ test('a minimized chat comes back minimized, the bubble ends picking, docked sta
   expect((await session.app.evaluate(views))?.chat).toEqual(docked.chat)
 })
 
+/** Runs in main: whether the chat view has the keyboard. */
+function chatFocused({ webContents }: ElectronModule) {
+  return webContents
+    .getAllWebContents()
+    .some((wc) => wc.getURL().endsWith('/chat.html') && wc.isFocused())
+}
+
+test('a press in the page hides a floating chat not in use to its bubble', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
+  await session.waitForPreview()
+  const preview = await session.previewPage()
+  const counter = preview.locator(SELECTOR)
+  await expect(counter).toBeVisible({ timeout: 30_000 })
+  const box = await chatWhere(session, 'the message box', (chat) => !isBubble(chat))
+
+  // A press in the page: the empty chat hides to its bubble at its corner, and the page
+  // keeps the keyboard.
+  await counter.click()
+  await chatWhere(session, 'the bubble', isBubble)
+  expect((await session.app.evaluate(views))?.chat).toEqual(bubbleAt(box.chat))
+  await expect(showChat(session.chat)).toHaveAccessibleDescription('')
+  expect(await session.app.evaluate(chatFocused)).toBe(false)
+  expect(await counter.evaluate((el) => el === document.activeElement)).toBe(true)
+
+  // Clicking the bubble brings the panel back at the same corner.
+  await showChat(session.chat).click()
+  const panel = await chatWhere(session, 'the panel', (chat) => !isBubble(chat))
+  expect(panel.chat.x).toBe(box.chat.x)
+  expect(panel.chat.y + panel.chat.height).toBe(box.chat.y + box.chat.height)
+  await expect(showChat(session.chat)).toHaveCount(0)
+
+  // A draft in the message box keeps it open.
+  const composer = session.chat.locator('[data-composer]')
+  await composer.fill('Make the heading blue')
+  await counter.click()
+  await sleep(500)
+  expect(isBubble((await session.app.evaluate(views))?.chat ?? panel.chat)).toBe(false)
+  await expect(showChat(session.chat)).toHaveCount(0)
+  await composer.fill('')
+
+  // As the sidebar, it covers nothing and stays as it is.
+  await session.chat.evaluate(() => window.gui.toggleDock())
+  const docked = await chatWhere(
+    session,
+    'the sidebar',
+    (chat) => chat.width === 380 && chat.x === 0,
+  )
+  await counter.click()
+  await sleep(500)
+  expect((await session.app.evaluate(views))?.chat).toEqual(docked.chat)
+  await expect(showChat(session.chat)).toHaveCount(0)
+})
+
 // A stand-in ACP agent (a small Node script) keeps a turn running, or asks a permission
 // question, so the bubble's states show without an agent login or usage.
 
@@ -433,10 +486,11 @@ test('the floating chat is its message box until there is a conversation, and ag
   expect((await session.app.evaluate(views))?.chat).toEqual(open.chat)
   await expect(panel).not.toHaveAttribute('data-collapsed')
 
-  // ...and a moment after they use the page, it's the message box again.
+  // ...and a moment after they use the page (typing there; a press hides it to its bubble),
+  // it's the message box again.
   await session.chat.mouse.move(1, 1)
   const preview = await session.previewPage()
-  await preview.locator('h1').click()
+  await preview.keyboard.press('x')
   await expect(panel).toHaveAttribute('data-collapsed', 'true', { timeout: 10_000 })
   const back = await chatWhere(
     session,

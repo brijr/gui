@@ -160,6 +160,7 @@ export const Send = {
   chatCollapsed: 'chat:collapsed',
   chatBoxHeight: 'chat:box-height',
   holdChat: 'chat:hold',
+  chatDrafted: 'chat:drafted',
   removeQueued: 'chat:queue-remove',
   editQueued: 'chat:queue-edit',
   moveQueued: 'chat:queue-move',
@@ -192,6 +193,7 @@ export const Send = {
   showFrameMenu: 'board:frame-menu',
   showAddFrameMenu: 'board:add-frame-menu',
   boardSelect: 'board:select',
+  boardPressed: 'board:pressed',
   boardArrange: 'board:arrange',
   boardAddFrame: 'board:add-frame',
   boardDuplicate: 'board:duplicate',
@@ -371,6 +373,8 @@ export interface GuiApi {
   showAddFrameMenu(at: { x: number; y: number }): void
   /** The frames selected on the board, in the order they were selected */
   boardSelect(ids: string[]): void
+  /** A press on the board: the floating chat, if not in use, hides to its bubble. */
+  boardPressed(): void
   /** Frames dragged or resized on the board: one undo step */
   boardArrange(frames: FrameArrangement[]): void
   /** A new frame at `at` on the board, or beside what's selected */
@@ -550,6 +554,8 @@ export interface GuiApi {
    * it doesn't shrink to its message box meanwhile.
    */
   holdChat(held: boolean): void
+  /** The message box has something to send (text or attachments): the panel stays open. */
+  chatDrafted(drafted: boolean): void
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project). `followUp` is the id of

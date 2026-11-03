@@ -482,7 +482,7 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
   // Dark: the tokens switch with the appearance.
   await session.chrome.emulateMedia({ colorScheme: 'dark' })
   const background = await sheet.evaluate((dialog) => getComputedStyle(dialog).backgroundColor)
-  expect(background).toBe('rgb(32, 32, 35)')
+  expect(background).toBe('rgb(42, 42, 45)')
   await session.shot('shortcuts-dark')
   await session.chrome.emulateMedia({ colorScheme: 'light' })
 

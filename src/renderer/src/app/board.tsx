@@ -568,6 +568,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }
 
   const onPointerDown = (event: ReactPointerEvent) => {
+    // Using the board, as a press in the page: the floating chat, not in use, gets out of the way.
+    gui.boardPressed()
     if (event.button === 2) return
     // ⌃-click on a Mac is a right-click: its menu opens, and nothing drags.
     if (MAC && event.ctrlKey && event.button === 0) return

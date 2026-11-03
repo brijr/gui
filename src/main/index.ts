@@ -1210,6 +1210,7 @@ function registerIpc() {
   on(Send.chatCollapsed, (tab, seq) => isNumber(seq) && tab.chatCollapsed(seq))
   on(Send.chatBoxHeight, (tab, height) => isNumber(height) && tab.chatBoxHeight(height))
   on(Send.holdChat, (tab, held) => tab.holdChat(held === true))
+  on(Send.chatDrafted, (tab, drafted) => tab.chatDrafted(drafted === true))
   on(Send.resizeChat, (tab, edge, dx, dy) => {
     if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) tab.resizeChat(edge, dx, dy)
   })

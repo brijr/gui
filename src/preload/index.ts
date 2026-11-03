@@ -71,6 +71,7 @@ const api: GuiApi = {
   showFrameMenu: send(Send.showFrameMenu),
   showAddFrameMenu: send(Send.showAddFrameMenu),
   boardSelect: send(Send.boardSelect),
+  boardPressed: send(Send.boardPressed),
   boardArrange: send(Send.boardArrange),
   boardAddFrame: send(Send.boardAddFrame),
   boardDuplicate: send(Send.boardDuplicate),
@@ -151,6 +152,7 @@ const api: GuiApi = {
   chatCollapsed: send(Send.chatCollapsed),
   chatBoxHeight: send(Send.chatBoxHeight),
   holdChat: send(Send.holdChat),
+  chatDrafted: send(Send.chatDrafted),
   send: (text, images, recordings, followUp) =>
     legacyInvoke(Invoke.send, text, images, recordings, followUp),
   cancel: send(Send.cancel),

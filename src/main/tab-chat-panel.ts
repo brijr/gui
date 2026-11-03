@@ -120,6 +120,10 @@ export class ChatPanel {
   private held = false
   private boxHeight = BOX_HEIGHT
   private lastCollapsed: boolean | null = null
+  /** Hidden to its bubble since the user pressed in the page (`pagePressed`), until it's wanted */
+  private tucked = false
+  /** The message box has something to send: the panel stays open for it */
+  private drafted = false
   private popout: BrowserWindow | null = null
 
   constructor(private readonly tab: ChatPanelOwner) {}
@@ -137,7 +141,7 @@ export class ChatPanel {
   }
 
   private get bubbled() {
-    return this.tab.state.preview.selecting && this.chatShown && !this.docked
+    return (this.tab.state.preview.selecting || this.tucked) && this.chatShown && !this.docked
   }
 
   /** The chat is on screen in some form, popped out included, so its turns can be seen. */
@@ -169,6 +173,7 @@ export class ChatPanel {
   toggleChat() {
     if (this.popout) return this.focusChat()
     if (this.tab.host.focusMode) return this.focusChat()
+    this.untuck()
     if (this.docked) this.tab.morphLayout('dock')
     this.tab.patch({ chatVisible: !this.tab.state.chatVisible })
     if (this.docked) {
@@ -525,6 +530,7 @@ export class ChatPanel {
   focusChat() {
     this.tab.leaveFocusMode()
     this.cancelCollapse()
+    this.untuck()
     if (this.popout) {
       if (!this.tab.host.isActive(this.tab)) return
       focusWindow(this.popout)
@@ -561,6 +567,31 @@ export class ChatPanel {
       this.tab.patch({ chatVisible: true })
       this.tab.layout()
     }
+  }
+
+  /**
+   * The user pressed in the page (the preview, a website over it, or the board): the floating
+   * chat, not in use, hides to its bubble, as while picking. Not with a draft or a waiting
+   * card in it, while picking (already its bubble), minimized, docked or popped out.
+   */
+  pagePressed() {
+    const chat = this.tab.resources.chat
+    if (this.tucked || !chat || !this.chatShown || this.docked) return
+    if (this.drafted || chat.awaitingPermission || chat.meta.minimized) return
+    if (this.tab.state.preview.selecting) return
+    this.tucked = true
+    this.tab.layout()
+  }
+
+  /** Out of its bubble (`pagePressed`) for whoever lays it out next; true if it was in it. */
+  untuck() {
+    const was = this.tucked
+    this.tucked = false
+    return was
+  }
+
+  setDrafted(drafted: boolean) {
+    this.drafted = drafted
   }
 
   takeAttention() {
