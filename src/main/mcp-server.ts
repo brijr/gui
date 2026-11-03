@@ -65,7 +65,7 @@ function buildServer(
   board: BoardTools | null,
 ) {
   const server = new McpServer({ name: 'gui', version: '0.2.0' })
-  registerPreviewTools(server, tools, recordings)
+  registerPreviewTools(server, tools, recordings, board === null)
   registerAppTools(server, app)
   if (board) registerBoardTools(server, board)
   return server

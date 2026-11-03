@@ -675,7 +675,44 @@ export interface PickOverlayState {
   run: number
   /** The agent walking the user through the page (preview_point); never while picking */
   guide?: GuideOverlay | null
+  /** The versions of an element to flip through (preview_variations); never while picking */
+  variations?: VariationsBar | null
 }
+
+/** One version in a variation set (docs/variations.md); `original` is the code as it was. */
+export interface Variant {
+  id: string
+  name: string
+}
+
+/** The variations bar, as the overlay draws it. */
+export interface VariationsBar {
+  /** Its top-left corner, in the overlay's coordinates */
+  at: Point
+  /** The widest it may be, to fit the preview: the name shortens first */
+  room: number
+  /** What each version is called, the original first: "Original", "1 of 3 · Bold", … */
+  labels: string[]
+  /** The one showing */
+  index: number
+  /** Asking before Discard undoes later messages too: how many */
+  confirm: number | null
+  /** Discarding */
+  busy: boolean
+  /** Why the last action didn't happen */
+  error: string | null
+}
+
+/** What the user did in the variations bar. */
+export const VARIATION_ACTIONS = [
+  'previous',
+  'next',
+  'use',
+  'discard',
+  'confirm',
+  'cancel',
+] as const
+export type VariationAction = (typeof VARIATION_ACTIONS)[number]
 
 /** One step of the agent's walkthrough, as the overlay draws it (its coordinates). */
 export interface GuideOverlay {

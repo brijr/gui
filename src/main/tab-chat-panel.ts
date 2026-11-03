@@ -67,6 +67,8 @@ export interface ChatPanelOwner {
   setSelecting(on: boolean): Promise<void>
   morphLayout(kind: MorphKind): void
   layout(): void
+  /** The chat was laid out (or moved a frame): what floats beside it follows. */
+  chatPlaced(): void
 }
 
 /**
@@ -602,6 +604,27 @@ export class ChatPanel {
 
   layoutChat() {
     if (this.tab.disposed || !this.tab.host.isActive(this.tab)) return
+    this.placeChat()
+    this.tab.chatPlaced()
+  }
+
+  /**
+   * The floating chat (panel, pill or bubble) where it's drawn in the window, while it's
+   * anchored in the canvas's bottom-left corner; null in any other corner, docked or hidden.
+   */
+  bottomLeftRect(): Rect | null {
+    if (!this.chatShown || this.docked || this.anchor.x !== 'left' || this.anchor.y !== 'bottom')
+      return null
+    const view = this.tab.chatView.getBounds()
+    return {
+      x: view.x + PANEL_SHADOW_MARGIN,
+      y: view.y + PANEL_SHADOW_MARGIN,
+      width: view.width - PANEL_SHADOW_MARGIN * 2,
+      height: view.height - PANEL_SHADOW_MARGIN * 2,
+    }
+  }
+
+  private placeChat() {
     // Before the sidebar's new width: the bars then hold where the sidebar is as it arrives.
     this.sendSlide()
     this.syncSidebarWidth()

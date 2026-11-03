@@ -118,6 +118,8 @@ const api: GuiApi = {
   pickArea: send(Send.pickArea),
   pickWheel: send(Send.pickWheel),
   endGuide: send(Send.endGuide),
+  variations: send(Send.variations),
+  variationsSize: send(Send.variationsSize),
   onPickState: (cb) => subscribe(Events.pickState, cb),
   setCanvasRect: send(Send.setCanvasRect),
   onMorph: (cb) => subscribe(Events.morph, cb),

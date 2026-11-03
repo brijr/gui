@@ -55,6 +55,8 @@ import {
   type SettingsSection,
   type StartCommandInput,
   type StorageKind,
+  VARIATION_ACTIONS,
+  type VariationAction,
   VIEWPORTS,
 } from '../shared/types'
 import { accountEvents, accountState, getAccount, mustSignIn } from './account'
@@ -1149,6 +1151,13 @@ function registerIpc() {
     if (isPoint(at) && isNumber(dx) && isNumber(dy)) tab.pickWheel(at, dx, dy)
   })
   on(Send.endGuide, (tab) => tab.endGuide())
+  on(Send.variations, (tab, action) => {
+    if (VARIATION_ACTIONS.includes(action as VariationAction))
+      tab.variationsAction(action as VariationAction)
+  })
+  on(Send.variationsSize, (tab, width, height) => {
+    if (isNumber(width) && isNumber(height)) tab.variationsSize(width, height)
+  })
   /** From a preview's own preload, in its page's top frame: the tab whose preview it is. */
   const previewTab = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame === event.sender.mainFrame

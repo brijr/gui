@@ -56,6 +56,7 @@ import {
   type StartCommandInput,
   type TabStatus,
   type TerminalId,
+  type VariationAction,
   VIEWPORTS,
   type Viewport,
   type ViewportFrame,
@@ -159,6 +160,7 @@ import {
   trust,
   trustedScripts,
 } from './trust'
+import { Variations } from './variations'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { isPublicWebsite, LOCAL_ADDRESS } from './web-session'
 import { Website, type WebsiteHooks } from './website'
@@ -313,6 +315,8 @@ export class ProjectTab implements ChatPanelOwner {
   private readonly problems = new Problems()
   /** Picking over the preview: the overlay Gui draws it in, over the page. */
   private readonly picker: Picker
+  /** The versions of an element the agent showed to flip through (docs/variations.md) */
+  private readonly variations: Variations
   /** Each picked element's node (by pick id), to outline it; an area has none. */
   private readonly pickedNodes = new Map<string, number>()
   /** What's being read for a pick in progress, outlined meanwhile */
@@ -460,6 +464,18 @@ export class ProjectTab implements ChatPanelOwner {
     })
     this.panel = new ChatPanel(this)
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
+    this.variations = new Variations({
+      inspector: this.inspector,
+      chat: () => this.resources.chat,
+      generation: () => this.resources.generation,
+      stillCurrent: (generation) => this.resources.stillCurrent(generation),
+      onApp: () => !this.website && isLoopback(this.preview.webContents.getURL()),
+      setBar: (bar) => {
+        this.placeBar()
+        this.picker.setBar(bar)
+      },
+      send: (text) => this.sendChatMessage(text, []),
+    })
     this.problems.on('change', (problems) => {
       this.resources.chat?.setProblems(problems)
       const serverErrors = problems.filter((problem) => problem.source === 'server').length
@@ -916,6 +932,7 @@ export class ProjectTab implements ChatPanelOwner {
         board ? Promise.resolve(BOARD_SERVER_STATUS) : this.setStartCommandForAgent(input),
       guide: (node, caption) => this.guideStep(this.picker, node, caption),
       guideInput: (at, click) => this.guideInput(this.picker, at, click),
+      variations: (input) => this.variations.show(input),
       website: {
         shown: () => (this.website && !this.website.closed ? this.website.tools : null),
         open: (url) => this.openWebsite(url),
@@ -1014,11 +1031,14 @@ export class ProjectTab implements ChatPanelOwner {
       }
       // Once the turn ends, the website is the user's to use.
       this.holdWebsite()
+      // Its variations go once the turn that made them is undone.
+      this.variations.onTurn(turn)
       // Working, or a permission card answered: the tab strip shows it.
       this.host.tabChanged(this, false)
     })
     chat.on('reset', (snapshot) => {
       this.sendChat(Events.chatReset, snapshot)
+      this.variations.clear()
       // A chat opened from the archive shows; a new one has nothing to show yet, so the
       // floating panel is its message box.
       if (snapshot.turns.length > 0) this.panel.showConversation()
@@ -1279,6 +1299,7 @@ export class ProjectTab implements ChatPanelOwner {
     const root = this.projectRoot
     // A website the project's agent opened goes with it, and its session is cleared.
     this.closeWebsite()
+    this.variations.clear()
     this.opening = null
     this.stopWatchingForApp()
     this.watchedStart = null
@@ -2061,6 +2082,29 @@ export class ProjectTab implements ChatPanelOwner {
     await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
     // Once the pointer is there, as the click it shows goes through
     if (click) picker.guideClick()
+  }
+
+  /** The variations bar's buttons and keys. */
+  variationsAction(action: VariationAction) {
+    void this.variations.act(action)
+  }
+
+  variationsSize(width: number, height: number) {
+    this.picker.setBarSize(width, height)
+  }
+
+  /**
+   * The variations bar goes in the bottom-left of the app's page while it's in sight (a device
+   * frame's page, beside a docked chat), right of a floating chat in that corner.
+   */
+  chatPlaced() {
+    this.placeBar()
+  }
+
+  private placeBar() {
+    const { visible } = this.state.preview
+    const shown = visible && !this.website && !this.host.sheetShown && this.placement.width > 0
+    this.picker.placeBar(shown ? this.placement : null, this.panel.bottomLeftRect())
   }
 
   /** The user clicked the walkthrough away, or it ran its course. A held website keeps its own. */

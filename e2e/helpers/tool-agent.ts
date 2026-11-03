@@ -6,7 +6,7 @@ import { expect } from './test'
 
 // Calls the real MCP server through a stand-in agent: no agent login or paid usage.
 const AGENT_SCRIPT = String.raw`
-const { appendFileSync } = require('node:fs')
+const { appendFileSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 const write = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
 let mcp, cwd
@@ -26,6 +26,9 @@ const prompt = async params => {
     else if (step.css) {
       appendFileSync(join(cwd, 'src', 'index.css'), '\n' + step.css + '\n')
       // The real agent would observe hot reload and retry its checks as needed.
+      await new Promise(resolve => setTimeout(resolve, 800))
+    } else if (step.write) {
+      writeFileSync(join(cwd, step.write.path), step.write.text)
       await new Promise(resolve => setTimeout(resolve, 800))
     } else results.push(await call(step.name, step.args || {}))
   }
@@ -79,6 +82,8 @@ export interface Step {
   name?: string
   args?: Record<string, unknown>
   css?: string
+  /** Writes a project file, as an agent's edit would */
+  write?: { path: string; text: string }
   /** Waits this many ms, as an agent thinking between calls would */
   wait?: number
 }

@@ -7,6 +7,7 @@ import type { PageTools, PreviewTools } from './preview-tools'
 import { formatNarration } from './recording-narration'
 import { formatTimeline } from './recording-trace'
 import type { Recordings } from './recordings'
+import { MAX_VARIANTS, VARIATION_ID } from './variations'
 
 /**
  * Tool names for the preview: inspect and interact with it, plus dev-server controls.
@@ -22,6 +23,7 @@ export const PREVIEW_TOOL_NAMES = [
   'preview_press',
   'preview_scroll',
   'preview_point',
+  'preview_variations',
   'preview_console',
   'preview_navigate',
   'preview_reload',
@@ -75,6 +77,8 @@ export function registerPreviewTools(
   server: McpServer,
   tools: PreviewTools,
   recordings: Recordings,
+  /** False on a canvas, where each version is its own frame instead */
+  variations = true,
 ) {
   server.registerTool(
     'preview_snapshot',
@@ -230,6 +234,51 @@ export function registerPreviewTools(
       }
     },
   )
+
+  if (variations) {
+    const variationId = z.string().regex(VARIATION_ID)
+    server.registerTool(
+      'preview_variations',
+      {
+        title: 'Show versions to choose from',
+        description: `Let the user flip through versions of one element in the preview and choose one, when they ask for options, alternatives or "N ways" to improve something. First write each version as real code in their project (real components, their own styling approach), behind one small switch, keeping the whole set in as few files as possible so it's easy to clean up. The switch: on render, read localStorage['gui:variation:<set>'] (missing or unknown means "original", the code as it was, which stays a version); render again on the window's gui:variation event (detail: { set, variant }); and give the root element of whichever version renders data-gui-variation="<set>" and data-gui-variant="<version id>". In React: useSyncExternalStore(subscribe to gui:variation, () => localStorage.getItem(key) ?? 'original', () => 'original'). Check it builds, then call this with the new versions in order (not "original"; up to ${MAX_VARIANTS}). Gui shows a bar in the preview's bottom-left corner, switches the page and scrolls the element into view. Before replying, check every version renders: call this again with \`show\` for each and preview_screenshot it. The user keeps one with Use this (which sends you a message to make it the real code and remove the rest and the switch) or discards them all (which undoes this message).`,
+        inputSchema: {
+          set: variationId.describe(
+            'Id for the set, such as "hero": lowercase letters, digits, dashes',
+          ),
+          variants: z
+            .array(
+              z.object({
+                id: variationId.describe('Id for the version, such as "tighter"'),
+                name: z
+                  .string()
+                  .trim()
+                  .min(1)
+                  .max(40)
+                  .describe('Short name, such as "Tighter hierarchy"'),
+              }),
+            )
+            .min(1)
+            .max(MAX_VARIANTS)
+            .describe('The new versions, in order, without the original'),
+          show: variationId
+            .optional()
+            .describe(
+              'The version to show (default: the first; "original" for the code as it was)',
+            ),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      async ({ set, variants, show }) => {
+        try {
+          const named = variants.map(({ id, name }) => ({ id, name: name.replace(/\s+/g, ' ') }))
+          return text(await tools.variations({ set, variants: named, show }))
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    )
+  }
 
   server.registerTool(
     'preview_screenshot',

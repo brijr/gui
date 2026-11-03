@@ -10,6 +10,7 @@ export const SYMBOLS = {
   Camera: 'camera',
   Check: 'checkmark',
   ChevronDown: 'chevron.down',
+  ChevronLeft: 'chevron.left',
   ChevronRight: 'chevron.right',
   ChevronUp: 'chevron.up',
   Circle: 'circle',

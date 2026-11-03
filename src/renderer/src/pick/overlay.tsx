@@ -2,13 +2,21 @@ import {
   type ReactNode,
   type PointerEvent as ReactPointerEvent,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react'
-import type { GuideOverlay, PickOverlayState, Point, Rect } from '../../../shared/types'
+import type {
+  GuideOverlay,
+  PickOverlayState,
+  Point,
+  Rect,
+  VariationsBar,
+} from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Counter, Kbd } from '../lib/ui'
+import { ChevronLeft, ChevronRight, Undo2, X } from '../lib/icons'
+import { Button, Counter, IconButton, Kbd } from '../lib/ui'
 
 /** A press that moves less than this is a click; further, a drag for an area. */
 const DRAG_THRESHOLD = 4
@@ -132,8 +140,17 @@ export function PickOverlay() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
-  // Not picking: the agent is walking the user through the page.
-  if (state.guide) return <Guide guide={state.guide} />
+  // Not picking: the agent is walking the user through the page, or showing versions (or both).
+  const variations = state.variations && <Variations bar={state.variations} />
+  if (state.guide)
+    return (
+      <>
+        <Guide guide={state.guide} />
+        {variations}
+      </>
+    )
+  // The bar on its own: this overlay is only as big as it is (main/picker.ts).
+  if (variations) return variations
 
   const area = drag ? rectBetween(drag.start, drag.end) : null
   const several = state.picked.length > 1
@@ -321,6 +338,129 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         >
           The agent is using this website. Stop it to use it yourself.
         </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The versions the agent wrote of an element (preview_variations), in the preview's bottom-left
+ * corner: ‹ › flip them, as do ← and → here or in the preview, and the page shows each at once,
+ * never animated. Use this asks the agent to keep the one showing; × or Esc discards them all,
+ * undoing the message that made them (asking first when later messages would go too). Main
+ * places it and fits the overlay to it, so it reports its size.
+ */
+function Variations({ bar }: { bar: VariationsBar }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const asking = bar.confirm !== null
+  useLayoutEffect(() => {
+    const element = ref.current
+    if (!element) return
+    const report = () => {
+      const { width, height } = element.getBoundingClientRect()
+      gui.variationsSize(width, height)
+    }
+    report()
+    const observer = new ResizeObserver(report)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return
+      if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        event.preventDefault()
+        gui.variations(event.key === 'ArrowLeft' ? 'previous' : 'next')
+      } else if (event.key === 'Escape') {
+        event.preventDefault()
+        gui.variations(asking ? 'cancel' : 'discard')
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [asking])
+  const later = bar.confirm === 1 ? '1 later message' : `${bar.confirm} later messages`
+  return (
+    <div
+      ref={ref}
+      role="toolbar"
+      aria-label="Versions"
+      data-variations=""
+      // A walkthrough's overlay ends on a click; one here is the bar's.
+      onPointerDown={(event) => event.stopPropagation()}
+      className="absolute flex w-max flex-col rounded-lg border border-line bg-overlay p-1 text-small text-fg shadow-popover"
+      style={{ left: bar.at.x, top: bar.at.y, maxWidth: bar.room }}
+    >
+      {asking ? (
+        <div className="flex items-center gap-1">
+          <p role="status" className="px-2 text-muted">
+            Undo this and {later}? You can redo.
+          </p>
+          <Button variant="ghost" className="shrink-0" onClick={() => gui.variations('cancel')}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            icon={Undo2}
+            className="shrink-0"
+            onClick={() => gui.variations('confirm')}
+          >
+            Undo
+          </Button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-1">
+          <IconButton
+            icon={ChevronLeft}
+            label="Previous version"
+            title="Previous version (←)"
+            aria-disabled={bar.busy}
+            onClick={() => gui.variations('previous')}
+          />
+          <IconButton
+            icon={ChevronRight}
+            label="Next version"
+            title="Next version (→)"
+            aria-disabled={bar.busy}
+            onClick={() => gui.variations('next')}
+          />
+          {/* Every label in one cell, so the bar is as wide as the longest and never jumps. */}
+          <span aria-live="polite" className="grid min-w-0 px-1.5 tabular-nums">
+            {bar.labels.map((label, i) => (
+              <span
+                // biome-ignore lint/suspicious/noArrayIndexKey: the versions don't change order
+                key={i}
+                aria-hidden={i !== bar.index}
+                data-variation-label={i === bar.index ? '' : undefined}
+                className={cn(
+                  'col-start-1 row-start-1 max-w-56 truncate',
+                  i !== bar.index && 'invisible',
+                )}
+              >
+                {label}
+              </span>
+            ))}
+          </span>
+          <Button
+            variant="primary"
+            className="shrink-0"
+            aria-disabled={bar.busy}
+            onClick={() => gui.variations('use')}
+          >
+            Use this
+          </Button>
+          <IconButton
+            icon={X}
+            label="Discard versions"
+            loading={bar.busy}
+            onClick={() => gui.variations('discard')}
+          />
+        </div>
+      )}
+      {bar.error && (
+        <p role="alert" className="max-w-72 px-2 pt-1 pb-1.5 text-pretty text-danger">
+          {bar.error}
+        </p>
       )}
     </div>
   )

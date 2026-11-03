@@ -29,6 +29,7 @@ import type {
   StorageKind,
   TerminalId,
   ToolbarMenuItem,
+  VariationAction,
   Version,
   Viewport,
   WindowState,
@@ -123,6 +124,8 @@ export const Send = {
   pickArea: 'pick:area',
   pickWheel: 'pick:wheel',
   endGuide: 'pick:end-guide',
+  variations: 'pick:variations',
+  variationsSize: 'pick:variations-size',
   setCanvasRect: 'layout:canvas',
   /** One of the page's animation frames, while main asks for them (main/panel-flight.ts) */
   displayFrame: 'motion:frame',
@@ -473,6 +476,10 @@ export interface GuiApi {
   pickWheel(at: Point, deltaX: number, deltaY: number): void
   /** The user clicked the agent's walkthrough away */
   endGuide(): void
+  /** The variations bar: flip, Use this, discard (docs/variations.md) */
+  variations(action: VariationAction): void
+  /** The variations bar's size, so main fits the overlay to it */
+  variationsSize(width: number, height: number): void
   /** What the overlay draws (see `PickOverlayState`) */
   onPickState(cb: (state: PickOverlayState) => void): Unsubscribe
   setCanvasRect(rect: Rect): void

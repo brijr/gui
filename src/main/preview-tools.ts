@@ -5,6 +5,7 @@ import { isLoopback } from './loopback'
 import { type BeforeInput, PreviewInteractions } from './preview-interactions'
 import type { Problems } from './problems'
 import { navigationTarget } from './public-address'
+import type { VariationsInput } from './variations'
 
 /**
  * Images stay in the agent's session, and the API rejects any side over 2000 px once a
@@ -134,6 +135,8 @@ export interface PreviewToolsDeps extends Omit<PageDeps, 'kind'> {
    * detects again), and waits to see; what happened
    */
   setStartCommand: (input: StartCommandInput | null) => Promise<string>
+  /** preview_variations: shows the set's bar and version (variations.ts); what happened */
+  variations: (input: VariationsInput) => Promise<string>
   website: WebsiteHost
 }
 
@@ -556,6 +559,10 @@ export class PreviewTools extends PageTools {
 
   setStartCommand(input: StartCommandInput | null) {
     return this.deps.setStartCommand(input)
+  }
+
+  variations(input: VariationsInput) {
+    return this.deps.variations(input)
   }
 
   logs(lines: number) {
