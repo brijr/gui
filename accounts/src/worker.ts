@@ -275,23 +275,23 @@ const repositories = new GitHubRepositories(
 )
 
 /**
- * A token for one repository that can only read and write its contents and read its pull
- * requests, valid for an hour: what Gui clones, pushes, and follows a pull request with. Never the user's own token, which reaches every connected
- * repository with every permission the app has (administration among them), and which git
- * hooks in the project could read from the push's environment.
+ * A token for one repository that can only read its contents, valid for an hour: what Gui
+ * clones with. Read only because `repositories.find` proves the user can see the repository,
+ * not push to it. Never the user's own token, which reaches every connected repository with
+ * every permission the app has (administration among them).
  */
 async function repositoryToken(env: Env, repo: ConnectedRepository): Promise<RepoToken> {
   if (!env.GITHUB_APP_ID || !env.GITHUB_APP_PRIVATE_KEY)
-    throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
+    throw new HttpError(503, 'Cloning through Gui is unavailable right now.')
   const jwt = await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY)
   const { token } = await github<{ token: string }>(
     jwt,
     `/app/installations/${repo.installationId}/access_tokens`,
-    { repository_ids: [repo.id], permissions: { contents: 'write', pull_requests: 'read' } },
+    { repository_ids: [repo.id], permissions: { contents: 'read' } },
   ).catch((error: unknown) => {
     // The app's own credentials were refused: that's the service's setup, not the user's.
     if (error instanceof HttpError && error.code === 'github_reconnect_required')
-      throw new HttpError(503, 'Pushing through Gui is unavailable right now.')
+      throw new HttpError(503, 'Cloning through Gui is unavailable right now.')
     throw error
   })
   return asRepoToken(token)

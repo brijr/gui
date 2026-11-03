@@ -354,7 +354,8 @@ test('repository listing paginates and private clone denies repositories belongi
   }
   expect(repos.repositories).toHaveLength(101)
   expect(installationPages).toEqual([1])
-  // A token for that one repository's contents, from the installation that reaches it.
+  // A read-only token for that one repository's contents, from the installation that reaches
+  // it: seeing a repository through the installation doesn't mean the user may push to it.
   expect(await (await call('/repositories/101/credential', first.session, 'POST')).json()).toEqual({
     token: 'repository-token-11',
     fullName: 'tester/last',
@@ -364,7 +365,7 @@ test('repository listing paginates and private clone denies repositories belongi
       installation: '11',
       body: {
         repository_ids: [101],
-        permissions: { contents: 'write', pull_requests: 'read' },
+        permissions: { contents: 'read' },
       },
     },
   ])
@@ -627,6 +628,6 @@ test('refused service app credentials do not ask the user to reconnect GitHub', 
   installationUnauthorized = true
   const response = await call('/repositories/101/credential', session, 'POST')
   expect(response.status).toBe(503)
-  expect(await response.json()).toEqual({ error: 'Pushing through Gui is unavailable right now.' })
+  expect(await response.json()).toEqual({ error: 'Cloning through Gui is unavailable right now.' })
   expect((await call('/account', session)).status).toBe(200)
 })

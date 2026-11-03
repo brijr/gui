@@ -101,3 +101,26 @@ test('provider failures drain in-flight discovery and cannot become authorizatio
   fail = false
   expect(await discovery.find('token', 'account', 1)).toBeNull()
 })
+
+test('find proves the user can see a repository, not push to it', async () => {
+  // A read-only member still finds the repository, so its credential must be read only.
+  const discovery = new GitHubRepositories(async <T>(_token: string, path: string): Promise<T> => {
+    if (path.startsWith('/user/installations?')) return { installations: [{ id: 11 }] } as T
+    return {
+      repositories: [
+        {
+          id: 1,
+          full_name: 'org/repo',
+          private: true,
+          permissions: { admin: false, push: false, pull: true },
+        },
+      ],
+    } as T
+  })
+  expect(await discovery.find('token', 'account', 1)).toEqual({
+    id: 1,
+    fullName: 'org/repo',
+    private: true,
+    installationId: 11,
+  })
+})

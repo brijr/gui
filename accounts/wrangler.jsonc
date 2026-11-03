@@ -16,7 +16,7 @@
   "vars": {
     "GITHUB_CLIENT_ID": "Iv23liakas1b7Im4gK8a",
     "GITHUB_APP_SLUG": "gui-projects",
-    // Mints Gui's per-repository push tokens, with the app's key (GITHUB_APP_PRIVATE_KEY, a secret).
+    // Mints Gui's per-repository read-only clone tokens, with the app's key (GITHUB_APP_PRIVATE_KEY, a secret).
     "GITHUB_APP_ID": "5204419",
     // WorkOS Production. Staging's ID and key are in .env as WORKOS_STAGING_*.
     "WORKOS_CLIENT_ID": "client_01M4E6ZJ9EWEMRBJKNBH7HKQH1"
