@@ -3575,6 +3575,7 @@ export class ProjectTab implements ChatPanelOwner {
   showProjectMenu(
     openPicker: () => void,
     openNew: () => void,
+    openCanvas: () => void,
     openClone: () => void,
     openRecent: (root: string) => void,
   ) {
@@ -3582,6 +3583,8 @@ export class ProjectTab implements ChatPanelOwner {
     const template: MenuItemConstructorOptions[] = [
       { label: 'Open Project…', click: openPicker },
       { label: 'New Project…', click: openNew },
+      // Opens at once, so no ellipsis (as in the File menu).
+      { label: 'New Canvas', click: openCanvas },
       { label: 'Clone…', click: openClone },
       ...(recent.length
         ? [

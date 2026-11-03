@@ -993,6 +993,7 @@ function registerIpc() {
     win.activeTab.showProjectMenu(
       () => void pickProject(win),
       () => win.showStartForm('newProject'),
+      () => void newBoard(win),
       () => win.showStartForm('cloneRepo'),
       (root) => openSafely(win, root),
     ),
