@@ -105,11 +105,7 @@ export function Canvas({ state }: { state: WindowState }) {
             </div>
           )
         ) : (
-          <Board
-            key={state.board.id}
-            board={state.board}
-            working={state.tabs.find((tab) => tab.id === state.activeTab)?.status === 'working'}
-          />
+          <Board key={state.board.id} board={state.board} working={turnRunning(state)} />
         )}
       </main>
     )
@@ -134,6 +130,15 @@ export function Canvas({ state }: { state: WindowState }) {
       </div>
     </main>
   )
+}
+
+/**
+ * The active tab's agent is mid-turn: working, or waiting on a permission card (which only a
+ * running turn shows, and which the tab's status puts first).
+ */
+function turnRunning(state: WindowState) {
+  const status = state.tabs.find((tab) => tab.id === state.activeTab)?.status
+  return status === 'working' || status === 'attention'
 }
 
 /**

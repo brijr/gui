@@ -260,8 +260,9 @@ export type BoardCommand =
 /** A frame moved or resized on the board (`boardArrange`) */
 export interface FrameArrangement {
   id: string
-  x: number
-  y: number
+  /** Left as it is when not given (a resize sends only the size) */
+  x?: number
+  y?: number
   width?: number
   height?: number
 }

@@ -103,6 +103,24 @@ export interface ChatOptions {
   board?: () => PromptBoard | null
   /** Why the app won't start, as the agent is told it (`startupReport`) */
   startupReport: (tools: boolean) => string
+  /** A canvas's layout file, which Gui writes itself (see `BoardLayout`); absent in a project */
+  layout?: BoardLayout
+}
+
+/**
+ * A canvas's manifest (`canvas.json`): Gui writes it as the user moves frames and pans, so
+ * it's never an edit "made outside Gui", and restoring it whole would undo the user's own later
+ * moves (or race the board writing it). Undo, redo and restoring a version leave it out of the
+ * files they restore and hand it to `restore` instead, which merges the change into the board
+ * as it is now. A turn lists it among its changes only when the layout itself changed.
+ */
+export interface BoardLayout {
+  /** Its path, relative to the canvas */
+  path: string
+  /** Whether frames or sections (not just the camera) differ between two checkpoints */
+  changed: (from: string, to: string) => Promise<boolean>
+  /** Applies what changed in the layout from checkpoint `from` to `to` onto the board now */
+  restore: (from: string, to: string) => Promise<void>
 }
 
 /**
@@ -860,7 +878,24 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // Record the way back first, so a restore that fails halfway can still be redone. Taken
       // again because files may have been saved while the confirmation was open.
       const latest = await this.checkpoints.snapshot(message)
-      this.redoPoint = { sha: latest, paths, turnIds: undone.map((r) => r.turn.id) }
+      const turnIds = undone.map((r) => r.turn.id)
+      // Later turns already undone and waiting to be redone: undoing further back keeps them,
+      // so one Redo brings every turn back. Their point was taken with all of them in place,
+      // which is where redo puts this turn's files too.
+      const waiting = this.redoPoint
+      const keeps =
+        waiting?.turnIds.every((id) => {
+          const r = this.records.find((candidate) => candidate.turn.id === id)
+          return !!r && r.turn.reverted && r.turn.index > record.turn.index
+        }) === true
+      this.redoPoint =
+        waiting && keeps
+          ? {
+              sha: waiting.sha,
+              paths: [...new Set([...paths, ...waiting.paths])],
+              turnIds: [...turnIds, ...waiting.turnIds],
+            }
+          : { sha: latest, paths, turnIds }
       for (const r of undone) {
         r.turn.reverted = true
         this.flushTurn(r)
@@ -868,6 +903,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.patchMeta({ redoTurnIds: this.redoPoint.turnIds })
       this.schedulePersist()
       await this.checkpoints.restore(before, paths)
+      // The layout the turns left (their last checkpoint), back to how it was before them.
+      await this.restoreLayout(baseline?.sha ?? latest, before)
     } finally {
       if (this.lock === token) this.lock = null
       // Messages sent while it ran waited for the files to settle.
@@ -927,13 +964,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // The undo left these paths as they were before its first turn.
       const restored = this.records.find((r) => point.turnIds.includes(r.turn.id))?.before ?? null
       await this.requireCheckpoints([point.sha, restored], "so they can't be redone")
+      const paths = this.restorable(point.paths)
       if (restored) {
         const current = await this.checkpoints.snapshot('before redo')
         const baseline = { sha: restored, complete: true }
-        if (!(await this.confirmOverwrite(baseline, current, point.paths, [], 'Redo'))) return
+        if (!(await this.confirmOverwrite(baseline, current, paths, [], 'Redo'))) return
         if (!this.live(epoch)) return
       }
-      await this.checkpoints.restore(point.sha, point.paths)
+      await this.checkpoints.restore(point.sha, paths)
+      if (restored) await this.restoreLayout(restored, point.sha)
       for (const r of this.records) {
         if (!point.turnIds.includes(r.turn.id)) continue
         r.turn.reverted = false
@@ -1017,8 +1056,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     try {
       await this.requireCheckpoints([version.sha], "so this version can't be restored")
       const current = await this.checkpoints.snapshot(`before restoring ${version.name}`)
-      const paths = await this.pathsBetween(version.sha, current)
-      if (paths.length === 0 || !this.live(epoch)) return
+      const changed = await this.pathsBetween(version.sha, current)
+      const paths = this.restorable(changed)
+      // A canvas's camera alone isn't a change to restore.
+      const layout =
+        paths.length !== changed.length &&
+        (await this.options.layout?.changed(version.sha, current).catch(() => true)) === true
+      if ((paths.length === 0 && !layout) || !this.live(epoch)) return
       // Record the way back before touching a file, so even a restore that stops
       // halfway can be taken back from the safety version.
       this.keepVersion({
@@ -1031,6 +1075,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       })
       this.schedulePersist()
       await this.checkpoints.restore(version.sha, paths)
+      if (layout) await this.restoreLayout(current, version.sha)
     } finally {
       if (this.lock === token) this.lock = null
       this.drainQueue()
@@ -1410,9 +1455,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (record.before && !this.disposed) {
         record.after = await this.trySnapshot(record, `after message ${record.turn.index + 1}`)
         if (record.after && !this.disposed) {
-          record.turn.changes = await this.checkpoints
-            .diff(record.before, record.after)
-            .catch(() => null)
+          record.turn.changes = await this.turnChanges(record.before, record.after)
         }
       }
       slot?.release()
@@ -1949,6 +1992,30 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
   }
 
+  /** What a turn changed, without a canvas's layout file when only its camera moved. */
+  private async turnChanges(before: string, after: string) {
+    const changes = await this.checkpoints.diff(before, after).catch(() => null)
+    const layout = this.options.layout
+    if (!changes || !layout || !changes.some((change) => change.path === layout.path))
+      return changes
+    if (await layout.changed(before, after).catch(() => true)) return changes
+    return changes.filter((change) => change.path !== layout.path)
+  }
+
+  /** A canvas's layout as it was at `to`, where it changed since `from` (`BoardLayout`). */
+  private async restoreLayout(from: string, to: string) {
+    // The files are back by now: a layout that can't follow leaves the board as it is.
+    await this.options.layout
+      ?.restore(from, to)
+      .catch((error: unknown) => console.error('[gui] failed to restore the canvas layout', error))
+  }
+
+  /** Without a canvas's layout file, which undo and redo merge instead (`BoardLayout`). */
+  private restorable(paths: string[]) {
+    const layout = this.options.layout?.path
+    return layout ? paths.filter((path) => path !== layout) : paths
+  }
+
   /**
    * Paths the given turns changed. A turn whose changes weren't recorded (e.g. it was
    * interrupted by a quit) counts everything that changed from its start to the next
@@ -1970,7 +2037,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         inferred.add(path)
       }
     }
-    return { paths: [...paths], inferred: [...inferred] }
+    return { paths: this.restorable([...paths]), inferred: this.restorable([...inferred]) }
   }
 
   private async pathsBetween(from: string, to: string) {

@@ -17,4 +17,5 @@ test('offscreen renderers stop painting and unload before returning idle', async
   ])
   expect(result.stdout).toContain('cancellation passed')
   expect(result.stderr).toBe('')
-}, 10_000)
+  // Stuck pages are detected on the renderer's real clock: a few seconds each.
+}, 20_000)

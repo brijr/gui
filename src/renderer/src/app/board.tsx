@@ -1,5 +1,6 @@
 import {
   type CSSProperties,
+  memo,
   type PointerEvent as ReactPointerEvent,
   useEffect,
   useLayoutEffect,
@@ -30,6 +31,8 @@ import { PromptButton, Spinner } from '../lib/ui'
 
 /** The frame label's height above a frame, in screen pixels. */
 const LABEL_HEIGHT = 22
+/** A section's name's height, in screen pixels. */
+const SECTION_LABEL_HEIGHT = LABEL_HEIGHT + 2
 /** The dot grid's spacing at 100%, in board pixels. */
 const GRID = 24
 /** A press that moves less than this (screen pixels) is a click, not a drag. */
@@ -38,6 +41,8 @@ const DRAG_SLOP = 3
 const SECTION_INSET = 10
 /** A frame narrower than this on screen shows its name above it without its size. */
 const SIZE_LABEL_MIN = 140
+/** Zoomed out further, frames' names go without their sizes. */
+const SIZE_LABEL_ZOOM = 0.5
 /** The resize handle's size, in screen pixels. */
 const HANDLE = 10
 /** Each ⌘+ or ⌘− step. */
@@ -122,8 +127,13 @@ export function useBoardTool() {
   )
 }
 
-/** A frame moved or resized on the board before main has it, as it's drawn meanwhile. */
-type Override = Pick<BoardFrame, 'x' | 'y' | 'width' | 'height'>
+/** Where a frame (or a section) is on the board, in board pixels. */
+type Area = Pick<BoardFrame, 'x' | 'y' | 'width' | 'height'>
+/**
+ * A frame moved or resized on the board before main has it, as it's drawn meanwhile: only what
+ * the gesture changes, so its name and thumbnail stay main's.
+ */
+type Override = Partial<Area>
 
 type Gesture =
   | {
@@ -140,7 +150,7 @@ type Gesture =
       /** The press was on this section's name, which moves all its frames */
       section?: string
     }
-  | { kind: 'resize'; start: { x: number; y: number }; id: string; from: Override }
+  | { kind: 'resize'; start: { x: number; y: number }; id: string; from: Area }
   | { kind: 'pan'; start: { x: number; y: number }; from: BoardCamera }
   | {
       kind: 'marquee'
@@ -171,7 +181,11 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     if (!current || !ref.current || !layer.current) return
     const { x, y, zoom } = current
     layer.current.style.transform = `translate(${-x * zoom}px, ${-y * zoom}px) scale(${zoom})`
+    // What's drawn at screen size in the layer reads these, so it keeps up with every frame of
+    // a pan or pinch rather than with the throttled `camera`.
     layer.current.style.setProperty('--board-px', `${1 / zoom}px`)
+    layer.current.style.setProperty('--board-zoom', String(zoom))
+    layer.current.style.setProperty('--board-unzoom', String(1 / zoom))
     ref.current.style.backgroundPosition = `${-x * zoom}px ${-y * zoom}px`
     ref.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
   }
@@ -215,6 +229,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   useEffect(
     () => () => {
       cameraFlight.current?.()
+      revealing.current++
       clearTimeout(cameraTimers.current.cull)
       clearTimeout(cameraTimers.current.rest)
     },
@@ -231,16 +246,32 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }
   /** Arrow keys held: the frames move as drawn, and land as one change when the key comes up */
   const nudge = useRef<{ ids: string[]; dx: number; dy: number } | null>(null)
+  /** Frames added out of sight, to bring into it once no gesture holds the camera */
+  const unseen = useRef<string[]>([])
+  /** Counts reveals begun, so only the latest (and none after the board goes) moves the camera */
+  const revealing = useRef(0)
   const [renaming, setRenaming] = useState<string | null>(null)
   const [renamingSection, setRenamingSection] = useState<string | null>(null)
   /** The section picked by its name, while its frames are what's selected */
   const [pickedSection, setPickedSection] = useState<string | null>(null)
+  /**
+   * Selects frames. Picking a section by its name selects its frames with it; selecting them
+   * any other way (a marquee, ⌘A, a click) selects frames, not the section.
+   */
+  const select = (ids: string[], section: string | null = null) => {
+    setPickedSection(section)
+    gui.boardSelect(ids)
+  }
   const [space, setSpace] = useState(false)
   /** What's selected, said to a screen reader as it changes */
   const [announcement, setAnnouncement] = useState('')
   // Space held is the Hand for as long as it's held.
   const hand = useBoardTool() === 'hand' || space
-  const frames = board.frames.map((frame) => ({ ...frame, ...overrides[frame.id] }))
+  // A frame without an override stays the object main sent, so its tile and name aren't drawn again.
+  const frames = board.frames.map((frame) => {
+    const override = overrides[frame.id]
+    return override ? { ...frame, ...override } : frame
+  })
   const selected = new Set(board.selection)
   // Frames being dragged leave or join sections as they would if dropped here.
   const sections =
@@ -286,6 +317,13 @@ export function Board({ board, working = false }: { board: BoardState; working?:
             : `${names.length} frames selected`,
     )
   }, [selection])
+
+  // A name field whose frame or section is gone (deleted, by the agent or ⌘Z) closes with it.
+  useEffect(() => {
+    if (renaming && !board.frames.some((frame) => frame.id === renaming)) setRenaming(null)
+    if (renamingSection && !board.sections.some((section) => section.id === renamingSection))
+      setRenamingSection(null)
+  }, [board.frames, board.sections, renaming, renamingSection])
 
   // A name field that closes (Enter, Esc) gives the keyboard back to the board, rather than
   // leaving it nowhere.
@@ -368,7 +406,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       }
     })
   /** Brings a frame into sight, at the zoom there is, unless most of it shows already. */
-  const reveal = (frame: Override) => {
+  const reveal = (frame: Area) => {
     const { camera, size } = latest.current
     if (!camera) return
     if (shownShare(boardToScreen(frame, camera), { left: 0, top: 0, ...size }) >= 0.5) return
@@ -394,19 +432,21 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }, [hasCamera])
 
   // New frames (the agent's, or added from the menu) come into sight when they land out of
-  // it, or under the floating chat.
-  const known = useRef(new Set(board.frames.map((frame) => frame.id)))
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the layout is the trigger; the rest is read as it is.
-  useEffect(() => {
-    const { frames, camera, size } = latest.current
-    const added = frames.filter((frame) => !known.current.has(frame.id))
-    known.current = new Set(frames.map((frame) => frame.id))
+  // it, or under the floating chat. Not while a drag, resize or marquee holds the camera: the
+  // frame under the pointer would slide away from it. They come into sight as it ends.
+  const revealAdded = () => {
     const el = ref.current
-    if (!added.length || !el || !camera || !size.width) return
-    let current = true
+    const { size } = latest.current
+    if (!unseen.current.length || !el || !liveCamera.current || !size.width) return
+    if (gestureRef.current) return
+    const token = ++revealing.current
     void clearArea(el, size).then((area) => {
-      if (!current) return
+      // A later reveal has them all, or a gesture began meanwhile (this runs again as it ends).
+      if (token !== revealing.current || gestureRef.current) return
       const camera = liveCamera.current
+      const ids = unseen.current
+      unseen.current = []
+      const added = latest.current.frames.filter((frame) => ids.includes(frame.id))
       if (!camera) return
       const inSight = added.some((frame) => shownShare(boardToScreen(frame, camera), area) >= 0.5)
       const bounds = boardBounds(added)
@@ -417,9 +457,16 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         y: bounds.y + bounds.height / 2 - (area.top + area.height / 2) / camera.zoom,
       })
     })
-    return () => {
-      current = false
-    }
+  }
+  const known = useRef(new Set(board.frames.map((frame) => frame.id)))
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the layout is the trigger; the rest is read as it is.
+  useEffect(() => {
+    const { frames, camera, size } = latest.current
+    const added = frames.filter((frame) => !known.current.has(frame.id))
+    known.current = new Set(frames.map((frame) => frame.id))
+    if (!added.length || !camera || !size.width) return
+    unseen.current = [...unseen.current, ...added.map((frame) => frame.id)]
+    revealAdded()
   }, [layout])
 
   // Saved once it rests, for the next time the canvas opens, and as the board goes (opening a
@@ -537,15 +584,45 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     }
   }, [])
 
+  // What the names do, by id: the same functions every render, so a name redraws only when
+  // something it shows changes (not at every step of a drag).
+  const labelActions = useRef<LabelActions | null>(null)
+  labelActions.current = {
+    selectFrame: (id, add) => {
+      // ⇧ on a selected frame's name deselects it, as on the frame.
+      if (!add) select([id])
+      else if (board.selection.includes(id)) select(board.selection.filter((other) => other !== id))
+      else select([...board.selection, id])
+    },
+    renameFrame: (id) => setRenaming(id),
+    renamedFrame: (id, name) => {
+      setRenaming(null)
+      const frame = board.frames.find((f) => f.id === id)
+      if (name && frame && name !== frame.name) gui.boardRenameFrame(id, name)
+    },
+    renamedSection: (id, name) => {
+      setRenamingSection(null)
+      const section = board.sections.find((s) => s.id === id)
+      if (name && section && name !== section.name) gui.boardRenameSection(id, name)
+    },
+  }
+  const [labels] = useState<LabelActions>(() => ({
+    selectFrame: (id, add) => labelActions.current?.selectFrame(id, add),
+    renameFrame: (id) => labelActions.current?.renameFrame(id),
+    renamedFrame: (id, name) => labelActions.current?.renamedFrame(id, name),
+    renamedSection: (id, name) => labelActions.current?.renamedSection(id, name),
+  }))
+
   if (!camera) return <div ref={ref} className="absolute inset-0" />
 
-  const toScreen = (frame: Override) => boardToScreen(frame, camera)
+  // The camera as drawn this moment, which `camera` follows a little behind during a pan or pinch.
+  const toScreen = (area: Area) => boardToScreen(area, liveCamera.current ?? camera)
   const local = (event: { clientX: number; clientY: number }) => {
     const box = ref.current?.getBoundingClientRect()
     return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) }
   }
   /** A menu opened from the keyboard: at the area's top-left corner, kept on the board, in the window. */
-  const menuAt = (area: Override | null | undefined) => {
+  const menuAt = (area: Area | null | undefined) => {
     const box = ref.current?.getBoundingClientRect()
     if (!area || !box) return undefined
     const { left, top } = toScreen(area)
@@ -559,7 +636,12 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   const commitNudge = () => {
     const held = nudge.current
     nudge.current = null
-    if (!held || (!held.dx && !held.dy)) return
+    if (!held) return
+    // Back where they started: nothing lands, and what was drawn ahead of main goes.
+    if (!held.dx && !held.dy) {
+      setOverrides({})
+      return
+    }
     gui.boardArrange(
       board.frames
         .filter((frame) => held.ids.includes(frame.id))
@@ -568,13 +650,16 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }
 
   const onPointerDown = (event: ReactPointerEvent) => {
-    // Using the board, as a press in the page: the floating chat, not in use, gets out of the way.
-    gui.boardPressed()
     if (event.button === 2) return
     // ⌃-click on a Mac is a right-click: its menu opens, and nothing drags.
     if (MAC && event.ctrlKey && event.button === 0) return
     // Another finger or button while one gesture is going doesn't start a second.
     if (gestureRef.current) return
+    const target = event.target as HTMLElement
+    // A press on empty board, as a press in the page: the floating chat, not in use, gets out of
+    // the way. Not on a frame, a name or a handle: selecting a frame is how a message starts.
+    if (!target.closest('[data-frame], [data-frame-label], [data-section], [data-resize]'))
+      gui.boardPressed()
     commitNudge()
     ref.current?.focus({ preventScroll: true })
     const at = local(event)
@@ -583,15 +668,13 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       setGesture({ kind: 'pan', start: at, from: liveCamera.current ?? camera })
       return
     }
-    const target = event.target as HTMLElement
     const handle = target.closest<HTMLElement>('[data-resize]')?.dataset.resize
     const frameId = target.closest<HTMLElement>('[data-frame]')?.dataset.frame
     const sectionId = target.closest<HTMLElement>('[data-section]')?.dataset.section
     const section = board.sections.find((s) => s.id === sectionId)
     if (section) {
       // Its name picks the section, selecting its frames, and drags them all.
-      setPickedSection(section.id)
-      gui.boardSelect(section.frames)
+      select(section.frames, section.id)
       setGesture({
         kind: 'move',
         start: at,
@@ -616,7 +699,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         if (selected.has(frameId)) toggle = frameId
         else ids = [...ids, frameId]
       } else if (!selected.has(frameId)) ids = [frameId]
-      if (ids !== board.selection) gui.boardSelect(ids)
+      if (ids !== board.selection) select(ids)
       // Pressing one of several selected frames drags them all; a click selects it alone.
       const narrow = !event.shiftKey && selected.has(frameId) && board.selection.length > 1
       setGesture({ kind: 'move', start: at, ids, hit: frameId, narrow, moved: false, toggle })
@@ -634,8 +717,9 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       return
     }
     const at = local(event)
-    const dx = (at.x - current.start.x) / camera.zoom
-    const dy = (at.y - current.start.y) / camera.zoom
+    const zoom = (liveCamera.current ?? camera).zoom
+    const dx = (at.x - current.start.x) / zoom
+    const dy = (at.y - current.start.y) / zoom
     if (current.kind === 'pan') {
       moveCamera({ ...current.from, x: current.from.x - dx, y: current.from.y - dy })
     } else if (current.kind === 'move') {
@@ -645,14 +729,13 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       const next: Record<string, Override> = {}
       for (const frame of board.frames) {
         if (!current.ids.includes(frame.id)) continue
-        next[frame.id] = { ...frame, x: Math.round(frame.x + dx), y: Math.round(frame.y + dy) }
+        next[frame.id] = { x: Math.round(frame.x + dx), y: Math.round(frame.y + dy) }
       }
       setOverrides(next)
     } else if (current.kind === 'resize') {
       const edge = (value: number) => Math.round(Math.min(FRAME_MAX, Math.max(FRAME_MIN, value)))
       setOverrides({
         [current.id]: {
-          ...current.from,
           width: edge(current.from.width + dx),
           height: edge(current.from.height + dy),
         },
@@ -662,22 +745,40 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     }
   }
 
+  /**
+   * The frames a gesture changed from what main has, as they'd land. When it changed none (it
+   * ended where it began), what was drawn ahead of main goes now: no new layout will clear it.
+   */
+  const landed = (ids: string[]) => {
+    const changed = board.frames.flatMap((frame) => {
+      const override = overrides[frame.id]
+      if (!override || !ids.includes(frame.id)) return []
+      const next = { ...frame, ...override }
+      const same =
+        next.x === frame.x &&
+        next.y === frame.y &&
+        next.width === frame.width &&
+        next.height === frame.height
+      return same ? [] : [next]
+    })
+    if (!changed.length) setOverrides({})
+    return changed
+  }
+
   /** The gesture ends: what it did lands. Once, however many events say so. */
   const finish = () => {
     const done = gestureRef.current
     if (!done) return
     setGesture(null)
+    // Frames the agent added during it come into sight now.
+    revealAdded()
     if (done.kind === 'pan') setCamera(liveCamera.current)
     if (done.kind === 'move') {
       if (done.moved) {
-        gui.boardArrange(
-          done.ids.flatMap((id) => {
-            const frame = overrides[id]
-            return frame ? [{ id, x: frame.x, y: frame.y }] : []
-          }),
-        )
+        const moved = landed(done.ids)
+        if (moved.length) gui.boardArrange(moved.map(({ id, x, y }) => ({ id, x, y })))
       } else if (done.toggle) {
-        gui.boardSelect(board.selection.filter((id) => id !== done.toggle))
+        select(board.selection.filter((id) => id !== done.toggle))
       } else if (done.section) {
         // A second click on its name soon after: rename it.
         const id = `section:${done.section}`
@@ -691,7 +792,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       } else if (done.hit) {
         // A second click on the same frame soon after: open it, the one clicked.
         const id = done.hit
-        if (done.narrow) gui.boardSelect([id])
+        if (done.narrow) select([id])
         const now = performance.now()
         const last = lastClick.current
         lastClick.current = { id, at: now }
@@ -701,18 +802,22 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         }
       }
     } else if (done.kind === 'resize') {
-      const frame = overrides[done.id]
-      if (frame) gui.boardArrange([{ id: done.id, ...frame }])
+      // The size alone: where the frame is stays main's, which the agent may have moved since.
+      const [frame] = landed([done.id])
+      if (frame) {
+        const { id, width, height } = frame
+        gui.boardArrange([{ id, width, height }])
+      }
     } else if (done.kind === 'marquee') {
       const box = marqueeBox(done.start, done.now)
       if (box.width < DRAG_SLOP && box.height < DRAG_SLOP) {
-        if (board.selection.length && !done.add.length) gui.boardSelect([])
+        if (board.selection.length && !done.add.length) select([])
         return
       }
       const hit = frames
         .filter((frame) => intersects(toScreen(frame), box))
         .map((frame) => frame.id)
-      gui.boardSelect([...done.add, ...hit.filter((id) => !done.add.includes(id))])
+      select([...done.add, ...hit.filter((id) => !done.add.includes(id))])
     }
   }
 
@@ -736,11 +841,11 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     else if (deleting && ids.length) gui.boardDelete(ids)
     else if (command && event.altKey && event.code === 'KeyG' && ids.length)
       gui.boardAddSection(ids)
-    // ⌘D is Select Element, as everywhere in Gui (the menu's); ⌥⌘D duplicates.
+    // ⌘D is Design Mode, as everywhere in Gui (the menu's); ⌥⌘D duplicates.
     else if (command && event.altKey && event.code === 'KeyD' && ids.length) gui.boardDuplicate(ids)
     else if (command && event.shiftKey && event.code === 'KeyE' && ids.length) gui.boardExport(ids)
     else if (command && !event.altKey && !event.shiftKey && event.code === 'KeyA')
-      gui.boardSelect(board.frames.map((frame) => frame.id))
+      select(board.frames.map((frame) => frame.id))
     else if (command && event.key === '0') fit()
     else if (command && (event.key === '=' || event.key === '+'))
       zoomAt(ZOOM_STEP, { x: size.width / 2, y: size.height / 2 })
@@ -749,7 +854,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     else if (plain && event.code === 'KeyH') setBoardTool('hand')
     else if (plain && event.code === 'KeyV') setBoardTool('move')
     else if (plain && event.key === 'Enter' && ids.length === 1) gui.boardOpenFrame(ids[0])
-    else if (event.key === 'Escape' && ids.length) gui.boardSelect([])
+    else if (event.key === 'Escape' && ids.length) select([])
     // What a double-click and a right-click do, from the keyboard: on the section picked by
     // its name, or the one frame selected.
     else if (matchesShortcut(event, 'canvasRename') && (picked || ids.length === 1)) {
@@ -779,10 +884,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       )
       const next = stops[event.shiftKey ? (at === -1 ? stops.length - 1 : at - 1) : at + 1]
       const area = next?.section ? sectionBounds(next.section, board.frames) : next?.frame
-      if (next?.section) {
-        setPickedSection(next.section.id)
-        gui.boardSelect(next.section.frames)
-      } else if (next?.frame) gui.boardSelect([next.frame.id])
+      if (next?.section) select(next.section.frames, next.section.id)
+      else if (next?.frame) select([next.frame.id])
       if (area) reveal(area)
       else handled = false
     } else if (arrows[event.key] && ids.length && !command && !event.altKey) {
@@ -796,7 +899,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         Object.fromEntries(
           board.frames
             .filter((frame) => ids.includes(frame.id))
-            .map((frame) => [frame.id, { ...frame, x: frame.x + held.dx, y: frame.y + held.dy }]),
+            .map((frame) => [frame.id, { x: frame.x + held.dx, y: frame.y + held.dy }]),
         ),
       )
     } else handled = false
@@ -807,21 +910,44 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   const marquee = gesture?.kind === 'marquee' ? marqueeBox(gesture.start, gesture.now) : null
   const single = board.selection.length === 1 ? board.selection[0] : null
   // What's drawn: frames and sections near the view, in board pixels. The margin keeps a pan
-  // from adding and dropping them at every step.
+  // from adding and dropping them at every step. A name being edited stays, wherever it is.
   const reach = {
     x: camera.x - size.width / camera.zoom / 2,
     y: camera.y - size.height / camera.zoom / 2 - LABEL_HEIGHT / camera.zoom,
     width: (size.width / camera.zoom) * 2,
     height: (size.height / camera.zoom) * 2 + LABEL_HEIGHT / camera.zoom,
   }
-  const near = (area: Override) =>
+  const near = (area: Area) =>
     area.x <= reach.x + reach.width &&
     area.y <= reach.y + reach.height &&
     area.x + area.width >= reach.x &&
     area.y + area.height >= reach.y
-  const shown = frames.filter(near)
+  const shown = frames.filter((frame) => near(frame) || frame.id === renaming)
   const count = board.frames.length
   const zoom = camera.zoom
+  const areas = sections.flatMap((section) => {
+    const area = sectionBounds(section, frames)
+    return area && (near(area) || section.id === renamingSection) ? [{ section, area }] : []
+  })
+  const sectionOf = new Map<string, Area>()
+  for (const { section, area } of areas) for (const id of section.frames) sectionOf.set(id, area)
+  // Zoomed out, a frame's name goes where there's no room for it above the frame: it would
+  // cover its section's name, or the frame above it (and take its clicks).
+  const nameBand = LABEL_HEIGHT / zoom
+  const sectionName = (SECTION_INSET + SECTION_LABEL_HEIGHT) / zoom
+  const hasRoom = (frame: BoardFrame) => {
+    const top = frame.y - nameBand
+    const section = sectionOf.get(frame.id)
+    if (section && top < section.y + sectionName) return false
+    return !frames.some(
+      (other) =>
+        other.id !== frame.id &&
+        other.x < frame.x + frame.width &&
+        frame.x < other.x + other.width &&
+        other.y < frame.y &&
+        other.y + other.height > top,
+    )
+  }
 
   return (
     // The board is one control: it takes the keyboard when pressed, and names what's selected.
@@ -855,13 +981,15 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       }}
       onContextMenu={(event) => {
         const target = event.target as HTMLElement
-        const section = target.closest<HTMLElement>('[data-section]')?.dataset.section
+        const sectionId = target.closest<HTMLElement>('[data-section]')?.dataset.section
+        const section = board.sections.find((s) => s.id === sectionId)
         const named = target.closest<HTMLElement>('[data-frame-label]')?.dataset.frameLabel
         const id = target.closest<HTMLElement>('[data-frame]')?.dataset.frame ?? named
         if (section) {
           event.preventDefault()
-          setPickedSection(section)
-          gui.showSectionMenu(section)
+          // Its menu acts on the section picked, as a click on its name picks it.
+          select(section.frames, section.id)
+          gui.showSectionMenu(section.id)
         } else if (id) {
           event.preventDefault()
           gui.showFrameMenu(id)
@@ -870,8 +998,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     >
       {/*
         The board itself, in board pixels: one layer the camera moves and scales, so a pan or
-        zoom changes it alone and none of the frames inside. Names in it are drawn at screen
-        size (`pinned`); lines are a screen pixel wide (--board-px).
+        zoom changes it alone and none of the frames inside. Names and handles in it are drawn
+        at screen size (`pinned`); lines are a screen pixel wide (--board-px).
       */}
       <div
         ref={layer}
@@ -880,138 +1008,106 @@ export function Board({ board, working = false }: { board: BoardState; working?:
           {
             transform: `translate(${-camera.x * zoom}px, ${-camera.y * zoom}px) scale(${zoom})`,
             '--board-px': `${1 / zoom}px`,
+            '--board-zoom': zoom,
+            '--board-unzoom': 1 / zoom,
           } as CSSProperties
         }
       >
-        {sections.map((section) => {
-          const area = sectionBounds(section, frames)
-          if (!area || !near(area)) return null
-          return (
-            <div
-              key={section.id}
-              aria-hidden="true"
-              className={cn(
-                'pointer-events-none absolute border-solid bg-fill/60',
-                picked?.id === section.id ? 'border-accent' : 'border-line',
-              )}
-              style={{
-                left: area.x,
-                top: area.y,
-                width: area.width,
-                height: area.height,
-                borderWidth: 'var(--board-px)',
-                borderRadius: 'calc(12 * var(--board-px))',
-              }}
-            />
-          )
-        })}
-
-        {shown.map((frame) => (
+        {areas.map(({ section, area }) => (
           <div
-            key={frame.id}
-            data-frame={frame.id}
+            key={section.id}
+            aria-hidden="true"
             className={cn(
-              'absolute overflow-hidden bg-raised shadow-raised outline-solid outline-line',
-              !hand && !selected.has(frame.id) && 'hover:outline-accent',
+              'pointer-events-none absolute border-solid bg-fill/60',
+              picked?.id === section.id ? 'border-accent' : 'border-line',
             )}
             style={{
-              left: frame.x,
-              top: frame.y,
-              width: frame.width,
-              height: frame.height,
-              outlineWidth: 'var(--board-px)',
-              outlineOffset: 'calc(-1 * var(--board-px))',
+              left: area.x,
+              top: area.y,
+              width: area.width,
+              height: area.height,
+              borderWidth: 'var(--board-px)',
+              borderRadius: 'calc(12 * var(--board-px))',
             }}
-          >
-            {frame.captured ? (
-              // As wide as the frame, from its top: a page taller than its capture leaves the
-              // rest of the frame blank rather than stretching.
-              <img
-                src={`${board.thumbs}/${frame.id}?v=${frame.version}`}
-                alt=""
-                draggable={false}
-                className="pointer-events-none block h-auto w-full"
-              />
-            ) : (
-              <div
-                className="p-3 text-caption whitespace-nowrap text-subtle"
-                style={pinned({ x: 0, y: 0 }, zoom)}
-              >
-                Rendering…
-              </div>
-            )}
-          </div>
+          />
+        ))}
+
+        {shown.map((frame) => (
+          <FrameTile
+            key={frame.id}
+            frame={frame}
+            thumbs={board.thumbs}
+            hoverable={!hand && !selected.has(frame.id)}
+          />
         ))}
 
         {/* Names after every frame: no frame hides a section's name, or another frame's. */}
-        {sections.map((section) => {
-          const area = sectionBounds(section, frames)
-          if (!area || !near(area)) return null
-          return (
-            <SectionLabel
-              key={section.id}
-              name={section.name}
-              id={section.id}
-              at={{ x: area.x, y: area.y }}
-              zoom={zoom}
-              maxWidth={Math.max(area.width * zoom - SECTION_INSET * 2, 120)}
-              picked={picked?.id === section.id}
-              hand={hand}
-              renaming={renamingSection === section.id}
-              onDone={(name) => {
-                setRenamingSection(null)
-                if (name && name !== section.name) gui.boardRenameSection(section.id, name)
-              }}
-            />
-          )
-        })}
+        {areas.map(({ section, area }) => (
+          <SectionLabel
+            key={section.id}
+            name={section.name}
+            id={section.id}
+            x={area.x}
+            y={area.y}
+            width={area.width}
+            picked={picked?.id === section.id}
+            hand={hand}
+            renaming={renamingSection === section.id}
+            onDone={labels.renamedSection}
+          />
+        ))}
         {shown.map((frame) => {
-          const isSelected = selected.has(frame.id)
+          const named = hasRoom(frame)
           return (
             <FrameLabel
               key={frame.id}
               frame={frame}
-              zoom={zoom}
-              selected={isSelected}
+              named={named}
+              sized={named && zoom >= SIZE_LABEL_ZOOM && frame.width * zoom >= SIZE_LABEL_MIN}
+              selected={selected.has(frame.id)}
               renaming={renaming === frame.id}
               hand={hand}
-              onSelect={(add) => {
-                if (!add) gui.boardSelect([frame.id])
-                else if (!isSelected) gui.boardSelect([...board.selection, frame.id])
-              }}
-              onRename={() => setRenaming(frame.id)}
-              onDone={(name) => {
-                setRenaming(null)
-                if (name && name !== frame.name) gui.boardRenameFrame(frame.id, name)
-              }}
+              onSelect={labels.selectFrame}
+              onRename={labels.renameFrame}
+              onDone={labels.renamedFrame}
             />
           )
         })}
-      </div>
 
-      {/* What's selected, above everything on the board, in screen pixels. */}
-      {shown.map((frame) => {
-        if (!selected.has(frame.id)) return null
-        const box = toScreen(frame)
-        return (
-          <div key={frame.id} aria-hidden="true">
-            <div className="pointer-events-none absolute outline-2 outline-accent" style={box} />
-            {single === frame.id && !hand && (
+        {/* What's selected, above everything on the board. */}
+        {shown.map((frame) => {
+          if (!selected.has(frame.id)) return null
+          return (
+            <div key={frame.id} aria-hidden="true">
               <div
-                data-resize={frame.id}
-                // 10px drawn, 26px to grab: nothing else sits at the corner.
-                className="absolute cursor-nwse-resize rounded-sm border-2 border-accent bg-raised before:absolute before:-inset-2"
+                className="pointer-events-none absolute outline-solid outline-accent"
                 style={{
-                  left: box.left + box.width - HANDLE / 2,
-                  top: box.top + box.height - HANDLE / 2,
-                  width: HANDLE,
-                  height: HANDLE,
+                  left: frame.x,
+                  top: frame.y,
+                  width: frame.width,
+                  height: frame.height,
+                  outlineWidth: 'calc(2 * var(--board-px))',
                 }}
               />
-            )}
-          </div>
-        )
-      })}
+              {single === frame.id && !hand && (
+                <div
+                  data-resize={frame.id}
+                  // 10px drawn, 26px to grab: nothing else sits at the corner.
+                  className="cursor-nwse-resize rounded-sm border-2 border-accent bg-raised before:absolute before:-inset-2"
+                  style={{
+                    ...pinned(
+                      { x: frame.x + frame.width, y: frame.y + frame.height },
+                      { x: -HANDLE / 2, y: -HANDLE / 2 },
+                    ),
+                    width: HANDLE,
+                    height: HANDLE,
+                  }}
+                />
+              )}
+            </div>
+          )
+        })}
+      </div>
 
       {marquee && (
         <div
@@ -1035,13 +1131,21 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   )
 }
 
+/** What the names on the board do, by the frame's or section's id. */
+interface LabelActions {
+  selectFrame: (id: string, add: boolean) => void
+  renameFrame: (id: string) => void
+  renamedFrame: (id: string, name: string | null) => void
+  renamedSection: (id: string, name: string | null) => void
+}
+
 /**
  * Where something drawn at screen size sits in the board layer: its top-left at board point
- * `at`, then moved by `shift` screen pixels. Undoes the layer's zoom, so a pan never changes it.
+ * `at`, then moved by `shift` screen pixels. Undoes the layer's zoom as the camera draws it
+ * (--board-unzoom), so neither a pan nor a pinch leaves it behind.
  */
 function pinned(
   at: { x: number; y: number },
-  zoom: number,
   shift: { x: number; y: number } = { x: 0, y: 0 },
 ): CSSProperties {
   return {
@@ -1049,107 +1153,191 @@ function pinned(
     left: at.x,
     top: at.y,
     transformOrigin: '0 0',
-    transform: `scale(${1 / zoom}) translate(${shift.x}px, ${shift.y}px)`,
+    transform: `scale(var(--board-unzoom)) translate(${shift.x}px, ${shift.y}px)`,
   }
 }
 
-/** A frame's name above it, and its size; double-click renames it in place. */
-function FrameLabel({
-  frame,
-  zoom,
-  selected,
-  renaming,
-  onSelect,
-  onRename,
-  onDone,
-  hand,
-}: {
-  frame: BoardFrame
-  zoom: number
-  selected: boolean
-  renaming: boolean
-  onSelect: (add: boolean) => void
-  onRename: () => void
-  onDone: (name: string | null) => void
-  /** The Hand is on: a press here pans the board like anywhere else */
-  hand: boolean
-}) {
-  const width = frame.width * zoom
-  const style = {
-    ...pinned({ x: frame.x, y: frame.y }, zoom, { x: 0, y: -LABEL_HEIGHT }),
-    height: LABEL_HEIGHT,
-    // No wider than the frame: zoomed out, neighbours' names would run into each other.
-    maxWidth: Math.max(width, 24),
-  }
-  const finished = useRef(false)
-  const finish = (value: string | null) => {
-    if (finished.current) return
-    finished.current = true
-    onDone(value)
-  }
-  if (renaming)
-    return (
-      <input
-        // biome-ignore lint/a11y/noAutofocus: renaming starts by typing the new name.
-        autoFocus
-        aria-label="Frame name"
-        spellCheck={false}
-        defaultValue={frame.name}
-        className={`${FIELD_LOOK} px-1 text-caption`}
-        style={{ ...style, width: Math.max(width, 160) }}
-        onFocus={(event) => {
-          finished.current = false
-          event.currentTarget.select()
-        }}
-        onPointerDown={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          event.stopPropagation()
-          if (event.nativeEvent.isComposing) return
-          if (event.key === 'Enter') finish(event.currentTarget.value.trim() || null)
-          if (event.key === 'Escape') finish(null)
-        }}
-        onBlur={(event) => finish(event.currentTarget.value.trim() || null)}
-      />
-    )
+/** `pixels` on the board, as screen pixels at the zoom the camera draws. */
+const onScreen = (pixels: number) => `calc(${pixels}px * var(--board-zoom))`
+
+/** Redrawn only when something it shows changes: main sends new objects for the same frame. */
+function sameFrame(a: BoardFrame, b: BoardFrame) {
   return (
-    <p
-      data-frame-label={frame.id}
-      className={cn(
-        'flex items-center gap-1.5 truncate text-caption whitespace-nowrap',
-        selected ? 'text-accent-text' : 'text-muted',
-      )}
-      style={style}
-      // Its own clicks: a press selects the frame (no drag from here), a double-click renames.
-      onPointerDown={(event) => {
-        if (event.button !== 0 || hand) return
-        event.stopPropagation()
-        onSelect(event.shiftKey)
-      }}
-      onDoubleClick={hand ? undefined : onRename}
-    >
-      <span className="truncate font-medium" title={frame.name}>
-        {frame.name}
-      </span>
-      {/* Narrow on screen, the name matters more than the size. */}
-      {width >= SIZE_LABEL_MIN && (
-        <span className="shrink-0 text-subtle tabular-nums">
-          {frame.width} × {frame.height}
-        </span>
-      )}
-    </p>
+    a.id === b.id &&
+    a.name === b.name &&
+    a.x === b.x &&
+    a.y === b.y &&
+    a.width === b.width &&
+    a.height === b.height &&
+    a.version === b.version &&
+    a.captured === b.captured
   )
 }
+
+/** A frame's thumbnail on the board, or that it's still being drawn. */
+const FrameTile = memo(
+  function FrameTile({
+    frame,
+    thumbs,
+    hoverable,
+  }: {
+    frame: BoardFrame
+    thumbs: string
+    /** Not selected, and the Hand is off: its edge lights up under the pointer */
+    hoverable: boolean
+  }) {
+    return (
+      <div
+        data-frame={frame.id}
+        className={cn(
+          'absolute overflow-hidden bg-raised shadow-raised outline-solid outline-line',
+          hoverable && 'hover:outline-accent',
+        )}
+        style={{
+          left: frame.x,
+          top: frame.y,
+          width: frame.width,
+          height: frame.height,
+          outlineWidth: 'var(--board-px)',
+          outlineOffset: 'calc(-1 * var(--board-px))',
+        }}
+      >
+        {frame.captured ? (
+          // As wide as the frame, from its top: a page taller than its capture leaves the
+          // rest of the frame blank rather than stretching.
+          <img
+            src={`${thumbs}/${frame.id}?v=${frame.version}`}
+            alt=""
+            draggable={false}
+            className="pointer-events-none block h-auto w-full"
+          />
+        ) : (
+          <div
+            className="p-3 text-caption whitespace-nowrap text-subtle"
+            style={pinned({ x: 0, y: 0 })}
+          >
+            Rendering…
+          </div>
+        )}
+      </div>
+    )
+  },
+  (a, b) => sameFrame(a.frame, b.frame) && a.thumbs === b.thumbs && a.hoverable === b.hoverable,
+)
+
+/** A frame's name above it, and its size; double-click renames it in place. */
+const FrameLabel = memo(
+  function FrameLabel({
+    frame,
+    named,
+    sized,
+    selected,
+    renaming,
+    onSelect,
+    onRename,
+    onDone,
+    hand,
+  }: {
+    frame: BoardFrame
+    /** There's room for its name above it (zoomed out, there may not be) */
+    named: boolean
+    /** And for its size after the name */
+    sized: boolean
+    selected: boolean
+    renaming: boolean
+    onSelect: (id: string, add: boolean) => void
+    onRename: (id: string) => void
+    onDone: (id: string, name: string | null) => void
+    /** The Hand is on: a press here pans the board like anywhere else */
+    hand: boolean
+  }) {
+    const style = {
+      ...pinned({ x: frame.x, y: frame.y }, { x: 0, y: -LABEL_HEIGHT }),
+      height: LABEL_HEIGHT,
+      // No wider than the frame: zoomed out, neighbours' names would run into each other.
+      maxWidth: `max(${onScreen(frame.width)}, 24px)`,
+    }
+    const finished = useRef(false)
+    const finish = (value: string | null) => {
+      if (finished.current) return
+      finished.current = true
+      onDone(frame.id, value)
+    }
+    if (renaming)
+      return (
+        <input
+          // biome-ignore lint/a11y/noAutofocus: renaming starts by typing the new name.
+          autoFocus
+          aria-label="Frame name"
+          spellCheck={false}
+          defaultValue={frame.name}
+          className={`${FIELD_LOOK} px-1 text-caption`}
+          style={{ ...style, width: `max(${onScreen(frame.width)}, 160px)` }}
+          onFocus={(event) => {
+            finished.current = false
+            event.currentTarget.select()
+          }}
+          onPointerDown={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            event.stopPropagation()
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'Enter') finish(event.currentTarget.value.trim() || null)
+            if (event.key === 'Escape') finish(null)
+          }}
+          onBlur={(event) => finish(event.currentTarget.value.trim() || null)}
+        />
+      )
+    if (!named) return null
+    return (
+      <p
+        data-frame-label={frame.id}
+        className={cn(
+          'flex items-center gap-1.5 truncate text-caption whitespace-nowrap',
+          selected ? 'text-accent-text' : 'text-muted',
+        )}
+        style={style}
+        // Its own clicks: a press selects the frame (no drag from here), a double-click renames.
+        onPointerDown={(event) => {
+          if (event.button !== 0 || hand) return
+          event.stopPropagation()
+          onSelect(frame.id, event.shiftKey)
+        }}
+        onDoubleClick={hand ? undefined : () => onRename(frame.id)}
+      >
+        <span className="truncate font-medium" title={frame.name}>
+          {frame.name}
+        </span>
+        {/* Narrow on screen, the name matters more than the size. */}
+        {sized && (
+          <span className="shrink-0 text-subtle tabular-nums">
+            {frame.width} × {frame.height}
+          </span>
+        )}
+      </p>
+    )
+  },
+  ({ frame: a, ...before }, { frame: b, ...after }) =>
+    sameFrame(a, b) &&
+    before.named === after.named &&
+    before.sized === after.sized &&
+    before.selected === after.selected &&
+    before.renaming === after.renaming &&
+    before.hand === after.hand &&
+    before.onSelect === after.onSelect &&
+    before.onRename === after.onRename &&
+    before.onDone === after.onDone,
+)
 
 /**
  * A section's name in its top-left corner: press it to pick the section and drag its frames,
  * double-click to rename, right-click for its menu (the board handles all three).
  */
-function SectionLabel({
+const SectionLabel = memo(function SectionLabel({
   id,
   name,
-  at,
-  zoom,
-  maxWidth,
+  x,
+  y,
+  width,
   picked,
   hand,
   renaming,
@@ -1157,26 +1345,27 @@ function SectionLabel({
 }: {
   id: string
   name: string
-  /** The section's top-left corner, in board pixels */
-  at: { x: number; y: number }
-  zoom: number
-  /** In screen pixels */
-  maxWidth: number
+  /** The section's top-left corner and width, in board pixels */
+  x: number
+  y: number
+  width: number
   picked: boolean
   hand: boolean
   renaming: boolean
-  onDone: (name: string | null) => void
+  onDone: (id: string, name: string | null) => void
 }) {
+  /** As wide as the section leaves room for on screen, and never too narrow to read */
+  const maxWidth = `max(calc(${onScreen(width)} - ${SECTION_INSET * 2}px), 120px)`
   const style = {
-    ...pinned(at, zoom, { x: SECTION_INSET, y: SECTION_INSET }),
-    height: LABEL_HEIGHT + 2,
+    ...pinned({ x, y }, { x: SECTION_INSET, y: SECTION_INSET }),
+    height: SECTION_LABEL_HEIGHT,
     maxWidth,
   }
   const finished = useRef(false)
   const finish = (value: string | null) => {
     if (finished.current) return
     finished.current = true
-    onDone(value)
+    onDone(id, value)
   }
   if (renaming)
     return (
@@ -1187,7 +1376,7 @@ function SectionLabel({
         spellCheck={false}
         defaultValue={name}
         className={`${FIELD_LOOK} px-2 text-small font-medium`}
-        style={{ ...style, width: Math.min(maxWidth, 240) }}
+        style={{ ...style, width: `min(${maxWidth}, 240px)` }}
         onFocus={(event) => {
           finished.current = false
           event.currentTarget.select()
@@ -1217,7 +1406,7 @@ function SectionLabel({
       </span>
     </p>
   )
-}
+})
 
 /**
  * An empty canvas: what to ask for, rather than a blank void. A starter goes to the chat once:
@@ -1295,7 +1484,7 @@ interface ScreenBox {
 }
 
 /** Board pixels to the board element's: where the camera looks, at its zoom. */
-function boardToScreen(area: Override, camera: BoardCamera): ScreenBox {
+function boardToScreen(area: Area, camera: BoardCamera): ScreenBox {
   return {
     left: (area.x - camera.x) * camera.zoom,
     top: (area.y - camera.y) * camera.zoom,

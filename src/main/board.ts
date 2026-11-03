@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readdir, readFile, rm, stat } from 'node:fs/promises'
-import { join, resolve, sep } from 'node:path'
+import { mkdir, readdir, readFile, realpath, rm, stat } from 'node:fs/promises'
+import { basename, join, resolve, sep } from 'node:path'
 import { app, protocol } from 'electron'
 import {
   BOARD_MANIFEST,
@@ -12,6 +12,10 @@ import {
 } from '../shared/board'
 import type { RecentBoard } from '../shared/types'
 import { writeFileAtomic } from './atomic-file'
+import { openManifest } from './board-persistence'
+import { shadowRepoName } from './checkpoints'
+import { claimedHistoryFiles, historyFile } from './history'
+import { recordingProjectKey } from './recordings'
 import { trust } from './trust'
 
 /**
@@ -107,15 +111,45 @@ export async function renameBoard(id: string, input: string) {
   const name = cleanName(input)
   if (!name || !isBoardId(id)) return
   const root = boardRoot(id)
-  const manifest = await readManifest(root)
+  // A broken manifest is set aside rather than renamed over; opening rebuilds the rest.
+  const manifest = await openManifest(root)
   await writeManifest(root, { ...manifest, name })
 }
 
-/** Gone for good: its frames, and the thumbnails Gui kept of them. */
+/** Entries in `dir` that are `name` itself or start with it and then `.` or `-`. */
+async function removeNamed(dir: string, name: string, keep: ReadonlySet<string> = new Set()) {
+  const entries = await readdir(dir).catch(() => [] as string[])
+  await Promise.all(
+    entries
+      .filter(
+        (entry) =>
+          (entry === name || entry.startsWith(`${name}.`) || entry.startsWith(`${name}-`)) &&
+          !keep.has(join(dir, entry)),
+      )
+      .map((entry) => rm(join(dir, entry), { recursive: true, force: true })),
+  )
+}
+
+/**
+ * Gone for good: its frames, the thumbnails Gui kept of them, and what Gui kept for its chats,
+ * as for a project folder: chat history and archive, checkpoints and recordings. A tab must not
+ * have it open (they're keyed off its path, and a live chat writes them).
+ */
 export async function deleteBoard(id: string) {
   if (!isBoardId(id)) return
-  await rm(boardRoot(id), { recursive: true, force: true })
-  await rm(thumbsDir(id), { recursive: true, force: true })
+  const root = boardRoot(id)
+  const real = await realpath(root).catch(() => root)
+  const data = app.getPath('userData')
+  // The chat file, numbered ones beside it, their summaries and the archive folder.
+  const chats = await historyFile(root)
+  await rm(root, { recursive: true, force: true })
+  await Promise.all([
+    rm(thumbsDir(id), { recursive: true, force: true }),
+    removeNamed(join(data, 'chats'), basename(chats, '.json'), new Set(claimedHistoryFiles())),
+    // Its shadow repo and the marker of when it was last pruned.
+    removeNamed(join(data, 'checkpoints'), shadowRepoName(real)),
+    rm(join(data, 'recordings', recordingProjectKey(root)), { recursive: true, force: true }),
+  ])
 }
 
 /** Where a canvas's frame thumbnails are kept: Gui's, outside the folder the agent works in. */

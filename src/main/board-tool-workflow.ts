@@ -1,8 +1,9 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, rename, rm, writeFile } from 'node:fs/promises'
+import { constants, copyFile, link, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
-import type { BoardSession } from './board-session'
+import { cleanName, frameId } from '../shared/board'
+import type { BoardSession, IgnoredPage } from './board-session'
 import type { BoardTools } from './mcp-board-tools'
 import { describeBoard, type PromptBoard } from './prompt'
 
@@ -66,16 +67,58 @@ export function createBoardTools(
   return guarded as unknown as BoardTools
 }
 
-/** Written beside its final name, then moved there: never through a link planted at it. */
-async function writeAsset(path: string, data: Buffer) {
-  const temp = `${path}.${randomBytes(6).toString('hex')}.tmp`
+/**
+ * Saves `data` in `dir` as `name` (from `assetName`), or `name-2`, `name-3`… when that's
+ * taken: never over another file, nor through a link planted at the name. Its final name.
+ */
+export async function saveAsset(dir: string, name: string, data: Buffer): Promise<string> {
+  const stem = name.replace(/\.jpg$/, '')
+  const temp = join(dir, `.${stem}.${randomBytes(6).toString('hex')}.tmp`)
+  await writeFile(temp, data, { flag: 'wx' })
   try {
-    await writeFile(temp, data, { flag: 'wx' })
-    await rename(temp, path)
-  } catch (error) {
+    for (let n = 1; n < 1000; n++) {
+      const file = n === 1 ? name : `${stem}-${n}.jpg`
+      try {
+        // Both fail when the name is there, whatever it is: nothing is replaced.
+        await link(temp, join(dir, file)).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === 'EEXIST') throw error
+          return copyFile(temp, join(dir, file), constants.COPYFILE_EXCL)
+        })
+        return file
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      }
+    }
+    throw new Error(`Too many files named ${stem} in assets/.`)
+  } finally {
     await rm(temp, { force: true })
-    throw error
   }
+}
+
+/**
+ * How canvas_list_frames tells the agent about pages that aren't on the board, so it can put
+ * them there; nothing when there are none.
+ */
+export function describeIgnoredPages(pages: readonly IgnoredPage[], taken: ReadonlySet<string>) {
+  const misnamed = pages.filter((page) => page.reason === 'name')
+  const over = pages.filter((page) => page.reason === 'full')
+  const lines: string[] = []
+  if (misnamed.length) {
+    const names = new Set(taken)
+    lines.push(
+      "These pages in frames/ are not on the canvas: a frame's file is named with lowercase letters, digits and dashes only, starting with a letter or digit (up to 64 characters), plus .html. Rename each to put it on the canvas:",
+      ...misnamed.map((page) => {
+        const id = frameId(page.file.replace(/\.html$/i, ''), names)
+        names.add(id)
+        return `- frames/${page.file} → frames/${id}.html`
+      }),
+    )
+  }
+  if (over.length)
+    lines.push(
+      `These pages in frames/ are not on the canvas because it already holds its most frames: ${over.map((page) => `frames/${page.file}`).join(', ')}.`,
+    )
+  return lines.join('\n')
 }
 
 function boardTools(
@@ -91,8 +134,16 @@ function boardTools(
   const where = (frame: { id: string; width: number; height: number; x: number; y: number }) =>
     `frames/${frame.id}.html, ${frame.width}×${frame.height} at (${frame.x}, ${frame.y})`
   return {
-    list: () =>
-      describeBoard(host.prompt() ?? { name: board.name, frames: [], selection: [], open: null }),
+    list: async () => {
+      const listed = describeBoard(
+        host.prompt() ?? { name: board.name, frames: [], selection: [], open: null },
+      )
+      const ignored = describeIgnoredPages(
+        await board.ignoredPages(),
+        new Set(board.frames.map((frame) => frame.id)),
+      )
+      return ignored ? `${listed}\n\n${ignored}` : listed
+    },
     create: async ({ name, width, height, html, after }) => {
       const frame = await board.create({ name, width, height, html, after }, false)
       return `Created frame ${frame.id} "${frame.name}": ${where(frame)}.${html === undefined ? ' It has a placeholder page: write the whole page to that file.' : ''}`
@@ -111,8 +162,10 @@ function boardTools(
         .map((frame) => (frame ? `${frame.id}: ${where(frame)}` : ''))
         .join('\n')
     },
-    rename: async (id, name) => {
+    rename: async (id, input) => {
       if (!board.has(id)) throw new Error(`There's no frame ${id}.`)
+      const name = cleanName(input)
+      if (!name) throw new Error("A frame's name can't be blank.")
       await board.rename(id, name, false)
       return `Renamed ${id} to "${board.frame(id)?.name ?? name}".`
     },
@@ -133,9 +186,9 @@ function boardTools(
       if (!host.live()) throw new Error('The canvas closed.')
       let saved: string | null = null
       if (saveAs) {
-        saved = `assets/${assetName(saveAs)}`
-        await mkdir(join(board.root, 'assets'), { recursive: true })
-        await writeAsset(join(board.root, saved), shot.image.toJPEG(SHOT_QUALITY))
+        const assets = join(board.root, 'assets')
+        await mkdir(assets, { recursive: true })
+        saved = `assets/${await saveAsset(assets, assetName(saveAs), shot.image.toJPEG(SHOT_QUALITY))}`
       }
       return {
         ...fitForAgent(shot.image),

@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
-import { type BoardFrameLayout, FRAMES_DIR } from '../shared/board'
+import { type BoardFrameLayout, FRAME_MAX, FRAMES_DIR } from '../shared/board'
 import { writeFileAtomic } from './atomic-file'
 import { boardAssetSignature, pageSignature } from './board-assets'
 import {
@@ -17,13 +17,33 @@ import {
  * Retina screen up to about 50%.
  */
 const THUMB_WIDTH = 1440
+/** How much of a tall frame its thumbnail shows; screenshots and exports show all of it. */
+const THUMB_MAX_HEIGHT = 3000
+
+/**
+ * A frame's page stopped responding while it was rendered (most likely a script that never
+ * ends), so it was stopped rather than left holding the capture queue.
+ */
+export class UnresponsiveFrameError extends Error {
+  constructor(id: string) {
+    super(
+      `Frame ${id}'s page didn't respond, so it was stopped: most likely a script on it never finishes (an infinite loop). Fix its script, then try again.`,
+    )
+    this.name = 'UnresponsiveFrameError'
+  }
+}
 
 export interface BoardCaptureRenderer {
+  /**
+   * The frame's page, its top `maxHeight` CSS pixels at most; null when it couldn't be
+   * rendered, and UnresponsiveFrameError when the page hung and was stopped.
+   */
   render(
     frame: BoardFrameLayout,
     url: string,
     scale: number,
     signal: AbortSignal,
+    maxHeight: number,
   ): Promise<NativeImage | null>
   dispose(): void
 }
@@ -56,7 +76,16 @@ export class BoardCaptures {
   private assets = ''
   private cache: Record<string, CachedThumbnail> = {}
   private captured = new Set<string>()
+  /**
+   * Each thumbnail's version, in its URL. They start from when this opening began, so a URL
+   * never repeats across openings and the board never shows an image it cached before.
+   */
+  private readonly firstVersion = Date.now()
   private versions = new Map<string, number>()
+  /** Frames whose page hung, by the assets and page they hung with: not tried again until one changes */
+  private hung = new Map<string, string>()
+  /** Thumbnails being deleted, so a new capture of the same frame lands after */
+  private removing = new Map<string, Promise<void>>()
   private revisions = new Map<string, number>()
   private thumbnails = new Map<string, ThumbnailRequest>()
   private jobs = new Set<CaptureJob<unknown>>()
@@ -79,7 +108,7 @@ export class BoardCaptures {
   }
 
   status(id: string) {
-    return { version: this.versions.get(id) ?? 0, captured: this.captured.has(id) }
+    return { version: this.versions.get(id) ?? this.firstVersion, captured: this.captured.has(id) }
   }
 
   async open() {
@@ -96,6 +125,8 @@ export class BoardCaptures {
     } catch {
       // Missing or damaged cache metadata only means recapturing thumbnails.
     }
+    await this.sweep()
+    if (this.disposed) return
     await Promise.all(
       this.host.frames().map(async (frame) => {
         const [page, thumb] = await Promise.all([
@@ -116,6 +147,20 @@ export class BoardCaptures {
         )
           void this.thumbnail(frame.id)
       }),
+    )
+  }
+
+  /** Thumbnails of frames no longer on the board (deleted while it was closed), and temp files. */
+  private async sweep() {
+    const frames = new Set(this.host.frames().map((frame) => frame.id))
+    const files = await readdir(this.host.thumbs).catch(() => [] as string[])
+    await Promise.all(
+      files
+        .filter(
+          (file) =>
+            file.endsWith('.tmp') || (file.endsWith('.jpg') && !frames.has(file.slice(0, -4))),
+        )
+        .map((file) => rm(join(this.host.thumbs, file), { force: true }).catch(() => undefined)),
     )
   }
 
@@ -163,19 +208,27 @@ export class BoardCaptures {
     return true
   }
 
-  forget(id: string) {
+  /** The frame left the board: its capture stops and its thumbnail is deleted. */
+  forget(id: string): Promise<void> {
     this.revisions.set(id, (this.revisions.get(id) ?? 0) + 1)
     this.thumbnails.get(id)?.job.cancel()
     this.thumbnails.delete(id)
     this.captured.delete(id)
+    this.hung.delete(id)
     delete this.cache[id]
+    const removal = rm(this.path(id), { force: true }).catch(() => undefined)
+    this.removing.set(id, removal)
+    void removal.then(() => {
+      if (this.removing.get(id) === removal) this.removing.delete(id)
+    })
+    return removal
   }
 
   async screenshot(id: string, scale = 1): Promise<NativeImage> {
     if (this.disposed) throw new Error('Canvas closed')
     const job = this.queue.schedule(CAPTURE_PRIORITY.interactive, async (signal) => {
       const frame = this.host.frame(id)
-      return frame ? this.renderer.render(frame, this.host.url(id), scale, signal) : null
+      return frame ? this.renderer.render(frame, this.host.url(id), scale, signal, FRAME_MAX) : null
     })
     this.track(job)
     const image = await job.done
@@ -199,13 +252,24 @@ export class BoardCaptures {
     const assets = this.assets
     const page = await pageSignature(join(this.host.root, FRAMES_DIR, `${id}.html`))
     if (!page || this.disposed || signal.aborted) return
+    // A page that hung would hold the queue again for nothing; it's tried once it changes.
+    const attempt = `${assets}\n${page}`
+    if (this.hung.get(id) === attempt) return
     const current = () =>
       !this.disposed &&
       !signal.aborted &&
       this.host.frame(id) !== null &&
       this.revisions.get(id) === revision &&
       this.assets === assets
-    const image = await this.renderer.render(frame, this.host.url(id), 1, signal)
+    let image: NativeImage | null
+    try {
+      image = await this.renderer.render(frame, this.host.url(id), 1, signal, THUMB_MAX_HEIGHT)
+    } catch (error) {
+      if (!(error instanceof UnresponsiveFrameError)) throw error
+      this.hung.set(id, attempt)
+      console.warn(`[gui] frame ${id} stopped responding while its thumbnail was made`)
+      return
+    }
     if (!image || !current()) return
     if (page !== (await pageSignature(join(this.host.root, FRAMES_DIR, `${id}.html`)))) {
       void this.thumbnail(id)
@@ -215,6 +279,8 @@ export class BoardCaptures {
       image.getSize().width > THUMB_WIDTH
         ? image.resize({ width: THUMB_WIDTH, quality: 'good' })
         : image
+    await this.removing.get(id)
+    if (!current()) return
     await mkdir(this.host.thumbs, { recursive: true })
     const temp = `${this.path(id)}.${randomBytes(6).toString('hex')}.tmp`
     try {
@@ -232,7 +298,7 @@ export class BoardCaptures {
       await writeFileAtomic(this.cachePath, JSON.stringify(this.cache))
       if (!current()) return
       this.captured.add(id)
-      this.versions.set(id, (this.versions.get(id) ?? 0) + 1)
+      this.versions.set(id, (this.versions.get(id) ?? this.firstVersion) + 1)
       this.host.changed(id)
     } finally {
       await rm(temp, { force: true }).catch(() => undefined)

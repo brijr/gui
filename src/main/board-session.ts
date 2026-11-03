@@ -23,18 +23,20 @@ import {
   MAX_FRAMES,
   parseManifest,
   placeFrame,
+  placeInSection,
   regroupSections,
   sectionBounds,
   sectionId,
   sectionOf,
   starterHtml,
 } from '../shared/board'
+import { MAX_UNDO_BYTES } from '../shared/bounded'
 import type { BoardFrame, BoardState } from '../shared/types'
-import { readManifest, thumbsDir, thumbsUrl, writeManifest } from './board'
+import { thumbsDir, thumbsUrl, writeManifest } from './board'
 import { isBoardAsset } from './board-assets'
 import { BoardCaptures } from './board-capture'
 import { OffscreenBoardRenderer } from './board-capture-renderer'
-import { BoardManifestWriter, BoardMutations } from './board-persistence'
+import { BoardManifestWriter, BoardMutations, openManifest } from './board-persistence'
 
 /** Changes to a frame's file come in bursts as it's written; look once they've settled. */
 const SETTLE_MS = 250
@@ -70,6 +72,14 @@ interface UndoEntry {
   sections: BoardSection[]
   /** Pages of frames the change removed, to write back */
   files: Record<string, string>
+  /** What `files` holds, in bytes, for MAX_UNDO_BYTES */
+  bytes: number
+}
+
+/** A page in frames/ left off the board: misnamed, or past MAX_FRAMES */
+export interface IgnoredPage {
+  file: string
+  reason: 'name' | 'full'
 }
 
 export interface NewFrame {
@@ -126,6 +136,8 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   private watchers: FSWatcher[] = []
   private timers = new Map<string, NodeJS.Timeout>()
   private saveTimer: NodeJS.Timeout | null = null
+  /** The manifest was read: until then there's nothing of the canvas's own to save. */
+  private loaded = false
   private disposed = false
   private completion: Promise<void> | null = null
 
@@ -149,8 +161,9 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   open() {
     return this.mutations.run(async () => {
-      this.manifest = await readManifest(this.root)
+      this.manifest = await openManifest(this.root)
       this.writer.observe(this.manifest)
+      this.loaded = true
       if (this.disposed) return
       await this.syncFrames()
       if (this.disposed) return
@@ -368,12 +381,20 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     const size = { width: clampEdge(spec.width), height: clampEdge(spec.height) }
     const after = (spec.after ?? []).flatMap((id) => this.frame(id) ?? [])
     // Beside a frame in a section, it joins that section; otherwise it keeps out of them all.
-    const { sections } = this.manifest
-    const home = after.map((frame) => sectionOf(sections, frame.id)).find(Boolean) ?? null
-    const others = sections.flatMap((section) =>
-      section.id === home?.id ? [] : (sectionBounds(section, this.manifest.frames) ?? []),
-    )
-    const at = spec.at ?? placeFrame([...this.manifest.frames, ...others], size, after)
+    const { sections, frames } = this.manifest
+    let home = after.map((frame) => sectionOf(sections, frame.id)).find(Boolean) ?? null
+    const areas = (except: string | null) =>
+      sections.flatMap((section) =>
+        section.id === except ? [] : (sectionBounds(section, frames) ?? []),
+      )
+    let at = spec.at ?? null
+    if (!at && home) {
+      const members = frames.filter((frame) => home?.frames.includes(frame.id))
+      at = placeInSection(frames, areas(home.id), members, size, after)
+      // Nowhere in its section without growing it onto another: it goes beside them all.
+      if (!at) home = null
+    }
+    at ??= placeFrame([...frames, ...areas(home?.id ?? null)], size, after)
     const frame: BoardFrameLayout = { id, name, x: Math.round(at.x), y: Math.round(at.y), ...size }
     if (user || agent) this.beginEdit(user)
     // File reconciliation shares this mutation lane: the watcher sees this placement first.
@@ -394,25 +415,54 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     return this.mutations.run(() => this.duplicateFrames(ids, user))
   }
 
+  /** All of them or none: a copy that fails takes back the ones already made. */
   private async duplicateFrames(ids: string[], user: boolean): Promise<BoardFrameLayout[]> {
-    const sources = ids.flatMap((id) => this.frame(id) ?? [])
+    const sources = [...new Set(ids)].flatMap((id) => this.frame(id) ?? [])
     if (!sources.length) return []
-    this.beginEdit(user)
-    const made: BoardFrameLayout[] = []
-    for (const source of sources) {
-      const html = await readFile(this.framePath(source.id), 'utf8').catch(() => undefined)
-      made.push(
-        await this.createFrame(
-          {
-            name: `${source.name} copy`,
-            width: source.width,
-            height: source.height,
-            html,
-            after: [source.id, ...made.map((frame) => frame.id)],
-          },
-          false,
-        ),
+    const room = MAX_FRAMES - this.manifest.frames.length
+    if (sources.length > room)
+      throw new Error(
+        `A canvas holds up to ${MAX_FRAMES} frames, so there's room for ${room} more, not ${sources.length}. Delete some first.`,
       )
+    const before = new Set(this.manifest.frames.map((frame) => frame.id))
+    this.beginEdit(user)
+    const step = user ? this.undoStack.at(-1) : undefined
+    const made: BoardFrameLayout[] = []
+    try {
+      for (const source of sources) {
+        const html = await readFile(this.framePath(source.id), 'utf8').catch(() => undefined)
+        made.push(
+          await this.createFrame(
+            {
+              name: `${source.name} copy`,
+              width: source.width,
+              height: source.height,
+              html,
+              after: [source.id, ...made.map((frame) => frame.id)],
+            },
+            false,
+          ),
+        )
+      }
+    } catch (error) {
+      const added = this.manifest.frames.filter((frame) => !before.has(frame.id))
+      for (const frame of added) this.written.delete(frame.id)
+      await Promise.all(
+        added.flatMap((frame) => [
+          rm(this.framePath(frame.id), { force: true }),
+          this.captures.forget(frame.id),
+        ]),
+      )
+      this.setFrames(
+        this.manifest.frames.filter((frame) => before.has(frame.id)),
+        this.manifest.sections,
+        false,
+      )
+      // Nothing changed, so there's nothing new to undo.
+      if (step && this.undoStack.at(-1) === step) this.undoStack.pop()
+      await this.save().catch(() => undefined)
+      this.emit('change')
+      throw error
     }
     this.select(made.map((frame) => frame.id))
     return made
@@ -437,16 +487,13 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       this.manifest.sections,
       false,
     )
-    for (const id of gone) {
-      this.captures.forget(id)
-      this.written.delete(id)
-    }
+    for (const id of gone) this.written.delete(id)
     this.selection = this.selection.filter((id) => !gone.has(id))
     if (this.openFrame && gone.has(this.openFrame)) this.openFrame = null
     await Promise.all(
       [...gone].flatMap((id) => [
         rm(this.framePath(id), { force: true }),
-        rm(this.thumbPath(id), { force: true }),
+        this.captures.forget(id),
       ]),
     )
     await this.save()
@@ -488,7 +535,19 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     const section = this.section(id)
     if (!section) return
     const name = change.name === undefined ? section.name : (cleanName(change.name) ?? section.name)
-    const members = change.frames?.filter((frame) => this.has(frame))
+    // Set exactly as asked, or not at all: a typo must not leave the section short, or empty.
+    const members = change.frames && [...new Set(change.frames)]
+    if (members) {
+      const unknown = members.filter((frame) => !this.has(frame))
+      if (unknown.length)
+        throw new Error(
+          `There's no frame ${unknown.join(', ')} on the canvas, so section ${id} is unchanged.`,
+        )
+      if (!members.length)
+        throw new Error(
+          `A section needs at least one frame. To remove section ${id}, use canvas_delete_section.`,
+        )
+    }
     if (name === section.name && !members) return
     this.beginEdit(user)
     this.setFrames(
@@ -518,10 +577,17 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   }
 
   private async undoChange() {
-    const entry = this.undoStack.pop()
+    const entry = this.undoStack.at(-1)
     if (!entry) return false
     const kept = new Set(entry.frames.map((frame) => frame.id))
     const added = this.manifest.frames.filter((frame) => !kept.has(frame.id))
+    // Someone else wrote one of these pages since (the agent, before its change settled):
+    // deleting or overwriting it would lose their work, so the board's undo ends here.
+    if (!(await this.untouched(added, entry.files))) {
+      this.clearUndo()
+      return false
+    }
+    this.undoStack.pop()
     for (const [id, html] of Object.entries(entry.files)) {
       await writeFile(this.framePath(id), html)
       this.written.set(id, html)
@@ -537,15 +603,34 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       )
         this.queueCapture(frame.id)
     }
-    for (const frame of added) {
-      this.captures.forget(frame.id)
-      this.written.delete(frame.id)
-    }
+    for (const frame of added) this.written.delete(frame.id)
     this.selection = this.selection.filter((id) => kept.has(id))
     if (this.openFrame && !kept.has(this.openFrame)) this.openFrame = null
-    await Promise.all(added.map((frame) => rm(this.framePath(frame.id), { force: true })))
+    await Promise.all(
+      added.flatMap((frame) => [
+        rm(this.framePath(frame.id), { force: true }),
+        this.captures.forget(frame.id),
+      ]),
+    )
     await this.save()
     this.emit('change')
+    return true
+  }
+
+  /**
+   * Whether undoing can delete `added` frames' pages and write `restoring` back: each page to
+   * delete is as this session wrote it, and nothing has been written where one goes back.
+   */
+  private async untouched(added: readonly BoardFrameLayout[], restoring: Record<string, string>) {
+    const read = (id: string) => readFile(this.framePath(id), 'utf8').catch(() => null)
+    for (const frame of added) {
+      const html = await read(frame.id)
+      if (html !== null && html !== this.written.get(frame.id)) return false
+    }
+    for (const [id, html] of Object.entries(restoring)) {
+      const now = await read(id)
+      if (now !== null && now !== html) return false
+    }
     return true
   }
 
@@ -561,6 +646,23 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     else this.clearUndo()
   }
 
+  /**
+   * Pages in frames/ that aren't on the board and won't be: named other than a frame id
+   * (`Hero.html`), or past MAX_FRAMES on a full canvas.
+   */
+  async ignoredPages(): Promise<IgnoredPage[]> {
+    const names = await readdir(join(this.root, FRAMES_DIR)).catch(() => [] as string[])
+    const full = this.manifest.frames.length >= MAX_FRAMES
+    return names
+      .filter((file) => file.endsWith('.html'))
+      .sort()
+      .flatMap((file): IgnoredPage[] => {
+        const id = file.slice(0, -'.html'.length)
+        if (!isFrameId(id)) return [{ file, reason: 'name' }]
+        return full && !this.has(id) ? [{ file, reason: 'full' }] : []
+      })
+  }
+
   async captureNow(id: string) {
     await this.captures.thumbnail(id, true)
   }
@@ -572,8 +674,18 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   // Keeping in step with the files
 
   private remember(files: Record<string, string> = {}) {
-    this.undoStack.push({ frames: this.manifest.frames, sections: this.manifest.sections, files })
+    const bytes = Object.values(files).reduce((sum, html) => sum + Buffer.byteLength(html), 0)
+    this.undoStack.push({
+      frames: this.manifest.frames,
+      sections: this.manifest.sections,
+      files,
+      bytes,
+    })
     if (this.undoStack.length > MAX_UNDO) this.undoStack.shift()
+    // Deleted pages are kept whole: the oldest go first past the cap, never the newest.
+    let total = this.undoStack.reduce((sum, entry) => sum + entry.bytes, 0)
+    while (this.undoStack.length > 1 && total > MAX_UNDO_BYTES)
+      total -= this.undoStack.shift()?.bytes ?? 0
   }
 
   private setFrames(frames: BoardFrameLayout[], sections = this.manifest.sections, save = true) {
@@ -583,10 +695,23 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.emit('change')
   }
 
-  /** Frames whose page is gone leave the board; pages without a frame join it. */
+  /**
+   * Frames whose page is gone leave the board; pages without a frame join it. A frames folder
+   * that's gone is a board with no pages; one that can't be read leaves the board as it is.
+   */
   private async syncFrames() {
+    let names: string[]
+    try {
+      names = await readdir(join(this.root, FRAMES_DIR))
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.error("[gui] couldn't read the canvas's frames; keeping them as they are", error)
+        return false
+      }
+      names = []
+    }
     const files = new Set(
-      (await readdir(join(this.root, FRAMES_DIR)).catch(() => [] as string[]))
+      names
         .filter((file) => file.endsWith('.html'))
         .map((file) => file.slice(0, -'.html'.length))
         .filter(isFrameId),
@@ -608,7 +733,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       frames.some((frame, i) => frame !== this.manifest.frames[i])
     if (!changed) return false
     for (const frame of this.manifest.frames)
-      if (!files.has(frame.id)) this.captures.forget(frame.id)
+      if (!files.has(frame.id)) void this.captures.forget(frame.id)
     this.manifest = {
       ...this.manifest,
       frames,
@@ -691,6 +816,14 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.emit('frameChanged', id)
   }
 
+  /** Whether the manifest on disk is still one: if not, the last save writes a good copy. */
+  private async checkManifestOnClose() {
+    if (!this.loaded) return
+    await this.writer.idle().catch(() => undefined)
+    const text = await readFile(join(this.root, BOARD_MANIFEST), 'utf8').catch(() => null)
+    if (text === null || !isReadableManifest(text)) this.writer.invalidate()
+  }
+
   /** Someone else wrote the manifest (the agent by hand, or an undone turn): take it as it is. */
   private async onManifestFile() {
     // A watcher may fire between our atomic rename and the writer's successful marker.
@@ -724,7 +857,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       if (!previous || previous.width !== frame.width || previous.height !== frame.height)
         this.queueCapture(frame.id)
     }
-    for (const id of before.keys()) if (!this.has(id)) this.captures.forget(id)
+    for (const id of before.keys()) if (!this.has(id)) void this.captures.forget(id)
     this.emit('change')
   }
 
@@ -753,6 +886,8 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   async save() {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
+    // Before the canvas is read, this is a placeholder: saving it would replace the canvas.
+    if (!this.loaded) return
     await this.writer.save(this.manifest)
   }
 
@@ -822,6 +957,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
     const captures = this.captures.dispose()
+    // A manifest broken just before closing (its check still settling) is put right by the
+    // last save, rather than left for the next open to set aside.
+    void this.mutations
+      .run(() => this.checkManifestOnClose())
+      .catch((error: unknown) => console.error('[gui] canvas check on close failed', error))
     this.completion = this.mutations.close().then(async () => {
       // Accepted file mutations finish before the last manifest snapshot is acknowledged.
       try {

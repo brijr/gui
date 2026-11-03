@@ -4,9 +4,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
 import { boardAssetSignature } from '../src/main/board-assets'
-import { type BoardCaptureRenderer, BoardCaptures } from '../src/main/board-capture'
+import {
+  type BoardCaptureRenderer,
+  BoardCaptures,
+  UnresponsiveFrameError,
+} from '../src/main/board-capture'
 import { BoardCaptureQueue, CAPTURE_PRIORITY } from '../src/main/board-capture-queue'
-import type { BoardFrameLayout } from '../src/shared/board'
+import { type BoardFrameLayout, FRAME_MAX } from '../src/shared/board'
 
 const roots: string[] = []
 const owners: BoardCaptures[] = []
@@ -202,4 +206,67 @@ test('asset signatures include nested shared files and deletions but exclude boa
   expect(added).not.toBe(before)
   await rm(shared)
   expect(await boardAssetSignature(f.root)).not.toBe(added)
+})
+
+test('a frame whose page hangs is stopped once, not retried until its page changes', async () => {
+  const f = await fixture(['a', 'b'])
+  const rendered: string[] = []
+  const heights: number[] = []
+  const owner = f.create({
+    render: async (frame, _url, _scale, _signal, maxHeight) => {
+      rendered.push(frame.id)
+      heights.push(maxHeight)
+      if (frame.id === 'a') throw new UnresponsiveFrameError(frame.id)
+      return image(frame.id)
+    },
+    dispose: () => undefined,
+  })
+  const warn = console.warn
+  console.warn = () => undefined
+  try {
+    await owner.open()
+    await until(() => f.changed.includes('b'))
+    await owner.thumbnail('a')
+    await owner.thumbnail('a', true)
+    expect(rendered.filter((id) => id === 'a')).toHaveLength(1)
+    expect(owner.status('a').captured).toBe(false)
+    // Screenshots always try, and say why they failed.
+    await expect(owner.screenshot('a')).rejects.toThrow(/didn't respond/)
+    // Thumbnails stop at a height; screenshots and exports show the whole frame.
+    expect(heights.at(-1)).toBe(FRAME_MAX)
+    expect(Math.max(...heights.slice(0, -1))).toBeLessThan(FRAME_MAX)
+    await new Promise((done) => setTimeout(done, 5))
+    await writeFile(join(f.root, 'frames', 'a.html'), '<h1>Fixed</h1>')
+    await owner.thumbnail('a')
+    expect(rendered.filter((id) => id === 'a')).toHaveLength(3)
+  } finally {
+    console.warn = warn
+  }
+})
+
+test('thumbnail versions never repeat across openings, and stale thumbnails are deleted', async () => {
+  const f = await fixture(['a'])
+  const renderer = () => ({
+    render: async (frame: BoardFrameLayout) => image(frame.id),
+    dispose: () => undefined,
+  })
+  const first = f.create(renderer())
+  await first.open()
+  await until(() => f.changed.length === 1)
+  const seen = first.status('a').version
+  await first.dispose()
+  await new Promise((done) => setTimeout(done, 5))
+  // Deleted while the canvas was closed, and a write that never finished.
+  await writeFile(join(f.thumbs, 'gone.jpg'), 'old')
+  await writeFile(join(f.thumbs, 'a.jpg.123.tmp'), 'partial')
+  const second = f.create(renderer())
+  await second.open()
+  expect(second.status('a').version).toBeGreaterThan(seen)
+  expect(await readFile(join(f.thumbs, 'gone.jpg')).catch(() => null)).toBeNull()
+  expect(await readFile(join(f.thumbs, 'a.jpg.123.tmp')).catch(() => null)).toBeNull()
+  expect(await readFile(second.path('a'), 'utf8')).toBe('a')
+  // A frame that leaves the board takes its thumbnail with it.
+  f.frames.delete('a')
+  await second.forget('a')
+  expect(await readFile(second.path('a')).catch(() => null)).toBeNull()
 })

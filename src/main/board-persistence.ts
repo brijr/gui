@@ -1,4 +1,44 @@
-import type { BoardManifest } from '../shared/board'
+import { readFile, rename } from 'node:fs/promises'
+import { basename, join } from 'node:path'
+import {
+  BOARD_MANIFEST,
+  type BoardManifest,
+  isReadableManifest,
+  parseManifest,
+} from '../shared/board'
+
+/**
+ * A canvas's manifest as it opens. A missing one is a new canvas. One that can't be read or
+ * isn't a manifest (a bad hand edit, a damaged disk) is moved aside to
+ * `canvas.json.broken-<time>` first, so rebuilding the board from its pages never writes over
+ * the only copy of where its frames were, what they're called and its sections.
+ */
+export async function openManifest(
+  root: string,
+  fallbackName = 'Untitled canvas',
+): Promise<BoardManifest> {
+  const path = join(root, BOARD_MANIFEST)
+  let text: string | null = null
+  try {
+    text = await readFile(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return parseManifest(null, fallbackName)
+  }
+  if (text !== null && isReadableManifest(text)) return parseManifest(text, fallbackName)
+  const aside = `${path}.broken-${Date.now()}`
+  try {
+    await rename(path, aside)
+  } catch (error) {
+    // Rebuilt, it would be saved over the broken file: better the canvas doesn't open.
+    throw new Error(`The canvas's ${BOARD_MANIFEST} can't be read or moved aside.`, {
+      cause: error,
+    })
+  }
+  console.warn(
+    `[gui] ${path} couldn't be read; kept it as ${basename(aside)} and rebuilt the canvas from its pages`,
+  )
+  return parseManifest(null, fallbackName)
+}
 
 /** File-backed board operations share a lane with file watcher reconciliation. */
 export class BoardMutations {

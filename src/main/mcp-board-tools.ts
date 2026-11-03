@@ -25,8 +25,8 @@ export const BOARD_TOOL_NAMES = [
 ] as const
 
 export interface BoardTools {
-  /** Every frame, its file, place and size, and which are selected and open */
-  list: () => string
+  /** Every frame, its file, place and size, which are selected and open, and pages left off */
+  list: () => Promise<string>
   create: (spec: {
     name: string
     width: number
@@ -64,13 +64,15 @@ export interface BoardTools {
   /** Shows the frame in the preview (null: back to the board) */
   open: (id: string | null) => Promise<string>
   createSection: (name: string, frames: string[]) => Promise<string>
-  /** `frames` replaces the section's frames, taking them out of any other */
+  /** `frames` replaces the section's frames, taking them out of any other; all must exist */
   updateSection: (id: string, change: { name?: string; frames?: string[] }) => Promise<string>
   /** The section goes; its frames stay */
   removeSection: (id: string) => Promise<string>
 }
 
 const frameIdSchema = z.string().min(1).max(64).describe('Frame id, as canvas_list_frames gives it')
+/** A name shown on the board: blank ones are refused, not taken as "nothing changed". */
+const nameSchema = z.string().trim().min(1).max(80)
 const edge = z.number().int().min(FRAME_MIN).max(FRAME_MAX)
 const sectionIdSchema = z
   .string()
@@ -94,7 +96,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
     {
       title: 'List canvas frames',
       description:
-        "The canvas's frames: each one's id, name, page file (relative to the canvas folder), position and size on the board in pixels, and which the user has selected or open; then its sections and their frames. Read it before placing or editing frames.",
+        "The canvas's frames: each one's id, name, page file (relative to the canvas folder), position and size on the board in pixels, and which the user has selected or open; then its sections and their frames, and any page in frames/ that isn't on the canvas and why. Read it before placing or editing frames.",
       inputSchema: {},
       annotations: { readOnlyHint: true },
     },
@@ -108,7 +110,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
       description:
         'Adds a frame to the canvas and writes its page. Placed to the right of the frames in `after` (or of everything) without overlapping any frame. Pass the complete single-file HTML page in `html` (inline <style> and <script>; shared images go in assets/, referenced as ../assets/name), or omit it and write the returned file yourself. Name the frame for its idea ("Pricing — three tiers"). Desktop pages are usually 1440×900, tablet 820×1180, mobile 390×844.',
       inputSchema: {
-        name: z.string().min(1).max(80).describe('Short name shown above the frame'),
+        name: nameSchema.describe('Short name shown above the frame'),
         width: edge.describe('Page width in CSS pixels'),
         height: edge.describe('Frame height in CSS pixels (the page can scroll past it)'),
         html: z.string().max(2_000_000).optional().describe('The whole HTML page'),
@@ -162,7 +164,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
     {
       title: 'Rename a canvas frame',
       description: 'Changes the name shown above a frame. Its id and file stay the same.',
-      inputSchema: { id: frameIdSchema, name: z.string().min(1).max(80) },
+      inputSchema: { id: frameIdSchema, name: nameSchema },
     },
     run(({ id, name }) => board.rename(id, name)),
   )
@@ -184,7 +186,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
     {
       title: 'Screenshot a canvas frame',
       description:
-        "A frame's page rendered at the frame's size, as the board shows it. Check every frame you create or change with it before replying.",
+        "A frame's page rendered at the frame's size, as the board shows it. Check every frame you create or change with it before replying. A page that stops responding while it renders (a script that never ends) is stopped, and this says so.",
       inputSchema: { id: frameIdSchema },
       annotations: { readOnlyHint: true },
     },
@@ -277,7 +279,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
       description:
         'Groups frames in a named section, an area of the board drawn around them that sizes itself to fit (like a section in Figma). Use one for each set of related frames: the sizes of one ad, the screens of a flow, the options for one idea. A frame is in one section at most, so these leave any other. Arrange the frames first; the section follows them.',
       inputSchema: {
-        name: z.string().min(1).max(80).describe('Short name shown on the section'),
+        name: nameSchema.describe('Short name shown on the section'),
         frames: z.array(frameIdSchema).min(1).max(60),
       },
     },
@@ -289,11 +291,11 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
     {
       title: 'Rename a canvas section or change its frames',
       description:
-        'Renames a section and/or sets which frames are in it (`frames` replaces the list; frames joining leave any other section). A section left with no frames is deleted. A new frame made beside one in a section joins it by itself.',
+        'Renames a section and/or sets which frames are in it (`frames` replaces the list; frames joining leave any other section). Every frame in `frames` must be on the canvas, and there must be at least one; to remove the section, use canvas_delete_section. A new frame made beside one in a section joins it by itself.',
       inputSchema: {
         id: sectionIdSchema,
-        name: z.string().min(1).max(80).optional(),
-        frames: z.array(frameIdSchema).max(60).optional(),
+        name: nameSchema.optional(),
+        frames: z.array(frameIdSchema).min(1).max(60).optional(),
       },
     },
     run(({ id, name, frames }) => board.updateSection(id, { name, frames })),

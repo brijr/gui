@@ -1,12 +1,14 @@
 import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, posix } from 'node:path'
 import {
   app,
   ClipboardItem,
   clipboard,
   dialog,
+  type Event,
+  type Input,
   Menu,
   type MenuItemConstructorOptions,
   type MessageBoxOptions,
@@ -18,14 +20,18 @@ import {
   type WebFrameMain,
 } from 'electron'
 import {
+  BOARD_MANIFEST,
   type BoardCamera,
   exportPaths,
   FRAME_PRESETS,
+  FRAMES_DIR,
   type FramePreset,
   frameId,
+  isFrameId,
+  parseManifest,
 } from '../shared/board'
 import { viewPointFrom } from '../shared/coords'
-import { type ChatMenuChoice, Events } from '../shared/ipc'
+import { type ChatMenuChoice, Events, type FrameArrangement } from '../shared/ipc'
 import { SHORTCUTS } from '../shared/shortcuts'
 import {
   type AgentId,
@@ -66,11 +72,12 @@ import {
 import { agentHealth } from './agent-status'
 import { agentMenuItems } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
-import { boardIdOf, listBoards } from './board'
+import { boardIdOf, listBoards, writeManifest } from './board'
 import { BoardSession } from './board-session'
 import { createBoardTools } from './board-tool-workflow'
 import { branchStatus } from './branch'
-import { availableModels, ChatController } from './chat'
+import { mergeLayout, nextFrameName, sameLayout } from './canvas-layout'
+import { availableModels, type BoardLayout, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
@@ -187,6 +194,33 @@ const BOARD_SERVER_STATUS =
   'This is a canvas: Gui serves its frames itself and there is no dev server to start, restart or configure. Use the canvas tools.'
 /** Frames export at this device scale factor: as sharp as on a Retina display. */
 const FRAME_EXPORT_SCALE = 2
+/**
+ * A frame's page that hasn't committed (stuck behind a page that hung) or still hasn't loaded
+ * this long after it was opened is checked: if its process doesn't answer, Gui stops it.
+ */
+const FRAME_LOAD_CHECK_MS = 4000
+/** How long a frame's page has to answer that check */
+const FRAME_ANSWER_MS = 1500
+/** Undoing a turn waits up to this long for the board to take in the pages it put back. */
+const BOARD_SETTLE_MS = 3000
+/** A press that selected a frame, then a second one opening it: one double-click. */
+const OPEN_GESTURE_MS = 600
+/** What a frame that kept the preview busy shows once Gui stopped it. */
+const HUNG_FRAME = {
+  message:
+    'This frame stopped responding (a script in it may loop forever), so Gui stopped it. Go back to the canvas to open another.',
+  detail: "The frame's page didn't answer, and its process was ended.",
+}
+/**
+ * Whether Esc in the window's chrome is free to go back to the board: nothing there is being
+ * typed in, and no menu or dialog of its own (which Esc closes) is open. Gui's own world.
+ */
+const CHROME_ESC_FREE = `(() => {
+  if (document.querySelector('dialog[open], [role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"]')) return false
+  const el = document.activeElement
+  if (!el || el === document.body) return true
+  return !(el.isContentEditable || el.closest('input, textarea, select, [contenteditable]'))
+})()`
 /** A project trusted to run a start command set in Gui, and nothing of its own yet */
 const NOTHING_AGREED: TrustedScripts = { starts: {}, installs: null }
 /** An install that runs longer than this is stuck (a prompt, a hung download): Gui stops it. */
@@ -222,6 +256,77 @@ const boardProject = (root: string, name: string): ProjectInfo => ({
   custom: null,
   productionScript: null,
 })
+
+/**
+ * A canvas's `canvas.json` in undo, redo and restoring versions (chat.ts `BoardLayout`): read
+ * at each checkpoint, merged onto the board as it is (`mergeLayout`), and written once the
+ * board has taken in the pages the restore put back, so its own sync can't write over it.
+ */
+function boardLayout(
+  board: BoardSession,
+  checkpoints: Checkpoints,
+  current: () => boolean,
+): BoardLayout {
+  const at = async (sha: string) => {
+    const text = await checkpoints.read(sha, BOARD_MANIFEST)
+    return text === null ? null : parseManifest(text, board.name)
+  }
+  return {
+    path: BOARD_MANIFEST,
+    changed: async (from, to) => !sameLayout(...(await Promise.all([at(from), at(to)]))),
+    restore: async (from, to) => {
+      const [before, after] = await Promise.all([at(from), at(to)])
+      if (!after || !current()) return
+      await boardSettled(board)
+      if (!current()) return
+      // Pending moves and pans land first, so they're in `now` rather than written over it.
+      await board.save()
+      const text = await readFile(join(board.root, BOARD_MANIFEST), 'utf8').catch(() => null)
+      const now = {
+        ...parseManifest(text, board.name),
+        name: board.name,
+        frames: [...board.frames],
+        sections: [...board.sections],
+      }
+      const merged = mergeLayout(now, before ?? { ...now, frames: [], sections: [] }, after)
+      if (!sameLayout(merged, now) && current()) await writeManifest(board.root, merged)
+    },
+  }
+}
+
+/**
+ * Resolves once the board's frames are the pages in its folder (a restore just removed or put
+ * some back, which it takes in a moment later), or after BOARD_SETTLE_MS.
+ */
+async function boardSettled(board: BoardSession) {
+  const pages = async () => {
+    const files = await readdir(join(board.root, FRAMES_DIR)).catch(() => [] as string[])
+    return files.flatMap((file) => {
+      const id = file.endsWith('.html') ? file.slice(0, -'.html'.length) : ''
+      return isFrameId(id) ? [id] : []
+    })
+  }
+  const deadline = Date.now() + BOARD_SETTLE_MS
+  while (Date.now() < deadline) {
+    const want = (await pages()).sort().join()
+    if (
+      board.frames
+        .map((frame) => frame.id)
+        .sort()
+        .join() === want
+    )
+      return
+    await new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer)
+        board.off('change', done)
+        resolve()
+      }
+      const timer = setTimeout(done, 250)
+      board.on('change', done)
+    })
+  }
+}
 
 /**
  * One project in a window's tab: its preview and chat views, dev server, terminals, agent,
@@ -356,6 +461,34 @@ export class ProjectTab implements ChatPanelOwner {
   private loadFailed = false
   /** The view that had the keyboard when the preview's page started loading (`keepKeyboard`). */
   private keyboardBeforeLoad: WebContents | null = null
+  /** The page the preview last committed (`did-navigate`), so a canvas knows which frame shows. */
+  private committedUrl: string | null = null
+  /**
+   * A canvas frame on its way into the preview: until its page commits, what the page it
+   * replaces does (a late in-page navigation) doesn't say which frame is open.
+   */
+  private frameLoading: string | null = null
+  /** The check on a frame's page that hasn't loaded yet (`watchFrame`) */
+  private frameCheck: NodeJS.Timeout | null = null
+  /**
+   * Gui is ending the preview's process: `hung`, a frame that stopped responding, which then
+   * shows HUNG_FRAME; otherwise a hung page the open frame was stuck behind, which loads again.
+   */
+  private stopping: { hung: boolean } | null = null
+  /** The open frame loading again after that (`stopping`): its cancelled first load isn't a failure */
+  private reloadingFrame: string | null = null
+  /**
+   * The board's selection before the user opened a frame (double-click, Return, Open), put
+   * back when they go back to the board; null when the agent opened it.
+   */
+  private selectionBeforeFrame: string[] | null = null
+  /** The selection before the user's last board selection, and when it changed */
+  private lastSelection: { ids: string[]; at: number } | null = null
+  /** Frames the user adds, one after another, so each takes the next number (`boardAddFrame`) */
+  private addingFrames: Promise<unknown> = Promise.resolve()
+  /** Esc in the window's chrome, while this tab is the one it shows (`activate`) */
+  private chromeKeys: { wc: WebContents; listener: (event: Event, input: Input) => void } | null =
+    null
   /** The current highlight is that post-turn re-highlight, not a pending selection. */
   private rehighlightShown = false
   /** Bumped when a turn starts or a pick lands; a re-highlight from before must not show. */
@@ -550,6 +683,44 @@ export class ProjectTab implements ChatPanelOwner {
     // (in a focused window: focusing the chat would raise it).
     if (this.resources.chat?.awaitingPermission && this.host.win.isFocused()) this.panel.focusChat()
     void this.refreshBranch()
+    this.listenToChrome()
+  }
+
+  /**
+   * Esc with the window's chrome holding the keyboard (as it does after a double-click opens a
+   * frame) goes back to the board, as it does in the frame's page (`bindPreview`). Picking ends
+   * first, an edit in place and focus mode keep it (the chrome ends focus mode itself), and the
+   * chrome's own fields, menus and dialogs have it to themselves.
+   */
+  private listenToChrome() {
+    this.stopListeningToChrome()
+    const wc = this.host.win.webContents
+    const listener = (_event: Event, input: Input) => {
+      if (input.type !== 'keyDown' || input.key !== 'Escape' || input.isAutoRepeat) return
+      const board = this.resources.board
+      if (!board?.openId || wc !== this.host.win.webContents || !this.host.isActive(this)) return
+      if (this.state.preview.selecting) {
+        void this.setSelecting(false)
+        return
+      }
+      if (this.textEdit || this.host.focusMode) return
+      const open = board.openId
+      void wc
+        .executeJavaScriptInIsolatedWorld(1001, [{ code: CHROME_ESC_FREE }])
+        .then((free) => {
+          if (free === true && this.resources.board === board && board.openId === open)
+            void this.openFrame(null)
+        })
+        .catch(() => undefined)
+    }
+    wc.on('before-input-event', listener)
+    this.chromeKeys = { wc, listener }
+  }
+
+  private stopListeningToChrome() {
+    const keys = this.chromeKeys
+    this.chromeKeys = null
+    if (keys && !keys.wc.isDestroyed()) keys.wc.off('before-input-event', keys.listener)
   }
 
   /**
@@ -573,6 +744,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.panel.popoutWindow) this.panel.popoutWindow.hide()
     else contentView.removeChildView(this.chatView)
     this.syncDrawerOutput()
+    this.stopListeningToChrome()
   }
 
   /** Hands the tab to another window; its views are already out of the old one. */
@@ -774,6 +946,11 @@ export class ProjectTab implements ChatPanelOwner {
     }
   }
 
+  /** The agent's preview tools are sending their input to the page (see `PageTools.input`). */
+  get agentInput() {
+    return this.resources.previewTools?.inputting === true || this.website?.tools.inputting === true
+  }
+
   /** The canvas open in this tab, if it's a canvas. */
   get boardSession() {
     return this.resources.board
@@ -795,28 +972,39 @@ export class ProjectTab implements ChatPanelOwner {
   // The canvas's board (from the chrome)
 
   boardSelect(ids: string[]) {
-    this.resources.board?.select(ids)
+    const board = this.resources.board
+    if (!board) return
+    const before = [...board.selected]
+    board.select(ids)
+    if (board.selected.join() !== before.join())
+      this.lastSelection = { ids: before, at: Date.now() }
   }
 
-  boardArrange(updates: { id: string; x: number; y: number; width?: number; height?: number }[]) {
+  boardArrange(updates: FrameArrangement[]) {
     return this.resources.board?.arrange(updates, true)
   }
 
-  /** A frame the user adds, of a preset size, where they asked or beside what's selected. */
-  async boardAddFrame(preset: FramePreset, at: { x: number; y: number } | null) {
+  /**
+   * A frame the user adds, of a preset size, where they asked or beside what's selected. One at
+   * a time, each named once the one before it is on the board, so quick adds never share a name.
+   */
+  boardAddFrame(preset: FramePreset, at: { x: number; y: number } | null) {
     const board = this.resources.board
-    if (!board) return
-    const { name, width, height } =
-      FRAME_PRESETS.find((option) => option.id === preset) ?? FRAME_PRESETS[0]
-    const count = board.frames.filter((frame) => frame.name.startsWith(name)).length
-    const frame = await board.create({
-      name: count ? `${name} ${count + 1}` : name,
-      width,
-      height,
-      at: at ?? undefined,
-      after: [...board.selected],
+    if (!board) return Promise.resolve()
+    const added = this.addingFrames.then(async () => {
+      const { name, width, height } =
+        FRAME_PRESETS.find((option) => option.id === preset) ?? FRAME_PRESETS[0]
+      const frame = await board.create({
+        name: nextFrameName(name, board.frames),
+        width,
+        height,
+        at: at ?? undefined,
+        after: [...board.selected],
+      })
+      board.select([frame.id])
     })
-    board.select([frame.id])
+    this.addingFrames = added.catch(() => undefined)
+    return added
   }
 
   async boardDuplicate(ids: string[]) {
@@ -842,18 +1030,30 @@ export class ProjectTab implements ChatPanelOwner {
     this.resources.board?.setCamera(camera)
   }
 
-  /** ⌘Z on the board: the user's own last board change, before any of the agent's. */
+  /**
+   * Edit › Undo on a canvas: the user's own last board change, before any of the agent's turns,
+   * with a frame open live too. True when that's all Undo does here: it took one back, or a frame
+   * is open and there's none (Undo there never reaches into the agent's turns, which would take
+   * its frames away). False on the board with nothing of the user's: the chat's turns are next.
+   */
   async undoBoard() {
     const board = this.resources.board
-    if (!board || board.openId) return false
-    return board.undo()
+    if (!board) return false
+    if (board.state().canUndo) {
+      // The agent's change in the meantime left nothing of the user's to take back.
+      if (!(await board.undo())) shell.beep()
+      return true
+    }
+    if (!board.openId) return false
+    shell.beep()
+    return true
   }
 
   /**
-   * Shows a frame's page live in the preview (double-click, or the agent), sized like its
-   * frame when a device viewport matches it; null goes back to the board.
+   * Shows a frame's page live in the preview (double-click, Return, Open, or the agent's
+   * `by`), sized like its frame when a device viewport matches it; null goes back to the board.
    */
-  async openFrame(id: string | null) {
+  async openFrame(id: string | null, by: 'user' | 'agent' = 'user') {
     const board = this.resources.board
     if (!board) return
     // A frame (or the board) takes the preview back from a website.
@@ -863,8 +1063,35 @@ export class ProjectTab implements ChatPanelOwner {
       this.closeFrame()
       return
     }
-    const frame = board.frame(id)
+    // Opened from the board by the user: their selection is back as it was when they're back.
+    if (!board.openId)
+      this.selectionBeforeFrame = by === 'user' ? this.selectionBeforeOpening(board, id) : null
     board.setOpen(id)
+    this.fitFrame(id)
+    const url = board.frameUrl(id)
+    this.frameLoading = url
+    this.watchFrame(id)
+    try {
+      await this.loadPreview(url)
+    } finally {
+      if (this.frameLoading === url) this.frameLoading = null
+    }
+  }
+
+  /**
+   * The selection before the user opened `id`: a double-click's first press selected the frame
+   * it opens, so then it's the one before that press.
+   */
+  private selectionBeforeOpening(board: BoardSession, id: string) {
+    const now = [...board.selected]
+    const last = this.lastSelection
+    const pressed = now.length === 1 && now[0] === id
+    return last && pressed && Date.now() - last.at < OPEN_GESTURE_MS ? last.ids : now
+  }
+
+  /** The preview at the device viewport a frame's size matches, or Desktop. */
+  private fitFrame(id: string) {
+    const frame = this.resources.board?.frame(id)
     const match = VIEWPORTS.find(
       (viewport) =>
         viewport.size?.width === frame?.width && viewport.size?.height === frame?.height,
@@ -872,17 +1099,86 @@ export class ProjectTab implements ChatPanelOwner {
     const fits = VIEWPORTS.find((viewport) => viewport.size?.width === frame?.width)
     const viewport = (match ?? fits)?.id ?? 'desktop'
     if (viewport !== this.state.preview.viewport) this.patchPreview({ viewport })
-    await this.loadPreview(board.frameUrl(id))
   }
 
   /** Back to the board: the preview hides and unloads, and its picking ends. */
   private closeFrame() {
+    this.clearFrameCheck()
+    this.frameLoading = null
+    this.reloadingFrame = null
     if (this.state.preview.selecting) void this.setSelecting(false)
     this.preview.setVisible(false)
     if (this.state.preview.url !== null)
       this.preview.webContents.loadURL('about:blank').catch(() => undefined)
     this.patchPreview({ url: null, error: null, visible: false, loading: false })
     void this.inspector.clearHighlight()
+    // Opening it selected the frame; the next message is about what the user had selected.
+    const before = this.selectionBeforeFrame
+    this.selectionBeforeFrame = null
+    if (before) this.resources.board?.select(before)
+  }
+
+  /**
+   * A frame's page that may hang the preview: checked a moment after it's opened, unless it's
+   * loaded by then (`checkFrame`).
+   */
+  private watchFrame(id: string) {
+    this.clearFrameCheck()
+    this.frameCheck = setTimeout(() => {
+      this.frameCheck = null
+      void this.checkFrame(id)
+    }, FRAME_LOAD_CHECK_MS)
+  }
+
+  private clearFrameCheck() {
+    if (this.frameCheck) clearTimeout(this.frameCheck)
+    this.frameCheck = null
+  }
+
+  /**
+   * The open frame still hasn't loaded: if the preview's page doesn't answer, its process is
+   * ended (`stopping`). One that hung itself then shows HUNG_FRAME; one stuck behind a page that
+   * hung (an earlier frame's, the preview's process shared) loads again in a new process.
+   */
+  private async checkFrame(id: string) {
+    const board = this.resources.board
+    const wc = this.preview.webContents
+    if (!board || board.openId !== id || wc.isDestroyed() || this.stopping) return
+    const committed = board.frameAt(this.committedUrl) === id
+    if (committed && !wc.isLoading()) return
+    const answered = await Promise.race([
+      // Rejected (the frame went away) is an answer too: the process is alive.
+      wc.mainFrame.executeJavaScript('1').then(
+        () => true,
+        () => true,
+      ),
+      new Promise<false>((resolve) => setTimeout(() => resolve(false), FRAME_ANSWER_MS)),
+    ])
+    if (answered || this.resources.board !== board || board.openId !== id || wc.isDestroyed())
+      return
+    this.stopPreview(board.frameAt(this.committedUrl) === id)
+  }
+
+  /** Ends the preview's process, which a page has stopped from answering (see `stopping`). */
+  private stopPreview(hung: boolean) {
+    if (this.stopping) return
+    this.stopping = { hung }
+    this.preview.webContents.forcefullyCrashRenderer()
+  }
+
+  /**
+   * preview_navigate on a canvas: a frame's page (`/frames/<id>.html`, or its address in the
+   * preview) opens that frame; there's nothing else to open. Where it landed.
+   */
+  private async navigateToFrame(board: BoardSession, url: URL) {
+    const named = /^\/frames\/([^/]+)\.html$/.exec(url.pathname)?.[1]
+    const id = board.frameAt(url.href) ?? (named && board.has(named) ? named : null)
+    if (!id) {
+      const missing = named && isFrameId(named) ? ` There's no frame ${named}.` : ''
+      throw new Error(`On a canvas, open a frame with canvas_open_frame.${missing}`)
+    }
+    await this.openFrame(id, 'agent')
+    return board.frameUrl(id)
   }
 
   /** The canvas as each prompt describes it. */
@@ -923,6 +1219,7 @@ export class ProjectTab implements ChatPanelOwner {
       devOrigin: () => this.devOrigin(),
       currentUrl: () => this.state.preview.url,
       navigate: (url) => this.loadPreview(url),
+      openFrame: board ? (url) => this.navigateToFrame(board, url) : undefined,
       logs: () => this.getLogs(),
       viewScale: () => this.emulation.scale,
       restoreViewport: () => this.emulation.restore(),
@@ -970,7 +1267,7 @@ export class ProjectTab implements ChatPanelOwner {
       board
         ? createBoardTools(board, {
             prompt: () => this.promptBoard(),
-            open: (id) => this.openFrame(id),
+            open: (id) => this.openFrame(id, 'agent'),
             live: current,
             closed: resources.signal,
           })
@@ -983,6 +1280,8 @@ export class ProjectTab implements ChatPanelOwner {
 
     const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env, {
       referenced: () => chatReferences(root).then((found) => found?.checkpoints ?? null),
+      // A canvas's folders stay, even when undoing its first turn empties them.
+      keepDirs: board ? [FRAMES_DIR, 'assets'] : undefined,
     })
     const chat = new ChatController(root, checkpoints, {
       agentId: this.state.agentId,
@@ -994,6 +1293,7 @@ export class ProjectTab implements ChatPanelOwner {
       viewport: () => this.promptViewport(),
       board: board ? () => this.promptBoard() : undefined,
       startupReport: (tools) => startupReport(this.state, this.getLogs(), tools),
+      layout: board ? boardLayout(board, checkpoints, current) : undefined,
     })
     this.bindChat(chat)
     this.resources.chat = chat
@@ -1625,6 +1925,9 @@ export class ProjectTab implements ChatPanelOwner {
       this.keepKeyboard()
       this.keyboardBeforeLoad = null
       this.patchPreview({ loading: false })
+      // The open frame's page loaded: it didn't hang the preview on its way in.
+      const board = this.resources.board
+      if (board?.openId && board.frameAt(this.committedUrl) === board.openId) this.clearFrameCheck()
     })
     // A new document is on its way: whatever failed before is behind it. (Same-document
     // navigations, such as HMR's and the router's, keep the page they're on.)
@@ -1640,6 +1943,8 @@ export class ProjectTab implements ChatPanelOwner {
     // starts and again as it commits, so it's given straight back each time. Unless the user
     // clicks into the page meanwhile: then it's theirs.
     wc.on('input-event', (_event, input) => {
+      // The agent's own clicks and keys (preview_click and the rest) aren't the user's.
+      if (this.agentInput) return
       if (input.type === 'mouseDown') this.keyboardBeforeLoad = null
       // Using the app: the floating chat can get out of its way.
       if (input.type === 'mouseDown' || input.type === 'keyDown') this.panel.leftChat(true)
@@ -1652,6 +1957,10 @@ export class ProjectTab implements ChatPanelOwner {
       this.patchPreview({ visible: true, error: null })
     })
     wc.on('did-navigate', (_event, url) => {
+      this.committedUrl = url
+      // A page committed: the process Gui was ending, if it was, is a new one by now.
+      this.stopping = null
+      this.reloadingFrame = null
       this.keepKeyboard()
       this.problems.clearConsole()
       this.onNavigated(url)
@@ -1666,7 +1975,7 @@ export class ProjectTab implements ChatPanelOwner {
     })
     wc.on('did-fail-load', (_event, code, description, url, isMainFrame) => {
       // -3 is ERR_ABORTED, which fires for superseded navigations.
-      if (!isMainFrame || code === -3) return
+      if (!isMainFrame || code === -3 || url === this.reloadingFrame) return
       this.loadFailed = true
       // The address is the one that failed, which Try again (a reload) loads again.
       this.patchPreview({
@@ -1677,14 +1986,39 @@ export class ProjectTab implements ChatPanelOwner {
       })
     })
     wc.on('render-process-gone', (_event, details) => {
+      const stopping = this.stopping
+      this.stopping = null
+      this.committedUrl = null
+      const board = this.resources.board
+      const open = board?.openId
+      if (board && open && stopping && !stopping.hung) {
+        // The open frame was stuck behind a page that hung: it loads in a new process.
+        const url = board.frameUrl(open)
+        this.reloadingFrame = url
+        this.frameLoading = url
+        this.watchFrame(open)
+        void this.loadPreview(url)
+        return
+      }
+      this.clearFrameCheck()
       this.patchPreview({
-        error: crashFailure(details.reason),
+        error: stopping?.hung ? HUNG_FRAME : crashFailure(details.reason),
         visible: false,
         selecting: false,
+        loading: false,
       })
+    })
+    // A canvas frame that keeps the preview busy (a script looping forever) is stopped, so the
+    // preview's process (which other frames share) is free for the next one.
+    wc.on('unresponsive', () => {
+      const board = this.resources.board
+      if (board?.openId) this.stopPreview(board.frameAt(this.committedUrl) === board.openId)
     })
     wc.on('before-input-event', (event, input) => {
       if (input.type !== 'keyDown' || input.key !== 'Escape') return
+      // The agent's own Esc (preview_press) is for the page: it closes the page's dialog, not
+      // the frame, nor ends the user's picking.
+      if (this.agentInput) return
       // Esc in text being edited in place puts it back; the page has it (src/preload/preview.ts).
       if (this.textEdit) return
       // Picking ends first; then focus mode. The page gets Esc once neither is on.
@@ -1737,11 +2071,37 @@ export class ProjectTab implements ChatPanelOwner {
       this.patchPreview(navigation)
       return
     }
+    if (this.followFrame(url)) return
     this.patchPreview({
       url,
       selectable: isLoopback(url),
       ...navigation,
     })
+  }
+
+  /**
+   * On a canvas, the page that just committed says which frame is open: a link in one frame to
+   * another's page opens that one (its viewport, its file for edits in place, what the agent is
+   * told), and a page that isn't a frame goes back to the board. True when it went back.
+   */
+  private followFrame(url: string) {
+    const board = this.resources.board
+    if (!board) return false
+    const id = board.frameAt(url)
+    // A frame on its way in: until its page commits, the page it replaces says nothing.
+    const loading = this.frameLoading
+    if (loading) {
+      if (board.frameAt(loading) !== id) return false
+      this.frameLoading = null
+    }
+    if (id === board.openId) return false
+    if (!id) {
+      void this.openFrame(null)
+      return true
+    }
+    board.setOpen(id)
+    this.fitFrame(id)
+    return false
   }
 
   // Selection
@@ -3718,6 +4078,8 @@ export class ProjectTab implements ChatPanelOwner {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    this.stopListeningToChrome()
+    this.clearFrameCheck()
     this.panel.dispose()
     agentHealth.off('change', this.onAgentHealth)
     nodeRuntime.off('change', this.onNodeRuntime)

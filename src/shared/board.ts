@@ -205,6 +205,68 @@ export function placeFrame(
   return { x: spot.x, y: spot.y }
 }
 
+/** A section's area around `frames`, its members: with room above them for its name. */
+function sectionArea(frames: readonly Box[]): Box | null {
+  const area = boardBounds(frames)
+  if (!area) return null
+  return {
+    x: area.x - SECTION_PAD,
+    y: area.y - SECTION_TOP,
+    width: area.width + SECTION_PAD * 2,
+    height: area.height + SECTION_TOP + SECTION_PAD,
+  }
+}
+
+/**
+ * Where a new frame joining a section goes: right of `after` when that spot is free, or else in
+ * a new row below the section's frames (`members`), from its left edge. It never lands on a
+ * frame, and the section grown to hold it never reaches into another (`others`, their areas).
+ * Null when no such spot is near: the frame then goes outside the section (`placeFrame`).
+ */
+export function placeInSection(
+  frames: readonly Box[],
+  others: readonly Box[],
+  members: readonly Box[],
+  size: { width: number; height: number },
+  after: readonly Box[],
+): { x: number; y: number } | null {
+  const fits = (spot: Box) => {
+    const grown = sectionArea([...members, spot])
+    return !!grown && !others.some((area) => overlaps(grown, area, 0))
+  }
+  const hit = (spot: Box) => frames.find((frame) => overlaps(spot, frame, FRAME_GAP - 1))
+  const anchor = after.length ? after : members
+  if (anchor.length) {
+    const beside = {
+      x: Math.max(...anchor.map((frame) => frame.x + frame.width)) + FRAME_GAP,
+      y: Math.min(...anchor.map((frame) => frame.y)),
+      ...size,
+    }
+    if (!hit(beside) && fits(beside)) return { x: beside.x, y: beside.y }
+  }
+  const area = boardBounds(members)
+  if (!area) return null
+  const left = area.x
+  let top = area.y + area.height + FRAME_GAP
+  // Rows only go down and each moves past a frame, so this ends after one row per frame.
+  for (let row = 0; row <= frames.length; row++) {
+    const spot = { x: left, y: top, ...size }
+    let lowest = -Infinity
+    // Along the row, past each frame in the way, while the section grown to there is clear.
+    for (let i = 0; i <= frames.length; i++) {
+      if (!fits(spot)) break
+      const blocking = hit(spot)
+      if (!blocking) return { x: spot.x, y: spot.y }
+      lowest = Math.max(lowest, blocking.y + blocking.height)
+      spot.x = blocking.x + blocking.width + FRAME_GAP
+    }
+    // Even the row's start reaches another section: any row further down would too.
+    if (lowest === -Infinity) return null
+    top = lowest + FRAME_GAP
+  }
+  return null
+}
+
 /** A frame id from a name: lowercase words joined by dashes, unique among `taken`. */
 export function frameId(name: string, taken: ReadonlySet<string>): string {
   const base =
@@ -250,14 +312,7 @@ export function sectionBounds(
   section: BoardSection,
   frames: readonly (Box & { id: string })[],
 ): Box | null {
-  const area = boardBounds(frames.filter((frame) => section.frames.includes(frame.id)))
-  if (!area) return null
-  return {
-    x: area.x - SECTION_PAD,
-    y: area.y - SECTION_TOP,
-    width: area.width + SECTION_PAD * 2,
-    height: area.height + SECTION_TOP + SECTION_PAD,
-  }
+  return sectionArea(frames.filter((frame) => section.frames.includes(frame.id)))
 }
 
 /** The section a frame is in, if any. */

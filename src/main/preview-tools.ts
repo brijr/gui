@@ -125,6 +125,11 @@ export interface PreviewToolsDeps extends Omit<PageDeps, 'kind'> {
   /** Current preview URL, or null when nothing is loaded */
   currentUrl: () => string | null
   navigate: (url: string) => Promise<void>
+  /**
+   * On a canvas, where the only pages are its frames: opens the frame `url` names (on the
+   * canvas's own address), or throws; where it landed. Absent in a project.
+   */
+  openFrame?: (url: URL) => Promise<string>
   logs: () => string
   /** The dev server's state in a few lines (`describeServer`) */
   serverStatus: () => string
@@ -186,14 +191,43 @@ const readingTime = (caption: string | null) =>
  */
 export class PageTools {
   readonly interactions: PreviewInteractions
+  /** How many of the agent's inputs are reaching the page now (`input`) */
+  private inputs = 0
 
   constructor(protected readonly page: PageDeps) {
     this.interactions = new PreviewInteractions(
       page.inspector,
       () => this.assertLoaded(),
-      page.guideInput,
+      // While the walkthrough's pointer glides there, what reaches the page is the user's.
+      async (at, click) => {
+        this.inputs--
+        try {
+          await page.guideInput(at, click)
+        } finally {
+          this.inputs++
+        }
+      },
       page.kind === 'website',
     )
+  }
+
+  /**
+   * The agent's clicks, keys, typing and scrolling (`interactions`), marked as its own while
+   * they reach the page (`inputting`), so Gui doesn't take them for the user's: its Esc doesn't
+   * close a canvas frame, nor its click hide the chat.
+   */
+  async input<T>(action: (interactions: PreviewInteractions) => Promise<T>): Promise<T> {
+    this.inputs++
+    try {
+      return await action(this.interactions)
+    } finally {
+      this.inputs--
+    }
+  }
+
+  /** The agent's input (`input`) is reaching the page right now */
+  get inputting() {
+    return this.inputs > 0
   }
 
   get kind() {
@@ -223,7 +257,7 @@ export class PageTools {
     const node = selector ? await this.interactions.locate(selector) : null
     const text = caption?.replace(/\s+/g, ' ').trim() || null
     if (!this.page.guide(node, text))
-      return "Not shown: the user isn't looking at the preview right now (it's hidden, or they're picking)."
+      return "Not shown: the user isn't looking at the preview right now (it's hidden, or they're in design mode)."
     await sleep(readingTime(text))
     return text ? 'Shown, and the user has had time to read it.' : 'Shown.'
   }
@@ -532,6 +566,15 @@ export class PreviewTools extends PageTools {
     }
     this.deps.website.close()
     const { url } = target
+    const { openFrame } = this.deps
+    if (openFrame) {
+      const opened = await withTimeout(
+        openFrame(url),
+        `${url} didn't finish loading within ${NAVIGATION_TIMEOUT_MS / 1000}s`,
+        NAVIGATION_TIMEOUT_MS,
+      )
+      return { kind: 'app', url: opened }
+    }
     await withTimeout(
       this.deps.navigate(url.toString()),
       `${url} didn't finish loading within ${NAVIGATION_TIMEOUT_MS / 1000}s; it may still be compiling (check dev_server_logs)`,

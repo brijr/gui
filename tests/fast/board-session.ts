@@ -7,7 +7,7 @@ import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../../src/main/atomic-file'
-import { type BoardManifest, MAX_FRAMES, parseManifest } from '../../src/shared/board'
+import { type BoardManifest, MAX_FRAMES } from '../../src/shared/board'
 
 const nativeFs = { ...fs }
 const nativeFsSync = { ...fsSync }
@@ -21,6 +21,7 @@ let writing: ((root: string, manifest: BoardManifest) => Promise<void>) | null =
 let competingPage: { path: string; html: string } | null = null
 let failedPage: string | null = null
 let frameWrite: { path: string; gate: Promise<void>; calls: number } | null = null
+let unreadableFrames: string | null = null
 
 // The interleaving probe controls delivery; real recursive watcher delivery is covered in Electron.
 mock.module('node:fs', () => ({
@@ -47,12 +48,18 @@ function emitWatch(root: string, file: string) {
 mock.module('node:fs/promises', () => ({
   ...nativeFs,
   readdir: (async (path, options) => {
+    if (path === unreadableFrames)
+      throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
     if (frameRead && path === frameRead.directory) {
       frameRead.calls++
       await frameRead.gate
     }
     return nativeFs.readdir(path, options)
   }) as typeof fs.readdir,
+  readFile: (async (path, options) => {
+    if (manifestRead && path === join(manifestRead.root, 'canvas.json')) await manifestRead.gate
+    return nativeFs.readFile(path, options)
+  }) as typeof fs.readFile,
   writeFile: (async (path, data, options) => {
     if (frameWrite?.path === path) {
       frameWrite.calls++
@@ -68,10 +75,6 @@ mock.module('node:fs/promises', () => ({
   }) as typeof fs.writeFile,
 }))
 mock.module('../../src/main/board', () => ({
-  readManifest: async (root: string) => {
-    if (manifestRead?.root === root) await manifestRead.gate
-    return parseManifest(await nativeFs.readFile(join(root, 'canvas.json'), 'utf8'), 'Canvas')
-  },
   writeManifest: (root: string, manifest: BoardManifest) =>
     writing
       ? writing(root, manifest)
@@ -127,6 +130,31 @@ async function board(id: string, frames: BoardManifest['frames'] = [], open = tr
 }
 const persisted = async (root: string) =>
   JSON.parse(await nativeFs.readFile(join(root, 'canvas.json'), 'utf8')) as BoardManifest
+const toolsFor = (value: InstanceType<typeof BoardSession>) =>
+  createBoardTools(value, {
+    prompt: () => null,
+    open: async () => {},
+    live: () => true,
+    closed: new AbortController().signal,
+  })
+/** Runs `task` with console warnings and errors kept, not printed (the harness wants none). */
+async function quietly<T>(task: () => Promise<T>) {
+  const logged: string[] = []
+  const { warn, error } = console
+  console.warn = (...args: unknown[]) => logged.push(args.map(String).join(' '))
+  console.error = console.warn
+  try {
+    return { result: await task(), logged }
+  } finally {
+    console.warn = warn
+    console.error = error
+  }
+}
+const exists = (path: string) =>
+  nativeFs.access(path).then(
+    () => true,
+    () => false,
+  )
 
 try {
   // Hold the allocator's actual directory read, forcing overlapping user requests.
@@ -424,6 +452,135 @@ try {
     'http://127.0.0.1:0',
     'Closing an opening board must not leave a late server',
   )
+  // A canvas.json that can't be read at open is set aside, not replaced; the board is rebuilt
+  // from its pages.
+  const brokenOpen = await board(
+    'broken-open',
+    [{ id: 'kept', name: 'Kept', x: 900, y: 40, width: 400, height: 300 }],
+    false,
+  )
+  await nativeFs.writeFile(join(brokenOpen.root, 'canvas.json'), '{ "frames": [ { "id": "ke')
+  const brokenOpening = await quietly(() => brokenOpen.open())
+  assert.ok(brokenOpening.logged.some((line) => line.includes('broken-')))
+  assert.deepEqual(
+    brokenOpen.frames.map((frame) => frame.id),
+    ['kept'],
+  )
+  const asides = (await nativeFs.readdir(brokenOpen.root)).filter((file) =>
+    file.startsWith('canvas.json.broken-'),
+  )
+  assert.equal(asides.length, 1)
+  assert.equal(
+    await nativeFs.readFile(join(brokenOpen.root, asides[0]), 'utf8'),
+    '{ "frames": [ { "id": "ke',
+  )
+  await brokenOpen.dispose()
+
+  // A manifest broken just before closing is repaired by the last save, not left broken.
+  const brokenClose = await board('broken-close', [
+    { id: 'a', name: 'A', x: 0, y: 0, width: 400, height: 300 },
+  ])
+  await brokenClose.arrange([{ id: 'a', x: 321, y: 0 }])
+  await brokenClose.save()
+  await nativeFs.writeFile(join(brokenClose.root, 'canvas.json'), '{ broken')
+  emitWatch(brokenClose.root, 'canvas.json')
+  await brokenClose.dispose()
+  assert.equal((await persisted(brokenClose.root)).frames[0]?.x, 321)
+
+  // Sections are set exactly as asked or not at all.
+  const sectioned = await board('sectioned', [
+    { id: 'a', name: 'A', x: 0, y: 0, width: 400, height: 300 },
+    { id: 'b', name: 'B', x: 480, y: 0, width: 400, height: 300 },
+  ])
+  const sectionTools = toolsFor(sectioned)
+  const one = await sectioned.addSection(['a', 'b'], 'One')
+  assert.ok(one)
+  await assert.rejects(
+    sectionTools.updateSection(one.id, { frames: ['a', 'missing', 'gone'] }),
+    /no frame missing, gone/,
+  )
+  await assert.rejects(sectionTools.updateSection(one.id, { frames: [] }), /canvas_delete_section/)
+  assert.deepEqual(sectioned.section(one.id)?.frames, ['a', 'b'])
+  assert.match(await sectionTools.updateSection(one.id, { frames: ['b'] }), /: b\./)
+
+  // A blank name is refused, not reported as a rename.
+  await assert.rejects(sectionTools.rename('a', '   '), /can't be blank/)
+  assert.equal(sectioned.frame('a')?.name, 'A')
+
+  // Pages that can't be frames are named in the listing, with what to rename them to.
+  await nativeFs.writeFile(join(sectioned.root, 'frames', 'My Page.html'), '<h1>Page</h1>')
+  await nativeFs.writeFile(join(sectioned.root, 'frames', 'Hero.html'), '<h1>Page</h1>')
+  await nativeFs.writeFile(join(sectioned.root, 'frames', 'hero!.html'), '<h1>Page</h1>')
+  const listing = await sectionTools.list()
+  assert.match(listing, /frames\/My Page\.html → frames\/my-page\.html/)
+  assert.match(listing, /frames\/Hero\.html → frames\/hero\.html/)
+  assert.match(listing, /frames\/hero!\.html → frames\/hero-2\.html/)
+
+  // A frames folder that can't be read keeps the board as it is.
+  unreadableFrames = join(sectioned.root, 'frames')
+  const unreadable = await quietly(async () => {
+    emitWatch(sectioned.root, 'frames')
+    await new Promise((done) => setTimeout(done, 400))
+  })
+  unreadableFrames = null
+  assert.ok(unreadable.logged.length > 0)
+  assert.deepEqual(
+    sectioned.frames.map((frame) => frame.id),
+    ['a', 'b'],
+  )
+  assert.equal((await persisted(sectioned.root)).frames.length, 2)
+  await sectioned.dispose()
+
+  // Duplicating past the limit makes nothing; a copy that fails takes back the others.
+  const nearFull = await board(
+    'near-full',
+    Array.from({ length: MAX_FRAMES - 2 }, (_, i) => ({
+      id: `frame-${i}`,
+      name: 'Frame',
+      x: i * 480,
+      y: 0,
+      width: 400,
+      height: 300,
+    })),
+  )
+  await nearFull.arrange([{ id: 'frame-0', x: -999, y: 0 }])
+  await assert.rejects(nearFull.duplicate(['frame-0', 'frame-1', 'frame-2']), /room for 2 more/)
+  assert.equal(nearFull.frames.length, MAX_FRAMES - 2)
+  failedPage = nearFull.framePath('frame-copy-2')
+  await assert.rejects(nearFull.duplicate(['frame-0', 'frame-1']), /Page write failed/)
+  failedPage = null
+  assert.equal(nearFull.frames.length, MAX_FRAMES - 2)
+  assert.equal(await exists(nearFull.framePath('frame-copy')), false)
+  assert.equal((await persisted(nearFull.root)).frames.length, MAX_FRAMES - 2)
+  assert.equal(await nearFull.undo(), true, 'The failed copy leaves no undo step of its own')
+  assert.equal(nearFull.frame('frame-0')?.x, 0)
+  assert.equal(await nearFull.undo(), false)
+  await nearFull.dispose()
+
+  // Undo never deletes or overwrites a page someone else wrote before the watcher settled.
+  const racing = await board('racing')
+  await racing.create({ name: 'Mine', width: 400, height: 300 })
+  await nativeFs.writeFile(racing.framePath('mine'), 'The agent wrote this')
+  assert.equal(await racing.undo(), false)
+  assert.equal(racing.state().canUndo, false)
+  assert.ok(racing.has('mine'))
+  assert.equal(await nativeFs.readFile(racing.framePath('mine'), 'utf8'), 'The agent wrote this')
+  await racing.create({ name: 'Other', width: 400, height: 300 })
+  await racing.remove(['other'])
+  await nativeFs.writeFile(racing.framePath('other'), 'Also the agent')
+  assert.equal(await racing.undo(), false)
+  assert.equal(await nativeFs.readFile(racing.framePath('other'), 'utf8'), 'Also the agent')
+
+  // A frame undone off the board takes its thumbnail with it.
+  const thumb = join(base, 'thumbs', 'racing', 'third.jpg')
+  await racing.create({ name: 'Third', width: 400, height: 300 })
+  await nativeFs.mkdir(join(base, 'thumbs', 'racing'), { recursive: true })
+  await nativeFs.writeFile(thumb, 'jpeg')
+  assert.equal(await racing.undo(), true)
+  assert.equal(racing.has('third'), false)
+  assert.equal(await exists(thumb), false)
+  await racing.dispose()
+
   console.log(
     'BoardSession allocation, limits, save ordering/retry, external files, and close/open passed.',
   )
@@ -433,6 +590,7 @@ try {
   writing = null
   competingPage = null
   failedPage = null
+  unreadableFrames = null
   await Promise.allSettled(openBoards.map((value) => value.dispose()))
   await nativeFs.rm(base, { recursive: true, force: true })
 }

@@ -11,6 +11,7 @@ import {
   MAX_FRAMES,
   parseManifest,
   placeFrame,
+  placeInSection,
   regroupSections,
   SECTION_PAD,
   SECTION_TOP,
@@ -103,6 +104,43 @@ test('new frames go right of what they follow and never overlap a frame', () => 
     }
     frames.push(placed)
   }
+})
+
+test('a frame joining a section never grows it onto the next one', () => {
+  const size = { width: 400, height: 300 }
+  // Section one holds `a`; section two starts right where a frame beside `a` would go.
+  const a = { id: 'a', x: 0, y: 0, width: 400, height: 300 }
+  const b = { id: 'b', x: 400 + FRAME_GAP + SECTION_PAD * 2, y: 0, width: 400, height: 300 }
+  const frames = [a, b]
+  const two = sectionBounds({ id: 'two', name: 'Two', frames: ['b'] }, frames)
+  expect(two).not.toBeNull()
+  const others = two ? [two] : []
+  const spot = placeInSection(frames, others, [a], size, [a])
+  // Not past section two (as placeFrame would jump), but a new row below `a`.
+  expect(spot).toEqual({ x: 0, y: 300 + FRAME_GAP })
+  const grown = sectionBounds({ id: 'one', name: 'One', frames: ['a', 'new'] }, [
+    ...frames,
+    { id: 'new', ...size, x: spot?.x ?? 0, y: spot?.y ?? 0 },
+  ])
+  const apart =
+    !grown ||
+    !two ||
+    grown.x + grown.width <= two.x ||
+    two.x + two.width <= grown.x ||
+    grown.y + grown.height <= two.y ||
+    two.y + two.height <= grown.y
+  expect(apart).toBe(true)
+  // Free beside it: right there.
+  expect(placeInSection([a], [], [a], size, [a])).toEqual({ x: 400 + FRAME_GAP, y: 0 })
+  // A loose frame in the new row: past it along the row reaches section two, so a row lower.
+  const below = { id: 'c', x: 0, y: 300 + FRAME_GAP, width: 400, height: 300 }
+  expect(placeInSection([a, b, below], others, [a], size, [a])).toEqual({
+    x: 0,
+    y: 300 + FRAME_GAP + 300 + FRAME_GAP,
+  })
+  // Hemmed in right and below by other sections: no spot in it.
+  const under = { x: -1000, y: 300 + SECTION_PAD, width: 4000, height: 1000 }
+  expect(placeInSection(frames, [...others, under], [a], size, [a])).toBeNull()
 })
 
 test('frame ids are readable, file-safe and unique', () => {

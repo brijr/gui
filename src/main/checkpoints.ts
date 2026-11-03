@@ -109,6 +109,11 @@ export interface CheckpointOptions {
    * when that can't be known (an unreadable chat), which skips pruning.
    */
   referenced?: () => Promise<Set<string> | null>
+  /**
+   * Folders (relative to the project) a restore never removes, even left empty: a canvas's
+   * `frames/`, which undoing its first turn would otherwise take away with the turn's pages.
+   */
+  keepDirs?: string[]
 }
 
 export class Checkpoints {
@@ -263,12 +268,25 @@ export class Checkpoints {
     })
   }
 
+  /** A file's contents at checkpoint `sha`; null when it wasn't there. */
+  read(sha: string, path: string): Promise<string | null> {
+    return this.enqueue(async () => {
+      assertSha(sha)
+      const repo = await this.ready()
+      const file = toRepoPath(repo.root, path)
+      return this.git(repo, ['cat-file', 'blob', `${sha}:${file}`], { workTree: false }).catch(
+        () => null,
+      )
+    })
+  }
+
   restore(sha: string, paths: string[]): Promise<void> {
     return this.enqueue(async () => {
       assertSha(sha)
       const repo = await this.ready()
       const files = [...new Set(paths.map((path) => toRepoPath(repo.root, path)))]
       if (files.length === 0) return
+      const keep = new Set((this.options.keepDirs ?? []).map((dir) => resolve(repo.root, dir)))
 
       const present = new Set<string>()
       for (const batch of chunk(files)) {
@@ -279,7 +297,7 @@ export class Checkpoints {
 
       // Delete first so a path that flipped between file and directory can be checked out.
       for (const file of files) {
-        if (!present.has(file)) await removeFile(repo.root, file)
+        if (!present.has(file)) await removeFile(repo.root, file, keep)
       }
       for (const batch of chunk(files.filter((file) => present.has(file)))) {
         await this.git(repo, ['checkout', sha, '--', ...batch])
@@ -503,7 +521,7 @@ function isInside(root: string, path: string): boolean {
   return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
 }
 
-async function removeFile(root: string, file: string): Promise<void> {
+async function removeFile(root: string, file: string, keep: ReadonlySet<string>): Promise<void> {
   const abs = join(root, file)
   const parent = await realpathOrNull(dirname(abs))
   if (parent === null) return // parent dir is gone, so the file is too
@@ -511,12 +529,17 @@ async function removeFile(root: string, file: string): Promise<void> {
     throw new Error(`Path resolves outside project root: ${file}`)
   }
   await rm(abs, { force: true })
-  await pruneEmptyDirs(root, dirname(abs))
+  await pruneEmptyDirs(root, dirname(abs), keep)
 }
 
-// Mirrors git: drop directories left empty by a deletion, stopping at the project root.
-async function pruneEmptyDirs(root: string, dir: string): Promise<void> {
-  for (let current = dir; isInside(root, current); current = dirname(current)) {
+// Mirrors git: drop directories left empty by a deletion, stopping at the project root (and
+// at the folders the project keeps, `keepDirs`).
+async function pruneEmptyDirs(root: string, dir: string, keep: ReadonlySet<string>): Promise<void> {
+  for (
+    let current = dir;
+    isInside(root, current) && !keep.has(current);
+    current = dirname(current)
+  ) {
     try {
       await rmdir(current)
     } catch (error) {

@@ -59,6 +59,8 @@ export interface ChatPanelOwner {
   readonly title: string | null
   readonly morph: PreviewMorph
   readonly state: TabState
+  /** The agent's preview tools are sending their input to the page right now */
+  readonly agentInput: boolean
   patch(patch: Partial<TabState>): void
   sendChat(channel: string, payload: unknown): void
   /** To the window's chrome, while this tab is the one it shows */
@@ -578,6 +580,9 @@ export class ChatPanel {
    */
   pagePressed() {
     const chat = this.tab.resources.chat
+    // The agent's own preview_click presses the page too; only the user's own press counts
+    // (theirs does while the agent works as well).
+    if (this.tab.agentInput) return
     if (this.tucked || !chat || !this.chatShown || this.docked) return
     if (this.drafted || chat.awaitingPermission || chat.meta.minimized) return
     if (this.tab.state.preview.selecting) return

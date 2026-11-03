@@ -20,8 +20,8 @@ const ids = (value: unknown): value is string[] =>
 function arrangement(value: unknown): value is FrameArrangement {
   if (!value || typeof value !== 'object') return false
   const { id, x, y, width, height } = value as Record<string, unknown>
-  const edge = (value: unknown) => value === undefined || number(value)
-  return string(id) && number(x) && number(y) && edge(width) && edge(height)
+  const optional = (value: unknown) => value === undefined || number(value)
+  return string(id) && optional(x) && optional(y) && optional(width) && optional(height)
 }
 function camera(value: unknown): value is BoardCamera {
   if (!point(value)) return false

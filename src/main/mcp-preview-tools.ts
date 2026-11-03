@@ -121,7 +121,7 @@ export function registerPreviewTools(
       async ({ selector }) => {
         try {
           const page = tools.shown()
-          await page.interactions[action](selector)
+          await page.input((interactions) => interactions[action](selector))
           return text(
             `Input sent${where(page)}. Use preview_snapshot or preview_screenshot to check the result.${noticed(page)}`,
           )
@@ -151,7 +151,7 @@ export function registerPreviewTools(
     async ({ selector, text: value, replace }) => {
       try {
         const page = tools.shown()
-        await page.interactions.type(selector, value, replace)
+        await page.input((interactions) => interactions.type(selector, value, replace))
         return text(
           `Text input sent${where(page)}. Use preview_snapshot or preview_screenshot to check the result.${noticed(page)}`,
         )
@@ -176,7 +176,7 @@ export function registerPreviewTools(
     async ({ key, selector, shift }) => {
       try {
         const page = tools.shown()
-        await page.interactions.press(key, selector, shift)
+        await page.input((interactions) => interactions.press(key, selector, shift))
         return text(
           `Key input sent${where(page)}. Use preview_snapshot or preview_screenshot to check the result.${noticed(page)}`,
         )
@@ -202,7 +202,7 @@ export function registerPreviewTools(
     async ({ deltaY, deltaX, selector }) => {
       try {
         const page = tools.shown()
-        await page.interactions.scroll(deltaY, deltaX, selector)
+        await page.input((interactions) => interactions.scroll(deltaY, deltaX, selector))
         return text(
           `Scroll input sent${where(page)}. Use preview_snapshot or preview_screenshot to check the result.${noticed(page)}`,
         )

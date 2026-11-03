@@ -5,6 +5,11 @@
 export const MAX_HISTORY_VERSIONS = 100
 /** New or changed files bigger than this aren't kept in a checkpoint. */
 export const MAX_CHECKPOINT_FILE_BYTES = 10 * 1024 * 1024
+/**
+ * Pages of deleted canvas frames kept for ⌘Z, across its undo steps. Past it the oldest steps
+ * go; the newest is always kept.
+ */
+export const MAX_UNDO_BYTES = 32 * 1024 * 1024
 /** Output kept per terminal / dev server so the drawer can redraw after a tab switch. */
 export const MAX_OUTPUT_BYTES = 512 * 1024
 
