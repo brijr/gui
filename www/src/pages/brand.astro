@@ -116,7 +116,8 @@ const extras = [
   header { padding-block:var(--s-6); }
   h1 { font-size:var(--t-title); font-weight:250; line-height:1.15; letter-spacing:-.045em; }
   .intro { max-width:35rem; margin-top:var(--s-4); color:var(--muted); }
-  .download-kit { display:inline-flex; align-items:center; gap:.75rem; margin-top:var(--s-5); padding:.875rem 1.25rem; background:#0066ff; color:#fff; border-radius:999px; text-decoration:none; font-size:1rem; font-weight:400; }
+  .download-kit { display:inline-flex; align-items:center; gap:.75rem; margin-top:var(--s-5); padding:.875rem 1.25rem; background:#0066ff; color:#fff; border-radius:999px; text-decoration:none; font-size:1rem; font-weight:400; transition:background-color 120ms cubic-bezier(0.2,0,0,1), transform 120ms cubic-bezier(0.2,0,0,1); }
+  .download-kit:active { transform:scale(.97); }
   .download-kit span { font-size:.75rem; opacity:.7; }
   @media (hover: hover) and (pointer: fine) {
     .download-kit:hover { background:#005be5; }

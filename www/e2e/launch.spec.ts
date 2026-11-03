@@ -13,10 +13,9 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
 
-test('launch demo explains its limits, skips the example, and accepts ordinary bold wording', async ({
+test('launch demo skips the example, and accepts ordinary bold wording', async ({
   page,
 }) => {
-  await expect(page.getByText('The browser demo needs no account.')).toBeVisible()
   await tryYourself(page)
   await expect(
     page.getByText('Browser demo: bold, serif, or blue. No live AI agent.'),

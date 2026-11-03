@@ -198,7 +198,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   <p class="download-help" data-download-help hidden role="status">
     After the download finishes, open Gui.dmg, drag Gui to Applications, then open Gui. Sign in, choose an agent, and select New canvas to start.
   </p>
-  <p class="demo-note">The browser demo needs no account. It supports bold text, a serif font, and blue text.</p>
 
   <!-- Phones are sent here by the worker when there is no script to open the dialog. -->
   <p class="mac-only" id="mac-only">Gui is a Mac app. Open usegui.com on your Mac to download it.</p>
@@ -277,7 +276,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       sizes={wide}
       alt="Gui shows a website and the chat. The user selected two words in the headline. Claude Code changed the yellow highlight to an underline. The chat shows the text before and after the change."
     />
-    <figcaption>A real session with Claude Code. The video shows the agent's work faster than real time.</figcaption>
+    <figcaption>A real session with Claude Code. The video shows the agent’s work faster than real time.</figcaption>
   </figure>
 
   <section class="wide">
@@ -681,7 +680,6 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     margin-top: var(--s-3);
     color: var(--muted);
   }
-  .demo-note,
   .download-help {
     margin-top: var(--s-3);
     font-size: 1rem;
@@ -907,7 +905,12 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     font: inherit;
     font-weight: 420;
     cursor: pointer;
-    transition: opacity 120ms cubic-bezier(0.2, 0, 0, 1);
+    transition:
+      opacity 120ms cubic-bezier(0.2, 0, 0, 1),
+      transform 120ms cubic-bezier(0.2, 0, 0, 1);
+  }
+  .dialog-button:active:not(:disabled) {
+    transform: scale(0.97);
   }
   .dialog-button:disabled {
     opacity: 0.5;
@@ -1089,7 +1092,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   .footer-links {
     display: flex;
     flex-wrap: wrap;
-    gap: var(--s-2) var(--s-3);
+    gap: var(--s-3);
     white-space: nowrap;
   }
   /* Its own line above the credits, the logo in the footer's color like the words beside it */
