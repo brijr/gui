@@ -10,6 +10,7 @@
   --line-strong: rgb(0 0 0 / 0.14);
   --fill: rgb(0 0 0 / 0.06);
   --hover: rgb(0 0 0 / 0.045);
+  --edge: rgb(0 0 0 / 0.44);
   --c-fg: #18181a;
   --c-muted: #545458;
   --subtle: #626267;
@@ -35,16 +36,17 @@
     --line-strong: rgb(255 255 255 / 0.15);
     --fill: rgb(255 255 255 / 0.08);
     --hover: rgb(255 255 255 / 0.06);
+    --edge: rgb(255 255 255 / 0.35);
     --c-fg: #ededef;
-    --c-muted: #ababb0;
-    --subtle: #9a9a9f;
+    --c-muted: #c4c4c9;
+    --subtle: #b4b4b9;
     --accent: #5c9dff;
-    --accent-hover: #4b8ff7;
+    --accent-hover: #78b0ff;
     --accent-fg: #04122b;
     --accent-soft: rgb(92 157 255 / 0.16);
-    --accent-text: #5c9dff;
+    --accent-text: #99c0ff;
     --success: #4ade80;
-    --danger: #f87171;
+    --danger: #fb9894;
     --elevation-control: 0 1px 1px rgb(0 0 0 / 0.3), inset 0 1px 0 rgb(255 255 255 / 0.05);
     --elevation-panel: 0 4px 14px rgb(0 0 0 / 0.5), 0 0 0 0.5px rgb(255 255 255 / 0.08);
   }

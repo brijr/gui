@@ -53,6 +53,7 @@ const EASE_IN = 'cubic-bezier(0.4, 0, 1, 1)'
 const EASE_MOVE = 'cubic-bezier(0.45, 0, 0.15, 1)'
 const EASE_DRAW = 'cubic-bezier(0.65, 0, 0.35, 1)'
 const FILE = 'src/pages/index.astro'
+const SOURCE = 'index.astro'
 const NARROW = 760
 /** The desktop's menu bar, over the wallpaper (wide screens only) */
 const MENU_BAR = 26
@@ -98,6 +99,25 @@ function h<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?:
   if (className) el.className = className
   if (text !== undefined) el.textContent = text
   return el
+}
+
+/** What the app calls a picked element: its component, or else the kind of element it is. */
+function nameOf(el: Element) {
+  const tag = tagOf(el)
+  if (/^h[1-6]$/.test(tag)) return 'Heading'
+  const names: Record<string, string> = {
+    a: 'Link',
+    button: 'Button',
+    img: 'Image',
+    p: 'Paragraph',
+    span: 'Text',
+    em: 'Text',
+    strong: 'Text',
+    ul: 'List',
+    li: 'List item',
+    section: 'Section',
+  }
+  return names[tag] ?? 'Element'
 }
 
 function excerpt(el: Element) {
@@ -509,7 +529,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   function select(el: Element | null) {
     if (el && selected) glide(selectedMark)
     selected = el
-    chips.replaceChildren(...(el ? [chip(el)] : []))
+    chips.replaceChildren(...(el ? [pickCard(el)] : []))
     sync()
   }
 
@@ -672,8 +692,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     input.value = ''
     sync()
     const you = h('div', 'row you')
-    if (turn.target) you.append(h('div', 'chips'))
-    if (turn.target) you.firstElementChild?.append(chip(turn.target))
+    if (turn.target) you.append(chip(turn.target))
     you.append(h('p', '', turn.prompt))
     add(you)
     const started = performance.now()
@@ -693,14 +712,19 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       await sleep(900, id)
       finish(edit)
       await sleep(200, id)
+      // Done, the steps fold into one line, as they do in the app
+      const seconds = Math.max(1, Math.round((performance.now() - started) / 1000))
+      const folded = h('p', 'row folded')
+      folded.innerHTML = svg('chevronRight', 12)
+      folded.append(`2 steps · ${seconds}s`)
+      read.replaceWith(folded)
+      edit.remove()
     }
     await stream(turn.reply, id)
     if (turn.change) {
       await sleep(120, id)
       add(card(turn.change, turn.compare ? turn.target : null))
     }
-    const seconds = Math.max(1, Math.round((performance.now() - started) / 1000))
-    add(h('p', 'row meta', `Worked for ${seconds}s`))
   }
 
   async function stream(text: string, id: number) {
@@ -739,12 +763,33 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     })
   }
 
+  /** A sent pick: what it is, and where it's from */
   function chip(el: Element) {
     const node = h('span', 'chip')
-    node.innerHTML = svg('pointer', 11)
-    node.append(h('b', '', tagOf(el)))
+    node.innerHTML = svg('pointer', 12)
+    node.append(h('b', '', nameOf(el)), h('code', '', SOURCE))
+    return node
+  }
+
+  /** The pick over the message box: a picture of it, what it is, and where it's from */
+  function pickCard(el: Element) {
+    const node = h('div', 'pick')
     const text = excerpt(el)
-    if (text) node.append(h('i', '', text))
+    const thumb = h('span', 'pick-thumb')
+    thumb.append(h('i', '', text))
+    const label = h('span', 'pick-text')
+    const name = h('span')
+    name.append(h('b', '', nameOf(el)))
+    if (text) name.append(' ', h('span', 'pick-detail', text))
+    label.append(name, h('code', 'pick-detail', SOURCE))
+    const x = h('button', 'tool pick-x')
+    x.type = 'button'
+    x.setAttribute('aria-label', 'Remove the selection')
+    x.innerHTML = svg('x', 12)
+    x.addEventListener('click', () => {
+      if (state === 'idle') select(null)
+    })
+    node.append(thumb, label, x)
     return node
   }
 
@@ -811,7 +856,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   }
 
   function resetChat() {
-    transcript.replaceChildren(empty)
+    transcript.replaceChildren()
     transcriptHeight = 0
     empty.hidden = false
     suggest.hidden = true
@@ -956,8 +1001,11 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
           ? 'Applying your demo change…'
           : 'Your turn. Select text and try bold, serif, or blue.'
     for (const button of suggestions) button.disabled = !idle || !selected
+    // The suggestions say the same, once they show
+    if (selected || !suggest.hidden) empty.hidden = true
+    else if (transcript.childElementCount === 0) empty.hidden = false
     hint.textContent = selected
-      ? `Try a change to the selected ${tagOf(selected)}:`
+      ? `Try a change to the selected ${nameOf(selected).toLowerCase()}:`
       : 'Select an element on the page, then try a change.'
   }
 

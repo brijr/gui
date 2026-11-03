@@ -64,26 +64,23 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
       </div>
       <span class="project wide-only" aria-hidden="true">
         <Fragment set:html={svg('folder')} />
-        gui-website
+        gui-website<span class="branch">· main</span>
         <Fragment set:html={svg('chevronDown', 12)} />
       </span>
-      <span class="nav wide-only" aria-hidden="true">
-        <span class="tool"><Fragment set:html={svg('arrowLeft')} /></span>
-        <span class="tool"><Fragment set:html={svg('arrowRight')} /></span>
-        <span class="tool"><Fragment set:html={svg('rotateCw')} /></span>
-      </span>
-      <span class="url" aria-hidden="true"><span class="live"></span><span class="url-text">http://localhost:4321/</span></span>
-      <span class="devices wide-only" aria-hidden="true">
-        <span class="tool is-on"><Fragment set:html={svg('monitor')} /></span>
-        <span class="tool"><Fragment set:html={svg('laptop')} /></span>
-        <span class="tool"><Fragment set:html={svg('tablet')} /></span>
-        <span class="tool"><Fragment set:html={svg('phone')} /></span>
-      </span>
-      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('camera')} /></span>
-      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('record')} /></span>
+      <span class="url" aria-hidden="true"
+        ><span class="live"></span><span class="url-text">http://localhost:4321/</span><Fragment
+          set:html={svg('rotateCw', 13)}
+        /></span
+      >
+      <span class="tool devices wide-only" aria-hidden="true"
+        ><Fragment set:html={svg('monitor')} /><Fragment set:html={svg('chevronDown', 12)} /></span
+      >
       <button class="tool" type="button" data-select aria-pressed="false" aria-label="Select an element">
         <Fragment set:html={svg('pointer')} />
       </button>
+      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('camera')} /></span>
+      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('record')} /></span>
+      <span class="tool wide-only" aria-hidden="true"><Fragment set:html={svg('micOff')} /></span>
       <span class="tool is-on wide-only" aria-hidden="true"><Fragment set:html={svg('message')} /></span>
       <button class="done" type="button" data-close>Close demo</button>
     </header>
@@ -109,19 +106,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
           <button class="button" type="button" data-play hidden>Watch example</button>
         </div>
       </div>
-      <div class="transcript" data-transcript aria-live="polite">
-        <div class="empty" data-empty>
-          <span class="empty-icon"><Fragment set:html={svg('pointer', 16)} /></span>
-          <p class="empty-title">Point at something to change</p>
-          <p>
-            Watch the example, or choose Try it yourself. Then select text on the page and try bold, a serif font, or blue.
-          </p>
-          <button class="button" type="button" data-select>
-            <Fragment set:html={svg('pointer')} />
-            Select element
-          </button>
-        </div>
-      </div>
+      <div class="transcript" data-transcript aria-live="polite"></div>
 
       <div class="suggest" data-suggest hidden>
         <p data-suggest-hint>Select an element on the page, then try a change.</p>
@@ -137,14 +122,18 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
       </div>
 
       <span id="demo-input-help" class="sr-only">This browser demo supports bold, serif, and blue. Other requests need the Mac app and your own agent.</span>
+      <p class="hint" data-empty>
+        <Fragment set:html={svg('pointer')} />
+        Select something in the preview, then try a change.
+      </p>
+      <div class="picks" data-chips></div>
       <form class="composer" data-composer>
-        <div class="chips" data-chips></div>
-        <textarea data-input rows="2" placeholder="Try: Make this bold" aria-label="Message" aria-describedby="demo-input-help" maxlength="1000"></textarea>
+        <textarea data-input rows="1" placeholder="Try: Make this bold" aria-label="Message" aria-describedby="demo-input-help" maxlength="1000"></textarea>
         <div class="composer-foot">
           <span class="tool" aria-hidden="true"><Fragment set:html={svg('paperclip')} /></span>
-          <span class="pill" aria-hidden="true">Auto</span>
-          <span class="model" aria-hidden="true">Default (recommended) <Fragment set:html={svg('chevronDown', 12)} /></span>
+          <span class="tool is-auto" aria-hidden="true"><Fragment set:html={svg('shieldCheck')} /></span>
           <span class="grow"></span>
+          <span class="model" aria-hidden="true">Sonnet 5.5 <Fragment set:html={svg('chevronDown', 12)} /></span>
           <button class="send" type="submit" data-send aria-label="Send" disabled>
             <Fragment set:html={svg('arrowUp')} />
           </button>
@@ -469,19 +458,15 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .project svg:first-child {
     color: var(--c-muted);
   }
-  .demo .nav,
-  .demo .devices {
+  .demo .branch {
+    color: var(--c-muted);
+    font: 12px/1 var(--font-mono);
+  }
+  .demo .tool.devices {
     display: flex;
     gap: 2px;
-  }
-  .demo .devices {
-    padding: 2px;
-    border-radius: 8px;
-    background: var(--fill);
-  }
-  .demo .devices .tool {
-    width: 26px;
-    height: 24px;
+    width: auto;
+    padding: 0 6px;
   }
   .demo .url {
     flex: 1;
@@ -492,11 +477,15 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     height: 28px;
     padding: 0 10px;
     border-radius: 6px;
-    background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line);
+    background: var(--fill);
     color: var(--c-fg);
     font: 12px/1.333 'SF Mono', ui-monospace, Menlo, monospace;
     white-space: nowrap;
+  }
+  .demo .url svg {
+    flex: none;
+    margin-left: auto;
+    color: var(--c-muted);
   }
   .demo .url-text {
     min-width: 0;
@@ -648,32 +637,6 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 10px;
     scrollbar-width: thin;
   }
-  .demo .empty {
-    margin: auto 0;
-    padding: 0 8px;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 6px;
-    color: var(--c-muted);
-  }
-  .demo .empty-icon {
-    display: grid;
-    place-items: center;
-    width: 32px;
-    height: 32px;
-    margin-bottom: 6px;
-    border-radius: 50%;
-    background: var(--fill);
-    color: var(--c-fg);
-  }
-  .demo .empty-title {
-    color: var(--c-fg);
-    font-weight: 600;
-  }
-  .demo .empty .button {
-    margin-top: 8px;
-  }
   .demo .button {
     display: inline-flex;
     align-items: center;
@@ -731,31 +694,91 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 6px;
     margin-top: 6px;
   }
+  .demo .hint {
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 8px 8px;
+    padding: 0 6px;
+    color: var(--c-muted);
+  }
+  .demo .hint svg {
+    flex: none;
+  }
+  .demo .picks:not(:empty) {
+    flex: none;
+    margin: 0 8px 8px;
+  }
+  .demo .pick {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px;
+    border-radius: 8px;
+    background: var(--surface);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .demo .pick-thumb {
+    flex: none;
+    display: flex;
+    align-items: center;
+    width: 34px;
+    height: 34px;
+    padding-left: 4px;
+    overflow: hidden;
+    border-radius: 6px;
+    background: var(--raised);
+    box-shadow: inset 0 0 0 1px var(--line);
+    font-size: 15px;
+    white-space: nowrap;
+  }
+  .demo .pick-thumb i {
+    font-style: normal;
+  }
+  .demo .pick-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    line-height: 1.35;
+  }
+  .demo .pick-text > span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .demo .pick-text b {
+    font-weight: 500;
+  }
+  .demo .pick-detail {
+    color: var(--c-muted);
+  }
+  .demo code.pick-detail {
+    font: 12px/1.333 var(--font-mono);
+  }
+  .demo .pick-x {
+    color: var(--c-muted);
+  }
   .demo .composer {
     flex: none;
     margin: 0 8px 8px;
-    padding: 8px;
     border-radius: 8px;
     background: var(--raised);
-    box-shadow: inset 0 0 0 1px var(--line-strong);
+    box-shadow: inset 0 0 0 1px var(--edge);
     transition: box-shadow 120ms var(--ease-out);
   }
   .demo .composer:focus-within,
   .demo .composer.is-active {
-    box-shadow: inset 0 0 0 1px var(--accent);
-  }
-  .demo .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  .demo .chips:not(:empty) {
-    margin-bottom: 6px;
+    box-shadow:
+      inset 0 0 0 1px var(--c-muted),
+      0 0 0 3px var(--line-strong);
   }
   .demo .composer textarea {
     display: block;
     width: 100%;
-    padding: 2px 4px;
+    min-height: 34px;
+    padding: 6px 10px 4px;
     border: 0;
     resize: none;
     background: none;
@@ -772,26 +795,19 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     display: flex;
     align-items: center;
     gap: 4px;
-    margin-top: 4px;
+    padding: 0 8px 8px;
     color: var(--c-muted);
-    font-size: 12px;
   }
-  .demo .composer-foot .tool {
-    width: 24px;
-    height: 24px;
-  }
-  .demo .pill {
-    padding: 2px 8px;
-    border-radius: 6px;
-    background: var(--accent-soft);
-    color: var(--accent-text);
-    font-weight: 500;
+  .demo .composer-foot .tool.is-auto {
+    background: var(--fill);
+    color: var(--c-fg);
   }
   .demo .model {
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 0 6px;
+    gap: 6px;
+    padding: 0 8px;
+    font-size: 12px;
     white-space: nowrap;
     overflow: hidden;
   }
@@ -799,11 +815,11 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     flex: none;
     display: grid;
     place-items: center;
-    width: 24px;
-    height: 24px;
+    width: 28px;
+    height: 28px;
     padding: 0;
     border: 0;
-    border-radius: 50%;
+    border-radius: 6px;
     background: var(--accent);
     color: var(--accent-fg);
     cursor: pointer;
@@ -841,41 +857,44 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     }
   }
   .demo .transcript .you {
-    align-self: stretch;
-    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+  }
+  .demo .transcript .you p {
+    max-width: 87.5%;
+    padding: 6px 12px;
     border-radius: 8px;
     background: var(--fill);
   }
-  .demo .transcript .you .chips {
-    margin-bottom: 4px;
-  }
-  .demo .transcript .chip,
-  .demo .chips .chip {
+  .demo .transcript .chip {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    max-width: 100%;
-    height: 22px;
+    max-width: 87.5%;
+    height: 20px;
     padding: 0 6px;
     border-radius: 4px;
-    background: var(--accent-soft);
-    color: var(--accent-text);
+    background: var(--fill);
+    color: var(--c-muted);
     font-size: 11px;
     line-height: 1.273;
     white-space: nowrap;
     overflow: hidden;
   }
-  .demo .transcript .chip b,
-  .demo .chips .chip b {
-    font-weight: 600;
-    font-family: 'SF Mono', ui-monospace, Menlo, monospace;
+  .demo .transcript .chip b {
+    color: var(--c-fg);
+    font-weight: 500;
   }
-  .demo .transcript .chip i,
-  .demo .chips .chip i {
-    font-style: normal;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    opacity: 0.85;
+  .demo .transcript .chip code {
+    font-family: var(--font-mono);
+  }
+  .demo .transcript .folded {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--c-muted);
   }
   .demo .transcript .thinking {
     color: var(--c-muted);
@@ -1015,12 +1034,9 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .transcript .card-foot .button {
     margin-left: auto;
   }
-  .demo .transcript .meta {
-    color: var(--subtle);
-    font-size: 11px;
-    line-height: 1.273;
+  .demo .transcript .card-foot .diffstat {
+    margin-left: 0;
   }
-
   .demo[data-narrow] .button,
   .demo[data-narrow] .send,
   .demo[data-narrow] button.tool,

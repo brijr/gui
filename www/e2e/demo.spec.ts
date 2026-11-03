@@ -116,8 +116,8 @@ test('the scripted session makes the words semi-bold, and Undo takes it back', a
   const chat = page.getByRole('complementary', { name: 'Chat' })
   await expect(chat).toContainText('Make this semi-bold.')
   await expect(chat).toContainText('I changed the weight of “real app” from 250 to 450,')
-  await expect(chat).toContainText('Worked for')
-  await expect(page.getByText('Point at something to change')).toBeHidden()
+  await expect(chat).toContainText('2 steps ·')
+  await expect(page.getByText('Select something in the preview, then try a change.')).toBeHidden()
 
   // The selection outline and its label are on the words.
   await expect(page.locator('[data-selected]')).toHaveClass(/is-on/)
@@ -137,7 +137,7 @@ test('the visitor selects an element and tries a suggestion', async ({ page }) =
   const before = await sub.evaluate((el) => Number.parseFloat(getComputedStyle(el).fontWeight))
   await sub.click({ position: { x: 20, y: 8 } })
   await expect(page.locator('[data-selected] .mark-label')).toContainText(/^p/)
-  await expect(page.getByText('Try a change to the selected p:')).toBeVisible()
+  await expect(page.getByText('Try a change to the selected paragraph:')).toBeVisible()
 
   await page.getByRole('button', { name: 'Make this bolder' }).click()
   await expect(demo(page)).toHaveAttribute('data-state', 'working')
@@ -199,7 +199,7 @@ test('closing puts the page back as it was', async ({ page }) => {
 
   // And it opens again from the start.
   await open(page)
-  await expect(page.getByText('Point at something to change')).toBeVisible()
+  await expect(page.getByText('Select something in the preview, then try a change.')).toBeVisible()
 })
 
 test('closing while it opens turns it around', async ({ page }) => {
@@ -223,7 +223,7 @@ test('Start again replays the session from a clean page', async ({ page }) => {
   await open(page)
   await untilIdle(page)
   await page.getByRole('button', { name: 'Start the demo again' }).click()
-  await expect(page.getByText('Point at something to change')).toBeVisible()
+  await expect(page.getByText('Select something in the preview, then try a change.')).toBeVisible()
   await untilIdle(page)
   await expect
     .poll(() =>
