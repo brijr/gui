@@ -700,11 +700,10 @@ function agentStatus(meta: ChatMeta, running: boolean): Status {
 }
 
 /**
- * The panel's title bar: the agent's state and name, which switches agents, the session's
+ * The panel's title bar: the agent's name, which switches agents, the session's
  * mode, and the panel's actions. Floating, it's also where the panel is dragged from.
  */
 function Header({ meta }: { meta: ChatMeta }) {
-  const running = meta.status === 'working'
   const titleBar = meta.docked || meta.popped
   return (
     <PanelHeader
@@ -722,13 +721,6 @@ function Header({ meta }: { meta: ChatMeta }) {
           : undefined
       }
       className={titleBar ? 'drag' : 'cursor-grab active:cursor-grabbing'}
-      // In an icon's 14px box, like the icons beside it.
-      leading={
-        <span className="mr-0.5 flex size-3.5 shrink-0 items-center justify-center">
-          <StatusDot status={agentStatus(meta, running)} />
-          <span className="sr-only">Agent {agentStatus(meta, running)}</span>
-        </span>
-      }
       actions={
         // Only while the pointer is over the panel or something in it has the keyboard: the
         // panel at rest is its name and the conversation.
