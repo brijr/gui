@@ -18,7 +18,7 @@ const prompt = 'Make this semi-bold.'
 // The chat's header, and the row under the composer
 const head = (live: boolean) =>
   `<header class="head"><span class="dot${live ? ' is-live' : ''}"></span><b>Claude Code</b>${svg('chevronDown', 12)}<span class="grow"></span>${svg('newChat')}${svg('panelRight')}${svg('more')}</header>`
-const stopButton = '<span class="send is-stop">' + svg('stop') + '</span>'
+const stopButton = `<span class="send is-stop">${svg('stop')}</span>`
 const foot = (running: boolean) =>
   `<div class="foot"><span class="tool">${svg('paperclip')}</span><span class="tool is-auto">${svg('shieldCheck')}</span><span class="grow"></span><span class="model">Sonnet 5.5 ${svg('chevronDown', 12)}</span><span class="send${running ? ' is-off' : ''}">${svg('arrowUp')}</span>${running ? stopButton : ''}</div>`
 // What the app calls a picked element: its kind, then its source file and line
