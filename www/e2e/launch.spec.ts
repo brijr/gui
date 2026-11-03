@@ -13,9 +13,7 @@ test.beforeEach(async ({ page }) => {
   await page.goto('/')
 })
 
-test('launch demo skips the example, and accepts ordinary bold wording', async ({
-  page,
-}) => {
+test('launch demo skips the example, and accepts ordinary bold wording', async ({ page }) => {
   await tryYourself(page)
   await expect(
     page.getByText('Browser demo: bold, serif, or blue. No live AI agent.'),
