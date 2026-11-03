@@ -827,6 +827,11 @@ test('zoom steps a device frame from 25% to fit and zooms the desktop page, per 
   const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
   await session.waitForPreview()
   await session.app.evaluate(setContentSize, WINDOW)
+  // The fit is measured against the canvas: wait for the resized one to reach main first.
+  await waitFor(async () => {
+    const layout = await settledViews(session)
+    return layout?.content.width === WINDOW.width ? layout : null
+  }, 'the preview filling the resized window')
   await clickMenu(session, 'Laptop Viewport')
   const laptop = viewportSpec('laptop').size ?? { width: 0, height: 0 }
   const fitted = await waitFor(async () => {

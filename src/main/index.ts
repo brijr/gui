@@ -1466,8 +1466,8 @@ function buildMenu() {
     (fn: (tab: ProjectTab, byKey: boolean) => void): MenuItemConstructorOptions['click'] =>
     (_item, _win, event) => {
       const tab = menuTab()
-      // From the item's shortcut rather than the menu bar
-      if (tab) fn(tab, event.triggeredByAccelerator === true)
+      // From the item's shortcut rather than the menu bar (no event when clicked from code)
+      if (tab) fn(tab, event?.triggeredByAccelerator === true)
     }
   /** For the tabs of the window menus act on (`menuWindow`). */
   const withTabs =
