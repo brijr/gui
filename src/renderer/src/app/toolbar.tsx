@@ -8,10 +8,16 @@ import {
 } from '../../../shared/shortcuts'
 import {
   type BoardState,
+  type CustomViewport,
+  type DeviceViewport,
+  frameViewport,
+  isCustomViewport,
+  isViewport,
   type PreviewState,
   type ToolbarMenuItem,
   VIEWPORTS,
   type Viewport,
+  viewportSpec,
   type WindowState,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -23,6 +29,7 @@ import {
   Camera,
   Check,
   ChevronDown,
+  Crop,
   Ellipsis,
   Folder,
   Group,
@@ -49,7 +56,7 @@ import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'
 import { type FitStep, useToolbarFit } from './toolbar-fit'
 
-const VIEWPORT_ICONS: Record<Viewport, IconComponent> = {
+const VIEWPORT_ICONS: Record<DeviceViewport, IconComponent> = {
   desktop: Monitor,
   laptop: Laptop,
   tablet: Tablet,
@@ -164,9 +171,7 @@ export function Toolbar({ state }: { state: WindowState }) {
     if (more.length) more.push({ type: 'separator' })
     more.push(...items)
   }
-  if (!shown('viewport')) {
-    section(...VIEWPORT_ITEMS.map((item) => viewportItem(item, preview.viewport)))
-  }
+  if (!shown('viewport')) section(...viewportItems(preview.viewport, null))
   if (!shown('screenshot') || !shown('select')) {
     section(
       ...(shown('screenshot')
@@ -258,20 +263,44 @@ function viewportItem(item: ToolbarMenuItem, viewport: Viewport): ToolbarMenuIte
   return item.type === 'separator' ? item : { ...item, checked: item.id === `viewport:${viewport}` }
 }
 
+/** The size menu: an open canvas frame's own size (`own`) first when it has one, then the devices. */
+function viewportItems(viewport: Viewport, own: CustomViewport | null) {
+  const items: ToolbarMenuItem[] = own
+    ? [
+        { type: 'radio', id: `viewport:${own}`, label: viewportSpec(own).name },
+        { type: 'separator' },
+        ...VIEWPORT_ITEMS,
+      ]
+    : VIEWPORT_ITEMS
+  return items.map((item) => viewportItem(item, viewport))
+}
+
 function chooseViewport(id: string) {
-  const viewport = VIEWPORTS.find((each) => `viewport:${each.id}` === id)
-  if (viewport) gui.setViewport(viewport.id)
+  const viewport = id.replace(/^viewport:/, '')
+  if (isViewport(viewport) || isCustomViewport(viewport)) gui.setViewport(viewport)
 }
 
 /**
  * The preview's size: the viewport showing, as its icon, which opens a menu of the others
  * (⌘1–⌘4 pick one straight away). A native menu, as it opens over the preview.
  */
-function ViewportButton({ viewport }: { viewport: Viewport }) {
+function ViewportButton({
+  viewport,
+  own = null,
+}: {
+  viewport: Viewport
+  own?: CustomViewport | null
+}) {
   const button = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const current =
-    VIEWPORT_CHOICES.find((choice) => choice.value === viewport) ?? VIEWPORT_CHOICES[0]
+    own && viewport === own
+      ? {
+          label: viewportSpec(own).name,
+          title: `The frame’s size · ${viewportSpec(own).name}`,
+          icon: Crop,
+        }
+      : (VIEWPORT_CHOICES.find((choice) => choice.value === viewport) ?? VIEWPORT_CHOICES[0])
   return (
     <Button
       ref={button}
@@ -288,7 +317,7 @@ function ViewportButton({ viewport }: { viewport: Viewport }) {
         const box = button.current?.getBoundingClientRect()
         if (!box) return
         setOpen(true)
-        const items = VIEWPORT_ITEMS.map((item) => viewportItem(item, viewport))
+        const items = viewportItems(viewport, own)
         const id = await gui.showToolbarMenu(items, { x: box.left, y: box.bottom + MENU_GAP })
         setOpen(false)
         if (id) chooseViewport(id)
@@ -350,6 +379,9 @@ function BoardToolbar({
   const uncapturable = captureBlocked(preview, true)
   const capturable = uncapturable === null
   const open = board.frames.find((frame) => frame.id === board.open)
+  // The open frame's own size, a choice of its own when it's no device's (tab.ts fitFrame).
+  const opened = open ? frameViewport(open) : null
+  const own = isCustomViewport(opened) ? opened : null
   const frameButton = useRef<HTMLButtonElement>(null)
   const boardView = useBoardView()
   const boardTool = useBoardTool()
@@ -384,8 +416,7 @@ function BoardToolbar({
   if (open) {
     if (!shown('reload'))
       section({ id: 'reload', label: 'Reload Frame', shortcut: 'reload', enabled: !!preview.url })
-    if (!shown('viewport'))
-      section(...VIEWPORT_ITEMS.map((item) => viewportItem(item, preview.viewport)))
+    if (!shown('viewport')) section(...viewportItems(preview.viewport, own))
     section(
       ...(shown('screenshot')
         ? []
@@ -556,7 +587,7 @@ function BoardToolbar({
               className={HIT_AREA}
             />
           )}
-          {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
+          {shown('viewport') && <ViewportButton viewport={preview.viewport} own={own} />}
           {(shown('screenshot') || shown('select')) && (
             <div className="flex shrink-0 items-center gap-1">
               {shown('select') && (

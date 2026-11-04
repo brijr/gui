@@ -43,7 +43,9 @@ import {
   type DrawerState,
   type DrawerTab,
   drawerNeighbor,
+  frameViewport,
   type ImageAttachment,
+  isCustomViewport,
   isRegion,
   isTerminalId,
   type MorphKind,
@@ -63,7 +65,6 @@ import {
   type TabStatus,
   type TerminalId,
   type VariationAction,
-  VIEWPORTS,
   type Viewport,
   type ViewportFrame,
   viewportSpec,
@@ -341,8 +342,11 @@ export class ProjectTab implements ChatPanelOwner {
   private readonly inspector: Inspector
   /** The page at its viewport's size: a device frame's or zoomed Desktop's; none at 100%. */
   private readonly emulation: ViewportEmulation
-  /** Each viewport's zoom, Desktop's at 100% and the frames fitting until the user zooms. */
-  private zooms: Record<Viewport, Zoom> = { desktop: 1, laptop: null, tablet: null, mobile: null }
+  /**
+   * Each viewport's zoom, Desktop's at 100% and the frames (a canvas frame's own size too)
+   * fitting until the user zooms.
+   */
+  private zooms: Partial<Record<Viewport, Zoom>> = { desktop: 1 }
   /** Resizes the live preview into a new layout, like a window being resized (preview-morph.ts). */
   readonly morph: PreviewMorph
   private readonly panel: ChatPanel
@@ -965,6 +969,12 @@ export class ProjectTab implements ChatPanelOwner {
       this.state.project.name === name ? this.state.project : { ...this.state.project, name }
     // The frame open in the preview left the board (deleted, or its turn undone).
     if (this.state.board?.open && !board.openId) this.closeFrame()
+    // The open frame resized while shown at its own size: shown at its new one. (A frame
+    // opening is sized by openFrame.)
+    const open = board.openId ? board.frame(board.openId) : null
+    const { viewport } = this.state.preview
+    const resized = open && this.state.board?.open === open.id && frameViewport(open) !== viewport
+    if (resized && isCustomViewport(viewport)) this.setViewport(frameViewport(open))
     this.resources.chat?.setCanvasEmpty(board.frames.length === 0)
     this.patch({ board: board.state(), project })
   }
@@ -1089,16 +1099,24 @@ export class ProjectTab implements ChatPanelOwner {
     return last && pressed && Date.now() - last.at < OPEN_GESTURE_MS ? last.ids : now
   }
 
-  /** The preview at the device viewport a frame's size matches, or Desktop. */
+  /** The preview at the device viewport a frame's size matches, or at the frame's own size. */
   private fitFrame(id: string) {
     const frame = this.resources.board?.frame(id)
-    const match = VIEWPORTS.find(
-      (viewport) =>
-        viewport.size?.width === frame?.width && viewport.size?.height === frame?.height,
-    )
-    const fits = VIEWPORTS.find((viewport) => viewport.size?.width === frame?.width)
-    const viewport = (match ?? fits)?.id ?? 'desktop'
+    if (!frame) return
+    const viewport = frameViewport(frame)
     if (viewport !== this.state.preview.viewport) this.patchPreview({ viewport })
+  }
+
+  /** A viewport the user can choose: a device's, or the open canvas frame's own size. */
+  private canShow(viewport: Viewport) {
+    if (!isCustomViewport(viewport)) return true
+    const board = this.resources.board
+    const frame = board?.openId ? board.frame(board.openId) : null
+    return frame !== null && frameViewport(frame) === viewport
+  }
+
+  private zoomOf(viewport: Viewport): Zoom {
+    return this.zooms[viewport] ?? (viewport === 'desktop' ? 1 : null)
   }
 
   /** Back to the board: the preview hides and unloads, and its picking ends. */
@@ -1635,7 +1653,17 @@ export class ProjectTab implements ChatPanelOwner {
       drawer: closedDrawer(),
       board: null,
       branch: null,
-      preview: { ...this.state.preview, url: null, error: null, visible: false, selecting: false },
+      preview: {
+        ...this.state.preview,
+        // A canvas frame's own size goes with its canvas; a project has devices only.
+        viewport: isCustomViewport(this.state.preview.viewport)
+          ? 'desktop'
+          : this.state.preview.viewport,
+        url: null,
+        error: null,
+        visible: false,
+        selecting: false,
+      },
     })
     return closed
   }
@@ -1841,6 +1869,7 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   setViewport(viewport: Viewport) {
+    if (!this.canShow(viewport)) return
     if (viewport !== this.state.preview.viewport) this.morphLayout('viewport')
     this.patchPreview({ viewport })
     this.layout()
@@ -1858,11 +1887,12 @@ export class ProjectTab implements ChatPanelOwner {
       return
     }
     const { viewport } = this.state.preview
-    const next = zoomed(viewport, this.previewArea(), this.zooms[viewport], step)
+    const zoom = this.zoomOf(viewport)
+    const next = zoomed(viewport, this.previewArea(), zoom, step)
     if (next === undefined) return shell.beep()
-    if (next !== this.zooms[viewport] && morph) this.morphLayout('zoom')
+    if (next !== zoom && morph) this.morphLayout('zoom')
     this.zooms = { ...this.zooms, [viewport]: next }
-    this.patchPreview({ zoom: this.zooms.desktop ?? 1 })
+    this.patchPreview({ zoom: this.zoomOf('desktop') ?? 1 })
     this.layout()
   }
 
@@ -2659,7 +2689,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.resources.board && !this.resources.board.openId) return null
     const { name, size } = viewportSpec(this.state.preview.viewport)
     if (size) return { name, ...size, fixed: true }
-    const zoom = this.zooms.desktop ?? 1
+    const zoom = this.zoomOf('desktop') ?? 1
     const { width, height } = this.placement
     return {
       name,
@@ -3579,7 +3609,7 @@ export class ProjectTab implements ChatPanelOwner {
     const preview = this.state.preview
     // Even while nothing shows, so a page that loads lays out at its viewport's size at once.
     const { viewport } = preview
-    const { bounds, emulation } = placePreview(viewport, area, this.zooms[viewport])
+    const { bounds, emulation } = placePreview(viewport, area, this.zoomOf(viewport))
     this.placement = bounds
     const covered = this.host.sheetShown
     const visible = preview.visible && area.width > 0 && !covered

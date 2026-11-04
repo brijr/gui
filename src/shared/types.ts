@@ -279,14 +279,51 @@ export interface ViewportSpec {
   mobile: boolean
 }
 
-export type Viewport = (typeof VIEWPORTS)[number]['id']
+/** One of VIEWPORTS: what a project's preview can be, and ⌘1…⌘4 choose */
+export type DeviceViewport = (typeof VIEWPORTS)[number]['id']
+/**
+ * A canvas frame's own size, `1080x1080`, when it opens live and no device's width is its own
+ * (`frameViewport`): a frame like a device's at exactly that size.
+ */
+export type CustomViewport = `${number}x${number}`
+export type Viewport = DeviceViewport | CustomViewport
 
-export function isViewport(value: unknown): value is Viewport {
+export function isViewport(value: unknown): value is DeviceViewport {
   return VIEWPORTS.some((viewport) => viewport.id === value)
 }
 
+const CUSTOM = /^(\d+)x(\d+)$/
+
+export function customSize(value: unknown): { width: number; height: number } | null {
+  const match = typeof value === 'string' ? CUSTOM.exec(value) : null
+  return match ? { width: Number(match[1]), height: Number(match[2]) } : null
+}
+
+export function isCustomViewport(value: unknown): value is CustomViewport {
+  return customSize(value) !== null
+}
+
 export function viewportSpec(id: Viewport): ViewportSpec {
+  const size = customSize(id)
+  if (size) return { id, name: `${size.width} × ${size.height}`, size, mobile: false }
   return VIEWPORTS.find((viewport) => viewport.id === id) ?? VIEWPORTS[0]
+}
+
+/** The window height a long page at a non-device width opens at (Laptop's). */
+const LONG_PAGE_HEIGHT = 900
+
+/**
+ * The viewport a canvas frame opens live in: the device it's the size of, or the one its width
+ * is (a long page scrolls in it); otherwise its own size. A frame taller than 9:16 is a long
+ * page, not a poster, so it opens laptop-high and scrolls.
+ */
+export function frameViewport(frame: { width: number; height: number }): Viewport {
+  const device =
+    VIEWPORTS.find(({ size }) => size?.width === frame.width && size?.height === frame.height) ??
+    VIEWPORTS.find(({ size }) => size?.width === frame.width)
+  if (device) return device.id
+  const long = frame.height > (frame.width * 16) / 9
+  return `${Math.round(frame.width)}x${Math.round(long ? LONG_PAGE_HEIGHT : frame.height)}`
 }
 
 /**
@@ -296,12 +333,14 @@ export function viewportSpec(id: Viewport): ViewportSpec {
 export function frameLabel(id: Viewport, scale: number) {
   const { name, size } = viewportSpec(id)
   const percent = Math.floor(scale * 100)
-  const detail = `${size ? ` · ${size.width} × ${size.height}` : ''}${percent < 100 ? ` · ${percent}%` : ''}`
+  // A frame's own size is named by its size alone.
+  const dimensions = size && !customSize(id) ? ` · ${size.width} × ${size.height}` : ''
+  const detail = `${dimensions}${percent < 100 ? ` · ${percent}%` : ''}`
   return { name, detail }
 }
 
 /** Its key with ⌘ (the View menu's shortcut): 1 for the first viewport, and so on. */
-export function viewportKey(id: Viewport) {
+export function viewportKey(id: DeviceViewport) {
   return String(VIEWPORTS.findIndex((viewport) => viewport.id === id) + 1)
 }
 

@@ -1,4 +1,4 @@
-import { type Viewport, viewportKey, viewportSpec } from './types'
+import { type DeviceViewport, viewportKey, viewportSpec } from './types'
 
 /**
  * Gui's keyboard shortcuts, in one place: the app menu (src/main/index.ts) takes its items'
@@ -42,7 +42,7 @@ export interface ShortcutSpec {
 }
 
 /** A viewport's item: ⌘1 for the first, and so on, in VIEWPORTS order. */
-function viewportShortcut(id: Viewport): ShortcutSpec {
+function viewportShortcut(id: DeviceViewport): ShortcutSpec {
   const { name, size } = viewportSpec(id)
   return {
     label: `${name} Viewport`,
@@ -497,7 +497,7 @@ export function shortcut(id: ShortcutId): Shortcut {
 }
 
 /** The View menu's item for each viewport. */
-export const VIEWPORT_SHORTCUTS: Record<Viewport, ShortcutId> = {
+export const VIEWPORT_SHORTCUTS: Record<DeviceViewport, ShortcutId> = {
   desktop: 'viewportDesktop',
   laptop: 'viewportLaptop',
   tablet: 'viewportTablet',

@@ -45,6 +45,7 @@ import {
   isAgentId,
   isChatForm,
   isChatGrab,
+  isCustomViewport,
   isDrawerTab,
   isPanelEdge,
   isProjectTemplate,
@@ -1138,7 +1139,10 @@ function registerIpc() {
   on(Send.back, (tab) => tab.back())
   on(Send.forward, (tab) => tab.forward())
   on(Send.reload, (tab) => tab.reload())
-  on(Send.setViewport, (tab, viewport) => isViewport(viewport) && tab.setViewport(viewport))
+  on(Send.setViewport, (tab, viewport) => {
+    // A custom size only when it's the open canvas frame's own (the tab checks).
+    if (isViewport(viewport) || isCustomViewport(viewport)) tab.setViewport(viewport)
+  })
   on(Send.zoomPreview, (tab, step) => {
     if (step === 1 || step === -1 || step === 0) tab.zoom(step)
   })

@@ -219,3 +219,68 @@ test('a link between frames opens the other frame, and preview_navigate opens fr
   expect(pressed.isError).toBeFalsy()
   expect((await session.state()).board?.open).toBe('beta')
 })
+
+test('a frame of no device’s size opens live at exactly its size, and the size menu goes to a device and back', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  await openCanvas(session)
+  await installToolAgent(session)
+  await ask(session, [
+    {
+      name: 'canvas_create_frame',
+      // Phones lay a page out at its meta viewport's width (980px without one).
+      args: {
+        name: 'Post',
+        width: 1080,
+        height: 1080,
+        html: page('Post').replace(
+          '<body',
+          '<meta name="viewport" content="width=device-width"><body',
+        ),
+      },
+    },
+    { name: 'canvas_open_frame', args: { id: 'post' } },
+  ])
+  // The live page's own size, read in the preview.
+  const inner = () =>
+    session.app.evaluate(({ session: sessions, webContents }) => {
+      const preview = sessions.fromPartition('persist:gui-preview')
+      const wc = webContents
+        .getAllWebContents()
+        .find((w) => w.session === preview && w.getURL().includes('/frames/post.html'))
+      return wc?.executeJavaScript('innerWidth + "x" + innerHeight') ?? null
+    })
+  const at = (viewport: string, size: string) =>
+    waitFor(async () => {
+      const state = await session.state()
+      const shown =
+        state.board?.open === 'post' && state.preview.visible && state.preview.viewport === viewport
+      return shown && (await inner()) === size ? state : null
+    }, `the frame at ${viewport}`)
+
+  const live = await at('1080x1080', '1080x1080')
+  // Drawn smaller to fit the window if need be, like a device frame, and named by its size.
+  expect(live.preview.frame?.viewport).toBe('1080x1080')
+  expect(live.preview.frame?.scale).toBeLessThanOrEqual(1)
+  await expect(session.chrome.getByRole('button', { name: 'Viewport: 1080 × 1080' })).toBeVisible()
+  // The agent's own look at the page sees the same size.
+  const [snapshot] = await ask(session, [{ name: 'preview_snapshot' }])
+  expect(snapshot.content[0].text).toMatch(/"viewport": \{\s*"height": 1080,\s*"width": 1080\s*\}/)
+
+  // A device from the size menu, then the frame's own size again.
+  await session.chrome.evaluate(() => window.gui.setViewport('mobile'))
+  await at('mobile', '390x844')
+  await expect(session.chrome.getByRole('button', { name: 'Viewport: Mobile' })).toBeVisible()
+  await session.chrome.evaluate(() => window.gui.setViewport('1080x1080'))
+  await at('1080x1080', '1080x1080')
+
+  // Resized while open, it's shown at its new size.
+  await ask(session, [
+    {
+      name: 'canvas_arrange_frames',
+      args: { frames: [{ id: 'post', width: 1200, height: 630 }] },
+    },
+  ])
+  await at('1200x630', '1200x630')
+})

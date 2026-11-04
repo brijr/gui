@@ -143,7 +143,8 @@ function turnRunning(state: WindowState) {
 
 /**
  * A fixed viewport's edge and shadow around the preview, which is the device's screen, and
- * its name above: "Laptop · 1440 × 900", with the scale when it's drawn smaller.
+ * its name above: "Laptop · 1440 × 900" (a canvas frame's own size: "1080 × 1080"), with the
+ * scale when it's drawn smaller.
  */
 function DeviceFrame({ frame }: { frame: ViewportFrame }) {
   const { name, detail } = frameLabel(frame.viewport, frame.scale)
