@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
 import * as fsSync from 'node:fs'
 import * as fs from 'node:fs/promises'
+import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../../src/main/atomic-file'
@@ -91,7 +92,7 @@ mock.module('../../src/main/board-capture-renderer', () => ({
   },
 }))
 
-const { BoardSession } = await import('../../src/main/board-session')
+const { BoardSession, canvasHost } = await import('../../src/main/board-session')
 const { createBoardTools } = await import('../../src/main/board-tool-workflow')
 const manifest = (frames: BoardManifest['frames'] = []): BoardManifest => ({
   version: 1,
@@ -439,6 +440,39 @@ try {
   )
   await assert.rejects(fetch(closing.frameUrl('pending')))
 
+  // A canvas's pages are served on its own host only, never as 127.0.0.1 or localhost, so
+  // frames in the preview share no cookies with the user's apps there (cookies ignore ports).
+  const served = await board('served', [
+    { id: 'page', name: 'Page', x: 0, y: 0, width: 400, height: 300 },
+  ])
+  const page = new URL(served.frameUrl('page'))
+  assert.equal(page.hostname, 'served.localhost')
+  assert.equal(served.frameAt(page.href), 'page')
+  const asHost = async (host: string) => {
+    return new Promise<number>((done, fail) => {
+      const req = request(
+        { host: '127.0.0.1', port: page.port, path: page.pathname, headers: { host } },
+        (res) => {
+          res.resume()
+          done(res.statusCode ?? 0)
+        },
+      )
+      req.on('error', fail)
+      req.end()
+    })
+  }
+  assert.equal(await asHost(page.host), 200)
+  assert.equal(await asHost(`127.0.0.1:${page.port}`), 404)
+  assert.equal(await asHost(`localhost:${page.port}`), 404)
+  assert.equal(
+    served.frameAt(`http://127.0.0.1:${page.port}${page.pathname}`),
+    null,
+    'A frame address on 127.0.0.1 is not the canvas’s',
+  )
+  await served.dispose()
+  assert.equal(canvasHost('0123456789ab'), '0123456789ab.localhost')
+  assert.match(canvasHost('Not A Label!'), /^[0-9a-f]{16}\.localhost$/)
+
   const opening = await board('opening', [], false)
   const openGate = deferred()
   manifestRead = { root: opening.root, gate: openGate.promise }
@@ -449,7 +483,7 @@ try {
   manifestRead = null
   assert.equal(
     opening.origin,
-    'http://127.0.0.1:0',
+    'http://opening.localhost:0',
     'Closing an opening board must not leave a late server',
   )
   // A canvas.json that can't be read at open is set aside, not replaced; the board is rebuilt

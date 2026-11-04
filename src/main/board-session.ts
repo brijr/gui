@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { type FSWatcher, watch } from 'node:fs'
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
@@ -64,6 +64,19 @@ const CONTENT_TYPES: Record<string, string> = {
   '.mp4': 'video/mp4',
   '.webm': 'video/webm',
   '.txt': 'text/plain; charset=utf-8',
+}
+
+/** One DNS label, as a canvas's id is (Gui's are 12 hex characters). */
+const DNS_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/
+
+/**
+ * The hostname a canvas's pages are served on: `<canvas>.localhost`, which Chromium resolves to
+ * loopback itself. Its own site, so frames share no cookies with the user's apps on `localhost`
+ * or `127.0.0.1` in the preview's session (cookies ignore ports), nor with other canvases.
+ */
+export function canvasHost(id: string) {
+  const label = DNS_LABEL.test(id) ? id : createHash('sha256').update(id).digest('hex').slice(0, 16)
+  return `${label}.localhost`
 }
 
 /** A board change the user made, and how to take it back: the layout and pages before it. */
@@ -190,8 +203,9 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     return this.manifest.sections.find((section) => section.id === id) ?? null
   }
 
+  /** Where its pages are served: the only place frame addresses are made (`canvasHost`). */
   get origin() {
-    return `http://127.0.0.1:${this.port}`
+    return `http://${canvasHost(this.id)}:${this.port}`
   }
 
   /** The page's address in the preview */
@@ -895,7 +909,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   private async serve() {
     const server = createServer((req, res) => {
-      void this.respond(req.url ?? '/', req.method ?? 'GET')
+      void this.respond(req.url ?? '/', req.method ?? 'GET', req.headers.host)
         .then(({ status, type, body }) => {
           res.writeHead(status, {
             'Content-Type': type,
@@ -917,9 +931,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.port = (server.address() as AddressInfo).port
   }
 
-  private async respond(url: string, method: string) {
+  private async respond(url: string, method: string, host: string | undefined) {
     const notFound = { status: 404, type: 'text/plain; charset=utf-8', body: 'Not found' }
     if (method !== 'GET' && method !== 'HEAD') return { ...notFound, status: 405 }
+    // Only on the canvas's own host: never as 127.0.0.1, which the user's apps' cookies are for.
+    if (host !== new URL(this.origin).host) return notFound
     const path = decodeURIComponent(url.split(/[?#]/)[0])
     const prefix = `/${this.token}/`
     if (!path.startsWith(prefix)) return notFound

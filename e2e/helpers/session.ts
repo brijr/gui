@@ -25,7 +25,7 @@ const FLOATING_PREFS = { chatSidebar: false, chatCorner: { x: 'right', y: 'botto
  * writes it.
  */
 export const standInsFile = (copy: FixtureCopy) => join(copy.base, 'agent-stand-ins.json')
-const PREVIEW_URL = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])[:/]/
+const PREVIEW_URL = /^http:\/\/(localhost|[a-z0-9-]+\.localhost|127\.0\.0\.1|\[::1\])[:/]/
 
 export interface LaunchOptions {
   fixture: FixtureName

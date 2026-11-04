@@ -1,5 +1,7 @@
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { BoardState } from '../src/shared/types'
 import { electronExecutable, waitFor } from './helpers/env'
@@ -183,6 +185,38 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   }, 'the frame open')
   expect(live.preview.viewport).toBe('mobile')
   expect(live.preview.selectable).toBe(true)
+
+  // The frame is on the canvas's own host: it can't read or send the cookies of the user's
+  // apps on 127.0.0.1 or localhost in the same preview session, nor set theirs.
+  const cookies: (string | undefined)[] = []
+  const app = createServer((req, res) => {
+    cookies.push(req.headers.cookie)
+    res.end('ok')
+  })
+  await new Promise<void>((done) => app.listen(0, '127.0.0.1', () => done()))
+  try {
+    const appUrl = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`
+    const seen = await session.app.evaluate(async ({ session: sessions, webContents }, url) => {
+      const preview = sessions.fromPartition('persist:gui-preview')
+      await preview.cookies.set({ url, name: 'app', value: 'secret' })
+      await preview.cookies.set({ url: 'http://localhost/', name: 'local', value: 'secret' })
+      const wc = webContents
+        .getAllWebContents()
+        .find((w) => w.session === preview && w.getURL().includes('/frames/mobile.html'))
+      if (!wc) throw new Error('No live frame')
+      const frame = await wc.executeJavaScript(
+        `document.cookie = 'frame=1; path=/'; fetch(${JSON.stringify(url)}, { mode: 'no-cors', credentials: 'include' }).then(() => document.cookie)`,
+      )
+      const app = (await preview.cookies.get({ url })).map((cookie) => cookie.name)
+      return { host: new URL(wc.getURL()).hostname, frame, app }
+    }, appUrl)
+    expect(seen.frame).toBe('frame=1')
+    expect(seen.app).toEqual(['app'])
+    expect(cookies).toEqual([undefined])
+    expect(seen.host).toBe(`${opened.id}.localhost`)
+  } finally {
+    app.close()
+  }
   await chrome.getByRole('button', { name: 'Canvas', exact: true }).click()
   await waitFor(async () => {
     const state = await session.state()
