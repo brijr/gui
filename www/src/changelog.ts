@@ -11,6 +11,18 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.12',
+    date: '2026-11-03',
+    changes: [
+      'Variations: in a project, select an element and ask for a few versions of it. A bar on the page goes through them. Keep one, or discard them all.',
+      'Select Element is now called Design mode (⌘D).',
+      'New Canvas is in the project menu.',
+      'When you click the page, the floating chat hides to its button, unless you are writing a message.',
+      'Canvases are more reliable: Undo works with a frame open, moving and resizing frames no longer fights the agent, and deleting a canvas also deletes its chat and history.',
+      'Cleaner edges in dark mode, and smoother motion across the app.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.11',
     date: '2026-11-02',
     changes: [
