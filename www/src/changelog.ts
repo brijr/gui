@@ -19,6 +19,8 @@ export const releases: Release[] = [
       'New Canvas is in the project menu.',
       'When you click the page, the floating chat hides to its button, unless you are writing a message.',
       'Canvases are more reliable: Undo works with a frame open, moving and resizing frames no longer fights the agent, and deleting a canvas also deletes its chat and history.',
+      'Canvas frames open at their own size, for example 1080 × 1080 or 300 × 250.',
+      'Open canvas frames cannot read the cookies of your local apps.',
       'Cleaner edges in dark mode, and smoother motion across the app.',
     ],
   },
