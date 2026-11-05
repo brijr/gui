@@ -11,7 +11,7 @@
   },
   // Gui's builds and update feed, published by scripts/release.sh.
   "r2_buckets": [{ "binding": "RELEASES", "bucket_name": "gui-releases" }],
-  // The Windows and Linux waitlist, and a row for each download.
+  // The Windows and Linux waitlist, a row for each counted download, and /downloads reads the total.
   "d1_databases": [
     {
       "binding": "DB",
