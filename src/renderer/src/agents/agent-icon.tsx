@@ -4,7 +4,8 @@ import { AGENT_LOGOS, AgentLogo } from './agent-logos'
 
 /**
  * An agent's mark on a black 28px tile, the same in either appearance: its logo for the
- * built-in agents (agent-logos.tsx), or the first letter of its name for one the user added.
+ * built-in agents (agent-logos.tsx), or the first letter of its name for one the user added
+ * and for jcode, whose own mark is a typeset [J] rather than a drawing.
  */
 export function AgentIcon({ agentId, className }: { agentId: AgentId; className?: string }) {
   const logo = Object.hasOwn(AGENT_LOGOS, agentId)

@@ -22,6 +22,7 @@ export const AGENTS: readonly AgentInfo[] = [
   { id: 'devin', name: 'Devin' },
   { id: 'cursor', name: 'Cursor' },
   { id: 'fx', name: 'fx' },
+  { id: 'jcode', name: 'jcode' },
 ]
 
 export const DEFAULT_AGENT_ID: AgentId = 'claude'

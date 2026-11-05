@@ -154,6 +154,23 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     installUrl: 'https://x.ai/build',
     terminalSignIn: { command: 'grok login', hint: 'Continue in your browser to sign in.' },
   },
+  jcode: {
+    launch: cli('jcode', 'acp'),
+    // jcode has no login: plain `jcode` runs its setup wizard (provider, API key or
+    // account, model) when ~/.jcode/config.json is missing, and `jcode acp` fails each
+    // session until it has run.
+    signIn: 'Set up from Settings → Agents, or run `jcode` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://www.j-code.net/docs/get-started',
+    terminalSignIn: {
+      command: 'jcode',
+      hint: 'Pick a provider and a model. When jcode opens, quit it with Ctrl+C twice and close this window.',
+    },
+    // Ask for approval gates each restricted call; Auto has an LLM reviewer allow the safe
+    // ones and ask about the uncertain ones. Not Full access, which never asks, so Gui's
+    // rules would never see a request.
+    permissions: { mode: { ask: ['approval'], auto: ['auto'] } },
+  },
   kiro: {
     launch: cli('kiro-cli', 'acp'),
     signIn: 'Sign in from Settings → Agents, or run `kiro-cli login` in a terminal.',

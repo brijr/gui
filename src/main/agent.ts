@@ -227,20 +227,31 @@ export class AgentAuthError extends Error {
   }
 }
 
-/** The useful part of an agent's error; some put it in `data` behind a generic message. */
+/**
+ * The useful part of an agent's error; some put it in `data` behind a generic message
+ * (agents built on the Go ACP SDK, like jcode, as `{ error }` behind "Internal error").
+ */
 function errorDetail(error: unknown) {
-  if (error instanceof acp.RequestError && typeof error.data === 'string' && error.data.trim()) {
-    return error.data.trim()
+  if (error instanceof acp.RequestError) {
+    const data = error.data
+    const detail =
+      typeof data === 'string'
+        ? data
+        : data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
+          ? data.error
+          : ''
+    if (detail.trim()) return detail.trim()
   }
   return error instanceof Error ? error.message : String(error)
 }
 
 /**
- * Phrases agents use for a missing or expired login. Whole words only: a bare "auth"
- * substring also matches unrelated errors (e.g. "author", "OAuth").
+ * Phrases agents use for a missing or expired login, or a first-run setup not done yet
+ * (jcode: "please run setup first"). Whole words only: a bare "auth" substring also
+ * matches unrelated errors (e.g. "author", "OAuth").
  */
 const AUTH_ERROR =
-  /\b(?:auth(?:entication)? (?:is )?required|authenticat(?:e|ion)\b|unauthori[sz]ed|not (?:logged|signed) in|(?:log ?in|sign ?in) (?:is )?required|please (?:log|sign) ?in|(?:invalid|missing|expired) (?:api key|credentials?|token)|no credentials|run [\w-]+(?: auth)? login\b|401\b)/i
+  /\b(?:auth(?:entication)? (?:is )?required|authenticat(?:e|ion)\b|unauthori[sz]ed|not (?:logged|signed) in|(?:log ?in|sign ?in) (?:is )?required|please (?:log|sign) ?in|(?:invalid|missing|expired) (?:api key|credentials?|token)|no credentials|run [\w-]+(?: auth)? login\b|run setup first\b|401\b)/i
 
 function isAuthError(error: unknown) {
   const code = (error as { code?: unknown } | null)?.code

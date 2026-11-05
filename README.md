@@ -38,6 +38,7 @@ Gui speaks the [Agent Client Protocol](https://agentclientprotocol.com) and reus
 | Devin | `devin acp` | `devin auth login` |
 | Cursor | `cursor-agent acp` | `cursor-agent login` |
 | fx | `fx acp` | `fx login` |
+| jcode | `jcode acp` | `jcode`, which runs its setup |
 
 Gui runs the agents it finds on your PATH, and offers a Sign in button that runs the login for you. Any other ACP agent can be added in **Settings → Agents**.
 
