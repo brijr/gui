@@ -3304,14 +3304,25 @@ export class ProjectTab implements ChatPanelOwner {
   toggleDock() {
     if (!this.resources.chat) return
     if (this.panel.popoutWindow) return this.panel.togglePopOut()
+    this.setDocked(!this.resources.chat.meta.docked)
+  }
+
+  /**
+   * Docks the chat beside the preview, on `side` or the side it was last, or floats it: ⇧⌘D,
+   * and the chat dragged to an edge or pulled off it. Either way the preview morphs into the
+   * room it gets or gives up, and it's the default for chats from now on.
+   */
+  setDocked(docked: boolean, side?: 'left' | 'right') {
+    const chat = this.resources.chat
+    if (!chat) return
     this.leaveFocusMode()
     // Floating again, it shows the conversation the sidebar did.
     this.panel.showConversation()
     this.panel.untuck()
     this.morphLayout('dock')
-    const docked = !this.resources.chat.meta.docked
-    setPrefs({ chatSidebar: docked })
-    this.resources.chat.setDocked(docked)
+    setPrefs(side ? { chatSidebar: docked, chatSidebarSide: side } : { chatSidebar: docked })
+    if (side) chat.setSidebarSide(side)
+    chat.setDocked(docked)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
     if (docked) this.panel.holdDock()
     this.layout()

@@ -534,6 +534,9 @@ function releaseVelocity(samples: Sample[], t: number) {
  * Follows a pointer drag in screen coordinates, since the native view moves and resizes
  * under the pointer, and reports the deltas batched per frame; at the end, the pointer's
  * velocity as it let go (px/s), so a throw carries on.
+ *
+ * What was pressed can go mid-drag: the sidebar's header, pulled off, is the floating panel's
+ * now. The page itself then holds the pointer, with the closed hand, so the drag carries on.
  */
 function trackDrag(
   event: ReactPointerEvent<HTMLElement>,
@@ -541,7 +544,21 @@ function trackDrag(
   onEnd: (velocity: { x: number; y: number }) => void,
 ) {
   const el = event.currentTarget
-  el.setPointerCapture(event.pointerId)
+  const id = event.pointerId
+  const root = document.documentElement
+  el.setPointerCapture(id)
+  const keep = () => {
+    if (el.isConnected || root.hasPointerCapture(id)) return
+    try {
+      root.setPointerCapture(id)
+      root.style.cursor = 'grabbing'
+    } catch {
+      // Already let go.
+    }
+  }
+  const lost = (e: PointerEvent) => {
+    if (e.pointerId === id) queueMicrotask(keep)
+  }
   let last = { x: event.screenX, y: event.screenY }
   let pending = { dx: 0, dy: 0 }
   let frame = 0
@@ -553,6 +570,8 @@ function trackDrag(
     pending = { dx: 0, dy: 0 }
   }
   const move = (e: PointerEvent) => {
+    if (e.pointerId !== id) return
+    keep()
     pending = { dx: pending.dx + e.screenX - last.x, dy: pending.dy + e.screenY - last.y }
     last = { x: e.screenX, y: e.screenY }
     samples = [...samples, { x: e.screenX, y: e.screenY, t: e.timeStamp }].filter(
@@ -561,21 +580,29 @@ function trackDrag(
     frame ||= requestAnimationFrame(flush)
   }
   const end = (e: PointerEvent) => {
+    if (e.pointerId !== id) return
     cancelAnimationFrame(frame)
     flush()
-    el.removeEventListener('pointermove', move)
-    el.removeEventListener('pointerup', end)
-    el.removeEventListener('pointercancel', end)
+    window.removeEventListener('pointermove', move)
+    window.removeEventListener('pointerup', end)
+    window.removeEventListener('pointercancel', end)
+    document.removeEventListener('lostpointercapture', lost, true)
+    root.style.cursor = ''
+    if (root.hasPointerCapture(id)) root.releasePointerCapture(id)
     onEnd(e.type === 'pointerup' ? releaseVelocity(samples, e.timeStamp) : { x: 0, y: 0 })
   }
-  el.addEventListener('pointermove', move)
-  el.addEventListener('pointerup', end)
-  el.addEventListener('pointercancel', end)
+  // On the window, which hears the pointer whichever element holds it.
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', end)
+  window.addEventListener('pointercancel', end)
+  document.addEventListener('lostpointercapture', lost, true)
 }
 
 /**
  * Dragging the header (or the minimized pill) moves the floating panel; letting go throws it
- * into a corner. Pressing it while it lands catches it where it is.
+ * into a corner, or at the window's left or right edge docks it there. Pressing it while it
+ * lands catches it where it is. The sidebar's header, pulled a little, comes off as the
+ * floating panel and drags on as it (main decides, `grabChat`); just pressed, it's a click.
  */
 function onDragStart(event: ReactPointerEvent<HTMLElement>) {
   if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
@@ -708,17 +735,19 @@ function agentStatus(meta: ChatMeta, running: boolean): Status {
 
 /**
  * The panel's title bar: the agent's name, which switches agents, the session's
- * mode, and the panel's actions. Floating, it's also where the panel is dragged from.
+ * mode, and the panel's actions. It's where the panel is dragged from, floating or docked
+ * (pulled off the sidebar); popped out, it drags the window.
  */
 function Header({ meta }: { meta: ChatMeta }) {
   const titleBar = meta.docked || meta.popped
   return (
     <PanelHeader
-      onPointerDown={titleBar ? undefined : onDragStart}
-      // As the sidebar (or popped out) it's the window's title bar: as tall as the toolbar,
-      // or the tab row beside it while that shows, with the traffic lights at its start
-      // (outside full screen), and what the window is dragged by. The name still starts the
-      // line, after them.
+      onPointerDown={meta.popped ? undefined : onDragStart}
+      // As the sidebar (or popped out) it's level with the window's title bar: as tall as the
+      // toolbar, or the tab row beside it while that shows, with the traffic lights at its
+      // start (outside full screen). The name still starts the line, after them. Popped out,
+      // it's what its window is dragged by; the sidebar's is pulled off by it instead, and
+      // the toolbar beside it drags the window.
       style={
         titleBar
           ? {
@@ -727,7 +756,7 @@ function Header({ meta }: { meta: ChatMeta }) {
             }
           : undefined
       }
-      className={titleBar ? 'drag' : 'cursor-grab active:cursor-grabbing'}
+      className={meta.popped ? 'drag' : 'cursor-grab active:cursor-grabbing'}
       actions={
         // Only while the pointer is over the panel or something in it has the keyboard: the
         // panel at rest is its name and the conversation.

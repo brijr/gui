@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Rect } from '../src/shared/types'
 import { sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
@@ -470,4 +472,210 @@ test('with reduced motion the bubble cross-fades in place', async ({ launch }) =
     ({ chat }) => chat.width === start.chat.width,
   )
   expect(back.chat).toEqual(start.chat)
+})
+
+// Dragged to the window's left or right edge, the floating chat docks there; the sidebar,
+// pulled by its header, comes off as the floating panel under the pointer. These drive main's
+// side of the drag (`grabChat` with the pointer's screen position, then its moves) as the chat
+// page sends it, since the native view moves under a real pointer.
+
+/** The sidebar's width (chatSidebarWidth's default). */
+const DOCK_WIDTH = 380
+
+/** Runs in main: the window's content bounds, which screen positions are offset by. */
+function contentBounds({ BrowserWindow }: ElectronModule) {
+  const bounds = BrowserWindow.getAllWindows()[0]?.getContentBounds()
+  if (!bounds) throw new Error('No window')
+  return bounds
+}
+
+/**
+ * Runs in main: the dock target (a view of Gui's own) if it's showing, where, whether it's
+ * just under the chat, and whether its page has faded it in.
+ */
+async function dockTargetShown({ BrowserWindow, WebContentsView }: ElectronModule) {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win) return null
+  const views = win.contentView.children
+  const target = views.find(
+    (view): view is InstanceType<typeof WebContentsView> =>
+      view instanceof WebContentsView && view.webContents.getURL().startsWith('data:text/html'),
+  )
+  if (!target?.getVisible() || !views.includes(target)) return null
+  const chat = views.findIndex(
+    (view) => view instanceof WebContentsView && view.webContents.getURL().endsWith('/chat.html'),
+  )
+  const shown = await target.webContents.executeJavaScript(
+    "document.body.classList.contains('shown')",
+  )
+  return { bounds: target.getBounds(), under: views.indexOf(target) === chat - 1, shown }
+}
+
+/** Runs in main: no preview morph in flight. */
+function morphing() {
+  return ((globalThis as { guiMorphing?: Set<number> }).guiMorphing?.size ?? 0) > 0
+}
+
+/** Presses the chat's header at `at`, in the window's content, as the chat page reports it. */
+async function press(session: GuiSession, at: { x: number; y: number }) {
+  const content = await session.app.evaluate(contentBounds)
+  await session.chat.evaluate((grab) => window.gui.grabChat(grab), {
+    screenX: content.x + at.x,
+    screenY: content.y + at.y,
+    clientX: 0,
+    clientY: 0,
+  })
+}
+
+function move(session: GuiSession, dx: number, dy: number) {
+  return session.chat.evaluate(({ dx, dy }) => window.gui.dragChat(dx, dy), { dx, dy })
+}
+
+function release(session: GuiSession) {
+  return session.chat.evaluate(() => window.gui.endDragChat({ x: 0, y: 0 }))
+}
+
+/** ⇧⌘D, from its menu item (Playwright's keys don't reach the menu). */
+function toggleDockShortcut(session: GuiSession) {
+  return session.app.evaluate(({ Menu }) => {
+    const find = (items: Electron.MenuItem[]): Electron.MenuItem | undefined => {
+      for (const item of items) {
+        if (item.accelerator === 'Shift+CmdOrCtrl+D') return item
+        const inner = item.submenu && find(item.submenu.items)
+        if (inner) return inner
+      }
+      return undefined
+    }
+    const item = find(Menu.getApplicationMenu()?.items ?? [])
+    if (!item) throw new Error('No ⇧⌘D menu item')
+    item.click()
+  })
+}
+
+/** The chat docked on `side`, at rest: the window's full height at that edge. */
+function dockedOn(session: GuiSession, side: 'left' | 'right') {
+  return waitFor(async () => {
+    const state = await session.state()
+    if (state.sidebarSide !== side || state.sidebarWidth !== DOCK_WIDTH) return null
+    if (await session.app.evaluate(morphing)) return null
+    const layout = await session.app.evaluate(chatLayout)
+    if (!layout) return null
+    const x = side === 'left' ? 0 : WINDOW.width - DOCK_WIDTH
+    const { chat, preview } = layout
+    return chat.x === x &&
+      chat.y === 0 &&
+      chat.height === WINDOW.height &&
+      preview.width < WINDOW.width
+      ? layout
+      : null
+  }, `the chat docked on the ${side}`)
+}
+
+test('dragged to an edge the chat docks there, and pulled off the sidebar it floats', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
+  const start = await ready(session)
+  const panel = { width: start.chat.width - SHADOW * 2, height: start.chat.height - SHADOW * 2 }
+
+  // Held by its header, the panel follows the pointer; near the right edge, the sidebar's
+  // place shows there, under the chat. Nothing docks until it's let go.
+  const header = { x: start.chat.x + SHADOW + 100, y: start.chat.y + SHADOW + 18 }
+  await press(session, header)
+  const toEdge = { dx: WINDOW.width - 20 - header.x, dy: -120 }
+  await move(session, toEdge.dx, toEdge.dy)
+  const target = await waitFor(async () => {
+    const shown = await session.app.evaluate(dockTargetShown)
+    return shown?.shown ? shown : null
+  }, 'the dock target on the right')
+  expect(target.bounds).toEqual({
+    x: WINDOW.width - DOCK_WIDTH,
+    y: 0,
+    width: DOCK_WIDTH,
+    height: WINDOW.height,
+  })
+  expect(target.under).toBe(true)
+  expect((await session.state()).sidebarWidth).toBe(0)
+  await session.shot('dock-target-right')
+
+  // Back out of reach, it goes; back in, it's back.
+  await move(session, -200, 0)
+  await waitFor(async () => (await session.app.evaluate(dockTargetShown)) === null, 'no target')
+  await move(session, 200, 0)
+  await waitFor(async () => (await session.app.evaluate(dockTargetShown))?.shown, 'the target')
+
+  // Let go there: docked on the right, the preview narrowed beside it, and the choice saved.
+  await release(session)
+  await dockedOn(session, 'right')
+  await waitFor(async () => (await session.app.evaluate(dockTargetShown)) === null, 'no target')
+  const profile = await session.app.evaluate(({ app }) => app.getPath('userData'))
+  const prefs = () => JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8'))
+  expect(prefs()).toMatchObject({ chatSidebar: true, chatSidebarSide: 'right' })
+
+  // Pressed on the sidebar's header and pulled less than a click's slop: still docked.
+  const grabbed = { x: WINDOW.width - DOCK_WIDTH + 150, y: 20 }
+  await press(session, grabbed)
+  await move(session, -4, 3)
+  expect((await session.state()).sidebarWidth).toBe(DOCK_WIDTH)
+
+  // Pulled further, it comes off: the floating panel, with the same point of its header under
+  // the pointer (150 px across the 380 px sidebar is as far across the panel), and the
+  // preview widens back under it while it stays put with the pointer.
+  await move(session, -296, 157)
+  const pointer = { x: grabbed.x - 300, y: grabbed.y + 160 }
+  const expected = {
+    x: pointer.x - Math.round((150 / DOCK_WIDTH) * panel.width) - SHADOW,
+    y: pointer.y - Math.round((20 / 44) * 36) - SHADOW,
+  }
+  const pulled = await layoutWhen(
+    session,
+    'the panel under the pointer',
+    ({ chat }) => chat.x === expected.x && chat.y === expected.y,
+  )
+  expect(pulled.chat.width).toBe(start.chat.width)
+  await session.app.evaluate(startSampling)
+  await waitFor(async () => {
+    const state = await session.state()
+    const layout = await session.app.evaluate(chatLayout)
+    return state.sidebarWidth === 0 &&
+      !(await session.app.evaluate(morphing)) &&
+      layout?.preview.width === WINDOW.width
+      ? layout
+      : null
+  }, 'the preview widened back')
+  const held = path(await session.app.evaluate(stopSampling))
+  expect(held).toEqual([{ t: expect.any(Number), x: expected.x, y: expected.y }])
+  expect(prefs().chatSidebar).toBe(false)
+
+  // Across to the left edge and let go: docked on the left.
+  await move(session, 16 - pointer.x, 0)
+  await waitFor(async () => {
+    const shown = await session.app.evaluate(dockTargetShown)
+    return shown?.shown && shown.bounds.x === 0 ? shown : null
+  }, 'the dock target on the left')
+  await session.shot('dock-target-left')
+  await release(session)
+  await dockedOn(session, 'left')
+  expect(prefs()).toMatchObject({ chatSidebar: true, chatSidebarSide: 'left' })
+
+  // A click on the sidebar's header is only a click; its buttons still work.
+  const spot = await session.chat.evaluate(() => {
+    const bar = document.querySelector('[data-chat-panel] header')
+    const name = bar?.querySelector('button')?.getBoundingClientRect()
+    const box = bar?.getBoundingClientRect()
+    if (!name || !box) throw new Error('No sidebar header')
+    const at = { x: Math.round(name.right + 12), y: Math.round(box.top + box.height / 2) }
+    if (document.elementFromPoint(at.x, at.y)?.closest('button')) throw new Error('On a button')
+    return at
+  })
+  await session.chat.mouse.click(spot.x, spot.y)
+  expect((await session.state()).sidebarWidth).toBe(DOCK_WIDTH)
+  await session.chat.getByRole('button', { name: 'Show as floating panel' }).click()
+  await waitFor(async () => (await session.state()).sidebarWidth === 0, 'the chat floating')
+
+  // ⇧⌘D docks it again on the side it was last, and floats it.
+  await toggleDockShortcut(session)
+  await dockedOn(session, 'left')
+  await toggleDockShortcut(session)
+  await waitFor(async () => (await session.state()).sidebarWidth === 0, 'the chat floating')
 })

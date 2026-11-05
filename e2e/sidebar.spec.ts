@@ -110,9 +110,11 @@ test('the chat starts as the left sidebar, top to bottom, and ⌘B hides and sho
   expect((await session.state()).sidebarWidth).toBe(SIDEBAR_WIDTH)
   const meta = (await session.chatSnapshot()).meta
   expect(meta).toMatchObject({ docked: true, trafficLights: true, popped: false })
-  // The header is the window's title bar beside the toolbar: as tall, and leaving the lights room.
-  const header = session.chat.locator('[data-chat-panel] > header.drag')
+  // The header is level with the toolbar beside it: as tall, and leaving the lights room. It
+  // pulls the chat off rather than dragging the window (the toolbar does that).
+  const header = session.chat.locator('[data-chat-panel] > header')
   await expect(header).toHaveCSS('height', `${TOOLBAR_HEIGHT}px`)
+  await expect(header).not.toHaveClass(/\bdrag\b/)
   await session.shot('sidebar')
 
   // ⌘B: gone, and the chrome and preview take the whole width.

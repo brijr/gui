@@ -1,13 +1,21 @@
 import { BrowserWindow, screen, type WebContentsView } from 'electron'
 import { viewportRectFrom, viewRectFromViewport } from '../shared/coords'
 import { Events } from '../shared/ipc'
-import { BUBBLE, MINI, PANEL_SHADOW_MARGIN, TOOLBAR_HEIGHT, TRAFFIC_LIGHTS } from '../shared/layout'
+import {
+  BUBBLE,
+  MINI,
+  PANEL_SHADOW_MARGIN,
+  TAB_ROW_HEIGHT,
+  TOOLBAR_HEIGHT,
+  TRAFFIC_LIGHTS,
+} from '../shared/layout'
 import { project, SPRINGS, type SpringConfig } from '../shared/motion'
 import type {
   ChatFloat,
   ChatForm,
   ChatGrab,
   MorphKind,
+  PanelCorner,
   PanelEdge,
   Point,
   Rect,
@@ -22,6 +30,7 @@ import {
   maxFloatingSize,
   PANEL_MARGIN,
 } from './chat-presentation'
+import { dockTarget, existingDockTarget } from './dock-target'
 import { Flight, prefersReducedMotion } from './panel-flight'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
 import type { PreviewMorph } from './preview-morph'
@@ -38,6 +47,14 @@ const DOCK_MAX_SHARE = 0.6
 const THROW_SPEED = 500
 const MAX_THROW_SPEED = 8000
 const GRAB_SLOP = 240
+/** Pressed on the sidebar's header and pulled this far, it comes off; any less is a click. */
+const PULL_SLOP = 10
+/** Let go with the pointer this close to the window's left or right edge, the chat docks there. */
+const DOCK_ZONE = 56
+/** Once the target shows, it stays until the pointer is this much further from the edge. */
+const DOCK_ZONE_HOLD = 24
+/** The floating panel's header (PanelHeader's h-9) */
+const FLOATING_HEADER = 36
 const MORPH_TIMEOUT_MS = 700
 /**
  * How long after the user went back to their app the floating panel shrinks to its message
@@ -47,6 +64,8 @@ const COLLAPSE_DELAY_MS = 2500
 /** The message box's height until the chat says (one line, its tools and the panel's border) */
 const BOX_HEIGHT = 96
 const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
+
+type DockSide = 'left' | 'right'
 
 /** What the chat panel needs from its tab: views, project resources, and layout hooks. */
 export interface ChatPanelOwner {
@@ -68,6 +87,8 @@ export interface ChatPanelOwner {
   leaveFocusMode(): void
   setSelecting(on: boolean): Promise<void>
   morphLayout(kind: MorphKind): void
+  /** Docks the chat (on `side`, or the last one) or floats it, as ⇧⌘D does. */
+  setDocked(docked: boolean, side?: DockSide): void
   layout(): void
   /** The chat was laid out (or moved a frame): what floats beside it follows. */
   chatPlaced(): void
@@ -129,6 +150,19 @@ export class ChatPanel {
   /** The message box has something to send: the panel stays open for it */
   private drafted = false
   private popout: BrowserWindow | null = null
+  /**
+   * The pointer holds the floating chat: where it is in the window, and where the panel's
+   * anchored corner is from it. The panel follows it there, free of the canvas, which can change
+   * under it (the sidebar it was pulled out of going). `known`, the drag started with a press
+   * (`grabChat`), so the pointer's place is real and letting go at an edge can dock.
+   */
+  private drag: { pointer: Point; grab: Point; known: boolean } | null = null
+  /** Pressed on the sidebar's header, where, and where the pointer is: not yet pulled off. */
+  private pull: { from: Point; pointer: Point } | null = null
+  /** The window's edge the chat docks at if let go now, its target showing there. */
+  private dropSide: DockSide | null = null
+  /** How far out of the window the sidebar docking next slides in from: where it was let go */
+  private dockFrom: number | null = null
 
   constructor(private readonly tab: ChatPanelOwner) {}
 
@@ -373,6 +407,7 @@ export class ChatPanel {
       !this.tab.state.preview.selecting &&
       !this.resizing &&
       !this.flight &&
+      !this.drag &&
       this.tab.host.isActive(this.tab) &&
       // Using the page is going back to the app; the keyboard merely leaving the chat is only
       // if it stayed in this window, and not back in the chat.
@@ -426,33 +461,176 @@ export class ChatPanel {
     this.collapsing = { seq, timer }
   }
 
-  grabChat(at: ChatGrab) {
-    if (!this.flight && !this.heldAt) return
-    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
-    const drawn = this.floatingRect(contentWidth, contentHeight)
-    const view = this.floatingBounds(contentWidth, contentHeight, this.viewForm)
+  /**
+   * Where the chat page's pointer is in the window's content. The page reports screen
+   * coordinates in DIPs, as the window's bounds are, so it's the same pixels moved by the
+   * content's origin; its client coordinates are the page's, scaled by its zoom.
+   */
+  private pointerAt(at: { screenX: number; screenY: number }): Point {
     const content = this.tab.host.win.getContentBounds()
-    const zoom = this.tab.chatView.webContents.getZoomFactor()
-    const dx = Math.round(at.screenX - content.x - at.clientX * zoom) - view.x
-    const dy = Math.round(at.screenY - content.y - at.clientY * zoom) - view.y
-    const near = Math.abs(dx) <= GRAB_SLOP && Math.abs(dy) <= GRAB_SLOP
-    this.holdFlight(near ? { ...drawn, x: drawn.x + dx, y: drawn.y + dy } : drawn)
+    return { x: at.screenX - content.x, y: at.screenY - content.y }
+  }
+
+  /**
+   * A press on the floating chat's header (or the pill), or the sidebar's. Floating, a flight
+   * is caught where it is and the panel follows the pointer from there; the sidebar waits to
+   * be pulled (`dragChat`).
+   */
+  grabChat(at: ChatGrab) {
+    const pointer = this.pointerAt(at)
+    this.pull = null
+    if (this.sidebarShown) {
+      this.pull = { from: pointer, pointer }
+      this.readyDockTarget()
+      return
+    }
+    if (!this.chatShown || this.docked) return
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    if (this.flight || this.heldAt) {
+      const drawn = this.floatingRect(contentWidth, contentHeight)
+      const view = this.floatingBounds(contentWidth, contentHeight, this.viewForm)
+      const content = this.tab.host.win.getContentBounds()
+      const zoom = this.tab.chatView.webContents.getZoomFactor()
+      const dx = Math.round(at.screenX - content.x - at.clientX * zoom) - view.x
+      const dy = Math.round(at.screenY - content.y - at.clientY * zoom) - view.y
+      const near = Math.abs(dx) <= GRAB_SLOP && Math.abs(dy) <= GRAB_SLOP
+      this.holdFlight(near ? { ...drawn, x: drawn.x + dx, y: drawn.y + dy } : drawn)
+    }
+    const corner = cornerPoint(this.floatingRect(contentWidth, contentHeight), this.anchor)
+    this.drag = { pointer, grab: { x: pointer.x - corner.x, y: pointer.y - corner.y }, known: true }
+    this.readyDockTarget()
     this.layoutChat()
   }
 
   dragChat(dx: number, dy: number) {
+    const pull = this.pull
+    if (pull) {
+      pull.pointer = { x: pull.pointer.x + dx, y: pull.pointer.y + dy }
+      const pulled = Math.hypot(pull.pointer.x - pull.from.x, pull.pointer.y - pull.from.y)
+      if (pulled < PULL_SLOP) return
+      this.pull = null
+      if (this.sidebarShown) this.pullOff(pull.from, pull.pointer)
+      return
+    }
+    if (!this.chatShown || this.docked) return
     this.holdFlight()
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    if (!this.drag) {
+      // Moved without a press (a chat page reloaded mid-drag): from where the panel is, by its
+      // corner, with no pointer to dock by.
+      const corner = cornerPoint(this.floatingRect(contentWidth, contentHeight), this.anchor)
+      this.drag = { pointer: corner, grab: { x: 0, y: 0 }, known: false }
+    }
+    const drag = this.drag
+    drag.pointer = { x: drag.pointer.x + dx, y: drag.pointer.y + dy }
+    this.followPointer()
+  }
+
+  /** The panel where the pointer has it, and the edge it would dock at if let go there. */
+  private followPointer() {
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const rect = this.floatingRect(contentWidth, contentHeight)
-    const area = this.anchorArea(contentWidth, contentHeight)
-    this.anchor = anchorFor({ ...rect, x: rect.x + dx, y: rect.y + dy }, area, this.anchor)
+    this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
+    const drag = this.drag
+    this.showDropSide(drag?.known ? this.dropSideAt(drag.pointer, contentWidth) : null)
     this.layoutChat()
   }
 
+  /**
+   * The edge the pointer is at, if it's close enough to dock there. Only where it is counts,
+   * not where it's heading: a flick toward an edge throws the panel into a corner.
+   */
+  private dropSideAt(pointer: Point, contentWidth: number): DockSide | null {
+    const reach = (side: DockSide) => DOCK_ZONE + (this.dropSide === side ? DOCK_ZONE_HOLD : 0)
+    if (pointer.x <= reach('left')) return 'left'
+    if (pointer.x >= contentWidth - reach('right')) return 'right'
+    return null
+  }
+
+  /** Shows where the chat would dock (the sidebar's place on `side`), or nothing. */
+  private showDropSide(side: DockSide | null) {
+    this.dropSide = side
+    const { win } = this.tab.host
+    if (!side || !this.tab.host.isActive(this.tab)) {
+      existingDockTarget(win)?.hide()
+      return
+    }
+    dockTarget(win).show(this.sidebarRect(side), this.tab.chatView)
+  }
+
+  /** The window's dock target, made now so it's ready by the time the pointer reaches an edge. */
+  private readyDockTarget() {
+    if (this.tab.host.isActive(this.tab)) dockTarget(this.tab.host.win)
+  }
+
+  /** Where the sidebar goes on `side`: the window's full height at that edge. */
+  private sidebarRect(side: DockSide): Rect {
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    const width = this.dockedWidth()
+    return { x: side === 'left' ? 0 : contentWidth - width, y: 0, width, height: contentHeight }
+  }
+
+  /** The pointer has let go, or the chat stopped floating under it. */
+  private endDrag() {
+    this.drag = null
+    this.pull = null
+    if (this.dropSide) this.showDropSide(null)
+  }
+
+  /**
+   * The sidebar pulled off by its header: it's the floating panel, under the pointer, at the
+   * same place in its header as was pressed in the sidebar's (across the narrower width), and
+   * the drag carries on as the panel's. The preview widens into the room it leaves.
+   */
+  private pullOff(from: Point, pointer: Point) {
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    const width = this.dockedWidth()
+    const left = getPrefs().chatSidebarSide === 'left'
+    const header = this.tab.host.chromeHeight > TOOLBAR_HEIGHT ? TAB_ROW_HEIGHT : TOOLBAR_HEIGHT
+    const size = this.floatingSize(contentWidth, contentHeight)
+    const across = clamp((from.x - (left ? 0 : contentWidth - width)) / width, 0, 1)
+    const down = clamp(from.y / header, 0, 1)
+    const rect = {
+      x: pointer.x - Math.round(across * size.width),
+      y: pointer.y - Math.round(down * FLOATING_HEADER),
+      ...size,
+    }
+    const corner: PanelCorner = {
+      x: rect.x + rect.width / 2 < contentWidth / 2 ? 'left' : 'right',
+      y: 'top',
+    }
+    this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), corner)
+    // Floating now, it's laid out at `rect` by that anchor; then the pointer has it.
+    this.tab.setDocked(false)
+    if (this.docked || !this.chatShown) return
+    const at = cornerPoint(rect, corner)
+    this.drag = { pointer, grab: { x: pointer.x - at.x, y: pointer.y - at.y }, known: true }
+    this.followPointer()
+  }
+
+  /** Let go at an edge: the chat docks there, the sidebar sliding in from where the panel was. */
+  private dockAt(side: DockSide, rect: Rect) {
+    const [contentWidth] = this.tab.host.win.getContentSize()
+    const width = this.dockedWidth()
+    this.dockFrom = Math.round(
+      side === 'left'
+        ? clamp(width - (rect.x + rect.width), 0, width)
+        : clamp(rect.x - (contentWidth - width), 0, width),
+    )
+    this.tab.setDocked(true, side)
+    this.dockFrom = null
+  }
+
   endDragChat(release: Point = { x: 0, y: 0 }) {
+    // Pressed on the sidebar's header without pulling it off: a click.
+    if (this.pull) return this.endDrag()
+    if (!this.chatShown || this.docked) return this.endDrag()
     this.holdFlight()
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const rect = this.floatingRect(contentWidth, contentHeight)
+    const side = this.dropSide
+    this.endDrag()
+    if (side) return this.dockAt(side, rect)
     const area = this.anchorArea(contentWidth, contentHeight)
     const speed = Math.hypot(release.x, release.y)
     const cap = speed > MAX_THROW_SPEED ? MAX_THROW_SPEED / speed : 1
@@ -493,6 +671,8 @@ export class ChatPanel {
       const area = this.anchorArea(contentWidth, contentHeight)
       const max = maxFloatingSize(contentWidth, area, PANEL_MIN.height)
       const panel = this.floatingRect(contentWidth, contentHeight)
+      // Resized from where it's held: it's the edges that move now.
+      this.endDrag()
       let left = panel.x
       let top = panel.y
       let right = panel.x + panel.width
@@ -643,12 +823,18 @@ export class ChatPanel {
     const float = this.float()
     const { form } = float
     if (!showChat || docked) {
+      // Hidden or docked under the pointer: nothing follows it now. A press on the sidebar's
+      // header (`pull`) waits on.
+      this.drag = null
+      if (this.dropSide) this.showDropSide(null)
       this.flight?.finish()
       this.settleForm(form)
       this.settleCollapse(float.collapsed)
       this.showFloat(float)
     }
     this.tab.chatView.setVisible((showChat || leaving) && !covered)
+    // Docked on the other side from another tab (or Settings): this one's border follows.
+    this.tab.resources.chat?.setSidebarSide(getPrefs().chatSidebarSide)
     this.tab.resources.chat?.setTrafficLights(
       docked && getPrefs().chatSidebarSide === 'left' && !this.tab.host.win.isFullScreen(),
     )
@@ -744,7 +930,10 @@ export class ChatPanel {
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
     const held = !atRest && this.heldAt ? cornerPoint(this.heldAt, this.anchor) : null
-    const corner = (!atRest && this.flight?.point) ||
+    const drag = atRest ? null : this.drag
+    const dragged = drag && { x: drag.pointer.x - drag.grab.x, y: drag.pointer.y - drag.grab.y }
+    const corner = dragged ||
+      (!atRest && this.flight?.point) ||
       held || {
         x: x === 'left' ? area.x + dx : area.x + area.width - dx,
         y: y === 'top' ? area.y + dy : area.y + area.height - dy,
@@ -756,9 +945,12 @@ export class ChatPanel {
     const free =
       !atRest && (held !== null || (this.flight !== null && this.flight === this.morphFlight))
     const bottom = free ? contentHeight - height : area.y + area.height - height
+    // Held, it stays under the pointer even over the toolbar (as the sidebar's header is, pulled
+    // off); let go, it comes back below it.
+    const highest = dragged ? 0 : this.tab.host.chromeHeight
     return {
       x: Math.round(clamp(left, 0, contentWidth - width)),
-      y: Math.round(clamp(top, this.tab.host.chromeHeight, bottom)),
+      y: Math.round(clamp(top, highest, bottom)),
       width,
       height,
     }
@@ -805,7 +997,8 @@ export class ChatPanel {
 
   /** A morph was asked for: the floating panel stays where it's drawn until it moves. */
   holdFloat() {
-    if (this.heldAt || this.flight || this.docked || this.popout || !this.chatShown) return
+    if (this.heldAt || this.flight || this.drag || this.docked || this.popout || !this.chatShown)
+      return
     if (!this.tab.morph.active || !this.tab.host.isActive(this.tab)) return
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     this.heldAt = this.floatingRect(contentWidth, contentHeight)
@@ -863,7 +1056,11 @@ export class ChatPanel {
    */
   holdDock(leaving = false) {
     const slide = this.dockSlide
-    const from = slide ? this.dockOffset() : leaving ? 0 : this.dockedWidth()
+    const from = slide
+      ? this.dockOffset()
+      : leaving
+        ? 0
+        : clamp(this.dockFrom ?? this.dockedWidth(), 0, this.dockedWidth())
     slide?.flight?.stop()
     this.dockSlide = this.tab.morph.active ? { flight: null, from, leaving } : null
   }
@@ -1002,6 +1199,8 @@ export class ChatPanel {
   }
 
   deactivate() {
+    this.endDrag()
+    existingDockTarget(this.tab.host.win)?.hide(true)
     this.landDock()
     // The chrome drops a slide when the tab goes; this one starts over when it's back.
     this.slideSent = 'null'
@@ -1011,6 +1210,7 @@ export class ChatPanel {
   }
 
   dispose() {
+    this.endDrag()
     this.cancelCollapse()
     if (this.collapsing) clearTimeout(this.collapsing.timer)
     this.closePopout()
