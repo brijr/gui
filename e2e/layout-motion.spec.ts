@@ -634,12 +634,16 @@ test('zoom steps, focus mode and docking resize the page, and land on their exac
   expect(near(narrowing.at(-1), dock.end.expected, 0)).toBe(true)
   expect(jumps(narrowing, 'docking')).toEqual([])
   expect(dock.widths.length).toBeGreaterThan(3)
-  // The sidebar slid in from past the window's left edge, rather than appearing.
-  const docked = dock.samples.flatMap((sample) => (sample.chat ? [sample.chat.x] : []))
-  const slid = docked.filter((x, i) => i === 0 || x !== docked[i - 1])
-  const sidebarWidth = dock.end.expected.x
-  expect(slid.filter((x) => x < -20 && x > -sidebarWidth + 20).length).toBeGreaterThan(3)
-  expect(slid.at(-1)).toBe(0)
+  // The floating card turned into the sidebar, growing to the window's height through shapes
+  // between the two rather than the sidebar appearing, and ending at the window's left edge.
+  const shapes = dock.samples.flatMap((sample) => (sample.chat ? [sample.chat] : []))
+  const grew = shapes.filter((rect, i) => i === 0 || rect.height !== shapes[i - 1]?.height)
+  const [card, sidebar] = [grew[0]?.height ?? 0, grew.at(-1)?.height ?? 0]
+  expect(sidebar).toBeGreaterThan(card + 100)
+  expect(
+    grew.filter(({ height }) => height > card + 20 && height < sidebar - 20).length,
+  ).toBeGreaterThan(3)
+  expect(shapes.at(-1)?.x).toBe(0)
   const undock = await record(
     session,
     () => session.chat.evaluate(() => window.gui.toggleDock()),

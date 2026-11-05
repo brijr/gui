@@ -150,6 +150,7 @@ const api: GuiApi = {
   onChatFocus: (cb) => subscribe(Events.chatFocus, cb),
   onChatMenuChoice: (cb) => subscribe(Events.chatMenuChoice, cb),
   onChatFloat: (cb) => subscribe(Events.chatFloat, cb),
+  onChatShape: (cb) => subscribe(Events.chatShape, cb),
   chatMorphed: send(Send.chatMorphed),
   chatCollapsed: send(Send.chatCollapsed),
   chatBoxHeight: send(Send.chatBoxHeight),

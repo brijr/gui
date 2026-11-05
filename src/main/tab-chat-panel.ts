@@ -14,6 +14,7 @@ import type {
   ChatFloat,
   ChatForm,
   ChatGrab,
+  ChatShape,
   MorphKind,
   PanelCorner,
   PanelEdge,
@@ -30,6 +31,7 @@ import {
   maxFloatingSize,
   PANEL_MARGIN,
 } from './chat-presentation'
+import { DockMorph } from './dock-morph'
 import { dockTarget, existingDockTarget } from './dock-target'
 import { Flight, prefersReducedMotion } from './panel-flight'
 import { type ChatSize, getPrefs, setPrefs } from './prefs'
@@ -55,6 +57,8 @@ const DOCK_ZONE = 56
 const DOCK_ZONE_HOLD = 24
 /** The floating panel's header (PanelHeader's h-9) */
 const FLOATING_HEADER = 36
+/** The floating panel's corners (rounded-xl); the pill's are half its height */
+const CARD_RADIUS = 12
 const MORPH_TIMEOUT_MS = 700
 /**
  * How long after the user went back to their app the floating panel shrinks to its message
@@ -161,8 +165,23 @@ export class ChatPanel {
   private pull: { from: Point; pointer: Point } | null = null
   /** The window's edge the chat docks at if let go now, its target showing there. */
   private dropSide: DockSide | null = null
-  /** How far out of the window the sidebar docking next slides in from: where it was let go */
-  private dockFrom: number | null = null
+  /** Where the card was let go at an edge, for the sidebar to grow from (`shapeTo`) */
+  private dockCard: Rect | null = null
+  /**
+   * The chat turning between the floating card and the sidebar on `side` (dock-morph.ts).
+   * Docking, `card` is where the card was let go or sat; floating, null: the card is wherever
+   * the panel is now, under the pointer or flying to its corner. `radius` is the card's
+   * corners; `reveal`, it grows from the pill or the message box alone.
+   */
+  private shape: {
+    morph: DockMorph
+    side: DockSide
+    card: Rect | null
+    radius: number
+    reveal: boolean
+  } | null = null
+  /** The last `ChatShape` the chat page was sent, as JSON */
+  private shapeSent = 'null'
 
   constructor(private readonly tab: ChatPanelOwner) {}
 
@@ -570,11 +589,12 @@ export class ChatPanel {
     return { x: side === 'left' ? 0 : contentWidth - width, y: 0, width, height: contentHeight }
   }
 
-  /** The pointer has let go, or the chat stopped floating under it. */
-  private endDrag() {
+  /** The pointer has let go, or the chat stopped floating under it; `keepTarget`, to dock. */
+  private endDrag(keepTarget = false) {
     this.drag = null
     this.pull = null
-    if (this.dropSide) this.showDropSide(null)
+    if (keepTarget) this.dropSide = null
+    else if (this.dropSide) this.showDropSide(null)
   }
 
   /**
@@ -600,25 +620,28 @@ export class ChatPanel {
       y: 'top',
     }
     this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), corner)
-    // Floating now, it's laid out at `rect` by that anchor; then the pointer has it.
-    this.tab.setDocked(false)
-    if (this.docked || !this.chatShown) return
+    // The pointer has it from the start, so the sidebar turns into the card right there.
     const at = cornerPoint(rect, corner)
     this.drag = { pointer, grab: { x: pointer.x - at.x, y: pointer.y - at.y }, known: true }
+    this.tab.setDocked(false)
+    if (this.docked || !this.chatShown) {
+      this.drag = null
+      return
+    }
     this.followPointer()
   }
 
-  /** Let go at an edge: the chat docks there, the sidebar sliding in from where the panel was. */
-  private dockAt(side: DockSide, rect: Rect) {
-    const [contentWidth] = this.tab.host.win.getContentSize()
-    const width = this.dockedWidth()
-    this.dockFrom = Math.round(
-      side === 'left'
-        ? clamp(width - (rect.x + rect.width), 0, width)
-        : clamp(rect.x - (contentWidth - width), 0, width),
-    )
+  /**
+   * Let go at an edge: the chat docks there, the card it was (at `rect`) turning into the
+   * sidebar and carrying on at the speed it was let go, its target filling as it goes.
+   */
+  private dockAt(side: DockSide, rect: Rect, velocity: Point) {
+    this.dockCard = rect
     this.tab.setDocked(true, side)
-    this.dockFrom = null
+    this.dockCard = null
+    if (this.shape?.morph.docking) this.shape.morph.push(velocity)
+    // Docked at once: the sidebar covers its target.
+    else existingDockTarget(this.tab.host.win)?.hide(true)
   }
 
   endDragChat(release: Point = { x: 0, y: 0 }) {
@@ -628,13 +651,14 @@ export class ChatPanel {
     this.holdFlight()
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const rect = this.floatingRect(contentWidth, contentHeight)
-    const side = this.dropSide
-    this.endDrag()
-    if (side) return this.dockAt(side, rect)
-    const area = this.anchorArea(contentWidth, contentHeight)
     const speed = Math.hypot(release.x, release.y)
     const cap = speed > MAX_THROW_SPEED ? MAX_THROW_SPEED / speed : 1
     const velocity = { x: release.x * cap, y: release.y * cap }
+    const side = this.dropSide
+    // Let go at an edge, its target stays until the sidebar has grown over it.
+    this.endDrag(side !== null)
+    if (side) return this.dockAt(side, rect, velocity)
+    const area = this.anchorArea(contentWidth, contentHeight)
     const landing = {
       x: project(rect.x + rect.width / 2, velocity.x),
       y: project(rect.y + rect.height / 2, velocity.y),
@@ -813,9 +837,11 @@ export class ChatPanel {
     // Before the sidebar's new width: the bars then hold where the sidebar is as it arrives.
     this.sendSlide()
     this.syncSidebarWidth()
-    if (this.popout) return
+    if (this.popout) return this.dropShape()
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const showChat = this.chatShown
+    // Hidden mid-way (⌘B, focus mode, a sheet's pick): it takes its place.
+    if (!showChat || this.bubbled) this.dropShape()
     // Hidden, the sidebar stays on screen until it has slid out of the window.
     const leaving = !showChat && this.docked && !!this.dockSlide?.leaving
     const docked = (showChat || leaving) && this.docked
@@ -841,6 +867,7 @@ export class ChatPanel {
     // Taller chrome than the toolbar alone: the tab row is showing beside the sidebar.
     this.tab.resources.chat?.setTabRow(docked && this.tab.host.chromeHeight > TOOLBAR_HEIGHT)
     if (docked) {
+      if (this.shape) return this.placeShape(contentWidth, contentHeight)
       const dockWidth = this.dockedWidth()
       const slide = this.dockOffset()
       this.tab.chatView.setBounds({
@@ -864,7 +891,9 @@ export class ChatPanel {
     else if (this.viewCollapsed) this.settleCollapse(true)
     else if (form === 'panel' && this.viewForm === 'panel') this.awaitCollapse()
     else this.settleCollapse(true)
-    this.tab.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, this.viewForm))
+    if (this.shape) this.placeShape(contentWidth, contentHeight)
+    else
+      this.tab.chatView.setBounds(this.floatingBounds(contentWidth, contentHeight, this.viewForm))
     this.showFloat(float)
   }
 
@@ -995,17 +1024,34 @@ export class ChatPanel {
     this.anchor = anchorFor(rect, this.anchorArea(contentWidth, contentHeight), this.anchor)
   }
 
-  /** A morph was asked for: the floating panel stays where it's drawn until it moves. */
+  /**
+   * A morph was asked for: the floating panel stays where it's drawn until it moves, and so
+   * does the chat changing shape when the preview's morph is only now starting (mid-way, the
+   * two carry on).
+   */
   holdFloat() {
-    if (this.heldAt || this.flight || this.drag || this.docked || this.popout || !this.chatShown)
+    if (this.shape && this.tab.morph.active && !this.tab.morph.moving) this.shape.morph.hold()
+    if (
+      this.heldAt ||
+      this.flight ||
+      this.drag ||
+      this.shape ||
+      this.docked ||
+      this.popout ||
+      !this.chatShown
+    )
       return
     if (!this.tab.morph.active || !this.tab.host.isActive(this.tab)) return
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     this.heldAt = this.floatingRect(contentWidth, contentHeight)
   }
 
-  /** The morph moves: the panel flies to its corner on the same spring, from the same moment. */
+  /**
+   * The morph moves: the panel flies to its corner on the same spring, from the same moment,
+   * and the chat changing shape sets off with it.
+   */
   flyHeld() {
+    this.shape?.morph.release()
     const from = this.heldAt
     if (!from) return
     this.heldAt = null
@@ -1013,8 +1059,9 @@ export class ChatPanel {
     this.morphFlight = this.flight
   }
 
-  /** The morph rests (or never moved): so does the panel, in its corner. */
+  /** The morph rests (or never moved): so does the panel, in its corner; a shape sets off. */
   landFloat() {
+    this.shape?.morph.release()
     const flight = this.morphFlight
     this.morphFlight = null
     if (flight && this.flight === flight) flight.finish()
@@ -1037,7 +1084,12 @@ export class ChatPanel {
   private sendSlide() {
     const slide = this.dockSlide
     let payload: SidebarSlide = null
-    if ((slide || this.resizing === 'docked') && this.docked && !this.popout) {
+    const shape = this.shape
+    if (shape && !this.popout) {
+      // Turning into the sidebar or out of it: as much of it as the preview has made room for.
+      const shown = Math.round(this.dockedWidth() * shape.morph.sidebar)
+      payload = shape.side === 'left' ? { left: shown, right: 0 } : { left: 0, right: shown }
+    } else if ((slide || this.resizing === 'docked') && this.docked && !this.popout) {
       const shown = Math.max(0, this.dockedWidth() - Math.round(this.dockOffset()))
       payload =
         getPrefs().chatSidebarSide === 'left'
@@ -1056,11 +1108,7 @@ export class ChatPanel {
    */
   holdDock(leaving = false) {
     const slide = this.dockSlide
-    const from = slide
-      ? this.dockOffset()
-      : leaving
-        ? 0
-        : clamp(this.dockFrom ?? this.dockedWidth(), 0, this.dockedWidth())
+    const from = slide ? this.dockOffset() : leaving ? 0 : this.dockedWidth()
     slide?.flight?.stop()
     this.dockSlide = this.tab.morph.active ? { flight: null, from, leaving } : null
   }
@@ -1095,6 +1143,158 @@ export class ChatPanel {
     if (slide.flight) return slide.flight.finish()
     this.dockSlide = null
     this.layoutChat()
+  }
+
+  /**
+   * Before the chat docks on `side` (`docked`) or floats from it: ⇧⌘D, a drop at an edge, a
+   * pull off the sidebar. It turns into its new shape from where it's drawn, on the spring the
+   * preview's morph uses, and mid-way turns back from wherever it is. False when it simply
+   * takes its place: Reduce motion, out of sight, popped out, picking.
+   */
+  shapeTo(docked: boolean, side: DockSide): boolean {
+    const current = this.shape
+    const able =
+      !prefersReducedMotion() &&
+      this.tab.host.isActive(this.tab) &&
+      this.chatShown &&
+      !this.bubbled &&
+      (current !== null || docked !== this.docked)
+    if (!able) {
+      this.dropShape()
+      return false
+    }
+    const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
+    const before = this.drawnRect(contentWidth, contentHeight)
+    const pill = !!this.tab.resources.chat?.meta.minimized
+    this.dockSlide?.flight?.stop()
+    this.dockSlide = null
+    const morph: DockMorph =
+      current?.morph ??
+      new DockMorph({
+        frames: this.tab.host.win.webContents,
+        from: docked ? 0 : 1,
+        frame: () => this.layoutChat(),
+        rest: () => this.landShape(morph),
+      })
+    this.shape = {
+      morph,
+      side,
+      card: docked ? (this.dockCard ?? this.floatingRect(contentWidth, contentHeight)) : null,
+      radius: docked && pill ? MINI.height / 2 : CARD_RADIUS,
+      reveal: docked && (pill || this.viewCollapsed),
+    }
+    morph.to(docked ? 1 : 0)
+    morph.absorb(before, this.shapeRect(contentWidth, contentHeight, false))
+    // Not dropped at an edge (or pulled off mid-way): a target showing for one goes.
+    if (!docked || !this.dockCard) existingDockTarget(this.tab.host.win)?.hide()
+    // Drawn as the shape before the chat page hears it's docked or floating, so it never
+    // draws the new layout in the old place.
+    this.placeShape(contentWidth, contentHeight)
+    return true
+  }
+
+  /** Where the chat is drawn in the window now: mid-way, the sidebar, or the card. */
+  private drawnRect(contentWidth: number, contentHeight: number): Rect {
+    if (this.shape) return this.shapeRect(contentWidth, contentHeight)
+    if (this.docked) {
+      const side = getPrefs().chatSidebarSide
+      const rect = this.sidebarRect(side)
+      const slide = Math.round(this.dockOffset())
+      return { ...rect, x: rect.x + (side === 'left' ? -slide : slide) }
+    }
+    return this.floatingRect(contentWidth, contentHeight)
+  }
+
+  /**
+   * The chat mid-way between the card and the sidebar; `inWindow`, a release's speed presses
+   * it against the window's edge rather than past it.
+   */
+  private shapeRect(contentWidth: number, contentHeight: number, inWindow = true): Rect {
+    const shape = this.shape
+    if (!shape) throw new Error('Not changing shape')
+    const card = shape.card ?? this.floatingRect(contentWidth, contentHeight)
+    const rect = shape.morph.place(card, this.sidebarRect(shape.side))
+    if (!inWindow) return rect
+    return {
+      ...rect,
+      x: clamp(rect.x, 0, Math.max(0, contentWidth - rect.width)),
+      y: clamp(rect.y, 0, Math.max(0, contentHeight - rect.height)),
+    }
+  }
+
+  /**
+   * Places the chat mid-way: its view around the shape, with room for the shadow while it's
+   * still a card, and tells the page how to draw it in there, before the view moves.
+   */
+  private placeShape(contentWidth: number, contentHeight: number) {
+    const shape = this.shape
+    if (!shape) return
+    const rect = this.shapeRect(contentWidth, contentHeight)
+    const card = 1 - shape.morph.sidebar
+    const margin = PANEL_SHADOW_MARGIN * card
+    // Each edge rounded once, so none of them steps back a pixel as it moves.
+    const edges = {
+      left: Math.round(rect.x),
+      top: Math.round(rect.y),
+      right: Math.round(rect.x + rect.width),
+      bottom: Math.round(rect.y + rect.height),
+    }
+    const view = {
+      left: Math.round(rect.x - margin),
+      top: Math.round(rect.y - margin),
+      right: Math.round(rect.x + rect.width + margin),
+      bottom: Math.round(rect.y + rect.height + margin),
+    }
+    const zoom = this.tab.chatView.webContents.getZoomFactor() || 1
+    const css = (px: number) => Math.round((px / zoom) * 100) / 100
+    this.sendShape({
+      width: css(view.right - view.left),
+      height: css(view.bottom - view.top),
+      inset: {
+        top: css(edges.top - view.top),
+        right: css(view.right - edges.right),
+        bottom: css(view.bottom - edges.bottom),
+        left: css(edges.left - view.left),
+      },
+      card: Math.round(card * 1000) / 1000,
+      radius: Math.round(shape.radius * card * 100) / 100,
+      side: shape.side,
+      trafficLights: shape.side === 'left' && !this.tab.host.win.isFullScreen(),
+      tabRow: this.tab.host.chromeHeight > TOOLBAR_HEIGHT,
+      reveal: shape.reveal,
+    })
+    this.tab.chatView.setBounds({
+      x: view.left,
+      y: view.top,
+      width: view.right - view.left,
+      height: view.bottom - view.top,
+    })
+  }
+
+  /** The shape rests: the sidebar (whose target, under it now, goes) or the card. */
+  private landShape(morph: DockMorph) {
+    if (this.shape?.morph !== morph) return
+    this.shape = null
+    if (morph.docking) existingDockTarget(this.tab.host.win)?.hide(true)
+    this.sendShape(null)
+    this.layoutChat()
+  }
+
+  /** Stops changing shape where it is; whatever lays the chat out next puts it in its place. */
+  private dropShape() {
+    const shape = this.shape
+    if (!shape) return
+    shape.morph.stop()
+    this.shape = null
+    if (shape.morph.docking) existingDockTarget(this.tab.host.win)?.hide(true)
+    this.sendShape(null)
+  }
+
+  private sendShape(shape: ChatShape | null) {
+    const json = JSON.stringify(shape)
+    if (json === this.shapeSent) return
+    this.shapeSent = json
+    this.tab.sendChat(Events.chatShape, shape)
   }
 
   private anchorArea(contentWidth: number, contentHeight: number): Rect {
@@ -1200,10 +1400,12 @@ export class ChatPanel {
 
   deactivate() {
     this.endDrag()
+    this.dropShape()
     existingDockTarget(this.tab.host.win)?.hide(true)
     this.landDock()
     // The chrome drops a slide when the tab goes; this one starts over when it's back.
     this.slideSent = 'null'
+    this.shapeSent = 'null'
     this.flight?.finish()
     this.settleForm(this.wantedForm())
     this.settleCollapse(this.collapsed())
@@ -1216,6 +1418,7 @@ export class ChatPanel {
     this.closePopout()
     this.flight?.stop()
     this.dockSlide?.flight?.stop()
+    this.shape?.morph.stop()
     if (this.morphing) clearTimeout(this.morphing.timer)
   }
 

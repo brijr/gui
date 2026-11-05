@@ -3316,6 +3316,9 @@ export class ProjectTab implements ChatPanelOwner {
     const chat = this.resources.chat
     if (!chat) return
     this.leaveFocusMode()
+    // From where it's drawn now, before anything changes: the card turns into the sidebar or
+    // back, rather than one replacing the other.
+    const shaped = this.panel.shapeTo(docked, side ?? getPrefs().chatSidebarSide)
     // Floating again, it shows the conversation the sidebar did.
     this.panel.showConversation()
     this.panel.untuck()
@@ -3324,7 +3327,8 @@ export class ProjectTab implements ChatPanelOwner {
     if (side) chat.setSidebarSide(side)
     chat.setDocked(docked)
     if (!this.state.chatVisible) this.patch({ chatVisible: true })
-    if (docked) this.panel.holdDock()
+    // Not on screen to turn from: the sidebar slides in from the edge.
+    if (docked && !shaped) this.panel.holdDock()
     this.layout()
   }
 

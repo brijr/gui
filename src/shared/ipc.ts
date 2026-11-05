@@ -9,6 +9,7 @@ import type {
   ChatForm,
   ChatGrab,
   ChatMeta,
+  ChatShape,
   ChatSnapshot,
   ChatSummary,
   CustomAgentEntry,
@@ -235,6 +236,8 @@ export const Events = {
   recordingUpdate: 'recording:update',
   recordingCursor: 'recording:cursor',
   chatFloat: 'chat:float',
+  /** The chat mid-way between the floating card and the sidebar (`ChatShape`) */
+  chatShape: 'chat:shape',
   morph: 'layout:morph',
   /** The chat sidebar mid-slide (`SidebarSlide`) */
   sidebarSlide: 'layout:sidebar-slide',
@@ -545,6 +548,11 @@ export interface GuiApi {
    * form at once; to a smaller one only once the chat has morphed into it (`chatMorphed`).
    */
   onChatFloat(cb: (float: ChatFloat) => void): Unsubscribe
+  /**
+   * How to draw the chat on each frame while it turns from the floating card into the sidebar
+   * or back (`ChatShape`), then null.
+   */
+  onChatShape(cb: (shape: ChatShape | null) => void): Unsubscribe
   /**
    * The chat has finished morphing into `form` (the float numbered `seq`), so main can shrink
    * the view to it. Without this main shrinks it after a short while anyway.

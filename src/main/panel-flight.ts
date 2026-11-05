@@ -86,6 +86,18 @@ export function onDisplayFrames(contents: WebContents, tick: () => void): () => 
  */
 const MAX_STEP = 0.1
 
+/**
+ * The seconds a spring in main steps for `elapsed` real seconds: capped at MAX_STEP, and in
+ * unpackaged builds slowed by `globalThis.guiMotionScale` (say 10, ten times slower), so the
+ * end-to-end tests can capture a morph partway through.
+ */
+export function motionStep(elapsed: number) {
+  const step = Math.min(elapsed, MAX_STEP)
+  if (app.isPackaged) return step
+  const scale = (globalThis as { guiMotionScale?: number }).guiMotionScale
+  return typeof scale === 'number' && scale > 0 ? step / scale : step
+}
+
 interface FlightOptions {
   /** The page whose frames it steps on: the window's own */
   frames: WebContents
@@ -168,7 +180,7 @@ export class Flight {
   private tick() {
     if (!this.running) return
     const now = performance.now()
-    const dt = Math.min((now - this.last) / 1000, MAX_STEP)
+    const dt = motionStep((now - this.last) / 1000)
     this.last = now
     const target = this.options.target()
     this.x.retarget(target.x)

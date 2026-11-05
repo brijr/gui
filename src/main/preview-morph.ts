@@ -8,7 +8,7 @@ import {
   type Rect,
   viewportSpec,
 } from '../shared/types'
-import { onDisplayFrames, prefersReducedMotion } from './panel-flight'
+import { motionStep, onDisplayFrames, prefersReducedMotion } from './panel-flight'
 import type { Emulation } from './viewport'
 
 /*
@@ -33,8 +33,6 @@ const ARMED_TIMEOUT_MS = 300
 const PRECISION = { x: 0.5, y: 0.5, w: 0.5, h: 0.5, s: 0.0005, frame: 0.002 } as const
 type Key = keyof typeof PRECISION
 const KEYS = Object.keys(PRECISION) as Key[]
-/** Steps follow real time; a stall longer than this is taken as this long. */
-const MAX_STEP = 0.1
 
 /** Unique across tabs, so the chrome never takes one tab's morph for another's. */
 let lastId = 0
@@ -205,7 +203,7 @@ export class PreviewMorph {
     const { springs } = this
     if (this.phase !== 'moving' || !springs) return
     const now = performance.now()
-    const dt = Math.min((now - this.last) / 1000, MAX_STEP)
+    const dt = motionStep((now - this.last) / 1000)
     this.last = now
     for (const key of KEYS) springs[key].step(dt)
     if (KEYS.every((key) => springs[key].atRest(PRECISION[key]))) return this.finish()

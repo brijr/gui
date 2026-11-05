@@ -49,6 +49,7 @@ import { Button, IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
+import { connectShape, currentShape, subscribeShape, useShaping } from './shape'
 import { connectChat, keyedAnswer, useChat, waitingCard, whenPanelShown } from './store'
 import { Transcript } from './transcript'
 import { toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
@@ -90,7 +91,9 @@ function answerPermissionKeys() {
 
 export function ChatPanel() {
   useEffect(() => connectChat(), [])
+  useEffect(() => connectShape(), [])
   useEffect(() => answerPermissionKeys(), [])
+  const shaping = useShaping()
   const meta = useChat((s) => s.meta)
   const turnIds = useChat((s) => s.turnIds)
   const running = useChat((s) => s.turns.some((turn) => turn.status === 'running'))
@@ -104,24 +107,10 @@ export function ChatPanel() {
   }, [drafted])
   if (!meta) return null
 
-  // The sidebar, or popped out into a window of its own, which it fills.
-  if (meta.docked || meta.popped) {
-    return (
-      <div
-        data-chat-panel
-        className={cn(
-          'group/chat relative flex h-dvh flex-col bg-raised',
-          !meta.popped && 'border-line-strong',
-          !meta.popped && (meta.sidebarSide === 'left' ? 'border-r-hairline' : 'border-l-hairline'),
-        )}
-      >
-        {!meta.popped && (
-          <ResizeHandle edge={meta.sidebarSide === 'left' ? 'right' : 'left'} docked />
-        )}
-        <Header meta={meta} />
-        <Body meta={meta} turnIds={turnIds} running={running} />
-      </div>
-    )
+  // The sidebar, popped out into a window of its own, or turning between the floating card
+  // and the sidebar.
+  if (meta.docked || meta.popped || shaping) {
+    return <Sidebar meta={meta} turnIds={turnIds} running={running} shaping={shaping} />
   }
 
   return (
@@ -131,6 +120,114 @@ export function ChatPanel() {
           box alone: it's as tall as what's in it. */}
       {!float.collapsed && PANEL_EDGES.map((edge) => <ResizeHandle key={edge} edge={edge} />)}
     </FloatingChat>
+  )
+}
+
+/** The floating panel's header (PanelHeader: h-9, pl-3), which the sidebar's grows from */
+const CARD_HEADER = { height: 36, start: 12 } as const
+const SIDES = ['top', 'right', 'bottom', 'left'] as const
+
+/**
+ * The sidebar, or the chat popped out into a window of its own, which it fills. While the chat
+ * turns between the floating card and the sidebar (`ChatShape`, main/dock-morph.ts), it's
+ * drawn as the shape between them: inset in its view by the shadow's margin, with the card's
+ * corners, shadow and outer borders going as it becomes the sidebar (whose border along the
+ * preview stays), and its header growing into the title bar's height, the name moving clear
+ * of the traffic lights. Main moves and sizes the view; a frame only restyles these elements,
+ * outside React. Growing from the pill or the message box alone, what's in it fades in as it
+ * grows, as the floating panel's conversation does.
+ */
+function Sidebar({
+  meta,
+  turnIds,
+  running,
+  shaping,
+}: {
+  meta: ChatMeta
+  turnIds: string[]
+  running: boolean
+  shaping: boolean
+}) {
+  const card = useRef<HTMLDivElement>(null)
+  const shadow = useRef<HTMLDivElement>(null)
+
+  useLayoutEffect(() => {
+    const cardEl = card.current
+    const shadowEl = shadow.current
+    if (!shaping || !cardEl || !shadowEl) return
+    const draw = () => {
+      const shape = currentShape()
+      if (!shape) return
+      const { inset, card: amount } = shape
+      for (const el of [cardEl, shadowEl]) {
+        for (const side of SIDES) el.style[side] = `${inset[side]}px`
+        el.style.borderRadius = `${shape.radius}px`
+      }
+      shadowEl.style.opacity = String(amount)
+      // The card's border, thinning and fading on the edges that end at the window's; the
+      // sidebar's own hairline along the preview stays.
+      const inner = shape.side === 'left' ? 'right' : 'left'
+      const faded = `color-mix(in srgb, var(--line-strong) ${Math.round(amount * 100)}%, transparent)`
+      for (const side of SIDES) {
+        const key = `border-${side}` as const
+        cardEl.style.setProperty(
+          `${key}-width`,
+          side === inner ? `max(var(--hairline), ${amount}px)` : `${amount}px`,
+        )
+        cardEl.style.setProperty(`${key}-color`, side === inner ? 'var(--line-strong)' : faded)
+      }
+      const header = cardEl.querySelector<HTMLElement>(':scope > header')
+      if (header) {
+        const bar = shape.tabRow ? TAB_ROW_HEIGHT : TOOLBAR_HEIGHT
+        const start = shape.trafficLights ? TRAFFIC_LIGHTS_INSET : CARD_HEADER.start
+        header.style.height = `${bar + (CARD_HEADER.height - bar) * amount}px`
+        header.style.paddingLeft = `${start + (CARD_HEADER.start - start) * amount}px`
+      }
+      const shown = shape.reveal
+        ? Math.min(1, Math.max(0, (1 - amount - SHOW_FROM) / SHOW_OVER))
+        : 1
+      for (const child of cardEl.children) {
+        if (child instanceof HTMLElement) child.style.opacity = shown === 1 ? '' : String(shown)
+      }
+    }
+    draw()
+    const off = subscribeShape(draw)
+    return () => {
+      off()
+      // The sidebar's own classes again (the header's size is React's once more).
+      cardEl.removeAttribute('style')
+      shadowEl.removeAttribute('style')
+      for (const child of cardEl.children) {
+        if (child instanceof HTMLElement) child.style.opacity = ''
+      }
+    }
+  }, [shaping])
+
+  const side = meta.sidebarSide
+  return (
+    <div className="relative h-dvh">
+      <div
+        ref={shadow}
+        aria-hidden="true"
+        className={cn('pointer-events-none absolute shadow-panel', !shaping && 'hidden')}
+      />
+      <div
+        ref={card}
+        data-chat-panel
+        className={cn(
+          'group/chat absolute inset-0 flex flex-col bg-raised',
+          shaping && 'overflow-hidden',
+          !meta.popped && 'border-line-strong',
+          !meta.popped && (side === 'left' ? 'border-r-hairline' : 'border-l-hairline'),
+        )}
+      >
+        {!meta.popped && !shaping && (
+          <ResizeHandle edge={side === 'left' ? 'right' : 'left'} docked />
+        )}
+        <Header meta={meta} shaping={shaping} />
+        <Body meta={meta} turnIds={turnIds} running={running} />
+      </div>
+    </div>
   )
 }
 
@@ -738,8 +835,9 @@ function agentStatus(meta: ChatMeta, running: boolean): Status {
  * mode, and the panel's actions. It's where the panel is dragged from, floating or docked
  * (pulled off the sidebar); popped out, it drags the window.
  */
-function Header({ meta }: { meta: ChatMeta }) {
-  const titleBar = meta.docked || meta.popped
+function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }) {
+  // Changing shape, its height and start follow the shape (`Sidebar`).
+  const titleBar = (meta.docked || meta.popped) && !shaping
   return (
     <PanelHeader
       onPointerDown={meta.popped ? undefined : onDragStart}

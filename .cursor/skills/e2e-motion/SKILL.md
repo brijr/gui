@@ -24,4 +24,6 @@ if (now.morphing) return null
 
 Fixed `sleep` from `e2e/helpers/env.ts` is only for measuring motion (sampling springs) or capturing a recording for a duration. Prefer `waitFor` everywhere else.
 
+**Mid-motion shots** (`session.shot` with GUI_E2E_SHOTS=1) capture each layer separately, so a moving spring tears between them. Set `globalThis.guiMotionScale = 10` in main (unpackaged builds) to run main's springs ten times slower while you shoot, and back to 1 after; see `shootDockMorphs` in `e2e/panel-motion.spec.ts`.
+
 `launch({ reducedMotion: 'reduce' })` disables springs when the test is about the end state, not the path.

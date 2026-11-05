@@ -614,6 +614,30 @@ export interface ChatFloat {
 }
 
 /**
+ * Main → the chat page, on every frame while the chat turns from the floating card into the
+ * sidebar or back (main/dock-morph.ts); null once it rests. Main moves and sizes the view, and
+ * this says how to draw the chat in it for that frame: the view's size it's for (CSS px), the
+ * margin on each side left for the shadow, how much of the card it still is (1 the card, 0 the
+ * sidebar), and its corners.
+ */
+export interface ChatShape {
+  width: number
+  height: number
+  inset: { top: number; right: number; bottom: number; left: number }
+  /** 1 the floating card, 0 the sidebar: the shadow, the outer borders */
+  card: number
+  radius: number
+  /** The sidebar's edge, whose border stays */
+  side: 'left' | 'right'
+  /** The sidebar's header holds the traffic lights (docked on the left, not full screen) */
+  trafficLights: boolean
+  /** The tab row shows beside the sidebar, so its header is that tall */
+  tabRow: boolean
+  /** From the pill or the message box alone: what's in it fades in as it grows */
+  reveal: boolean
+}
+
+/**
  * Where the pointer pressed the floating chat to drag it: on screen, and in the chat view's
  * page. Together they say where the view was at that moment, even while it moves.
  */

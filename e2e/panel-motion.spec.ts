@@ -511,6 +511,112 @@ async function dockTargetShown({ BrowserWindow, WebContentsView }: ElectronModul
   return { bounds: target.getBounds(), under: views.indexOf(target) === chat - 1, shown }
 }
 
+interface MorphSample {
+  chat: Rect
+  preview: Rect
+}
+
+interface MorphStore {
+  guiMorphSamples?: MorphSample[]
+  guiMorphSampler?: NodeJS.Timeout
+}
+
+/** Runs in main: records the chat's and the preview's bounds every 4 ms until stopped. */
+function startMorphSampling({ BrowserWindow, WebContentsView }: ElectronModule) {
+  const store = globalThis as unknown as MorphStore
+  const views = (BrowserWindow.getAllWindows()[0]?.contentView.children ?? []).filter(
+    (child): child is InstanceType<typeof WebContentsView> => child instanceof WebContentsView,
+  )
+  const chat = views.find((view) => view.webContents.getURL().endsWith('/chat.html'))
+  const preview = views.find((view) => /^https?:\/\//.test(view.webContents.getURL()))
+  if (!chat || !preview) throw new Error('No chat or preview view')
+  const samples: MorphSample[] = []
+  store.guiMorphSamples = samples
+  store.guiMorphSampler = setInterval(() => {
+    samples.push({ chat: chat.getBounds(), preview: preview.getBounds() })
+  }, 4)
+}
+
+function stopMorphSampling() {
+  const store = globalThis as unknown as MorphStore
+  if (store.guiMorphSampler) clearInterval(store.guiMorphSampler)
+  return store.guiMorphSamples ?? []
+}
+
+const RECT_KEYS = ['x', 'y', 'width', 'height'] as const
+
+function sameRect(a: Rect, b: Rect) {
+  return RECT_KEYS.every((key) => a[key] === b[key])
+}
+
+/** The rects a view passed through, each once, in order. */
+function rects(samples: Rect[]) {
+  return samples.filter((rect, i) => i === 0 || !sameRect(rect, samples[i - 1] as Rect))
+}
+
+/** A rect's edges, in the window. */
+function edgesOf({ x, y, width, height }: Rect) {
+  return { left: x, top: y, right: x + width, bottom: y + height }
+}
+
+/**
+ * The view moved from `from` to `to` smoothly: over several frames, each edge one way only
+ * (never back, so no edge jitters), and no frame a jump (more than 40% of the way, or 2 px).
+ */
+function expectSmooth(label: string, samples: Rect[], from: Rect, to: Rect) {
+  const path = rects(samples)
+  expect(path[0], `${label} starts where it was`).toEqual(from)
+  expect(path.at(-1), `${label} ends where it rests`).toEqual(to)
+  expect(path.length, `${label} moves over several frames`).toBeGreaterThan(5)
+  const start = edgesOf(from)
+  const end = edgesOf(to)
+  for (const edge of ['left', 'top', 'right', 'bottom'] as const) {
+    const total = end[edge] - start[edge]
+    for (let i = 1; i < path.length; i++) {
+      const step = edgesOf(path[i] as Rect)[edge] - edgesOf(path[i - 1] as Rect)[edge]
+      expect(
+        step * Math.sign(total),
+        `${label}: ${edge} edge turns back at frame ${i}`,
+      ).toBeGreaterThanOrEqual(0)
+      expect(Math.abs(step), `${label}: ${edge} edge jumps at frame ${i}`).toBeLessThanOrEqual(
+        Math.max(2, Math.abs(total) * 0.4),
+      )
+    }
+  }
+}
+
+/** How far along from `from` to `to` `value` is, 0 to 1. */
+function along(value: number, from: number, to: number) {
+  return from === to ? 1 : (value - from) / (to - from)
+}
+
+/**
+ * The chat's shape and the preview's edge beside it (`edges`) get there together, frame for
+ * frame: never more than 5% of the way apart.
+ */
+function expectTogether(
+  label: string,
+  samples: MorphSample[],
+  edges: (sample: MorphSample) => { chat: number; preview: number },
+) {
+  const first = edges(samples[0] as MorphSample)
+  const last = edges(samples.at(-1) as MorphSample)
+  for (const sample of samples) {
+    const now = edges(sample)
+    const chat = along(now.chat, first.chat, last.chat)
+    const preview = along(now.preview, first.preview, last.preview)
+    expect(
+      Math.abs(chat - preview),
+      `${label}: the chat and the preview apart`,
+    ).toBeLessThanOrEqual(0.05)
+  }
+}
+
+/** Runs in main: main's springs run `scale` times slower (unpackaged builds). */
+function slowMotion(_: ElectronModule, scale: number) {
+  ;(globalThis as { guiMotionScale?: number }).guiMotionScale = scale
+}
+
 /** Runs in main: no preview morph in flight. */
 function morphing() {
   return ((globalThis as { guiMorphing?: Set<number> }).guiMorphing?.size ?? 0) > 0
@@ -605,8 +711,30 @@ test('dragged to an edge the chat docks there, and pulled off the sidebar it flo
   await waitFor(async () => (await session.app.evaluate(dockTargetShown))?.shown, 'the target')
 
   // Let go there: docked on the right, the preview narrowed beside it, and the choice saved.
+  // The card turns into the sidebar in one shape, from where it was let go, as the preview
+  // narrows on the same spring: nothing jumps or turns back, and their edges arrive together.
+  const dropped = await layoutWhen(session, 'the panel at the edge', () => true)
+  await session.app.evaluate(startMorphSampling)
   await release(session)
-  await dockedOn(session, 'right')
+  const docked = await dockedOn(session, 'right')
+  const docking = await session.app.evaluate(stopMorphSampling)
+  expectSmooth(
+    'the chat docking',
+    docking.map(({ chat }) => chat),
+    dropped.chat,
+    docked.chat,
+  )
+  expectSmooth(
+    'the preview narrowing',
+    docking.map(({ preview }) => preview),
+    dropped.preview,
+    docked.preview,
+  )
+  expectTogether('docking', docking, ({ chat, preview }) => ({
+    chat: chat.height,
+    preview: preview.x + preview.width,
+  }))
+  // The target it filled goes once the sidebar covers it.
   await waitFor(async () => (await session.app.evaluate(dockTargetShown)) === null, 'no target')
   const profile = await session.app.evaluate(({ app }) => app.getPath('userData'))
   const prefs = () => JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8'))
@@ -618,31 +746,48 @@ test('dragged to an edge the chat docks there, and pulled off the sidebar it flo
   await move(session, -4, 3)
   expect((await session.state()).sidebarWidth).toBe(DOCK_WIDTH)
 
-  // Pulled further, it comes off: the floating panel, with the same point of its header under
-  // the pointer (150 px across the 380 px sidebar is as far across the panel), and the
-  // preview widens back under it while it stays put with the pointer.
+  // Pulled further, it comes off: the sidebar turns into the floating panel, which ends with
+  // the same point of its header under the pointer (150 px across the 380 px sidebar is as far
+  // across the panel), as the preview widens back under it on the same spring.
+  await session.app.evaluate(startMorphSampling)
   await move(session, -296, 157)
   const pointer = { x: grabbed.x - 300, y: grabbed.y + 160 }
   const expected = {
     x: pointer.x - Math.round((150 / DOCK_WIDTH) * panel.width) - SHADOW,
     y: pointer.y - Math.round((20 / 44) * 36) - SHADOW,
   }
-  const pulled = await layoutWhen(
-    session,
-    'the panel under the pointer',
-    ({ chat }) => chat.x === expected.x && chat.y === expected.y,
-  )
-  expect(pulled.chat.width).toBe(start.chat.width)
-  await session.app.evaluate(startSampling)
-  await waitFor(async () => {
+  const pulled = await waitFor(async () => {
     const state = await session.state()
     const layout = await session.app.evaluate(chatLayout)
     return state.sidebarWidth === 0 &&
       !(await session.app.evaluate(morphing)) &&
-      layout?.preview.width === WINDOW.width
+      layout?.preview.width === WINDOW.width &&
+      layout.chat.x === expected.x &&
+      layout.chat.y === expected.y
       ? layout
       : null
-  }, 'the preview widened back')
+  }, 'the panel under the pointer, the preview widened back')
+  const pulling = await session.app.evaluate(stopMorphSampling)
+  expect(pulled.chat.width).toBe(start.chat.width)
+  expectSmooth(
+    'the chat pulled off',
+    pulling.map(({ chat }) => chat),
+    docked.chat,
+    pulled.chat,
+  )
+  expectSmooth(
+    'the preview widening',
+    pulling.map(({ preview }) => preview),
+    docked.preview,
+    pulled.preview,
+  )
+  expectTogether('pulling off', pulling, ({ chat, preview }) => ({
+    chat: chat.height,
+    preview: preview.x + preview.width,
+  }))
+  // At rest under the pointer, it stays there while the pointer does.
+  await session.app.evaluate(startSampling)
+  await sleep(200)
   const held = path(await session.app.evaluate(stopSampling))
   expect(held).toEqual([{ t: expect.any(Number), x: expected.x, y: expected.y }])
   expect(prefs().chatSidebar).toBe(false)
@@ -678,4 +823,47 @@ test('dragged to an edge the chat docks there, and pulled off the sidebar it flo
   await dockedOn(session, 'left')
   await toggleDockShortcut(session)
   await waitFor(async () => (await session.state()).sidebarWidth === 0, 'the chat floating')
+
+  if (process.env.GUI_E2E_SHOTS === '1') await shootDockMorphs(session)
 })
+
+/**
+ * With GUI_E2E_SHOTS=1: shots of the chat about 30% and 60% of the way into the sidebar, and
+ * back out of it, with main's springs slowed tenfold so the layers are caught together.
+ */
+async function shootDockMorphs(session: GuiSession) {
+  const rest = await waitFor(async () => {
+    const layout = await session.app.evaluate(chatLayout)
+    return layout && !(await session.app.evaluate(morphing)) ? layout : null
+  }, 'the panel at rest')
+  const height = (layout: Layout | null) => layout?.chat.height ?? 0
+  const shootAt = async (name: string, from: number, to: number) => {
+    for (const share of [0.3, 0.6]) {
+      await waitFor(
+        async () => {
+          const now = height(await session.app.evaluate(chatLayout))
+          return along(now, from, to) >= share
+        },
+        `${name} ${share * 100}% of the way`,
+      )
+      await session.shot(`${name}-${share * 100}`)
+    }
+  }
+  await press(session, { x: rest.chat.x + SHADOW + 100, y: rest.chat.y + SHADOW + 18 })
+  await move(session, 20 - (rest.chat.x + SHADOW + 100), 0)
+  await waitFor(async () => (await session.app.evaluate(dockTargetShown))?.shown, 'the target')
+  await session.app.evaluate(slowMotion, 10)
+  try {
+    await release(session)
+    await shootAt('dock-morph', rest.chat.height, WINDOW.height)
+    await session.app.evaluate(slowMotion, 1)
+    await dockedOn(session, 'left')
+    await press(session, { x: 150, y: 20 })
+    await session.app.evaluate(slowMotion, 10)
+    await move(session, 120, 160)
+    await shootAt('pull-off-morph', WINDOW.height, rest.chat.height)
+  } finally {
+    await session.app.evaluate(slowMotion, 1)
+  }
+  await release(session)
+}

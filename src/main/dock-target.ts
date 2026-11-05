@@ -27,6 +27,7 @@ div {
   opacity: 0; transition: opacity 100ms cubic-bezier(0.4, 0, 1, 1);
 }
 body.shown div { opacity: 1; transition: opacity 160ms cubic-bezier(0.2, 0, 0, 1) }
+body.reset div { transition: none }
 </style><body><div></div></body>`
 
 /**
@@ -42,6 +43,8 @@ class DockTarget {
   })
   private shown = false
   private hideTimer: NodeJS.Timeout | null = null
+  /** Where it was last shown */
+  private rect: Rect | null = null
 
   constructor(private readonly win: BrowserWindow) {
     this.view.setBackgroundColor('#00000000')
@@ -59,6 +62,10 @@ class DockTarget {
     if (this.win.isDestroyed()) return
     if (this.hideTimer) clearTimeout(this.hideTimer)
     this.hideTimer = null
+    // At the other edge while still on screen at this one (fading out): it fades in there
+    // afresh, rather than jumping across half faded.
+    const moved = this.rect !== null && this.rect.x !== rect.x && this.view.getVisible()
+    this.rect = rect
     this.view.setBounds(rect)
     const { contentView } = this.win
     const children = contentView.children
@@ -70,9 +77,9 @@ class DockTarget {
       contentView.addChildView(this.view, under === -1 ? undefined : under)
     }
     this.view.setVisible(true)
-    if (this.shown) return
+    if (this.shown && !moved) return
     this.shown = true
-    this.paint()
+    this.paint(moved)
   }
 
   /** Fades it out; `now`, it's simply gone (the tab went, or the chat stopped floating). */
@@ -95,10 +102,15 @@ class DockTarget {
     return this.shown
   }
 
-  private paint() {
+  /** Fades it in or out; `afresh`, from nothing, as if it had been hidden. */
+  private paint(afresh = false) {
     const wc = this.view.webContents
     if (wc.isDestroyed()) return
-    const code = `document.body.classList.toggle('shown', ${this.shown})`
+    const toggle = `document.body.classList.toggle('shown', ${this.shown})`
+    const code = afresh
+      ? `{ const b = document.body; b.classList.add('reset'); b.classList.remove('shown');
+          b.offsetHeight; b.classList.remove('reset'); ${toggle} }`
+      : toggle
     wc.executeJavaScript(code).catch(() => undefined)
   }
 
