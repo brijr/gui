@@ -194,6 +194,7 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
       </svg>
       Try it now
     </button>
+    <p class="download-count" data-download-count hidden aria-live="polite"></p>
   </div>
 
   <p class="download-help" data-download-help hidden role="status">
@@ -560,6 +561,19 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
   document.querySelector('.download-button')!.addEventListener('click', () => {
     if (!notMac) document.querySelector<HTMLElement>('[data-download-help]')!.hidden = false
   })
+  // The worker's /downloads is the counted total. If it is missing, show nothing.
+  const count = document.querySelector<HTMLElement>('[data-download-count]')
+  if (count) {
+    fetch('/downloads')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((data) => {
+        const downloads = data?.downloads
+        if (typeof downloads !== 'number' || !Number.isInteger(downloads) || downloads < 1) return
+        count.textContent = `${downloads.toLocaleString('en')} download${downloads === 1 ? '' : 's'}`
+        count.hidden = false
+      })
+      .catch(() => {})
+  }
   // The share sheet sends the link to the Mac (AirDrop, Messages, Mail). Without it, copy the link.
   const share = macDialog.querySelector<HTMLButtonElement>('[data-share]')!
   if (!navigator.share) share.textContent = 'Copy the link'
@@ -711,6 +725,14 @@ const wide = '(min-width: 72rem) 68rem, calc(100vw - 3rem)'
     align-items: center;
     gap: var(--s-2) var(--s-3);
     margin-top: var(--s-4);
+  }
+  .download-count {
+    margin: 0;
+    color: var(--muted);
+    font-size: 1rem;
+  }
+  .download-count[hidden] {
+    display: none;
   }
   .mac-only {
     display: none;

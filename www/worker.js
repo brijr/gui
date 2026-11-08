@@ -1,9 +1,10 @@
 // Sends www.usegui.com and http:// to https://usegui.com, so search engines see one site.
 // /releases/ is the app's update feed and builds, from the gui-releases R2 bucket
 // (scripts/release.sh publishes there), and /download is the newest DMG, counted in the gui-www
-// D1 database. /waitlist adds an address to the Windows and Linux waitlist in the same database,
-// and /crash keeps the crash reports installed copies send (src/main/crash-reports.ts).
-// Everything else is the static site in dist/ (with dist/404.html for pages that don't exist).
+// D1 database. /downloads is that count as one number, for the homepage. /waitlist adds an
+// address to the Windows and Linux waitlist in the same database, and /crash keeps the crash
+// reports installed copies send (src/main/crash-reports.ts). Everything else is the static
+// site in dist/ (with dist/404.html for pages that don't exist).
 
 /** The channel /download serves: alpha until Gui has a stable release. */
 const DOWNLOAD = 'Gui-alpha-arm64.dmg'
@@ -11,7 +12,12 @@ const DOWNLOAD = 'Gui-alpha-arm64.dmg'
 /**
  * @typedef {{ body: ReadableStream, httpEtag: string, writeHttpMetadata(headers: Headers): void }} R2Object
  * @typedef {{ get(key: string): Promise<R2Object | null> }} R2Bucket
- * @typedef {{ prepare(sql: string): { bind(...values: unknown[]): { run(): Promise<{ meta: { changes: number } }> } } }} D1Database
+ * @typedef {{
+ *   bind(...values: unknown[]): D1Statement
+ *   first(): Promise<Record<string, unknown> | null>
+ *   run(): Promise<{ meta: { changes: number } }>
+ * }} D1Statement
+ * @typedef {{ prepare(sql: string): D1Statement }} D1Database
  * @typedef {{ ASSETS: { fetch: typeof fetch }, RELEASES: R2Bucket, DB: D1Database }} Env
  * @typedef {{ waitUntil(promise: Promise<unknown>): void }} Context
  */
@@ -34,6 +40,7 @@ export default {
       if (response.ok && startsDownload(request)) ctx.waitUntil(countDownload(request, env))
       return response
     }
+    if (url.pathname === '/downloads') return countedDownloads(request, env, ctx)
     if (url.pathname === '/waitlist' && request.method === 'POST') return waitlist(request, env)
     if (url.pathname === '/crash' && request.method === 'POST') return crash(request, env)
     const file = url.pathname.match(/^\/releases\/([\w.-]+)$/)?.[1]
@@ -51,10 +58,7 @@ function secure(/** @type {Response} */ asset, /** @type {string} */ pathname) {
       ? 'public, max-age=31536000, immutable'
       : 'no-cache',
   )
-  response.headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains')
-  response.headers.set('x-content-type-options', 'nosniff')
-  response.headers.set('x-frame-options', 'DENY')
-  response.headers.set('referrer-policy', 'strict-origin-when-cross-origin')
+  protect(response.headers)
   return response
 }
 
@@ -98,6 +102,53 @@ async function countDownload(request, env) {
   } catch (error) {
     console.error('download count failed', error)
   }
+}
+
+/** How long a homepage can keep the count, so D1 is not queried on every view. */
+const COUNT_MAX_AGE = 300
+
+/**
+ * The public total from the downloads table: one number, and none of the row fields.
+ * Auto-updates through /releases/ are not in this table.
+ * @param {Request} request @param {Env} env @param {Context} ctx
+ */
+async function countedDownloads(request, env, ctx) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    return new Response(null, { status: 405, headers: { allow: 'GET, HEAD' } })
+  }
+  const cache = globalThis.caches?.default
+  const key = new Request(new URL('/downloads', request.url), { method: 'GET' })
+  const hit = await cache?.match(key).catch(() => null)
+  if (hit) return hit
+  try {
+    const row = await env.DB.prepare('SELECT COUNT(*) AS downloads FROM downloads').first()
+    const downloads = Number(row?.downloads)
+    if (!Number.isInteger(downloads) || downloads < 0) return omitCount()
+    const response = countResponse(downloads)
+    if (cache) ctx.waitUntil(cache.put(key, response.clone()).catch(() => {}))
+    return response
+  } catch (error) {
+    console.error('download count failed', error)
+    return omitCount()
+  }
+}
+
+function countResponse(/** @type {number} */ downloads) {
+  const headers = new Headers({ 'cache-control': `public, max-age=${COUNT_MAX_AGE}` })
+  protect(headers)
+  return Response.json({ downloads }, { headers })
+}
+
+function omitCount() {
+  return new Response(null, { status: 204, headers: { 'cache-control': 'no-store' } })
+}
+
+/** The same browser rules as the pages, so this JSON is not framed and stays on HTTPS. */
+function protect(/** @type {Headers} */ headers) {
+  headers.set('strict-transport-security', 'max-age=31536000; includeSubDomains')
+  headers.set('x-content-type-options', 'nosniff')
+  headers.set('x-frame-options', 'DENY')
+  headers.set('referrer-policy', 'strict-origin-when-cross-origin')
 }
 
 const PLATFORMS = new Set(['windows', 'linux'])
