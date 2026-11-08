@@ -84,7 +84,7 @@ export function mountTerminal(
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
-  term.open(el)
+  const releaseDocument = documentListeners(() => term.open(el))
   // Ghostty exposes these only at runtime. Own the loop so hidden terminals keep
   // parsing output without scheduling canvas work (including indirect restarts).
   const loop = term as unknown as {
@@ -168,7 +168,34 @@ export function mountTerminal(
       delete (el as { terminalText?: string }).terminalText
       delete (el as { terminalRendering?: boolean }).terminalRendering
       term.dispose()
+      releaseDocument()
     },
+  }
+}
+
+type Listener = Parameters<Document['addEventListener']>
+
+/**
+ * Runs `open`, noting the listeners it adds to the document; the returned function takes them
+ * all off. Ghostty's dispose leaves one behind (its selection's mousedown), and through it the
+ * page would keep every terminal ever made, canvas and all.
+ */
+function documentListeners(open: () => void) {
+  const added: Listener[] = []
+  const add = document.addEventListener
+  document.addEventListener = function (this: Document, ...args: Listener) {
+    added.push(args)
+    add.apply(this, args)
+  } as Document['addEventListener']
+  try {
+    open()
+  } finally {
+    document.addEventListener = add
+  }
+  return () => {
+    for (const [type, listener, options] of added.splice(0)) {
+      document.removeEventListener(type, listener, options)
+    }
   }
 }
 
