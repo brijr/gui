@@ -396,3 +396,70 @@ test('thumbnail workers unload idle animated pages and shared CSS stays fresh th
     'reopened workers idle',
   )
 })
+
+test('zoomed out, the board shows small thumbnails, and full ones zoomed in, never blank between', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  const canvas = await openCanvas(session)
+  await chrome.evaluate(() => {
+    window.gui.boardAddFrame('desktop', null)
+    window.gui.boardAddFrame('desktop', null)
+  })
+  const { frames } = await waitFor(async () => {
+    const state = await board(session)
+    return state.frames.length === 2 && state.frames.every((frame) => frame.captured) ? state : null
+  }, 'thumbnails')
+  const thumbs = join(session.fixture.userData, 'canvas-thumbnails', canvas.id)
+  expect(readdirSync(thumbs).sort()).toEqual(
+    expect.arrayContaining(frames.flatMap((f) => [`${f.id}.jpg`, `${f.id}.small.jpg`])),
+  )
+  // Counts the animation frames where a frame that had shown its thumbnail shows none.
+  await chrome.evaluate(() => {
+    const shown = new Set<string>()
+    const probe = { blank: 0 }
+    ;(window as unknown as { thumbProbe: typeof probe }).thumbProbe = probe
+    const tick = () => {
+      for (const tile of document.querySelectorAll<HTMLElement>('[data-frame]')) {
+        const id = tile.dataset.frame ?? ''
+        const images = [...tile.querySelectorAll('img')]
+        if (images.some((img) => img.naturalWidth > 0)) shown.add(id)
+        else if (shown.has(id)) probe.blank++
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  })
+  const widths = () =>
+    chrome.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('[data-frame]')].map((tile) => {
+        const images = tile.querySelectorAll('img')
+        const img = images.length === 1 ? images[0] : null
+        return img?.complete ? img.naturalWidth : 0
+      }),
+    )
+  // ⌘− and ⌘= as real keys to the board, one step a poll, until each copy shows.
+  const zoomUntil = (keyCode: '-' | '=', width: number) =>
+    waitFor(async () => {
+      const now = await widths()
+      if (now.length === 2 && now.every((w) => w === width)) return true
+      await session.app.evaluate(({ webContents }, keyCode) => {
+        const contents = webContents
+          .getAllWebContents()
+          .find((wc) => /\/index\.html(?:[?#]|$)/.test(wc.getURL()))
+        contents?.sendInputEvent({ type: 'keyDown', keyCode, modifiers: ['meta'] })
+        contents?.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['meta'] })
+      }, keyCode)
+      return false
+    }, `thumbnails ${width} wide`)
+  await chrome.locator('[role="application"]').focus()
+  await zoomUntil('-', 360)
+  await zoomUntil('=', 1440)
+  await zoomUntil('-', 360)
+  expect(
+    await chrome.evaluate(
+      () => (window as unknown as { thumbProbe: { blank: number } }).thumbProbe.blank,
+    ),
+  ).toBe(0)
+})

@@ -16,6 +16,7 @@ import {
   FRAME_MIN,
   fitCamera,
   regroupSections,
+  SMALL_THUMB_WIDTH,
   sectionBounds,
 } from '../../../shared/board'
 import { Spring } from '../../../shared/motion'
@@ -1037,6 +1038,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
             key={frame.id}
             frame={frame}
             thumbs={board.thumbs}
+            small={frame.width * zoom * window.devicePixelRatio <= SMALL_THUMB_WIDTH}
             hoverable={!hand && !selected.has(frame.id)}
           />
         ))}
@@ -1179,10 +1181,13 @@ const FrameTile = memo(
   function FrameTile({
     frame,
     thumbs,
+    small,
     hoverable,
   }: {
     frame: BoardFrame
     thumbs: string
+    /** Drawn no wider on screen than the small thumbnail: that one is as sharp, and far lighter */
+    small: boolean
     /** Not selected, and the Hand is off: its edge lights up under the pointer */
     hoverable: boolean
   }) {
@@ -1203,14 +1208,7 @@ const FrameTile = memo(
         }}
       >
         {frame.captured ? (
-          // As wide as the frame, from its top: a page taller than its capture leaves the
-          // rest of the frame blank rather than stretching.
-          <img
-            src={`${thumbs}/${frame.id}?v=${frame.version}`}
-            alt=""
-            draggable={false}
-            className="pointer-events-none block h-auto w-full"
-          />
+          <Thumbnail src={`${thumbs}/${frame.id}${small ? '.small' : ''}?v=${frame.version}`} />
         ) : (
           <div
             className="p-3 text-caption whitespace-nowrap text-subtle"
@@ -1222,8 +1220,37 @@ const FrameTile = memo(
       </div>
     )
   },
-  (a, b) => sameFrame(a.frame, b.frame) && a.thumbs === b.thumbs && a.hoverable === b.hoverable,
+  (a, b) =>
+    sameFrame(a.frame, b.frame) &&
+    a.thumbs === b.thumbs &&
+    a.small === b.small &&
+    a.hoverable === b.hoverable,
 )
+
+/**
+ * A frame's thumbnail, as wide as the frame, from its top: a page taller than its capture
+ * leaves the rest of the frame blank rather than stretching. A new one (the small copy or the
+ * full one, a new capture) loads over the one shown, which stays until then: an image's
+ * `src` changed in place can show nothing for a frame while it loads.
+ */
+function Thumbnail({ src }: { src: string }) {
+  const [shown, setShown] = useState(src)
+  const urls = src === shown ? [shown] : [shown, src]
+  return urls.map((url) => (
+    <img
+      key={url}
+      src={url}
+      alt=""
+      draggable={false}
+      className={cn(
+        'pointer-events-none block h-auto w-full',
+        url !== shown && 'absolute top-0 left-0',
+      )}
+      onLoad={url === shown ? undefined : () => setShown(url)}
+      onError={url === shown ? undefined : () => setShown(url)}
+    />
+  ))
+}
 
 /** A frame's name above it, and its size; double-click renames it in place. */
 const FrameLabel = memo(

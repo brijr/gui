@@ -35,11 +35,12 @@ async function until(condition: () => boolean) {
   }
 }
 
-const image = (text: string) =>
+const image = (text: string): NativeImage =>
   ({
     getSize: () => ({ width: 400, height: 300 }),
     toJPEG: () => Buffer.from(text),
-  }) as NativeImage
+    resize: () => image(text),
+  }) as unknown as NativeImage
 
 async function fixture(ids = ['a', 'b']) {
   const base = await mkdtemp(join(tmpdir(), 'gui-capture-test-'))
@@ -258,15 +259,20 @@ test('thumbnail versions never repeat across openings, and stale thumbnails are 
   await new Promise((done) => setTimeout(done, 5))
   // Deleted while the canvas was closed, and a write that never finished.
   await writeFile(join(f.thumbs, 'gone.jpg'), 'old')
+  await writeFile(join(f.thumbs, 'gone.small.jpg'), 'old')
   await writeFile(join(f.thumbs, 'a.jpg.123.tmp'), 'partial')
   const second = f.create(renderer())
   await second.open()
   expect(second.status('a').version).toBeGreaterThan(seen)
   expect(await readFile(join(f.thumbs, 'gone.jpg')).catch(() => null)).toBeNull()
+  expect(await readFile(join(f.thumbs, 'gone.small.jpg')).catch(() => null)).toBeNull()
   expect(await readFile(join(f.thumbs, 'a.jpg.123.tmp')).catch(() => null)).toBeNull()
   expect(await readFile(second.path('a'), 'utf8')).toBe('a')
+  // With the small copy the board shows zoomed out.
+  expect(await readFile(join(f.thumbs, 'a.small.jpg'), 'utf8')).toBe('a')
   // A frame that leaves the board takes its thumbnail with it.
   f.frames.delete('a')
   await second.forget('a')
   expect(await readFile(second.path('a')).catch(() => null)).toBeNull()
+  expect(await readFile(join(f.thumbs, 'a.small.jpg')).catch(() => null)).toBeNull()
 })

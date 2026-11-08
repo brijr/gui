@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
-import { type BoardFrameLayout, FRAME_MAX, FRAMES_DIR } from '../shared/board'
+import { type BoardFrameLayout, FRAME_MAX, FRAMES_DIR, SMALL_THUMB_WIDTH } from '../shared/board'
 import { writeFileAtomic } from './atomic-file'
 import { boardAssetSignature, pageSignature } from './board-assets'
 import {
@@ -64,6 +64,8 @@ interface CachedThumbnail {
   height: number
   /** THUMB_WIDTH when it was made; thumbnails from a smaller limit are made again */
   thumbWidth?: number
+  /** SMALL_THUMB_WIDTH when it was made; without a small copy, it's made again */
+  smallWidth?: number
 }
 
 interface ThumbnailRequest {
@@ -107,6 +109,11 @@ export class BoardCaptures {
     return join(this.host.thumbs, `${id}.jpg`)
   }
 
+  /** The copy the board shows zoomed out, SMALL_THUMB_WIDTH wide. */
+  private smallPath(id: string) {
+    return join(this.host.thumbs, `${id}.small.jpg`)
+  }
+
   status(id: string) {
     return { version: this.versions.get(id) ?? this.firstVersion, captured: this.captured.has(id) }
   }
@@ -129,21 +136,24 @@ export class BoardCaptures {
     if (this.disposed) return
     await Promise.all(
       this.host.frames().map(async (frame) => {
-        const [page, thumb] = await Promise.all([
+        const [page, thumb, small] = await Promise.all([
           pageSignature(join(this.host.root, FRAMES_DIR, `${frame.id}.html`)),
           stat(this.path(frame.id)).catch(() => null),
+          stat(this.smallPath(frame.id)).catch(() => null),
         ])
         if (this.disposed) return
         if (thumb) this.captured.add(frame.id)
         const cached = this.cache[frame.id]
         if (
           !thumb ||
+          !small ||
           !page ||
           cached?.assets !== assets ||
           cached.page !== page ||
           cached.width !== frame.width ||
           cached.height !== frame.height ||
-          cached.thumbWidth !== THUMB_WIDTH
+          cached.thumbWidth !== THUMB_WIDTH ||
+          cached.smallWidth !== SMALL_THUMB_WIDTH
         )
           void this.thumbnail(frame.id)
       }),
@@ -154,11 +164,11 @@ export class BoardCaptures {
   private async sweep() {
     const frames = new Set(this.host.frames().map((frame) => frame.id))
     const files = await readdir(this.host.thumbs).catch(() => [] as string[])
+    const owner = (file: string) => file.replace(/(\.small)?\.jpg$/, '')
     await Promise.all(
       files
         .filter(
-          (file) =>
-            file.endsWith('.tmp') || (file.endsWith('.jpg') && !frames.has(file.slice(0, -4))),
+          (file) => file.endsWith('.tmp') || (file.endsWith('.jpg') && !frames.has(owner(file))),
         )
         .map((file) => rm(join(this.host.thumbs, file), { force: true }).catch(() => undefined)),
     )
@@ -216,7 +226,13 @@ export class BoardCaptures {
     this.captured.delete(id)
     this.hung.delete(id)
     delete this.cache[id]
-    const removal = rm(this.path(id), { force: true }).catch(() => undefined)
+    const removal = Promise.all([
+      rm(this.path(id), { force: true }),
+      rm(this.smallPath(id), { force: true }),
+    ]).then(
+      () => undefined,
+      () => undefined,
+    )
     this.removing.set(id, removal)
     void removal.then(() => {
       if (this.removing.get(id) === removal) this.removing.delete(id)
@@ -275,17 +291,21 @@ export class BoardCaptures {
       void this.thumbnail(id)
       return
     }
-    const small =
-      image.getSize().width > THUMB_WIDTH
-        ? image.resize({ width: THUMB_WIDTH, quality: 'good' })
-        : image
+    const narrow = (width: number) =>
+      image.getSize().width > width ? image.resize({ width, quality: 'good' }) : image
     await this.removing.get(id)
     if (!current()) return
     await mkdir(this.host.thumbs, { recursive: true })
-    const temp = `${this.path(id)}.${randomBytes(6).toString('hex')}.tmp`
+    const suffix = `${randomBytes(6).toString('hex')}.tmp`
+    const temp = `${this.path(id)}.${suffix}`
+    const smallTemp = `${this.smallPath(id)}.${suffix}`
     try {
-      await writeFile(temp, small.toJPEG(82))
+      await Promise.all([
+        writeFile(temp, narrow(THUMB_WIDTH).toJPEG(82)),
+        writeFile(smallTemp, narrow(SMALL_THUMB_WIDTH).toJPEG(82)),
+      ])
       if (!current()) return
+      await rename(smallTemp, this.smallPath(id))
       await rename(temp, this.path(id))
       if (!current()) return
       this.cache[id] = {
@@ -294,6 +314,7 @@ export class BoardCaptures {
         width: frame.width,
         height: frame.height,
         thumbWidth: THUMB_WIDTH,
+        smallWidth: SMALL_THUMB_WIDTH,
       }
       await writeFileAtomic(this.cachePath, JSON.stringify(this.cache))
       if (!current()) return
@@ -301,7 +322,9 @@ export class BoardCaptures {
       this.versions.set(id, (this.versions.get(id) ?? this.firstVersion) + 1)
       this.host.changed(id)
     } finally {
-      await rm(temp, { force: true }).catch(() => undefined)
+      await Promise.all([rm(temp, { force: true }), rm(smallTemp, { force: true })]).catch(
+        () => undefined,
+      )
     }
   }
 

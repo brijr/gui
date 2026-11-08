@@ -16,6 +16,12 @@ export const FRAME_GAP = 80
 export const FRAME_MIN = 120
 export const FRAME_MAX = 4000
 
+/**
+ * The board's zoomed-out thumbnails are this wide, in pixels: a full one decoded for a frame
+ * a hundred pixels wide on screen costs its memory many times over.
+ */
+export const SMALL_THUMB_WIDTH = 360
+
 /** The sizes a new frame can start at. */
 export const FRAME_PRESETS = [
   { id: 'desktop', name: 'Desktop', width: 1440, height: 900 },
