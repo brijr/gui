@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { findExecutable } from './agents'
+import { findExecutable } from './executables'
 import { execFile } from './process'
 import { getShellEnv } from './shell-env'
 

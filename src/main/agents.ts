@@ -1,7 +1,5 @@
-import { constants } from 'node:fs'
-import { access, readFile, stat, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
-import { delimiter, isAbsolute, join } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app, type MenuItemConstructorOptions, shell } from 'electron'
 import {
   AGENTS,
@@ -11,6 +9,7 @@ import {
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
 } from '../shared/types'
+import { type CommandFallback, findAgentCommand } from './executables'
 import { getShellEnv } from './shell-env'
 
 export type AgentLaunch =
@@ -25,7 +24,14 @@ export type AgentLaunch =
       cliPathEnv?: string
     }
   /** An agent CLI the user installed, found on their login-shell PATH */
-  | { kind: 'command'; command: string; args: string[]; env: Record<string, string> }
+  | {
+      kind: 'command'
+      command: string
+      args: string[]
+      env: Record<string, string>
+      /** Another name the CLI may be installed under, tried when `command` isn't found */
+      fallback?: CommandFallback
+    }
 
 /** A project's Ask or Auto (see ChatMeta.autoApprove), as a session applies it. */
 export type PermissionPolicy = 'ask' | 'auto'
@@ -84,7 +90,7 @@ const adapter = (
   pkg: string,
   options: { env?: () => Record<string, string>; requires?: string; cliPathEnv?: string } = {},
 ): AgentLaunch => ({ kind: 'adapter', package: pkg, ...options })
-const cli = (command: string, ...args: string[]): AgentLaunch => ({
+const cli = (command: string, ...args: string[]): Extract<AgentLaunch, { kind: 'command' }> => ({
   kind: 'command',
   command,
   args,
@@ -93,8 +99,12 @@ const cli = (command: string, ...args: string[]): AgentLaunch => ({
 
 const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
   cursor: {
-    // `agent` is also used by other CLIs; Cursor installs this unambiguous alias.
-    launch: cli('cursor-agent', 'acp'),
+    // Cursor's docs now call its CLI `agent`, and its installer adds `cursor-agent` as well.
+    // Other CLIs (Grok's) install an `agent` too, so that one counts only when it's Cursor's.
+    launch: {
+      ...cli('cursor-agent', 'acp'),
+      fallback: { command: 'agent', owner: /cursor/i },
+    },
     signIn: 'Sign in from Settings → Agents, or run `cursor-agent login` in a terminal.',
     inAppSignIn: false,
     installUrl: 'https://cursor.com/docs/cli/installation',
@@ -445,44 +455,26 @@ export async function listAgents(): Promise<AgentListing> {
   ])
   const agents = await Promise.all(
     [...builtIn, ...custom.agents].map(async ({ id, name, launch, installUrl, terminalSignIn }) => {
-      const command = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
-      const installed = command === null || (await findExecutable(command, env.PATH)) !== null
+      const wanted = launch.kind === 'command' ? launch.command : (launch.requires ?? null)
+      const fallback = launch.kind === 'command' ? launch.fallback : undefined
+      const found = wanted === null ? null : await findAgentCommand(wanted, fallback, env.PATH)
+      const command = found?.command ?? wanted
+      // Sign in with the CLI by the name it was found under.
+      const signIn =
+        terminalSignIn && wanted && found && found.command !== wanted
+          ? { ...terminalSignIn, command: terminalSignIn.command.replace(wanted, found.command) }
+          : terminalSignIn
       return {
         id,
         name,
         command,
-        installed,
+        installed: wanted === null || found !== null,
         installUrl: installUrl ?? null,
-        terminalSignIn: terminalSignIn ?? null,
+        terminalSignIn: signIn ?? null,
       }
     }),
   )
   return { agents, customError: custom.error }
-}
-
-async function isExecutableFile(path: string) {
-  try {
-    if (!(await stat(path)).isFile()) return false
-    await access(path, constants.X_OK)
-    return true
-  } catch {
-    return false
-  }
-}
-
-/** Resolves a bare command on PATH, or checks an absolute (or `~/`) path. */
-export async function findExecutable(command: string, path: string | undefined) {
-  const expanded = command.startsWith('~/') ? join(homedir(), command.slice(2)) : command
-  if (expanded.includes('/')) {
-    return isAbsolute(expanded) && (await isExecutableFile(expanded)) ? expanded : null
-  }
-  for (const dir of (path ?? '').split(delimiter)) {
-    // A relative PATH entry would resolve against Gui's cwd, not the project's.
-    if (!isAbsolute(dir)) continue
-    const candidate = join(dir, expanded)
-    if (await isExecutableFile(candidate)) return candidate
-  }
-  return null
 }
 
 /** Opens agents.json in the user's editor, creating an empty one first. */

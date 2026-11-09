@@ -16,12 +16,12 @@ import { pinnedAgent, requireAgentBinary } from './agent-binaries'
 import { displayedModes, errorDetail } from './agent-protocol'
 import {
   type AgentDefinition,
-  findExecutable,
   type PermissionControls,
   type PermissionPolicy,
   resolveAgent,
 } from './agents'
 import { DetailedError } from './errors'
+import { type CommandFallback, findAgentCommand } from './executables'
 import { GUI_TOOL_NAMES, MCP_SERVER_NAME } from './mcp-server'
 import {
   type DeclaredControls,
@@ -108,8 +108,13 @@ const CLI_PATH_ENV = { claude: 'CLAUDE_CODE_EXECUTABLE', codex: 'CODEX_PATH' } a
  * commands the agent runs (it would break any Electron binary they start).
  * Every other agent is a CLI the user installed, resolved on their login-shell PATH.
  */
-async function requireExecutable(agent: AgentDefinition, command: string, env: NodeJS.ProcessEnv) {
-  const path = await findExecutable(command, env.PATH)
+async function requireExecutable(
+  agent: AgentDefinition,
+  command: string,
+  env: NodeJS.ProcessEnv,
+  fallback?: CommandFallback,
+) {
+  const path = (await findAgentCommand(command, fallback, env.PATH))?.path
   if (!path) {
     throw new DetailedError(
       `${agent.name} isn't installed. Install it from Settings → Agents, then try again.`,
@@ -122,7 +127,7 @@ async function requireExecutable(agent: AgentDefinition, command: string, env: N
 async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promise<SpawnSpec> {
   const { launch } = agent
   if (launch.kind === 'command') {
-    const command = await requireExecutable(agent, launch.command, env)
+    const command = await requireExecutable(agent, launch.command, env, launch.fallback)
     return { command, args: launch.args, env: launch.env }
   }
   const cliPath = launch.requires ? await requireExecutable(agent, launch.requires, env) : null
