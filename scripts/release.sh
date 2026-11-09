@@ -1,6 +1,7 @@
 #!/bin/sh
 # Builds a signed, notarized Gui and publishes it to the update feed (electron-builder.yml
-# `publish`) and https://usegui.com/download. Each version publishes once, tagged v<version>.
+# `publish`) and https://usegui.com/download. Each version publishes once, tagged v<version>,
+# with a GitHub Release whose notes are its entry in www/src/changelog.ts (add that first).
 # If package.json's version is already tagged, this bumps it (0.1.0-alpha.9 → 0.1.0-alpha.10,
 # 1.2.3 → 1.2.4) and commits that; to pick a version yourself, commit it first.
 #
@@ -13,6 +14,7 @@
 #     APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID, as electron-builder.yml describes).
 #   - Wrangler signed in to the Cloudflare account with the gui-releases R2 bucket
 #     (cd www && bunx wrangler login).
+#   - gh signed in to GitHub (gh auth login), for the GitHub Release.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -53,12 +55,21 @@ else
 fi
 (cd www && bunx wrangler r2 bucket info "$bucket" >/dev/null 2>&1) ||
   fail "Wrangler can't reach the $bucket R2 bucket. Run: cd www && bunx wrangler login"
+gh auth status >/dev/null 2>&1 || fail "gh isn't signed in to GitHub. Run: gh auth login"
 
 version=$(node -p 'require("./package.json").version')
+next=$version
 if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
   # Bump the last number: 0.1.0-alpha.9 → 0.1.0-alpha.10, 1.2.3 → 1.2.4.
   next=$(echo "$version" | awk -F. -v OFS=. '{ $NF = $NF + 1; print }')
   git rev-parse -q --verify "refs/tags/v$next" >/dev/null && fail "v$next is already tagged too."
+fi
+# This version's /changelog bullets, which are also its GitHub Release notes.
+notes=$(V=$next bun -e 'const { releases } = await import("./www/src/changelog.ts")
+const r = releases.find((r) => r.version === process.env.V)
+if (r) console.log(r.changes.map((c) => "- " + c).join("\n"))')
+[ -n "$notes" ] || fail "Add $next to the top of www/src/changelog.ts first: the date and what a user would notice."
+if [ "$next" != "$version" ]; then
   sed -i '' "s/\"version\": \"$version\"/\"version\": \"$next\"/" package.json
   [ "$(node -p 'require("./package.json").version')" = "$next" ] || fail "Couldn't bump package.json to $next."
   git commit -q -m "chore: release $next [skip ci]" -- package.json
@@ -111,4 +122,8 @@ put "$channel-mac.yml" "$feed" text/yaml
 
 git tag -a "$tag" -m "Gui $version"
 git push origin main "$tag"
+prerelease=
+[ "$channel" = latest ] || prerelease=--prerelease
+# shellcheck disable=SC2086
+gh release create "$tag" --verify-tag --title "Gui $version" --notes "$notes" $prerelease
 echo "Released Gui $version: https://usegui.com/download"
