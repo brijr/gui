@@ -171,6 +171,46 @@ export class Guides {
     else this.endDrag(null)
   }
 
+  /** The open project's guides, in page CSS pixels. */
+  list(): RulerGuide[] {
+    this.loadProject()
+    return this.guides.map(({ axis, at }) => ({ axis, at }))
+  }
+
+  /**
+   * The agent's guides (preview_guides): added and removed like the user's own and saved with
+   * them, so the user can move or delete them. Adding turns the rulers on, to show them.
+   */
+  change({ add, remove }: { add: RulerGuide[]; remove: RulerGuide[] }) {
+    this.loadProject()
+    if (!this.root) throw new Error('No project is open')
+    const same = (a: RulerGuide, b: RulerGuide) => a.axis === b.axis && Math.abs(a.at - b.at) < 0.5
+    const kept = this.guides.filter((guide) => !remove.some((each) => same(guide, each)))
+    const removed = this.guides.length - kept.length
+    let added = 0
+    let full = false
+    for (const { axis, at } of add) {
+      const guide = { axis, at: Math.round(at) }
+      if (kept.some((each) => same(each, guide))) continue
+      if (kept.length >= MAX_GUIDES) {
+        full = true
+        break
+      }
+      kept.push({ ...guide, id: String(this.nextId++) })
+      added++
+    }
+    if (added || removed) {
+      this.guides = kept
+      if (this.hover && !kept.some((guide) => guide.id === this.hover)) this.hover = null
+      this.save()
+      this.syncStrips()
+      this.sendRulers()
+    }
+    const turnedOn = add.length > 0 && !this.shown
+    if (turnedOn) setPrefs({ rulers: true })
+    return { added, removed, full, turnedOn }
+  }
+
   /** Takes the strips out of the window (the tab leaves it). */
   unmount() {
     const host = this.host

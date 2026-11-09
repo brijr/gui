@@ -4,6 +4,7 @@ import type { Point, Rect, RulerGuide } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
+import { ask, installToolAgent, type ToolResult } from './helpers/tool-agent'
 
 // Rulers and guides over the preview (main/guides.ts, app/rulers.tsx): ⇧R shows them, a guide
 // is dragged out of a ruler, kept in page pixels (per project, in prefs), moves with the page's
@@ -301,4 +302,79 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   await expectOn(true)
   await toggle.click()
   await expectOn(false)
+})
+
+test('the agent reads the guides with what nearly lines up, and places its own', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await installToolAgent(session)
+  const rulers = session.chrome.locator('[data-ruler]')
+  const view = () => session.app.evaluate(layout, STRIP)
+  const said = (result: ToolResult) => result.content.map((item) => item.text ?? '').join('\n')
+
+  // The rulers are off and there are no guides: the message names none.
+  await expect(rulers).toHaveCount(0)
+  const [none] = await ask(session, [{ context: 'Guides' }])
+  expect(none.content).toEqual([])
+
+  // The agent places a horizontal guide 3px above the button and a vertical one: the rulers
+  // come on, the guides show over the page and are saved like the user's.
+  const buttonTop = await pageEdge(session, 'button.counter', 'top')
+  const above = Math.round(buttonTop) - 3
+  const [placed] = await ask(session, [
+    {
+      name: 'preview_guides',
+      args: {
+        add: [
+          { direction: 'horizontal', at: above },
+          { direction: 'vertical', at: 30 },
+        ],
+      },
+    },
+  ])
+  const text = said(placed)
+  expect(placed.isError).toBeFalsy()
+  expect(text).toContain('Guides added 2.')
+  expect(text).toContain('they are on now')
+  expect(text).toContain(`- horizontal at ${above}`)
+  // The button's top edge, just below the guide, with a selector to act on.
+  const miss = new RegExp(
+    `button\\.counter "count is 0" top edge at ([\\d.]+), ([\\d.]+)px below the horizontal guide at ${above}\\. Selector: #root > main > button`,
+  ).exec(text)
+  expect(miss, text).not.toBeNull()
+  expect(Number(miss?.[2])).toBeCloseTo(buttonTop - above, 1)
+  await expect(rulers).toHaveCount(2)
+  await waitFor(() => savedGuides(session).length === 2, "the agent's guides to be saved")
+  expect(savedGuides(session)).toEqual([
+    { axis: 'y', at: above },
+    { axis: 'x', at: 30 },
+  ])
+  await waitFor(async () => (await view()).strips.length === 2, 'the guides over the page')
+
+  // The next message names them, in page pixels at the viewport's width.
+  const [context] = await ask(session, [{ context: 'Guides' }])
+  expect(said(context)).toMatch(
+    new RegExp(
+      `^Guides \\(page pixels, at \\d+px wide\\): vertical at 30; horizontal at ${above}\\.$`,
+    ),
+  )
+
+  // Taken away by position, they're gone from the page and from prefs.
+  const [removed] = await ask(session, [
+    {
+      name: 'preview_guides',
+      args: {
+        remove: [
+          { direction: 'horizontal', at: above },
+          { direction: 'vertical', at: 30 },
+        ],
+      },
+    },
+  ])
+  expect(said(removed)).toContain('Guides removed 2.')
+  expect(said(removed)).toContain('The project has no guides.')
+  await waitFor(() => savedGuides(session).length === 0, 'the guides to be removed')
+  await waitFor(async () => (await view()).strips.length === 0, 'the guides off the page')
 })

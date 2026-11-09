@@ -24,6 +24,7 @@ export const PREVIEW_TOOL_NAMES = [
   'preview_scroll',
   'preview_point',
   'preview_variations',
+  'preview_guides',
   'preview_console',
   'preview_navigate',
   'preview_reload',
@@ -77,8 +78,8 @@ export function registerPreviewTools(
   server: McpServer,
   tools: PreviewTools,
   recordings: Recordings,
-  /** False on a canvas, where each version is its own frame instead */
-  variations = true,
+  /** False on a canvas: each version is its own frame instead, and there are no rulers */
+  project = true,
 ) {
   server.registerTool(
     'preview_snapshot',
@@ -235,7 +236,7 @@ export function registerPreviewTools(
     },
   )
 
-  if (variations) {
+  if (project) {
     const variationId = z.string().regex(VARIATION_ID)
     server.registerTool(
       'preview_variations',
@@ -273,6 +274,45 @@ export function registerPreviewTools(
         try {
           const named = variants.map(({ id, name }) => ({ id, name: name.replace(/\s+/g, ' ') }))
           return text(await tools.variations({ set, variants: named, show }))
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    )
+  }
+
+  if (project) {
+    const guide = z.object({
+      direction: z.enum(['vertical', 'horizontal']),
+      at: z
+        .number()
+        .min(0)
+        .max(100_000)
+        .describe('Page CSS pixels: x for a vertical guide, y for a horizontal one'),
+    })
+    const guides = (list: z.infer<typeof guide>[] = []) =>
+      list.map(({ direction, at }) => ({ axis: direction === 'vertical' ? 'x' : 'y', at }) as const)
+    server.registerTool(
+      'preview_guides',
+      {
+        title: 'Check alignment with guides',
+        description: `The user's ruler guides over the preview of their app (page CSS pixels, so they scroll with the content), and the element edges that just miss them: visible elements whose left, center or right edge (top, middle or bottom, for a horizontal guide) lies within 8px of a guide but not on it, closest first, each with a selector for preview_inspect; edges exactly on a guide are counted. Use it when the user asks to line things up with their guides, to check alignment, or to show them why something looks off. \`add\` places guides the user sees, the same as their own (they can move or delete them), and turns the rulers on; \`remove\` takes guides away by position. Read it again after editing to check. The user's app only, not a website.`,
+        inputSchema: {
+          add: z.array(guide).max(20).optional().describe('Guides to place'),
+          remove: z.array(guide).max(50).optional().describe('Guides to take away, by position'),
+        },
+        annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
+      },
+      async ({ add, remove }) => {
+        try {
+          if (tools.shown().kind === 'website')
+            throw new Error(
+              "Guides are on the user's app only. preview_navigate with a path on the app goes back.",
+            )
+          return untrusted(
+            'preview_guides',
+            await tools.guides({ add: guides(add), remove: guides(remove) }),
+          )
         } catch (error) {
           return failure(error)
         }

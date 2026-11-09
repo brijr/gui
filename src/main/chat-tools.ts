@@ -18,6 +18,7 @@ export const GUI_TOOL_LABELS: Record<string, string> = {
   preview_scroll: 'Scroll preview',
   preview_point: 'Point out in preview',
   preview_variations: 'Show versions in preview',
+  preview_guides: 'Check alignment with guides',
   preview_console: 'Check preview errors',
   preview_navigate: 'Open page in preview',
   preview_reload: 'Reload preview',

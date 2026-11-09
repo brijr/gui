@@ -66,6 +66,7 @@ import {
   describeFollowUp,
   PROMPT_VERSION,
   type PromptBoard,
+  type PromptGuides,
   type PromptViewport,
   placeCommand,
 } from './prompt'
@@ -101,6 +102,8 @@ export interface ChatOptions {
   mcpServers: () => McpServer[]
   /** The preview's viewport as the user sees it now, which each prompt names; null on a canvas's board */
   viewport: () => PromptViewport | null
+  /** The user's guides over the preview while the rulers show them, which each prompt names */
+  guides?: () => PromptGuides | null
   /** The canvas this chat is on, as each prompt describes it; absent in a project */
   board?: () => PromptBoard | null
   /** Why the app won't start, as the agent is told it (`startupReport`) */
@@ -1377,6 +1380,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
               text: record.command ? null : record.turn.prompt,
               selection,
               viewport,
+              guides: this.options.guides?.() ?? null,
               board: this.options.board?.() ?? null,
               // Only Fix carries errors: they're usually unrelated to an ordinary request.
               problems,

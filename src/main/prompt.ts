@@ -7,12 +7,13 @@ import {
   type Picked,
   type Problem,
   type RegionContext,
+  type RulerGuide,
   type SourceLocation,
   type Turn,
 } from '../shared/types'
 
 /** Re-send updated guidance once when resuming a session primed by an older build. */
-export const PROMPT_VERSION = 5
+export const PROMPT_VERSION = 6
 
 const INTRO = `You are working inside Gui, a visual design tool. The user sees their app running live in a browser preview backed by its dev server with hot reload. In Gui's Design Mode they click elements (or drag out areas) in the preview and ask for interface changes.`
 
@@ -20,6 +21,7 @@ const EDITING = [
   'Edit the source files directly. The preview hot-reloads on save. Gui runs the dev server: never start or stop one yourself.',
   "Make the smallest change that fulfils the request. Match the project's existing styling approach (Tailwind classes, CSS modules, styled components, etc.) and conventions.",
   'When an element is selected, its details are in a <selected_element_…> block. An area the user dragged out is in a <selected_area_…> block, with a screenshot of it and the element around it. When several are selected, the request is about all of them together. Source locations are a strong hint but may be approximate — confirm by reading the file.',
+  'The user can lay ruler guides over the preview, like in Figma. While they show, a "Guides" line gives their positions in page pixels; when the user asks to line things up, align to those guides.',
 ]
 
 const PREVIEW_TOOLS = [
@@ -30,6 +32,7 @@ const PREVIEW_TOOLS = [
   "The same goes for other products (\"how does linear.app do onboarding?\", \"walk me through Stripe's checkout\"): open the website with preview_navigate and its full https:// address and walk through it the same way. It shows in the preview the user is watching, in place of their app, in a separate, fresh browser session with none of their sign-ins, cookies or storage, cleared when it closes; every page tool then acts on the website and its results say so. On a website, never enter credentials, payment details or real personal data, and never submit a purchase, sign-up, booking, message or anything else that sends data or acts for someone; type only obvious test data where nothing is sent, such as a search or a field you fill to see its validation. At a login wall, a paywall, or a step that needs real details, stop there and tell the user. A website the user signed into in the preview is still not theirs for you to act on: on a signed-in page, look but don't act, and tell the user. Gui refuses typing into password and payment fields on websites, keeps what's in them from you, and refuses clicking a form's submit button or pressing Enter in a form; a page's own scripts can still send data in ways Gui doesn't block, so never look for another way to send. The rest is up to you. Afterwards, report the journey as numbered steps, the patterns you noticed (order of steps, layout, copy, defaults, how errors and empty states are handled), and, when it helps, how the user could build the same in their app, naming the files you would change. A website isn't the user's app: go back with preview_navigate and a path such as `/` before editing or checking your own changes. The preview also goes back by itself when the user sends their next message.",
   "These preview tools are your browser: the preview is the page the user is looking at, and preview_navigate opens websites in it. Whenever you would check your work or look at a website in a browser, including when your own instructions say to, use them. Never open the user's browser or start another one: no `open <url>`, Playwright, Puppeteer, headless Chrome, browser MCP servers, or `--open` flags. Don't start servers either.",
   "Work in a loop within this turn: edit the source, let hot reload update, view the result with preview_screenshot, and compare it against the user's request. For interactive changes, exercise the relevant state with the input tools and view that state too. If the result is wrong, incomplete or broken, edit again and repeat the checks before replying; viewing your work is a step toward finishing, not the end of the task. When layout or responsiveness is involved, check a narrow width too. Read preview_console after editing to catch errors your change caused. If hot reload has not landed, recheck the preview or use preview_reload rather than judging an old screenshot. If tools fail or you cannot see images, say what remains unverified.",
+  "preview_guides reads the user's guides with the element edges that just miss them (a few pixels off), and can place guides the user sees, to show what lines up and what doesn't. Read it again after editing to check the alignment.",
   'When the user asks for options, alternatives or several ways to improve something, write them as real code in their project behind one small switch and show them with preview_variations, whose description gives the switch; the user flips through them in the preview and keeps one.',
   "Gui also has chat_turns (this chat's earlier requests and the files each changed) and versions_list (this chat's saved versions of the project's files).",
 ]
@@ -119,12 +122,21 @@ export interface PromptViewport {
   fixed: boolean
 }
 
+/** The user's ruler guides over the preview, while the rulers show them. */
+export interface PromptGuides {
+  /** The viewport's width in CSS pixels: guides are page pixels at this width */
+  width: number
+  guides: RulerGuide[]
+}
+
 interface PromptOptions {
   /** The user's message; null for a command, which placeCommand adds */
   text: string | null
   selection: Picked[]
   /** Null on a canvas's board, where there's no page in sight */
   viewport: PromptViewport | null
+  /** The user's guides, while the rulers show them; null otherwise */
+  guides?: PromptGuides | null
   /** The canvas this chat is on; null in a project */
   board?: PromptBoard | null
   /** Only for asking the agent to fix them; otherwise they're usually unrelated noise. */
@@ -147,6 +159,7 @@ export function buildPrompt({
   text,
   selection,
   viewport,
+  guides = null,
   board = null,
   problems,
   startup = null,
@@ -162,6 +175,7 @@ export function buildPrompt({
   if (problems.length) blocks.push({ type: 'text', text: describeProblems(problems) })
   if (board) blocks.push({ type: 'text', text: describeBoard(board) })
   if (viewport) blocks.push({ type: 'text', text: describeViewport(viewport) })
+  if (guides?.guides.length) blocks.push({ type: 'text', text: describeGuides(guides) })
   if (selection.length > 1) {
     blocks.push({
       type: 'text',
@@ -265,6 +279,23 @@ export function describeViewport({ name, width, height, fixed }: PromptViewport)
   return fixed
     ? `The user is viewing the preview in its ${name} viewport (${size}).`
     : `The user is viewing the preview in its ${name} viewport, which fills Gui's window (${size} now).`
+}
+
+/** The guides in one line: "Guides (page pixels, at 1280px wide): vertical at 72; horizontal at 120." */
+export function describeGuides({ width, guides }: PromptGuides) {
+  const at = (axis: RulerGuide['axis']) =>
+    guides
+      .filter((guide) => guide.axis === axis)
+      .map((guide) => Math.round(guide.at * 10) / 10)
+      .sort((a, b) => a - b)
+      .join(', ')
+  const vertical = at('x')
+  const horizontal = at('y')
+  const lines = [
+    vertical ? `vertical at ${vertical}` : null,
+    horizontal ? `horizontal at ${horizontal}` : null,
+  ].filter(Boolean)
+  return `Guides (page pixels, at ${Math.round(width)}px wide): ${lines.join('; ')}.`
 }
 
 /** Page-derived values are untrusted: keep them on one line so they can't fake structure. */

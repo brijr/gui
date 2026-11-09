@@ -115,7 +115,7 @@ import { execFile } from './process'
 import { detectProject } from './project'
 import { retireProject, waitForRetiredProject } from './project-handoff'
 import { ProjectResources } from './project-resources'
-import type { PromptBoard, PromptViewport } from './prompt'
+import type { PromptBoard, PromptGuides, PromptViewport } from './prompt'
 import { addRecent, loadRecent, recentSoFar, withChats } from './recent'
 import { type CursorFrame, CursorTrack } from './recording-cursor'
 import { RecordingTrace } from './recording-trace'
@@ -1269,6 +1269,15 @@ export class ProjectTab implements ChatPanelOwner {
       guide: (node, caption) => this.guideStep(this.picker, node, caption),
       guideInput: (at, click) => this.guideInput(this.picker, at, click),
       variations: (input) => this.variations.show(input),
+      // A late call from an opening since replaced mustn't touch the next project's guides.
+      guides: {
+        list: () => (current() ? this.guides.list() : []),
+        shown: () => current() && this.rulersShown,
+        change: (change) => {
+          if (!current()) throw new Error('The project was closed')
+          return this.guides.change(change)
+        },
+      },
       website: {
         shown: () => (this.website && !this.website.closed ? this.website.tools : null),
         open: (url) => this.openWebsite(url),
@@ -1333,6 +1342,7 @@ export class ProjectTab implements ChatPanelOwner {
       recordings,
       mcpServers: () => (resources.mcp ? [resources.mcp.config] : []),
       viewport: () => this.promptViewport(),
+      guides: () => this.promptGuides(),
       board: board ? () => this.promptBoard() : undefined,
       startupReport: (tools) => startupReport(this.state, this.getLogs(), tools),
       layout: board ? boardLayout(board, checkpoints, current) : undefined,
@@ -2721,6 +2731,15 @@ export class ProjectTab implements ChatPanelOwner {
       height: Math.round(height / zoom),
       fixed: false,
     }
+  }
+
+  /** The user's guides, named in each prompt while the rulers show them. */
+  private promptGuides(): PromptGuides | null {
+    if (!this.rulersShown) return null
+    const guides = this.guides.list()
+    const viewport = this.promptViewport()
+    if (!guides.length || !viewport) return null
+    return { width: viewport.width, guides }
   }
 
   private devOrigin() {

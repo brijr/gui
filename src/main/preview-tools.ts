@@ -1,5 +1,7 @@
 import type { WebContents } from 'electron'
-import type { ElementContext, Rect, StartCommandInput } from '../shared/types'
+import { pagePoint, pageRectFromViewport, viewportRectFrom } from '../shared/coords'
+import type { ElementContext, Rect, RulerGuide, StartCommandInput } from '../shared/types'
+import { alignGuides, describeAlignment } from './guide-alignment'
 import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import { type BeforeInput, PreviewInteractions } from './preview-interactions'
@@ -143,6 +145,30 @@ export interface PreviewToolsDeps extends Omit<PageDeps, 'kind'> {
   /** preview_variations: shows the set's bar and version (variations.ts); what happened */
   variations: (input: VariationsInput) => Promise<string>
   website: WebsiteHost
+  guides: GuidesHost
+}
+
+/** The user's ruler guides over the app's preview (guides.ts), for preview_guides. */
+export interface GuidesHost {
+  /** The project's guides, in page CSS pixels */
+  list: () => RulerGuide[]
+  /** The rulers are on, so the user sees them */
+  shown: () => boolean
+  /**
+   * Adds and removes guides like the user's own, saved with them; adding turns the rulers on.
+   * How many changed, and whether the rulers came on.
+   */
+  change: (change: GuidesChange) => {
+    added: number
+    removed: number
+    full: boolean
+    turnedOn: boolean
+  }
+}
+
+export interface GuidesChange {
+  add: RulerGuide[]
+  remove: RulerGuide[]
 }
 
 interface LayoutMetrics {
@@ -606,6 +632,46 @@ export class PreviewTools extends PageTools {
 
   variations(input: VariationsInput) {
     return this.deps.variations(input)
+  }
+
+  /**
+   * preview_guides: changes the user's guides as asked, then reads them with the element edges
+   * that nearly line up with them. On the user's app only.
+   */
+  async guides(change: GuidesChange) {
+    this.assertLoaded()
+    const lines: string[] = []
+    if (change.add.length || change.remove.length) {
+      const { added, removed, full, turnedOn } = this.deps.guides.change(change)
+      const done = [added ? `added ${added}` : null, removed ? `removed ${removed}` : null].filter(
+        Boolean,
+      )
+      lines.push(done.length ? `Guides ${done.join(' and ')}.` : 'No guide changed.')
+      if (full) lines.push("Some weren't added: the project has as many guides as it keeps.")
+      if (turnedOn) {
+        lines.push('The rulers were off; they are on now, so the user sees the guides.')
+        // The page moves over for the rulers, which can reflow it.
+        await sleep(SETTLE_MS)
+      }
+    }
+    const guides = this.deps.guides.list()
+    if (!guides.length) {
+      lines.push(
+        'The project has no guides. Pass `add` to place some, or ask the user to drag them out of the rulers (View → Rulers, ⇧R).',
+      )
+      return lines.join('\n')
+    }
+    if (!this.deps.guides.shown())
+      lines.push("The rulers are off, so the user doesn't see these guides now.")
+    const measured = await this.interactions.boxes()
+    const scroll = pagePoint(measured.scroll.x, measured.scroll.y)
+    const boxes = measured.boxes.map(({ selector, label, ...rect }) => ({
+      selector,
+      label,
+      rect: pageRectFromViewport(viewportRectFrom(rect), scroll),
+    }))
+    lines.push(describeAlignment(guides, alignGuides(guides, boxes), measured))
+    return lines.join('\n')
   }
 
   logs(lines: number) {

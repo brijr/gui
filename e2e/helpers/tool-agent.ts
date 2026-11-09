@@ -30,6 +30,9 @@ const prompt = async params => {
     } else if (step.write) {
       writeFileSync(join(cwd, step.write.path), step.write.text)
       await new Promise(resolve => setTimeout(resolve, 800))
+    } else if (step.context) {
+      const texts = params.prompt.filter(block => block.type === 'text' && block.text.startsWith(step.context))
+      results.push({ content: texts.map(block => ({ type: 'text', text: block.text })) })
     } else results.push(await call(step.name, step.args || {}))
   }
   write({ method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(results) } } } })
@@ -86,6 +89,8 @@ export interface Step {
   write?: { path: string; text: string }
   /** Waits this many ms, as an agent thinking between calls would */
   wait?: number
+  /** Echoes the message's text blocks that start with this, as the agent received them */
+  context?: string
 }
 /** Sends `steps` as one message; `during` acts as the user while its turn runs. */
 export async function ask(

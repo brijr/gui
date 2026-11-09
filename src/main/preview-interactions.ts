@@ -40,14 +40,8 @@ const MAX_SNAPSHOT_CHARS = 200_000
 /** The longest selector a tool takes; an element only a longer one reaches is left out. */
 const MAX_SELECTOR = 500
 
-/**
- * Bounded page data, not a script supplied by the agent. Selectors are resolved afresh. On a
- * website (`hide`: SENSITIVE), no password, one-time code or payment field shows its value.
- */
-const snapshotScript = (hide: string) => `(() => {
-  const hidden = ${hide};
-  const clean = (text) => String(text || '').replace(/\\s+/g, ' ').trim().slice(0, 160);
-  const selector = (el) => {
+/** A CSS selector for an element, the way preview_snapshot names it. Page JavaScript. */
+const SELECTOR = `(el) => {
     const parts = [];
     for (let node = el; node && node.nodeType === 1; node = node.parentElement) {
       if (node.id && document.querySelectorAll('#' + CSS.escape(node.id)).length === 1) {
@@ -59,7 +53,16 @@ const snapshotScript = (hide: string) => `(() => {
       parts.unshift(tag + (siblings.length > 1 ? ':nth-of-type(' + (siblings.indexOf(node) + 1) + ')' : ''));
     }
     return parts.join(' > ');
-  };
+  }`
+
+/**
+ * Bounded page data, not a script supplied by the agent. Selectors are resolved afresh. On a
+ * website (`hide`: SENSITIVE), no password, one-time code or payment field shows its value.
+ */
+const snapshotScript = (hide: string) => `(() => {
+  const hidden = ${hide};
+  const clean = (text) => String(text || '').replace(/\\s+/g, ' ').trim().slice(0, 160);
+  const selector = ${SELECTOR};
   const elements = [];
   let omitted = 0;
   const candidates = document.querySelectorAll('h1,h2,h3,button,a[href],input,textarea,select,summary,[role],[contenteditable],[tabindex]');
@@ -112,6 +115,42 @@ const SENSITIVE = `(field) => {
 
 const APP_SNAPSHOT = snapshotScript('() => false')
 const WEBSITE_SNAPSHOT = snapshotScript(SENSITIVE)
+
+/** The elements preview_guides measures; a page with more is measured up to here. */
+const MAX_BOXES = 4000
+
+/**
+ * Every visible element's box in the viewport (CSS pixels), with how far the page is scrolled,
+ * for preview_guides. Bounded page data, not a script supplied by the agent.
+ */
+const BOXES = `(() => {
+  const selector = ${SELECTOR};
+  const clean = (text) => String(text || '').replace(/\\s+/g, ' ').trim();
+  const skip = new Set(['script', 'style', 'link', 'meta', 'template', 'noscript', 'br', 'wbr', 'head', 'title']);
+  const boxes = [];
+  for (const el of document.body ? document.body.querySelectorAll('*') : []) {
+    if (boxes.length >= ${MAX_BOXES}) break;
+    if (skip.has(el.localName) || el.ownerSVGElement) continue;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+    const style = getComputedStyle(el);
+    if (style.visibility !== 'visible' || style.opacity === '0') continue;
+    const path = selector(el);
+    if (path.length > ${MAX_SELECTOR}) continue;
+    const classes = Array.from(el.classList).slice(0, 2).map(name => '.' + name).join('');
+    const name = clean(el.getAttribute('aria-label') || el.textContent).slice(0, 40);
+    boxes.push({ selector: path, label: el.localName + classes + (name ? ' "' + name + '"' : ''),
+      x: rect.left, y: rect.top, width: rect.width, height: rect.height });
+  }
+  return { width: innerWidth, scroll: { x: scrollX, y: scrollY }, boxes };
+})()`
+
+/** What BOXES reads: boxes in the viewport's CSS pixels. */
+export interface ViewportBoxes {
+  width: number
+  scroll: { x: number; y: number }
+  boxes: { selector: string; label: string; x: number; y: number; width: number; height: number }[]
+}
 
 /** A control that sends its form when clicked, or with Space: a submit button, with a form. */
 const SUBMITS = `(el) => {
@@ -204,6 +243,22 @@ export class PreviewInteractions {
       if (exceptionDetails || !result.value) throw new Error('Could not read the preview page')
       if (JSON.stringify(result.value).length > MAX_SNAPSHOT_CHARS)
         throw new Error('The page is too large to read as a snapshot; use preview_screenshot')
+      return result.value
+    })
+  }
+
+  /** Every visible element's box, in the viewport, and the page's scroll (preview_guides). */
+  async boxes(): Promise<ViewportBoxes> {
+    return this.exclusive(async () => {
+      const { result, exceptionDetails } = await this.cmd<{
+        result: { value?: ViewportBoxes }
+        exceptionDetails?: unknown
+      }>('Runtime.evaluate', {
+        expression: BOXES,
+        contextId: await this.world(),
+        returnByValue: true,
+      })
+      if (exceptionDetails || !result.value) throw new Error('Could not measure the preview page')
       return result.value
     })
   }
