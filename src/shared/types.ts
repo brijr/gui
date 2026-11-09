@@ -411,6 +411,8 @@ export interface PreviewState {
    */
   zoom: number
   selecting: boolean
+  /** The rulers are on (⇧R, View → Rulers): Gui's pref, the same in every tab */
+  rulers: boolean
   /** Element picking is only allowed on the local app, not off-site pages */
   selectable: boolean
   visible: boolean

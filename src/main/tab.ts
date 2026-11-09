@@ -551,6 +551,7 @@ export class ProjectTab implements ChatPanelOwner {
         frame: null,
         zoom: 1,
         selecting: false,
+        rulers: getPrefs().rulers,
         selectable: false,
         visible: false,
         website: null,
@@ -615,7 +616,10 @@ export class ProjectTab implements ChatPanelOwner {
       scale: () => this.emulation.scale,
       root: () => this.state.project?.root ?? null,
       sendChrome: (channel, payload) => this.send(channel, payload),
-      relayout: () => this.layout(),
+      relayout: () => {
+        this.patchPreview({ rulers: this.guides.on })
+        this.layout()
+      },
     })
     this.variations = new Variations({
       inspector: this.inspector,

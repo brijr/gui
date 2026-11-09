@@ -122,6 +122,11 @@ function savedGuides(session: GuiSession): RulerGuide[] {
   return Object.values((prefs.guides ?? {}) as Record<string, RulerGuide[]>)[0] ?? []
 }
 
+/** Runs in main: whether View → Rulers is checked. */
+function menuChecked({ Menu }: ElectronModule) {
+  return Menu.getApplicationMenu()?.getMenuItemById('rulers')?.checked ?? null
+}
+
 /** Where an element's edge is on the page, in its CSS pixels (scrolled or not). */
 async function pageEdge(session: GuiSession, selector: string, edge: 'top' | 'left') {
   const preview = await session.previewPage()
@@ -145,11 +150,21 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   const send = (to: 'chrome' | 'preview' | RulerGuide['axis'], events: InputEvent[]) =>
     session.app.evaluate(input, { to, events })
 
+  // The toolbar's Rulers button, the View menu and ⇧R are one switch.
+  const toggle = session.chrome.getByRole('button', { name: 'Rulers', exact: true })
+  const expectOn = async (on: boolean) => {
+    await expect(rulers).toHaveCount(on ? 2 : 0)
+    await expect(toggle).toHaveAttribute('aria-pressed', String(on))
+    expect(await session.app.evaluate(menuChecked)).toBe(on)
+  }
+
   // ⇧R with the page focused shows the rulers, and the page moves over for them.
-  await expect(rulers).toHaveCount(0)
+  await expectOn(false)
+  await session.shot('rulers-toolbar-off')
   const before = (await view()).preview
   await send('preview', shiftR)
-  await expect(rulers).toHaveCount(2)
+  await expectOn(true)
+  await session.shot('rulers-toolbar-on')
   await waitFor(async () => (await view()).preview?.y === (before?.y ?? 0) + 20, 'room for rulers')
 
   // Out of the top ruler, onto the heading's top edge: a horizontal guide there, in page pixels.
@@ -274,4 +289,16 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   await waitFor(async () => (await view()).strips.length === 0, 'the guides to hide')
   await expect(page.locator('#typing')).toHaveValue('R')
   expect(savedGuides(session)).toEqual([{ axis: 'x', at: buttonLeft }])
+  await expectOn(false)
+
+  // The toolbar's button turns them on, ⇧R (here in Gui's own window) off, and it again.
+  await toggle.click()
+  await expectOn(true)
+  await waitFor(async () => (await view()).strips.length === 1, 'the kept guide to show')
+  await send('chrome', shiftR)
+  await expectOn(false)
+  await toggle.click()
+  await expectOn(true)
+  await toggle.click()
+  await expectOn(false)
 })

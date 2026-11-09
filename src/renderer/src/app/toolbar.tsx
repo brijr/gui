@@ -44,6 +44,7 @@ import {
   MousePointer2,
   Plus,
   RotateCw,
+  Ruler,
   Shapes,
   Smartphone,
   Tablet,
@@ -97,13 +98,14 @@ const FRAME_NAME_MIN = 96
 const BOARD_GAP_MIN = 8
 
 /**
- * The order the project toolbar makes room in (toolbar-fit.ts): the viewport and Screenshot
- * go into the "…" menu, then the project button drops the branch, then the project's name,
- * then Select. Back, Forward and Reload are the address field's own; Record and the chat
+ * The order the project toolbar makes room in (toolbar-fit.ts): the viewport, Rulers and
+ * Screenshot go into the "…" menu, then the project button drops the branch, then the
+ * project's name, then Select. Back, Forward and Reload are the address field's own; Record and the chat
  * button always stay. Shortcuts are in the tooltips, never shown as keys here.
  */
 const PROJECT_STEPS: FitStep[] = [
   { tool: 'viewport', to: 'hidden' },
+  { tool: 'rulers', to: 'hidden' },
   { tool: 'screenshot', to: 'hidden' },
   { tool: 'branch', to: 'compact' },
   { tool: 'project', to: 'compact' },
@@ -145,7 +147,7 @@ function useBar(state: WindowState, lights: boolean) {
 /**
  * The window's toolbar: the project menu (naming the project and its branch), then, once a
  * project is open, the address (with the dev server's status, and the preview's history and
- * Reload at its end), viewport, Select, screenshot, Record and the chat. Groups sit a gap
+ * Reload at its end), viewport, Rulers, Select, screenshot, Record and the chat. Groups sit a gap
  * apart; controls are 28px, in the quietest text color until pointed at. Short of room, tools
  * go into the "…" menu (PROJECT_STEPS) so the address keeps ADDRESS_MIN.
  */
@@ -172,32 +174,32 @@ export function Toolbar({ state }: { state: WindowState }) {
     more.push(...items)
   }
   if (!shown('viewport')) section(...viewportItems(preview.viewport, null))
-  if (!shown('screenshot') || !shown('select')) {
-    section(
-      ...(shown('screenshot')
-        ? []
-        : [
-            {
-              id: 'screenshot',
-              label: 'Screenshot…',
-              shortcut: 'screenshot',
-              enabled: capturable,
-            } as const,
-          ]),
-      ...(shown('select')
-        ? []
-        : [
-            {
-              type: 'checkbox',
-              id: 'select',
-              label: 'Design Mode',
-              shortcut: 'selectElement',
-              checked: preview.selecting,
-              enabled: capturable,
-            } as const,
-          ]),
-    )
-  }
+  const tools: ToolbarMenuItem[] = []
+  if (!shown('rulers'))
+    tools.push({
+      type: 'checkbox',
+      id: 'rulers',
+      label: 'Rulers',
+      shortcut: 'rulers',
+      checked: preview.rulers,
+    })
+  if (!shown('screenshot'))
+    tools.push({
+      id: 'screenshot',
+      label: 'Screenshot…',
+      shortcut: 'screenshot',
+      enabled: capturable,
+    })
+  if (!shown('select'))
+    tools.push({
+      type: 'checkbox',
+      id: 'select',
+      label: 'Design Mode',
+      shortcut: 'selectElement',
+      checked: preview.selecting,
+      enabled: capturable,
+    })
+  if (tools.length) section(...tools)
 
   return (
     <header
@@ -218,6 +220,7 @@ export function Toolbar({ state }: { state: WindowState }) {
           {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
 
           <div className="flex shrink-0 items-center gap-1">
+            {shown('rulers') && <RulersButton on={preview.rulers} />}
             {shown('select') && (
               <SelectButton unavailable={uncapturable} selecting={preview.selecting} />
             )}
@@ -231,6 +234,7 @@ export function Toolbar({ state }: { state: WindowState }) {
               items={more}
               onChoose={(id, button) => {
                 if (id === 'select') gui.toggleSelect()
+                else if (id === 'rulers') gui.toggleRulers()
                 else if (id === 'screenshot') void screenshotUnder(button)
                 else chooseViewport(id)
               }}
@@ -785,6 +789,20 @@ function captureBlocked(preview: PreviewState, board: boolean): string | null {
     return board ? 'Open a frame to capture it' : 'Start the dev server to capture'
   if (!preview.selectable) return 'Only your own app can be captured'
   return null
+}
+
+/** The rulers and guides over the preview, on or off (⇧R, View → Rulers). */
+function RulersButton({ on }: { on: boolean }) {
+  return (
+    <IconButton
+      label="Rulers"
+      shortcut="rulers"
+      icon={Ruler}
+      pressed={on}
+      className={HIT_AREA}
+      onClick={() => gui.toggleRulers()}
+    />
+  )
 }
 
 function SelectButton({
