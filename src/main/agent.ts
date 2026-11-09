@@ -13,7 +13,7 @@ import {
   type ModelSettings,
 } from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
-import { displayedModes } from './agent-protocol'
+import { displayedModes, errorDetail } from './agent-protocol'
 import {
   type AgentDefinition,
   findExecutable,
@@ -189,24 +189,6 @@ export class AgentAuthError extends Error {
   ) {
     super(message)
   }
-}
-
-/**
- * The useful part of an agent's error; some put it in `data` behind a generic message
- * (agents built on the Go ACP SDK, like jcode, as `{ error }` behind "Internal error").
- */
-function errorDetail(error: unknown) {
-  if (error instanceof acp.RequestError) {
-    const data = error.data
-    const detail =
-      typeof data === 'string'
-        ? data
-        : data && typeof data === 'object' && 'error' in data && typeof data.error === 'string'
-          ? data.error
-          : ''
-    if (detail.trim()) return detail.trim()
-  }
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -675,7 +657,8 @@ export class AgentSession {
       // A login can expire mid-session (an OAuth refresh that fails): say so, with how to
       // sign in, rather than the agent's bare "Authentication required".
       if (isAuthError(error) && this.signInError) throw this.signInError(error)
-      throw error
+      // Agents may put the reason behind a bare "Internal error" (see errorDetail).
+      throw error instanceof acp.RequestError ? new Error(errorDetail(error)) : error
     })
   }
 

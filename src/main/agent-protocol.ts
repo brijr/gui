@@ -1,4 +1,4 @@
-import type * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk'
 
 // How Gui reads what agents send where they differ from one another. No Electron here,
 // so tests can load it on its own.
@@ -39,4 +39,21 @@ export function displayedModes(
     return values.length === ids.length && ids.every((id) => values.includes(id))
   })
   return mirrored ? null : modes
+}
+
+/**
+ * The useful part of an agent's error. Many put it in `data` behind a generic "Internal
+ * error": the ACP TypeScript SDK wraps anything an agent throws as `{ details }` (Codex),
+ * the Go SDK as `{ error }` (jcode), and Codex reports a failed turn as `{ message }`.
+ */
+export function errorDetail(error: unknown): string {
+  if (error instanceof acp.RequestError) {
+    const { data } = error
+    const fields = isRecord(data) ? [data.details, data.error, data.message] : [data]
+    const detail = fields.find(
+      (field): field is string => typeof field === 'string' && !!field.trim(),
+    )
+    if (detail) return detail.trim()
+  }
+  return error instanceof Error ? error.message : String(error)
 }

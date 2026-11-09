@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type * as acp from '@agentclientprotocol/sdk'
+import * as acp from '@agentclientprotocol/sdk'
 
-import { displayedModes } from '../src/main/agent-protocol'
+import { displayedModes, errorDetail } from '../src/main/agent-protocol'
 
 const select = (
   id: string,
@@ -56,5 +56,36 @@ describe('displayedModes', () => {
     expect(displayedModes(null, piOptions)).toBeNull()
     const odd = { currentModeId: 'a', availableModes: null } as unknown as acp.SessionModeState
     expect(displayedModes(odd, piOptions)).toBe(odd)
+  })
+})
+
+describe('errorDetail', () => {
+  test('Codex’s reason behind "Internal error" (as codex-acp 2.6.0 sends a failed session/load)', () => {
+    const error = new acp.RequestError(-32603, 'Internal error', {
+      details: 'no rollout found for thread id 01a1c178',
+    })
+    expect(errorDetail(error)).toBe('no rollout found for thread id 01a1c178')
+  })
+
+  test('Codex’s failed turn, the Go SDK’s wrapper, and plain string data', () => {
+    const turn = { message: 'You have hit your usage limit.', codexErrorInfo: 'usageLimitExceeded' }
+    expect(errorDetail(new acp.RequestError(-32603, 'Internal error', turn))).toBe(
+      'You have hit your usage limit.',
+    )
+    const go = new acp.RequestError(-32603, 'Internal error', { error: 'please run setup first' })
+    expect(errorDetail(go)).toBe('please run setup first')
+    expect(errorDetail(new acp.RequestError(-32603, 'Internal error', ' Logged out. '))).toBe(
+      'Logged out.',
+    )
+  })
+
+  test('the message when data says nothing more', () => {
+    expect(errorDetail(new acp.RequestError(-32602, 'Invalid params', { issues: [] }))).toBe(
+      'Invalid params',
+    )
+    expect(errorDetail(new acp.RequestError(-32603, 'Internal error', { details: ' ' }))).toBe(
+      'Internal error',
+    )
+    expect(errorDetail(new Error('Agent is not running'))).toBe('Agent is not running')
   })
 })
