@@ -120,20 +120,21 @@ export class Checkpoints {
   private readonly projectRoot: string
   private readonly key: string
   private readonly storeDir: string
-  private readonly env: NodeJS.ProcessEnv
+  /** Git's environment; a project may open before the shell's is read (shell-env.ts). */
+  private readonly env: Promise<NodeJS.ProcessEnv>
   private readonly options: CheckpointOptions
   private repo: Repo | null = null
 
   constructor(
     projectRoot: string,
     storeDir: string,
-    env: NodeJS.ProcessEnv = process.env,
+    env: NodeJS.ProcessEnv | Promise<NodeJS.ProcessEnv> = process.env,
     options: CheckpointOptions = {},
   ) {
     this.projectRoot = resolve(projectRoot)
     this.key = realpathOr(this.projectRoot)
     this.storeDir = resolve(storeDir)
-    this.env = gitEnv(env)
+    this.env = Promise.resolve(env).then(gitEnv)
     this.options = options
   }
 
@@ -448,7 +449,7 @@ export class Checkpoints {
     return repo
   }
 
-  private git(
+  private async git(
     repo: Repo,
     args: string[],
     { workTree = true, literal = true, input }: GitOptions = {},
@@ -467,7 +468,7 @@ export class Checkpoints {
       'commit.gpgsign=false',
       ...args,
     )
-    const options = { cwd: repo.root, env: this.env, maxBuffer: MAX_BUFFER }
+    const options = { cwd: repo.root, env: await this.env, maxBuffer: MAX_BUFFER }
     return new Promise((ok, fail) => {
       const child = execFile(
         'git',
