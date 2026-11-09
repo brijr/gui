@@ -11,6 +11,21 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.14',
+    date: '2026-11-09',
+    changes: [
+      'jcode is a built-in agent. Errors from some other agents now show their real message.',
+      'Drag the floating chat to the window’s left or right edge to dock it as a sidebar. Pull the sidebar’s header to float it again. The chat changes shape smoothly either way.',
+      'Your app shows as soon as its dev server is ready, and a canvas or project opened right after launch shows at once.',
+      'Gui uses less memory: zoomed out, a canvas shows small thumbnails, and closing a project frees its terminals and dev server at once.',
+    ],
+  },
+  {
+    version: '0.1.0-alpha.13',
+    date: '2026-11-04',
+    changes: ['The same app as 0.1.0-alpha.12, published again.'],
+  },
+  {
     version: '0.1.0-alpha.12',
     date: '2026-11-04',
     changes: [
