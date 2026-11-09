@@ -11,6 +11,14 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.16',
+    date: '2026-11-09',
+    changes: [
+      'Your agent sees your guides. While the rulers are on, each message says where they are, so “line this up with my guide” just works.',
+      'Agents can check alignment against your guides: they find edges that are a few pixels off, fix them, and check again. They can also place guides to show you what lines up.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.15',
     date: '2026-11-09',
     changes: [
