@@ -13,6 +13,7 @@ import {
   type ModelSettings,
 } from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
+import { displayedModes } from './agent-protocol'
 import {
   type AgentDefinition,
   findExecutable,
@@ -567,12 +568,13 @@ export class AgentSession {
    */
   get modeIsUsual(): boolean {
     const option = selectSetting(this.configOptions, 'mode')
-    const current = option ? option.value : this.modes?.currentModeId
+    const modes = displayedModes(this.modes, this.configOptions)
+    const current = option ? option.value : modes?.currentModeId
     if (current === undefined) return false
     const listed = option
       ? settingValues(option)
-      : Array.isArray(this.modes?.availableModes)
-        ? this.modes.availableModes.map((mode) => mode.id)
+      : Array.isArray(modes?.availableModes)
+        ? modes.availableModes.map((mode) => mode.id)
         : []
     if (listed[0] === current) return true
     const wanted = this.controls?.mode
@@ -586,7 +588,7 @@ export class AgentSession {
       const current = option.options.find(({ value }) => value === option.value)
       return current?.name ?? option.value
     }
-    const modes = this.modes
+    const modes = displayedModes(this.modes, this.configOptions)
     if (!modes) return null
     const listed = Array.isArray(modes.availableModes) ? modes.availableModes : []
     return listed.find((mode) => mode.id === modes.currentModeId)?.name ?? modes.currentModeId
