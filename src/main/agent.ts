@@ -13,7 +13,7 @@ import {
   type ModelSettings,
 } from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
-import { displayedModes, errorDetail } from './agent-protocol'
+import { displayedModes, errorDetail, resumeMethods } from './agent-protocol'
 import {
   type AgentDefinition,
   type PermissionControls,
@@ -164,7 +164,7 @@ export interface AgentInfo {
 
 export interface StartOptions {
   mcpServers: acp.McpServer[]
-  /** Session to resume (via session/load) when the agent supports it */
+  /** Session to resume (session/resume, else session/load) when the agent supports it */
   resumeSessionId?: string | null
   /** ACP auth method to run before creating the session (e.g. a browser sign-in) */
   authenticate?: string
@@ -492,8 +492,8 @@ export class AgentSession {
       )
     }
 
-    // sessionId stays null while loading, so the agent's replay of the old
-    // transcript isn't mistaken for a new turn's updates.
+    // Gui keeps its own transcript. sessionId stays null while resuming, so a replay of
+    // the old one (session/load sends it) isn't mistaken for a new turn's updates.
     let session: {
       sessionId: string
       modes?: acp.SessionModeState | null
@@ -501,22 +501,22 @@ export class AgentSession {
       _meta?: Record<string, unknown> | null
     } | null = null
     let resumed = false
-    if (resumeSessionId && init.agentCapabilities?.loadSession) {
-      const loaded = await this.untilExit(
-        agent.request(acp.methods.agent.session.load, {
-          sessionId: resumeSessionId,
-          cwd: this.cwd,
-          mcpServers: servers,
-          _meta: meta,
-        }),
-      ).catch(() => null)
-      if (loaded) {
+    if (resumeSessionId) {
+      const params = { sessionId: resumeSessionId, cwd: this.cwd, mcpServers: servers, _meta: meta }
+      for (const how of resumeMethods(init.agentCapabilities)) {
+        const request: Promise<acp.ResumeSessionResponse | acp.LoadSessionResponse> =
+          how === 'resume'
+            ? agent.request(acp.methods.agent.session.resume, params)
+            : agent.request(acp.methods.agent.session.load, params)
+        const picked = await this.untilExit(request).catch(() => null)
+        if (!picked) continue
         session = {
           sessionId: resumeSessionId,
-          modes: loaded.modes,
-          configOptions: loaded.configOptions,
+          modes: picked.modes,
+          configOptions: picked.configOptions,
         }
         resumed = true
+        break
       }
     }
     session ??= await this.untilExit(

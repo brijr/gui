@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import * as acp from '@agentclientprotocol/sdk'
 
-import { displayedModes, errorDetail } from '../src/main/agent-protocol'
+import { displayedModes, errorDetail, resumeMethods } from '../src/main/agent-protocol'
 
 const select = (
   id: string,
@@ -87,5 +87,26 @@ describe('errorDetail', () => {
       'Internal error',
     )
     expect(errorDetail(new Error('Agent is not running'))).toBe('Agent is not running')
+  })
+})
+
+describe('resumeMethods', () => {
+  test('session/resume first, which sends no replay, then session/load', () => {
+    // As Claude, Codex, Amp, Muse, Grok, fx and OpenCode advertise them.
+    expect(resumeMethods({ loadSession: true, sessionCapabilities: { resume: {} } })).toEqual([
+      'resume',
+      'load',
+    ])
+  })
+
+  test('only what the agent advertises', () => {
+    // pi-acp 0.0.34: load, no resume.
+    expect(resumeMethods({ loadSession: true, sessionCapabilities: { list: {} } })).toEqual([
+      'load',
+    ])
+    expect(resumeMethods({ sessionCapabilities: { resume: {} } })).toEqual(['resume'])
+    expect(resumeMethods({ sessionCapabilities: { resume: null } })).toEqual([])
+    expect(resumeMethods({})).toEqual([])
+    expect(resumeMethods(undefined)).toEqual([])
   })
 })

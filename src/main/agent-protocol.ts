@@ -57,3 +57,17 @@ export function errorDetail(error: unknown): string {
   }
   return error instanceof Error ? error.message : String(error)
 }
+
+/**
+ * How the agent can pick an earlier session back up, best first. session/resume continues
+ * it without sending the history again; session/load replays every message, which Gui
+ * (keeping its own transcript) only drops.
+ */
+export function resumeMethods(
+  capabilities: acp.AgentCapabilities | null | undefined,
+): ('resume' | 'load')[] {
+  const methods: ('resume' | 'load')[] = []
+  if (isRecord(capabilities?.sessionCapabilities?.resume)) methods.push('resume')
+  if (capabilities?.loadSession === true) methods.push('load')
+  return methods
+}
