@@ -38,3 +38,6 @@ export const FRAME_MARGIN = 24
 
 /** The line above a device frame that names it: "Laptop · 1440 × 900 · 80%". */
 export const FRAME_LABEL_HEIGHT = 24
+
+/** The rulers along the canvas's top and left edges (⇧R), which the preview moves over for. */
+export const RULER_SIZE = 20

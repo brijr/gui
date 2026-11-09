@@ -14,6 +14,7 @@ import type {
   ChatSummary,
   CustomAgentEntry,
   DrawerTab,
+  GuideStrips,
   ImageAttachment,
   MorphEvent,
   PanelEdge,
@@ -23,6 +24,8 @@ import type {
   RecordingAttachment,
   RecordingCursor,
   Rect,
+  RulerGuide,
+  RulersView,
   SettingsSection,
   SettingsState,
   SidebarSlide,
@@ -127,6 +130,9 @@ export const Send = {
   endGuide: 'pick:end-guide',
   variations: 'pick:variations',
   variationsSize: 'pick:variations-size',
+  toggleRulers: 'rulers:toggle',
+  rulerDrag: 'rulers:drag',
+  guidePointer: 'guides:pointer',
   setCanvasRect: 'layout:canvas',
   /** One of the page's animation frames, while main asks for them (main/panel-flight.ts) */
   displayFrame: 'motion:frame',
@@ -244,6 +250,8 @@ export const Events = {
   /** Main's motion needs the page's frames (true) or is done with them (false) */
   displayFrames: 'motion:frames',
   pickState: 'pick:state',
+  rulers: 'rulers',
+  guideStrips: 'guides:strips',
   settings: 'settings',
   settingsSection: 'settings:section',
   account: 'account',
@@ -271,6 +279,17 @@ export interface FrameArrangement {
 }
 
 export type Unsubscribe = () => void
+
+/** The pointer on a guide's grab strip: over it, off it, or pressed and dragging it. */
+export type GuidePointerPhase = 'enter' | 'leave' | 'down' | 'move' | 'up' | 'cancel'
+export const GUIDE_POINTER_PHASES: readonly GuidePointerPhase[] = [
+  'enter',
+  'leave',
+  'down',
+  'move',
+  'up',
+  'cancel',
+]
 
 /**
  * Output for one of the drawer's views, from what main keeps of it: the dev server's (`id`
@@ -486,6 +505,19 @@ export interface GuiApi {
   variationsSize(width: number, height: number): void
   /** What the overlay draws (see `PickOverlayState`) */
   onPickState(cb: (state: PickOverlayState) => void): Unsubscribe
+  /** Shows or hides the rulers and guides over the preview (⇧R) */
+  toggleRulers(): void
+  /**
+   * A guide dragged out of a ruler: the top one's are `y` guides, the left one's `x`. `at` is
+   * the pointer in the preview view's coordinates (left of or above it: over the ruler).
+   */
+  rulerDrag(axis: RulerGuide['axis'], phase: 'move' | 'end' | 'cancel', at: Point): void
+  /** What the rulers show (null: hidden) */
+  onRulers(cb: (view: RulersView | null) => void): Unsubscribe
+  /** The pointer on a guide's grab strip (`id`), at `at` in the strip's own coordinates */
+  guidePointer(id: string, phase: GuidePointerPhase, at: Point): void
+  /** The guides' grab strips (the guides overlay) */
+  onGuideStrips(cb: (strips: GuideStrips) => void): Unsubscribe
   setCanvasRect(rect: Rect): void
   /**
    * The preview's layout morphs (`MorphEvent`): the chrome draws the device frame around the

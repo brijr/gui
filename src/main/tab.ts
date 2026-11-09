@@ -31,7 +31,13 @@ import {
   parseManifest,
 } from '../shared/board'
 import { viewPointFrom } from '../shared/coords'
-import { type ChatMenuChoice, Events, type FrameArrangement } from '../shared/ipc'
+import {
+  type ChatMenuChoice,
+  Events,
+  type FrameArrangement,
+  type GuidePointerPhase,
+} from '../shared/ipc'
+import { RULER_SIZE } from '../shared/layout'
 import { SHORTCUTS } from '../shared/shortcuts'
 import {
   type AgentId,
@@ -82,6 +88,7 @@ import { availableModels, type BoardLayout, ChatController } from './chat'
 import { Checkpoints } from './checkpoints'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
+import { Guides } from './guides'
 import {
   chatReferences,
   claimHistoryFile,
@@ -424,6 +431,8 @@ export class ProjectTab implements ChatPanelOwner {
   private readonly problems = new Problems()
   /** Picking over the preview: the overlay Gui draws it in, over the page. */
   private readonly picker: Picker
+  /** Rulers and guides over the preview (⇧R) */
+  private readonly guides: Guides
   /** The versions of an element the agent showed to flip through (docs/variations.md) */
   private readonly variations: Variations
   /** Each picked element's node (by pick id), to outline it; an area has none. */
@@ -601,6 +610,13 @@ export class ProjectTab implements ChatPanelOwner {
     })
     this.panel = new ChatPanel(this)
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
+    this.guides = new Guides(this.preview, {
+      inspector: this.inspector,
+      scale: () => this.emulation.scale,
+      root: () => this.state.project?.root ?? null,
+      sendChrome: (channel, payload) => this.send(channel, payload),
+      relayout: () => this.layout(),
+    })
     this.variations = new Variations({
       inspector: this.inspector,
       chat: () => this.resources.chat,
@@ -651,6 +667,7 @@ export class ProjectTab implements ChatPanelOwner {
     return (
       wc === this.chatView.webContents ||
       this.picker.owns(wc) ||
+      this.guides.owns(wc) ||
       this.website?.picker.owns(wc) === true
     )
   }
@@ -739,6 +756,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.panel.deactivate()
     const { contentView } = this.host.win
     contentView.removeChildView(this.preview)
+    this.guides.unmount()
     contentView.removeChildView(this.picker.view)
     if (this.website) {
       contentView.removeChildView(this.website.view)
@@ -3662,6 +3680,9 @@ export class ProjectTab implements ChatPanelOwner {
       else this.endGuide()
     }
     this.emulation.set(live ? live.emulation : emulation)
+    // Guides follow the app's own page, at rest: not mid-morph, nor under a website or a sheet.
+    const guided = visible && !live && !website && !this.resources.board
+    this.guides.place(this.host.win.contentView, guided ? bounds : null, this.host.canvas)
     // Mid-morph the chrome draws the device frame where the view is; this one shows once it rests.
     const rect = inCanvas(bounds, this.host.canvas)
     this.showFrame(frame ? { viewport, rect, scale: frame.scale } : null)
@@ -3708,9 +3729,37 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.morph.moving) this.panel.flyHeld()
   }
 
-  /** The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). */
+  /**
+   * The canvas: the chrome already leaves room for the sidebar (`sidebarWidth`). With the
+   * rulers on, a project's page moves over for them, along the canvas's top and left edges.
+   */
   private previewArea(): Rect {
-    return this.host.canvas
+    const canvas = this.host.canvas
+    if (!this.rulersShown) return canvas
+    return {
+      x: canvas.x + RULER_SIZE,
+      y: canvas.y + RULER_SIZE,
+      width: Math.max(0, canvas.width - RULER_SIZE),
+      height: Math.max(0, canvas.height - RULER_SIZE),
+    }
+  }
+
+  /** The rulers are on, and this is a project's preview (a canvas has none). */
+  private get rulersShown() {
+    return this.guides.on && this.state.project !== null && !this.resources.board
+  }
+
+  rulerDrag(axis: 'x' | 'y', phase: 'move' | 'end' | 'cancel', at: Point) {
+    this.guides.rulerDrag(axis, phase, at)
+  }
+
+  guidePointer(id: string, phase: GuidePointerPhase, at: Point) {
+    this.guides.stripPointer(id, phase, at)
+  }
+
+  /** The preview's page scrolled to `x`, `y` (its preload says). */
+  previewScrolled(x: number, y: number) {
+    this.guides.setScroll(x, y)
   }
 
   // Native menus
@@ -4137,6 +4186,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.disposeProjectResources()
     this.emulation.dispose()
     this.picker.dispose()
+    this.guides.dispose()
     this.inspector.dispose()
     if (!this.preview.webContents.isDestroyed()) this.preview.webContents.close()
     if (!this.chatView.webContents.isDestroyed()) this.chatView.webContents.close()

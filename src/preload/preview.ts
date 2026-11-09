@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 import { ipcRenderer } from 'electron'
+import { PreviewGuides } from '../shared/preview-guides'
 import { MAX_PREVIEW_TEXT, PreviewText } from '../shared/preview-text'
 import { ACCENT } from '../shared/theme'
 
@@ -144,3 +145,55 @@ function onBlur() {
 function onLeave() {
   finish(false)
 }
+
+// Rulers and guides (main/guides.ts): guides keep to the page's content as it scrolls, so main
+// hears where it's scrolled; and ⇧R, outside the page's text fields, shows or hides them.
+
+let scrollFrame = 0
+function sendScroll() {
+  scrollFrame = 0
+  ipcRenderer.send(PreviewGuides.scroll, window.scrollX, window.scrollY)
+}
+// The document's own scrolling only: an element's scroll events don't reach the window.
+window.addEventListener(
+  'scroll',
+  () => {
+    if (!scrollFrame) scrollFrame = requestAnimationFrame(sendScroll)
+  },
+  { passive: true },
+)
+// A new page starts where it is (restored, or at a #fragment), not where the last one was.
+window.addEventListener('pageshow', sendScroll)
+
+/** The element that has the keyboard, inside shadow roots too. */
+function focused(): Element | null {
+  let el = document.activeElement
+  while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement
+  return el
+}
+
+/** What typing goes into: a text field, a select (typing picks an option), editable content. */
+function takesTyping(el: Element | null) {
+  if (!(el instanceof HTMLElement)) return false
+  if (el.isContentEditable || el instanceof HTMLTextAreaElement) return true
+  if (el instanceof HTMLSelectElement) return true
+  if (!(el instanceof HTMLInputElement)) return false
+  return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(
+    el.type,
+  )
+}
+
+// Capturing on the window, added before the page's own scripts run, so this hears it first.
+window.addEventListener(
+  'keydown',
+  (event) => {
+    if (!event.isTrusted || event.repeat || event.isComposing || editing) return
+    if (event.key !== 'R' || !event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
+      return
+    if (takesTyping(focused())) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    ipcRenderer.send(PreviewGuides.toggle)
+  },
+  true,
+)

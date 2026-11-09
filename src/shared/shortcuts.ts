@@ -218,6 +218,14 @@ export const SHORTCUTS = {
     group: 'preview',
     description: 'Design mode: click an element or drag out an area to change (Esc when done)',
   },
+  rulers: {
+    label: 'Show or Hide Rulers',
+    // Outside text fields only, so it's the pages' own (main/index.ts toggleRulers), not the menu's.
+    accelerator: 'Shift+R',
+    menu: null,
+    group: 'preview',
+    description: 'Show or hide rulers; drag a guide out of one, back onto it to remove',
+  },
   screenshot: {
     label: 'Screenshot…',
     accelerator: 'Shift+CmdOrCtrl+S',

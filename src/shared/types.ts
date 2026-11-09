@@ -355,6 +355,41 @@ export interface ViewportFrame {
   scale: number
 }
 
+/**
+ * A ruler guide: a line across the preview at `at`, in the page's CSS pixels (the units of
+ * its CSS). An `x` guide is a vertical line at that x; a `y` guide a horizontal one at that y,
+ * which scrolls with the page's content.
+ */
+export interface RulerGuide {
+  axis: 'x' | 'y'
+  at: number
+}
+
+/** What the rulers beside the preview show (main/guides.ts → the chrome's canvas). */
+export interface RulersView {
+  /** Where the page is, in the canvas's own coordinates */
+  page: Rect
+  /** How large the page is drawn: the preview view's pixels per CSS pixel */
+  scale: number
+  /** How far the page is scrolled, in its CSS pixels */
+  scroll: Point
+  guides: RulerGuide[]
+  /**
+   * The guide under the pointer or being dragged, where it is now; its ruler shows that.
+   * `removing`: it's over its ruler, and letting go deletes it.
+   */
+  active: (RulerGuide & { removing: boolean }) | null
+}
+
+/** The guides' own overlay (src/renderer/src/guides-main.ts): one grab strip per guide. */
+export interface GuideStrips {
+  strips: { id: string; axis: RulerGuide['axis'] }[]
+  /** The guide being dragged: its own strip hides while the `drag` strip shows where it goes */
+  dragging: string | null
+  /** --accent for the appearance */
+  color: string
+}
+
 /** Why the preview couldn't show a page: plain words, and the raw code behind Details */
 export interface PreviewError {
   message: string

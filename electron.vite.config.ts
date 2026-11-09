@@ -70,7 +70,7 @@ export default defineConfig({
   },
   preload: {
     // Sandboxed preloads must be CommonJS.
-    // `preview` is the preview's own, for editing its text in place (src/preload/preview.ts).
+    // `preview` is the preview's own: text edits in place, and the guides (src/preload/preview.ts).
     build: {
       externalizeDeps: true,
       rollupOptions: {
@@ -109,6 +109,7 @@ export default defineConfig({
           chat: resolve('src/renderer/chat.html'),
           settings: resolve('src/renderer/settings.html'),
           pick: resolve('src/renderer/pick.html'),
+          guides: resolve('src/renderer/guides.html'),
         },
       },
     },

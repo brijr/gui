@@ -20,6 +20,8 @@ import {
 import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_MS } from '../shared/bounded'
 import {
   Events,
+  GUIDE_POINTER_PHASES,
+  type GuidePointerPhase,
   Invoke,
   MAX_TERMINAL_INPUT,
   type OutputChunk,
@@ -32,6 +34,7 @@ import {
   type LegacyChannel,
   type LegacyResult,
 } from '../shared/ipc-requests'
+import { PreviewGuides } from '../shared/preview-guides'
 import { MAX_PREVIEW_TEXT, PreviewText } from '../shared/preview-text'
 import {
   SHORTCUTS,
@@ -568,6 +571,8 @@ const isOutputPosition = (value: unknown): value is number =>
 /** Columns or rows of a terminal: a whole number a window could hold. */
 const isTerminalSize = (value: unknown): value is number =>
   isNumber(value) && Number.isInteger(value) && value >= 2 && value <= 1000
+const isRulerPhase = (value: unknown): value is 'move' | 'end' | 'cancel' =>
+  value === 'move' || value === 'end' || value === 'cancel'
 const isPoint = (value: unknown): value is { x: number; y: number } =>
   !!value &&
   typeof value === 'object' &&
@@ -1178,6 +1183,21 @@ function registerIpc() {
     if (isString(id) && (text === null || isPreviewText(text)))
       previewTab(event)?.endTextEdit(id, text)
   })
+  ipcMain.on(PreviewGuides.scroll, (event, x: unknown, y: unknown) => {
+    if (isNumber(x) && isNumber(y)) previewTab(event)?.previewScrolled(x, y)
+  })
+  ipcMain.on(PreviewGuides.toggle, (event) => {
+    if (previewTab(event)) toggleRulers()
+  })
+  on(Send.toggleRulers, () => toggleRulers())
+  on(Send.rulerDrag, (tab, axis, phase, at) => {
+    if ((axis === 'x' || axis === 'y') && isPoint(at) && isRulerPhase(phase))
+      tab.rulerDrag(axis, phase, at)
+  })
+  on(Send.guidePointer, (tab, id, phase, at) => {
+    if (isString(id) && GUIDE_POINTER_PHASES.includes(phase as GuidePointerPhase) && isPoint(at))
+      tab.guidePointer(id, phase as GuidePointerPhase, at)
+  })
   onWindow(Send.setCanvasRect, (win, rect) => isRect(rect) && win.setCanvasRect(rect))
   onWindow(Send.setFocusMode, (win, on) => typeof on === 'boolean' && win.setFocusMode(on))
   onWindow(Send.setShortcutsOpen, (win, open) => {
@@ -1358,6 +1378,7 @@ const MOVE_TAB_ITEM = 'move-tab'
 const ALLOW_ITEM = 'allow'
 const DONT_ALLOW_ITEM = 'dont-allow'
 const FOCUS_MODE_ITEM = 'focus-mode'
+const RULERS_ITEM = 'rulers'
 const SHOW_CHAT_ITEM = 'show-chat'
 const HIDE_CHAT_ITEM = 'hide-chat'
 const SHOW_TERMINAL_ITEM = 'show-terminal'
@@ -1389,6 +1410,7 @@ function syncedItemStates(): Record<string, SyncedItem> {
     [SHOW_TERMINAL_ITEM]: { visible: !hideTerminal },
     [HIDE_TERMINAL_ITEM]: { visible: hideTerminal },
     [FOCUS_MODE_ITEM]: { checked: menuWindow()?.focusMode ?? false },
+    [RULERS_ITEM]: { checked: getPrefs().rulers },
     [AUTO_MODE_ITEM]: { checked: tab?.autoApprove ?? false },
     [ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(true) },
     [DONT_ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(false) },
@@ -1405,6 +1427,15 @@ function syncMenuItems() {
     if (enabled !== undefined && item.enabled !== enabled) item.enabled = enabled
     if (visible !== undefined && item.visible !== visible) item.visible = visible
   }
+}
+
+/**
+ * ⇧R or View → Rulers: the rulers and guides over every preview, on or off. The keys come
+ * from a page (the preview's preload, the chrome), each outside its text fields, so a capital
+ * R typed anywhere still types; the menu item has no keys of its own for the same reason.
+ */
+function toggleRulers() {
+  setPrefs({ rulers: !getPrefs().rulers })
 }
 
 /** Only from the user's own menu choice or keystroke: agents never get to turn this on. */
@@ -1627,6 +1658,16 @@ function buildMenu() {
         { type: 'separator' },
         ...item('screenshot', { click: withTabs((w) => w.screenshot()) }),
         ...item('recordPreview', { click: withTabs((w) => w.recordPreview()) }),
+        {
+          id: RULERS_ITEM,
+          label: 'Rulers',
+          type: 'checkbox',
+          ...synced[RULERS_ITEM],
+          click: () => {
+            toggleRulers()
+            syncMenuItems()
+          },
+        },
         ...item('focusMode', {
           id: FOCUS_MODE_ITEM,
           type: 'checkbox',

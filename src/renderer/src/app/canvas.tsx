@@ -47,6 +47,7 @@ import { Board } from './board'
 import { FixStartupButton } from './fix-startup'
 import { GitHubRepositories, matchRepository, useGitHub } from './github-repositories'
 import { useMorphDrawsFrame } from './layout-morph'
+import { Rulers } from './rulers'
 import { crashed, stoppedOutside } from './server-status'
 import { SignIn } from './sign-in'
 import { focusAddressBar } from './toolbar'
@@ -128,6 +129,9 @@ export function Canvas({ state }: { state: WindowState }) {
           <CanvasMessage state={state} />
         </div>
       </div>
+      {/* Over the message's scroller, which fills the canvas. Main sends them only while the
+          app's page is on screen and at rest. */}
+      <Rulers />
     </main>
   )
 }

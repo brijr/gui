@@ -2,11 +2,14 @@ import { join } from 'node:path'
 import { app, shell, type WebContents } from 'electron'
 import { sendCrashReport } from './crash-reports'
 
-export type RendererPage = 'index' | 'chat' | 'settings' | 'pick'
+export type RendererPage = 'index' | 'chat' | 'settings' | 'pick' | 'guides'
 
 /** Preload for Gui's own UI; the preview never gets it. */
 export const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')
-/** The preview's own preload: it only edits page text in place (src/preload/preview.ts). */
+/**
+ * The preview's own preload: it edits page text in place, and tells main how far the page is
+ * scrolled and about ⇧R for the guides (src/preload/preview.ts).
+ */
 export const PREVIEW_PRELOAD = join(import.meta.dirname, '../preload/preview.cjs')
 
 function rendererUrl(page: RendererPage) {

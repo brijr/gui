@@ -2,7 +2,13 @@ import { EventEmitter } from 'node:events'
 import { readFileSync, renameSync } from 'node:fs'
 import { isAbsolute, join } from 'node:path'
 import { app } from 'electron'
-import { type AgentId, DEFAULT_AGENT_ID, isAgentId, type PanelCorner } from '../shared/types'
+import {
+  type AgentId,
+  DEFAULT_AGENT_ID,
+  isAgentId,
+  type PanelCorner,
+  type RulerGuide,
+} from '../shared/types'
 import { asidePath, writeFileAtomicSync } from './atomic-file'
 
 export interface ChatSize {
@@ -36,6 +42,10 @@ export interface Prefs {
   autoNoteSeen: boolean
   /** Installed copies send a report when Gui itself fails (crash-reports.ts) */
   crashReports: boolean
+  /** The rulers and guides over the preview are showing (⇧R) */
+  rulers: boolean
+  /** Each project's ruler guides, by project root; kept here, never in the project */
+  guides: Record<string, RulerGuide[]>
 }
 
 const DEFAULTS: Prefs = {
@@ -51,7 +61,11 @@ const DEFAULTS: Prefs = {
   askRoots: [],
   autoNoteSeen: false,
   crashReports: true,
+  rulers: false,
+  guides: {},
 }
+/** More guides than anyone draws; keeps a damaged file from making thousands of views. */
+export const MAX_GUIDES = 50
 /** Anything outside this isn't a size a window could have set. */
 const MAX_LENGTH = 10_000
 const file = () => join(app.getPath('userData'), 'prefs.json')
@@ -84,6 +98,28 @@ function roots(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const paths = value.filter((path): path is string => typeof path === 'string' && isAbsolute(path))
   return [...new Set(paths)]
+}
+
+/** Each project's guides, the well-formed ones only. */
+function guides(value: unknown): Prefs['guides'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+  const valid = (guide: unknown): guide is RulerGuide => {
+    const { axis, at } = (guide ?? {}) as Record<string, unknown>
+    return (
+      (axis === 'x' || axis === 'y') && typeof at === 'number' && Math.abs(at) <= MAX_LENGTH * 10
+    )
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([root, list]) => isAbsolute(root) && Array.isArray(list))
+      .map(([root, list]) => [
+        root,
+        (list as unknown[])
+          .filter(valid)
+          .slice(0, MAX_GUIDES)
+          .map(({ axis, at }) => ({ axis, at })),
+      ]),
+  )
 }
 
 function length(value: unknown, fallback: number) {
@@ -138,6 +174,8 @@ export function getPrefs(): Prefs {
       autoNoteSeen: parsed.autoNoteSeen === true,
       crashReports:
         typeof parsed.crashReports === 'boolean' ? parsed.crashReports : DEFAULTS.crashReports,
+      rulers: parsed.rulers === true,
+      guides: guides(parsed.guides),
     }
   } catch (error) {
     // A damaged file would otherwise be replaced by defaults on the next save, losing (among
@@ -157,6 +195,7 @@ export function getPrefs(): Prefs {
       chatCorner: { ...DEFAULTS.chatCorner },
       apps: {},
       agentSettings: {},
+      guides: {},
     }
   }
   return cached

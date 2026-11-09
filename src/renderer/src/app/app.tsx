@@ -37,6 +37,20 @@ export function App() {
       }),
     [],
   )
+  // ⇧R shows or hides the rulers (app/rulers.tsx); in the page, its preload hears it. Never
+  // from a field that takes typing: a capital R there types.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'R' || !event.shiftKey || event.metaKey || event.ctrlKey || event.altKey)
+        return
+      if (event.repeat || event.isComposing || event.defaultPrevented) return
+      if (takesTyping(document.activeElement)) return
+      event.preventDefault()
+      gui.toggleRulers()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
   // Esc ends focus mode here; on the page, main sees it first (tab.ts). The sheet's own Esc
   // only closes the sheet.
   useEffect(() => {
@@ -146,5 +160,16 @@ function FocusBar({ state }: { state: WindowState }) {
         Exit focus mode
       </Button>
     </header>
+  )
+}
+
+/** A text field, a select, or editable content: typing goes there, not to shortcuts. */
+function takesTyping(el: Element | null) {
+  if (!(el instanceof HTMLElement)) return false
+  if (el.isContentEditable || el instanceof HTMLTextAreaElement) return true
+  if (el instanceof HTMLSelectElement) return true
+  return (
+    el instanceof HTMLInputElement &&
+    !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type)
   )
 }
