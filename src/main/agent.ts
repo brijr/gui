@@ -23,6 +23,12 @@ import {
 import { DetailedError } from './errors'
 import { GUI_TOOL_NAMES, MCP_SERVER_NAME } from './mcp-server'
 import {
+  type DeclaredControls,
+  type OfferedControls,
+  ownPermissions,
+  permissionChanges,
+} from './permission-modes'
+import {
   type ChildProcess,
   killLeftoverProcesses,
   killProcessGroup,
@@ -161,49 +167,6 @@ export interface StartOptions {
    * (PermissionControls.sessionMeta). Health checks, which never prompt, leave it out.
    */
   permissions?: PermissionPolicy
-}
-
-/** One change Ask or Auto makes to a session: a config option, or its ACP session mode. */
-type PermissionChange =
-  | { kind: 'option'; configId: string; value: string }
-  | { kind: 'mode'; modeId: string }
-
-/**
- * What Ask or Auto changes in a session (see PermissionControls): for each control, the
- * first value it prefers that the session offers, unless that's already set. A control
- * offering none of them keeps the agent's own setting. The mode goes through the
- * session's `mode` config option when it has one, else through session/set_mode.
- */
-function permissionChanges(
-  controls: PermissionControls | undefined,
-  policy: PermissionPolicy,
-  configOptions: acp.SessionConfigOption[],
-  modes: acp.SessionModeState | null,
-): PermissionChange[] {
-  const pick = (wanted: string[], offered: string[], current: string) => {
-    const value = wanted.find((choice) => offered.includes(choice))
-    return value !== undefined && value !== current ? value : null
-  }
-  const changes: PermissionChange[] = []
-  if (controls?.mode) {
-    const wanted = controls.mode[policy]
-    const option = selectSetting(configOptions, 'mode')
-    if (option) {
-      const value = pick(wanted, settingValues(option), option.value)
-      if (value !== null) changes.push({ kind: 'option', configId: option.id, value })
-    } else if (modes && Array.isArray(modes.availableModes)) {
-      const offered = modes.availableModes.map((mode) => mode.id)
-      const modeId = pick(wanted, offered, modes.currentModeId)
-      if (modeId !== null) changes.push({ kind: 'mode', modeId })
-    }
-  }
-  for (const [configId, choices] of Object.entries(controls?.options ?? {})) {
-    const option = findSetting(configOptions, (candidate) => candidate.id === configId)
-    if (!option) continue
-    const value = pick(choices[policy], settingValues(option), option.value)
-    if (value !== null) changes.push({ kind: 'option', configId, value })
-  }
-  return changes
 }
 
 export interface AuthMethod {
@@ -349,6 +312,8 @@ export class AgentSession {
   private exited: Promise<never> = new Promise(() => {})
   /** How Ask and Auto set this agent's own permission controls, from its definition */
   private controls: PermissionControls | undefined
+  /** What the definition says about those controls, for `ownPermissions` */
+  private declared: DeclaredControls = {}
   /** The Ask or Auto the session started with (see StartOptions.permissions) */
   private startedWith: PermissionPolicy | undefined
   /** Bookkeeping calls this agent reports (AgentDefinition.hiddenTools), and those seen so far */
@@ -380,6 +345,10 @@ export class AgentSession {
     const [definition, shellEnv] = await Promise.all([resolveAgent(this.agentId), getShellEnv()])
     if (this.disposed) throw new Error('Agent was stopped')
     this.controls = definition.permissions
+    this.declared = {
+      permissions: definition.permissions,
+      ownPermissions: definition.ownPermissions,
+    }
     this.startedWith = permissions
     this.hiddenTools = definition.hiddenTools
     const meta = sessionMeta(definition, permissions)
@@ -628,6 +597,27 @@ export class AgentSession {
     return parseModelSettings(this.configOptions)
   }
 
+  /** What the session offers for Gui's permission controls (see permission-modes.ts). */
+  private get offered(): OfferedControls {
+    const modes = this.modes
+    return {
+      modeOption: selectSetting(this.configOptions, 'mode'),
+      modes:
+        modes && Array.isArray(modes.availableModes)
+          ? { current: modes.currentModeId, offered: modes.availableModes.map((mode) => mode.id) }
+          : null,
+      option: (id) => findSetting(this.configOptions, (option) => option.id === id),
+    }
+  }
+
+  /**
+   * The agent's own settings decide what it asks: Gui can't make this session ask first
+   * (see `ownPermissions`). The Ask or Auto control says so.
+   */
+  get ownPermissions(): boolean {
+    return ownPermissions(this.declared, this.offered)
+  }
+
   /**
    * Ask or Auto changed for an agent that only takes it as a session starts (Grok), so
    * the session has to be started again (resumed) to follow it.
@@ -638,13 +628,15 @@ export class AgentSession {
 
   /**
    * Sets the agent's own permission controls for Ask or Auto (see `permissionChanges`).
-   * Every change is tried; returns why each one the agent refused failed.
+   * Every change is tried; returns why each one that's missing or refused failed. Nothing
+   * to do when the agent's own settings decide (`ownPermissions`).
    */
   async applyPermissions(policy: PermissionPolicy): Promise<string[]> {
     const { connection, sessionId } = this
     if (!connection || !sessionId) throw new Error('Agent is not running')
-    const failures: string[] = []
-    const changes = permissionChanges(this.controls, policy, this.configOptions, this.modes)
+    if (this.ownPermissions) return []
+    const { changes, missing } = permissionChanges(this.controls, policy, this.offered)
+    const failures = [...missing]
     for (const change of changes) {
       try {
         if (change.kind === 'mode') {

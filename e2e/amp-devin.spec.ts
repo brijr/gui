@@ -55,6 +55,13 @@ for (const id of ['amp', 'devin', 'cursor', 'fx'] as const) {
       const { turn } = await session.waitForTurn(0)
       expect(turn.status).toBe('done')
       await expect(session.chat.getByText('Hello from the CLI', { exact: true })).toBeVisible()
+      // Amp and fx have no mode that asks first Gui can switch to: their own settings decide,
+      // and the control says so rather than offering Ask. Devin and Cursor keep Ask and Auto.
+      const own = id === 'amp' || id === 'fx'
+      expect((await session.chatSnapshot()).meta.ownPermissions).toBe(own)
+      const name = id === 'amp' ? 'Amp' : 'fx'
+      if (own) await expect(session.chat.getByText(`${name}'s own setting`)).toBeVisible()
+      await expect(session.chat.getByRole('button', { name: 'Auto mode' })).toHaveCount(own ? 0 : 1)
       const calls = readFileSync(log, 'utf8')
         .trim()
         .split('\n')

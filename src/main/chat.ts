@@ -44,7 +44,7 @@ import {
 } from './agent'
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
-import type { PermissionPolicy } from './agents'
+import { declaresOwnPermissions, type PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import { availableModels, chosenValue, offersChoice, withChoices } from './chat-models'
 import { type EditScope, isOutside, projectEditPath } from './chat-paths'
@@ -370,6 +370,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       models: availableModels(agentId),
       commands: this.knownCommands.get(agentId) ?? [],
       agent: agentHealth.list().find((agent) => agent.id === agentId) ?? null,
+      ownPermissions: declaresOwnPermissions(agentId),
     }
   }
 
@@ -1206,7 +1207,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.flushTurn(record)
     // Auto's note under the message box was there for this first message; from now on the
     // Auto control's tooltip says it.
-    if (this.meta.autoApprove && !getPrefs().autoNoteSeen) setPrefs({ autoNoteSeen: true })
+    if (this.autoApproves && !getPrefs().autoNoteSeen) setPrefs({ autoNoteSeen: true })
     // The problems the user asked to fix; by prompt time a hot reload may have cleared them.
     const problems = fix === 'problems' ? this.meta.problems : []
     record.settled = this.runTurn(record, selection, viewport, problems, images, this.epoch)
@@ -1647,6 +1648,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         status: 'ready',
         modeName: info.modeName,
         modeIsUsual: agent.modeIsUsual,
+        ownPermissions: agent.ownPermissions,
         models: this.nextModels(),
       })
       if (info.commands) this.rememberCommands(agent.agentId, info.commands)
@@ -1922,7 +1924,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
     // Edits to ordinary source files inside the project are what Gui is for, so those are
     // approved in Ask mode too; Auto mode approves everything the same rules allow.
-    if (auto !== null && (request.toolCall.kind === 'edit' || this.meta.autoApprove)) {
+    if (auto !== null && (request.toolCall.kind === 'edit' || this.autoApproves)) {
       resolve(auto)
       return
     }
@@ -2105,6 +2107,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (modeName !== this.meta.modeName || modeIsUsual !== this.meta.modeIsUsual) {
       this.patchMeta({ modeName, modeIsUsual })
     }
+    // The modes it offers can change mid-session; one without an ask-first mode decides itself.
+    const ownPermissions = this.agent && this.agentInfo ? this.agent.ownPermissions : null
+    if (ownPermissions !== null && ownPermissions !== this.meta.ownPermissions) {
+      this.patchMeta({ ownPermissions })
+    }
+  }
+
+  /** Gui approves what the agent asks about itself: Auto, unless the agent decides (ownPermissions). */
+  private get autoApproves() {
+    return this.meta.autoApprove && !this.meta.ownPermissions
   }
 
   private async trySnapshot(record: TurnRecord, message: string) {

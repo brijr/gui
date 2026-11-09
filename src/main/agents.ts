@@ -49,6 +49,11 @@ export interface AgentDefinition extends AgentInfo {
   launch: AgentLaunch
   /** How Ask and Auto set this agent's own permission controls; none for custom agents */
   permissions?: PermissionControls
+  /**
+   * The agent has no mode that asks first that Gui can switch to (or none it should), so
+   * its own settings decide what it asks; the Ask or Auto control says so instead.
+   */
+  ownPermissions?: true
   /** How to sign in, shown when the agent reports the user isn't signed in */
   signIn: string | null
   /** Gui can run this agent's ACP sign-in flow itself (it opens the browser) */
@@ -104,7 +109,9 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     inAppSignIn: false,
     installUrl: 'https://ampcode.com/docs/cli',
     terminalSignIn: { command: 'amp login', hint: 'Continue in your browser to sign in.' },
-    // Keep Amp's configured permissions. The adapter's Bypass option overrides them.
+    // Keep Amp's configured permissions. The adapter's Bypass option overrides them, and its
+    // Default runs tools without asking unless the user opted into Amp's permissions.
+    ownPermissions: true,
   },
   devin: {
     launch: cli('devin', 'acp'),
@@ -121,6 +128,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     terminalSignIn: { command: 'fx login', hint: 'Pick a provider, then follow the steps.' },
     // Keep fx's own permission mode: choosing one over ACP also saves it as the user's
     // default for every fx session, not just Gui's.
+    ownPermissions: true,
   },
   claude: {
     launch: adapter('@agentclientprotocol/claude-agent-acp'),
@@ -180,6 +188,7 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
       command: 'kiro-cli login',
       hint: 'Pick how you sign in, then follow the steps.',
     },
+    ownPermissions: true,
   },
   opencode: {
     launch: cli('opencode', 'acp'),
@@ -190,6 +199,8 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
       command: 'opencode auth login',
       hint: 'Pick a provider, then follow the steps.',
     },
+    // Its modes are Build and Plan; what Build asks about is its own config's.
+    ownPermissions: true,
   },
   pi: {
     // pi has no ACP mode of its own; the bundled adapter drives `pi --mode rpc`.
@@ -201,6 +212,8 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
       command: 'pi',
       hint: 'Type /login and pick a provider. When you are signed in, quit pi and close this window.',
     },
+    // pi never asks; its adapter's modes are thinking levels.
+    ownPermissions: true,
   },
   muse: {
     // Muse Code speaks its own session protocol; the bundled adapter (built on Meta's
@@ -230,6 +243,10 @@ const BUILT_IN: readonly AgentDefinition[] = AGENTS.map((agent) => ({
   ...agent,
   ...LAUNCH[agent.id],
 }))
+
+/** The agent's own settings decide what it asks (AgentDefinition.ownPermissions). */
+export const declaresOwnPermissions = (id: AgentId) =>
+  BUILT_IN.some((agent) => agent.id === id && agent.ownPermissions === true)
 
 const customFile = () => join(app.getPath('userData'), 'agents.json')
 

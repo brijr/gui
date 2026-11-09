@@ -17,6 +17,7 @@ const HELP =
 export function AutoToggle({ meta }: { meta: ChatMeta }) {
   const on = meta.autoApprove
   const helpId = useId()
+  if (meta.ownPermissions) return <OwnSetting agentName={meta.agentName} />
   return (
     <>
       <IconButton
@@ -34,5 +35,23 @@ export function AutoToggle({ meta }: { meta: ChatMeta }) {
         {HELP}
       </span>
     </>
+  )
+}
+
+/**
+ * In Auto's place for an agent Gui can't make ask first (ChatMeta.ownPermissions): its own
+ * settings decide, so there's nothing to switch. Plain words where the shield would be, in
+ * a ghost button's size and quiet color, so Ask never shows when it wouldn't hold.
+ */
+function OwnSetting({ agentName }: { agentName: string }) {
+  return (
+    // Gives way before the model name does (shrink-[4]).
+    <span
+      className="inline-flex h-7 min-w-0 shrink-[4] items-center gap-1.5 pr-2.5 pl-2 text-small text-subtle"
+      title={`Uses ${agentName}'s own setting. Gui can't switch it to a mode that asks first, so ${agentName}'s settings decide what it asks about. When it does ask, you answer here.`}
+    >
+      <Shield className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{agentName}'s own setting</span>
+    </span>
   )
 }

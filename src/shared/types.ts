@@ -920,6 +920,12 @@ export interface ChatMeta {
    */
   autoApprove: boolean
   /**
+   * Gui can't make this agent ask first (it offers no such mode Gui can switch to), so its
+   * own settings decide what it asks, whatever `autoApprove` says. The Ask or Auto control
+   * says so and can't be switched; whatever the agent does ask about, the user answers.
+   */
+  ownPermissions: boolean
+  /**
    * What Auto mode lets the agent do has been said in full once, under the message box (it
    * shows until the first message sent with Auto on); since then, the Auto control's tooltip
    * says it.

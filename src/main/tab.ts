@@ -77,7 +77,7 @@ import {
   type WorkspaceApp,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
-import { agentMenuItems } from './agents'
+import { agentMenuItems, declaresOwnPermissions } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
 import { boardIdOf, listBoards, writeManifest } from './board'
 import { BoardSession } from './board-session'
@@ -837,6 +837,7 @@ export class ProjectTab implements ChatPanelOwner {
         queuePaused: false,
         queuePauseReason: null,
         autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
+        ownPermissions: declaresOwnPermissions(this.state.agentId),
         autoNoteSeen: getPrefs().autoNoteSeen,
       },
       turns: [],

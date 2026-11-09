@@ -418,7 +418,7 @@ export function Composer({
           />
           {/* Said in full once, before the first message with Auto on; then the Auto control's
             tooltip says it. */}
-          {firstMessage && meta.autoApprove && !meta.autoNoteSeen && (
+          {firstMessage && meta.autoApprove && !meta.ownPermissions && !meta.autoNoteSeen && (
             <p className="px-2.5 pb-2 text-caption text-muted">
               Auto is on: your agent can edit files and run commands without asking, including
               commands outside this project. Turn Auto off to review more requests.
