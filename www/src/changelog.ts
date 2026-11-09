@@ -11,6 +11,18 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.15',
+    date: '2026-11-09',
+    changes: [
+      'Rulers: press ⇧R, or click the ruler in the toolbar, to show rulers along the preview. Drag guides out of them. Guides snap to elements and are kept per project.',
+      'Type / anywhere in a message to pick a command or skill. Skills now get the element you picked, your images and your recordings.',
+      'In the / menu, OpenCode and fx list the skills they can use. Codex skills are inserted as $name.',
+      'For agents Gui can’t make ask first (fx, Amp, OpenCode, Pi and Kiro), the chat says the agent’s own setting decides, instead of showing Ask.',
+      'Reopened chats pick up where they left off without replaying the history, and Amp chats now resume after a restart.',
+      'Codex errors show their real reason. Pi’s header no longer shows its thinking level as a mode. Gui finds Cursor’s CLI under its new name.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.14',
     date: '2026-11-09',
     changes: [
