@@ -209,6 +209,7 @@ export function Composer({
   const commands = useCommandMenu({
     text,
     commands: meta.commands,
+    input,
     setText: setDraft,
     send: () => void submit(),
   })

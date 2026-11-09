@@ -1,14 +1,18 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useId, useRef, useState } from 'react'
-import { filterCommands } from '../../../shared/commands'
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
+  type SyntheticEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from 'react'
+import { commandLabel, commandQuery, filterCommands, insertCommand } from '../../../shared/commands'
 import type { AgentCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { motionMs, usePresence } from '../lib/motion'
 import { MenuRow, Popover, PopoverNote } from '../lib/surface'
-
-/** `/` and the start of a name, nothing after: the menu's query. Null when it shouldn't open. */
-function menuQuery(text: string) {
-  return /^\/(\S*)$/.exec(text)?.[1] ?? null
-}
 
 /** `/name ` with nothing typed after it yet: the command whose input hint to show. */
 function awaitingInput(text: string, commands: AgentCommand[]) {
@@ -26,37 +30,54 @@ interface CommandMenu {
     'aria-autocomplete'?: 'list'
     'aria-controls'?: string
     'aria-activedescendant'?: string
+    onSelect(event: SyntheticEvent<HTMLTextAreaElement>): void
   }
   /** Handles ↑/↓, Enter, Tab and Esc while the menu is open; true when it took the key */
   onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean
 }
 
 /**
- * The agent's slash commands, listed as the message starts with `/`. Choosing one puts
- * `/name ` in the message box; Enter on a command already typed out in full sends it.
+ * The agent's commands and skills, listed as `/` is typed at the start of the message or
+ * after a space. Choosing a slash command puts `/name ` at the front of the message (the
+ * rest is its input); a skill goes where the `/` was. Enter on a command already typed
+ * out in full as the whole message sends it.
  */
 export function useCommandMenu({
   text,
   commands,
+  input,
   setText,
   send,
 }: {
   text: string
   commands: AgentCommand[]
+  /** The message box, to read and place the caret */
+  input: RefObject<HTMLTextAreaElement | null>
   setText(text: string): void
   send(): void
 }): CommandMenu {
   const id = useId()
   const listId = `${id}-commands`
-  const query = menuQuery(text)
+  // Where the caret was last reported, for the message as it was then: a change without
+  // one (pasted, filled in) leaves it at the end. -1 while text is selected: no menu.
+  const [caret, setCaret] = useState<{ text: string; at: number } | null>(null)
+  const at =
+    caret?.text !== text
+      ? commandQuery(text)
+      : caret.at === -1
+        ? null
+        : commandQuery(text, caret.at)
+  const query = at?.query ?? null
   const shown = query === null ? [] : filterCommands(commands, query)
   /** Esc closes the menu for the message as it is; typing opens it again. */
   const [dismissed, setDismissed] = useState<string | null>(null)
   const [active, setActive] = useState(0)
   // A new chat's agent hasn't started, so it hasn't said what it offers: `/` starts it
-  // (nothing is sent) and the menu says it's loading until the commands arrive, then that
-  // there are none if the agent offers none (or couldn't start).
-  const awaiting = query !== null && commands.length === 0
+  // (nothing is sent; main does nothing once it knows them) and the menu says it's loading
+  // until the commands arrive, then that there are none if the agent offers none (or
+  // couldn't start). Skills Gui found on disk can show meanwhile.
+  const asking = query !== null
+  const awaiting = asking && commands.length === 0
   const [checked, setChecked] = useState(false)
   const open = (shown.length > 0 || awaiting) && dismissed !== text
   const activeIndex = Math.min(active, shown.length - 1)
@@ -69,7 +90,7 @@ export function useCommandMenu({
   const present = usePresence(open, motionMs('--motion-exit'))
 
   useEffect(() => {
-    if (!awaiting) return
+    if (!asking) return
     let live = true
     setChecked(false)
     // Never rejects; an agent that couldn't start just leaves nothing to list.
@@ -79,7 +100,7 @@ export function useCommandMenu({
     return () => {
       live = false
     }
-  }, [awaiting])
+  }, [asking])
 
   // The best match again whenever the query changes.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on a new query only
@@ -89,7 +110,20 @@ export function useCommandMenu({
     if (activeId) document.getElementById(activeId)?.scrollIntoView({ block: 'nearest' })
   }, [activeId])
 
-  const choose = (command: AgentCommand) => setText(`/${command.name} `)
+  const choose = (command: AgentCommand) => {
+    if (!at) return
+    const next = insertCommand(text, at, command)
+    setText(next.text)
+    setCaret({ text: next.text, at: next.caret })
+    // After React writes the new value, which would leave the caret at the end.
+    requestAnimationFrame(() => input.current?.setSelectionRange(next.caret, next.caret))
+  }
+
+  const onSelect = (event: SyntheticEvent<HTMLTextAreaElement>) => {
+    const box = event.currentTarget
+    const at = box.selectionStart === box.selectionEnd ? box.selectionStart : -1
+    setCaret({ text: box.value, at })
+  }
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (!open || event.nativeEvent.isComposing) return false
@@ -100,8 +134,9 @@ export function useCommandMenu({
     } else if (event.key === 'Tab' && !event.shiftKey && command) {
       choose(command)
     } else if (event.key === 'Enter' && !event.shiftKey && command) {
-      // Typed out in full and taking no input: run it, as Enter would without the menu.
-      if (command.name === query && !command.hint) send()
+      // Typed out in full as the whole message and taking no input: run it, as Enter
+      // would without the menu.
+      if (`/${command.name}` === text && !command.hint) send()
       else choose(command)
     } else if (event.key === 'Escape') {
       setDismissed(text)
@@ -145,7 +180,7 @@ export function useCommandMenu({
               }}
               onClick={() => choose(command)}
             >
-              <span className="font-mono">/{command.name}</span>
+              <span className="font-mono">{commandLabel(command)}</span>
               {command.description && <span className="text-muted"> {command.description}</span>}
             </MenuRow>
           ))}
@@ -184,8 +219,9 @@ export function useCommandMenu({
           'aria-autocomplete': 'list',
           'aria-controls': listId,
           'aria-activedescendant': activeId,
+          onSelect,
         }
-      : {},
+      : { onSelect },
     onKeyDown,
   }
 }

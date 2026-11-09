@@ -857,11 +857,16 @@ export interface ModelSettings {
 
 /** A slash command the agent offers (ACP `available_commands_update`), e.g. `compact` */
 export interface AgentCommand {
-  /** Without the slash */
+  /** Without the slash. Codex's skills keep their `$` (`$name`), as Codex expects them typed. */
   name: string
   description: string
   /** What to type after the name, when it takes input */
   hint: string | null
+  /**
+   * A skill the agent loads when it's named in plain words (OpenCode, fx), found on disk by
+   * Gui rather than offered by the agent: choosing it writes "Use the <name> skill".
+   */
+  skill?: true
 }
 
 /** A message sent while the agent was busy, waiting for its turn */

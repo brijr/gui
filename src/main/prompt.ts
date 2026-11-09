@@ -120,7 +120,8 @@ export interface PromptViewport {
 }
 
 interface PromptOptions {
-  text: string
+  /** The user's message; null for a command, which placeCommand adds */
+  text: string | null
   selection: Picked[]
   /** Null on a canvas's board, where there's no page in sight */
   viewport: PromptViewport | null
@@ -177,7 +178,7 @@ export function buildPrompt({
     if (image) blocks.push({ type: 'image', ...image })
   })
   blocks.push(...followUp)
-  blocks.push({ type: 'text', text })
+  if (text !== null) blocks.push({ type: 'text', text })
   if (images && attachments.length) {
     const count =
       attachments.length === 1 ? 'a reference image' : `${attachments.length} reference images`
@@ -185,6 +186,24 @@ export function buildPrompt({
     for (const { mimeType, data } of attachments) blocks.push({ type: 'image', mimeType, data })
   }
   return blocks
+}
+
+/**
+ * A slash command's message with what goes along with it, the command where the agent
+ * looks for one. Claude Code takes the last text block as the command and carries the
+ * blocks before it along (images, the picked element); the other adapters read it from
+ * the first block, and some join the text blocks into one message, so a blank line keeps
+ * the command's input apart from what follows.
+ */
+export function placeCommand(
+  command: string,
+  context: ContentBlock[],
+  agentId: string,
+): ContentBlock[] {
+  if (!context.length) return [{ type: 'text', text: command }]
+  return agentId === 'claude'
+    ? [...context, { type: 'text', text: command }]
+    : [{ type: 'text', text: `${command}\n\n` }, ...context]
 }
 
 /** What the agent replied to the earlier turn is cut to this many characters. */

@@ -73,9 +73,7 @@ async function useStandIn(session: GuiSession) {
   }
 }
 
-test('the composer lists the agent’s slash commands and sends one on its own', async ({
-  launch,
-}) => {
+test('the composer lists the agent’s slash commands and sends them first', async ({ launch }) => {
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
   const { prompts } = await useStandIn(session)
@@ -108,17 +106,28 @@ test('the composer lists the agent’s slash commands and sends one on its own',
   await box.press('e')
   await expect(menu).toBeVisible()
 
-  // Enter puts the command in the box and shows what it takes; the next Enter sends it,
-  // alone: no instructions, viewport, or picked element.
+  // Enter puts the command in the box and shows what it takes; the next Enter sends it
+  // first, where agents read a command, with the message's context (the viewport) after.
   await box.press('Enter')
   await expect(box).toHaveValue('/review ')
   await expect(chat.getByText('branch or PR')).toBeVisible()
   await box.pressSequentially('main')
   await box.press('Enter')
   expect((await session.waitForTurn(1)).turn.status).toBe('done')
-  expect(prompts()[1]).toEqual([{ type: 'text', text: '/review main' }])
+  const review = prompts()[1] ?? []
+  expect(review[0]).toEqual({ type: 'text', text: '/review main\n\n' })
+  expect(review.length).toBeGreaterThan(1)
 
-  // One typed out in full that takes nothing runs on Enter; it said nothing, so Gui does.
+  // `/` later in the message lists them too; the one chosen moves to the front.
+  await box.fill('the motion only /rev')
+  await expect(menu.getByRole('option')).toHaveText(['/review Review changes'])
+  await session.shot('slash-commands-mid-message')
+  await box.press('Enter')
+  await expect(box).toHaveValue('/review the motion only')
+  await box.fill('')
+
+  // A session command goes alone, and one typed out in full that takes nothing runs on
+  // Enter; it said nothing, so Gui does.
   await box.fill('/compact')
   await box.press('Enter')
   const compact = (await session.waitForTurn(2)).turn

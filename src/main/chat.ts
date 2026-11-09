@@ -11,7 +11,7 @@ import type {
 } from '@agentclientprotocol/sdk'
 import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import { type ChatTurnUpdate, TurnPublisher } from '../shared/chat-transport'
-import { invokedCommand, parseCommands } from '../shared/commands'
+import { invokedCommand, parseCommands, takesContext } from '../shared/commands'
 import {
   type AgentCommand,
   type AgentId,
@@ -67,9 +67,11 @@ import {
   PROMPT_VERSION,
   type PromptBoard,
   type PromptViewport,
+  placeCommand,
 } from './prompt'
 import { recordingBlocks } from './recording-prompt'
 import type { Recordings } from './recordings'
+import { findSkills, withSkills } from './skills'
 import { cornerColor, thumbnail, thumbnailSize } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
 
@@ -131,8 +133,11 @@ type Fix = 'problems' | 'startup'
 
 interface TurnRecord {
   turn: Turn
-  /** The message is one of the agent's slash commands, sent to it as just that */
-  command: boolean
+  /**
+   * The message is one of the agent's slash commands: one that works on the session goes
+   * `alone`; any other goes `with` the message's context, placed where the agent reads it.
+   */
+  command: 'alone' | 'with' | null
   fix: Fix | null
   before: string | null
   after: string | null
@@ -274,6 +279,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** The slash commands each agent last offered in this project (see ChatMeta.commands) */
   private knownCommands: Map<AgentId, AgentCommand[]>
   /**
+   * The skills an agent that loads them by name (OpenCode, fx) can use here, as last found
+   * on disk; listed with its commands but never saved with them.
+   */
+  private skills: { agentId: AgentId; list: AgentCommand[] } | null = null
+  /**
    * An agent starting before any message, so the command menu can list what it offers (see
    * loadCommands). Resolves true once it's running; never rejects. The first turn waits on it.
    */
@@ -368,7 +378,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       agentId,
       agentName: agentName(agentId),
       models: availableModels(agentId),
-      commands: this.knownCommands.get(agentId) ?? [],
+      commands: this.commandsFor(agentId),
       agent: agentHealth.list().find((agent) => agent.id === agentId) ?? null,
       ownPermissions: declaresOwnPermissions(agentId),
     }
@@ -473,7 +483,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.records =
       saved?.turns.map((turn) => ({
         turn,
-        command: false,
+        command: null,
         fix: null,
         before: saved.checkpoints[turn.id]?.before ?? null,
         after: saved.checkpoints[turn.id]?.after ?? null,
@@ -1154,15 +1164,18 @@ export class ChatController extends EventEmitter<ChatEvents> {
         : '')
     if (!prompt || this.lock || this.disposed) return false
 
-    // A command goes to the agent alone: the picked element and images aren't sent with it.
-    const command = !fix && invokedCommand(prompt, this.meta.commands) !== null
-    if (command) {
+    // A session command (/compact, /rename…) goes to the agent alone: the picked element
+    // stays for the next message, and images aren't sent with it. Any other command
+    // (a skill, /review) takes them along.
+    const invoked = fix ? null : invokedCommand(prompt, this.meta.commands)
+    const command = invoked ? (takesContext(invoked) ? 'with' : 'alone') : null
+    if (command === 'alone') {
       images = []
       recordings = []
       followUp = null
     }
     const picked = queued ? queued.selection : fix ? [] : this.meta.selection
-    const selection = command ? [] : picked
+    const selection = command === 'alone' ? [] : picked
     const shown = primaryPick(selection)
     const viewport = queued?.viewport ?? this.options.viewport()
     const record: TurnRecord = {
@@ -1203,7 +1216,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.lock = record
     this.transcriptAgent ??= this.meta.agentId
     if (this.meta.archived) this.patchMeta({ archived: null })
-    if (!fix && !queued) this.patchMeta({ selection: [] })
+    if (!fix && !queued && command !== 'alone') this.patchMeta({ selection: [] })
     this.flushTurn(record)
     // Auto's note under the message box was there for this first message; from now on the
     // Auto control's tooltip says it.
@@ -1350,31 +1363,32 @@ export class ChatController extends EventEmitter<ChatEvents> {
           text: `${this.meta.agentName} can't see images, so the attached ${what} sent.`,
         })
       }
-      // Agents only run a command that starts the prompt, so it goes alone; Gui's
-      // instructions wait for the next ordinary message.
-      const preamble = !record.command && this.primedAgent !== agent
+      // A session command goes alone, so Gui's instructions wait for the next message.
+      const preamble = record.command !== 'alone' && this.primedAgent !== agent
       const followUp = record.turn.followUp
       const earlier = followUp
         ? this.records.find((other) => other.turn.id === followUp.turnId)?.turn
         : null
-      const blocks: ContentBlock[] = record.command
-        ? [{ type: 'text', text: record.turn.prompt }]
-        : buildPrompt({
-            text: record.turn.prompt,
-            selection,
-            viewport,
-            board: this.options.board?.() ?? null,
-            // Only Fix carries errors: they're usually unrelated to an ordinary request.
-            problems,
-            // Written now, after the agent is up: it says how the app is doing as the turn starts.
-            startup:
-              record.fix === 'startup' ? this.options.startupReport(this.agentHasTools) : null,
-            preamble,
-            tools: this.agentHasTools,
-            images: info.supportsImages,
-            attachments: images,
-            followUp: earlier ? describeFollowUp(earlier, info.supportsImages) : [],
-          })
+      const blocks: ContentBlock[] =
+        record.command === 'alone'
+          ? []
+          : buildPrompt({
+              // A command is placed once everything else is in (placeCommand).
+              text: record.command ? null : record.turn.prompt,
+              selection,
+              viewport,
+              board: this.options.board?.() ?? null,
+              // Only Fix carries errors: they're usually unrelated to an ordinary request.
+              problems,
+              // Written now, after the agent is up: it says how the app is doing as the turn starts.
+              startup:
+                record.fix === 'startup' ? this.options.startupReport(this.agentHasTools) : null,
+              preamble,
+              tools: this.agentHasTools,
+              images: info.supportsImages,
+              attachments: images,
+              followUp: earlier ? describeFollowUp(earlier, info.supportsImages) : [],
+            })
       // A narrated clip's transcript may still be on its way when the message is queued.
       const sent = record.turn.recordings ?? []
       const clips = sent.length
@@ -1406,7 +1420,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
         status = 'cancelled'
         return
       }
-      const response = await agent.prompt(blocks)
+      const sending = record.command
+        ? placeCommand(record.turn.prompt, blocks, agent.agentId)
+        : blocks
+      const response = await agent.prompt(sending)
       status = response.stopReason === 'cancelled' ? 'cancelled' : 'done'
       // Only a prompt the agent got through counts as delivering the instructions.
       if (preamble && status === 'done' && live() && this.agent === agent) {
@@ -1522,14 +1539,43 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
+   * What the command menu lists, as it opens: the skills on disk for an agent that doesn't
+   * list its own (looked for again each time, so one just added shows), and the agent's
+   * commands (see loadAgentCommands). Resolves once both are in.
+   */
+  loadCommands(): Promise<void> {
+    if (this.disposed) return Promise.resolve()
+    return Promise.all([this.loadSkills(), this.loadAgentCommands()]).then(() => undefined)
+  }
+
+  /** The commands as the composer lists them: the agent's own, then the skills Gui found. */
+  private commandsFor(agentId: AgentId) {
+    const own = this.knownCommands.get(agentId) ?? []
+    return this.skills?.agentId === agentId ? withSkills(own, this.skills.list) : own
+  }
+
+  private knowsCommands() {
+    return (this.knownCommands.get(this.meta.agentId)?.length ?? 0) > 0
+  }
+
+  private async loadSkills() {
+    const agentId = this.meta.agentId
+    const list = await findSkills(agentId, this.root)
+    if (this.disposed || this.meta.agentId !== agentId) return
+    if (this.skills?.agentId === agentId && sameJson(this.skills.list, list)) return
+    this.skills = { agentId, list }
+    this.patchMeta({ commands: this.commandsFor(agentId) })
+  }
+
+  /**
    * Starts the agent for this chat's first message without sending one, so the command menu
    * can list the agent's slash commands (they arrive through onUpdate). Resolves once they're
    * known, or the agent couldn't start, or it started and reported none for a moment; an
    * agent already running that offers none has nothing more to wait for. One load at a time,
    * so typing `/` again starts nothing more. Failing quietly leaves the first message to say why.
    */
-  loadCommands(): Promise<void> {
-    if (this.disposed || this.meta.commands.length > 0) return Promise.resolve()
+  private loadAgentCommands(): Promise<void> {
+    if (this.knowsCommands()) return Promise.resolve()
     if (this.commandsLoading) return this.commandsLoading
     if (this.agent && this.agentInfo) return Promise.resolve()
     const load = this.warmUp().then((started) => (started ? this.commandsArrive() : undefined))
@@ -1548,11 +1594,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
         this.off('meta', onMeta)
         resolve()
       }
-      const onMeta = (meta: ChatMeta) => {
-        if (meta.commands.length > 0) done()
+      const onMeta = () => {
+        if (this.knowsCommands()) done()
       }
       const timer = setTimeout(done, COMMANDS_WAIT_MS)
-      if (this.meta.commands.length > 0) return done()
+      if (this.knowsCommands()) return done()
       this.on('meta', onMeta)
     })
   }
@@ -2095,10 +2141,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Keeps the commands an agent offers here, for the composer now and the next launch. */
   private rememberCommands(agentId: AgentId, commands: AgentCommand[]) {
     const known = this.knownCommands.get(agentId)
-    if (known && JSON.stringify(known) === JSON.stringify(commands)) return
+    if (known && sameJson(known, commands)) return
     this.knownCommands.set(agentId, commands)
     this.schedulePersist()
-    if (agentId === this.meta.agentId) this.patchMeta({ commands })
+    if (agentId === this.meta.agentId) this.patchMeta({ commands: this.commandsFor(agentId) })
   }
 
   private refreshModeName() {
@@ -2249,3 +2295,5 @@ function lastRecorded(turns: TurnRecord[]): Baseline | null {
 function withoutScreenshots(selection: Picked[]): Picked[] {
   return selection.map((picked) => ({ ...picked, screenshot: null }))
 }
+
+const sameJson = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
