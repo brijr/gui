@@ -77,6 +77,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   /** Incomplete last line of output; URLs and escape codes can span PTY reads. */
   private partial = ''
   private lastLineTimer: NodeJS.Timeout | null = null
+  private slowTimer: NodeJS.Timeout | null = null
   private pendingLastLine: string | null = null
   private size = { cols: 120, rows: 30 }
   private run = 0
@@ -87,6 +88,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private fixedUrl: string | null = null
   /** Local addresses this run printed, in order: candidates for the app's address */
   private printed: string[] = []
+  /** Cuts `findApp`'s wait short: there's something new to look at. */
+  private wakeFind = () => {}
 
   /** `cwd` is where the dev script runs: the project root, or a monorepo app's folder. */
   constructor(private cwd: string) {
@@ -125,7 +128,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       lastLine: '',
       slow: false,
     })
-    setTimeout(() => {
+    if (this.slowTimer) clearTimeout(this.slowTimer)
+    this.slowTimer = setTimeout(() => {
       if (run === this.run && this.state.status === 'starting') this.update({ slow: true })
     }, SLOW_START_MS).unref()
 
@@ -261,6 +265,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.run++
     this.output.dispose()
     if (this.lastLineTimer) clearTimeout(this.lastLineTimer)
+    if (this.slowTimer) clearTimeout(this.slowTimer)
     this.ended = endProcessGroups(this.proc ? [this.proc] : [], 'SIGKILL', 0)
     this.proc = null
     this.removeAllListeners()
@@ -307,6 +312,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
         const url = normalizeUrl(match[0])
         if (!url || this.printed.includes(url) || this.printed.length >= MAX_PRINTED) continue
         this.printed.push(url)
+        this.wakeFind()
         // The first address it printed, until the app is found: what "nothing answers at"
         // messages name.
         if (!this.state.url) this.update({ url })
@@ -367,6 +373,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
           probes.set(port, { at: Date.now(), busy: false })
           const current = candidates.get(port)
           if (current && current.url === found.url) current.kind = kind
+          if (kind === 'page') this.wakeFind()
         })
       }
 
@@ -381,7 +388,14 @@ export class DevServer extends EventEmitter<DevServerEvents> {
         this.update({ lastLine: `No response from ${this.printed[0]} yet. Check the logs.` })
       }
       const wait = elapsed > SLOW_START_MS ? FIND_INTERVAL_LATER_MS : FIND_INTERVAL_MS
-      await new Promise((resolve) => setTimeout(resolve, wait))
+      // An address printed or a page found goes on at once, not a whole interval later.
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, wait)
+        this.wakeFind = () => {
+          clearTimeout(timer)
+          resolve()
+        }
+      })
     }
   }
 

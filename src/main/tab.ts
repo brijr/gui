@@ -846,16 +846,15 @@ export class ProjectTab implements ChatPanelOwner {
       if (!current()) return
       file = await claimHistoryFile(root)
       if (!resources.claim(file) || !current()) return
-      const [{ project, apps, choosing }, env, saved] = await Promise.all([
+      const [{ project, apps, choosing }, saved] = await Promise.all([
         resolveProject(root, getPrefs().apps[root] ?? null),
-        getShellEnv(),
         loadHistory(file),
       ])
       // Several apps and none picked yet: nothing runs until the user chooses one.
       const setup = await detectSetup(project, choosing ? apps : null)
       if (!current()) return
 
-      if (!(await this.attachChat(root, file, saved, env, resources, current, null))) return
+      if (!(await this.attachChat(root, file, saved, resources, current, null))) return
 
       // The agent, checkpoints and history stay at the root; only the dev server moves into the app.
       const devServer = new DevServer(appRoot(project))
@@ -920,7 +919,7 @@ export class ProjectTab implements ChatPanelOwner {
       if (!resources.claim(file) || !current()) return
       const board = new BoardSession(root, id)
       resources.board = board
-      const [env, saved] = await Promise.all([getShellEnv(), loadHistory(file), board.open()])
+      const [saved] = await Promise.all([loadHistory(file), board.open()])
       if (!current()) return
       board.on('change', () => {
         if (this.resources.board === board) this.syncBoard()
@@ -930,7 +929,7 @@ export class ProjectTab implements ChatPanelOwner {
         if (this.resources.board === board && board.openId === frame && this.state.preview.url)
           this.preview.webContents.reload()
       })
-      if (!(await this.attachChat(root, file, saved, env, resources, current, board))) return
+      if (!(await this.attachChat(root, file, saved, resources, current, board))) return
       this.patch({
         project: boardProject(root, board.name),
         setup: null,
@@ -1220,7 +1219,6 @@ export class ProjectTab implements ChatPanelOwner {
     root: string,
     file: string,
     saved: Awaited<ReturnType<typeof loadHistory>>,
-    env: Awaited<ReturnType<typeof getShellEnv>>,
     resources: ProjectResources,
     current: () => boolean,
     board: BoardSession | null,
@@ -1296,7 +1294,10 @@ export class ProjectTab implements ChatPanelOwner {
     })
     if (!resources.attachMcp(mcp) || !current()) return false
 
-    const checkpoints = new Checkpoints(root, join(app.getPath('userData'), 'checkpoints'), env, {
+    // Opening doesn't wait for the shell's environment, still loading just after launch:
+    // checkpoints' git, the agent and the dev server each wait for it before they spawn.
+    const store = join(app.getPath('userData'), 'checkpoints')
+    const checkpoints = new Checkpoints(root, store, getShellEnv(), {
       referenced: () => chatReferences(root).then((found) => found?.checkpoints ?? null),
       // A canvas's folders stay, even when undoing its first turn empties them.
       keepDirs: board ? [FRAMES_DIR, 'assets'] : undefined,

@@ -155,7 +155,10 @@ export async function deleteBoard(id: string) {
 /** Where a canvas's frame thumbnails are kept: Gui's, outside the folder the agent works in. */
 export const thumbsDir = (id: string) => join(app.getPath('userData'), 'canvas-thumbnails', id)
 
-/** Where the board loads a frame's thumbnail from: `${thumbsUrl(id)}/<frame id>?v=<version>` */
+/**
+ * Where the board loads a frame's thumbnail from: `${thumbsUrl(id)}/<frame id>?v=<version>`,
+ * or `<frame id>.small` for its zoomed-out copy.
+ */
 export const thumbsUrl = (id: string) => `gui-thumb://${id}`
 
 /**
@@ -166,9 +169,14 @@ export function registerThumbProtocol() {
   protocol.handle('gui-thumb', async (request) => {
     try {
       const url = new URL(request.url)
-      const frame = url.pathname.slice(1)
+      const name = url.pathname.slice(1)
+      const frame = name.endsWith('.small') ? name.slice(0, -'.small'.length) : name
       if (!isBoardId(url.hostname) || !isFrameId(frame)) return new Response(null, { status: 404 })
-      const image = await readFile(join(thumbsDir(url.hostname), `${frame}.jpg`))
+      const dir = thumbsDir(url.hostname)
+      // A thumbnail made before small copies existed has none until it's made again.
+      const image = await readFile(join(dir, `${name}.jpg`)).catch(() =>
+        readFile(join(dir, `${frame}.jpg`)),
+      )
       return new Response(image, {
         headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
       })

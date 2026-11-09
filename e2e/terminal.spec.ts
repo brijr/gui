@@ -543,6 +543,50 @@ test('terminal render loops pause while hidden and resume with queued output', a
   )
 })
 
+test('a terminal made again lets go of the old one', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', env: SHELL })
+  await session.waitForPreview()
+  await session.chrome.evaluate(() => window.gui.newTerminal())
+  await drawerWith(session, 1)
+  const canvases = '[data-terminal] canvas'
+  // The dev server's output and the shell.
+  await expect(session.chrome.locator(canvases)).toHaveCount(2)
+  const cdp = await session.app.context().newCDPSession(session.chrome)
+  /** Canvases the page still holds after garbage collection, on the page or not. */
+  const liveCanvases = async () => {
+    await cdp.send('HeapProfiler.collectGarbage')
+    // Grouped, and let go of after: what the probe holds, the page would too.
+    const objectGroup = 'canvas-probe'
+    const { result } = await cdp.send('Runtime.evaluate', {
+      expression: 'HTMLCanvasElement.prototype',
+      objectGroup,
+    })
+    if (!result.objectId) throw new Error('No canvas prototype')
+    const { objects } = await cdp.send('Runtime.queryObjects', {
+      prototypeObjectId: result.objectId,
+      objectGroup,
+    })
+    if (!objects.objectId) throw new Error('No canvases')
+    const count = await cdp.send('Runtime.callFunctionOn', {
+      objectId: objects.objectId,
+      functionDeclaration: 'function () { return this.length }',
+      returnByValue: true,
+    })
+    await cdp.send('Runtime.releaseObjectGroup', { objectGroup })
+    return count.result.value as number
+  }
+  const before = await liveCanvases()
+  // Each terminal is made again, in the new colors, when the appearance changes.
+  for (const colorScheme of ['dark', 'light', 'dark', 'light'] as const) {
+    await session.chrome.evaluate((selector) => {
+      for (const canvas of document.querySelectorAll(selector)) canvas.setAttribute('data-old', '')
+    }, canvases)
+    await session.chrome.emulateMedia({ colorScheme })
+    await expect(session.chrome.locator(`${canvases}:not([data-old])`)).toHaveCount(2)
+  }
+  expect(await liveCanvases()).toBe(before)
+})
+
 test('hiding the terminal with the keyboard in it gives the keyboard to the preview', async ({
   launch,
 }) => {

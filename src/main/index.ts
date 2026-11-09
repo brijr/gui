@@ -119,6 +119,7 @@ import {
   untrustProject,
   watchSettings,
 } from './settings'
+import { getShellEnv } from './shell-env'
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
@@ -1773,6 +1774,9 @@ app.on('child-process-gone', (_event, details) => {
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
+  // Reading the login shell's environment takes about half a second. Started before `ready`,
+  // it's usually done by the time the first project's dev server or agent needs it.
+  void getShellEnv()
   app.on('second-instance', () => focusExistingWindow())
 
   app.on('open-file', (event, path) => {
