@@ -33,12 +33,12 @@
     "node-pty"
   ],
   "dependencies": {
-    "@agentclientprotocol/claude-agent-acp": "^0.85.1",
-    "@agentclientprotocol/codex-acp": "^2.1.1",
+    "@agentclientprotocol/claude-agent-acp": "^0.101.1",
+    "@agentclientprotocol/codex-acp": "^2.6.0",
     "@agentclientprotocol/sdk": "^1.7.0",
-    "@bex-co/muse-code-acp": "0.7.0",
+    "@bex-co/muse-code-acp": "0.11.0",
     "@modelcontextprotocol/sdk": "^1.32.0",
-    "amp-acp": "0.9.0",
+    "amp-acp": "0.12.0",
     "electron-updater": "^6.8.9",
     "ghostty-web": "0.4.0",
     "node-pty": "^1.1.0",
