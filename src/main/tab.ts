@@ -3344,6 +3344,11 @@ export class ProjectTab implements ChatPanelOwner {
     this.host.tabChanged(this, false)
   }
 
+  /** Settings' Chat position, for a chat that's docked or floating otherwise. */
+  setChatDocked(docked: boolean) {
+    if (this.resources.chat?.meta.docked === !docked) this.setDocked(docked, undefined, false)
+  }
+
   toggleDock() {
     if (!this.resources.chat) return
     if (this.panel.popoutWindow) return this.panel.togglePopOut()
@@ -3353,12 +3358,13 @@ export class ProjectTab implements ChatPanelOwner {
   /**
    * Docks the chat beside the preview, on `side` or the side it was last, or floats it: ⇧⌘D,
    * and the chat dragged to an edge or pulled off it. Either way the preview morphs into the
-   * room it gets or gives up, and it's the default for chats from now on.
+   * room it gets or gives up, and it's the default for chats from now on. Settings moves it
+   * without `reveal`: a chat that's hidden, or out of the way in focus mode, stays so.
    */
-  setDocked(docked: boolean, side?: 'left' | 'right') {
+  setDocked(docked: boolean, side?: 'left' | 'right', reveal = true) {
     const chat = this.resources.chat
     if (!chat) return
-    this.leaveFocusMode()
+    if (reveal) this.leaveFocusMode()
     // From where it's drawn now, before anything changes: the card turns into the sidebar or
     // back, rather than one replacing the other.
     const shaped = this.panel.shapeTo(docked, side ?? getPrefs().chatSidebarSide)
@@ -3369,7 +3375,7 @@ export class ProjectTab implements ChatPanelOwner {
     setPrefs(side ? { chatSidebar: docked, chatSidebarSide: side } : { chatSidebar: docked })
     if (side) chat.setSidebarSide(side)
     chat.setDocked(docked)
-    if (!this.state.chatVisible) this.patch({ chatVisible: true })
+    if (reveal && !this.state.chatVisible) this.patch({ chatVisible: true })
     // Not on screen to turn from: the sidebar slides in from the edge.
     if (docked && !shaped) this.panel.holdDock()
     this.layout()

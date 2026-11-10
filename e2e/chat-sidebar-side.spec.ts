@@ -118,3 +118,77 @@ test('chat sidebar switches sides, resizes from its inner edge, and saves the ch
   await expect(session.chrome.locator('[data-morph]')).toHaveCount(0)
   await session.shot('sidebar-right-small', true)
 })
+
+test("Settings' chat position moves the chat of a project that's open", async ({ launch }) => {
+  const session = await launch({ fixture: 'vite', reducedMotion: 'reduce' })
+  await session.waitForPreview()
+  const docked = async () => (await session.chatSnapshot()).meta.docked
+  const sidebar = async () => (await session.state()).sidebarWidth
+  /** The chat's view in the project window, and the window's width. */
+  const placed = () =>
+    session.app.evaluate(({ BrowserWindow, WebContentsView }) => {
+      const win = BrowserWindow.getAllWindows().find((win) => win.getTitle() !== 'Settings')
+      const chat = win?.contentView.children.find(
+        (view) =>
+          view instanceof WebContentsView && view.webContents.getURL().endsWith('/chat.html'),
+      )
+      if (!win || !chat) throw new Error('Missing chat view')
+      const morphing = (globalThis as { guiMorphing?: Set<number> }).guiMorphing?.size ?? 0
+      return { ...chat.getBounds(), window: win.getContentSize()[0], morphing }
+    })
+  expect(await docked()).toBe(false)
+  expect(await sidebar()).toBe(0)
+
+  await session.chrome.evaluate(() => window.gui.openSettings('chat'))
+  const opened = () =>
+    session.app
+      .context()
+      .pages()
+      .find((page) => page.url().endsWith('/settings.html'))
+  await expect.poll(() => !!opened()).toBe(true)
+  const settings = opened()
+  if (!settings) throw new Error('Missing settings window')
+  const pick = (position: 'Floating' | 'Left' | 'Right') =>
+    settings.getByRole('button', { name: position, exact: true }).click()
+
+  await pick('Right')
+  await expect.poll(docked).toBe(true)
+  // Reduce motion: the sidebar is simply there, with nothing morphing on the way.
+  expect((await placed()).morphing).toBe(0)
+  await expect.poll(sidebar).toBeGreaterThan(0)
+  let view = await placed()
+  expect(view.x + view.width).toBe(view.window)
+  await pick('Floating')
+  await expect.poll(docked).toBe(false)
+  await expect.poll(sidebar).toBe(0)
+
+  // Focus mode stays on, and the chat is docked once it ends.
+  await session.chrome.evaluate(() => window.gui.setFocusMode(true))
+  await expect.poll(async () => (await session.state()).focusMode).toBe(true)
+  await pick('Left')
+  await expect.poll(docked).toBe(true)
+  expect((await session.state()).focusMode).toBe(true)
+  await session.chrome.evaluate(() => window.gui.setFocusMode(false))
+  await expect.poll(sidebar).toBeGreaterThan(0)
+  expect((await placed()).x).toBe(0)
+
+  // A hidden chat stays hidden.
+  await session.chrome.evaluate(() => window.gui.toggleChat())
+  await expect.poll(async () => (await session.state()).chatVisible).toBe(false)
+  await pick('Floating')
+  await expect.poll(docked).toBe(false)
+  expect((await session.state()).chatVisible).toBe(false)
+  await session.chrome.evaluate(() => window.gui.toggleChat())
+  await expect.poll(async () => (await session.state()).chatVisible).toBe(true)
+
+  // A project in a background tab is docked when its tab is shown again.
+  const project = (await session.state()).activeTab
+  await session.chrome.evaluate(() => window.gui.newTab())
+  await expect.poll(async () => (await session.state()).activeTab).not.toBe(project)
+  await pick('Right')
+  await expect.poll(docked).toBe(true)
+  await session.chrome.evaluate((id) => window.gui.selectTab(id), project)
+  await expect.poll(sidebar).toBeGreaterThan(0)
+  view = await placed()
+  expect(view.x + view.width).toBe(view.window)
+})

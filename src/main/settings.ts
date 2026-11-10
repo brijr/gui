@@ -158,6 +158,7 @@ export function setChatSidebarSide(side: 'left' | 'right') {
 
 export function setChatDocked(docked: boolean) {
   setPrefs({ chatSidebar: docked })
+  for (const tab of allTabs()) tab.setChatDocked(docked)
 }
 
 export function setCrashReports(on: boolean) {
