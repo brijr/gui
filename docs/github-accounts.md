@@ -14,7 +14,7 @@ Gui requires a Gui account, made on WorkOS AuthKit with Google, GitHub or email 
 
 ## Ownership
 
-The `accounts/` Cloudflare Worker owns sign-in (WorkOS AuthKit, and the legacy device flow), identities, sessions, token refresh, contact preferences, and repository credentials for cloning. Its repository-creation and pull-request routes are no longer used by the app. D1 stores encrypted provider tokens and pending device codes; it stores hashes of Gui session and attempt tokens. Server secrets remain in Cloudflare.
+The `accounts/` Cloudflare Worker owns sign-in (WorkOS AuthKit, and the legacy device flow), identities, sessions, token refresh, contact preferences, and repository credentials for cloning. D1 stores encrypted provider tokens and pending device codes; it stores hashes of Gui session and attempt tokens. Server secrets remain in Cloudflare.
 
 The Electron main process stores the device session using secure storage, checks canonical repository names, and supplies git credentials using a temporary askpass script. The renderer receives display state and project actions. Untrusted project previews cannot invoke account IPC. Clone failure only removes the directory reserved by that clone, and never an existing directory or remote repository. Each clone asks the service for a fresh credential.
 

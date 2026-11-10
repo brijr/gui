@@ -10,9 +10,6 @@ let emailVerified: boolean
 let secondAccount: boolean
 let installationPages: number[]
 let refreshCalls: number
-let createdBody: unknown
-let pullBody: unknown
-let creationDenied: boolean
 let githubUnauthorized: boolean
 let installationUnauthorized: boolean
 let workosUser: {
@@ -99,9 +96,6 @@ beforeEach(async () => {
   secondAccount = false
   installationPages = []
   refreshCalls = 0
-  createdBody = null
-  pullBody = null
-  creationDenied = false
   githubUnauthorized = false
   installationUnauthorized = false
   tokenRequests = []
@@ -158,17 +152,6 @@ beforeEach(async () => {
       })
     if (url.pathname === '/user/emails')
       return Response.json([{ email: 'test@example.com', verified: emailVerified, primary: true }])
-    if (url.pathname === '/user/repos') {
-      createdBody = JSON.parse(String(init?.body))
-      return creationDenied
-        ? Response.json({ message: 'secret provider details' }, { status: 422 })
-        : Response.json({ id: 102, full_name: 'tester/design-project', private: true })
-    }
-    if (url.pathname === '/repos/tester/repo-1/pulls') {
-      if (init?.method !== 'POST') return Response.json([])
-      pullBody = JSON.parse(String(init.body))
-      return Response.json({ html_url: 'https://github.com/tester/repo-1/pull/1' })
-    }
     const minting = /^\/app\/installations\/(\d+)\/access_tokens$/.exec(url.pathname)
     if (minting) {
       if (installationUnauthorized)
@@ -274,47 +257,6 @@ test('login stores verified identity, encrypts provider credentials, and prevent
   expect(user.refresh_token).not.toContain('refresh-secret')
   expect(JSON.stringify(db.query('SELECT * FROM sessions').all())).not.toContain(signedIn.session)
   expect((await call('/github/poll', signedIn.attempt, 'POST')).status).toBe(401)
-})
-
-test('project creation is authenticated, private, initialized, validated, and sanitizes provider failures', async () => {
-  expect((await call('/repositories', undefined, 'POST', { name: 'design-project' })).status).toBe(
-    401,
-  )
-  const { session } = await login()
-  expect((await call('/repositories', session, 'POST', { name: '../bad' })).status).toBe(400)
-  expect(createdBody).toBeNull()
-  const response = await call('/repositories', session, 'POST', {
-    name: 'design-project',
-    private: false,
-  })
-  expect(response.status).toBe(201)
-  expect(createdBody).toEqual({ name: 'design-project', private: true, auto_init: true })
-  expect(await response.json()).toMatchObject({ repository: { id: 102, private: true } })
-  creationDenied = true
-  const denied = await call('/repositories', session, 'POST', { name: 'design-project' })
-  expect(denied.status).toBe(409)
-  expect(await denied.text()).not.toContain('secret provider details')
-})
-
-test('pull requests only target repositories connected to the signed-in user', async () => {
-  const { session } = await login()
-  const body = {
-    branch: 'gui/design',
-    base: 'main',
-    title: 'Design update',
-    body: 'Reviewed changes',
-  }
-  expect((await call('/repositories/999/pulls', session, 'POST', body)).status).toBe(403)
-  expect(pullBody).toBeNull()
-  expect(await (await call('/repositories/1/pulls', session, 'POST', body)).json()).toEqual({
-    url: 'https://github.com/tester/repo-1/pull/1',
-  })
-  expect(pullBody).toEqual({
-    head: body.branch,
-    base: body.base,
-    title: body.title,
-    body: body.body,
-  })
 })
 
 test('email is optional, and only verified primary email can subscribe', async () => {

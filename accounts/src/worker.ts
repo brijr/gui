@@ -168,11 +168,6 @@ async function github<T>(
       'GitHub access expired. Reconnect GitHub.',
       'github_reconnect_required',
     )
-  if (res.status === 422)
-    throw new HttpError(
-      409,
-      'GitHub could not create this project. Check the name or choose a different one.',
-    )
   if (res.status === 403 || res.status === 429)
     throw new HttpError(429, 'GitHub access is unavailable or rate limited. Try again later.')
   if (!res.ok) throw new HttpError(502, 'Could not reach GitHub. Try again.')
@@ -955,23 +950,6 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
       })),
     })
   }
-  if (path === '/repositories' && request.method === 'POST') {
-    const body = (await request.json()) as { name?: unknown }
-    if (typeof body.name !== 'string' || !/^[\w-][\w.-]{0,99}$/.test(body.name))
-      throw new HttpError(
-        400,
-        'Use up to 100 letters, numbers, dots, hyphens, or underscores for the project name.',
-      )
-    const created = await github<{ id: number; full_name: string; private: boolean }>(
-      await accessToken(env, user),
-      '/user/repos',
-      { name: body.name, private: true, auto_init: true },
-    )
-    return json(
-      { repository: { id: created.id, fullName: created.full_name, private: created.private } },
-      201,
-    )
-  }
   const clone = /^\/repositories\/(\d+)\/credential$/.exec(path)
   if (clone && request.method === 'POST') {
     const repo = await repositories.find(
@@ -982,51 +960,6 @@ async function route(request: Request, env: Env, diagnostic: { stage: string }):
     if (!repo)
       throw new HttpError(403, 'This repository is no longer connected to your GitHub account.')
     return json({ token: await repositoryToken(env, repo), fullName: repo.fullName })
-  }
-  const pull = /^\/repositories\/(\d+)\/pulls$/.exec(path)
-  if (pull && request.method === 'POST') {
-    const body = (await request.json()) as {
-      branch?: unknown
-      base?: unknown
-      title?: unknown
-      body?: unknown
-    }
-    if (
-      typeof body.branch !== 'string' ||
-      typeof body.base !== 'string' ||
-      typeof body.title !== 'string' ||
-      typeof body.body !== 'string' ||
-      !body.branch ||
-      !body.base ||
-      !body.title.trim() ||
-      body.branch.length > 255 ||
-      body.base.length > 255 ||
-      body.title.length > 256 ||
-      body.body.length > 65536
-    )
-      throw new HttpError(400, 'Enter a branch, base branch, title, and description.')
-    const token = await accessToken(env, user)
-    const repo = await repositories.find(token, `${account.id}:${user.github_id}`, Number(pull[1]))
-    if (!repo)
-      throw new HttpError(403, 'This repository is no longer connected to your GitHub account.')
-    const owner = repo.fullName.split('/')[0]
-    const query = new URLSearchParams({
-      state: 'open',
-      head: `${owner}:${body.branch}`,
-      base: body.base,
-    })
-    const existing = await github<{ html_url: string }[]>(
-      token,
-      `/repos/${repo.fullName}/pulls?${query}`,
-    )
-    if (existing[0]) return json({ url: existing[0].html_url })
-    const created = await github<{ html_url: string }>(token, `/repos/${repo.fullName}/pulls`, {
-      head: body.branch,
-      base: body.base,
-      title: body.title,
-      body: body.body,
-    })
-    return json({ url: created.html_url })
   }
   throw new HttpError(404, 'Not found.')
 }

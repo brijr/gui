@@ -46,19 +46,13 @@ The desktop defaults to `https://accounts.usegui.com`. Earlier builds use `https
 
 Validate live sign-in, private-repository cloning, revoked access, and token refresh with an authorized test account before shipping. Automated checks use provider and keychain stand-ins. They do not prove live GitHub credentials, macOS keychain access, or production behavior.
 
-## Creating and managing projects
-
-Gui's connection UI no longer creates repositories: **Clone…** on the start screen and **Settings → GitHub** only connect GitHub, choose repositories and clone one. The service still has a route that creates private repositories under the signed-in personal account, initialized with a README; the app doesn't call it. The user must install Gui on their personal GitHub account first. Creation and cloning are separate actions, so canceling or failing a local clone never deletes the repository. Name conflicts are surfaced without retrying creation automatically. Organization repository creation and merging are outside this flow.
-
-The existing shipping sheet reviews a branch, title, description, and files before committing, pushing, and opening a pull request. The service checks repository access again for credentials and PR creation. Existing open PRs are reused. GitHub write access still depends on both the user and installed app, and branch protection continues to apply.
-
 ## Contact information
 
 Authorized operators can read contact information using the database's existing access controls. There is no public customer export endpoint. For a product-update recipient list, select only `name`, `email`, and `preference_changed_at` from `accounts` where `updates = 1 AND email IS NOT NULL`. Do not export provider tokens or Gui sessions. New accounts start with updates off; people can opt in in Settings → Account, and the choice survives repeat sign-in. Accounts made before this change keep their own choice.
 
 An account keeps its first email and name. Sign-in only fills them if they are missing. Signing out in Settings → Account ends that device's session. Disconnecting GitHub removes the GitHub tokens. Sessions last 180 days, and active use extends them. The authenticated `DELETE /account` endpoint removes the account, its identities, its GitHub connection, and all Gui sessions. GitHub authorization itself must be revoked on GitHub separately.
 
-Provider tokens and pending device codes are encrypted in D1 with AES-GCM. Gui session and attempt tokens are hashed in D1. Only the Electron main process sees a provider credential for cloning or pushing. Git receives it through a temporary askpass script and process environment, with credential helpers disabled. The clone remote and arguments contain no token, and error messages exclude git stderr. For connected GitHub repositories, the existing shipping sheet uses this connection to push and create a pull request without requiring `gh` sign-in. It supplies a GitHub noreply identity for commits only when git cannot resolve an existing identity; it does not edit global git settings. The temporary script contains no token and is removed after the operation. Clone failures remove only the new destination Gui reserved.
+Provider tokens and pending device codes are encrypted in D1 with AES-GCM. Gui session and attempt tokens are hashed in D1. Only the Electron main process sees a provider credential for cloning. Git receives it through a temporary askpass script and process environment, with credential helpers disabled. The clone remote and arguments contain no token, and error messages exclude git stderr. The temporary script contains no token and is removed after the operation. Clone failures remove only the new destination Gui reserved.
 
 ## Checks
 
