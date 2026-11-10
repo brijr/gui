@@ -1,13 +1,24 @@
-import { app, dialog } from 'electron'
+import { app, dialog, autoUpdater as squirrel } from 'electron'
 import type { AppUpdater } from 'electron-updater'
 import { officialBuild } from './official-build'
+import { updatePrompts } from './update-prompts'
 
 /** How often a running Gui looks for a new version, after the check at launch. */
 const CHECK_EVERY = 4 * 60 * 60 * 1000
 
-let checkingByHand = false
-let prompted = false
+/** How long a restart the user chose may take before Gui says it didn't happen. */
+const RESTART_WAIT = 60 * 1000
+
 let updater: Promise<AppUpdater> | null = null
+
+const prompts = updatePrompts({
+  updater: { check, quitAndInstall: async () => (await loadUpdater()).quitAndInstall() },
+  dialog,
+  version: () => app.getVersion(),
+  inApplications: () => app.isInApplicationsFolder(),
+  // Only ever says the restart didn't happen; unref'd so it can't hold a quitting Gui open.
+  afterRestartWait: (run) => void setTimeout(run, RESTART_WAIT).unref(),
+})
 
 /**
  * electron-updater, loaded the first time it's needed rather than before the first window:
@@ -19,8 +30,12 @@ function loadUpdater() {
     const { autoUpdater } = module.default
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.on('update-downloaded', (info) => void offerRestart(info.version))
+    autoUpdater.on('update-downloaded', (info) => void prompts.downloaded(info.version))
     autoUpdater.on('error', failed)
+    // electron-updater hands each download to Squirrel.Mac, Electron's own updater, which
+    // installs it. Only Squirrel.Mac's events say whether a restart can happen.
+    squirrel.on('update-downloaded', () => prompts.installReady())
+    squirrel.on('error', (error) => prompts.installFailed(error))
     return autoUpdater
   })
   return updater
@@ -28,9 +43,7 @@ function loadUpdater() {
 
 function failed(error: Error) {
   console.error('Update failed:', error)
-  if (!checkingByHand) return
-  checkingByHand = false
-  dialog.showErrorBox("Couldn't check for updates", error.message)
+  prompts.failed(error)
 }
 
 /**
@@ -54,23 +67,7 @@ export async function checkForUpdatesByHand() {
     })
     return
   }
-  checkingByHand = true
-  const result = await check()
-  if (!checkingByHand) return
-  checkingByHand = false
-  if (!result?.isUpdateAvailable) {
-    await dialog.showMessageBox({
-      message: 'Gui is up to date',
-      detail: `You have the latest version, ${app.getVersion()}.`,
-    })
-  } else if (!prompted) {
-    await dialog.showMessageBox({
-      message: `Downloading Gui ${result.updateInfo.version}…`,
-      detail: 'Gui will offer to restart when it’s ready.',
-    })
-  } else {
-    await offerRestart(result.updateInfo.version)
-  }
+  await prompts.checkByHand()
 }
 
 async function check() {
@@ -88,16 +85,4 @@ async function check() {
     // Reported through the 'error' event.
     return null
   }
-}
-
-async function offerRestart(version: string) {
-  prompted = true
-  const { response } = await dialog.showMessageBox({
-    message: `Gui ${version} is ready`,
-    detail: 'Restart now to use it, or it installs the next time you quit Gui.',
-    buttons: ['Restart Now', 'Later'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-  if (response === 0) (await loadUpdater()).quitAndInstall()
 }
