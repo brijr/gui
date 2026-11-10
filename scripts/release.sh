@@ -100,6 +100,8 @@ zip="release/Gui-$version-arm64.zip"
 for file in "$app" "$dmg" "$zip" "$zip.blockmap" "release/$channel-mac.yml"; do
   [ -e "$file" ] || fail "The build didn't produce $file"
 done
+# A dependency that didn't reach the package breaks an agent, or the updater, on every Mac.
+sh scripts/check-packaged-app.sh "$app" || fail "The packaged Gui.app can't load the modules above. Nothing is uploaded."
 
 codesign --verify --deep --strict "$app" || fail "Gui.app's signature doesn't verify."
 xcrun stapler validate "$app" >/dev/null || fail "Gui.app isn't notarized. Check the notarization credentials."
