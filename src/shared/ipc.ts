@@ -98,6 +98,7 @@ export const Invoke = {
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
   boardChatCover: 'board:chat-cover',
+  getRulers: 'rulers:get',
 } as const
 
 /** Renderer → main, fire and forget */
@@ -511,8 +512,12 @@ export interface GuiApi {
    * the pointer in the preview view's coordinates (left of or above it: over the ruler).
    */
   rulerDrag(axis: RulerGuide['axis'], phase: 'move' | 'end' | 'cancel', at: Point): void
-  /** What the rulers show (null: hidden) */
+  /**
+   * What the rulers show (null: hidden), each time it changes. The rulers ask for it as they're
+   * first drawn (`getRulers`): main doesn't repeat what it has said.
+   */
   onRulers(cb: (view: RulersView | null) => void): Unsubscribe
+  getRulers(): Promise<RulersView | null>
   /** The pointer on a guide's grab strip (`id`), at `at` in the strip's own coordinates */
   guidePointer(id: string, phase: GuidePointerPhase, at: Point): void
   /** The guides' grab strips (the guides overlay) */

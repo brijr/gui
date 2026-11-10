@@ -3809,6 +3809,11 @@ export class ProjectTab implements ChatPanelOwner {
     return this.guides.on && this.state.project !== null && !this.resources.board
   }
 
+  /** What the chrome's rulers show now (null: nothing), when it asks. */
+  rulers() {
+    return this.guides.rulers()
+  }
+
   rulerDrag(axis: 'x' | 'y', phase: 'move' | 'end' | 'cancel', at: Point) {
     this.guides.rulerDrag(axis, phase, at)
   }

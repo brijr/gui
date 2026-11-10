@@ -17,7 +17,22 @@ const LABEL_FONT = '10px -apple-system, BlinkMacSystemFont, system-ui, sans-seri
  */
 export function Rulers() {
   const [view, setView] = useState<RulersView | null>(null)
-  useEffect(() => gui.onRulers(setView), [])
+  useEffect(() => {
+    // Main says what the rulers show only as it changes, so rulers just drawn (with each tab
+    // shown) ask; what main says meanwhile is newer than the answer.
+    let told = false
+    const off = gui.onRulers((next) => {
+      told = true
+      setView(next)
+    })
+    gui
+      .getRulers()
+      .then((now) => {
+        if (!told) setView(now)
+      })
+      .catch(() => undefined)
+    return off
+  }, [])
   if (!view) return null
   return (
     <>

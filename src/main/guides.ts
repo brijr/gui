@@ -85,6 +85,8 @@ export class Guides {
   private readonly strips = new Map<string, WebContentsView>()
   private hover: string | null = null
   private drag: Drag | null = null
+  /** The last `RulersView` the chrome was told (`sendRulers`, `rulers`), as JSON */
+  private rulersSent = 'null'
   private disposed = false
 
   constructor(
@@ -169,6 +171,16 @@ export class Guides {
     if (phase === 'move') this.moveDrag(point)
     else if (phase === 'up') this.endDrag(point)
     else this.endDrag(null)
+  }
+
+  /**
+   * What the rulers show now, for a chrome that has just drawn them and asks (they're drawn
+   * anew with each tab shown): from here on it's told only what changes (`sendRulers`).
+   */
+  rulers(): RulersView | null {
+    const view = this.rulersView()
+    this.rulersSent = JSON.stringify(view)
+    return view
   }
 
   /** The open project's guides, in page CSS pixels. */
@@ -524,8 +536,16 @@ export class Guides {
     }
   }
 
+  /**
+   * Tells the chrome what the rulers show, when that has changed: every layout comes through
+   * here, most with nothing new to say (a window resized with the rulers off: nothing at all).
+   */
   private sendRulers() {
-    this.deps.sendChrome(Events.rulers, this.rulersView())
+    const view = this.rulersView()
+    const json = JSON.stringify(view)
+    if (json === this.rulersSent) return
+    this.rulersSent = json
+    this.deps.sendChrome(Events.rulers, view)
   }
 }
 

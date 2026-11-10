@@ -296,6 +296,23 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   await toggle.click()
   await expectOn(true)
   await waitFor(async () => (await view()).strips.length === 1, 'the kept guide to show')
+
+  // Main says what the rulers show only when it changes, so rulers drawn anew ask where they
+  // are: when the window's page loads again (as after a crash) with nothing else changing,
+  // and back with their tab.
+  await session.chrome.reload()
+  await session.chrome.waitForFunction(() => 'gui' in window)
+  await expectOn(true)
+  const { activeTab } = await session.state()
+  await session.chrome.evaluate(() => window.gui.newTab())
+  await expect(rulers).toHaveCount(0)
+  const added = (await session.state()).activeTab
+  await session.chrome.evaluate((id) => window.gui.selectTab(id), activeTab)
+  await expect(rulers).toHaveCount(2)
+  await session.chrome.evaluate((id) => window.gui.closeTab(id), added)
+  await expect(session.chrome.getByRole('tablist')).toHaveCount(0)
+  await expect(rulers).toHaveCount(2)
+
   await send('chrome', shiftR)
   await expectOn(false)
   await toggle.click()

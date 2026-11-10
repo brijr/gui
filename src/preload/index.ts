@@ -123,6 +123,7 @@ const api: GuiApi = {
   toggleRulers: send(Send.toggleRulers),
   rulerDrag: send(Send.rulerDrag),
   onRulers: (cb) => subscribe(Events.rulers, cb),
+  getRulers: () => legacyInvoke(Invoke.getRulers),
   guidePointer: send(Send.guidePointer),
   onGuideStrips: (cb) => subscribe(Events.guideStrips, cb),
   setCanvasRect: send(Send.setCanvasRect),

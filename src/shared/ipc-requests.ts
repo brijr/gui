@@ -63,6 +63,7 @@ export interface AllIpcRequests {
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
   [Invoke.boardChatCover]: Contract<'boardChatCover'>
+  [Invoke.getRulers]: Contract<'getRulers'>
 }
 
 export interface IpcRequests {

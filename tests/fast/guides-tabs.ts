@@ -34,16 +34,16 @@ const { getPrefs } = await import('../../src/main/prefs')
 const root = join(userData, 'project')
 const x = (at: number): RulerGuide => ({ axis: 'x', at })
 const y = (at: number): RulerGuide => ({ axis: 'y', at })
+const page = { x: 0, y: 0, width: 800, height: 600 }
 /** A tab on the project, its page filling a 800 by 600 canvas. */
-function tab() {
+function tab(sendChrome: (channel: string, payload: unknown) => void = noop) {
   const guides = new Guides({} as never, {
     inspector: { nodeAt: async () => null } as never,
     scale: () => 1,
     root: () => root,
-    sendChrome: noop,
+    sendChrome,
     relayout: noop,
   })
-  const page = { x: 0, y: 0, width: 800, height: 600 }
   guides.place(null, page, page)
   return guides
 }
@@ -81,8 +81,28 @@ try {
   assert.deepEqual(b.list(), [x(100), x(300), y(200)])
   assert.deepEqual(await saved(), [x(100), x(300), y(200)])
 
+  // The chrome is told what the rulers show as it changes, not again with every layout.
+  const told: unknown[] = []
+  const c = tab((_channel, view) => told.push(view))
+  assert.equal(told.length, 1)
+  c.place(null, page, page)
+  c.place(null, page, page)
+  assert.equal(told.length, 1)
+  const narrower = { ...page, width: 700 }
+  c.place(null, narrower, page)
+  assert.equal(told.length, 2)
+  // Rulers drawn anew ask where they are, and hear no more until something changes.
+  assert.deepEqual(c.rulers(), told[1])
+  c.place(null, narrower, page)
+  assert.equal(told.length, 2)
+  // Off screen there's nothing to show, which is said once.
+  c.place(null, null, page)
+  c.place(null, null, page)
+  assert.deepEqual(told.slice(2), [null])
+
   a.dispose()
   b.dispose()
+  c.dispose()
   console.log('Guides shared by two tabs passed.')
 } finally {
   await rm(userData, { recursive: true, force: true })

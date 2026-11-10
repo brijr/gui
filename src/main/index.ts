@@ -843,6 +843,11 @@ function registerIpc() {
   })
   handleLegacy(Invoke.getLogs, (event) => tabFor(event)?.logsOutput() ?? NO_OUTPUT)
   handleLegacy(Invoke.boardChatCover, (event) => tabFor(event)?.chatCover() ?? null)
+  handleLegacy(Invoke.getRulers, (event) => {
+    // The window's own chrome draws the rulers, for the tab it shows.
+    const win = windowFor(event)
+    return win?.win.webContents === event.sender ? win.activeTab.rulers() : null
+  })
   handleLegacy(Invoke.getTerminal, (event, id: unknown) => {
     // Like the terminals' other channels: the window's own chrome, for its active tab.
     const win = windowFor(event)
