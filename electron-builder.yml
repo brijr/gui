@@ -107,7 +107,8 @@ mac:
   entitlementsInherit: build/entitlements.mac.inherit.plist
   extendInfo:
     # Agents run arbitrary commands (osascript etc.); macOS attributes their Apple Events
-    # to Gui and denies them unless Gui declares why it sends them.
+    # to Gui and denies them unless Gui declares why it sends them and, under the hardened
+    # runtime, has the apple-events entitlement (build/entitlements.mac.plist).
     NSAppleEventsUsageDescription: Commands run by your coding agent may control other apps.
     # Narrated preview recordings: the user talks while recording, and Gui transcribes it on
     # this Mac (native/transcribe) for the agent.

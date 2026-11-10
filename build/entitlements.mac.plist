@@ -19,5 +19,14 @@
     <!-- Narrated preview recordings: the microphone, under the hardened runtime. -->
     <key>com.apple.security.device.audio-input</key>
     <true/>
+    <!--
+      Commands run in Gui's terminals and by agents (osascript and the like) send Apple Events,
+      and macOS holds Gui responsible for them. Under the hardened runtime it refuses them
+      without asking unless Gui has this; with it, macOS asks the user once per app controlled
+      (NSAppleEventsUsageDescription in electron-builder.yml is the prompt's text). Helpers
+      start no commands, so the inherited entitlements don't have it.
+    -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
   </dict>
 </plist>
