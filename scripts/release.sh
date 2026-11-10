@@ -25,6 +25,8 @@ fail() {
 }
 
 bucket=gui-releases
+# Where the worker serves the bucket (publish.url in electron-builder.yml).
+site=https://usegui.com/releases
 
 # The site (www/) isn't part of the app, so work on it can be in progress.
 [ -z "$(git status --porcelain -- . ':!www')" ] || fail "Commit or stash your changes first: a release is built from a commit."
