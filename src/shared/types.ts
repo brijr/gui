@@ -546,8 +546,6 @@ export interface WindowState {
   shortcutsOpen: boolean
   /** The window is in macOS full screen, which hides its traffic lights */
   fullScreen: boolean
-  /** Development only (`GUI_BOARD_WEBGL=1`, unpackaged): the canvas board draws with WebGL */
-  devBoardWebgl: boolean
 }
 
 /** A frame on a canvas, as the board draws it. */

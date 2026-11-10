@@ -26,7 +26,7 @@ import {
 } from './gestures'
 import { sendIntent } from './intents'
 import { boardKey, type KeyAction, type Nudge, nudged, nudgeLanding } from './keys'
-import { BoardOverlay, gridStyle, tileId, useNaming } from './overlay'
+import { BoardOverlay, tileId, useNaming } from './overlay'
 import { activeFrame, sectionAreas, selectionSaid } from './scene'
 import { BoardSurface, type BoardSurfaceHandle, BoardUnavailable } from './surface'
 import { useBoardCamera } from './use-camera'
@@ -37,26 +37,15 @@ const MAC = navigator.platform.toLowerCase().includes('mac')
 
 /**
  * A canvas's frames on a pannable, zoomable board, like Figma's: their thumbnails (main
- * captures them as their pages change), their names above them, and what's selected. Scroll
+ * captures them as their pages change), their names above them, and what's selected. The
+ * board's pixels are drawn with WebGL on a canvas (surface.tsx); the DOM over it keeps the
+ * names, the rename fields and what the pointer presses (overlay.tsx). Scroll
  * pans, ⌘-scroll or a pinch zooms, Space-drag pans; drag frames to move them, their corner to
  * resize them, across empty board to select several; double-click opens one live, as ⌘D does
  * to pick in it. The shell: it owns the camera and the gesture under way, gives events to
  * gestures.ts and keys.ts and does what they ask, and runs the board's effects.
  */
-export function Board({
-  board,
-  working = false,
-  gl = false,
-}: {
-  board: BoardState
-  working?: boolean
-  /**
-   * Development only (`GUI_BOARD_WEBGL=1`): the board's pixels (the grid, sections, frames and
-   * their thumbnails, what's selected, the marquee) are drawn on a canvas under this DOM,
-   * which keeps the names, the fields and what the pointer presses.
-   */
-  gl?: boolean
-}) {
+export function Board({ board, working = false }: { board: BoardState; working?: boolean }) {
   const ref = useRef<HTMLDivElement>(null)
   /** What this board's tiles' element ids start with */
   const tiles = useId()
@@ -86,7 +75,6 @@ export function Board({
     board: ref,
     layer,
     surface,
-    gl,
   })
   const [overrides, setOverrides] = useState<Record<string, Override>>({})
   const [gesture, setGestureState] = useState<Gesture | null>(null)
@@ -163,7 +151,7 @@ export function Board({
   }, [hasCamera])
 
   if (!camera) return <div ref={ref} className="absolute inset-0" />
-  if (gl && unavailable) return <BoardUnavailable />
+  if (unavailable) return <BoardUnavailable />
 
   // The camera as drawn this moment, which `camera` follows a little behind during a pan or pinch.
   const drawnCamera = () => live.current ?? camera
@@ -307,12 +295,9 @@ export function Board({
         'absolute inset-0 overflow-hidden bg-canvas outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-muted',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
       )}
-      style={gl ? undefined : gridStyle(camera)}
-      // The canvas lights up the edge of the frame under the pointer, as :hover does a tile's.
-      onPointerOver={
-        gl ? (event) => surface.current?.hover(idOf(event.target, 'frame') ?? null) : undefined
-      }
-      onPointerLeave={gl ? () => surface.current?.hover(null) : undefined}
+      // The canvas lights up the edge of the frame under the pointer.
+      onPointerOver={(event) => surface.current?.hover(idOf(event.target, 'frame') ?? null)}
+      onPointerLeave={() => surface.current?.hover(null)}
       // A click with no pointer behind it (a screen reader's) selects the frame it's on.
       onClick={(event) => {
         const id = event.detail === 0 && idOf(event.target, 'frame')
@@ -344,28 +329,25 @@ export function Board({
         sendIntent(menu.intent)
       }}
     >
-      {gl && (
-        <BoardSurface
-          ref={surface}
-          camera={drawnCamera}
-          thumbs={board.thumbs}
-          tiles={layer}
-          onUnavailable={() => setUnavailable(true)}
-          input={{
-            frames,
-            sections: sectionAreas(sections, frames, picked?.id ?? null),
-            selected,
-            handle: hand ? null : single,
-            hand,
-            marquee,
-          }}
-        />
-      )}
+      <BoardSurface
+        ref={surface}
+        camera={drawnCamera}
+        thumbs={board.thumbs}
+        tiles={layer}
+        onUnavailable={() => setUnavailable(true)}
+        input={{
+          frames,
+          sections: sectionAreas(sections, frames, picked?.id ?? null),
+          selected,
+          handle: hand ? null : single,
+          hand,
+          marquee,
+        }}
+      />
       <BoardOverlay
         layer={layer}
         camera={camera}
         size={size}
-        gl={gl}
         hand={hand}
         frames={frames}
         sections={sections}
@@ -376,9 +358,7 @@ export function Board({
         renamingSection={renamingSection}
         active={active}
         tiles={tiles}
-        thumbs={board.thumbs}
         labels={labels}
-        marquee={marquee}
         announcement={announcement}
       />
       {!board.frames.length && <EmptyBoard working={working} />}

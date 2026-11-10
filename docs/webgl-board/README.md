@@ -1,9 +1,9 @@
 # The board in WebGL: measurements, decisions, plan
 
 Moving the canvas board's drawing from DOM to WebGL. A prototype measured it and settled the
-decisions below; stages 1–6 of the plan are done, so the renderer is in
-`src/renderer/src/board/` behind a development-only switch, and stage 7 is to come.
-[inventory.md](inventory.md) lists everything the board does today and where each part goes.
+decisions below; all seven stages of the plan are done, so the board is drawn with WebGL in
+`src/renderer/src/board/`, with a DOM overlay, and nothing else.
+[inventory.md](inventory.md) lists everything the DOM board did and where each part went.
 The prototype itself, its probe and its raw results are on the branch
 `brijr/webgl-board-prototype` (commit `e9f7d31`).
 
@@ -18,17 +18,17 @@ buffers, which make it about 90 MB heavier than the DOM board while fitted and a
 The recommendation is to go ahead with our own renderer, in the seven stages below, and to
 look at that fixed cost in a visible window on the owner's display before stage 3 lands.
 
-## The switch
+## The renderer
 
-`GUI_BOARD_WEBGL=1` on an unpackaged build (`bun run dev`, or the production build the specs
-launch). A packaged Gui ignores it. (The prototype also had `GUI_DEV_MAX_FRAMES`, to open
-canvases of 500 and 2,000 frames for the measurements below; it was not carried over.)
+Until stage 7 it was behind a development switch (`GUI_BOARD_WEBGL=1`, unpackaged builds),
+so the two boards could be compared like for like; the measurements below are from then.
+(The prototype also had `GUI_DEV_MAX_FRAMES`, to open canvases of 500 and 2,000 frames for
+the measurements; it was not carried over.)
 
-It keeps the board's DOM and moves only its pixels: with the switch on, the board mounts a
-canvas under its DOM (`surface.tsx` and `gl/` in `src/renderer/src/board/`) and the tiles, section areas, selection
-outlines, handle, marquee and grid stop painting. Names, rename fields, the empty state and
-every pointer and keyboard handler are the same code as today, so every interaction works
-and the two can be compared like for like.
+It kept the board's DOM and moved only its pixels: the board mounts a canvas under its DOM
+(`surface.tsx` and `gl/` in `src/renderer/src/board/`), and the tiles stay, transparent.
+Names, rename fields, the empty state and every pointer and keyboard handler are the same
+code as before.
 
 | File | What it is |
 | --- | --- |
@@ -41,8 +41,7 @@ and the two can be compared like for like.
 Also: `BoardPoint`/`BoardRect` and `BoardViewPoint`/`BoardViewRect` in `src/shared/coords.ts`
 and the camera's arithmetic in `src/renderer/src/board/camera.ts`; `gui-thumb:` readable by
 `fetch` with CORS (`recordings.ts`, `board.ts`, the CSP's `connect-src`);
-`src/main/dev-flags.ts`. Specs: `e2e/canvas.spec.ts` runs both ways,
-`e2e/canvas-surface.spec.ts` with the switch.
+Specs: `e2e/canvas.spec.ts`, and `e2e/canvas-surface.spec.ts` for a lost context, the appearance, the display's scale, and no WebGL2.
 
 ## Measurements
 
@@ -301,7 +300,7 @@ they have never had.
 
 ## Stages
 
-Stages 1–6 are done (2026-11-10), one commit each. Each leaves main working and releasable. S is under 100 lines changed, M under 400, L more.
+All seven are done (2026-11-10), one commit each. Each leaves main working and releasable. S is under 100 lines changed, M under 400, L more.
 
 1. **Thumbnails readable as pixels** (S, main). `gui-thumb:` gets `supportFetchAPI` and
    `corsEnabled`, its responses `Access-Control-Allow-Origin`, the CSP `connect-src`;
@@ -355,7 +354,13 @@ Stages 1–6 are done (2026-11-10), one commit each. Each leaves main working an
    (`Thumbnail`, the tile, section, selection and marquee styles, the CSS grid), the switch
    and `GUI_BOARD_WEBGL` go; `docs/architecture.md`'s Canvases entry is rewritten. One board,
    no setting. *Proves it:* the canvas specs with no switch; the audit's `board-60` and `held`
-   probes and the prototype's, against the numbers above.
+   probes and the prototype's, against the numbers above. **Done**: the tiles' `<img>`
+   thumbnails, the section, selection, handle and marquee elements, the CSS dot grid, the
+   switch (`src/main/dev-flags.ts`, `WindowState.devBoardWebgl`, the board's `gl` prop) are
+   gone; the tiles and the handle's grip stay, transparent. Without WebGL2 the board says it
+   can't be shown. The window's chunk went from 164.5 kB to 162.6 kB (57.8 → 57.2 kB gzipped), its CSS from 57.1
+   to 56.7 kB. The specs pass; the probes were not run again (the audit's and the
+   prototype's live on other branches), so the numbers above are still the switch's.
 
 Stages 3 and 5 do not depend on each other. Raising `MAX_FRAMES` is not a stage of this move.
 
@@ -372,7 +377,7 @@ Stages 3 and 5 do not depend on each other. Raising `MAX_FRAMES` is not a stage 
   runs a second), and the prototype does that. **Stop and reconsider** if, in a visible window on the owner's display,
   the GPU process at fit is more than about 100 MB over the DOM board's: at 60 frames the
   move then costs more at rest than it saves zoomed in.
-- **No second way to draw.** After stage 7 a machine where WebGL2 cannot start (a blocked
+- **No second way to draw.** Since stage 7 a machine where WebGL2 cannot start (a blocked
   driver, some remote desktops and virtual machines) shows a message, not a board. Stop if
   crash reports or users show that happening.
 - **Sharpness arrives 120 ms after a zoom rests**, where the DOM board swaps copies about

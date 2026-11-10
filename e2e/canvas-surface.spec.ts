@@ -4,11 +4,9 @@ import { waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
-// The canvas board drawn with WebGL (GUI_BOARD_WEBGL, a development switch while it reaches
-// parity with the DOM board): what it does when its GPU context is lost, when the appearance
-// changes, when the display's scale does, and when WebGL2 can't start at all.
+// The canvas board's WebGL canvas: what it does when its GPU context is lost, when the
+// appearance changes, when the display's scale does, and when WebGL2 can't start at all.
 
-const WEBGL = { GUI_BOARD_WEBGL: '1' }
 /** The board's background, --canvas, in light and dark (styles.css). */
 const CANVAS = { light: [236, 236, 236], dark: [14, 14, 15] }
 
@@ -70,7 +68,7 @@ const near = (color: number[] | null, expected: number[]) =>
   !!color && color.every((value, index) => Math.abs(value - expected[index]) <= 2)
 
 test('the canvas draws the board again after its GPU context is lost', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite', open: 'recent', env: WEBGL })
+  const session = await launch({ fixture: 'vite', open: 'recent' })
   const { chrome } = session
   await chrome.emulateMedia({ colorScheme: 'light' })
   await openBoard(session)
@@ -103,7 +101,7 @@ test('the canvas draws the board again after its GPU context is lost', async ({ 
 })
 
 test('the canvas follows the appearance and the display’s scale', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite', open: 'recent', env: WEBGL })
+  const session = await launch({ fixture: 'vite', open: 'recent' })
   const { chrome } = session
   await openBoard(session)
 
@@ -161,7 +159,7 @@ test('the canvas follows the appearance and the display’s scale', async ({ lau
 })
 
 test('without WebGL2, the board says it can’t be shown', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite', open: 'recent', env: WEBGL })
+  const session = await launch({ fixture: 'vite', open: 'recent' })
   const { chrome } = session
   // As on a Mac whose graphics can't give the window a WebGL2 context.
   await chrome.evaluate(() => {

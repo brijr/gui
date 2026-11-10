@@ -434,31 +434,24 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
     return read
   }, `${canvas.thumbs}/${frames[0].id}.small?v=${frames[0].version}`)
   expect(fetched).toEqual({ status: 200, type: 'image/jpeg', width: 360 })
-  // How wide the thumbnail each frame shows is, 0 for none, as the page draws it: an <img> in
-  // the tile, or (GUI_BOARD_WEBGL) the texture the canvas holds, which the tile reports. A tile
-  // still swapping one <img> for another reads 0 here: `widths` waits for what it settles on.
+  // How wide the thumbnail each frame shows is, 0 for none: the texture the canvas holds for
+  // it, which its tile reports.
   await chrome.evaluate(() => {
-    const read = (tile: HTMLElement, settled: boolean) => {
-      if (tile.dataset.thumb !== undefined) return Number(tile.dataset.thumb)
-      const images = [...tile.querySelectorAll('img')]
-      if (!settled) return Math.max(0, ...images.map((img) => img.naturalWidth))
-      return images.length === 1 && images[0].complete ? images[0].naturalWidth : 0
-    }
     const page = window as unknown as {
-      thumbWidths: (settled: boolean) => [string, number][]
+      thumbWidths: () => [string, number][]
       thumbProbe: { blank: number }
     }
-    page.thumbWidths = (settled) =>
+    page.thumbWidths = () =>
       [...document.querySelectorAll<HTMLElement>('[data-frame]')].map((tile) => [
         tile.dataset.frame ?? '',
-        read(tile, settled),
+        Number(tile.dataset.thumb ?? 0),
       ])
     // Counts the animation frames where a frame that had shown its thumbnail shows none.
     const shown = new Set<string>()
     const probe = { blank: 0 }
     page.thumbProbe = probe
     const tick = () => {
-      for (const [id, width] of page.thumbWidths(false)) {
+      for (const [id, width] of page.thumbWidths()) {
         if (width > 0) shown.add(id)
         else if (shown.has(id)) probe.blank++
       }
@@ -468,8 +461,8 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
   })
   const widths = () =>
     chrome.evaluate(() =>
-      (window as unknown as { thumbWidths: (settled: boolean) => [string, number][] })
-        .thumbWidths(true)
+      (window as unknown as { thumbWidths: () => [string, number][] })
+        .thumbWidths()
         .map(([, width]) => width),
     )
   // ⌘− and ⌘= as real keys to the board, one step a poll, until each copy shows: zoomed out,

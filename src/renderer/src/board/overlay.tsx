@@ -1,26 +1,18 @@
 import { type CSSProperties, memo, type RefObject, useEffect, useRef, useState } from 'react'
-import { type BoardCamera, type BoardSection, SMALL_THUMB_WIDTH } from '../../../shared/board'
-import { type BoardViewRect, boardPoint, boardViewFromBoard } from '../../../shared/coords'
+import type { BoardCamera, BoardSection } from '../../../shared/board'
+import { boardPoint, boardViewFromBoard } from '../../../shared/coords'
 import type { BoardFrame, BoardState } from '../../../shared/types'
 import { cn } from '../lib/cn'
 import { FIELD_LOOK } from '../lib/field'
 import { onBoardCommand, sendIntent } from './intents'
-import {
-  GRID,
-  GRID_MIN,
-  HANDLE,
-  LABEL_HEIGHT,
-  overlayScene,
-  SECTION_INSET,
-  SECTION_LABEL_HEIGHT,
-} from './scene'
+import { HANDLE, LABEL_HEIGHT, overlayScene, SECTION_INSET, SECTION_LABEL_HEIGHT } from './scene'
 
 /*
- * The DOM over the board's canvas (or, without it, the board itself): one layer in board
- * pixels that the camera moves and scales, holding each frame's tile (what a press lands on,
- * and what specs find), the names and their rename fields, and the resize handle; then the
- * marquee and the live region. With the canvas on, the tiles, section areas, selection
- * outlines, handle and marquee keep their places but paint nothing.
+ * The DOM over the board's canvas: one layer in board pixels that the camera moves and
+ * scales, holding each frame's tile (transparent: what a press lands on, what a screen reader
+ * and the specs find), the names and their rename fields, and the resize handle's grip; then
+ * the live region. The canvas under it draws the pixels: sections, frames, thumbnails, what's
+ * selected, the handle and the marquee.
  */
 
 /** What the names on the board do, by the frame's or section's id. */
@@ -102,7 +94,6 @@ export function BoardOverlay({
   layer,
   camera,
   size,
-  gl,
   hand,
   frames,
   sections,
@@ -113,17 +104,13 @@ export function BoardOverlay({
   renamingSection,
   active,
   tiles,
-  thumbs,
   labels,
-  marquee,
   announcement,
 }: {
   layer: RefObject<HTMLDivElement | null>
   /** React's camera, which the live one leads during a gesture (it writes the layer itself) */
   camera: BoardCamera
   size: { width: number; height: number }
-  /** The canvas under this draws the board's pixels */
-  gl: boolean
   hand: boolean
   /** As drawn this moment, with what a gesture drew ahead of main */
   frames: BoardFrame[]
@@ -139,9 +126,7 @@ export function BoardOverlay({
   active: string | null
   /** What the tiles' element ids start with (`tileId`) */
   tiles: string
-  thumbs: string
   labels: LabelActions
-  marquee: BoardViewRect | null
   /** What's selected, said to a screen reader as it changes */
   announcement: string
 }) {
@@ -151,12 +136,13 @@ export function BoardOverlay({
     frames: [renaming, active],
     section: renamingSection,
   })
+  const grip = single && !hand ? shown.find((frame) => frame.id === single) : undefined
   return (
     <>
       {/*
         The board itself, in board pixels: one layer the camera moves and scales, so a pan or
-        zoom changes it alone and none of the frames inside. Names and handles in it are drawn
-        at screen size (`pinned`); lines are a screen pixel wide (--board-px).
+        zoom changes it alone and none of the frames inside. Names and the handle in it are
+        drawn at screen size (`pinned`).
       */}
       <div
         ref={layer}
@@ -164,32 +150,11 @@ export function BoardOverlay({
         style={
           {
             transform: `translate(${origin.x}px, ${origin.y}px) scale(${zoom})`,
-            '--board-px': `${1 / zoom}px`,
             '--board-zoom': zoom,
             '--board-unzoom': 1 / zoom,
           } as CSSProperties
         }
       >
-        {!gl &&
-          areas.map(({ section, area }) => (
-            <div
-              key={section.id}
-              aria-hidden="true"
-              className={cn(
-                'pointer-events-none absolute border-solid bg-fill/60',
-                picked?.id === section.id ? 'border-accent' : 'border-line',
-              )}
-              style={{
-                left: area.x,
-                top: area.y,
-                width: area.width,
-                height: area.height,
-                borderWidth: 'var(--board-px)',
-                borderRadius: 'calc(12 * var(--board-px))',
-              }}
-            />
-          ))}
-
         {/* The frames are options a screen reader moves through: the board's active descendant. */}
         {shown.length > 0 && (
           <div role="listbox" aria-label="Frames" aria-multiselectable="true">
@@ -198,11 +163,7 @@ export function BoardOverlay({
                 key={frame.id}
                 id={tileId(tiles, frame.id)}
                 frame={frame}
-                thumbs={thumbs}
-                small={frame.width * zoom * window.devicePixelRatio <= SMALL_THUMB_WIDTH}
                 selected={selected.has(frame.id)}
-                hand={hand}
-                drawn={!gl}
               />
             ))}
           </div>
@@ -241,76 +202,30 @@ export function BoardOverlay({
           )
         })}
 
-        {/* What's selected, above everything on the board. */}
-        {shown.map((frame) => {
-          if (!selected.has(frame.id)) return null
-          return (
-            <div key={frame.id} aria-hidden="true">
-              {!gl && (
-                <div
-                  className="pointer-events-none absolute outline-solid outline-accent"
-                  style={{
-                    left: frame.x,
-                    top: frame.y,
-                    width: frame.width,
-                    height: frame.height,
-                    outlineWidth: 'calc(2 * var(--board-px))',
-                  }}
-                />
-              )}
-              {single === frame.id && !hand && (
-                <div
-                  data-resize={frame.id}
-                  // 10px drawn, 26px to grab: nothing else sits at the corner.
-                  className={cn(
-                    'cursor-nwse-resize before:absolute before:-inset-2',
-                    !gl && 'rounded-sm border-2 border-accent bg-raised',
-                  )}
-                  style={{
-                    ...pinned(
-                      { x: frame.x + frame.width, y: frame.y + frame.height },
-                      { x: -HANDLE / 2, y: -HANDLE / 2 },
-                    ),
-                    width: HANDLE,
-                    height: HANDLE,
-                  }}
-                />
-              )}
-            </div>
-          )
-        })}
+        {/* The one frame selected has a handle at its corner, drawn by the canvas. */}
+        {grip && (
+          <div
+            data-resize={grip.id}
+            aria-hidden="true"
+            // 10px drawn, 26px to grab: nothing else sits at the corner.
+            className="cursor-nwse-resize before:absolute before:-inset-2"
+            style={{
+              ...pinned(
+                { x: grip.x + grip.width, y: grip.y + grip.height },
+                { x: -HANDLE / 2, y: -HANDLE / 2 },
+              ),
+              width: HANDLE,
+              height: HANDLE,
+            }}
+          />
+        )}
       </div>
-
-      {marquee && !gl && (
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute border border-accent bg-accent-soft"
-          style={{
-            left: marquee.x,
-            top: marquee.y,
-            width: marquee.width,
-            height: marquee.height,
-          }}
-        />
-      )}
 
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
     </>
   )
-}
-
-/** The board element's dot grid, when the canvas doesn't draw it: hidden when too dense. */
-export function gridStyle(camera: BoardCamera): CSSProperties {
-  const grid = GRID * camera.zoom
-  const origin = boardViewFromBoard(boardPoint(0, 0), camera)
-  return {
-    backgroundImage:
-      grid >= GRID_MIN ? 'radial-gradient(var(--line-strong) 1px, transparent 1px)' : undefined,
-    backgroundSize: `${grid}px ${grid}px`,
-    backgroundPosition: `${origin.x}px ${origin.y}px`,
-  }
 }
 
 /**
@@ -358,29 +273,19 @@ export function tileId(prefix: string, frame: string) {
 }
 
 /**
- * A frame's thumbnail on the board, or that it's still being drawn; to a screen reader, an
- * option named for the frame, selected or not.
+ * Where a frame is on the board, with no pixels of its own (the canvas draws it): what a
+ * press lands on, and to a screen reader an option named for the frame, selected or not.
+ * Before its first capture it says so.
  */
 const FrameTile = memo(
   function FrameTile({
     id,
     frame,
-    thumbs,
-    small,
     selected,
-    hand,
-    drawn,
   }: {
     id: string
     frame: BoardFrame
-    thumbs: string
-    /** Drawn no wider on screen than the small thumbnail: that one is as sharp, and far lighter */
-    small: boolean
     selected: boolean
-    /** The Hand is on: no frame's edge lights up under the pointer */
-    hand: boolean
-    /** False when the canvas under the board draws it: the tile is then where it's pressed */
-    drawn: boolean
   }) {
     return (
       // biome-ignore lint/a11y/useFocusableInteractive: the board keeps focus and points at the option it's on (aria-activedescendant).
@@ -390,25 +295,10 @@ const FrameTile = memo(
         role="option"
         aria-label={frame.name}
         aria-selected={selected}
-        className={cn(
-          'absolute overflow-hidden',
-          drawn && 'bg-raised shadow-raised outline-solid outline-line',
-          drawn && !hand && !selected && 'hover:outline-accent',
-        )}
-        style={{
-          left: frame.x,
-          top: frame.y,
-          width: frame.width,
-          height: frame.height,
-          outlineWidth: 'var(--board-px)',
-          outlineOffset: 'calc(-1 * var(--board-px))',
-        }}
+        className="absolute overflow-hidden"
+        style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
       >
-        {frame.captured ? (
-          drawn && (
-            <Thumbnail src={`${thumbs}/${frame.id}${small ? '.small' : ''}?v=${frame.version}`} />
-          )
-        ) : (
+        {!frame.captured && (
           <div
             className="p-3 text-caption whitespace-nowrap text-subtle"
             style={pinned({ x: 0, y: 0 })}
@@ -419,40 +309,8 @@ const FrameTile = memo(
       </div>
     )
   },
-  (a, b) =>
-    sameFrame(a.frame, b.frame) &&
-    a.id === b.id &&
-    a.thumbs === b.thumbs &&
-    a.small === b.small &&
-    a.selected === b.selected &&
-    a.hand === b.hand &&
-    a.drawn === b.drawn,
+  (a, b) => sameFrame(a.frame, b.frame) && a.id === b.id && a.selected === b.selected,
 )
-
-/**
- * A frame's thumbnail, as wide as the frame, from its top: a page taller than its capture
- * leaves the rest of the frame blank rather than stretching. A new one (the small copy or the
- * full one, a new capture) loads over the one shown, which stays until then: an image's
- * `src` changed in place can show nothing for a frame while it loads.
- */
-function Thumbnail({ src }: { src: string }) {
-  const [shown, setShown] = useState(src)
-  const urls = src === shown ? [shown] : [shown, src]
-  return urls.map((url) => (
-    <img
-      key={url}
-      src={url}
-      alt=""
-      draggable={false}
-      className={cn(
-        'pointer-events-none block h-auto w-full',
-        url !== shown && 'absolute top-0 left-0',
-      )}
-      onLoad={url === shown ? undefined : () => setShown(url)}
-      onError={url === shown ? undefined : () => setShown(url)}
-    />
-  ))
-}
 
 /** A frame's name above it, and its size; double-click renames it in place. */
 const FrameLabel = memo(

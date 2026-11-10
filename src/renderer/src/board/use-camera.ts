@@ -21,7 +21,6 @@ import { centreIn, clearArea, fitIn, shownShare, wheelBy, zoomAbout } from './ca
 import type { Area } from './gestures'
 import { chatCover, onBoardCommand, sendIntent } from './intents'
 import { ZOOM_STEP } from './keys'
-import { GRID } from './scene'
 import type { BoardSurfaceHandle } from './surface'
 import { publishView } from './view'
 
@@ -48,7 +47,6 @@ export function useBoardCamera({
   board,
   layer,
   surface,
-  gl,
 }: {
   initial: BoardCamera | null
   boardId: string
@@ -57,12 +55,11 @@ export function useBoardCamera({
   sections: BoardSection[]
   /** The gesture under way: the wheel waits for it, and so do frames added out of sight */
   gesture: RefObject<unknown>
-  /** The board's element, whose background is the dot grid (unless the canvas draws it) */
+  /** The board's element */
   board: RefObject<HTMLElement | null>
   /** The layer in board pixels that the camera moves and scales */
   layer: RefObject<HTMLElement | null>
   surface: RefObject<BoardSurfaceHandle | null>
-  gl: boolean
 }) {
   const [camera, commitCamera] = useState<BoardCamera | null>(initial)
   /** The board's size on screen, in board-view pixels */
@@ -75,19 +72,15 @@ export function useBoardCamera({
   const unsaved = useRef<BoardCamera | null>(null)
   const draw = () => {
     const current = live.current
-    if (!current || !board.current || !layer.current) return
+    if (!current || !layer.current) return
     const { zoom } = current
     const origin = boardViewFromBoard(boardPoint(0, 0), current)
     layer.current.style.transform = `translate(${origin.x}px, ${origin.y}px) scale(${zoom})`
     // What's drawn at screen size in the layer reads these, so it keeps up with every frame of
     // a pan or pinch rather than with the throttled `camera`.
-    layer.current.style.setProperty('--board-px', `${1 / zoom}px`)
     layer.current.style.setProperty('--board-zoom', String(zoom))
     layer.current.style.setProperty('--board-unzoom', String(1 / zoom))
     surface.current?.invalidate()
-    if (gl) return
-    board.current.style.backgroundPosition = `${origin.x}px ${origin.y}px`
-    board.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
   }
   const flight = useRef<(() => void) | null>(null)
   /** The camera's position on its way, kept while it glides so a new glide keeps its speed */
