@@ -9,6 +9,7 @@ import {
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
 } from '../shared/types'
+import { writeFileAtomic } from './atomic-file'
 import { type CommandFallback, findAgentCommand } from './executables'
 import { getShellEnv } from './shell-env'
 
@@ -362,7 +363,7 @@ async function writeCustomFile(
   next: Record<string, unknown>,
 ) {
   const data = servers === root ? next : { ...root, agent_servers: next }
-  await writeFile(customFile(), `${JSON.stringify(data, null, 2)}\n`)
+  await writeFileAtomic(customFile(), `${JSON.stringify(data, null, 2)}\n`)
 }
 
 /**

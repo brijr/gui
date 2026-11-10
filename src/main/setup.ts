@@ -1,8 +1,8 @@
 import { createHash } from 'node:crypto'
-import { constants } from 'node:fs'
-import { access, lstat, readFile, stat, writeFile } from 'node:fs/promises'
-import { delimiter, dirname, join, posix } from 'node:path'
+import { lstat, readFile, stat, writeFile } from 'node:fs/promises'
+import { dirname, join, posix } from 'node:path'
 import type { PackageManager, ProjectInfo, ProjectSetup, WorkspaceApp } from '../shared/types'
+import { findExecutable } from './executables'
 import { installedStamps, recordInstall } from './install-state'
 import {
   detectPackageManager,
@@ -266,13 +266,5 @@ export async function envFile(root: string, target: string) {
 
 /** Why the package manager can't run (it isn't on the user's PATH), or null when it can. */
 export async function missingPackageManager(pm: PackageManager, env: NodeJS.ProcessEnv) {
-  for (const dir of (env.PATH ?? '').split(delimiter).filter(Boolean)) {
-    try {
-      await access(join(dir, pm), constants.X_OK)
-      return null
-    } catch {
-      // not in this directory
-    }
-  }
-  return MISSING_TOOL[pm]
+  return (await findExecutable(pm, env.PATH)) ? null : MISSING_TOOL[pm]
 }
