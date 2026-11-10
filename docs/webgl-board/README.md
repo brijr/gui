@@ -41,7 +41,8 @@ code as before.
 Also: `BoardPoint`/`BoardRect` and `BoardViewPoint`/`BoardViewRect` in `src/shared/coords.ts`
 and the camera's arithmetic in `src/renderer/src/board/camera.ts`; `gui-thumb:` readable by
 `fetch` with CORS (`recordings.ts`, `board.ts`, the CSP's `connect-src`);
-Specs: `e2e/canvas.spec.ts`, and `e2e/canvas-surface.spec.ts` for a lost context, the appearance, the display's scale, and no WebGL2.
+Specs: `e2e/canvas.spec.ts`, and `e2e/canvas-surface.spec.ts` for a lost context (given
+back and not), the appearance, the display's scale, and no WebGL2.
 
 ## Measurements
 
@@ -358,7 +359,10 @@ All seven are done (2026-11-10), one commit each. Each leaves main working and r
    thumbnails, the section, selection, handle and marquee elements, the CSS dot grid, the
    switch (`src/main/dev-flags.ts`, `WindowState.devBoardWebgl`, the board's `gl` prop) are
    gone; the tiles and the handle's grip stay, transparent. Without WebGL2 the board says it
-   can't be shown. The window's chunk went from 164.5 kB to 162.6 kB (57.8 → 57.2 kB gzipped), its CSS from 57.1
+   can't be shown, and now also when a lost context isn't given back within five seconds
+   (the GPU blocked after repeated crashes), where before it stayed blank;
+   `canvas-surface.spec.ts` covers it with `WEBGL_lose_context` and no `restoreContext`. The
+   window's chunk went from 164.5 kB to 162.6 kB (57.8 → 57.2 kB gzipped), its CSS from 57.1
    to 56.7 kB. The specs pass; the probes were not run again (the audit's and the
    prototype's live on other branches), so the numbers above are still the switch's.
 

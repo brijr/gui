@@ -4,8 +4,9 @@ import { waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
-// The canvas board's WebGL canvas: what it does when its GPU context is lost, when the
-// appearance changes, when the display's scale does, and when WebGL2 can't start at all.
+// The canvas board's WebGL canvas: what it does when its GPU context is lost (and given back,
+// or not), when the appearance changes, when the display's scale does, and when WebGL2 can't
+// start at all.
 
 /** The board's background, --canvas, in light and dark (styles.css). */
 const CANVAS = { light: [236, 236, 236], dark: [14, 14, 15] }
@@ -98,6 +99,27 @@ test('the canvas draws the board again after its GPU context is lost', async ({ 
     'every thumbnail drawn again',
   )
   expect(near(await corner(chrome), CANVAS.light)).toBe(true)
+})
+
+test('a GPU context lost and never given back says the canvas can’t be shown', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  await openBoard(session)
+  // As when the GPU is blocked after crashing again and again: the context goes and nothing
+  // gives it back. The board waits a few seconds (a new GPU process takes about one), then says
+  // so in place of a blank board.
+  await chrome.evaluate(() => {
+    document
+      .querySelector<HTMLCanvasElement>('[role="application"] canvas')
+      ?.getContext('webgl2')
+      ?.getExtension('WEBGL_lose_context')
+      ?.loseContext()
+  })
+  await expect(chrome.locator('[role="application"]')).toBeVisible()
+  await expect(chrome.getByText('This canvas can’t be shown')).toBeVisible({ timeout: 15_000 })
+  await expect(chrome.locator('[role="application"]')).toHaveCount(0)
 })
 
 test('the canvas follows the appearance and the display’s scale', async ({ launch }) => {

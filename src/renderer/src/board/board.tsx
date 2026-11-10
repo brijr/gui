@@ -50,7 +50,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   /** What this board's tiles' element ids start with */
   const tiles = useId()
   const surface = useRef<BoardSurfaceHandle>(null)
-  /** WebGL2 couldn't start, so the canvas can't draw the board */
+  /** WebGL2 couldn't start, or its context was lost for good: the canvas can't draw the board */
   const [unavailable, setUnavailable] = useState(false)
   const layer = useRef<HTMLDivElement>(null)
   /** The gesture under way, for listeners that run between renders (pointer-up, the wheel) */

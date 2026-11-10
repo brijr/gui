@@ -24,6 +24,13 @@ import type { SceneInput } from './scene'
 /** A spare buffer of the canvas's is given back once nothing has been drawn for this long. */
 const TRIM_AFTER_MS = 1500
 
+/**
+ * A lost context not given back within this long isn't coming back (the GPU blocked after
+ * repeated crashes, say): the board says it can't be shown rather than staying blank. A new
+ * GPU process gives one back in about a second.
+ */
+const RESTORE_WAIT_MS = 5000
+
 export interface BoardSurfaceHandle {
   /** The camera moved, or something else the next frame should show */
   invalidate(): void
@@ -52,7 +59,7 @@ export function BoardSurface({
   thumbs: string
   /** What holds the frames' tiles (`[data-frame]`), which say which thumbnail is drawn */
   tiles: RefObject<HTMLElement | null>
-  /** WebGL2 couldn't start here: nothing will be drawn */
+  /** WebGL2 couldn't start here, or its context was lost and never given back: nothing will be drawn */
   onUnavailable: () => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
@@ -128,6 +135,7 @@ export function BoardSurface({
       }
     }
     let trimmer: ReturnType<typeof setTimeout> | undefined
+    let restoring: ReturnType<typeof setTimeout> | undefined
     const draw = (trimmed = false) => {
       frame = 0
       const { input, hovered } = latest.current
@@ -178,8 +186,11 @@ export function BoardSurface({
       event.preventDefault()
       renderer.contextLost()
       invalidate()
+      clearTimeout(restoring)
+      restoring = setTimeout(() => latest.current.onUnavailable(), RESTORE_WAIT_MS)
     }
     const restored = () => {
+      clearTimeout(restoring)
       renderer.contextRestored()
       invalidate()
     }
@@ -191,6 +202,7 @@ export function BoardSurface({
       cancelAnimationFrame(frame)
       clearTimeout(timer)
       clearTimeout(trimmer)
+      clearTimeout(restoring)
       observer.disconnect()
       scheme.removeEventListener('change', theme)
       el.removeEventListener('webglcontextlost', lost)
@@ -207,7 +219,7 @@ export function BoardSurface({
   )
 }
 
-/** In place of the board when the canvas it's drawn on can't start. */
+/** In place of the board when the canvas it's drawn on can't start, or has stopped for good. */
 export function BoardUnavailable() {
   return (
     <div className="absolute inset-0 flex items-center justify-center bg-canvas p-8">
