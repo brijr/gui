@@ -74,10 +74,6 @@ export function shareBoards(boards: RecentBoard[]) {
   for (const tab of allTabs()) tab.setRecentBoards(boards)
 }
 
-export function windowOf(tab: ProjectTab) {
-  return allWindows().find((win) => win.tabs.includes(tab))
-}
-
 /**
  * A Gui window: the chrome renderer (tab strip, toolbar, canvas, logs) and its tabs, each a
  * project with its own preview, chat, dev server and agent (tab.ts). The active tab's views

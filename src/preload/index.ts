@@ -63,7 +63,6 @@ const api: GuiApi = {
   showAgentMenu: send(Send.showAgentMenu),
   showChatMenu: send(Send.showChatMenu),
   showProjectMenu: send(Send.showProjectMenu),
-  revealProject: send(Send.revealProject),
   newBoard: send(Send.newBoard),
   openBoard: send(Send.openBoard),
   showRecentBoardMenu: send(Send.showRecentBoardMenu),

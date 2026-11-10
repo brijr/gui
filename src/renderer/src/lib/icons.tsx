@@ -102,7 +102,6 @@ export const CircleDot = icon(SYMBOLS.CircleDot, Lucide.CircleDot)
 export const CircleSlash = icon(SYMBOLS.CircleSlash, Lucide.CircleSlash)
 export const CircleUser = icon(SYMBOLS.CircleUser, Lucide.CircleUser)
 export const Clock = icon(SYMBOLS.Clock, Lucide.Clock)
-export const Copy = icon(SYMBOLS.Copy, Lucide.Copy)
 export const Crop = icon(SYMBOLS.Crop, Lucide.Crop)
 export const Ellipsis = icon(SYMBOLS.Ellipsis, Lucide.Ellipsis)
 export const ExternalLink = icon(SYMBOLS.ExternalLink, Lucide.ExternalLink)
@@ -112,8 +111,6 @@ export const FileText = icon(SYMBOLS.FileText, Lucide.FileText)
 export const Folder = icon(SYMBOLS.Folder, Lucide.Folder)
 export const FolderOpen = icon(SYMBOLS.FolderOpen, Lucide.FolderOpen)
 export const FolderPlus = icon(SYMBOLS.FolderPlus, Lucide.FolderPlus)
-export const GitBranch = icon(SYMBOLS.GitBranch, Lucide.GitBranch)
-// Lucide's: the system's arrow.triangle.pull doesn't read as a pull request.
 export const Globe = icon(SYMBOLS.Globe, Lucide.Globe)
 // Lucide's dotted grip: the system's line.3.horizontal reads as a menu, not a drag handle.
 export const GripVertical: IconComponent = Lucide.GripVertical
@@ -123,11 +120,9 @@ export const Hand = icon(SYMBOLS.Hand, Lucide.Hand)
 export const HardDrive = icon(SYMBOLS.HardDrive, Lucide.HardDrive)
 export const ImageDown = icon(SYMBOLS.ImageDown, Lucide.ImageDown)
 export const ImageIcon = icon(SYMBOLS.ImageIcon, Lucide.ImageIcon)
-export const ImagePlus = icon(SYMBOLS.ImagePlus, Lucide.ImagePlus)
 export const Info = icon(SYMBOLS.Info, Lucide.Info)
 export const KeyRound = icon(SYMBOLS.KeyRound, Lucide.KeyRound)
 export const Laptop = icon(SYMBOLS.Laptop, Lucide.Laptop)
-export const Link = icon(SYMBOLS.Link, Lucide.Link)
 export const Maximize2 = icon(SYMBOLS.Maximize2, Lucide.Maximize2)
 export const MessageSquare = icon(SYMBOLS.MessageSquare, Lucide.MessageSquare)
 export const Mic = icon(SYMBOLS.Mic, Lucide.Mic)
@@ -153,20 +148,14 @@ export const RotateCw = icon(SYMBOLS.RotateCw, Lucide.RotateCw)
 export const Ruler: IconComponent = Lucide.Ruler
 export const Search = icon(SYMBOLS.Search, Lucide.Search)
 export const Shapes = icon(SYMBOLS.Shapes, Lucide.Shapes)
-export const Share = icon(SYMBOLS.Share, Lucide.Share)
 export const Shield = icon(SYMBOLS.Shield, Lucide.Shield)
 /** Auto while it's on: requests approved without asking. */
 export const ShieldCheck = icon(SYMBOLS.ShieldCheck, Lucide.ShieldCheck)
-export const ShieldOff = icon(SYMBOLS.ShieldOff, Lucide.ShieldOff)
 export const Smartphone = icon(SYMBOLS.Smartphone, Lucide.Smartphone)
 export const Square = icon(SYMBOLS.Square, Lucide.Square)
 export const SquareArrowOutDownLeft = icon(
   SYMBOLS.SquareArrowOutDownLeft,
   Lucide.SquareArrowOutDownLeft,
-)
-export const SquareArrowOutUpRight = icon(
-  SYMBOLS.SquareArrowOutUpRight,
-  Lucide.SquareArrowOutUpRight,
 )
 export const SquarePen = icon(SYMBOLS.SquarePen, Lucide.SquarePen)
 export const SquareTerminal = icon(SYMBOLS.SquareTerminal, Lucide.SquareTerminal)

@@ -109,7 +109,6 @@ export const Send = {
   showAgentMenu: 'menu:agent',
   showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
-  revealProject: 'project:reveal',
   setAgent: 'agent:set',
   checkAgents: 'agents:check',
   installNode: 'node:install',
@@ -382,8 +381,6 @@ export interface GuiApi {
    */
   showChatMenu(at: { x: number; y: number }): void
   showProjectMenu(): void
-  /** Shows the open project's folder in Finder */
-  revealProject(): void
 
   /** A new canvas, opened in this tab if it's a start screen, otherwise in a new one */
   newBoard(): void

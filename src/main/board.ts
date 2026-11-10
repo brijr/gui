@@ -5,14 +5,12 @@ import { app, protocol } from 'electron'
 import {
   BOARD_MANIFEST,
   type BoardManifest,
-  cleanName,
   FRAMES_DIR,
   isFrameId,
   parseManifest,
 } from '../shared/board'
 import type { RecentBoard } from '../shared/types'
 import { writeFileAtomic } from './atomic-file'
-import { openManifest } from './board-persistence'
 import { shadowRepoName } from './checkpoints'
 import { claimedHistoryFiles, historyFile } from './history'
 import { recordingProjectKey } from './recordings'
@@ -105,15 +103,6 @@ export async function listBoards(): Promise<RecentBoard[]> {
   return boards
     .filter((board): board is RecentBoard => board !== null)
     .sort((a, b) => b.editedAt - a.editedAt)
-}
-
-export async function renameBoard(id: string, input: string) {
-  const name = cleanName(input)
-  if (!name || !isBoardId(id)) return
-  const root = boardRoot(id)
-  // A broken manifest is set aside rather than renamed over; opening rebuilds the rest.
-  const manifest = await openManifest(root)
-  await writeManifest(root, { ...manifest, name })
 }
 
 /** Entries in `dir` that are `name` itself or start with it and then `.` or `-`. */

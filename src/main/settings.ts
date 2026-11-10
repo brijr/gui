@@ -209,7 +209,6 @@ export async function resetStartCommand(root: string) {
   await refreshSettings()
 }
 
-/** Opened on its main branch again, the project's first message starts a new branch. */
 export async function clearRecent() {
   await clearRecentFile()
   for (const tab of allTabs()) tab.setRecent([])

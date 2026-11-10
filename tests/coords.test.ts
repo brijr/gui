@@ -1,11 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  layoutPx,
   pageFromViewport,
   pagePoint,
-  scaledPx,
-  scaleLayout,
-  unscaleView,
   viewFromViewport,
   viewportFromPage,
   viewportFromView,
@@ -31,10 +27,5 @@ describe('preview coordinate spaces', () => {
     expect(viewportFromView(viewFromViewport(viewportPoint(8, 4), 2), 2)).toEqual(
       viewportPoint(8, 4),
     )
-  })
-
-  test('layout and scaled pixels convert by the frame scale', () => {
-    expect(scaleLayout(layoutPx(390), 0.5)).toBe(195)
-    expect(unscaleView(scaledPx(195), 0.5)).toBe(390)
   })
 })

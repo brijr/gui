@@ -50,14 +50,6 @@ export interface ViewRect {
   readonly [viewPx]: never
 }
 
-/** Unscaled layout pixels (CSS size of the page or device frame). */
-export type LayoutPx = number & { readonly [pagePx]: never }
-/** Pixels in the preview view after device-frame / zoom scale. */
-export type ScaledPx = number & { readonly [viewPx]: never }
-
-export const layoutPx = (value: number) => value as LayoutPx
-export const scaledPx = (value: number) => value as ScaledPx
-
 export const pagePoint = (x: number, y: number) => ({ x, y }) as PagePoint
 export const viewportPoint = (x: number, y: number) => ({ x, y }) as ViewportPoint
 export const viewPoint = (x: number, y: number) => ({ x, y }) as ViewPoint
@@ -111,12 +103,4 @@ export function viewRectFromViewport(rect: ViewportRect, scale: number): ViewRec
 
 export function viewportRectFromView(rect: ViewRect, scale: number): ViewportRect {
   return viewportRect(rect.x / scale, rect.y / scale, rect.width / scale, rect.height / scale)
-}
-
-export function scaleLayout(value: LayoutPx, scale: number): ScaledPx {
-  return scaledPx(value * scale)
-}
-
-export function unscaleView(value: ScaledPx, scale: number): LayoutPx {
-  return layoutPx(value / scale)
 }

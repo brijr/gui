@@ -1007,10 +1007,6 @@ function registerIpc() {
       (root) => openSafely(win, root),
     ),
   )
-  on(Send.revealProject, (tab) => {
-    const root = tab.getState().project?.root
-    if (root) shell.showItemInFolder(root)
-  })
   on(Send.setAgent, (tab, agentId) => isAgentId(agentId) && tab.setAgent(agentId))
   registerBoardIpc(onWindow, {
     create: newBoard,

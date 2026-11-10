@@ -1,4 +1,4 @@
-// Files that may hold secrets: never committed by ship, never copied into checkpoints.
+// Files that may hold secrets: never copied into checkpoints.
 
 const SAFE_ENV_FILE = /^(?:\.env|\.dev\.vars)(?:\..+)?\.(?:example|sample|template)$/i
 const SECRET_FILES = [

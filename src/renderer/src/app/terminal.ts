@@ -58,12 +58,6 @@ interface TerminalOptions {
   onCommand?: (event: KeyboardEvent) => boolean
 }
 
-/** What a terminal's host shows: its last screen of text, for tests and tools to read. */
-export interface TerminalHost extends HTMLElement {
-  readonly terminalRendering?: boolean
-  readonly terminalText?: string
-}
-
 /**
  * A Ghostty terminal in `el`, in the mono font and the token colors of the current
  * appearance, fitted to the element as it resizes. The drawer's dev server output and
@@ -102,6 +96,7 @@ export function mountTerminal(
     if (loop.animationFrameId !== null) cancelAnimationFrame(loop.animationFrameId)
     loop.animationFrameId = null
   }
+  // What a terminal's host shows, for tests and tools to read.
   Object.defineProperty(el, 'terminalRendering', {
     configurable: true,
     get: () => loop.animationFrameId !== null,
