@@ -936,6 +936,9 @@ function registerIpc() {
   handleLegacy(Invoke.fixStartup, (event) => tabFor(event)?.fixStartup() ?? false)
   handleLegacy(Invoke.setStartCommand, (event, start: unknown) =>
     reportError(async () => {
+      // What runs in the user's shell is set from the window's own chrome only (see `onDrawer`).
+      if (windowFor(event)?.win.webContents !== event.sender)
+        throw new Error('This action is available only from Gui’s own UI.')
       if (start !== null && !isStartCommandInput(start))
         throw new Error('That start command is malformed.')
       await requireTab(event).setStartCommand(start)
@@ -989,9 +992,10 @@ function registerIpc() {
     windowFor,
   )
 
-  on(Send.devServerStart, (tab) => tab.startDevServer())
+  // Starting it runs the project's command: from the window's chrome only (see `onDrawer`).
+  onWindow(Send.devServerStart, (win) => win.activeTab.startDevServer())
   on(Send.devServerStop, (tab) => tab.stopDevServer())
-  on(Send.devServerRestart, (tab) => tab.restartDevServer())
+  onWindow(Send.devServerRestart, (win) => win.activeTab.restartDevServer())
   on(Send.showDevServerMenu, (tab) => tab.showDevServerMenu())
   ipcMain.on(Send.showAgentMenu, (event, at: unknown) => {
     const point = isPoint(at) ? at : null
@@ -1248,9 +1252,10 @@ function registerIpc() {
     if (isPanelEdge(edge) && isNumber(dx) && isNumber(dy)) tab.resizeChat(edge, dx, dy)
   })
   on(Send.endResizeChat, (tab) => tab.endResizeChat())
-  on(Send.chooseApp, (tab, dir) => isString(dir) && tab.chooseApp(dir))
-  on(Send.installDependencies, (tab) => tab.installDependencies())
-  on(Send.createEnvFile, (tab) => tab.createEnvFile())
+  // Setup runs commands and writes files in the project: from the window's chrome only.
+  onWindow(Send.chooseApp, (win, dir) => isString(dir) && win.activeTab.chooseApp(dir))
+  onWindow(Send.installDependencies, (win) => win.activeTab.installDependencies())
+  onWindow(Send.createEnvFile, (win) => win.activeTab.createEnvFile())
   on(Send.openEnvFile, (tab) => tab.openEnvFile())
 }
 

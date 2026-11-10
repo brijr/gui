@@ -24,6 +24,12 @@ test('a failed start offers the agent, and a start command set in Gui starts the
   expect(crashed.devServer.exitCode).toBe(1)
   expect(crashed.project?.custom).toBeNull()
 
+  // The chat renders what agents write: it can't say what runs in the user's shell.
+  await expect(
+    session.chat.evaluate(() => window.gui.setStartCommand({ command: 'echo from-chat' })),
+  ).rejects.toThrow(/only from Gui/)
+  expect((await session.state()).project?.custom).toBeNull()
+
   // Not clicked: that would start a real agent turn.
   await expect(session.chrome.getByRole('button', { name: /^Fix with / }).first()).toBeVisible()
   await session.shot('crashed')
