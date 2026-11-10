@@ -30,9 +30,9 @@ interface Sdk {
 let sdk: Promise<Sdk> | null = null
 
 /**
- * The MCP SDK, loaded when the first project's tools start (or just after the first window
- * shows, by `preloadMcpSdk`) rather than before the first window: it takes tens of
- * milliseconds to load.
+ * The MCP SDK, loaded when an agent first calls a tool (or just after the first window
+ * shows, by `preloadMcpSdk`) rather than before the first window or while a project opens:
+ * it holds the main thread for tens of milliseconds as it loads.
  */
 function loadSdk(): Promise<Sdk> {
   sdk ??= Promise.all([
@@ -87,7 +87,6 @@ export async function startMcpServer(
   app: AppTools,
   board: BoardTools | null = null,
 ): Promise<RunningMcpServer> {
-  const loaded = await loadSdk()
   const token = randomBytes(24).toString('hex')
   const expected = Buffer.from(`Bearer ${token}`)
   const authorized = (header: string | undefined) => {
@@ -106,20 +105,25 @@ export async function startMcpServer(
       res.writeHead(405, { Allow: 'POST' }).end()
       return
     }
-    const server = buildServer(loaded, tools, recordings, app, board)
-    const transport = new loaded.StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true,
-      allowedHosts,
-      enableDnsRebindingProtection: true,
-    })
-    res.on('close', () => {
-      void transport.close()
-      void server.close()
-    })
-    server
-      .connect(transport)
-      .then(() => transport.handleRequest(req, res))
+    // The server listens without the SDK, so a project opening doesn't wait for it to load;
+    // the first call does, if it comes before `preloadMcpSdk` has.
+    loadSdk()
+      .then((loaded) => {
+        // Hung up while the SDK loaded: nothing to answer, and no `close` left to wait for.
+        if (res.destroyed) return
+        const server = buildServer(loaded, tools, recordings, app, board)
+        const transport = new loaded.StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined,
+          enableJsonResponse: true,
+          allowedHosts,
+          enableDnsRebindingProtection: true,
+        })
+        res.on('close', () => {
+          void transport.close()
+          void server.close()
+        })
+        return server.connect(transport).then(() => transport.handleRequest(req, res))
+      })
       .catch((error: unknown) => {
         console.error('[gui] MCP request failed', error)
         if (!res.headersSent) res.writeHead(500).end()
