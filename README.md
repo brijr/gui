@@ -80,7 +80,7 @@ The terminals are your own shell, started only when you open one, at the project
 
 Agents get Gui's preview tools over a loopback MCP server that needs a per-tab token and rejects other `Host` headers. The page tools act on your app at its local address, or on a public website the agent opens (`preview_navigate` with a full address; in a canvas, `canvas_screenshot_url`). A website loads in a view with no preload, in a separate signed-out session that is kept in memory and wiped when it closes: public addresses only, with no permissions, downloads or form posts. Everything they return from the page or dev server (element data, console, logs) is fenced and marked as untrusted, the same as selected-element context. Claude's preview tools are pre-allowed by exact name; nothing is auto-approved by matching a tool's title. Chat history is stored owner-only (`0600`), without URL query strings.
 
-**Auto** (on by default, per project) approves the agent's requests to edit project files and run commands. It still asks about files outside the project, sensitive files (config, dotfiles, lockfiles, scripts, `package.json`, git hooks) and anything the agent itself flags. Commands aren't sandboxed. In **Ask** (⇧⌘A), Gui still approves edits to ordinary project files, and asks you about everything else.
+**Auto** (on by default, per project) approves the agent's requests to edit project files and run commands. It still asks about files outside the project, sensitive files (build, tool and deploy config, dotfiles, dependency manifests and lockfiles, scripts, Dockerfiles, git hooks) and anything the agent itself flags. Commands aren't sandboxed. In **Ask** (⇧⌘A), Gui still approves edits to ordinary project files, and asks you about everything else.
 
 ## Not yet
 

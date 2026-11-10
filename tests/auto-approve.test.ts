@@ -11,9 +11,9 @@ import type { AgentId } from '../src/shared/types'
 //
 //   Gui approves edits to ordinary source files in the project. In Auto mode it also approves
 //   commands, fetches, and reads, picking only one-time approvals; it still asks when a
-//   request names a file outside the project, edits a sensitive file (config, dotfiles,
-//   lockfiles, scripts, package.json, git hooks), changes the agent's mode or plan, or the
-//   agent itself flags it.
+//   request names a file outside the project, edits a sensitive file (build, tool and deploy
+//   config, dotfiles, dependency manifests and lockfiles, scripts, Dockerfiles, git hooks),
+//   changes the agent's mode or plan, or the agent itself flags it.
 //
 // `decide` answers as chat.ts does (`ChatController.autoAnswer`): `autoApproval`, placing
 // each path with `projectEditPath`. It returns the option picked, or null when the user is
@@ -160,6 +160,7 @@ describe('asks: the request names a file outside the project', () => {
 })
 
 describe('asks: the change is to a sensitive file', () => {
+  // By family (`SENSITIVE_NAMES` in auto-approve.ts): the next tool's file should ask too.
   const sensitive: Array<[group: string, paths: string[]]> = [
     [
       'config',
@@ -168,10 +169,33 @@ describe('asks: the change is to a sensitive file', () => {
         'next.config.mjs',
         'tailwind.config.cjs',
         'apps/web/eslint.config.js',
+        'babel.config.json',
+        'jest.config.json',
+        'postcss.config.yaml',
+        'web.config',
         'tsconfig.json',
         'tsconfig.node.json',
+        'jsconfig.json',
+        'biome.json',
+        'bunfig.toml',
+        'supabase/config.toml',
+        'tox.ini',
+        'setup.cfg',
+        'nginx.conf',
+      ],
+    ],
+    [
+      'containers',
+      [
         'Dockerfile',
-        'Makefile',
+        'Dockerfile.dev',
+        'apps/api/Dockerfile.prod',
+        'web.Dockerfile',
+        'Containerfile',
+        'docker-compose.yml',
+        'docker-compose.override.yml',
+        'compose.yaml',
+        'compose.dev.yml',
       ],
     ],
     [
@@ -180,11 +204,91 @@ describe('asks: the change is to a sensitive file', () => {
     ],
     [
       'lockfiles',
-      ['package-lock.json', 'pnpm-lock.yaml', 'yarn.lock', 'bun.lock', 'bun.lockb', 'Cargo.lock'],
+      [
+        'package-lock.json',
+        'npm-shrinkwrap.json',
+        'pnpm-lock.yaml',
+        'yarn.lock',
+        'bun.lock',
+        'bun.lockb',
+        'deno.lock',
+        'Cargo.lock',
+        'uv.lock',
+        'Gemfile.lock',
+        'go.sum',
+        'packages.lock.json',
+      ],
     ],
     ['scripts', ['scripts/release.ts', 'bin/cli.js', 'deploy.sh', 'tools/setup.bash', 'env.zsh']],
     ['package.json', ['package.json', 'apps/web/package.json', 'PACKAGE.JSON']],
-    ['git hooks', ['.git/hooks/pre-commit', '.githooks/pre-commit', '.husky/pre-push']],
+    [
+      'manifests and workspaces',
+      [
+        'pnpm-workspace.yaml',
+        'deno.json',
+        'deno.jsonc',
+        'requirements.txt',
+        'requirements-dev.txt',
+        'pyproject.toml',
+        'setup.py',
+        'Pipfile',
+        'Cargo.toml',
+        'go.mod',
+        'go.work',
+        'Gemfile',
+        'app.gemspec',
+        'composer.json',
+        'pom.xml',
+        'build.gradle',
+        'Package.swift',
+        'pubspec.yaml',
+        'flake.nix',
+      ],
+    ],
+    [
+      'deploy and CI',
+      [
+        'vercel.json',
+        'apps/web/vercel.json',
+        'netlify.toml',
+        'wrangler.toml',
+        'wrangler.jsonc',
+        'fly.toml',
+        'render.yaml',
+        'firebase.json',
+        'serverless.yml',
+        'Procfile',
+        'azure-pipelines.yml',
+        'Jenkinsfile',
+      ],
+    ],
+    [
+      'task runners',
+      [
+        'Makefile',
+        'rules.mk',
+        'justfile',
+        'Taskfile.yml',
+        'Rakefile',
+        'gulpfile.js',
+        'turbo.json',
+        'nx.json',
+        'nodemon.json',
+      ],
+    ],
+    [
+      'git hooks',
+      [
+        '.git/hooks/pre-commit',
+        '.githooks/pre-commit',
+        '.husky/pre-push',
+        '.pre-commit-config.yaml',
+        'lefthook.yml',
+        'lefthook-local.yml',
+        'simple-git-hooks.json',
+        'lint-staged.config.js',
+      ],
+    ],
     ['dependencies', ['node_modules/react/index.js', 'apps/web/node_modules/zod/index.js']],
   ]
   for (const [group, paths] of sensitive) {
@@ -205,66 +309,57 @@ describe('asks: the change is to a sensitive file', () => {
     expect(await decide(asked)).toBeNull()
   })
 
+  // Ordinary content stays automatic, or every edit would ask. JSON and YAML are sensitive
+  // by name, never by extension, and a source file named after a tool is a source file.
   const ordinary = [
     'src/app.tsx',
+    'src/components/Button.tsx',
+    'src/styles/app.css',
+    'README.md',
+    'content/about.md',
+    'public/logo.svg',
+    'public/robots.txt',
+    // Data and copy in the formats config is also written in.
+    'src/data/products.json',
+    'src/data/config.json',
+    'locales/en.json',
+    'locales/en/compose.json',
+    'public/manifest.json',
+    'content/post.yaml',
+    'src/i18n/messages.yml',
+    'openapi.yaml',
+    // Names that only look like a sensitive one.
     'src/config.ts',
+    'src/app-config.ts',
+    'src/config/site.ts',
     'src/lib/scripts.ts',
     'src/bin.ts',
     'src/package.json.ts',
     'src/lockfile.ts',
+    'src/lock.ts',
+    'src/requirements.ts',
+    'src/setup.ts',
+    'src/pages/profile.tsx',
+    'src/models/workspace.ts',
+    'src/hooks/use-workspace.ts',
+    'src/components/compose.tsx',
+    'src/lib/docker.ts',
+    'src/dockerfile-parser.ts',
+    'src/lib/firebase.ts',
+    'src/lib/vercel.ts',
+    'src/utils/render.ts',
+    'src/data/render.json',
+    'src/turbo.ts',
+    // Pages about a sensitive file.
     'docs/install.sh.md',
-    'README.md',
-    'public/logo.svg',
+    'docs/vite.config.md',
+    'docs/docker-compose.md',
+    'docs/requirements.md',
   ]
   test.each(ordinary)('an ordinary file is not one: %s', async (path) => {
     expect(SENSITIVE_PATH.test(path)).toBe(false)
     expect(await decide(edit(path))).toBe('once')
   })
-
-  // src/main/auto-approve.ts says of SENSITIVE_PATH: "Files that can change how code runs
-  // (build/tool config, dependencies, CI, hooks, dotfiles) always need the user's approval,
-  // even when edits are otherwise automatic." Its pattern doesn't know these.
-  //   input:    an edit to the file, the usual options on offer
-  //   expected: null (asks)
-  //   actual:   'once' (approved, in Ask mode too, since it's an edit inside the project)
-  const missed: Array<[group: string, paths: string[]]> = [
-    ['lockfiles', ['npm-shrinkwrap.json']],
-    [
-      'dependencies',
-      [
-        'pnpm-workspace.yaml',
-        'deno.json',
-        'requirements.txt',
-        'pyproject.toml',
-        'Cargo.toml',
-        'go.mod',
-        'Gemfile',
-      ],
-    ],
-    [
-      'build and tool config',
-      [
-        'bunfig.toml',
-        'babel.config.json',
-        'jest.config.json',
-        'jsconfig.json',
-        'turbo.json',
-        'vercel.json',
-        'netlify.toml',
-        'wrangler.toml',
-        'Dockerfile.dev',
-        'docker-compose.yml',
-      ],
-    ],
-    ['git hooks', ['lefthook.yml']],
-  ]
-  for (const [group, paths] of missed) {
-    for (const path of paths) {
-      test.failing(`${group}: an edit to ${path}`, async () => {
-        expect(await decide(edit(path))).toBeNull()
-      })
-    }
-  }
 })
 
 describe('asks: a change that names no file', () => {
