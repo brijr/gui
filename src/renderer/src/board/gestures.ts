@@ -1,8 +1,9 @@
 import { type BoardCamera, type BoardSection, FRAME_MAX, FRAME_MIN } from '../../../shared/board'
 import { type BoardViewPoint, boardRectFrom } from '../../../shared/coords'
 import type { BoardFrame } from '../../../shared/types'
-import { dragFrom, dragOffset, inMarquee, marqueeRect } from './camera'
+import { dragFrom, dragOffset, inMarquee, marqueeRect, zoomAbout, zoomToBox } from './camera'
 import type { BoardIntent } from './intents'
+import { ZOOM_STEP } from './keys'
 
 /*
  * What the pointer does on the board, as plain functions: a press starts a gesture (or none),
@@ -41,6 +42,8 @@ export type Gesture =
   | { kind: 'resize'; start: BoardViewPoint; id: string; from: Area }
   | { kind: 'pan'; start: BoardViewPoint; from: BoardCamera }
   | { kind: 'marquee'; start: BoardViewPoint; now: BoardViewPoint; add: string[] }
+  /** The Zoom tool (Z held): a click zooms a step about it (out with ⌥), a drag to its box */
+  | { kind: 'zoom'; start: BoardViewPoint; now: BoardViewPoint; out: boolean }
 
 /** The board as a gesture reads it. */
 export interface GestureBoard {
@@ -66,6 +69,9 @@ export interface Press {
   shiftKey: boolean
   /** The Hand is on, Space is held, or it's the middle button: the drag pans */
   pan: boolean
+  /** Z is held, and not Space: the Zoom tool */
+  zoom: boolean
+  altKey: boolean
   target: PressTarget
 }
 
@@ -91,6 +97,9 @@ export function pressGesture(
 ): { gesture: Gesture | null; select: Selecting | null } {
   const { at, target } = press
   if (press.pan) return { gesture: { kind: 'pan', start: at, from: camera }, select: null }
+  // On a frame or a name too: with Z held, every press zooms.
+  if (press.zoom)
+    return { gesture: { kind: 'zoom', start: at, now: at, out: press.altKey }, select: null }
   const section = board.sections.find((s) => s.id === target.section)
   if (section) {
     // Its name picks the section, selecting its frames, and drags them all.
@@ -234,6 +243,8 @@ export function landed(
 export interface Ending {
   /** The camera rests where a pan left it */
   rest?: boolean
+  /** Where the Zoom tool takes the camera */
+  camera?: BoardCamera
   /**
    * What was drawn ahead of main goes now: the gesture changed nothing (it ended where it
    * began), so no new layout from main will clear it
@@ -253,10 +264,22 @@ export function endGesture(
   board: GestureBoard,
   overrides: Record<string, Override>,
   camera: BoardCamera,
+  /** The board's size on screen, which a Zoom tool's drag fills */
+  view: { width: number; height: number },
   last: Click | null,
   now: number,
 ): Ending {
   if (done.kind === 'pan') return { rest: true, intents: [] }
+  if (done.kind === 'zoom') {
+    const box = marqueeRect(done.start, done.now)
+    const click = box.width < DRAG_SLOP && box.height < DRAG_SLOP
+    return {
+      camera: click
+        ? zoomAbout(camera, done.out ? 1 / ZOOM_STEP : ZOOM_STEP, done.start)
+        : zoomToBox(camera, box, view),
+      intents: [],
+    }
+  }
   if (done.kind === 'move') {
     if (done.moved) {
       const moved = landed(done.ids, board.frames, overrides)

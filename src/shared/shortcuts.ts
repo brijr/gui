@@ -384,6 +384,14 @@ export const SHORTCUTS = {
     group: 'canvas',
     description: 'Move tool: select and drag frames',
   },
+  canvasZoomTool: {
+    label: 'Zoom Tool',
+    accelerator: 'Z',
+    menu: null,
+    group: 'canvas',
+    description:
+      'Zoom tool while held: click to zoom in, ⌥-click to zoom out, drag to zoom to an area',
+  },
   canvasZoomIn: {
     label: 'Zoom In on Canvas',
     accelerator: 'Plus',

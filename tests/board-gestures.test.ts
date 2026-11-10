@@ -12,8 +12,9 @@ import {
   type Press,
   pressGesture,
 } from '../src/renderer/src/board/gestures'
+import { ZOOM_STEP } from '../src/renderer/src/board/keys'
 import { FRAME_MAX, FRAME_MIN } from '../src/shared/board'
-import { boardViewPoint } from '../src/shared/coords'
+import { boardFromBoardView, boardViewPoint } from '../src/shared/coords'
 import type { BoardFrame } from '../src/shared/types'
 
 // What a press, a drag and a release on the canvas board do, as plain functions.
@@ -37,11 +38,15 @@ const board = (selection: string[] = [], drawn = frames): GestureBoard => ({
 })
 /** 1:1, so board-view pixels are board pixels. */
 const camera = { x: 0, y: 0, zoom: 1 }
+/** The board's size on screen */
+const view = { width: 800, height: 600 }
 const at = boardViewPoint(10, 10)
 const press = (target: Press['target'], extra: Partial<Press> = {}): Press => ({
   at,
   shiftKey: false,
   pan: false,
+  zoom: false,
+  altKey: false,
   target,
   ...extra,
 })
@@ -191,7 +196,7 @@ describe('the release', () => {
     ...extra,
   })
   const end = (done: Gesture, overrides = {}, last: { id: string; at: number } | null = null) =>
-    endGesture(done, board(['a', 'b']), overrides, camera, last, 5000)
+    endGesture(done, board(['a', 'b']), overrides, camera, view, last, 5000)
 
   test('frames dragged land as one arrangement of where they are', () => {
     expect(end(move({ moved: true, ids: ['a', 'b'] }), { a: { x: 7, y: 8 } })).toEqual({
@@ -260,8 +265,72 @@ describe('the release', () => {
     expect(end(marquee({ x: -8, y: -8 }, ['a'])).select).toBeUndefined()
     // As drawn: a frame dragged ahead of main is caught where it shows.
     const drawn = [frame('a', 600), frames[1], frames[2]]
-    const ending = endGesture(marquee({ x: 50, y: 10 }), board([], drawn), {}, camera, null, 0)
+    const ending = endGesture(
+      marquee({ x: 50, y: 10 }),
+      board([], drawn),
+      {},
+      camera,
+      view,
+      null,
+      0,
+    )
     expect(ending.select).toEqual({ ids: [], section: null })
+  })
+})
+
+describe('the Zoom tool (Z held)', () => {
+  const zoom = (now: { x: number; y: number }, out = false): Gesture => ({
+    kind: 'zoom',
+    start: at,
+    now: boardViewPoint(now.x, now.y),
+    out,
+  })
+  const end = (done: Gesture) => endGesture(done, board(['a']), {}, camera, view, null, 0)
+
+  test('a press anywhere starts it, on a frame or a name too, and selects nothing', () => {
+    for (const target of [{}, { frame: 'a' }, { section: 's' }, { resize: 'a' }]) {
+      expect(pressGesture(press(target, { zoom: true }), board(['b']), camera)).toEqual({
+        gesture: { kind: 'zoom', start: at, now: at, out: false },
+        select: null,
+      })
+    }
+    // ⌥ held as it's pressed: it zooms out.
+    const out = pressGesture(press({}, { zoom: true, altKey: true }), board(), camera)
+    expect(out.gesture).toEqual({ kind: 'zoom', start: at, now: at, out: true })
+    // Space held as well, or the middle button: it pans.
+    expect(pressGesture(press({}, { zoom: true, pan: true }), board(), camera).gesture?.kind).toBe(
+      'pan',
+    )
+  })
+
+  test('a drag draws its box, and moves nothing', () => {
+    expect(dragGesture(zoom(at), boardViewPoint(90, 70), camera, frames)).toEqual({
+      gesture: zoom({ x: 90, y: 70 }),
+    })
+  })
+
+  test('a click zooms one step in about the point, or out with ⌥', () => {
+    const inward = end(zoom({ x: 11, y: 11 }))
+    expect(inward).toEqual({ camera: expect.any(Object), intents: [] })
+    expect(inward.camera?.zoom).toBeCloseTo(ZOOM_STEP)
+    // What was under the click stays under it.
+    expect(boardFromBoardView(at, inward.camera ?? camera)).toEqual(boardFromBoardView(at, camera))
+    const outward = end(zoom({ x: 11, y: 11 }, true))
+    expect(outward.camera?.zoom).toBeCloseTo(1 / ZOOM_STEP)
+    expect(boardFromBoardView(at, outward.camera ?? camera).x).toBeCloseTo(at.x)
+  })
+
+  test('a drag zooms to fit its box, with ⌥ too', () => {
+    // At 50%, 10,10 to 410,210 is 400 × 200 on screen, into 800 × 600: 2× more, so 100%,
+    // centred on what was at 210,110 (board 420,220).
+    const half = { x: 0, y: 0, zoom: 0.5 }
+    for (const out of [false, true]) {
+      const ending = endGesture(zoom({ x: 410, y: 210 }, out), board(), {}, half, view, null, 0)
+      expect(ending.camera?.zoom).toBeCloseTo(1)
+      const centre = boardFromBoardView(boardViewPoint(400, 300), ending.camera ?? half)
+      expect(centre.x).toBeCloseTo(420)
+      expect(centre.y).toBeCloseTo(220)
+    }
   })
 })
 

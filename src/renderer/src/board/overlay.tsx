@@ -111,6 +111,7 @@ export function BoardOverlay({
   /** React's camera, which the live one leads during a gesture (it writes the layer itself) */
   camera: BoardCamera
   size: { width: number; height: number }
+  /** The Hand or the Zoom tool is on: presses on names and handles go to the board */
   hand: boolean
   /** As drawn this moment, with what a gesture drew ahead of main */
   frames: BoardFrame[]
@@ -335,7 +336,7 @@ const FrameLabel = memo(
     onSelect: (id: string, add: boolean) => void
     onRename: (id: string) => void
     onDone: (id: string, name: string | null) => void
-    /** The Hand is on: a press here pans the board like anywhere else */
+    /** The Hand or the Zoom tool is on: a press here pans or zooms the board like anywhere else */
     hand: boolean
   }) {
     const style = {

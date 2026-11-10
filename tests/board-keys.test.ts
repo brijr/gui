@@ -2,9 +2,13 @@ import { describe, expect, test } from 'bun:test'
 import {
   type BoardKey,
   boardKey,
+  type HeldKey,
+  heldKeys,
   type KeyBoard,
+  NO_KEYS_HELD,
   nudged,
   nudgeLanding,
+  pointerTool,
   selectionArea,
   ZOOM_STEP,
 } from '../src/renderer/src/board/keys'
@@ -219,6 +223,74 @@ describe('keys on the board', () => {
   test('other keys are not the board’s', () => {
     expect(boardKey(key('x'), board(['a']))).toBeNull()
     expect(boardKey(key('s', meta), board(['a']))).toBeNull()
+  })
+})
+
+describe('keys held: Space the Hand, Z the Zoom tool', () => {
+  const press = (type: HeldKey['type'], code: string, extra: Partial<HeldKey> = {}): HeldKey => ({
+    type,
+    code,
+    metaKey: false,
+    ctrlKey: false,
+    altKey: false,
+    ...extra,
+  })
+  const down = (code: string, extra: Partial<HeldKey> = {}) => press('keydown', code, extra)
+  const up = (code: string, extra: Partial<HeldKey> = {}) => press('keyup', code, extra)
+  const run = (keys: HeldKey[], forBoard = true) =>
+    keys.reduce((held, key) => heldKeys(held, key, forBoard), NO_KEYS_HELD)
+
+  test('Z held is the Zoom tool, and letting go gives back the tool there was', () => {
+    const held = run([down('KeyZ')])
+    expect(held).toEqual({ space: false, zoom: true, alt: false })
+    expect(pointerTool('move', held)).toBe('zoom')
+    expect(pointerTool('hand', held)).toBe('zoom')
+    const released = run([down('KeyZ'), up('KeyZ')])
+    expect(pointerTool('move', released)).toBe('move')
+    expect(pointerTool('hand', released)).toBe('hand')
+  })
+
+  test('⌥ held with it zooms out, pressed before Z or after', () => {
+    expect(run([down('KeyZ'), down('AltLeft', { altKey: true })]).alt).toBe(true)
+    expect(run([down('AltLeft', { altKey: true }), down('KeyZ', { altKey: true })])).toEqual({
+      space: false,
+      zoom: true,
+      alt: true,
+    })
+    expect(run([down('KeyZ'), down('AltLeft', { altKey: true }), up('AltLeft')]).alt).toBe(false)
+  })
+
+  test('⌘Z and ⌃Z are not the Zoom tool, and ⌘ pressed while Z is held ends it', () => {
+    expect(run([down('MetaLeft', { metaKey: true }), down('KeyZ', { metaKey: true })]).zoom).toBe(
+      false,
+    )
+    expect(run([down('KeyZ', { ctrlKey: true })]).zoom).toBe(false)
+    // macOS sends no key-up for Z while ⌘ is down.
+    expect(run([down('KeyZ'), down('MetaLeft', { metaKey: true })]).zoom).toBe(false)
+  })
+
+  test('typed in a field, Space and Z do nothing here; they come up from anywhere', () => {
+    expect(run([down('KeyZ'), down('Space')], false)).toBe(NO_KEYS_HELD)
+    const held = run([down('KeyZ'), down('Space')])
+    expect(heldKeys(held, up('KeyZ'), false).zoom).toBe(false)
+    expect(heldKeys(held, up('Space'), false).space).toBe(false)
+  })
+
+  test('Space over Z: both held, a press pans', () => {
+    const both = run([down('KeyZ'), down('Space')])
+    expect(pointerTool('move', both)).toBe('hand')
+    expect(pointerTool('move', heldKeys(both, up('Space'), true))).toBe('zoom')
+  })
+
+  test('nothing changed, the same keys back', () => {
+    const held = run([down('KeyZ')])
+    expect(heldKeys(held, down('KeyZ'), true)).toBe(held)
+    expect(heldKeys(NO_KEYS_HELD, down('KeyX'), true)).toBe(NO_KEYS_HELD)
+  })
+
+  test('Z alone is no command of the board’s: a tap switches nothing', () => {
+    expect(boardKey(key('z'), board(['a']))).toBeNull()
+    expect(boardKey(key('z', meta), board(['a']))).toBeNull()
   })
 })
 

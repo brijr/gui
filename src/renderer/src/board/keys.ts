@@ -160,6 +160,59 @@ function tabStop(back: boolean, board: KeyBoard): KeyAction | null {
   return null
 }
 
+/**
+ * Keys held that change what the pointer does, as in Figma: Space the Hand, Z the Zoom tool,
+ * ⌥ the Zoom tool zooming out. Each counts only while it's down.
+ */
+export interface HeldKeys {
+  space: boolean
+  zoom: boolean
+  alt: boolean
+}
+
+export const NO_KEYS_HELD: HeldKeys = { space: false, zoom: false, alt: false }
+
+/** A key going down or up, anywhere in the window. */
+export interface HeldKey {
+  type: 'keydown' | 'keyup'
+  code: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+}
+
+/**
+ * The keys held after `key`. Space and Z go down only for the board (`forBoard`: it, or
+ * nothing, has the keyboard), so typing them in a field does nothing here; they come up
+ * anywhere. Z with ⌘ or ⌃ is theirs (⌘Z undoes), and ⌘ pressed while Z is held ends the Zoom
+ * tool: macOS sends no key-up for Z while ⌘ is down. The same object back when nothing changed.
+ */
+export function heldKeys(held: HeldKeys, key: HeldKey, forBoard: boolean): HeldKeys {
+  const command = key.metaKey || key.ctrlKey
+  let { space, zoom } = held
+  if (key.type === 'keydown') {
+    if (key.code === 'Space' && forBoard) space = true
+    if (command) zoom = false
+    else if (key.code === 'KeyZ' && forBoard) zoom = true
+  } else {
+    if (key.code === 'Space') space = false
+    if (key.code === 'KeyZ') zoom = false
+  }
+  const alt = key.altKey
+  if (space === held.space && zoom === held.zoom && alt === held.alt) return held
+  return { space, zoom, alt }
+}
+
+/** What a press on the board does: the toolbar's tool, or the one a held key gives. */
+export type PointerTool = BoardTool | 'zoom'
+
+/** Space held is the Hand, over Z; Z held is the Zoom tool; otherwise the toolbar's tool. */
+export function pointerTool(tool: BoardTool, held: HeldKeys): PointerTool {
+  if (held.space) return 'hand'
+  if (held.zoom) return 'zoom'
+  return tool
+}
+
 /** Arrow keys held: how far the frames have gone, landing as one change when the key comes up. */
 export interface Nudge {
   ids: string[]

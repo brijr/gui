@@ -30,7 +30,7 @@ import { BoardOverlay, tileId, useNaming } from './overlay'
 import { activeFrame, sectionAreas, selectionSaid } from './scene'
 import { BoardSurface, type BoardSurfaceHandle, BoardUnavailable } from './surface'
 import { useBoardCamera } from './use-camera'
-import { setBoardTool, useHand } from './view'
+import { setBoardTool, usePointerTool } from './view'
 
 /** macOS turns ⌃-click into a right-click: its menu, not a drag. */
 const MAC = navigator.platform.toLowerCase().includes('mac')
@@ -39,10 +39,10 @@ const MAC = navigator.platform.toLowerCase().includes('mac')
  * A canvas's frames on a pannable, zoomable board, like Figma's: their thumbnails (main
  * captures them as their pages change), their names above them, and what's selected. The
  * board's pixels are drawn with WebGL on a canvas (surface.tsx); the DOM over it keeps the
- * names, the rename fields and what the pointer presses (overlay.tsx). Scroll
- * pans, ⌘-scroll or a pinch zooms, Space-drag pans; drag frames to move them, their corner to
- * resize them, across empty board to select several; double-click opens one live, as ⌘D does
- * to pick in it. The shell: it owns the camera and the gesture under way, gives events to
+ * names, the rename fields and what the pointer presses (overlay.tsx). Scroll pans, ⌘-scroll
+ * or a pinch zooms, Space-drag pans, Z-click zooms (⌥ out) and Z-drag zooms to an area; drag
+ * frames to move them, their corner to resize them, across empty board to select several;
+ * double-click opens one live, as ⌘D does to pick in it. The shell: it owns the camera and the gesture under way, gives events to
  * gestures.ts and keys.ts and does what they ask, and runs the board's effects.
  */
 export function Board({ board, working = false }: { board: BoardState; working?: boolean }) {
@@ -105,7 +105,10 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }
   /** What's selected, said to a screen reader as it changes */
   const [announcement, setAnnouncement] = useState('')
-  const hand = useHand(ref)
+  const { tool, out } = usePointerTool(ref)
+  const hand = tool === 'hand'
+  /** The Hand or the Zoom tool: presses go to the board, not to frames' names or handles */
+  const viewing = tool !== 'move'
   // A frame without an override stays the object main sent, so its tile and name aren't drawn again.
   const frames = board.frames.map((frame) => {
     const override = overrides[frame.id]
@@ -207,6 +210,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       at,
       shiftKey: event.shiftKey,
       pan: hand || event.button === 1,
+      zoom: tool === 'zoom',
+      altKey: event.altKey,
       target: {
         resize: idOf(target, 'resize'),
         frame: idOf(target, 'frame'),
@@ -240,8 +245,17 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     // Frames the agent added during it come into sight now.
     revealAdded()
     const now = performance.now()
-    const end = endGesture(done, gestureBoard, overrides, drawnCamera(), lastClick.current, now)
+    const end = endGesture(
+      done,
+      gestureBoard,
+      overrides,
+      drawnCamera(),
+      size,
+      lastClick.current,
+      now,
+    )
     if (end.rest) setCamera(live.current)
+    if (end.camera) setCamera(end.camera)
     if (end.clear) setOverrides({})
     if (end.click !== undefined) lastClick.current = end.click
     if (end.select) select(end.select.ids, end.select.section)
@@ -286,7 +300,13 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     if (action && act(action)) event.preventDefault()
   }
 
-  const marquee = gesture?.kind === 'marquee' ? marqueeRect(gesture.start, gesture.now) : null
+  // The Zoom tool's box is drawn as a marquee is.
+  const marquee =
+    gesture?.kind === 'marquee' || gesture?.kind === 'zoom'
+      ? marqueeRect(gesture.start, gesture.now)
+      : null
+  /** The magnifier, also through a drag that Z was let go during */
+  const zooming = tool === 'zoom' || gesture?.kind === 'zoom'
   const single = board.selection.length === 1 ? board.selection[0] : null
   const count = board.frames.length
   /** The frame a screen reader is on: the one last selected */
@@ -306,6 +326,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         'absolute inset-0 overflow-hidden bg-canvas outline-none select-none after:pointer-events-none after:absolute after:inset-0',
         ringed && 'after:ring-2 after:ring-muted after:ring-inset',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
+        zooming && !hand && (out ? 'cursor-zoom-out' : 'cursor-zoom-in'),
       )}
       // The canvas lights up the edge of the frame under the pointer.
       onPointerOver={(event) => surface.current?.hover(idOf(event.target, 'frame') ?? null)}
@@ -363,8 +384,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
           frames,
           sections: sectionAreas(sections, frames, picked?.id ?? null),
           selected,
-          handle: hand ? null : single,
-          hand,
+          handle: viewing ? null : single,
+          hand: viewing,
           marquee,
         }}
       />
@@ -372,7 +393,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         layer={layer}
         camera={camera}
         size={size}
-        hand={hand}
+        hand={viewing}
         frames={frames}
         sections={sections}
         selected={selected}

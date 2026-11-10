@@ -677,6 +677,113 @@ test("Figma's zoom keys: ⇧0 is 100%, ⇧1 fits, ⇧2 the selection, + and − 
   await chrome.keyboard.press('Escape')
 })
 
+test("Figma's Z: held, a click zooms in there, ⌥-click out, a drag to its area; let go, the tool is back", async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  await openCanvas(session)
+  await chrome.evaluate(() => {
+    window.gui.boardAddFrame('desktop', null)
+    window.gui.boardAddFrame('mobile', null)
+  })
+  await waitFor(async () => (await board(session)).frames.length === 2, 'two frames')
+  await zoomToFit(session)
+  const area = chrome.getByRole('application')
+  await area.focus()
+  const box = await area.boundingBox()
+  if (!box) throw new Error('no board')
+  /** The camera as the board's layer is drawn: its origin on screen, in board-view pixels, and zoom */
+  const camera = () =>
+    chrome.evaluate(() => {
+      const layer = document.querySelector<HTMLElement>('[style*="--board-zoom"]')
+      const [x, y] = (layer?.style.transform.match(/-?[\d.e-]+(?=px)/g) ?? []).map(Number)
+      return { x, y, zoom: Number(layer?.style.getPropertyValue('--board-zoom')) }
+    })
+  const zoomed = (wanted: (zoom: number) => boolean, label: string) =>
+    waitFor(async () => {
+      const now = await camera()
+      return wanted(now.zoom) ? now : null
+    }, label)
+  /** The board point under the window point `at`, for the camera `c` */
+  const under = (at: { x: number; y: number }, c: { x: number; y: number; zoom: number }) => ({
+    x: (at.x - box.x - c.x) / c.zoom,
+    y: (at.y - box.y - c.y) / c.zoom,
+  })
+  /** Within a screen pixel at `zoom`: the pointer's position may be rounded */
+  const near = (a: { x: number; y: number }, b: { x: number; y: number }, zoom: number) =>
+    expect(Math.hypot(a.x - b.x, a.y - b.y)).toBeLessThan(1.5 / zoom)
+  const cursor = () => area.evaluate((el) => getComputedStyle(el).cursor)
+  const fitted = await camera()
+  expect(fitted.zoom).toBeLessThan(1)
+
+  // Held, the pointer is a magnifier; with ⌥ too, one that zooms out.
+  await chrome.keyboard.down('z')
+  await expect.poll(cursor).toBe('zoom-in')
+  await chrome.keyboard.down('Alt')
+  await expect.poll(cursor).toBe('zoom-out')
+  await chrome.keyboard.up('Alt')
+  await expect.poll(cursor).toBe('zoom-in')
+
+  // A click zooms one step in, about the point clicked: what's under it stays under it.
+  const at = { x: box.x + box.width * 0.4, y: box.y + box.height * 0.45 }
+  await chrome.mouse.click(at.x, at.y)
+  const stepped = await zoomed((z) => Math.abs(z - fitted.zoom * 1.25) < 1e-9, 'a step in')
+  near(under(at, stepped), under(at, fitted), stepped.zoom)
+  // ⌥-click, a step back out.
+  await chrome.keyboard.down('Alt')
+  await chrome.mouse.click(at.x, at.y)
+  await chrome.keyboard.up('Alt')
+  const back = await zoomed((z) => Math.abs(z - fitted.zoom) < 1e-9, 'a step out')
+  near(under(at, back), under(at, fitted), back.zoom)
+
+  // A drag zooms to its area: half the board wide and a quarter high fills it, 2× closer.
+  const from = { x: box.x + box.width * 0.2, y: box.y + box.height * 0.3 }
+  const to = { x: from.x + box.width / 2, y: from.y + box.height / 4 }
+  const middle = under({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }, back)
+  await chrome.mouse.move(from.x, from.y)
+  await chrome.mouse.down()
+  await chrome.mouse.move(to.x, to.y, { steps: 5 })
+  await chrome.mouse.up()
+  const boxed = await zoomed(
+    (z) => Math.abs(z / back.zoom - 2) < 0.02,
+    'the area filling the board',
+  )
+  // Its middle is the board's middle now.
+  near(under({ x: box.x + box.width / 2, y: box.y + box.height / 2 }, boxed), middle, back.zoom)
+
+  // Let go of Z: the Move tool is back, and a click selects a frame again.
+  await chrome.keyboard.up('z')
+  await expect.poll(cursor).not.toMatch(/zoom/)
+  const mobile = chrome.locator('[data-frame="mobile"]').last()
+  await chrome.keyboard.press('Shift+Digit1')
+  await zoomed((z) => z === fitted.zoom, 'everything fitted again')
+  await mobile.click()
+  await expect(mobile).toHaveAttribute('aria-selected', 'true')
+  expect((await camera()).zoom).toBe(fitted.zoom)
+
+  // With the Hand on, Z held zooms, and letting go gives the Hand back.
+  await chrome.keyboard.press('h')
+  await expect.poll(cursor).toBe('grab')
+  await chrome.keyboard.down('z')
+  await expect.poll(cursor).toBe('zoom-in')
+  await chrome.keyboard.up('z')
+  await expect.poll(cursor).toBe('grab')
+  await chrome.keyboard.press('v')
+  await expect.poll(cursor).not.toBe('grab')
+
+  // Typed in a frame's name, Z is a letter: no magnifier, and a click there doesn't zoom.
+  await chrome.keyboard.press('F2')
+  const field = area.getByRole('textbox', { name: 'Frame name' })
+  await expect(field).toBeFocused()
+  await chrome.keyboard.down('z')
+  await expect(field).toHaveValue(/z$/)
+  expect(await cursor()).not.toMatch(/zoom/)
+  await chrome.keyboard.up('z')
+  await chrome.keyboard.press('Escape')
+  expect((await camera()).zoom).toBe(fitted.zoom)
+})
+
 /** Runs in main: the clipboard as a variable, so the tests never touch the real one. */
 function stubClipboard({ clipboard }: typeof import('electron')) {
   type Stored = { types: string[]; data: Record<string, Blob> }

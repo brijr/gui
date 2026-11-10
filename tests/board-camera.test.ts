@@ -16,6 +16,7 @@ import {
   shownShare,
   wheelBy,
   zoomAbout,
+  zoomToBox,
 } from '../src/renderer/src/board/camera'
 import { fitCamera, ZOOM_MAX, ZOOM_MIN } from '../src/shared/board'
 import {
@@ -128,6 +129,25 @@ describe('the board camera', () => {
     // At (100, 50) and 0.5, board (300, 250) is drawn at view (100, 100).
     expect(inMarquee(boardRect(298, 248, 10, 10), marquee, camera)).toBe(true)
     expect(inMarquee(boardRect(300, 250, 10, 10), marquee, camera)).toBe(false)
+  })
+})
+
+describe('the Zoom tool', () => {
+  const size = { width: 800, height: 600 }
+  test('a box fills the view, centred, by its tighter side', () => {
+    // At 50%, a 200 × 200 box on screen into 800 × 600: 3× more, by its height (4× would crop it).
+    const box = boardViewRect(300, 250, 200, 200)
+    const made = zoomToBox(camera, box, size)
+    expect(made.zoom).toBeCloseTo(1.5)
+    const centre = boardFromBoardView(boardViewPoint(400, 300), made)
+    expect(centre).toEqual(boardFromBoardView(boardViewPoint(400, 350), camera))
+  })
+
+  test('within the board’s zoom range, and a box with no width fits by its height', () => {
+    expect(zoomToBox(camera, boardViewRect(10, 10, 4, 4), size).zoom).toBe(ZOOM_MAX)
+    expect(zoomToBox(camera, boardViewRect(10, 10, 0, 300), size).zoom).toBeCloseTo(1)
+    const far = { ...camera, zoom: ZOOM_MIN }
+    expect(zoomToBox(far, boardViewRect(-4000, -4000, 9000, 9000), size).zoom).toBe(ZOOM_MIN)
   })
 })
 

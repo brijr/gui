@@ -39,7 +39,7 @@ export interface BoardSurfaceHandle {
 }
 
 export type BoardSurfaceInput = Omit<SceneInput, 'hovered'> & {
-  /** The Hand is on: no frame's edge lights up under the pointer */
+  /** The Hand or the Zoom tool is on: no frame's edge lights up under the pointer */
   hand: boolean
 }
 

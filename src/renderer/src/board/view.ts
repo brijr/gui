@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useState, useSyncExternalStore } from 'react'
 import type { BoardCamera } from '../../../shared/board'
+import { heldKeys, NO_KEYS_HELD, pointerTool } from './keys'
 
 /*
  * What the board shares with the toolbar: its zoom and the controls for it (`useBoardView`),
@@ -63,34 +64,36 @@ export function useBoardTool() {
 }
 
 /**
- * Whether a drag pans: the Hand is the tool, or Space is held, for as long as it's held, as in
- * every design tool. Space counts only for the board (or nothing focused): it still presses
- * the toolbar's buttons.
+ * What a press on the board does now: the toolbar's tool, the Hand while Space is held, or the
+ * Zoom tool while Z is held (`out` while ⌥ is too), for as long as each is held, as in Figma.
+ * Space and Z count only for the board (or nothing focused): Space still presses the toolbar's
+ * buttons, and both type in a name's field.
  */
-export function useHand(board: RefObject<HTMLElement | null>) {
-  const [space, setSpace] = useState(false)
+export function usePointerTool(board: RefObject<HTMLElement | null>) {
+  const [held, setHeld] = useState(NO_KEYS_HELD)
   useEffect(() => {
     const forBoard = (target: EventTarget | null) =>
       target === document.body || (!!board.current && target === board.current)
-    const down = (event: KeyboardEvent) => {
-      if (event.code === 'Space' && forBoard(event.target)) {
+    const key = (event: KeyboardEvent) => {
+      const type = event.type === 'keydown' ? 'keydown' : 'keyup'
+      // Space would scroll, or press what has the keyboard.
+      if (type === 'keydown' && event.code === 'Space' && forBoard(event.target))
         event.preventDefault()
-        setSpace(true)
-      }
-    }
-    const up = (event: KeyboardEvent) => {
-      if (event.code === 'Space') setSpace(false)
+      const { code, metaKey, ctrlKey, altKey } = event
+      const pressed = { type, code, metaKey, ctrlKey, altKey } as const
+      setHeld((current) => heldKeys(current, pressed, forBoard(event.target)))
     }
     // Let go while in another app: no keyup comes.
-    const blur = () => setSpace(false)
-    window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
+    const blur = () => setHeld(NO_KEYS_HELD)
+    window.addEventListener('keydown', key)
+    window.addEventListener('keyup', key)
     window.addEventListener('blur', blur)
     return () => {
-      window.removeEventListener('keydown', down)
-      window.removeEventListener('keyup', up)
+      window.removeEventListener('keydown', key)
+      window.removeEventListener('keyup', key)
       window.removeEventListener('blur', blur)
     }
   }, [board])
-  return useBoardTool() === 'hand' || space
+  const tool = pointerTool(useBoardTool(), held)
+  return { tool, out: tool === 'zoom' && held.alt }
 }

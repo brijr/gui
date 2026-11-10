@@ -7,6 +7,7 @@ import {
   boardFromBoardView,
   boardPoint,
   boardRectFrom,
+  boardRectFromBoardView,
   boardViewPoint,
   boardViewRect,
   boardViewRectFromBoard,
@@ -68,6 +69,25 @@ export function centreIn(rect: BoardRect, area: BoardViewRect, zoom: number): Bo
   return cameraAt(
     boardPoint(rect.x + rect.width / 2, rect.y + rect.height / 2),
     boardViewPoint(area.x + area.width / 2, area.y + area.height / 2),
+    zoom,
+  )
+}
+
+/**
+ * The Zoom tool's drag: what `box` (in board-view pixels) covers fills a view of `size`,
+ * centred, within the board's zoom range, as Figma's Z-drag does.
+ */
+export function zoomToBox(
+  camera: BoardCamera,
+  box: BoardViewRect,
+  size: { width: number; height: number },
+): BoardCamera {
+  // A box with no width (or height) is fitted by its other side.
+  const scale = Math.min(size.width / box.width, size.height / box.height)
+  const zoom = clampZoom(camera.zoom * scale)
+  return centreIn(
+    boardRectFromBoardView(box, camera),
+    boardViewRect(0, 0, size.width, size.height),
     zoom,
   )
 }

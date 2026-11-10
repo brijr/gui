@@ -15,7 +15,7 @@ export const releases: Release[] = [
     date: '2026-11-10',
     changes: [
       'The canvas is drawn on the GPU. Zooming a large board is smoother, and the board gives memory back after you zoom out.',
-      'Figma’s zoom keys work on the canvas: ⇧1 fits the board, ⇧2 zooms to the selection, ⇧0 goes to 100%, and + and − zoom.',
+      'Figma’s zoom keys work on the canvas: ⇧1 fits the board, ⇧2 zooms to the selection, ⇧0 goes to 100%, + and − zoom, and holding Z zooms where you click (⌥ zooms out) or to an area you drag.',
       'Copy and paste frames with ⌘C and ⌘V, on the same canvas or another one. ⌘X cuts them, and one ⌘Z undoes a paste.',
       'Find with ⌘F: in the preview, or in the terminal when you’re typing in it. ⌘G and ⇧⌘G step through the matches.',
       'File → Reopen Closed Tab (⇧⌘T) brings back the tab you closed last, with its chat.',
