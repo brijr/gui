@@ -13,7 +13,7 @@ import {
   type ModelSettings,
 } from '../shared/types'
 import { pinnedAgent, requireAgentBinary } from './agent-binaries'
-import { displayedModes, errorDetail, resumeMethods } from './agent-protocol'
+import { displayedModes, errorDetail, formQuestions, resumeMethods } from './agent-protocol'
 import {
   type AgentDefinition,
   type PermissionControls,
@@ -40,23 +40,6 @@ import {
 import { getShellEnv } from './shell-env'
 
 const require = createRequire(import.meta.url)
-
-interface FormField {
-  type: string
-  title?: string | null
-  description?: string | null
-  enum?: string[] | null
-  oneOf?: { const: string; title: string }[] | null
-}
-
-/** A form field's choices, when it asks for a single pick from a list; otherwise null. */
-function formChoices(schema: acp.ElicitationPropertySchema) {
-  const field = schema as FormField
-  if (field.type !== 'string') return null
-  if (field.oneOf?.length) return field.oneOf.map((o) => ({ value: o.const, name: o.title }))
-  if (field.enum?.length) return field.enum.map((value) => ({ value, name: value }))
-  return null
-}
 
 const cursorPlan = z.object({
   toolCallId: z.string(),
@@ -710,9 +693,8 @@ export class AgentSession {
 
   /**
    * Asks a form's questions one at a time on Gui's permission card, each with its choices
-   * as the buttons. Gui has no form fields, so a form with a question that isn't a single
-   * pick from a list (free text, several picks) is declined: the agent carries on without
-   * the answer, and can ask in chat instead.
+   * as the buttons (`formQuestions`). A form Gui can't ask is declined: the agent carries on
+   * without the answer, and can ask in chat instead.
    */
   private async answerForm(
     request: acp.CreateElicitationRequest,
@@ -720,33 +702,26 @@ export class AgentSession {
     const sessionId = this.sessionId
     if (request.mode !== 'form') return { action: 'decline' }
     if (sessionId === null || this.disposed) return { action: 'cancel' }
-    const { requestedSchema } = request as acp.CreateElicitationRequest & {
-      requestedSchema: { properties?: Record<string, acp.ElicitationPropertySchema> }
-    }
-    const questions = Object.entries(requestedSchema?.properties ?? {}).map(([id, schema]) => ({
-      id,
-      schema: schema as FormField,
-      choices: formChoices(schema),
-    }))
-    if (questions.length === 0 || questions.some((question) => question.choices === null)) {
-      return { action: 'decline' }
-    }
+    const questions = formQuestions(
+      (request as acp.CreateElicitationRequest & { requestedSchema?: unknown }).requestedSchema,
+    )
+    if (!questions) return { action: 'decline' }
     const content: Record<string, string> = {}
-    for (const { id, schema, choices } of questions) {
+    for (const { id, title, choices } of questions) {
       const answer = await new Promise<string | null>((resolve) =>
         this.handlers.onPermission(
           {
             sessionId,
             toolCall: {
               toolCallId: `question:${id}`,
-              title: schema.description || schema.title || request.message,
+              title: title || request.message,
               // Not an ACP kind: the card shows the title as its question.
               kind: 'question' as acp.ToolKind,
             },
             // Skip first, so Auto mode never answers for the user (see `flaggedCaution`).
             options: [
               { optionId: 'skip', name: 'Skip', kind: 'reject_once' },
-              ...(choices ?? []).map((choice, index) => ({
+              ...choices.map((choice, index) => ({
                 optionId: String(index),
                 name: choice.name,
                 kind: 'answer' as acp.PermissionOptionKind,
@@ -757,7 +732,7 @@ export class AgentSession {
         ),
       )
       if (answer === null) return { action: 'cancel' }
-      const choice = choices?.[Number(answer)]
+      const choice = choices[Number(answer)]
       if (answer === 'skip' || !choice) return { action: 'decline' }
       content[id] = choice.value
     }

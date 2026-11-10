@@ -1,7 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import * as acp from '@agentclientprotocol/sdk'
 
-import { displayedModes, errorDetail, resumeMethods } from '../src/main/agent-protocol'
+import {
+  displayedModes,
+  errorDetail,
+  formQuestions,
+  resumeMethods,
+} from '../src/main/agent-protocol'
 
 const select = (
   id: string,
@@ -108,5 +113,66 @@ describe('resumeMethods', () => {
     expect(resumeMethods({ sessionCapabilities: { resume: null } })).toEqual([])
     expect(resumeMethods({})).toEqual([])
     expect(resumeMethods(undefined)).toEqual([])
+  })
+})
+
+describe('formQuestions', () => {
+  const pick = {
+    type: 'string',
+    title: 'Base branch',
+    description: 'Which branch should the pull request target?',
+    oneOf: [
+      { const: 'main', title: 'main' },
+      { const: 'dev', title: 'dev' },
+    ],
+  }
+
+  test('asks a single pick, leaving out an optional answer of your own beside it', () => {
+    // OpenCode's question tool with `custom`: the choices, plus a free-text "other" field.
+    expect(
+      formQuestions({
+        type: 'object',
+        properties: {
+          base: pick,
+          'base:other': { type: 'string', title: 'Base branch (other)' },
+        },
+        required: ['base'],
+      }),
+    ).toEqual([
+      {
+        id: 'base',
+        title: 'Which branch should the pull request target?',
+        choices: [
+          { value: 'main', name: 'main' },
+          { value: 'dev', name: 'dev' },
+        ],
+      },
+    ])
+  })
+
+  test('reads plain enums', () => {
+    expect(
+      formQuestions({ properties: { size: { type: 'string', enum: ['S', 'L'] } } })?.[0].choices,
+    ).toEqual([
+      { value: 'S', name: 'S' },
+      { value: 'L', name: 'L' },
+    ])
+  })
+
+  test("can't ask a required field without choices, a multi-pick alone, or nothing", () => {
+    expect(
+      formQuestions({
+        properties: { base: pick, reason: { type: 'string' } },
+        required: ['reason'],
+      }),
+    ).toBeNull()
+    expect(
+      formQuestions({
+        properties: { files: { type: 'array', items: { anyOf: [{ const: 'a', title: 'a' }] } } },
+        required: ['files'],
+      }),
+    ).toBeNull()
+    expect(formQuestions({ properties: { note: { type: 'string' } } })).toBeNull()
+    expect(formQuestions(undefined)).toBeNull()
   })
 })
