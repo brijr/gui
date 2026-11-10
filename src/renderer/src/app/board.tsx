@@ -11,17 +11,37 @@ import {
 import {
   type BoardCamera,
   boardBounds,
-  clampZoom,
   FRAME_MAX,
   FRAME_MIN,
-  fitCamera,
   regroupSections,
   SMALL_THUMB_WIDTH,
   sectionBounds,
 } from '../../../shared/board'
+import {
+  type BoardViewPoint,
+  type BoardViewRect,
+  boardPoint,
+  boardRectFrom,
+  boardRectFromBoardView,
+  boardViewFromBoard,
+  boardViewPoint,
+  boardViewRect,
+  boardViewRectFromBoard,
+} from '../../../shared/coords'
 import { Spring } from '../../../shared/motion'
 import { matchesShortcut } from '../../../shared/shortcuts'
 import type { BoardFrame, BoardState, Rect } from '../../../shared/types'
+import {
+  centreIn,
+  dragFrom,
+  dragOffset,
+  fitIn,
+  inMarquee,
+  marqueeRect,
+  scrollBy,
+  shownShare,
+  zoomAbout,
+} from '../board/camera'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
@@ -139,7 +159,7 @@ type Override = Partial<Area>
 type Gesture =
   | {
       kind: 'move'
-      start: { x: number; y: number }
+      start: BoardViewPoint
       ids: string[]
       /** The frame pressed, which a double-click opens */
       hit: string | null
@@ -151,14 +171,9 @@ type Gesture =
       /** The press was on this section's name, which moves all its frames */
       section?: string
     }
-  | { kind: 'resize'; start: { x: number; y: number }; id: string; from: Area }
-  | { kind: 'pan'; start: { x: number; y: number }; from: BoardCamera }
-  | {
-      kind: 'marquee'
-      start: { x: number; y: number }
-      now: { x: number; y: number }
-      add: string[]
-    }
+  | { kind: 'resize'; start: BoardViewPoint; id: string; from: Area }
+  | { kind: 'pan'; start: BoardViewPoint; from: BoardCamera }
+  | { kind: 'marquee'; start: BoardViewPoint; now: BoardViewPoint; add: string[] }
 
 /**
  * A canvas's frames on a pannable, zoomable board, like Figma's: their thumbnails (main
@@ -180,14 +195,15 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   const drawCamera = () => {
     const current = liveCamera.current
     if (!current || !ref.current || !layer.current) return
-    const { x, y, zoom } = current
-    layer.current.style.transform = `translate(${-x * zoom}px, ${-y * zoom}px) scale(${zoom})`
+    const { zoom } = current
+    const origin = boardViewFromBoard(boardPoint(0, 0), current)
+    layer.current.style.transform = `translate(${origin.x}px, ${origin.y}px) scale(${zoom})`
     // What's drawn at screen size in the layer reads these, so it keeps up with every frame of
     // a pan or pinch rather than with the throttled `camera`.
     layer.current.style.setProperty('--board-px', `${1 / zoom}px`)
     layer.current.style.setProperty('--board-zoom', String(zoom))
     layer.current.style.setProperty('--board-unzoom', String(1 / zoom))
-    ref.current.style.backgroundPosition = `${-x * zoom}px ${-y * zoom}px`
+    ref.current.style.backgroundPosition = `${origin.x}px ${origin.y}px`
     ref.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
   }
   const cameraFlight = useRef<(() => void) | null>(null)
@@ -392,30 +408,25 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     void clearArea(el, latest.current.size).then((area) => {
       const { frames, sections } = latest.current
       const areas = sections.flatMap((section) => sectionBounds(section, frames) ?? [])
-      setCamera(fitCameraIn(boardBounds([...frames, ...areas]), area))
+      const bounds = boardBounds([...frames, ...areas])
+      setCamera(fitIn(bounds && boardRectFrom(bounds), area))
     })
   }
-  const zoomAt = (factor: number, at: { x: number; y: number }) =>
-    moveCamera((current) => {
-      if (!current) return current
-      const zoom = clampZoom(current.zoom * factor)
-      // The board point under `at` stays under it.
-      return {
-        zoom,
-        x: current.x + at.x / current.zoom - at.x / zoom,
-        y: current.y + at.y / current.zoom - at.y / zoom,
-      }
-    })
+  const zoomAt = (factor: number, at: BoardViewPoint) =>
+    moveCamera((current) => current && zoomAbout(current, factor, at))
+  /** Around the middle of the board, as the keys and the toolbar zoom. */
+  const zoomCentred = (factor: number) => {
+    const { size } = latest.current
+    zoomAt(factor, boardViewPoint(size.width / 2, size.height / 2))
+  }
   /** Brings a frame into sight, at the zoom there is, unless most of it shows already. */
   const reveal = (frame: Area) => {
     const { camera, size } = latest.current
     if (!camera) return
-    if (shownShare(boardToScreen(frame, camera), { left: 0, top: 0, ...size }) >= 0.5) return
-    setCamera({
-      ...camera,
-      x: frame.x + frame.width / 2 - size.width / 2 / camera.zoom,
-      y: frame.y + frame.height / 2 - size.height / 2 / camera.zoom,
-    })
+    const rect = boardRectFrom(frame)
+    const view = boardViewRect(0, 0, size.width, size.height)
+    if (shownShare(boardViewRectFromBoard(rect, camera), view) >= 0.5) return
+    setCamera(centreIn(rect, view, camera.zoom))
   }
 
   // Opened without a saved camera: everything in sight, once the board has a size.
@@ -449,14 +460,12 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       unseen.current = []
       const added = latest.current.frames.filter((frame) => ids.includes(frame.id))
       if (!camera) return
-      const inSight = added.some((frame) => shownShare(boardToScreen(frame, camera), area) >= 0.5)
+      const inSight = added.some(
+        (frame) => shownShare(boardViewRectFromBoard(boardRectFrom(frame), camera), area) >= 0.5,
+      )
       const bounds = boardBounds(added)
       if (inSight || !bounds) return
-      glideCamera({
-        ...camera,
-        x: bounds.x + bounds.width / 2 - (area.left + area.width / 2) / camera.zoom,
-        y: bounds.y + bounds.height / 2 - (area.top + area.height / 2) / camera.zoom,
-      })
+      glideCamera(centreIn(boardRectFrom(bounds), area, camera.zoom))
     })
   }
   const known = useRef(new Set(board.frames.map((frame) => frame.id)))
@@ -491,14 +500,11 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   )
 
   // The toolbar's zoom controls.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: zoomAt and fit read the latest state themselves.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: zoomCentred and fit read the latest state themselves.
   useEffect(() => {
     publishView({
       camera,
-      zoomBy: (factor) => {
-        const { size } = latest.current
-        zoomAt(factor, { x: size.width / 2, y: size.height / 2 })
-      },
+      zoomBy: zoomCentred,
       fit,
     })
   }, [camera])
@@ -514,13 +520,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         if (command.type === 'renameFrame') setRenaming(command.id)
         else if (command.type === 'renameSection') setRenamingSection(command.id)
         else if (command.type === 'fit' || (command.type === 'zoom' && command.step === 0)) fit()
-        else if (command.type === 'zoom') {
-          const { size } = latest.current
-          zoomAt(command.step === 1 ? ZOOM_STEP : 1 / ZOOM_STEP, {
-            x: size.width / 2,
-            y: size.height / 2,
-          })
-        }
+        else if (command.type === 'zoom')
+          zoomCentred(command.step === 1 ? ZOOM_STEP : 1 / ZOOM_STEP)
       }),
     [],
   )
@@ -536,7 +537,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       // Mid-drag, the drag's offsets would come apart from the pointer.
       if (gestureRef.current) return
       const box = el.getBoundingClientRect()
-      const at = { x: event.clientX - box.left, y: event.clientY - box.top }
+      const at = boardViewPoint(event.clientX - box.left, event.clientY - box.top)
       if (event.ctrlKey || event.metaKey) {
         // A mouse wheel with ⌃ held turns in big notches: each is one step, as ⌘+ is.
         const delta = event.ctrlKey
@@ -545,14 +546,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         zoomAt(Math.exp(-delta * (event.ctrlKey ? 0.01 : 0.002)), at)
         return
       }
-      moveCamera((current) =>
-        current
-          ? {
-              ...current,
-              x: current.x + event.deltaX / current.zoom,
-              y: current.y + event.deltaY / current.zoom,
-            }
-          : current,
+      moveCamera(
+        (current) => current && scrollBy(current, boardViewPoint(event.deltaX, event.deltaY)),
       )
     }
     el.addEventListener('wheel', onWheel, { passive: false })
@@ -617,19 +612,19 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   if (!camera) return <div ref={ref} className="absolute inset-0" />
 
   // The camera as drawn this moment, which `camera` follows a little behind during a pan or pinch.
-  const toScreen = (area: Area) => boardToScreen(area, liveCamera.current ?? camera)
+  const drawnCamera = () => liveCamera.current ?? camera
   const local = (event: { clientX: number; clientY: number }) => {
     const box = ref.current?.getBoundingClientRect()
-    return { x: event.clientX - (box?.left ?? 0), y: event.clientY - (box?.top ?? 0) }
+    return boardViewPoint(event.clientX - (box?.left ?? 0), event.clientY - (box?.top ?? 0))
   }
   /** A menu opened from the keyboard: at the area's top-left corner, kept on the board, in the window. */
   const menuAt = (area: Area | null | undefined) => {
     const box = ref.current?.getBoundingClientRect()
     if (!area || !box) return undefined
-    const { left, top } = toScreen(area)
+    const { x, y } = boardViewRectFromBoard(boardRectFrom(area), drawnCamera())
     return {
-      x: box.left + Math.min(Math.max(left, 0), box.width),
-      y: box.top + Math.min(Math.max(top, 0), box.height),
+      x: box.left + Math.min(Math.max(x, 0), box.width),
+      y: box.top + Math.min(Math.max(y, 0), box.height),
     }
   }
 
@@ -666,7 +661,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     const at = local(event)
     event.currentTarget.setPointerCapture(event.pointerId)
     if (hand || event.button === 1) {
-      setGesture({ kind: 'pan', start: at, from: liveCamera.current ?? camera })
+      setGesture({ kind: 'pan', start: at, from: drawnCamera() })
       return
     }
     const handle = target.closest<HTMLElement>('[data-resize]')?.dataset.resize
@@ -718,11 +713,9 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       return
     }
     const at = local(event)
-    const zoom = (liveCamera.current ?? camera).zoom
-    const dx = (at.x - current.start.x) / zoom
-    const dy = (at.y - current.start.y) / zoom
+    const { dx, dy } = dragOffset(current.start, at, drawnCamera())
     if (current.kind === 'pan') {
-      moveCamera({ ...current.from, x: current.from.x - dx, y: current.from.y - dy })
+      moveCamera(dragFrom(current.from, current.start, at))
     } else if (current.kind === 'move') {
       const far = Math.hypot(at.x - current.start.x, at.y - current.start.y) > DRAG_SLOP
       if (!current.moved && !far) return
@@ -810,13 +803,13 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         gui.boardArrange([{ id, width, height }])
       }
     } else if (done.kind === 'marquee') {
-      const box = marqueeBox(done.start, done.now)
+      const box = marqueeRect(done.start, done.now)
       if (box.width < DRAG_SLOP && box.height < DRAG_SLOP) {
         if (board.selection.length && !done.add.length) select([])
         return
       }
       const hit = frames
-        .filter((frame) => intersects(toScreen(frame), box))
+        .filter((frame) => inMarquee(boardRectFrom(frame), box, drawnCamera()))
         .map((frame) => frame.id)
       select([...done.add, ...hit.filter((id) => !done.add.includes(id))])
     }
@@ -848,10 +841,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     else if (command && !event.altKey && !event.shiftKey && event.code === 'KeyA')
       select(board.frames.map((frame) => frame.id))
     else if (command && event.key === '0') fit()
-    else if (command && (event.key === '=' || event.key === '+'))
-      zoomAt(ZOOM_STEP, { x: size.width / 2, y: size.height / 2 })
-    else if (command && event.key === '-')
-      zoomAt(1 / ZOOM_STEP, { x: size.width / 2, y: size.height / 2 })
+    else if (command && (event.key === '=' || event.key === '+')) zoomCentred(ZOOM_STEP)
+    else if (command && event.key === '-') zoomCentred(1 / ZOOM_STEP)
     else if (plain && event.code === 'KeyH') setBoardTool('hand')
     else if (plain && event.code === 'KeyV') setBoardTool('move')
     else if (plain && event.key === 'Enter' && ids.length === 1) gui.boardOpenFrame(ids[0])
@@ -908,16 +899,19 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   }
 
   const grid = GRID * camera.zoom
-  const marquee = gesture?.kind === 'marquee' ? marqueeBox(gesture.start, gesture.now) : null
+  const marquee = gesture?.kind === 'marquee' ? marqueeRect(gesture.start, gesture.now) : null
   const single = board.selection.length === 1 ? board.selection[0] : null
   // What's drawn: frames and sections near the view, in board pixels. The margin keeps a pan
   // from adding and dropping them at every step. A name being edited stays, wherever it is.
-  const reach = {
-    x: camera.x - size.width / camera.zoom / 2,
-    y: camera.y - size.height / camera.zoom / 2 - LABEL_HEIGHT / camera.zoom,
-    width: (size.width / camera.zoom) * 2,
-    height: (size.height / camera.zoom) * 2 + LABEL_HEIGHT / camera.zoom,
-  }
+  const reach = boardRectFromBoardView(
+    boardViewRect(
+      -size.width / 2,
+      -size.height / 2 - LABEL_HEIGHT,
+      size.width * 2,
+      size.height * 2 + LABEL_HEIGHT,
+    ),
+    camera,
+  )
   const near = (area: Area) =>
     area.x <= reach.x + reach.width &&
     area.y <= reach.y + reach.height &&
@@ -926,6 +920,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   const shown = frames.filter((frame) => near(frame) || frame.id === renaming)
   const count = board.frames.length
   const zoom = camera.zoom
+  const origin = boardViewFromBoard(boardPoint(0, 0), camera)
   const areas = sections.flatMap((section) => {
     const area = sectionBounds(section, frames)
     return area && (near(area) || section.id === renamingSection) ? [{ section, area }] : []
@@ -966,7 +961,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         backgroundImage:
           grid >= 8 ? 'radial-gradient(var(--line-strong) 1px, transparent 1px)' : undefined,
         backgroundSize: `${grid}px ${grid}px`,
-        backgroundPosition: `${-camera.x * camera.zoom}px ${-camera.y * camera.zoom}px`,
+        backgroundPosition: `${origin.x}px ${origin.y}px`,
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -1007,7 +1002,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         className="absolute top-0 left-0 origin-top-left"
         style={
           {
-            transform: `translate(${-camera.x * zoom}px, ${-camera.y * zoom}px) scale(${zoom})`,
+            transform: `translate(${origin.x}px, ${origin.y}px) scale(${zoom})`,
             '--board-px': `${1 / zoom}px`,
             '--board-zoom': zoom,
             '--board-unzoom': 1 / zoom,
@@ -1116,8 +1111,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
           aria-hidden="true"
           className="pointer-events-none absolute border border-accent bg-accent-soft"
           style={{
-            left: marquee.left,
-            top: marquee.top,
+            left: marquee.x,
+            top: marquee.y,
             width: marquee.width,
             height: marquee.height,
           }}
@@ -1502,41 +1497,12 @@ function EmptyBoard({ working }: { working: boolean }) {
   )
 }
 
-/** A board area (a frame, a section) in the board element's own pixels. */
-interface ScreenBox {
-  left: number
-  top: number
-  width: number
-  height: number
-}
-
-/** Board pixels to the board element's: where the camera looks, at its zoom. */
-function boardToScreen(area: Area, camera: BoardCamera): ScreenBox {
-  return {
-    left: (area.x - camera.x) * camera.zoom,
-    top: (area.y - camera.y) * camera.zoom,
-    width: area.width * camera.zoom,
-    height: area.height * camera.zoom,
-  }
-}
-
-/** How much of `box` shows in `area`: 1 when all of it does, or when it fills the area. */
-function shownShare(box: ScreenBox, area: ScreenBox) {
-  const width =
-    Math.min(box.left + box.width, area.left + area.width) - Math.max(box.left, area.left)
-  const height =
-    Math.min(box.top + box.height, area.top + area.height) - Math.max(box.top, area.top)
-  if (width <= 0 || height <= 0) return 0
-  const whole = Math.min(box.width * box.height, area.width * area.height)
-  return whole > 0 ? (width * height) / whole : 0
-}
-
 /**
  * The part of the board the floating chat leaves clear, in the board element's pixels: all of
  * it unless the chat covers a good share of its height, and leaves a wide enough side.
  */
-async function clearArea(el: HTMLElement, size: Size): Promise<ScreenBox> {
-  const all = { left: 0, top: 0, width: size.width, height: size.height }
+async function clearArea(el: HTMLElement, size: Size): Promise<BoardViewRect> {
+  const all = boardViewRect(0, 0, size.width, size.height)
   const cover: Rect | null = await gui.boardChatCover().catch(() => null)
   if (!cover) return all
   const box = el.getBoundingClientRect()
@@ -1549,35 +1515,8 @@ async function clearArea(el: HTMLElement, size: Size): Promise<ScreenBox> {
   const after = Math.max(0, size.width - right)
   if (Math.max(before, after) < CLEAR_MIN_WIDTH) return all
   return after > before
-    ? { left: size.width - after, top: 0, width: after, height: size.height }
-    : { left: 0, top: 0, width: before, height: size.height }
-}
-
-/** fitCamera, within `area` of the board element rather than all of it. */
-function fitCameraIn(bounds: ReturnType<typeof boardBounds>, area: ScreenBox): BoardCamera {
-  const camera = fitCamera(bounds, area)
-  return { ...camera, x: camera.x - area.left / camera.zoom, y: camera.y - area.top / camera.zoom }
-}
-
-function marqueeBox(a: { x: number; y: number }, b: { x: number; y: number }) {
-  return {
-    left: Math.min(a.x, b.x),
-    top: Math.min(a.y, b.y),
-    width: Math.abs(a.x - b.x),
-    height: Math.abs(a.y - b.y),
-  }
-}
-
-function intersects(
-  a: { left: number; top: number; width: number; height: number },
-  b: { left: number; top: number; width: number; height: number },
-) {
-  return (
-    a.left < b.left + b.width &&
-    b.left < a.left + a.width &&
-    a.top < b.top + b.height &&
-    b.top < a.top + a.height
-  )
+    ? boardViewRect(size.width - after, 0, after, size.height)
+    : boardViewRect(0, 0, before, size.height)
 }
 
 function isTyping(target: EventTarget | null) {

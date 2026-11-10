@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  boardFromBoardView,
+  boardPoint,
+  boardRect,
+  boardRectFromBoardView,
+  boardViewFromBoard,
+  boardViewPoint,
+  boardViewRect,
+  boardViewRectFromBoard,
   pageFromViewport,
   pagePoint,
   viewFromViewport,
@@ -29,5 +37,16 @@ describe('preview coordinate spaces', () => {
     expect(viewportFromView(viewFromViewport(viewportPoint(8, 4), 2), 2)).toEqual(
       viewportPoint(8, 4),
     )
+  })
+})
+
+describe('canvas board coordinate spaces', () => {
+  test('board and board-view pixels differ by the camera, and convert both ways', () => {
+    const camera = { x: 100, y: 50, zoom: 0.5 }
+    expect(boardViewFromBoard(boardPoint(300, 250), camera)).toEqual(boardViewPoint(100, 100))
+    expect(boardFromBoardView(boardViewPoint(100, 100), camera)).toEqual(boardPoint(300, 250))
+    const rect = boardViewRectFromBoard(boardRect(300, 250, 1440, 900), camera)
+    expect(rect).toEqual(boardViewRect(100, 100, 720, 450))
+    expect(boardRectFromBoardView(rect, camera)).toEqual(boardRect(300, 250, 1440, 900))
   })
 })

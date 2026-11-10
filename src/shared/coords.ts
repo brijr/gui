@@ -1,6 +1,7 @@
 /**
- * Distinct coordinate spaces for the preview. Mixing them is a type error: page (document)
- * CSS pixels, viewport CSS pixels, and the preview view's scaled pixels are not interchangeable.
+ * Distinct coordinate spaces. Mixing them is a type error: for the preview, page (document)
+ * CSS pixels, viewport CSS pixels, and the preview view's scaled pixels are not
+ * interchangeable; nor, for the canvas board, are board and board-view pixels (below).
  */
 
 declare const pagePx: unique symbol
@@ -103,4 +104,86 @@ export function viewRectFromViewport(rect: ViewportRect, scale: number): ViewRec
 
 export function viewportRectFromView(rect: ViewRect, scale: number): ViewportRect {
   return viewportRect(rect.x / scale, rect.y / scale, rect.width / scale, rect.height / scale)
+}
+
+/*
+ * The canvas board has two spaces of its own. Board pixels are where frames are kept
+ * (`BoardFrameLayout`); board-view pixels are the board element's CSS pixels, from its
+ * top-left corner, which the camera maps board pixels to. Device pixels are never a rect in
+ * script: whatever draws the board is given board-view rects and the display's scale.
+ */
+
+declare const boardPx: unique symbol
+declare const boardViewPx: unique symbol
+
+export interface BoardPoint {
+  readonly x: number
+  readonly y: number
+  readonly [boardPx]: never
+}
+
+export interface BoardRect {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+  readonly [boardPx]: never
+}
+
+export interface BoardViewPoint {
+  readonly x: number
+  readonly y: number
+  readonly [boardViewPx]: never
+}
+
+export interface BoardViewRect {
+  readonly x: number
+  readonly y: number
+  readonly width: number
+  readonly height: number
+  readonly [boardViewPx]: never
+}
+
+export const boardPoint = (x: number, y: number) => ({ x, y }) as BoardPoint
+export const boardRect = (x: number, y: number, width: number, height: number) =>
+  ({ x, y, width, height }) as BoardRect
+export const boardViewPoint = (x: number, y: number) => ({ x, y }) as BoardViewPoint
+export const boardViewRect = (x: number, y: number, width: number, height: number) =>
+  ({ x, y, width, height }) as BoardViewRect
+
+/** A frame's or a section's place, as the manifest keeps it. */
+export const boardRectFrom = (rect: { x: number; y: number; width: number; height: number }) =>
+  boardRect(rect.x, rect.y, rect.width, rect.height)
+
+/** Where the board looks: the board point at the view's top-left corner, and its zoom. */
+interface BoardCameraLike {
+  readonly x: number
+  readonly y: number
+  readonly zoom: number
+}
+
+export function boardViewFromBoard(point: BoardPoint, camera: BoardCameraLike): BoardViewPoint {
+  return boardViewPoint((point.x - camera.x) * camera.zoom, (point.y - camera.y) * camera.zoom)
+}
+
+export function boardFromBoardView(point: BoardViewPoint, camera: BoardCameraLike): BoardPoint {
+  return boardPoint(point.x / camera.zoom + camera.x, point.y / camera.zoom + camera.y)
+}
+
+export function boardViewRectFromBoard(rect: BoardRect, camera: BoardCameraLike): BoardViewRect {
+  return boardViewRect(
+    (rect.x - camera.x) * camera.zoom,
+    (rect.y - camera.y) * camera.zoom,
+    rect.width * camera.zoom,
+    rect.height * camera.zoom,
+  )
+}
+
+export function boardRectFromBoardView(rect: BoardViewRect, camera: BoardCameraLike): BoardRect {
+  return boardRect(
+    rect.x / camera.zoom + camera.x,
+    rect.y / camera.zoom + camera.y,
+    rect.width / camera.zoom,
+    rect.height / camera.zoom,
+  )
 }
