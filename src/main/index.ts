@@ -24,6 +24,7 @@ import {
   MAX_RECORDING_MS,
   MAX_THUMBNAIL,
 } from '../shared/bounded'
+import { type FindAction, MAX_FIND_TEXT } from '../shared/find'
 import {
   Events,
   GUIDE_POINTER_PHASES,
@@ -1210,6 +1211,13 @@ function registerIpc() {
     if (previewTab(event)) toggleRulers()
   })
   on(Send.toggleRulers, () => toggleRulers())
+  // The preview's find bar, in the window's chrome.
+  onWindow(Send.findInPage, (win, text, forward, fresh) => {
+    if (!isString(text) || text.length > MAX_FIND_TEXT) return
+    if (typeof forward === 'boolean' && typeof fresh === 'boolean')
+      win.activeTab.findInPage(text, forward, fresh)
+  })
+  onWindow(Send.stopFindInPage, (win) => win.activeTab.stopFindInPage())
   on(Send.rulerDrag, (tab, axis, phase, at) => {
     if ((axis === 'x' || axis === 'y') && isPoint(at) && isRulerPhase(phase))
       tab.rulerDrag(axis, phase, at)
@@ -1470,6 +1478,24 @@ function toggleAutoMode() {
   syncMenuItems()
 }
 
+/**
+ * ⌘F, ⌘G and ⇧⌘G: find in what has the keyboard, in the window menus act on (`find` in
+ * window.ts). A text field doesn't take these keys, so they come here from one too.
+ */
+function find(action: FindAction) {
+  const win = menuWindow()
+  if (!win || win.win.isMinimized()) return
+  const focused = webContents.getFocusedWebContents()
+  const focus = !focused
+    ? 'none'
+    : focused === win.win.webContents
+      ? 'chrome'
+      : win.activeTab.ownsPreview(focused)
+        ? 'preview'
+        : 'chat'
+  void win.find(action, focus)
+}
+
 /** ⌘T: a start-screen tab in the window menus act on, or a new window when there's none. */
 function newTab() {
   const win = menuWindow()
@@ -1678,6 +1704,15 @@ function buildMenu() {
         { role: 'pasteAndMatchStyle' },
         { role: 'delete' },
         { role: 'selectAll' },
+        { type: 'separator' },
+        {
+          label: 'Find',
+          submenu: [
+            ...item('find', { click: () => find('show') }),
+            ...item('findNext', { click: () => find('next') }),
+            ...item('findPrevious', { click: () => find('previous') }),
+          ],
+        },
       ],
     },
     {

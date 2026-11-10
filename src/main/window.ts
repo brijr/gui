@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events'
 import { BrowserWindow, Menu, shell, type WebContents } from 'electron'
+import { type FindAction, type FindCommand, type FindContext, findArea } from '../shared/find'
 import { Events, type StartForm } from '../shared/ipc'
 import {
   FOCUS_BAR_HEIGHT,
@@ -290,6 +291,34 @@ export class ProjectWindow implements TabHost {
     this.win.webContents
       .executeJavaScript(`window.dispatchEvent(new Event('gui:record'))`, true)
       .catch(() => undefined)
+  }
+
+  /**
+   * Edit → Find, Find Next or Find Previous (shared/find.ts): the find bar of the drawer's
+   * terminal that has the keyboard, otherwise the preview's, under the toolbar. `focus` is the
+   * page that had the keyboard when it was chosen.
+   */
+  async find(action: FindAction, focus: FindContext['focus']) {
+    const inTerminal = focus === 'chrome' && (await this.terminalHasKeyboard())
+    const previewShown = this.active.getState().preview.visible
+    const area = findArea({ focus, inTerminal, previewShown })
+    if (!area || this.disposed) return shell.beep()
+    // The preview's find bar is under the toolbar, which focus mode hides.
+    if (area === 'preview') this.setFocusMode(false)
+    // Its field takes the keyboard. (Focusing web contents also raises its window.)
+    if (action === 'show' && this.win.isFocused()) this.win.webContents.focus()
+    const command: FindCommand = { action, area }
+    this.send(Events.find, command)
+  }
+
+  /** Whether the keyboard is in one of the drawer's terminals, or its find bar. */
+  private async terminalHasKeyboard() {
+    const code = `!!document.activeElement?.closest('[data-find-scope="terminal"]')`
+    try {
+      return (await this.win.webContents.executeJavaScript(code)) === true
+    } catch {
+      return false
+    }
   }
 
   /**

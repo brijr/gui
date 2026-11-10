@@ -1,5 +1,6 @@
 import { FitAddon, Ghostty, type ITheme, Terminal } from 'ghostty-web'
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url'
+import type { TextMatch } from '../../../shared/find'
 import type { OutputChunk, Unsubscribe } from '../../../shared/ipc'
 import { gui } from '../lib/api'
 
@@ -192,6 +193,48 @@ function documentListeners(open: () => void) {
       document.removeEventListener(type, listener, options)
     }
   }
+}
+
+/** Every line `term` keeps, scrollback first, as text: what Find searches. */
+export function terminalLines(term: Terminal) {
+  const buffer = term.buffer.active
+  const lines: string[] = []
+  for (let y = 0; y < buffer.length; y++) {
+    lines.push(buffer.getLine(y)?.translateToString(true) ?? '')
+  }
+  return lines
+}
+
+/** The selection Ghostty draws, set directly: its own `select` counts rows from elsewhere. */
+interface Selection {
+  selectionStart: { col: number; absoluteRow: number } | null
+  selectionEnd: { col: number; absoluteRow: number } | null
+  markCurrentSelectionDirty(): void
+}
+
+function selectionOf(term: Terminal) {
+  return (term as unknown as { selectionManager?: Selection }).selectionManager
+}
+
+/**
+ * Selects a match Find found in `terminalLines` and scrolls it into view, in the middle when
+ * it was out of sight. Selected, ⌘C copies it.
+ */
+export function showMatch(term: Terminal, { row, col, length }: TextMatch) {
+  const selection = selectionOf(term)
+  if (!selection) return
+  const scrollback = term.getScrollbackLength()
+  // A full-screen app's screen (vim, less) has no scrollback of its own: its rows follow it.
+  const absolute = term.buffer.active.type === 'alternate' ? scrollback + row : row
+  const top = scrollback - term.getViewportY()
+  if (absolute < top || absolute >= top + term.rows) {
+    const centered = scrollback - absolute + Math.floor(term.rows / 2)
+    term.scrollToLine(Math.max(0, Math.min(scrollback, centered)))
+  }
+  // The old match's rows are drawn again without it.
+  selection.markCurrentSelectionDirty()
+  selection.selectionStart = { col, absoluteRow: absolute }
+  selection.selectionEnd = { col: col + length - 1, absoluteRow: absolute }
 }
 
 /** The bottom screen of `term`'s lines, trimmed. */

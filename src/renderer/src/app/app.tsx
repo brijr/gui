@@ -7,6 +7,7 @@ import { Button } from '../lib/ui'
 import { useWindowState } from '../lib/use-window-state'
 import { Canvas, DeveloperToolsBanner, EnvBanner } from './canvas'
 import { Drawer } from './drawer'
+import { PreviewFind } from './find-bar'
 import { useLayoutMorphs, useLayoutSlide, useSidebarSlides } from './layout-morph'
 import { ShortcutsSheet } from './shortcuts-sheet'
 import { TabStrip } from './tab-strip'
@@ -102,6 +103,8 @@ export function App() {
               {/* Outside the canvas, so the preview is laid out below it. Keyed so a dismissal is per project. */}
               <DeveloperToolsBanner state={state} />
               <EnvBanner key={state.project?.root} state={state} />
+              {/* Edit → Find in the preview (⌘F), above it as in Safari. */}
+              {state.project && <PreviewFind state={state} />}
             </Fragment>
           </div>
           {!state.project && state.tabs.length === 1 && (

@@ -31,6 +31,7 @@ import {
   parseManifest,
 } from '../shared/board'
 import { viewPointFrom } from '../shared/coords'
+import type { FindResult } from '../shared/find'
 import {
   type ChatMenuChoice,
   Events,
@@ -762,6 +763,8 @@ export class ProjectTab implements ChatPanelOwner {
    */
   deactivate() {
     if (this.state.preview.selecting) void this.setSelecting(false)
+    // Its find bar is the chrome's, which shows the next tab's now.
+    this.stopFindInPage()
     // A morph of the preview ends too, in its new layout, with the docked chat in its place
     // (the view is placed again when the tab is back).
     this.morph.finish(false)
@@ -1969,6 +1972,23 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.host.isActive(this)) this.host.setFocusMode(false)
   }
 
+  /**
+   * Edit → Find in the app's page: a new search for `text` (`fresh`), or its next match
+   * (`forward`) or the previous one. Chromium highlights them; the count goes to the chrome.
+   */
+  findInPage(text: string, forward: boolean, fresh: boolean) {
+    const page = this.preview.webContents
+    if (page.isDestroyed()) return
+    if (!text) return this.stopFindInPage()
+    page.findInPage(text, { forward, findNext: fresh })
+  }
+
+  /** The find bar closed: the highlights go, the match it showed stays selected. */
+  stopFindInPage() {
+    const page = this.preview.webContents
+    if (!page.isDestroyed()) page.stopFindInPage('keepSelection')
+  }
+
   /** The keyboard to the page (focus mode, where Esc on it ends focus mode). */
   focusPreview() {
     this.pageKeyboard().focus()
@@ -2011,6 +2031,11 @@ export class ProjectTab implements ChatPanelOwner {
 
   private bindPreview() {
     const wc = this.preview.webContents
+    // Edit → Find's matches, for the find bar to count.
+    wc.on('found-in-page', (_event, { activeMatchOrdinal, matches }) => {
+      const result: FindResult = { active: activeMatchOrdinal, total: matches }
+      this.host.sendChrome(this, Events.findResult, result)
+    })
     wc.on('did-start-loading', () => this.patchPreview({ loading: true }))
     wc.on('did-stop-loading', () => {
       this.keepKeyboard()

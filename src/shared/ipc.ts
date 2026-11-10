@@ -1,6 +1,7 @@
 import type { AccountProfile, AccountState } from './account'
 import type { BoardCamera, FramePreset } from './board'
 import type { ChatTurnUpdate } from './chat-transport'
+import type { FindCommand, FindResult } from './find'
 import type { GitHubState } from './github'
 import type { SymbolImages } from './symbols'
 import type {
@@ -131,6 +132,8 @@ export const Send = {
   variations: 'pick:variations',
   variationsSize: 'pick:variations-size',
   toggleRulers: 'rulers:toggle',
+  findInPage: 'preview:find',
+  stopFindInPage: 'preview:find-stop',
   rulerDrag: 'rulers:drag',
   guidePointer: 'guides:pointer',
   setCanvasRect: 'layout:canvas',
@@ -254,6 +257,10 @@ export const Events = {
   pickState: 'pick:state',
   rulers: 'rulers',
   guideStrips: 'guides:strips',
+  /** Edit → Find, Find Next or Find Previous, for a find bar in the chrome (`FindCommand`) */
+  find: 'find',
+  /** The preview's matches as Chromium finds them (`FindResult`) */
+  findResult: 'find:result',
   settings: 'settings',
   settingsSection: 'settings:section',
   account: 'account',
@@ -330,6 +337,16 @@ export interface GuiApi {
   onLogs(cb: (chunk: OutputChunk) => void): Unsubscribe
   /** A shortcut for something on this page (see `UiCommand`) */
   onCommand(cb: (command: UiCommand) => void): Unsubscribe
+  /** Edit → Find and the rest, for the preview's find bar or a terminal's */
+  onFind(cb: (command: FindCommand) => void): Unsubscribe
+  /**
+   * Searches the preview's page for `text`: a new search (`fresh`), or the next match
+   * (`forward`) or the previous one. The matches come back through `onFindResult`.
+   */
+  findInPage(text: string, forward: boolean, fresh: boolean): void
+  /** Ends the preview's search, leaving the match it showed selected */
+  stopFindInPage(): void
+  onFindResult(cb: (result: FindResult) => void): Unsubscribe
 
   openProject(): Promise<void>
   openRecent(root: string): Promise<void>

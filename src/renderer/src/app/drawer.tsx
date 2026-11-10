@@ -20,6 +20,7 @@ import {
   useScrollingTabs,
 } from '../lib/tabs'
 import { Button, IconButton, PRESS, TIGHT_HIT_AREA } from '../lib/ui'
+import { FIND_EVENT } from './find-bar'
 import { FixStartupButton } from './fix-startup'
 import { useLayoutSlide } from './layout-morph'
 import { crashed, serverStatus, stoppedOutside } from './server-status'
@@ -55,6 +56,16 @@ export function Drawer({ state }: { state: WindowState }) {
   // by a click on its tab here.
   const [focusRequest, setFocusRequest] = useState<DrawerTab | null>(null)
   useEffect(() => gui.onDrawerFocus(setFocusRequest), [])
+  // Edit → Find while a terminal has the keyboard: to that terminal's find bar.
+  useEffect(
+    () =>
+      gui.onFind(({ action, area }) => {
+        if (area !== 'terminal') return
+        const scope = document.activeElement?.closest('[data-find-scope="terminal"]')
+        scope?.dispatchEvent(new CustomEvent(FIND_EVENT, { detail: action }))
+      }),
+    [],
+  )
   // Focus mode hides it, with the rest of the chrome.
   const open = state.drawer.open && !state.focusMode && state.project !== null
   const section = useRef<HTMLElement>(null)

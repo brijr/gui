@@ -1,10 +1,21 @@
 import type { Terminal } from 'ghostty-web'
-import { useEffect, useRef, useSyncExternalStore } from 'react'
+import { type RefObject, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  applyFindAction,
+  CLOSED_FIND,
+  type FindAction,
+  type FindResult,
+  findInLines,
+  findStatus,
+  stepMatch,
+  type TextMatch,
+} from '../../../shared/find'
 import { MAX_TERMINAL_INPUT } from '../../../shared/ipc'
 import { matchesShortcut } from '../../../shared/shortcuts'
 import type { TerminalId } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { drawOutput, mountTerminal } from './terminal'
+import { FIND_EVENT, FloatingFindBar } from './find-bar'
+import { drawOutput, mountTerminal, showMatch, terminalLines } from './terminal'
 
 // The drawer's terminals, apart from it so Ghostty loads only once one is first drawn.
 
@@ -37,9 +48,82 @@ function useFocus(term: { current: Terminal | null }, { focus, onFocused }: View
   }, [focus, term, onFocused])
 }
 
+/**
+ * Edit → Find in a terminal (⌘F while it has the keyboard): its find bar, floating over the
+ * top of the drawer. The drawer hands it the menu's commands as `FIND_EVENT` on its scope.
+ */
+function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTMLElement | null>) {
+  const [find, setFind] = useState(CLOSED_FIND)
+  const [result, setResult] = useState<FindResult | null>(null)
+  // As they are now, for a command that comes before the next render.
+  const current = useRef(find)
+  const shown = useRef<TextMatch | null>(null)
+  const update = (next: typeof find) => {
+    current.current = next
+    setFind(next)
+  }
+  /** Searches all its lines again (output keeps coming), and shows the match `step` away. */
+  const search = (query: string, step: 1 | -1 | null) => {
+    const terminal = term.current
+    if (!terminal) return
+    const matches = findInLines(terminalLines(terminal), query)
+    const index = stepMatch(matches, step ? shown.current : null, step ?? 1)
+    const match = matches[index] ?? null
+    shown.current = match
+    if (match) showMatch(terminal, match)
+    else terminal.clearSelection()
+    setResult({ active: index + 1, total: matches.length })
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `update` and `search` read refs.
+  useEffect(() => {
+    const el = scope.current
+    if (!el) return
+    const onFind = (event: Event) => {
+      const was = current.current
+      const { state, step } = applyFindAction(was, (event as CustomEvent<FindAction>).detail)
+      update(state)
+      if (step) search(state.query, step)
+      else if (!was.open && state.query) search(state.query, null)
+    }
+    el.addEventListener(FIND_EVENT, onFind)
+    return () => el.removeEventListener(FIND_EVENT, onFind)
+  }, [scope])
+
+  if (!find.open) return null
+  return (
+    <FloatingFindBar
+      className="absolute top-0 right-0 z-10"
+      label="Find in terminal"
+      query={find.query}
+      status={findStatus(find.query, result)}
+      found={(result?.total ?? 0) > 0 && find.query !== ''}
+      focusKey={find.focusKey}
+      onQuery={(text) => {
+        update({ ...current.current, query: text })
+        shown.current = null
+        if (text) search(text, null)
+        else {
+          term.current?.clearSelection()
+          setResult(null)
+        }
+      }}
+      onStep={(step) => {
+        const { query } = current.current
+        if (query) search(query, step)
+      }}
+      onClose={() => {
+        update({ ...current.current, open: false })
+        setResult(null)
+        term.current?.focus()
+      }}
+    />
+  )
+}
+
 /** The dev server's output, read-only. Mounted only once a project exists. */
 export function LogsView(props: ViewProps) {
   const host = useRef<HTMLDivElement>(null)
+  const scope = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal | null>(null)
   const dark = useDark()
   const mounted = useRef<ReturnType<typeof mountTerminal> | null>(null)
@@ -71,13 +155,20 @@ export function LogsView(props: ViewProps) {
     else mounted.current?.pause()
   }, [props.active, dark])
   useFocus(term, props)
+  const find = useTerminalFind(term, scope)
 
-  return <div ref={host} data-terminal="" className={HOST} />
+  return (
+    <div ref={scope} data-find-scope="terminal" className={SCOPE}>
+      <div ref={host} data-terminal="" className={HOST} />
+      {find}
+    </div>
+  )
 }
 
 /** One of the project's terminals: what its shell prints, and the keys typed into it. */
 export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
   const host = useRef<HTMLDivElement>(null)
+  const scope = useRef<HTMLDivElement>(null)
   const term = useRef<Terminal | null>(null)
   const dark = useDark()
   const mounted = useRef<ReturnType<typeof mountTerminal> | null>(null)
@@ -136,12 +227,20 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     else mounted.current?.pause()
   }, [props.active, dark, id])
   useFocus(term, props)
+  const find = useTerminalFind(term, scope)
 
-  return <div ref={host} data-terminal="" className={HOST} />
+  return (
+    <div ref={scope} data-find-scope="terminal" className={SCOPE}>
+      <div ref={host} data-terminal="" className={HOST} />
+      {find}
+    </div>
+  )
 }
 
 /** Ghostty makes the host editable for its keys; the page's caret mustn't show in it. */
 const HOST = 'size-full caret-transparent'
+/** The terminal and its find bar: the keyboard in either is "in the terminal" for Find. */
+const SCOPE = 'relative size-full'
 
 /** ⌃U: deletes the line being typed, in zsh and bash. */
 const KILL_LINE = '\x15'

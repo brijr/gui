@@ -36,6 +36,10 @@ const api: GuiApi = {
   getLogs: () => legacyInvoke(Invoke.getLogs),
   onLogs: (cb) => subscribe(Events.logs, cb),
   onCommand: (cb) => subscribe(Events.command, cb),
+  onFind: (cb) => subscribe(Events.find, cb),
+  findInPage: send(Send.findInPage),
+  stopFindInPage: send(Send.stopFindInPage),
+  onFindResult: (cb) => subscribe(Events.findResult, cb),
 
   openProject: () => legacyInvoke(Invoke.openProject),
   openRecent: (root) => legacyInvoke(Invoke.openRecent, root),
