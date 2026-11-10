@@ -1,7 +1,8 @@
 # The board today: an inventory
 
 Everything `src/renderer/src/app/board.tsx` (1,586 lines on `0380bc9`) draws, handles, reads and
-sends, and where each goes when the board's pixels move to WebGL. Line numbers are that commit's.
+sends, and where each goes when the board's pixels move to WebGL. Line numbers are that commit's;
+since stage 5 the board is split across `src/renderer/src/board/` (the README's Architecture).
 
 **GL** drawn on the canvas. **DOM** stays an element over the canvas. **Mirror** an element
 with no pixels of its own, kept for the pointer, a screen reader and the specs.

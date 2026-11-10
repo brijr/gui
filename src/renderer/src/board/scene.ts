@@ -1,16 +1,27 @@
-import { type BoardCamera, SMALL_THUMB_WIDTH, THUMB_WIDTH } from '../../../shared/board'
+import {
+  type BoardCamera,
+  type BoardSection,
+  SMALL_THUMB_WIDTH,
+  sectionBounds,
+  THUMB_WIDTH,
+} from '../../../shared/board'
 import {
   type BoardViewRect,
   boardRectFrom,
+  boardRectFromBoardView,
   boardViewRect,
   boardViewRectFromBoard,
 } from '../../../shared/coords'
+import type { BoardFrame } from '../../../shared/types'
 
 /*
- * What the board draws, as a list of quads in paint order. Nothing here knows about WebGL or
- * the DOM: it takes the board as main sent it (with what a gesture drew ahead of main), the
- * camera and the view's size, and says which rectangles go where, in board-view pixels, with
- * what ink. The renderer (renderer.ts) turns the list into draw calls; a test can read it.
+ * What the board shows. Nothing here knows about WebGL or the DOM: it takes the board as main
+ * sent it (with what a gesture drew ahead of main), the camera and the view's size.
+ *
+ * For the canvas (`buildScene`): which rectangles go where, in board-view pixels, with what
+ * ink, as a list of quads in paint order. The renderer (gl/renderer.ts) turns the list into
+ * draw calls; a test can read it. For the DOM over it (`overlayScene`): which frames and
+ * sections are near enough the view to mount, and which names have room.
  */
 
 /** A colour by what it's for; the renderer's theme says what each is in light and dark. */
@@ -75,7 +86,7 @@ export function thumbTier(frameWidth: number, drawn: number): Omit<ThumbWant, 'i
     : { width, source: 'full', sourceWidth: full }
 }
 
-interface Area {
+export interface Area {
   x: number
   y: number
   width: number
@@ -251,4 +262,106 @@ export function buildScene(
     quads,
     grid: grid >= GRID_MIN ? { size: grid, x: -camera.x * zoom, y: -camera.y * zoom } : null,
   }
+}
+
+/** The frame label's height above a frame, in screen pixels. */
+export const LABEL_HEIGHT = 22
+/** A section's name's height, in screen pixels. */
+export const SECTION_LABEL_HEIGHT = LABEL_HEIGHT + 2
+/** A section's name sits this far inside its top-left corner, in screen pixels. */
+export const SECTION_INSET = 10
+/** A frame narrower than this on screen shows its name above it without its size. */
+const SIZE_LABEL_MIN = 140
+/** Zoomed out further, frames' names go without their sizes. */
+const SIZE_LABEL_ZOOM = 0.5
+
+export interface OverlayScene {
+  /** The frames near the view, and the one whose name is being edited, wherever it is */
+  shown: BoardFrame[]
+  /** The sections near the view, and the one being renamed, with the area each covers */
+  areas: { section: BoardSection; area: Area }[]
+  /** Whether a frame's name has room above it */
+  named(frame: BoardFrame): boolean
+  /** Whether its size fits after its name */
+  sized(frame: BoardFrame): boolean
+}
+
+/**
+ * The frames and sections the DOM over the board mounts, in board pixels: those near a view
+ * of `size` through `camera`. The margin (half a view each way) keeps a pan from adding and
+ * dropping them at every step.
+ */
+export function overlayScene(
+  frames: readonly BoardFrame[],
+  sections: readonly BoardSection[],
+  camera: BoardCamera,
+  size: { width: number; height: number },
+  renaming: { frame: string | null; section: string | null },
+): OverlayScene {
+  const reach = boardRectFromBoardView(
+    boardViewRect(
+      -size.width / 2,
+      -size.height / 2 - LABEL_HEIGHT,
+      size.width * 2,
+      size.height * 2 + LABEL_HEIGHT,
+    ),
+    camera,
+  )
+  const near = (area: Area) =>
+    area.x <= reach.x + reach.width &&
+    area.y <= reach.y + reach.height &&
+    area.x + area.width >= reach.x &&
+    area.y + area.height >= reach.y
+  const shown = frames.filter((frame) => near(frame) || frame.id === renaming.frame)
+  const areas = sections.flatMap((section) => {
+    const area = sectionBounds(section, frames)
+    return area && (near(area) || section.id === renaming.section) ? [{ section, area }] : []
+  })
+  const sectionOf = new Map<string, Area>()
+  for (const { section, area } of areas) for (const id of section.frames) sectionOf.set(id, area)
+  // Zoomed out, a frame's name goes where there's no room for it above the frame: it would
+  // cover its section's name, or the frame above it (and take its clicks).
+  const { zoom } = camera
+  const nameBand = LABEL_HEIGHT / zoom
+  const sectionName = (SECTION_INSET + SECTION_LABEL_HEIGHT) / zoom
+  const named = (frame: BoardFrame) => {
+    const top = frame.y - nameBand
+    const section = sectionOf.get(frame.id)
+    if (section && top < section.y + sectionName) return false
+    return !frames.some(
+      (other) =>
+        other.id !== frame.id &&
+        other.x < frame.x + frame.width &&
+        frame.x < other.x + other.width &&
+        other.y < frame.y &&
+        other.y + other.height > top,
+    )
+  }
+  const sized = (frame: BoardFrame) =>
+    zoom >= SIZE_LABEL_ZOOM && frame.width * zoom >= SIZE_LABEL_MIN
+  return { shown, areas, named, sized }
+}
+
+/** The sections' areas for the canvas: around their frames as drawn, and which is picked. */
+export function sectionAreas(
+  sections: readonly BoardSection[],
+  frames: readonly BoardFrame[],
+  picked: string | null,
+): SceneInput['sections'] {
+  return sections.flatMap((section) => {
+    const area = sectionBounds(section, frames)
+    return area ? [{ id: section.id, area, picked: picked === section.id }] : []
+  })
+}
+
+/** What a screen reader is told is selected: a section picked by its name, a frame, or a count. */
+export function selectionSaid(
+  selection: readonly string[],
+  frames: readonly BoardFrame[],
+  section: BoardSection | null,
+) {
+  if (section) return `${section.name} selected`
+  const names = selection.flatMap((id) => frames.find((frame) => frame.id === id)?.name ?? [])
+  if (names.length === 0) return ''
+  return names.length === 1 ? `${names[0]} selected` : `${names.length} frames selected`
 }

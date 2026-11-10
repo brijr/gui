@@ -1,8 +1,8 @@
 # The board in WebGL: measurements, decisions, plan
 
 Moving the canvas board's drawing from DOM to WebGL. A prototype measured it and settled the
-decisions below; stages 1–4 of the plan are done, so the renderer is in
-`src/renderer/src/board-gl/` behind a development-only switch, and stages 5–7 are to come.
+decisions below; stages 1–5 of the plan are done, so the renderer is in
+`src/renderer/src/board/` behind a development-only switch, and stages 6–7 are to come.
 [inventory.md](inventory.md) lists everything the board does today and where each part goes.
 The prototype itself, its probe and its raw results are on the branch
 `brijr/webgl-board-prototype` (commit `e9f7d31`).
@@ -24,19 +24,19 @@ look at that fixed cost in a visible window on the owner's display before stage 
 launch). A packaged Gui ignores it. (The prototype also had `GUI_DEV_MAX_FRAMES`, to open
 canvases of 500 and 2,000 frames for the measurements below; it was not carried over.)
 
-It keeps `board.tsx` whole and moves only its pixels: with the switch on, the board mounts a
-canvas under its DOM (`src/renderer/src/board-gl/`) and the tiles, section areas, selection
+It keeps the board's DOM and moves only its pixels: with the switch on, the board mounts a
+canvas under its DOM (`surface.tsx` and `gl/` in `src/renderer/src/board/`) and the tiles, section areas, selection
 outlines, handle, marquee and grid stop painting. Names, rename fields, the empty state and
 every pointer and keyboard handler are the same code as today, so every interaction works
 and the two can be compared like for like.
 
 | File | What it is |
 | --- | --- |
-| `scene.ts` | Board state + camera + view size → quads in paint order, and the texture width each frame wants. No WebGL, no DOM; `tests/board-gl-scene.test.ts` reads it. |
-| `renderer.ts` | WebGL2: one instanced unit square, shaped in the fragment shader (rounded rectangle, fill, stroke, thumbnail, soft shadow), and the dot grid. |
-| `textures.ts` | One texture a frame at the width it is drawn; loading, budget, eviction, lost context. |
-| `theme.ts` | The board's inks read from the page's own CSS variables. |
-| `surface.tsx` | The canvas element and when it draws: on demand, once a frame at most. Marks each tile with the thumbnail width it holds (`data-thumb`); says when WebGL2 can't start. |
+| `scene.ts` | Board state + camera + view size → quads in paint order, and the texture width each frame wants. No WebGL, no DOM; `tests/board-scene.test.ts` reads it. |
+| `gl/renderer.ts` | WebGL2: one instanced unit square, shaped in the fragment shader (rounded rectangle, fill, stroke, thumbnail, soft shadow), and the dot grid. |
+| `gl/textures.ts` | One texture a frame at the width it is drawn; loading, budget, eviction, lost context. |
+| `gl/theme.ts` | The board's inks read from the page's own CSS variables. |
+| `surface.tsx` | The canvas element and when it draws: on demand, once a frame at most. Marks each tile with the thumbnail width it holds (`data-thumb`); says when WebGL2 can't start (`BoardUnavailable`). |
 
 Also: `BoardPoint`/`BoardRect` and `BoardViewPoint`/`BoardViewRect` in `src/shared/coords.ts`
 and the camera's arithmetic in `src/renderer/src/board/camera.ts`; `gui-thumb:` readable by
@@ -256,8 +256,9 @@ prototype argues for a number.
 
 ## Architecture
 
-The prototype's five files stay. What changes is `board.tsx`, which today is one component
-holding the camera, four gestures, the keyboard, culling, name rules and all the JSX.
+The prototype's five files stay. What changed in stage 5 is `board.tsx`, which was one
+component holding the camera, four gestures, the keyboard, culling, name rules and all the
+JSX. As built:
 
 ```
 src/renderer/src/board/
@@ -269,18 +270,21 @@ src/renderer/src/board/
                          (select, arrange, open, rename, pan); today's onPointerDown/Move/finish
   keys.ts         pure   a key → what it asks for; today's onKeyDown
   intents.ts             the one place that calls window.gui for the board
-  view.ts                useBoardView / useBoardTool, for the toolbar
+  view.ts                useBoardView / useBoardTool, for the toolbar; Space held as the Hand
+  use-camera.ts   React  the live camera and React's copy; the wheel, fit, zoom steps, reveals
+                         and glides, saving it, and publishing it to the toolbar
   gl/renderer.ts         WebGL2 only: knows quads, not frames
   gl/textures.ts
   gl/theme.ts
-  surface.tsx     React  the canvas and its draw loop
-  overlay.tsx     React  the DOM over the canvas: names, rename fields, the mirror tiles and
-                         handle (what is pressed, what specs and a screen reader find), the
-                         live region
+  surface.tsx     React  the canvas and its draw loop; the message when WebGL2 can't start
+  overlay.tsx     React  the DOM over the canvas: names, rename fields (useNaming), the mirror
+                         tiles and handle (what is pressed, what specs and a screen reader
+                         find), the live region
   empty.tsx       React  the empty state
-  board.tsx       React  the shell: owns the live camera and the gesture, feeds events to
-                         gestures.ts and keys.ts, runs the effects (menu commands, saving the
-                         camera, revealing added frames). Under 400 lines.
+  board.tsx       React  the shell: owns the camera (through use-camera.ts) and the gesture,
+                         feeds events to gestures.ts and keys.ts and does what they ask, runs
+                         the board's own effects (menu commands, focus, what's picked). Under
+                         400 lines.
 ```
 
 How React fits: React renders the overlay from state that changes at human speed (the board
@@ -295,7 +299,7 @@ they have never had.
 
 ## Stages
 
-Stages 1–4 are done (2026-11-10), one commit each. Each leaves main working and releasable. S is under 100 lines changed, M under 400, L more.
+Stages 1–5 are done (2026-11-10), one commit each. Each leaves main working and releasable. S is under 100 lines changed, M under 400, L more.
 
 1. **Thumbnails readable as pixels** (S, main). `gui-thumb:` gets `supportFetchAPI` and
    `corsEnabled`, its responses `Access-Control-Allow-Origin`, the CSP `connect-src`;
@@ -311,7 +315,8 @@ Stages 1–4 are done (2026-11-10), one commit each. Each leaves main working an
    tests). `scene.ts`, `gl/`, `surface.tsx` as prototyped; tiles stop painting when it is on.
    Unpackaged builds only, so no user can reach it. *Proves it:* `tests/board-gl-scene.test.ts`;
    `canvas.spec.ts` run a second time with the switch (4 of 5 pass today). **Done**, in
-   `src/renderer/src/board-gl/` rather than `board/gl/`, without the prototype's probe hooks.
+   `src/renderer/src/board-gl/` rather than `board/gl/`, without the prototype's probe hooks
+   (moved to `board/` and `board/gl/` in stage 5).
 4. **Parity** (M). The tile says which width is drawn, and the thumbnails spec reads that;
    a message in place of the board if WebGL2 cannot start; specs for a lost context, a change
    of appearance and of display scale; texture megabytes after zooming in and fitting again as
@@ -323,7 +328,15 @@ Stages 1–4 are done (2026-11-10), one commit each. Each leaves main working an
 5. **Split `board.tsx`** (L, a pure refactor; two reviews: gestures and keys, then the
    overlay). `gestures.ts`, `keys.ts`, `intents.ts`, `view.ts`, `overlay.tsx`, `empty.tsx`;
    `board.tsx` under 400 lines. *Proves it:* new unit tests for gestures and keys;
-   `canvas.spec.ts` both ways, `canvas-flow.spec.ts`.
+   `canvas.spec.ts` both ways, `canvas-flow.spec.ts`. **Done**: `board.tsx` went from 1,608
+   lines in `app/` to 396 in `board/`, as laid out under Architecture, with two files the plan
+   didn't name: `use-camera.ts`, the live camera and everything that moves it but a drag (the
+   wheel, fit, zoom steps, reveals, glides, saving it, the toolbar's view), and the canvas's
+   `BoardUnavailable` beside it in `surface.tsx`. `scene.ts` holds both halves of what is
+   shown (the canvas's quads, and the DOM's culling and name rules, `overlayScene`); the rename
+   fields' state is `useNaming` in `overlay.tsx`. `tests/board-gestures.test.ts` and
+   `tests/board-keys.test.ts` are new; the wheel, the area the chat leaves clear, the
+   keyboard menu's point, culling and name room joined the camera and scene tests.
 6. **A named mirror** (S). Role and name on each tile, `aria-activedescendant` on the board,
    a click from assistive tech selects. *Proves it:* a spec that finds a frame with
    `getByRole` and reads the board's active descendant after Tab.

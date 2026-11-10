@@ -1,4 +1,4 @@
-import type { ThumbWant } from './scene'
+import type { ThumbWant } from '../scene'
 
 /*
  * Frames' thumbnails as textures: one a frame, at the width it's drawn (`thumbTier`). A

@@ -7,9 +7,10 @@ import {
   useRef,
 } from 'react'
 import type { BoardCamera } from '../../../shared/board'
-import { BoardRenderer } from './renderer'
+import { Card } from '../lib/surface'
+import { BoardRenderer } from './gl/renderer'
+import { readInks } from './gl/theme'
 import type { SceneInput } from './scene'
-import { readInks } from './theme'
 
 /*
  * The canvas the board's pixels are drawn on, and when: React says what's on the board (each
@@ -202,6 +203,21 @@ export function BoardSurface({
     // Nothing to a screen reader: the board's DOM over it says what's here.
     <div aria-hidden="true" className="pointer-events-none absolute inset-0">
       <canvas ref={canvas} className="block size-full" />
+    </div>
+  )
+}
+
+/** In place of the board when the canvas it's drawn on can't start. */
+export function BoardUnavailable() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-canvas p-8">
+      <Card padding="canvas" role="alert" className="flex w-full max-w-md flex-col gap-1">
+        <h2 className="font-semibold">This canvas can’t be shown</h2>
+        <p className="text-pretty text-muted">
+          Gui draws canvases with WebGL 2, which isn’t available on this Mac right now. Quitting and
+          opening Gui again may bring it back.
+        </p>
+      </Card>
     </div>
   )
 }

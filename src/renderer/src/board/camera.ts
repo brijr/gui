@@ -6,6 +6,7 @@ import {
   type BoardViewRect,
   boardFromBoardView,
   boardPoint,
+  boardRectFrom,
   boardViewPoint,
   boardViewRect,
   boardViewRectFromBoard,
@@ -91,4 +92,68 @@ export function inMarquee(rect: BoardRect, marquee: BoardViewRect, camera: Board
     drawn.y < marquee.y + marquee.height &&
     marquee.y < drawn.y + drawn.height
   )
+}
+
+/** The floating chat is framed around only when what it leaves clear is at least this wide. */
+export const CLEAR_MIN_WIDTH = 320
+
+/**
+ * The part of a view of `size` the floating chat leaves clear, given where it covers the view
+ * (`cover`, in board-view pixels): all of it unless the chat covers a good share of its
+ * height, and leaves a wide enough side.
+ */
+export function clearArea(
+  size: { width: number; height: number },
+  cover: BoardViewRect | null,
+): BoardViewRect {
+  const all = boardViewRect(0, 0, size.width, size.height)
+  if (!cover) return all
+  const left = cover.x
+  const right = left + cover.width
+  const top = Math.max(0, cover.y)
+  const bottom = Math.min(size.height, cover.y + cover.height)
+  if (right <= 0 || left >= size.width || bottom - top < size.height / 3) return all
+  const before = Math.max(0, left)
+  const after = Math.max(0, size.width - right)
+  if (Math.max(before, after) < CLEAR_MIN_WIDTH) return all
+  return after > before
+    ? boardViewRect(size.width - after, 0, after, size.height)
+    : boardViewRect(0, 0, before, size.height)
+}
+
+/**
+ * Where a menu opened from the keyboard goes, in the window: at `area`'s top-left corner as
+ * `camera` draws it, kept on the board, whose element is at `box` in the window.
+ */
+export function menuPoint(
+  area: { x: number; y: number; width: number; height: number },
+  camera: BoardCamera,
+  box: { left: number; top: number; width: number; height: number },
+) {
+  const { x, y } = boardViewRectFromBoard(boardRectFrom(area), camera)
+  return {
+    x: box.left + Math.min(Math.max(x, 0), box.width),
+    y: box.top + Math.min(Math.max(y, 0), box.height),
+  }
+}
+
+/** A pinch's ⌃-wheel deltas are small; a mouse wheel's are ~100 a notch. One notch, one step. */
+export const PINCH_DELTA_MAX = 22
+
+/**
+ * Where a wheel event at `at` takes the camera: scrolling pans; ⌘ or a pinch (which arrives as
+ * ⌃-wheel) zooms around the pointer.
+ */
+export function wheelBy(
+  camera: BoardCamera,
+  wheel: { deltaX: number; deltaY: number; ctrlKey: boolean; metaKey: boolean },
+  at: BoardViewPoint,
+): BoardCamera {
+  if (!wheel.ctrlKey && !wheel.metaKey)
+    return scrollBy(camera, boardViewPoint(wheel.deltaX, wheel.deltaY))
+  // A mouse wheel with ⌃ held turns in big notches: each is one step, as ⌘+ is.
+  const delta = wheel.ctrlKey
+    ? Math.max(-PINCH_DELTA_MAX, Math.min(PINCH_DELTA_MAX, wheel.deltaY))
+    : wheel.deltaY
+  return zoomAbout(camera, Math.exp(-delta * (wheel.ctrlKey ? 0.01 : 0.002)), at)
 }

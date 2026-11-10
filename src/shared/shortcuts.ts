@@ -576,7 +576,7 @@ export function withShortcut(label: string, id: ShortcutId): string {
 }
 
 /** The modifiers and key a keyboard event carries, as `matchesShortcut` reads them. */
-interface KeyPress {
+export interface KeyPress {
   key: string
   metaKey: boolean
   ctrlKey: boolean

@@ -1,4 +1,4 @@
-import type { BoardCamera } from '../../../shared/board'
+import type { BoardCamera } from '../../../../shared/board'
 import {
   buildScene,
   INK,
@@ -8,7 +8,7 @@ import {
   QuadList,
   type SceneInput,
   type ThumbWant,
-} from './scene'
+} from '../scene'
 import { ThumbTextures } from './textures'
 
 /*

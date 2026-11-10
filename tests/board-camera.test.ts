@@ -1,14 +1,19 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  CLEAR_MIN_WIDTH,
   cameraAt,
   centreIn,
+  clearArea,
   dragFrom,
   dragOffset,
   fitIn,
   inMarquee,
   marqueeRect,
+  menuPoint,
+  PINCH_DELTA_MAX,
   scrollBy,
   shownShare,
+  wheelBy,
   zoomAbout,
 } from '../src/renderer/src/board/camera'
 import { fitCamera, ZOOM_MAX, ZOOM_MIN } from '../src/shared/board'
@@ -19,6 +24,7 @@ import {
   boardViewFromBoard,
   boardViewPoint,
   boardViewRect,
+  boardViewRectFromBoard,
 } from '../src/shared/coords'
 
 // The canvas board's camera, as plain functions: where a pan, a zoom, a fit or a reveal leaves it.
@@ -99,5 +105,72 @@ describe('the board camera', () => {
     // At (100, 50) and 0.5, board (300, 250) is drawn at view (100, 100).
     expect(inMarquee(boardRect(298, 248, 10, 10), marquee, camera)).toBe(true)
     expect(inMarquee(boardRect(300, 250, 10, 10), marquee, camera)).toBe(false)
+  })
+})
+
+describe('the wheel', () => {
+  const wheel = (
+    deltaX: number,
+    deltaY: number,
+    keys: { ctrlKey?: boolean; metaKey?: boolean },
+  ) => ({
+    deltaX,
+    deltaY,
+    ctrlKey: false,
+    metaKey: false,
+    ...keys,
+  })
+  const at = boardViewPoint(200, 100)
+
+  test('scrolling pans, at the zoom there is', () => {
+    expect(wheelBy(camera, wheel(10, -20, {}), at)).toEqual(
+      scrollBy(camera, boardViewPoint(10, -20)),
+    )
+  })
+
+  test('⌘-scroll zooms about the pointer', () => {
+    const zoomed = wheelBy(camera, wheel(0, -100, { metaKey: true }), at)
+    expect(zoomed.zoom).toBeCloseTo(camera.zoom * Math.exp(0.2))
+    expect(boardFromBoardView(at, zoomed).x).toBeCloseTo(boardFromBoardView(at, camera).x)
+  })
+
+  test('a pinch (⌃-scroll) zooms faster, and a mouse notch with ⌃ is one step at most', () => {
+    const pinch = wheelBy(camera, wheel(0, -10, { ctrlKey: true }), at)
+    expect(pinch.zoom).toBeCloseTo(camera.zoom * Math.exp(0.1))
+    const notch = wheelBy(camera, wheel(0, -100, { ctrlKey: true }), at)
+    expect(notch.zoom).toBeCloseTo(camera.zoom * Math.exp(PINCH_DELTA_MAX * 0.01))
+  })
+})
+
+describe('the area the floating chat leaves clear', () => {
+  const size = { width: 1200, height: 800 }
+  const all = boardViewRect(0, 0, 1200, 800)
+
+  test('all of the board when there is no chat, or it covers little of its height', () => {
+    expect(clearArea(size, null)).toEqual(all)
+    expect(clearArea(size, boardViewRect(800, 700, 400, 100))).toEqual(all)
+  })
+
+  test('all of it when the chat is off the board, or leaves no side wide enough', () => {
+    expect(clearArea(size, boardViewRect(1300, 0, 300, 800))).toEqual(all)
+    const middle = boardViewRect(CLEAR_MIN_WIDTH - 10, 0, 1200 - 2 * (CLEAR_MIN_WIDTH - 10), 800)
+    expect(clearArea(size, middle)).toEqual(all)
+  })
+
+  test('the wider side of the chat otherwise', () => {
+    expect(clearArea(size, boardViewRect(800, 100, 400, 600))).toEqual(
+      boardViewRect(0, 0, 800, 800),
+    )
+    expect(clearArea(size, boardViewRect(0, 0, 400, 800))).toEqual(boardViewRect(400, 0, 800, 800))
+  })
+})
+
+describe('a menu opened from the keyboard', () => {
+  const box = { left: 100, top: 50, width: 800, height: 600 }
+  test("opens at the area's corner, kept on the board, in the window's pixels", () => {
+    const area = { x: 200, y: 100, width: 100, height: 100 }
+    const shown = boardViewRectFromBoard(boardRect(200, 100, 100, 100), camera)
+    expect(menuPoint(area, camera, box)).toEqual({ x: 100 + shown.x, y: 50 + shown.y })
+    expect(menuPoint({ ...area, x: -5000, y: 9000 }, camera, box)).toEqual({ x: 100, y: 650 })
   })
 })

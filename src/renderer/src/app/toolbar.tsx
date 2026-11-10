@@ -20,6 +20,7 @@ import {
   viewportSpec,
   type WindowState,
 } from '../../../shared/types'
+import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from '../board/view'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { FIELD_LOOK, Input } from '../lib/field'
@@ -51,7 +52,6 @@ import {
 } from '../lib/icons'
 import { StatusDot } from '../lib/status'
 import { Button, HIT_AREA, IconButton, OPEN, PRESS, SegmentedControl } from '../lib/ui'
-import { type BoardTool, setBoardTool, useBoardTool, useBoardView } from './board'
 import { barPadding, sidebarRoom, useSidebarBar, useSidebarSliding } from './layout-morph'
 import { RecordButton } from './record-button'
 import { serverStatus } from './server-status'

@@ -1,4 +1,4 @@
-import { INK, INK_COUNT } from './scene'
+import { INK, INK_COUNT } from '../scene'
 
 /*
  * The board's inks as the page's own theme has them: read from the CSS custom properties the
