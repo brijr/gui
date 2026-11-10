@@ -26,7 +26,7 @@ print_skill() {
 name: open-in-gui
 description: Open the project you're working on in Gui, the desktop app for building web apps with agents. Use when the user says "open it in Gui", "open this in gui for me", "show me in Gui", "pull it up in Gui", or asks to see the app/project/worktree you just worked on in Gui.
 metadata:
-  gui-skill: "1"
+  gui-skill: "2"
 ---
 <!-- Installed by Gui. Remove it with "gui skill remove" or Gui > Remove Agent Skill. -->
 
@@ -53,9 +53,7 @@ Gui opens a folder as a project, starts its dev server itself, and shows the pre
 
 ## Notes
 
-- On `main`, Gui keeps main as it is: the first message the user sends there starts a new branch. The bar over Gui's chat offers Stay on main.
 - Only folders work, not single files or URLs.
-- Opening commits nothing and leaves git alone.
 EOF
 }
 
