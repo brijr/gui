@@ -1,4 +1,4 @@
-import { type BoardCamera, clampZoom, fitCamera } from '../../../shared/board'
+import { type BoardCamera, clampZoom, fitCamera, ZOOM_MAX } from '../../../shared/board'
 import {
   type BoardPoint,
   type BoardRect,
@@ -48,11 +48,19 @@ export function dragOffset(start: BoardViewPoint, at: BoardViewPoint, camera: Bo
   return { dx: to.x - from.x, dy: to.y - from.y }
 }
 
-/** Everything in `bounds` shown within `area` of the view, with a margin, at most 100%. */
-export function fitIn(bounds: BoardRect | null, area: BoardViewRect): BoardCamera {
-  const fitted = fitCamera(bounds, area)
+/**
+ * Everything in `bounds` shown within `area` of the view, with a margin, at most 100%; or up
+ * to the board's closest zoom with `closeUp`, as zooming to the selection does in Figma.
+ */
+export function fitIn(bounds: BoardRect | null, area: BoardViewRect, closeUp = false): BoardCamera {
+  const fitted = fitCamera(bounds, area, undefined, closeUp ? ZOOM_MAX : 1)
   // fitCamera fits a view whose corner is the board element's; this one's is `area`'s.
   return cameraAt(boardPoint(fitted.x, fitted.y), boardViewPoint(area.x, area.y), fitted.zoom)
+}
+
+/** At 100%, about `at`: what's under it stays under it. */
+export function actualSize(camera: BoardCamera, at: BoardViewPoint): BoardCamera {
+  return zoomAbout(camera, 1 / camera.zoom, at)
 }
 
 /** `rect` centred in `area` of the view, at `zoom`. */

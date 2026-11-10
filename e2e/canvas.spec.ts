@@ -585,3 +585,94 @@ test('a screen reader finds each frame by its name, and is on the frame Tab or a
     (await first.getAttribute('id')) ?? '',
   )
 })
+
+test("Figma's zoom keys: ⇧0 is 100%, ⇧1 fits, ⇧2 the selection, + and − step, not while naming", async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  await openCanvas(session)
+  await chrome.evaluate(() => {
+    window.gui.boardAddFrame('desktop', null)
+    window.gui.boardAddFrame('mobile', null)
+  })
+  await waitFor(async () => (await board(session)).frames.length === 2, 'two frames')
+  await zoomToFit(session)
+  const zoom = () =>
+    chrome.evaluate(() => {
+      const layer = document.querySelector<HTMLElement>('[style*="--board-zoom"]')
+      return Number(layer?.style.getPropertyValue('--board-zoom'))
+    })
+  const zoomed = (wanted: (zoom: number) => boolean, label: string) =>
+    waitFor(async () => {
+      const now = await zoom()
+      return wanted(now) ? now : null
+    }, label)
+  const fitted = await zoom()
+  expect(fitted).toBeLessThan(1)
+
+  const area = chrome.getByRole('application')
+  await area.focus()
+  await chrome.keyboard.press('Shift+Digit0')
+  await zoomed((z) => z === 1, '100%')
+  await chrome.keyboard.press('-')
+  await zoomed((z) => Math.abs(z - 0.8) < 1e-9, 'a step out')
+  await chrome.keyboard.press('=')
+  await zoomed((z) => Math.abs(z - 1) < 1e-9, 'a step back in')
+  await chrome.keyboard.press('Shift+Digit1')
+  await zoomed((z) => z === fitted, 'everything fitted again')
+
+  // ⇧2 with nothing selected does nothing; with the phone frame selected, it fills the view.
+  await chrome.keyboard.press('Escape')
+  await expect(chrome.locator('[aria-selected="true"]')).toHaveCount(0)
+  // The board leaves the key alone: it goes on, not taken.
+  await chrome.evaluate(() => {
+    const page = window as unknown as { taken?: boolean }
+    window.addEventListener('keydown', (event) => {
+      if (event.code === 'Digit2') page.taken = event.defaultPrevented
+    })
+  })
+  await chrome.keyboard.press('Shift+Digit2')
+  const heard = await waitFor(
+    () =>
+      chrome.evaluate(() => {
+        const { taken } = window as unknown as { taken?: boolean }
+        return taken === undefined ? null : { taken }
+      }),
+    'the key heard',
+  )
+  expect(heard.taken).toBe(false)
+  expect(await zoom()).toBe(fitted)
+  await chrome.locator('[data-frame="mobile"]').last().click()
+  // Selected on the board itself, which hears of it a moment after main.
+  await expect(chrome.locator('[data-frame="mobile"]').last()).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await chrome.keyboard.press('Shift+Digit2')
+  await zoomed((z) => z > fitted, 'the phone frame filling the view')
+  const [frame, view] = await chrome.evaluate(() =>
+    [
+      [...document.querySelectorAll('[data-frame="mobile"]')].at(-1),
+      document.querySelector('[role="application"]'),
+    ].map((el) => {
+      const r = (el as HTMLElement).getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, height: r.height }
+    }),
+  )
+  // As tall as the view allows, less its margin.
+  expect(frame.top).toBeGreaterThanOrEqual(view.top)
+  expect(frame.bottom).toBeLessThanOrEqual(view.bottom)
+  expect(frame.height).toBeGreaterThan(view.height * 0.7)
+
+  // Typing in a frame's name, they're the name's: the board doesn't zoom.
+  const before = await zoom()
+  await chrome.keyboard.press('F2')
+  const field = area.getByRole('textbox', { name: 'Frame name' })
+  await expect(field).toBeFocused()
+  await chrome.keyboard.press('Shift+Digit0')
+  await chrome.keyboard.press('-')
+  await expect(field).toHaveValue(/\)-$/)
+  expect(await zoom()).toBe(before)
+  await chrome.keyboard.press('Escape')
+})

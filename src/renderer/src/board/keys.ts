@@ -1,4 +1,4 @@
-import { type BoardSection, sectionBounds } from '../../../shared/board'
+import { type BoardSection, boardBounds, sectionBounds } from '../../../shared/board'
 import { type KeyPress, matchesShortcut } from '../../../shared/shortcuts'
 import type { BoardFrame } from '../../../shared/types'
 import type { Area, Override } from './gestures'
@@ -10,7 +10,7 @@ import type { BoardTool } from './view'
  * for out (or nothing, and the key goes on to the menu or the window). The board does it.
  */
 
-/** Each ⌘+ or ⌘− step. */
+/** Each + or − step, with ⌘ or without. */
 export const ZOOM_STEP = 1.25
 
 export interface BoardKey extends KeyPress {
@@ -35,6 +35,10 @@ export type KeyAction =
   /** These frames selected; `section` when it's a section picked by its name */
   | { type: 'pick'; ids: string[]; section: string | null }
   | { type: 'fit' }
+  /** The selection (`area`, around it) filling the view, as Figma's ⇧2 */
+  | { type: 'fitSelection'; area: Area }
+  /** 100%, about the middle of the view */
+  | { type: 'actualSize' }
   | { type: 'zoom'; factor: number }
   | { type: 'tool'; tool: BoardTool }
   /** A name's field opens */
@@ -72,8 +76,18 @@ export function boardKey(key: BoardKey, board: KeyBoard): KeyAction | null {
   if (command && !key.altKey && !key.shiftKey && key.code === 'KeyA')
     return { type: 'pick', ids: board.frames.map((frame) => frame.id), section: null }
   if (command && key.key === '0') return { type: 'fit' }
-  if (command && (key.key === '=' || key.key === '+')) return { type: 'zoom', factor: ZOOM_STEP }
-  if (command && key.key === '-') return { type: 'zoom', factor: 1 / ZOOM_STEP }
+  // Figma's zoom keys: ⇧0 100%, ⇧1 everything, ⇧2 the selection (nothing when there's none, as
+  // in Figma). By the key where it is, as ⇧ makes them ")", "!" and "@".
+  if (plain && key.shiftKey && key.code === 'Digit0') return { type: 'actualSize' }
+  if (plain && key.shiftKey && key.code === 'Digit1') return { type: 'fit' }
+  if (plain && key.shiftKey && key.code === 'Digit2') {
+    const area = selectionArea(board)
+    return area ? { type: 'fitSelection', area } : null
+  }
+  // + and − zoom with ⌘ or without, as in Figma.
+  if (!key.altKey && (key.key === '=' || key.key === '+'))
+    return { type: 'zoom', factor: ZOOM_STEP }
+  if (!key.altKey && key.key === '-') return { type: 'zoom', factor: 1 / ZOOM_STEP }
   if (plain && key.code === 'KeyH') return { type: 'tool', tool: 'hand' }
   if (plain && key.code === 'KeyV') return { type: 'tool', tool: 'move' }
   if (plain && key.key === 'Enter' && ids.length === 1) return { type: 'open', id: ids[0] }
@@ -101,6 +115,12 @@ export function boardKey(key: BoardKey, board: KeyBoard): KeyAction | null {
     return { type: 'nudge', ids, dx, dy }
   }
   return null
+}
+
+/** Around what's selected, as drawn: the picked section's area, or the selected frames'. */
+export function selectionArea(board: KeyBoard): Area | null {
+  if (board.picked) return sectionBounds(board.picked, board.drawn)
+  return boardBounds(board.drawn.filter((frame) => board.selection.includes(frame.id)))
 }
 
 /**

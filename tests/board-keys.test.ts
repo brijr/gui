@@ -5,6 +5,7 @@ import {
   type KeyBoard,
   nudged,
   nudgeLanding,
+  selectionArea,
   ZOOM_STEP,
 } from '../src/renderer/src/board/keys'
 import type { BoardFrame } from '../src/shared/types'
@@ -86,6 +87,54 @@ describe('keys on the board', () => {
     expect(boardKey(key('=', meta), board())).toEqual({ type: 'zoom', factor: ZOOM_STEP })
     expect(boardKey(key('+', meta), board())).toEqual({ type: 'zoom', factor: ZOOM_STEP })
     expect(boardKey(key('-', meta), board())).toEqual({ type: 'zoom', factor: 1 / ZOOM_STEP })
+  })
+
+  test('+ and − zoom a step without ⌘ too, as in Figma', () => {
+    expect(boardKey(key('='), board())).toEqual({ type: 'zoom', factor: ZOOM_STEP })
+    expect(boardKey(key('+', { shiftKey: true }), board())).toEqual({
+      type: 'zoom',
+      factor: ZOOM_STEP,
+    })
+    expect(boardKey(key('-'), board())).toEqual({ type: 'zoom', factor: 1 / ZOOM_STEP })
+    expect(boardKey(key('-', { altKey: true }), board())).toBeNull()
+  })
+
+  test('⇧0 is 100%, ⇧1 fits everything, ⇧2 the selection, by the key where it is', () => {
+    const shift = (digit: string, selection: string[] = [], picked = false) =>
+      boardKey(
+        // ⇧ makes them ")", "!" and "@" on a US layout, and other things elsewhere.
+        key('?', { code: `Digit${digit}`, shiftKey: true }),
+        board(selection, picked),
+      )
+    expect(shift('0')).toEqual({ type: 'actualSize' })
+    expect(shift('1')).toEqual({ type: 'fit' })
+    expect(shift('2', ['a', 'b'])).toEqual({
+      type: 'fitSelection',
+      area: { x: 0, y: 0, width: 300, height: 80 },
+    })
+    // The section picked by its name: its area, with its name's room above.
+    expect(shift('2', ['b', 'c'], true)).toMatchObject({
+      type: 'fitSelection',
+      area: { x: 200 - 64, width: 300 + 128 },
+    })
+    // Nothing selected: nothing, as in Figma.
+    expect(shift('2')).toBeNull()
+    // Without ⇧, or with ⌘, they aren't these.
+    expect(boardKey(key('1', { code: 'Digit1' }), board())).toBeNull()
+    expect(
+      boardKey(key('2', { code: 'Digit2', shiftKey: true, metaKey: true }), board(['a'])),
+    ).toBeNull()
+  })
+
+  test('the selection is drawn where it is mid-nudge', () => {
+    const drawn = frames.map((f) => (f.id === 'a' ? { ...f, x: 10 } : f))
+    expect(selectionArea({ ...board(['a']), drawn })).toEqual({
+      x: 10,
+      y: 0,
+      width: 100,
+      height: 80,
+    })
+    expect(selectionArea(board())).toBeNull()
   })
 
   test('H and V pick the tool, by the key where they are on any layout', () => {

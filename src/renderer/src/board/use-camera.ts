@@ -17,7 +17,7 @@ import {
 import { Spring } from '../../../shared/motion'
 import type { BoardFrame } from '../../../shared/types'
 import { onFrames, prefersReducedMotion } from '../lib/motion'
-import { centreIn, clearArea, fitIn, shownShare, wheelBy, zoomAbout } from './camera'
+import { actualSize, centreIn, clearArea, fitIn, shownShare, wheelBy, zoomAbout } from './camera'
 import type { Area } from './gestures'
 import { chatCover, onBoardCommand, sendIntent } from './intents'
 import { ZOOM_STEP } from './keys'
@@ -181,13 +181,24 @@ export function useBoardCamera({
       setCamera(fitIn(bounds && boardRectFrom(bounds), area))
     })
   }
+  /** `area` (the selection, around it) filling what the floating chat leaves clear. */
+  const fitSelection = (area: Area) => {
+    const el = board.current
+    if (!el) return
+    void clear(el, latest.current.size).then((clearOf) =>
+      setCamera(fitIn(boardRectFrom(area), clearOf, true)),
+    )
+  }
   const zoomAt = (factor: number, at: BoardViewPoint) =>
     moveCamera((current) => current && zoomAbout(current, factor, at))
-  /** Around the middle of the board, as the keys and the toolbar zoom. */
-  const zoomCentred = (factor: number) => {
+  const centre = () => {
     const { size } = latest.current
-    zoomAt(factor, boardViewPoint(size.width / 2, size.height / 2))
+    return boardViewPoint(size.width / 2, size.height / 2)
   }
+  /** Around the middle of the board, as the keys and the toolbar zoom. */
+  const zoomCentred = (factor: number) => zoomAt(factor, centre())
+  /** 100%, around the middle of the board. */
+  const zoomActual = () => moveCamera((current) => current && actualSize(current, centre()))
   /** Brings a frame into sight, at the zoom there is, unless most of it shows already. */
   const reveal = (frame: Area) => {
     const { camera, size } = latest.current
@@ -306,7 +317,9 @@ export function useBoardCamera({
     moveCamera,
     stopFlight,
     fit,
+    fitSelection,
     zoomCentred,
+    zoomActual,
     reveal,
     revealAdded,
   }

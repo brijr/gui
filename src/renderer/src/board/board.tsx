@@ -63,7 +63,9 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     moveCamera,
     stopFlight,
     fit,
+    fitSelection,
     zoomCentred,
+    zoomActual,
     reveal,
     revealAdded,
   } = useBoardCamera({
@@ -245,6 +247,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   const act = (action: KeyAction) => {
     if (action.type === 'pick') select(action.ids, action.section)
     else if (action.type === 'fit') fit()
+    else if (action.type === 'fitSelection') fitSelection(action.area)
+    else if (action.type === 'actualSize') zoomActual()
     else if (action.type === 'zoom') zoomCentred(action.factor)
     else if (action.type === 'tool') setBoardTool(action.tool)
     else if (action.type === 'nameFrame') setRenaming(action.id)

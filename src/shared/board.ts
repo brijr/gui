@@ -433,16 +433,20 @@ export function boardBounds(frames: readonly Box[]): Box | null {
   return { x: left, y: top, width: right - left, height: bottom - top }
 }
 
-/** The camera that shows all of `area` within a view of `view`, with a margin, at most 100%. */
+/**
+ * The camera that shows all of `area` within a view of `view`, with a margin, at most at
+ * zoom `max` (100% unless given).
+ */
 export function fitCamera(
   area: Box | null,
   view: { width: number; height: number },
   margin = 64,
+  max = 1,
 ): BoardCamera {
   if (!area || view.width <= 0 || view.height <= 0) return { x: -margin, y: -margin, zoom: 0.5 }
   const zoom = clampZoom(
     Math.min(
-      1,
+      max,
       (view.width - margin * 2) / Math.max(1, area.width),
       (view.height - margin * 2) / Math.max(1, area.height),
     ),

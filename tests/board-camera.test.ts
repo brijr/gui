@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  actualSize,
   CLEAR_MIN_WIDTH,
   cameraAt,
   centreIn,
@@ -79,6 +80,28 @@ describe('the board camera', () => {
     expect(boardViewFromBoard(boardPoint(alone.x, alone.y), right)).toEqual(boardViewPoint(400, 0))
     // An empty board: the usual starting camera, in the area.
     expect(fitIn(null, boardViewRect(0, 0, 1200, 800))).toEqual({ x: -64, y: -64, zoom: 0.5 })
+  })
+
+  test('zooming to the selection fills the area with it, closer than 100% when it is small', () => {
+    const area = boardViewRect(0, 0, 1200, 800)
+    const small = boardRect(500, 500, 200, 100)
+    // Fitting everything stops at 100%; the selection goes on to the board's closest zoom.
+    expect(fitIn(small, area).zoom).toBe(1)
+    const close = fitIn(small, area, true)
+    expect(close.zoom).toBe(ZOOM_MAX)
+    expect(boardViewFromBoard(boardPoint(600, 550), close)).toEqual(boardViewPoint(600, 400))
+    // A big one shrinks to fit either way, and never past the board's farthest zoom.
+    const big = boardRect(0, 0, 3000, 900)
+    expect(fitIn(big, area, true)).toEqual(fitIn(big, area))
+    expect(fitIn(boardRect(0, 0, 1e7, 1e7), area, true).zoom).toBe(ZOOM_MIN)
+  })
+
+  test('100% keeps the board point under the middle where it is', () => {
+    const at = boardViewPoint(600, 400)
+    const actual = actualSize(camera, at)
+    expect(actual.zoom).toBe(1)
+    expect(boardFromBoardView(at, actual)).toEqual(boardFromBoardView(at, camera))
+    expect(actualSize(actual, at)).toEqual(actual)
   })
 
   test('a frame revealed is centred in the area, at the zoom there is', () => {
