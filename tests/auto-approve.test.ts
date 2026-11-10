@@ -29,6 +29,7 @@ const {
   SENSITIVE_PATH,
   setAutoApprove,
 } = await import('../src/main/auto-approve')
+const { flushPrefsSync } = await import('../src/main/prefs')
 
 let base = ''
 let scope: EditScope
@@ -48,6 +49,8 @@ beforeAll(() => {
 })
 
 afterAll(() => {
+  // Preferences are saved a moment after they change: into this folder, before it goes.
+  flushPrefsSync()
   rmSync(base, { recursive: true, force: true })
 })
 

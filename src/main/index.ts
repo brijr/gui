@@ -102,7 +102,7 @@ import { preloadMcpSdk } from './mcp-server'
 import { chatWillHide, terminalWillHide } from './menu-toggles'
 import { createProject, createProjectFromFrame, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
-import { getPrefs, prefsEvents, setPrefs } from './prefs'
+import { flushPrefsSync, getPrefs, prefsEvents, setPrefs } from './prefs'
 import { execFile } from './process'
 import { finishEndingSync } from './process-groups'
 import { findWorkspaceRoot } from './project'
@@ -1805,6 +1805,9 @@ function shutdown() {
   // Terminals and dev servers stop in the background; nothing runs after this to finish it.
   finishEndingSync()
   flushHistorySync()
+  // A preference changed a moment ago may still be on its way to disk; after the windows,
+  // which are the last thing that could change one.
+  flushPrefsSync()
   agentHealth.dispose()
   nodeRuntime.dispose()
   killStoppedAgents()

@@ -10,12 +10,16 @@ import { dirname } from 'node:path'
 /** A fresh name beside `file`; the rename is what replaces it. */
 const tempFile = (file: string) => `${file}.${randomBytes(6).toString('hex')}.tmp`
 
-/** Writes `text` to a new, flushed temp file beside `file` and returns its path. */
-export async function writeTemp(file: string, text: string): Promise<string> {
-  const tmp = tempFile(file)
+/**
+ * Writes `text` to a new, flushed temp file beside `file` and returns its path. With `reuse`,
+ * for a caller that writes one at a time, the temp file has the same name every time: one
+ * that quitting mid-write left behind is replaced by the next write instead of staying.
+ */
+export async function writeTemp(file: string, text: string, reuse = false): Promise<string> {
+  const tmp = reuse ? `${file}.tmp` : tempFile(file)
   try {
     await mkdir(dirname(file), { recursive: true, mode: 0o700 })
-    const handle = await open(tmp, 'wx', 0o600)
+    const handle = await open(tmp, reuse ? 'w' : 'wx', 0o600)
     try {
       await handle.writeFile(text)
       await handle.sync()

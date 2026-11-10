@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { RulerGuide } from '../../src/shared/types'
 
 const userData = await mkdtemp(join(tmpdir(), 'gui-guides-tabs-'))
@@ -47,9 +48,19 @@ function tab(sendChrome: (channel: string, payload: unknown) => void = noop) {
   guides.place(null, page, page)
   return guides
 }
-const saved = async () =>
-  JSON.parse(await readFile(join(userData, 'prefs.json'), 'utf8')).guides[root]
 const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+/** Waits for prefs.json to hold `guides` for the project: it's written a moment after a change. */
+async function saved(guides: RulerGuide[]) {
+  let last: unknown
+  for (let tries = 0; tries < 100; tries++) {
+    last = await readFile(join(userData, 'prefs.json'), 'utf8')
+      .then((text) => JSON.parse(text).guides[root])
+      .catch(() => undefined)
+    if (isDeepStrictEqual(last, guides)) return
+    await settle()
+  }
+  assert.deepEqual(last, guides)
+}
 
 try {
   // The same folder open in two tabs, each with the project's guides (none yet) read.
@@ -63,12 +74,12 @@ try {
   b.change({ add: [y(50)], remove: [] })
   assert.deepEqual(a.list(), [x(100), y(50)])
   assert.deepEqual(b.list(), [x(100), y(50)])
-  assert.deepEqual(await saved(), [x(100), y(50)])
+  await saved([x(100), y(50)])
 
   // One removed in a tab goes from the other.
   a.change({ add: [], remove: [y(50)] })
   assert.deepEqual(b.list(), [x(100)])
-  assert.deepEqual(await saved(), [x(100)])
+  await saved([x(100)])
 
   // A guide held mid-drag in one tab while the other changes: let go, both are kept.
   assert.equal(getPrefs().rulers, true)
@@ -79,7 +90,7 @@ try {
   await settle()
   assert.deepEqual(a.list(), [x(100), x(300), y(200)])
   assert.deepEqual(b.list(), [x(100), x(300), y(200)])
-  assert.deepEqual(await saved(), [x(100), x(300), y(200)])
+  await saved([x(100), x(300), y(200)])
 
   // The chrome is told what the rulers show as it changes, not again with every layout.
   const told: unknown[] = []

@@ -452,7 +452,10 @@ test("a new window's chat panel starts at the bottom-right and stays in its corn
     const { left, top } = gaps(layout)
     return left === topLeft.left && top === topLeft.top
   })
-  expect(savedPrefs(session).chatCorner).toEqual({ x: 'left', y: 'top' })
+  await waitFor(() => {
+    const { chatCorner } = savedPrefs(session)
+    return chatCorner?.x === 'left' && chatCorner.y === 'top'
+  }, 'the corner in prefs.json')
   const larger = { width: start.content.width, height: start.content.height }
   await session.app.evaluate(setContentSize, larger)
   const grown = await layoutWhen(session, 'the larger window', resizedTo(larger))

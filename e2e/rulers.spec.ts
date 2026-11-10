@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Point, Rect, RulerGuide } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
@@ -123,6 +124,11 @@ function savedGuides(session: GuiSession): RulerGuide[] {
   return Object.values((prefs.guides ?? {}) as Record<string, RulerGuide[]>)[0] ?? []
 }
 
+/** Waits for prefs.json to hold exactly `guides`: the file is written a moment after the change. */
+function guidesSaved(session: GuiSession, guides: RulerGuide[], label: string) {
+  return waitFor(() => isDeepStrictEqual(savedGuides(session), guides), label)
+}
+
 /** Runs in main: whether View → Rulers is checked. */
 function menuChecked({ Menu }: ElectronModule) {
   return Menu.getApplicationMenu()?.getMenuItemById('rulers')?.checked ?? null
@@ -179,8 +185,7 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   const headingTop = Math.round(await pageEdge(session, 'h1', 'top'))
   await expect(position).toHaveText(`y ${headingTop}`)
   await send('chrome', [{ type: 'mouseUp', ...onHeading }])
-  await waitFor(() => savedGuides(session).length === 1, 'the guide to be saved')
-  expect(savedGuides(session)).toEqual([{ axis: 'y', at: headingTop }])
+  await guidesSaved(session, [{ axis: 'y', at: headingTop }], 'the guide to be saved')
   await expect(position).toHaveCount(0)
   const strip = async (axis: RulerGuide['axis']) => {
     const found = (await view()).strips.find((each) => each.axis === axis)
@@ -220,11 +225,14 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   const onButton = { x: mobile.x + button.x, y: mobile.y + button.y + button.height / 2 }
   await send('chrome', drag({ x: left.x + 10, y: left.y + 300 }, onButton))
   const buttonLeft = Math.round(await pageEdge(session, 'button.counter', 'left'))
-  await waitFor(() => savedGuides(session).length === 2, 'the second guide to be saved')
-  expect(savedGuides(session)).toEqual([
-    { axis: 'y', at: headingTop },
-    { axis: 'x', at: buttonLeft },
-  ])
+  await guidesSaved(
+    session,
+    [
+      { axis: 'y', at: headingTop },
+      { axis: 'x', at: buttonLeft },
+    ],
+    'the second guide to be saved',
+  )
   // Its strip opens a moment after (the guides overlay opens it).
   await waitFor(
     async () =>
@@ -268,8 +276,7 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   // Back onto the top ruler, it goes away.
   const moved = await strip('y')
   await send('y', drag({ x: 100, y: LINE }, { x: 100, y: mobile.y - moved.y - 12 }))
-  await waitFor(() => savedGuides(session).length === 1, 'the guide to be removed')
-  expect(savedGuides(session)).toEqual([{ axis: 'x', at: buttonLeft }])
+  await guidesSaved(session, [{ axis: 'x', at: buttonLeft }], 'the guide to be removed')
   expect((await view()).strips.filter((each) => each.axis === 'y')).toHaveLength(0)
 
   // ⇧R typed into a field in the page types an R; the rulers stay.
@@ -289,7 +296,7 @@ test('guides come out of the rulers, keep to the page, move, snap and go back', 
   await expect(rulers).toHaveCount(0)
   await waitFor(async () => (await view()).strips.length === 0, 'the guides to hide')
   await expect(page.locator('#typing')).toHaveValue('R')
-  expect(savedGuides(session)).toEqual([{ axis: 'x', at: buttonLeft }])
+  await guidesSaved(session, [{ axis: 'x', at: buttonLeft }], 'the guide kept with the rulers off')
   await expectOn(false)
 
   // The toolbar's button turns them on, ⇧R (here in Gui's own window) off, and it again.
@@ -363,11 +370,14 @@ test('the agent reads the guides with what nearly lines up, and places its own',
   expect(miss, text).not.toBeNull()
   expect(Number(miss?.[2])).toBeCloseTo(buttonTop - above, 1)
   await expect(rulers).toHaveCount(2)
-  await waitFor(() => savedGuides(session).length === 2, "the agent's guides to be saved")
-  expect(savedGuides(session)).toEqual([
-    { axis: 'y', at: above },
-    { axis: 'x', at: 30 },
-  ])
+  await guidesSaved(
+    session,
+    [
+      { axis: 'y', at: above },
+      { axis: 'x', at: 30 },
+    ],
+    "the agent's guides to be saved",
+  )
   await waitFor(async () => (await view()).strips.length === 2, 'the guides over the page')
 
   // The next message names them, in page pixels at the viewport's width.
@@ -392,6 +402,6 @@ test('the agent reads the guides with what nearly lines up, and places its own',
   ])
   expect(said(removed)).toContain('Guides removed 2.')
   expect(said(removed)).toContain('The project has no guides.')
-  await waitFor(() => savedGuides(session).length === 0, 'the guides to be removed')
+  await guidesSaved(session, [], 'the guides to be removed')
   await waitFor(async () => (await view()).strips.length === 0, 'the guides off the page')
 })

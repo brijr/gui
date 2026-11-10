@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
 import type { Locator } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type ModelSettings } from '../src/shared/types'
 import { electronExecutable, waitFor } from './helpers/env'
@@ -368,12 +369,14 @@ test('the model picker searches the models, sets the model and effort, and new s
   await chat.keyboard.press('Escape')
   await expect(dialog).toBeHidden()
 
-  // Remembered per agent, under the agent's own ids.
+  // Remembered per agent, under the agent's own ids; the file is written a moment after.
   const prefsFile = join(session.fixture.userData, 'prefs.json')
-  const prefs = JSON.parse(readFileSync(prefsFile, 'utf8')) as {
-    agentSettings?: Record<string, unknown>
-  }
-  expect(prefs.agentSettings?.[AGENT]).toEqual({ llm: 'sage', depth: 'high' })
+  await waitFor(() => {
+    const prefs = JSON.parse(readFileSync(prefsFile, 'utf8')) as {
+      agentSettings?: Record<string, unknown>
+    }
+    return isDeepStrictEqual(prefs.agentSettings?.[AGENT], { llm: 'sage', depth: 'high' })
+  }, "the agent's settings in prefs.json")
 
   // A new chat starts a new session at the agent's defaults; the choices go in before the
   // first prompt, the model before the effort.

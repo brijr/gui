@@ -737,8 +737,16 @@ test('dragged to an edge the chat docks there, and pulled off the sidebar it flo
   // The target it filled goes once the sidebar covers it.
   await waitFor(async () => (await session.app.evaluate(dockTargetShown)) === null, 'no target')
   const profile = await session.app.evaluate(({ app }) => app.getPath('userData'))
-  const prefs = () => JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8'))
-  expect(prefs()).toMatchObject({ chatSidebar: true, chatSidebarSide: 'right' })
+  /** Waits for prefs.json to hold `saved`: the file is written a moment after the change. */
+  const prefsSaved = (saved: { chatSidebar: boolean; chatSidebarSide?: 'left' | 'right' }) =>
+    waitFor(
+      () => {
+        const prefs = JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8'))
+        return Object.entries(saved).every(([key, value]) => prefs[key] === value)
+      },
+      `${JSON.stringify(saved)} in prefs.json`,
+    )
+  await prefsSaved({ chatSidebar: true, chatSidebarSide: 'right' })
 
   // Pressed on the sidebar's header and pulled less than a click's slop: still docked.
   const grabbed = { x: WINDOW.width - DOCK_WIDTH + 150, y: 20 }
@@ -790,7 +798,7 @@ test('dragged to an edge the chat docks there, and pulled off the sidebar it flo
   await sleep(200)
   const held = path(await session.app.evaluate(stopSampling))
   expect(held).toEqual([{ t: expect.any(Number), x: expected.x, y: expected.y }])
-  expect(prefs().chatSidebar).toBe(false)
+  await prefsSaved({ chatSidebar: false })
 
   // Across to the left edge and let go: docked on the left.
   await move(session, 16 - pointer.x, 0)
@@ -801,7 +809,7 @@ test('dragged to an edge the chat docks there, and pulled off the sidebar it flo
   await session.shot('dock-target-left')
   await release(session)
   await dockedOn(session, 'left')
-  expect(prefs()).toMatchObject({ chatSidebar: true, chatSidebarSide: 'left' })
+  await prefsSaved({ chatSidebar: true, chatSidebarSide: 'left' })
 
   // A click on the sidebar's header is only a click; its buttons still work.
   const spot = await session.chat.evaluate(() => {

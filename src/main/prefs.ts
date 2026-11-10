@@ -9,7 +9,8 @@ import {
   type PanelCorner,
   type RulerGuide,
 } from '../shared/types'
-import { asidePath, writeFileAtomicSync } from './atomic-file'
+import { asidePath } from './atomic-file'
+import { CoalescedFile, diskFile } from './coalesced-file'
 
 export interface ChatSize {
   width: number
@@ -201,15 +202,29 @@ export function getPrefs(): Prefs {
   return cached
 }
 
-/** Called from IPC handlers, so a failed write is logged rather than thrown into the main process. */
+const writer = new CoalescedFile(
+  () => JSON.stringify(getPrefs(), null, 2),
+  diskFile(file),
+  // Called from IPC handlers, so a failed write is logged rather than thrown into main.
+  (error) => console.error('[gui] failed to save preferences', error),
+)
+
+/**
+ * Readers see the change at once (`getPrefs`, `prefsEvents`). The file follows off the main
+ * thread, so a busy disk can't hold up a dock or a drag. Its write starts as soon as the
+ * caller returns, with no timer to wait for: Auto or crash reports switched off, which a
+ * crash mustn't undo, is on disk as soon as any other change. A crash can lose only the
+ * change being written; quitting writes it (`flushPrefsSync`).
+ */
 export function setPrefs(patch: Partial<Prefs>) {
   cached = { ...getPrefs(), ...patch }
-  try {
-    writeFileAtomicSync(file(), JSON.stringify(cached, null, 2))
-  } catch (error) {
-    console.error('[gui] failed to save preferences', error)
-  }
+  writer.changed()
   prefsEvents.emit('change', cached)
+}
+
+/** At quit: a change the file doesn't hold yet is written before the process goes. */
+export function flushPrefsSync() {
+  writer.flushSync()
 }
 
 export function isAgentEnabled(id: AgentId) {

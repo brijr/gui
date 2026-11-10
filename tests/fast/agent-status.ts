@@ -60,7 +60,7 @@ mock.module('../../src/main/shell-env', () => ({ getShellEnv: async () => ({}) }
 mock.module('../../src/main/terminal', () => ({ runInTerminal: async () => undefined }))
 
 const { AgentHealthStore, agentHealth } = await import('../../src/main/agent-status')
-const { setPrefs } = await import('../../src/main/prefs')
+const { flushPrefsSync, setPrefs } = await import('../../src/main/prefs')
 // The app's own store listens to the same switches; each test makes its own.
 agentHealth.dispose()
 
@@ -90,6 +90,8 @@ beforeEach(() => {
 afterEach(() => {
   // A store left listening would answer the next test's switches too.
   store.dispose()
+  // Preferences are saved a moment after they change: into this test's folder, before it goes.
+  flushPrefsSync()
   rmSync(userData, { recursive: true, force: true })
 })
 

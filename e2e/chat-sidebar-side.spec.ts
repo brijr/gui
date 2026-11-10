@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { waitFor } from './helpers/env'
 import { expect, test } from './helpers/test'
 
 test('chat sidebar switches sides, resizes from its inner edge, and saves the choice', async ({
@@ -105,8 +106,10 @@ test('chat sidebar switches sides, resizes from its inner edge, and saves the ch
   await reopened.getByRole('button', { name: 'Right', exact: true }).click()
   await expect.poll(async () => (await session.state()).sidebarSide).toBe('right')
   const profile = await session.app.evaluate(({ app }) => app.getPath('userData'))
-  expect(JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8')).chatSidebarSide).toBe(
-    'right',
+  // The file is written a moment after the change.
+  await waitFor(
+    () => JSON.parse(readFileSync(join(profile, 'prefs.json'), 'utf8')).chatSidebarSide === 'right',
+    'the side in prefs.json',
   )
 
   await reopened.close()

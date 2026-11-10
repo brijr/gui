@@ -146,8 +146,12 @@ function openFromFinder(session: GuiSession, path: string) {
   }, path)
 }
 
-function prefsOf(userData: string): unknown {
-  return JSON.parse(readFileSync(join(userData, 'prefs.json'), 'utf8'))
+/** Waits for prefs.json to remember `dir` as the monorepo's app: it's written a moment after. */
+function appSaved(userData: string, root: string, dir: string) {
+  return waitFor(
+    () => JSON.parse(readFileSync(join(userData, 'prefs.json'), 'utf8')).apps?.[root] === dir,
+    `${dir} as the app in prefs.json`,
+  )
 }
 
 test('only a workspace app folder leads to its monorepo', async () => {
@@ -215,7 +219,7 @@ test('opening an app folder inside a monorepo opens the monorepo with that app',
   const preview = await session.previewPage()
   await expect(preview.locator('h1')).toHaveText('Gui monorepo: web')
   expect(devServerPids(join(root, 'apps', 'web')).length).toBeGreaterThan(0)
-  expect(prefsOf(userData)).toMatchObject({ apps: { [root]: 'apps/web' } })
+  await appSaved(userData, root, 'apps/web')
   // Recent projects list the monorepo from now on.
   expect(state.recent?.[0]?.root).toBe(root)
   await session.shot('app-folder-opened')
@@ -239,7 +243,7 @@ test('opening an app folder inside a monorepo opens the monorepo with that app',
   )
   await expect(docs.locator('h1')).toHaveText('Gui monorepo: docs')
   expect(await session.windowCount()).toBe(1)
-  expect(prefsOf(userData)).toMatchObject({ apps: { [root]: 'apps/docs' } })
+  await appSaved(userData, root, 'apps/docs')
   // The web app keeps running in the first tab.
   expect(devServerPids(join(root, 'apps', 'web')).length).toBeGreaterThan(0)
   expect(devServerPids(join(root, 'apps', 'docs')).length).toBeGreaterThan(0)
@@ -286,7 +290,7 @@ test("the root's own app is offered next to the workspace apps", async ({ open }
   expect(state.project?.devCommand).toBe('bun run dev')
   const preview = await session.previewPage()
   await expect(preview.locator('h1')).toHaveText('Gui monorepo: root')
-  expect(prefsOf(userData)).toMatchObject({ apps: { [root]: '.' } })
+  await appSaved(userData, root, '.')
 })
 
 test('Astro-style source attributes map a picked element to its file', async ({ open }) => {

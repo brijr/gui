@@ -263,8 +263,12 @@ test('a monorepo asks which app to preview, then runs the one picked', async ({ 
   await expect(preview.locator('h1')).toHaveText('Gui monorepo: web')
   // The dev server runs inside the app's folder, and the pick is remembered.
   expect(devServerPids(join(root, 'apps', 'web')).length).toBeGreaterThan(0)
-  const prefs: unknown = JSON.parse(readFileSync(join(userData, 'prefs.json'), 'utf8'))
-  expect(prefs).toMatchObject({ apps: { [root]: 'apps/web' } })
+  // The file is written a moment after the pick.
+  await waitFor(
+    () =>
+      JSON.parse(readFileSync(join(userData, 'prefs.json'), 'utf8')).apps?.[root] === 'apps/web',
+    'the pick in prefs.json',
+  )
 })
 
 test('an env example is offered and copied to .env.local without blocking the preview', async ({
