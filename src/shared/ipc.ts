@@ -210,6 +210,9 @@ export const Send = {
   boardArrange: 'board:arrange',
   boardAddFrame: 'board:add-frame',
   boardDuplicate: 'board:duplicate',
+  boardCopy: 'board:copy',
+  boardCut: 'board:cut',
+  boardPaste: 'board:paste',
   boardDelete: 'board:delete',
   boardExport: 'board:export',
   boardAddSection: 'board:add-section',
@@ -423,6 +426,12 @@ export interface GuiApi {
   /** A new frame at `at` on the board, or beside what's selected */
   boardAddFrame(preset: FramePreset, at: { x: number; y: number } | null): void
   boardDuplicate(ids: string[]): void
+  /** Frames on the clipboard, in Gui's own format (with a PNG of one) */
+  boardCopy(ids: string[]): void
+  /** Copied, then off the board: one undo step */
+  boardCut(ids: string[]): void
+  /** Frames on the clipboard pasted onto this canvas as new frames: one undo step */
+  boardPaste(): void
   boardDelete(ids: string[]): void
   /** Frames saved as PNGs at twice their size, where the user picks */
   boardExport(ids: string[]): void

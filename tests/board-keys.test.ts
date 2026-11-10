@@ -196,6 +196,26 @@ describe('keys on the board', () => {
     expect(boardKey(key('ArrowLeft', { altKey: true }), board(['a']))).toBeNull()
   })
 
+  test('⌘C and ⌘X copy and cut the selection; ⌘V pastes, selected or not', () => {
+    const selected = board(['a', 'b'])
+    expect(boardKey(key('c', meta), selected)).toEqual({
+      type: 'copy',
+      ids: ['a', 'b'],
+      cut: false,
+    })
+    expect(boardKey(key('x', meta), selected)).toEqual({ type: 'copy', ids: ['a', 'b'], cut: true })
+    expect(boardKey(key('v', meta), board())).toEqual({ type: 'paste' })
+    // A section picked by its name: its frames.
+    expect(boardKey(key('c', meta), board(['b', 'c'], true))).toMatchObject({ ids: ['b', 'c'] })
+    // Nothing selected, nothing to copy: the key goes on.
+    expect(boardKey(key('c', meta), board())).toBeNull()
+    expect(boardKey(key('x', meta), board())).toBeNull()
+    // ⇧⌘C is Design Mode's; ⌥⇧⌘V the menu's.
+    expect(boardKey(key('c', { ...meta, shiftKey: true }), selected)).toBeNull()
+    expect(boardKey(key('v', { ...meta, shiftKey: true, altKey: true }), selected)).toBeNull()
+    expect(boardKey(key('c'), selected)).toBeNull()
+  })
+
   test('other keys are not the board’s', () => {
     expect(boardKey(key('x'), board(['a']))).toBeNull()
     expect(boardKey(key('s', meta), board(['a']))).toBeNull()

@@ -676,3 +676,131 @@ test("Figma's zoom keys: ⇧0 is 100%, ⇧1 fits, ⇧2 the selection, + and − 
   expect(await zoom()).toBe(before)
   await chrome.keyboard.press('Escape')
 })
+
+/** Runs in main: the clipboard as a variable, so the tests never touch the real one. */
+function stubClipboard({ clipboard }: typeof import('electron')) {
+  type Stored = { types: string[]; data: Record<string, Blob> }
+  const store = globalThis as unknown as { guiClipboard: Stored[] }
+  store.guiClipboard = []
+  clipboard.write = async (items) => {
+    const written: Stored[] = []
+    for (const item of items) {
+      const data: Record<string, Blob> = {}
+      for (const type of item.types) data[type] = (await item.getType(type)) as Blob
+      written.push({ types: item.types, data })
+    }
+    store.guiClipboard = written
+  }
+  clipboard.read = async () =>
+    store.guiClipboard.map(
+      ({ types, data }) =>
+        ({
+          types,
+          getType: async (type: string) => data[type],
+        }) as unknown as Electron.ClipboardItem,
+    )
+}
+
+test('⌘C and ⌘V copy frames onto the same canvas and another, as one undo step each', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  const first = await openCanvas(session)
+  await session.app.evaluate(stubClipboard)
+  await chrome.evaluate(() => {
+    window.gui.boardAddFrame('desktop', null)
+    window.gui.boardAddFrame('mobile', null)
+  })
+  await waitFor(async () => {
+    const { frames } = await board(session)
+    return frames.length === 2 && frames.every((frame) => frame.captured)
+  }, 'two frames')
+  // ⌘C copies the page as it is on disk.
+  const page = '<!doctype html><h1>Copied page</h1>'
+  writeFileSync(join((await session.state()).project?.root ?? '', 'frames', 'mobile.html'), page)
+  const clipboard = () =>
+    session.app.evaluate(async () => {
+      const { guiClipboard } = globalThis as unknown as {
+        guiClipboard: { types: string[]; data: Record<string, Blob> }[]
+      }
+      const [item] = guiClipboard
+      const frames = item?.data['web application/x.gui-frames']
+      return item ? { types: item.types, text: frames ? await frames.text() : null } : null
+    })
+
+  // ⌘C: the selected frame, in Gui's format and as a picture for other apps.
+  await zoomToFit(session)
+  const mobile = chrome.locator('[data-frame="mobile"]').last()
+  await mobile.click()
+  await expect(mobile).toHaveAttribute('aria-selected', 'true')
+  await chrome.keyboard.press('Meta+c')
+  const copied = await waitFor(clipboard, 'the frame on the clipboard')
+  expect(copied.types.sort()).toEqual(['image/png', 'web application/x.gui-frames'])
+  expect(JSON.parse(copied.text ?? '')).toMatchObject({
+    canvas: first.id,
+    frames: [{ id: 'mobile', name: 'Mobile', width: 390, height: 844, html: page }],
+  })
+
+  // ⌘V on the same canvas: a new frame beside the original, selected; ⌘Z takes it back.
+  await chrome.keyboard.press('Meta+v')
+  const pasted = await waitFor(async () => {
+    const state = await board(session)
+    const added = state.frames.find((frame) => !['desktop', 'mobile'].includes(frame.id))
+    return added && state.selection.join() === added.id ? state : null
+  }, 'the pasted frame, selected')
+  const [copy] = pasted.frames.filter((frame) => !['desktop', 'mobile'].includes(frame.id))
+  const original = pasted.frames.find((frame) => frame.id === 'mobile')
+  expect(copy.x).toBeGreaterThan((original?.x ?? 0) + (original?.width ?? 0))
+  await undo(session)
+  await waitFor(async () => (await board(session)).frames.length === 2, 'the paste undone')
+
+  // ⌘V on another canvas, in another tab: the same page.
+  await chrome.evaluate(() => window.gui.newBoard())
+  const second = await waitFor(async () => {
+    const state = await board(session)
+    return state.id !== first.id && !state.frames.length ? state : null
+  }, 'a second canvas')
+  const area = chrome.getByRole('application')
+  await area.focus()
+  await chrome.keyboard.press('Meta+v')
+  const there = await waitFor(async () => {
+    const state = await board(session)
+    return state.id === second.id && state.frames.length === 1 && state.selection.length
+      ? state
+      : null
+  }, 'the frame pasted on the second canvas')
+  const root = (await session.state()).project?.root ?? ''
+  expect(root).toContain(second.id)
+  expect(readFileSync(join(root, 'frames', `${there.frames[0].id}.html`), 'utf8')).toBe(page)
+  expect(there.frames[0]).toMatchObject({ name: 'Mobile', width: 390, height: 844 })
+
+  // In a frame's name, ⌘C and ⌘V are the field's: the board leaves them to it.
+  await expect(chrome.locator(`[data-frame="${there.frames[0].id}"]`).last()).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await chrome.keyboard.press('F2')
+  const field = area.getByRole('textbox', { name: 'Frame name' })
+  await expect(field).toBeFocused()
+  const before = await clipboard()
+  // Dispatched rather than pressed, so the field's own copy doesn't reach the real clipboard.
+  const taken = await field.evaluate((input) =>
+    ['c', 'v', 'x'].map(
+      (key) =>
+        !input.dispatchEvent(
+          new KeyboardEvent('keydown', {
+            key,
+            code: `Key${key.toUpperCase()}`,
+            metaKey: true,
+            bubbles: true,
+            cancelable: true,
+          }),
+        ),
+    ),
+  )
+  expect(taken).toEqual([false, false, false])
+  await chrome.keyboard.press('Escape')
+  expect(await clipboard()).toEqual(before)
+  expect((await board(session)).frames).toHaveLength(1)
+})

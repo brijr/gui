@@ -81,6 +81,7 @@ import { agentHealth } from './agent-status'
 import { agentMenuItems, declaresOwnPermissions } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
 import { boardIdOf, listBoards, writeManifest } from './board'
+import { copyFrames, pastedFrames } from './board-clipboard'
 import { BoardSession } from './board-session'
 import { createBoardTools } from './board-tool-workflow'
 import { branchStatus } from './branch'
@@ -1061,6 +1062,38 @@ export class ProjectTab implements ChatPanelOwner {
 
   async boardDelete(ids: string[]) {
     await this.resources.board?.remove(ids)
+  }
+
+  /** ⌘C on the board: the frames on the clipboard; ⌘X takes them off the board too. */
+  async boardCopy(ids: string[], cut = false) {
+    const board = this.resources.board
+    if (!board) return
+    try {
+      const copied = await copyFrames(board, ids, { image: !cut, scale: FRAME_EXPORT_SCALE })
+      if (copied && cut) await board.remove(ids)
+    } catch (error) {
+      console.error('[gui] copying frames failed', error)
+      shell.beep()
+    }
+  }
+
+  /** ⌘V on the board: frames on the clipboard become new frames here, as one undo step. */
+  async boardPaste() {
+    const { resources } = this
+    const { board, generation } = resources
+    if (!board) return
+    try {
+      const pasted = await pastedFrames()
+      if (!resources.stillCurrent(generation)) return
+      if (!pasted) {
+        shell.beep()
+        return
+      }
+      await board.paste(pasted.copied, pasted.assets)
+    } catch (error) {
+      console.error('[gui] pasting frames failed', error)
+      shell.beep()
+    }
   }
 
   async boardRenameFrame(id: string, name: string) {

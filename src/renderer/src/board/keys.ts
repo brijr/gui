@@ -73,6 +73,12 @@ export function boardKey(key: BoardKey, board: KeyBoard): KeyAction | null {
   // ⌘D is Design Mode, as everywhere in Gui (the menu's); ⌥⌘D duplicates.
   if (command && key.altKey && key.code === 'KeyD' && ids.length) return { type: 'duplicate', ids }
   if (command && key.shiftKey && key.code === 'KeyE' && ids.length) return { type: 'export', ids }
+  // ⌘C, ⌘X and ⌘V copy, cut and paste frames (in a name's field, its text: the board never
+  // hears those keys). ⇧⌘C is Design Mode's, and ⌥⇧⌘V the menu's.
+  const clip = command && !key.altKey && !key.shiftKey
+  if (clip && key.code === 'KeyC' && ids.length) return { type: 'copy', ids, cut: false }
+  if (clip && key.code === 'KeyX' && ids.length) return { type: 'copy', ids, cut: true }
+  if (clip && key.code === 'KeyV') return { type: 'paste' }
   if (command && !key.altKey && !key.shiftKey && key.code === 'KeyA')
     return { type: 'pick', ids: board.frames.map((frame) => frame.id), section: null }
   if (command && key.key === '0') return { type: 'fit' }

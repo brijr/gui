@@ -1,10 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto'
 import { EventEmitter } from 'node:events'
-import { type FSWatcher, watch } from 'node:fs'
-import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { constants, type FSWatcher, watch } from 'node:fs'
+import { copyFile, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { extname, join, resolve, sep } from 'node:path'
+import { dirname, extname, join, resolve, sep } from 'node:path'
 import type { NativeImage } from 'electron'
 import {
   BOARD_MANIFEST,
@@ -30,6 +30,12 @@ import {
   sectionOf,
   starterHtml,
 } from '../shared/board'
+import {
+  assetRefs,
+  type CopiedFrame,
+  type CopiedFrames,
+  pastePlaces,
+} from '../shared/board-clipboard'
 import { MAX_UNDO_BYTES } from '../shared/bounded'
 import type { BoardFrame, BoardState } from '../shared/types'
 import { thumbsDir, thumbsUrl, writeManifest } from './board'
@@ -426,38 +432,106 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** Copies of frames beside the originals, selected in their place. */
   duplicate(ids: string[], user = true): Promise<BoardFrameLayout[]> {
-    return this.mutations.run(() => this.duplicateFrames(ids, user))
+    return this.mutations.run(async () => {
+      const sources = [...new Set(ids)].flatMap((id) => this.frame(id) ?? [])
+      const pages = await Promise.all(
+        sources.map((source) => readFile(this.framePath(source.id), 'utf8').catch(() => undefined)),
+      )
+      return this.addFrames(
+        sources.map((source, i) => (made) => ({
+          name: `${source.name} copy`,
+          width: source.width,
+          height: source.height,
+          html: pages[i],
+          after: [source.id, ...made.map((frame) => frame.id)],
+        })),
+        user,
+      )
+    })
   }
 
-  /** All of them or none: a copy that fails takes back the ones already made. */
-  private async duplicateFrames(ids: string[], user: boolean): Promise<BoardFrameLayout[]> {
-    const sources = [...new Set(ids)].flatMap((id) => this.frame(id) ?? [])
-    if (!sources.length) return []
+  /** Frames as ⌘C puts them on the clipboard: where they are, their size, name and page. */
+  copyable(ids: string[]): Promise<CopiedFrame[]> {
+    return this.mutations.run(async () => {
+      const frames = [...new Set(ids)].flatMap((id) => this.frame(id) ?? [])
+      const copied = await Promise.all(
+        frames.map(async ({ id, name, x, y, width, height }) => {
+          const html = await readFile(this.framePath(id), 'utf8').catch(() => null)
+          return html === null ? [] : [{ id, name, x, y, width, height, html }]
+        }),
+      )
+      return copied.flat()
+    })
+  }
+
+  /**
+   * Frames from the clipboard, as new frames laid out as they were copied: beside their
+   * originals when they're on this canvas, or else what's selected, or else everything. The
+   * shared files their pages use come along from `assets` (the canvas they were copied from)
+   * when this canvas has none of that name. One undo step; selected in place of what was.
+   */
+  paste(copied: CopiedFrames, assets: string | null, user = true): Promise<BoardFrameLayout[]> {
+    return this.mutations.run(async () => {
+      const here = copied.canvas === this.id
+      const room = copied.frames.length <= MAX_FRAMES - this.manifest.frames.length
+      // Only when they'll fit: a paste that can't happen leaves nothing behind.
+      if (assets && !here && room) await this.bringAssets(copied.frames, assets)
+      const originals = here ? copied.frames.flatMap((frame) => this.frame(frame.id) ?? []) : []
+      const after = originals.length
+        ? originals
+        : this.selection.flatMap((id) => this.frame(id) ?? [])
+      const { frames, sections } = this.manifest
+      const taken = [...frames, ...sections.flatMap((s) => sectionBounds(s, frames) ?? [])]
+      const places = pastePlaces(copied.frames, taken, after)
+      return this.addFrames(
+        copied.frames.map((frame, i) => () => ({
+          name: frame.name,
+          width: frame.width,
+          height: frame.height,
+          html: frame.html,
+          at: places[i],
+        })),
+        user,
+      )
+    })
+  }
+
+  /** The files under `from` (another canvas's assets/) that pages use, where this canvas has none. */
+  private async bringAssets(frames: readonly CopiedFrame[], from: string) {
+    const source = await realpath(from).catch(() => null)
+    if (!source) return
+    const refs = new Set(frames.flatMap((frame) => assetRefs(frame.html)))
+    for (const ref of refs) {
+      const file = await realpath(join(source, ref)).catch(() => null)
+      if (!file?.startsWith(source + sep) || !(await stat(file).catch(() => null))?.isFile())
+        continue
+      const to = join(this.root, 'assets', ref)
+      await mkdir(dirname(to), { recursive: true })
+      // Never over one of this canvas's own.
+      await copyFile(file, to, constants.COPYFILE_EXCL).catch(() => undefined)
+    }
+  }
+
+  /**
+   * New frames, each made by its spec given those made before it: all of them or none (a frame
+   * that fails takes back the ones already made), as one undo step, selected once they're on.
+   */
+  private async addFrames(
+    specs: ((made: BoardFrameLayout[]) => NewFrame)[],
+    user: boolean,
+  ): Promise<BoardFrameLayout[]> {
+    if (!specs.length) return []
     const room = MAX_FRAMES - this.manifest.frames.length
-    if (sources.length > room)
+    if (specs.length > room)
       throw new Error(
-        `A canvas holds up to ${MAX_FRAMES} frames, so there's room for ${room} more, not ${sources.length}. Delete some first.`,
+        `A canvas holds up to ${MAX_FRAMES} frames, so there's room for ${room} more, not ${specs.length}. Delete some first.`,
       )
     const before = new Set(this.manifest.frames.map((frame) => frame.id))
     this.beginEdit(user)
     const step = user ? this.undoStack.at(-1) : undefined
     const made: BoardFrameLayout[] = []
     try {
-      for (const source of sources) {
-        const html = await readFile(this.framePath(source.id), 'utf8').catch(() => undefined)
-        made.push(
-          await this.createFrame(
-            {
-              name: `${source.name} copy`,
-              width: source.width,
-              height: source.height,
-              html,
-              after: [source.id, ...made.map((frame) => frame.id)],
-            },
-            false,
-          ),
-        )
-      }
+      for (const spec of specs) made.push(await this.createFrame(spec(made), false))
     } catch (error) {
       const added = this.manifest.frames.filter((frame) => !before.has(frame.id))
       for (const frame of added) this.written.delete(frame.id)

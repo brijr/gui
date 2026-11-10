@@ -8,7 +8,7 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../../src/main/atomic-file'
-import { type BoardManifest, MAX_FRAMES } from '../../src/shared/board'
+import { type BoardManifest, FRAME_GAP, MAX_FRAMES } from '../../src/shared/board'
 
 const nativeFs = { ...fs }
 const nativeFsSync = { ...fsSync }
@@ -616,6 +616,69 @@ try {
   assert.equal(racing.has('third'), false)
   assert.equal(await exists(thumb), false)
   await racing.dispose()
+
+  // Frames pasted from another canvas: laid out as they were copied, right of what's there,
+  // with the shared files their pages use (never over this canvas's own), as one undo step.
+  const source = await board('paste-source')
+  const heroPage = '<img src="../assets/logo.png"><img src="../assets/brand/mark%20one.svg">'
+  await source.create({ name: 'Hero', width: 400, height: 300, at: { x: 0, y: 0 }, html: heroPage })
+  await source.create({ name: 'Footer', width: 400, height: 200, at: { x: 0, y: 400 } })
+  await nativeFs.writeFile(join(source.root, 'assets', 'logo.png'), 'logo')
+  await nativeFs.mkdir(join(source.root, 'assets', 'brand'))
+  await nativeFs.writeFile(join(source.root, 'assets', 'brand', 'mark one.svg'), 'mark')
+  const copied = {
+    version: 1 as const,
+    canvas: source.id,
+    frames: await source.copyable(['hero', 'footer', 'missing']),
+  }
+  assert.deepEqual(
+    copied.frames.map(({ id, x, y, html }) => [id, x, y, html.length > 0]),
+    [
+      ['hero', 0, 0, true],
+      ['footer', 0, 400, true],
+    ],
+  )
+  const target = await board('paste-target', [
+    { id: 'own', name: 'Own', x: 0, y: 0, width: 400, height: 300 },
+  ])
+  await nativeFs.writeFile(join(target.root, 'assets', 'logo.png'), 'theirs')
+  const pasted = await target.paste(copied, join(source.root, 'assets'))
+  assert.deepEqual(
+    pasted.map(({ name, x, y }) => [name, x, y]),
+    [
+      ['Hero', 400 + FRAME_GAP, 0],
+      ['Footer', 400 + FRAME_GAP, 400],
+    ],
+  )
+  assert.equal(await nativeFs.readFile(target.framePath(pasted[0].id), 'utf8'), heroPage)
+  assert.equal(await nativeFs.readFile(join(target.root, 'assets', 'logo.png'), 'utf8'), 'theirs')
+  assert.equal(
+    await nativeFs.readFile(join(target.root, 'assets', 'brand', 'mark one.svg'), 'utf8'),
+    'mark',
+  )
+  assert.deepEqual(
+    target.selected,
+    pasted.map((frame) => frame.id),
+  )
+  assert.equal(await target.undo(), true)
+  assert.deepEqual(
+    target.frames.map((frame) => frame.id),
+    ['own'],
+  )
+  assert.equal(await target.undo(), false, 'The paste was one undo step')
+  await target.dispose()
+
+  // Pasted on the canvas they were copied from: beside the originals.
+  const again = await source.paste(copied, null)
+  assert.deepEqual(
+    again.map(({ x, y }) => [x, y]),
+    [
+      [400 + FRAME_GAP, 0],
+      [400 + FRAME_GAP, 400],
+    ],
+  )
+  assert.ok(again.every((frame) => !['hero', 'footer'].includes(frame.id)))
+  await source.dispose()
 
   console.log(
     'BoardSession allocation, limits, save ordering/retry, external files, and close/open passed.',

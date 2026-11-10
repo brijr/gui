@@ -488,6 +488,27 @@ export const SHORTCUTS = {
     group: 'canvas',
     description: 'Duplicate the selected frames',
   },
+  canvasCopy: {
+    label: 'Copy Frames',
+    accelerator: 'CmdOrCtrl+C',
+    menu: null,
+    group: 'canvas',
+    description: 'Copy the selected frames, to paste on any canvas',
+  },
+  canvasCut: {
+    label: 'Cut Frames',
+    accelerator: 'CmdOrCtrl+X',
+    menu: null,
+    group: 'canvas',
+    description: 'Cut the selected frames',
+  },
+  canvasPaste: {
+    label: 'Paste Frames',
+    accelerator: 'CmdOrCtrl+V',
+    menu: null,
+    group: 'canvas',
+    description: 'Paste copied frames onto this canvas',
+  },
   canvasExport: {
     label: 'Export Frames',
     accelerator: 'Shift+CmdOrCtrl+E',

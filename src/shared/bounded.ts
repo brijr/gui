@@ -10,6 +10,8 @@ export const MAX_CHECKPOINT_FILE_BYTES = 10 * 1024 * 1024
  * go; the newest is always kept.
  */
 export const MAX_UNDO_BYTES = 32 * 1024 * 1024
+/** Frames' pages copied to the clipboard at once (⌘C on the canvas); a paste reads no more. */
+export const MAX_COPIED_FRAMES_BYTES = 32 * 1024 * 1024
 /** Output kept per terminal / dev server so the drawer can redraw after a tab switch. */
 export const MAX_OUTPUT_BYTES = 512 * 1024
 

@@ -22,6 +22,10 @@ export type BoardIntent =
   | { type: 'deleteSection'; id: string }
   | { type: 'addSection'; ids: string[] }
   | { type: 'duplicate'; ids: string[] }
+  /** Frames on the clipboard; a cut takes them off the board too */
+  | { type: 'copy'; ids: string[]; cut: boolean }
+  /** The frames on the clipboard, pasted onto this canvas */
+  | { type: 'paste' }
   | { type: 'export'; ids: string[] }
   | { type: 'renameFrame'; id: string; name: string }
   | { type: 'renameSection'; id: string; name: string }
@@ -49,6 +53,10 @@ export function sendIntent(intent: BoardIntent) {
       return gui.boardAddSection(intent.ids)
     case 'duplicate':
       return gui.boardDuplicate(intent.ids)
+    case 'copy':
+      return intent.cut ? gui.boardCut(intent.ids) : gui.boardCopy(intent.ids)
+    case 'paste':
+      return gui.boardPaste()
     case 'export':
       return gui.boardExport(intent.ids)
     case 'renameFrame':
