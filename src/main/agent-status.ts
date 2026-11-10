@@ -83,7 +83,7 @@ const unchecked = (
  * No prompt is sent, so checking costs no usage. Also sets agents up when the user asks:
  * downloads Claude Code or Codex, and runs sign-in.
  */
-class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }> {
+export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }> {
   /** Every agent by id, once first used; see `health`. */
   private known: Map<AgentId, AgentHealth> | null = null
   private running = new Map<AgentId, Promise<void>>()
@@ -160,16 +160,25 @@ class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealth[]] }>
   async checkOnLaunch(preferred: AgentId) {
     if (this.disposed) return
     const targets = [...new Set([...PINNED, preferred])]
-    // Finding what's installed takes a moment; say it's being checked rather than not.
+    // Finding what's installed takes a moment; say it's being checked rather than not. Only
+    // of agents that are switched on: the others aren't checked, and would say so for good.
     for (const id of targets) {
-      if (this.health.get(id)?.status === 'unknown') this.set(id, { status: 'checking' })
+      const agent = this.health.get(id)
+      if (agent?.enabled && agent.status === 'unknown') this.set(id, { status: 'checking' })
     }
     await this.rescan()
-    const ids = targets.filter((id) => {
-      const agent = this.health.get(id)
-      return agent?.enabled && this.checkable(agent)
-    })
-    await Promise.all(ids.map((id) => this.check(id)))
+    await Promise.all(
+      targets.map((id) => {
+        const agent = this.health.get(id)
+        if (agent?.enabled && this.checkable(agent)) return this.check(id)
+        // Switched off meanwhile: it isn't checked, so it stops saying it is, and is checked
+        // when it's switched on again.
+        if (agent?.status === 'checking' && !this.running.has(id)) {
+          this.set(id, { status: 'unknown' })
+        }
+        return undefined
+      }),
+    )
   }
 
   /** Checks an agent the user just picked, unless its state is already known. */
