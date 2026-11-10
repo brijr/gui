@@ -325,7 +325,7 @@ export function registerPreviewTools(
     {
       title: 'Screenshot the preview',
       description:
-        "Screenshot the page Gui's preview shows: the user's running app, or the website you opened. Use after making visual changes to check the result. Images are scaled to fit 1600×1960 px, so `fullPage` is a low-resolution overview of the whole scrollable page; for detail (type, spacing, small elements) pass `selector` to capture one element instead. Pass `width` (CSS px) to check a responsive breakpoint such as 390 or 768 (the viewport is restored afterwards).",
+        "Screenshot the page Gui's preview shows: the user's running app, or the website you opened. Use after making visual changes to check the result. Images are scaled to fit 1600×1960 px, so `fullPage` is a low-resolution overview of the whole scrollable page; for detail (type, spacing, small elements) pass `selector` to capture one element instead. Pass `width` (CSS px) to check a responsive breakpoint such as 390 or 768: the user watches the preview resize into that viewport (390, 820 and 1440 are its Mobile, Tablet and Laptop) and back to their own a moment after, so checking several widths one after another is cheap and reads as one smooth pass.",
       inputSchema: {
         selector: z.string().max(500).optional().describe('CSS selector of an element to capture'),
         width: z.number().int().min(240).max(3840).optional().describe('Viewport width in CSS px'),

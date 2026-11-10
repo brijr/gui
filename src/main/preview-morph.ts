@@ -83,6 +83,8 @@ export class PreviewMorph {
   private stopFrames: (() => void) | null = null
   private last = 0
   private timer: NodeJS.Timeout | null = null
+  /** Waiting for the view to rest (`settled`) */
+  private waiting: (() => void)[] = []
 
   constructor(private readonly host: MorphHost) {}
 
@@ -94,6 +96,12 @@ export class PreviewMorph {
   /** Past arming: the springs are carrying the view. */
   get moving() {
     return this.phase === 'moving'
+  }
+
+  /** Resolves once the view rests in its layout: at once out of a morph. */
+  settled(): Promise<void> {
+    if (this.phase === 'idle') return Promise.resolve()
+    return new Promise((resolve) => this.waiting.push(resolve))
   }
 
   /**
@@ -154,6 +162,9 @@ export class PreviewMorph {
     if (relayout) this.host.layout()
     this.host.send({ type: 'end', id })
     this.host.ended()
+    const waiting = this.waiting
+    this.waiting = []
+    for (const resolve of waiting) resolve()
   }
 
   dispose() {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { type FSWatcher, watch } from 'node:fs'
 import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, posix } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import {
   app,
   ClipboardItem,
@@ -78,6 +79,7 @@ import {
   type WorkspaceApp,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
+import { AgentViewport, viewportForWidth } from './agent-viewport'
 import { agentMenuItems, declaresOwnPermissions } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
 import { boardIdOf, listBoards, writeManifest } from './board'
@@ -111,7 +113,7 @@ import { nodeRuntime } from './node-runtime'
 import { type Outlined, Picker } from './picker'
 import { getPrefs, setPrefs } from './prefs'
 import { PreviewMorph } from './preview-morph'
-import { PreviewTools } from './preview-tools'
+import { PreviewTools, SETTLE_MS } from './preview-tools'
 import { Problems } from './problems'
 import { execFile } from './process'
 import { detectProject } from './project'
@@ -200,6 +202,8 @@ const AGENT_START_WAIT_MS = 45_000
 const GUIDE_GLIDE_MS = 650
 /** The walkthrough's last step stays this long after the agent's turn ends */
 const GUIDE_LINGER_MS = 5000
+/** The longest an agent's width check waits for the preview to resize into its viewport */
+const MORPH_WAIT_MS = 2000
 /** How much of the dev server's output the agent's dev server tools return */
 const AGENT_LOG_LINES = 60
 /** A package.json being written fires several changes; look once they've settled. */
@@ -366,6 +370,8 @@ export class ProjectTab implements ChatPanelOwner {
   private zooms: Partial<Record<Viewport, Zoom>> = { desktop: 1 }
   /** Resizes the live preview into a new layout, like a window being resized (preview-morph.ts). */
   readonly morph: PreviewMorph
+  /** The viewport the agent's width checks show for a moment, in place of the user's */
+  private readonly agentViewport: AgentViewport
   private readonly panel: ChatPanel
   /**
    * Where the preview is laid out, in the window: the view's bounds, except mid-morph, when
@@ -619,6 +625,14 @@ export class ProjectTab implements ChatPanelOwner {
         this.panel.landFloat()
       },
     })
+    this.agentViewport = new AgentViewport({
+      current: () => this.state.preview.viewport,
+      show: (viewport, morph) => this.showViewport(viewport, morph),
+      settle: async () => {
+        await Promise.race([this.morph.settled(), sleep(MORPH_WAIT_MS)])
+        await sleep(SETTLE_MS)
+      },
+    })
     this.panel = new ChatPanel(this)
     this.picker = new Picker(this.preview.webContents, this.inspector, () => this.emulation.scale)
     this.guides = new Guides(this.preview, {
@@ -763,6 +777,8 @@ export class ProjectTab implements ChatPanelOwner {
    * running; only picking an element, which needs the page on screen, ends.
    */
   deactivate() {
+    // The agent's viewport doesn't outlast the tab in sight: the user's, back as they left it.
+    this.agentViewport.restore(false)
     if (this.state.preview.selecting) void this.setSelecting(false)
     // Its find bar is the chrome's, which shows the next tab's now.
     this.stopFindInPage()
@@ -1013,7 +1029,9 @@ export class ProjectTab implements ChatPanelOwner {
     const open = board.openId ? board.frame(board.openId) : null
     const { viewport } = this.state.preview
     const resized = open && this.state.board?.open === open.id && frameViewport(open) !== viewport
-    if (resized && isCustomViewport(viewport)) this.setViewport(frameViewport(open))
+    // (Not the agent's own size, showing for a moment: its check puts the frame's back.)
+    if (resized && isCustomViewport(viewport) && viewport !== this.agentViewport.shown)
+      this.setViewport(frameViewport(open))
     this.resources.chat?.setCanvasEmpty(board.frames.length === 0)
     this.patch({ board: board.state(), project })
   }
@@ -1178,9 +1196,12 @@ export class ProjectTab implements ChatPanelOwner {
     if (viewport !== this.state.preview.viewport) this.patchPreview({ viewport })
   }
 
-  /** A viewport the user can choose: a device's, or the open canvas frame's own size. */
+  /**
+   * A viewport the user can choose: a device's, the open canvas frame's own size, or the size
+   * the agent is checking (to keep it).
+   */
   private canShow(viewport: Viewport) {
-    if (!isCustomViewport(viewport)) return true
+    if (!isCustomViewport(viewport) || viewport === this.agentViewport.shown) return true
     const board = this.resources.board
     const frame = board?.openId ? board.frame(board.openId) : null
     return frame !== null && frameViewport(frame) === viewport
@@ -1311,6 +1332,8 @@ export class ProjectTab implements ChatPanelOwner {
       logs: () => this.getLogs(),
       viewScale: () => this.emulation.scale,
       restoreViewport: () => this.emulation.restore(),
+      atWidth: (width, run) => this.atWidth(width, run, current),
+      shownWidth: () => this.emulation.width,
       serverStatus: () => (board ? BOARD_SERVER_STATUS : describeServer(this.state)),
       restartServer: () => (board ? Promise.resolve(BOARD_SERVER_STATUS) : this.restartForAgent()),
       setStartCommand: (input) =>
@@ -1430,8 +1453,9 @@ export class ProjectTab implements ChatPanelOwner {
         this.closeWebsite()
         this.websiteClosedNote = null
       }
-      // Once the turn ends, the website is the user's to use.
+      // Once the turn ends, the website is the user's to use, and the preview is at their viewport.
       this.holdWebsite()
+      if (turn.status !== 'running') this.agentViewport.restore()
       // Its variations go once the turn that made them is undone.
       this.variations.onTurn(turn)
       // Working, or a permission card answered: the tab strip shows it.
@@ -1712,6 +1736,7 @@ export class ProjectTab implements ChatPanelOwner {
 
   private disposeProjectResources() {
     const root = this.projectRoot
+    this.agentViewport.restore(false)
     // A website the project's agent opened goes with it, and its session is cleared.
     this.closeWebsite()
     this.variations.clear()
@@ -1965,11 +1990,31 @@ export class ProjectTab implements ChatPanelOwner {
     } else this.preview.webContents.reloadIgnoringCache()
   }
 
+  /** The user's pick (toolbar, View menu, ⌘1–⌘4): theirs, and the agent's checks come back to it. */
   setViewport(viewport: Viewport) {
     if (!this.canShow(viewport)) return
-    if (viewport !== this.state.preview.viewport) this.morphLayout('viewport')
+    this.agentViewport.userChose()
+    this.showViewport(viewport, true)
+  }
+
+  private showViewport(viewport: Viewport, morph: boolean) {
+    if (morph && viewport !== this.state.preview.viewport) this.morphLayout('viewport')
     this.patchPreview({ viewport })
     this.layout()
+  }
+
+  /**
+   * The agent's check at `width` (preview_screenshot): the preview resizes into that viewport
+   * as the user's pick would, `run` captures it there, and the user's viewport comes back a
+   * moment after the last check (agent-viewport.ts). When the preview can't move in sight
+   * (hidden, a sheet over it, picking, a website over it), `run` emulates the width alone.
+   */
+  private atWidth<T>(width: number, run: () => Promise<T>, current: () => boolean): Promise<T> {
+    if (!current() || !this.morphEligible()) return run()
+    return this.agentViewport.check(viewportForWidth(width), () => {
+      if (!current()) throw new Error('The project was closed')
+      return run()
+    })
   }
 
   /**
@@ -2809,10 +2854,11 @@ export class ProjectTab implements ChatPanelOwner {
   private promptViewport(): PromptViewport | null {
     // On a canvas's board there's no page in sight; the canvas block says what is.
     if (this.resources.board && !this.resources.board.openId) return null
-    const { name, size } = viewportSpec(this.state.preview.viewport)
+    // The user's own, while the agent's check shows another for a moment.
+    const { name, size } = viewportSpec(this.agentViewport.user ?? this.state.preview.viewport)
     if (size) return { name, ...size, fixed: true }
     const zoom = this.zoomOf('desktop') ?? 1
-    const { width, height } = this.placement
+    const { width, height } = placePreview('desktop', this.previewArea(), zoom).bounds
     return {
       name,
       width: Math.round(width / zoom),
@@ -3829,9 +3875,17 @@ export class ProjectTab implements ChatPanelOwner {
    * at the final layout), rather than jumping there.
    */
   morphLayout(kind: MorphKind) {
+    this.morph.request(kind, this.morphEligible())
+    this.panel.holdFloat()
+    // Mid-move a request only retargets, so `moving` won't come again: fly now.
+    if (this.morph.moving) this.panel.flyHeld()
+  }
+
+  /** The preview is in sight and nothing lies over it, so a change can morph it. */
+  private morphEligible() {
     const { win } = this.host
     // A website over the app would morph the app's page, out of sight: it simply resizes.
-    const eligible =
+    return (
       !this.disposed &&
       this.website === null &&
       this.host.isActive(this) &&
@@ -3841,10 +3895,7 @@ export class ProjectTab implements ChatPanelOwner {
       !this.host.sheetShown &&
       win.isVisible() &&
       !win.isMinimized()
-    this.morph.request(kind, eligible)
-    this.panel.holdFloat()
-    // Mid-move a request only retargets, so `moving` won't come again: fly now.
-    if (this.morph.moving) this.panel.flyHeld()
+    )
   }
 
   /**
@@ -4296,6 +4347,7 @@ export class ProjectTab implements ChatPanelOwner {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    this.agentViewport.dispose()
     this.stopListeningToChrome()
     this.clearFrameCheck()
     this.panel.dispose()

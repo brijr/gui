@@ -25,7 +25,7 @@ const MAX_CAPTURE_PIXELS = 16_384
 const NAVIGATION_TIMEOUT_MS = 30_000
 const RELOAD_TIMEOUT_MS = 10_000
 /** Media queries, layout, and lazy content settling after a viewport change. */
-const SETTLE_MS = 400
+export const SETTLE_MS = 400
 /** Restoring the viewport resizes the page asynchronously; how long to wait for its width. */
 const RESIZE_WAIT_MS = 500
 const ESC = '\u001b'
@@ -92,6 +92,14 @@ export interface PageDeps {
   viewScale: () => number
   /** Inside the inspector's lock: puts the user's viewport (device frame or none) back */
   restoreViewport: () => Promise<void>
+  /**
+   * Runs `run` with the preview showing a viewport `width` CSS px wide, the way the user would
+   * pick one: it resizes there first, and back a moment after (agent-viewport.ts). Runs `run`
+   * as it is when it can't (the preview is out of sight). The user's app only.
+   */
+  atWidth?: <T>(width: number, run: () => Promise<T>) => Promise<T>
+  /** Inside the inspector's lock: the width the page's viewport lays out at; null filling the view */
+  shownWidth?: () => number | null
   /**
    * preview_point: a walkthrough step drawn over the page (null node: a caption on its own).
    * False when the user can't see it: the preview is hidden, or they're picking.
@@ -290,9 +298,10 @@ export class PageTools {
 
   /**
    * Captures the preview as the user sees it, at the page's CSS size even when a device
-   * frame draws it smaller. `width` temporarily emulates that viewport width (the user sees
-   * it briefly) so the agent can check responsive layouts. Runs alone so parallel calls
-   * don't fight over the emulated width, and without our highlight overlay.
+   * frame draws it smaller. `width` checks a responsive layout: the preview resizes into
+   * that viewport as the user's pick would (`atWidth`), or, where it can't, the width is
+   * emulated for the capture alone. Runs alone so parallel calls don't fight over the
+   * emulated width, and without our highlight overlay.
    */
   async screenshot(options: ScreenshotOptions): Promise<FramedScreenshot> {
     this.assertLoaded()
@@ -302,12 +311,15 @@ export class PageTools {
       await stoppedLoading(this.page.wc, RELOAD_TIMEOUT_MS)
       await sleep(300)
     }
-    return this.page.inspector.exclusive((session) =>
-      session.withoutHighlight(() => {
-        this.assertLoaded()
-        return this.capture(session, options)
-      }),
-    )
+    const width = options.width ? Math.round(Math.min(Math.max(options.width, 240), 3840)) : null
+    const shoot = () =>
+      this.page.inspector.exclusive((session) =>
+        session.withoutHighlight(() => {
+          this.assertLoaded()
+          return this.capture(session, options, width)
+        }),
+      )
+    return width && this.page.atWidth ? this.page.atWidth(width, shoot) : shoot()
   }
 
   /** Computed styles, box, and source location for the first element matching `selector`. */
@@ -343,15 +355,17 @@ export class PageTools {
   private async capture(
     session: InspectorSession,
     options: ScreenshotOptions,
+    width: number | null,
   ): Promise<FramedScreenshot> {
     const initial = await this.cmd<LayoutMetrics>('Page.getLayoutMetrics')
-    const width = options.width ? Math.round(Math.min(Math.max(options.width, 240), 3840)) : null
+    // None when the preview resized into a viewport that wide (`atWidth`).
+    const emulated = width !== null && this.page.shownWidth?.() !== width ? width : null
     let scrolled = false
     let restoreScrollers: (() => Promise<void>) | null = null
     try {
       // Inside the try: an override that times out may still apply, and must be cleared.
-      if (width) await this.emulateWidth(width, initial.cssLayoutViewport.clientHeight)
-      const metrics = width ? await this.cmd<LayoutMetrics>('Page.getLayoutMetrics') : initial
+      if (emulated) await this.emulateWidth(emulated, initial.cssLayoutViewport.clientHeight)
+      const metrics = emulated ? await this.cmd<LayoutMetrics>('Page.getLayoutMetrics') : initial
       const viewportWidth = metrics.cssLayoutViewport.clientWidth
       const dpr = await this.devicePixelRatio()
       let clip: Clip
@@ -418,8 +432,8 @@ export class PageTools {
     } finally {
       // Nested scrollers first, in the layout their offsets were recorded in.
       await restoreScrollers?.().catch(() => undefined)
-      if (width) await this.page.restoreViewport().catch(() => undefined)
-      if (width || scrolled) await this.restoreWindowScroll(initial).catch(() => undefined)
+      if (emulated) await this.page.restoreViewport().catch(() => undefined)
+      if (emulated || scrolled) await this.restoreWindowScroll(initial).catch(() => undefined)
     }
   }
 

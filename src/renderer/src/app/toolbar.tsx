@@ -173,7 +173,9 @@ export function Toolbar({ state }: { state: WindowState }) {
     if (more.length) more.push({ type: 'separator' })
     more.push(...items)
   }
-  if (!shown('viewport')) section(...viewportItems(preview.viewport, null))
+  // A size of its own in a project is the agent's, checking a width for a moment.
+  const checking = isCustomViewport(preview.viewport) ? preview.viewport : null
+  if (!shown('viewport')) section(...viewportItems(preview.viewport, checking))
   const tools: ToolbarMenuItem[] = []
   if (!shown('rulers'))
     tools.push({
@@ -217,7 +219,13 @@ export function Toolbar({ state }: { state: WindowState }) {
         <>
           <AddressBar state={state} />
 
-          {shown('viewport') && <ViewportButton viewport={preview.viewport} />}
+          {shown('viewport') && (
+            <ViewportButton
+              viewport={preview.viewport}
+              own={checking}
+              ownTitle="The agent’s check"
+            />
+          )}
 
           <div className="flex shrink-0 items-center gap-1">
             {shown('rulers') && <RulersButton on={preview.rulers} />}
@@ -286,14 +294,17 @@ function chooseViewport(id: string) {
 
 /**
  * The preview's size: the viewport showing, as its icon, which opens a menu of the others
- * (⌘1–⌘4 pick one straight away). A native menu, as it opens over the preview.
+ * (⌘1–⌘4 pick one straight away). A native menu, as it opens over the preview. `own` is a
+ * size of its own: an open canvas frame's, or a width the agent is checking (`ownTitle` says which).
  */
 function ViewportButton({
   viewport,
   own = null,
+  ownTitle = 'The frame’s size',
 }: {
   viewport: Viewport
   own?: CustomViewport | null
+  ownTitle?: string
 }) {
   const button = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
@@ -301,7 +312,7 @@ function ViewportButton({
     own && viewport === own
       ? {
           label: viewportSpec(own).name,
-          title: `The frame’s size · ${viewportSpec(own).name}`,
+          title: `${ownTitle} · ${viewportSpec(own).name}`,
           icon: Crop,
         }
       : (VIEWPORT_CHOICES.find((choice) => choice.value === viewport) ?? VIEWPORT_CHOICES[0])

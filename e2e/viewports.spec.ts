@@ -626,7 +626,7 @@ test("the agent is told the viewport, and its screenshots are the device's size"
   expect(shot.size?.width).toBe(Math.round(1440 * fitted * dpr))
   expect(shot.size?.height).toBe(Math.round(900 * fitted * dpr))
 
-  // A width of its own is emulated for the capture, then the laptop comes back.
+  // A width of its own shows its viewport for the capture (Mobile), then the laptop comes back.
   const narrow = JSON.parse((await ask(session, 'SHOT {"width":390}')).answer) as ShotReply
   expect(narrow.note).toMatch(/^viewport at viewport width 390px /)
   await expectFrame(session, 'laptop')

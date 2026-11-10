@@ -152,6 +152,11 @@ export class ViewportEmulation {
     return this.applied?.scale ?? 1
   }
 
+  /** The width the page lays out at now (CSS pixels); null when it fills the view (Desktop). */
+  get width() {
+    return this.applied?.width ?? null
+  }
+
   set(emulation: Emulation | null) {
     this.wanted = emulation
     this.flush()
