@@ -7,22 +7,28 @@ How Gui works from the user's side: opening projects, design mode, the chat, vie
 The start screen and **Settings → Agents** show your agent's state with one next step: **Install** downloads Claude Code or Codex (other agents: opens their install page), and **Sign in** runs its login in Terminal (Claude Code and Codex sign in from Gui directly); Gui re-checks when you come back. Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Gui's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
 
 ```json
-{ "Amp": { "command": "amp-acp", "args": [], "env": {} } }
+{ "My Agent": { "command": "my-agent", "args": ["--acp"], "env": {} } }
 ```
 
 ## Projects
 
-Open a project folder (⌘O). Gui detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. For a fresh clone, Gui installs missing dependencies (in the same confirmation), asks which app to preview in a monorepo, and offers to create `.env.local` from `.env.example`. Opening an app's folder inside a monorepo (say `shape/website`) opens the monorepo with that app chosen. Each project opens in a tab of the window (⌘T for a new one; ⌘N still opens a new window), with its own preview, chat, dev server and agent; tabs in the background keep running, and the tab strip shows when one's agent is working, waiting for your answer, or has failed. Opening a project that's already open shows its tab. To open a project on launch: `GUI_OPEN=/path/to/project bun run dev`.
+Open a project folder (⌘O). Gui detects the package manager and `dev` script, asks before running it the first time (showing the script), starts it, and loads the URL it prints. For a fresh clone, Gui installs missing dependencies (in the same confirmation), asks which app to preview in a monorepo, and offers to create `.env.local` from `.env.example`. Opening an app's folder inside a monorepo (say `shape/website`) opens the monorepo with that app chosen. Each project opens in a tab of the window (⌘T for a new one; ⌘N still opens a new window), with its own preview, chat, dev server and agent; tabs in the background keep running, and the tab strip shows when one's agent is working, waiting for your answer, or has failed. A project that's already open shows its tab when you open it from the `gui` command, the Dock or File → Open Recent. ⌘O and the start screen's recent projects open it again in another tab, so a monorepo can run two of its apps side by side. To open a project on launch: `GUI_OPEN=/path/to/project bun run dev`.
 
 From a terminal, `gui` opens the current folder in the installed Gui and starts its dev server (`gui path/to/app` opens another folder). A folder that's already open shows its tab. `bun run install-app` installs the command at `/usr/local/bin/gui`, or choose **Gui → Install 'gui' Command…** when that folder needs an administrator password.
 
 ## Design mode and the chat
 
-Design mode (⌘D, or the pointer button in the toolbar) outlines whatever is under the pointer, with its component and size. Click an element to pick it, or drag out an area to pick a screenshot of it; hold ⇧ to pick several (⇧-click a picked one to drop it), and Esc when you're done. The wheel scrolls the page while you pick. Everything picked goes to the agent with your next message, in order, each with its screenshot; an area also names the element around it and its source. In the composer, point at a pick to see it in the page, or remove it with its **×**. In the chat, the agent's name in the header switches agents (or starts a new chat). Each turn folds the agent's steps into one line ("6 steps · 12s") and, when it changed files, ends with the result: the picked element before and after, the files changed, and **Undo** (**Undo to here** on an older message, which asks first because it undoes the later ones too; ⌘Z undoes the last change only while the chat is showing). Paste or drop reference images ("make it look like this"); the agent sees them. Messages sent while the agent works wait in a queue above the composer and run in order (Stop pauses it; you can remove one or send the next now). The model button opens a searchable list of the agent's models, with its effort levels when it has them. **Auto** (on by default, per project) answers the agent's permission requests for you; switch a project to **Ask** with the chip or ⇧⌘A. A permission card waiting for you is answered with ⌘↩ (Allow) or ⌘⌫ (Don't allow), never with an "always". Desktop fills the canvas; Laptop (1440 × 900), Tablet (820 × 1180) and Mobile (390 × 844) show your app in a device frame at exactly that size, so you see what fits above the fold on each. On a smaller window the frame is drawn smaller (the label above it says how much) while the page still lays out at the device's size; the agent is told which viewport you're looking at. ⌘+ and ⌘− zoom: a device frame between 25% and the largest that fits (⌘0 fits it again), Desktop like a browser's page zoom (⌘0 is 100%, and the address bar shows the level otherwise); the page keeps its CSS size, and picking and the agent's screenshots work at any zoom. Focus mode (⌘\) hides everything but the preview until ⌘\ or Esc brings it all back. The camera button in the toolbar copies or saves a full-resolution screenshot of the preview (the visible area or the full page), or attaches it to the chat. The Record button beside it records only the preview, without audio, at up to 30 fps for up to 60 seconds. Stop attaches a playable clip to your next message. The agent receives timestamped overview frames and, when it supports Gui’s tools, can inspect exact captured frames or short animation ranges; agents without image support cannot see the clip. Recordings stay locally with chat history. The dot at the start of the address bar is the dev server's status: click it to restart or stop the server, show its logs, or open the app in your browser. If the server crashes, a bar under the preview offers its logs and a restart. The logs live in the drawer under the preview (⌘J), next to terminals: your own login shell at the project root, as in Terminal. The first ⌘J opens a terminal; after that ⌘J shows whichever tab you left the drawer on. **+** adds another terminal, its **×** (or Delete on its tab) ends it and everything it started, and `exit` ends the shell but keeps the terminal, with **Restart** for a new one. ⌘K clears a terminal and ⌘⌫ deletes the line you're typing; copy, paste and the app's shortcuts (⌘D, ⌘↩ for a waiting card) work as usual while one has the keyboard (⌘W still closes the project's tab). Each project's terminals are its own: they keep running in a tab in the background and come back with their output when you switch to it. Drag the floating chat by its header and let go: it settles into the nearest corner of the canvas, or flick it toward another corner and it lands there. Drag it to the window's left or right edge and the sidebar's place lights up there; let go and the panel grows into it, docked on that side. Pull the sidebar's header and it shrinks back into the floating panel under the pointer, to drop in a corner or dock on the other side; ⇧⌘D does the same from where the chat is. Drag any edge or corner of the chat panel to resize it (docked: its left edge); Gui remembers the size. Use your agent or terminal for source control. The toolbar shows the project's current branch, read only, so you notice when it changes.
+Design mode (⌘D, or the pointer button in the toolbar) outlines whatever is under the pointer, with its component and size. Click an element to pick it, or drag out an area to pick a screenshot of it; hold ⇧ to pick several (⇧-click a picked one to drop it), and Esc when you're done. The wheel scrolls the page while you pick. Everything picked goes to the agent with your next message, in order, each with its screenshot; an area also names the element around it and its source. In the composer, point at a pick to see it in the page, or remove it with its **×**. Outside design mode, double-click text in the preview to edit it in place: Enter or clicking away keeps it, Esc puts it back. Gui writes the change into your source when the text is there plainly, and otherwise asks the agent to make it. In the chat, the agent's name in the header switches agents (or starts a new chat). Each turn folds the agent's steps into one line ("6 steps · 12s") and, when it changed files, ends with the result: the picked element before and after, the files changed, and **Undo** (**Undo to here** on an older message, which asks first because it undoes the later ones too; ⌘Z undoes the last change only while the chat is showing). Paste or drop reference images ("make it look like this"); the agent sees them. Messages sent while the agent works wait in a queue above the composer and run in order (Stop pauses it; you can remove one or send the next now). The model button opens a searchable list of the agent's models, with its effort levels when it has them. **Auto** (on by default, per project) answers the agent's permission requests for you; switch a project to **Ask** with the chip or ⇧⌘A. A permission card waiting for you is answered with ⌘↩ (Allow) or ⌘⌫ (Don't allow), never with an "always". Desktop fills the canvas; Laptop (1440 × 900), Tablet (820 × 1180) and Mobile (390 × 844) show your app in a device frame at exactly that size, so you see what fits above the fold on each. On a smaller window the frame is drawn smaller (the label above it says how much) while the page still lays out at the device's size; the agent is told which viewport you're looking at. ⌘+ and ⌘− zoom: a device frame between 25% and the largest that fits (⌘0 fits it again), Desktop like a browser's page zoom (⌘0 is 100%, and the address bar shows the level otherwise); the page keeps its CSS size, and picking and the agent's screenshots work at any zoom. Focus mode (⌘\) hides everything but the preview until ⌘\ or Esc brings it all back. The camera button in the toolbar copies or saves a full-resolution screenshot of the preview (the visible area or the full page), or attaches it to the chat. The Record button beside it (⌥⌘R) records only the preview, for up to 60 seconds, keeping frames for the agent at up to 30 fps. The mic next to Record turns narration on: talk and point while you record. Gui asks macOS for the microphone, records your voice into the clip, and transcribes it on this Mac (macOS 26 or later); a narrated clip runs up to 3 minutes and keeps frames at up to 10 fps. Stop attaches a playable clip to your next message; with a narrated one, Send waits until it's transcribed. The agent receives timestamped overview frames and a timeline of what happened in the page, and for a narrated clip what you said, with where the pointer was as you said it. When it supports Gui’s tools, it can inspect exact captured frames or short animation ranges; agents without image support cannot see the clip, and work from the timeline and what you said. Recordings stay locally with chat history. The dot at the start of the address bar is the dev server's status: click it to restart or stop the server, show its logs, or open the app in your browser. If the server crashes, a bar under the preview offers its logs and a restart. The logs live in the drawer under the preview (⌘J), next to terminals: your own login shell at the project root, as in Terminal. The first ⌘J opens a terminal; after that ⌘J shows whichever tab you left the drawer on. **+** adds another terminal, its **×** (or Delete on its tab) ends it and everything it started, and `exit` ends the shell but keeps the terminal, with **Restart** for a new one. ⌘K clears a terminal and ⌘⌫ deletes the line you're typing; copy, paste and the app's shortcuts (⌘D, ⌘↩ for a waiting card) work as usual while one has the keyboard (⌘W still closes the project's tab). Each project's terminals are its own: they keep running in a tab in the background and come back with their output when you switch to it. Drag the floating chat by its header and let go: it settles into the nearest corner of the canvas, or flick it toward another corner and it lands there. Drag it to the window's left or right edge and the sidebar's place lights up there; let go and the panel grows into it, docked on that side. Pull the sidebar's header and it shrinks back into the floating panel under the pointer, to drop in a corner or dock on the other side; ⇧⌘D does the same from where the chat is. Drag any edge or corner of the chat panel to resize it (docked: its left edge); Gui remembers the size. Use your agent or terminal for source control. The toolbar shows the project's current branch, read only, so you notice when it changes.
 
 ## Variations
 
 Pick an element and ask for options ("show me 15 ways to make this better"): the agent writes each version as real code in your project, behind a small switch, and a bar in the preview's bottom-left corner (right of the floating chat when it's there) flips through them in the live preview (**3 of 15 · Tighter hierarchy**), the original among them. ‹ › flip, as do ← and → in the bar; the page scrolls to the element when it isn't in view, and keeps the one showing when it reloads. **Use this** asks the agent to keep that version and remove the rest; × (or Esc in the bar) undoes the message that made them, asking first when later messages would go too. [Variations](variations.md) has the details.
+
+## Rulers and guides
+
+The ruler button in the toolbar (⇧R, or View → Rulers) shows rulers along the top and left of the preview, in your page's CSS pixels. Drag out of a ruler to make a guide: the top ruler gives a horizontal one, the left ruler a vertical one. Drag a guide to move it, or back onto its ruler to remove it. While you drag, a guide snaps to the nearest edge or middle of the element under the pointer. Guides stay with the page as it scrolls and are kept per project (up to 50). They are drawn over the preview, not in your page, so they don't show in screenshots or recordings. ⇧R works whenever you aren't typing in a field. Rulers are for projects; a canvas has none.
+
+While the rulers are on, the agent sees your guides with each message, so "line this up with the guide" works. It can also check alignment against them: it reads which element edges sit within 8 pixels of a guide without being on it, and it can add or remove guides to show you what lines up.
 
 ## Canvases
 
@@ -38,11 +44,15 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | Open Settings | ⌘, |
 | Open a new window | ⌘N |
 | Open a project folder | ⌘O |
+| Start a project in a new, empty folder | ⇧⌘N |
 | Open a new canvas to design on freely | ⌥⌘N |
+| Copy a GitHub repository to your Mac and open it | ⇧⌘O |
 | Close the window and its tabs | ⇧⌘W |
-| Undo typing, or outside a text field the agent's last change | ⌘Z |
-| Redo typing, or the agent's change you undid | ⇧⌘Z |
+| Undo typing, or with the chat showing, the agent's last change | ⌘Z |
+| Redo typing, or with the chat showing, the agent's change you undid | ⇧⌘Z |
 | Show the keyboard shortcuts | ⌘/ |
+| Move the keyboard to the next pane: toolbar, preview, chat | F6 |
+| Move the keyboard to the previous pane | ⇧F6 |
 | Inspect Gui's own window | ⌥⌘J |
 | **Preview** | |
 | Edit the preview's address | ⇧⌘L |
@@ -58,18 +68,38 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | Zoom out | ⌘− |
 | Page at 100%, or a device frame back to fit | ⌘0 |
 | Design mode: click an element or drag out an area to change (Esc when done) | ⌘D or ⇧⌘C |
+| Show or hide rulers; drag a guide out of one, back onto it to remove | ⇧R |
 | Copy, save or attach a screenshot | ⇧⌘S |
+| Start or stop a video of the preview, to attach to a message | ⌥⌘R |
 | Show only the preview (Esc exits) | ⌘\ |
 | Inspect your app's page | ⌥⌘I |
 | **Chat & agent** | |
-| Show the chat and its message box; from there, hide it | ⌘L |
-| Dock the chat beside the preview, or float it | ⇧⌘D |
+| Show or hide the chat | ⌘B |
+| Put the cursor in the chat's message box, showing the chat if it's hidden | ⌘L |
+| Send the message, or queue it while the agent works (in the message box) | ↩ |
+| Start a new line in the message (in the message box) | ⇧↩ |
+| Show the chat as a sidebar, or float it over the preview | ⇧⌘D |
+| Move the chat into a window of its own, or back into this one | ⌥⌘L |
 | Choose the agent's model and effort | ⇧⌘M |
 | Start a new chat | ⇧⌘K |
 | Stop the agent | ⌘. |
 | Auto or Ask for the agent's permission requests | ⇧⌘A |
 | Allow what the agent's waiting to do | ⌘↩ |
 | Don't allow what the agent's waiting to do | ⌘⌫ |
+| **Canvas** | |
+| Hand tool: drag to pan | H |
+| Move tool: select and drag frames | V |
+| Select the next section or frame, or the previous one | ⇥ or ⇧⇥ |
+| Open the selected frame | ↩ |
+| Rename the selected frame or section | F2 |
+| Show the selected frame's or section's menu | ⇧F10 |
+| Move the selected frames a pixel | ← → ↑ ↓ |
+| Move the selected frames 10 pixels | ⇧ with ← → ↑ ↓ |
+| Select every frame | ⌘A |
+| Group the selected frames in a section | ⌥⌘G |
+| Duplicate the selected frames | ⌥⌘D |
+| Export the selected frames as PNG | ⇧⌘E |
+| Delete the selected frames, or the section picked by its name | ⌫ or ⌦ |
 | **Terminal** | |
 | Show or hide the terminal and the dev server's logs | ⌘J |
 | Clear the terminal (in a terminal) | ⌘K |
