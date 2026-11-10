@@ -132,7 +132,19 @@ export class ProjectWindow implements TabHost {
       // A branch switched in Terminal meanwhile shows in the toolbar.
       void this.active.refreshBranch()
     })
-    this.win.once('ready-to-show', () => showWindow(this.win))
+    // Minimized or hidden (⌘H), nobody sees the chat in it: its page rests until it's back.
+    // (On macOS show and hide follow what's really on screen; focus, in case one is missed.)
+    const shownChanged = () => this.active.windowShownChanged()
+    this.win.on('show', shownChanged)
+    this.win.on('hide', shownChanged)
+    this.win.on('minimize', shownChanged)
+    this.win.on('restore', shownChanged)
+    this.win.on('focus', shownChanged)
+    this.win.once('ready-to-show', () => {
+      showWindow(this.win)
+      // Shown by us: said now, whatever macOS reports of it (nothing, opened behind others).
+      shownChanged()
+    })
     this.win.on('closed', () => this.dispose())
     loadRenderer(this.win.webContents, 'index').catch((error) =>
       console.error('[gui] failed to load index', error),

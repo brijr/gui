@@ -21,10 +21,21 @@ const gui = new Proxy(
   },
 )
 const media = { matches: true }
+/** The page's `data-unseen`: what stops its spinners while nobody can see it. */
+let unseen = false
 Object.assign(globalThis, {
   window: { gui },
   HTMLElement: class {},
-  document: { visibilityState: 'hidden', querySelector: () => null, addEventListener: () => {} },
+  document: {
+    visibilityState: 'hidden',
+    querySelector: () => null,
+    addEventListener: () => {},
+    documentElement: {
+      toggleAttribute: (_name: string, on: boolean) => {
+        unseen = on
+      },
+    },
+  },
   matchMedia: () => media,
 })
 const { connectChat, useChat } = await import('../../src/renderer/src/chat/store')
@@ -43,7 +54,7 @@ const turn: Turn = {
   reverted: false,
 }
 const publisher = new TurnPublisher()
-function emit(name: string, value: ChatTurnUpdate | ChatSnapshot | ChatMeta) {
+function emit(name: string, value: ChatTurnUpdate | ChatSnapshot | ChatMeta | boolean) {
   const listener = listeners.get(name)
   assert.ok(listener)
   listener(value as never)
@@ -56,15 +67,24 @@ function update() {
 const disconnect = connectChat()
 // Updates arriving before the initial snapshot resolves must survive its application.
 const initial = publisher.update(turn)
-requests
-  .shift()
-  ?.resolve({ meta, turns: [structuredClone(turn)], revisions: publisher.revisions() })
+// A page that loads out of sight (its tab in the background) starts at rest.
+assert.equal(useChat.getState().seen, true)
+requests.shift()?.resolve({
+  meta,
+  turns: [structuredClone(turn)],
+  revisions: publisher.revisions(),
+  seen: false,
+})
 turn.items.push({ id: 'text', kind: 'text', text: 'hello' })
 const added = update()
 emit('onChatMeta', { ...meta, error: 'Newer metadata' })
 await Promise.resolve()
 assert.equal(useChat.getState().meta?.error, 'Newer metadata')
 assert.deepEqual(useChat.getState().turnsById.turn, turn)
+assert.deepEqual([useChat.getState().seen, unseen], [false, true])
+// Main says it's in sight; a snapshot asked for earlier can't put it back to rest.
+emit('onChatSeen', true)
+assert.deepEqual([useChat.getState().seen, unseen], [true, false])
 const ids = useChat.getState().turnIds
 // Duplicates and old events must not replay append operations.
 emit('onChatTurn', added)
@@ -79,12 +99,18 @@ update()
 assert.equal(requests.length, 1)
 const recovery = requests.shift()
 assert.ok(recovery)
-const snapshot = { meta, turns: [structuredClone(turn)], revisions: publisher.revisions() }
+const snapshot = {
+  meta,
+  turns: [structuredClone(turn)],
+  revisions: publisher.revisions(),
+  seen: false,
+}
 turn.items[0] = { id: 'text', kind: 'text', text: 'hello dropped recover late' }
 update()
 recovery.resolve(snapshot)
 await Promise.resolve()
 assert.deepEqual(useChat.getState().turnsById.turn, turn)
+assert.deepEqual([useChat.getState().seen, unseen], [true, false])
 // A reset supersedes an inflight recovery response, including the old transcript.
 publisher.update(turn)
 update()

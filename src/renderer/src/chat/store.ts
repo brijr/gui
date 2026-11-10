@@ -35,6 +35,12 @@ interface ChatStore {
   pickModel: boolean
   /** What the floating chat is drawn as, and its anchored corner (main sizes the view) */
   float: ChatFloat
+  /**
+   * Someone can see this page, as main says (`onChatSeen`): false while its tab is in the
+   * background, the chat is hidden, or its window is minimized or hidden. Everything is still
+   * taken in then; only what's there to be looked at stops (spinners, the Working count).
+   */
+  seen: boolean
 }
 
 export const useChat = create<ChatStore>(() => ({
@@ -56,6 +62,9 @@ export const useChat = create<ChatStore>(() => ({
     collapsed: true,
     panelHeight: 0,
   },
+  // Until main says otherwise: a spinner turning unseen costs little, one held still in sight
+  // looks broken.
+  seen: true,
 }))
 
 /** At most this many frames for the floating panel to grow from its message box. */
@@ -106,6 +115,18 @@ export function keyedAnswer(turns: Turn[], allow: boolean) {
 
 /** A float from main has arrived, so the snapshot's (possibly older) one doesn't apply. */
 let floatReceived = false
+/** The same for whether the page is in sight. */
+let seenReceived = false
+
+/**
+ * In sight or out of it. Out of sight, whatever turns or sweeps for as long as it's there
+ * holds still (`data-unseen` in styles.css) and the Working count stops (turn-view.tsx).
+ */
+function setSeen(seen: boolean) {
+  if (seen === useChat.getState().seen) return
+  document.documentElement.toggleAttribute('data-unseen', !seen)
+  useChat.setState({ seen })
+}
 
 export function setDraft(draft: string) {
   useChat.setState({ draft })
@@ -574,6 +595,8 @@ function requestSnapshot(generation: number, attempt: number) {
   void gui
     .getChat()
     .then((snapshot) => {
+      // The page's first word of it, on load; after that main sends each change.
+      if (snapshot.seen !== undefined && !seenReceived) setSeen(snapshot.seen)
       applyInOrder(() => {
         if (generation !== recoveryGeneration) return
         applySnapshot(snapshot)
@@ -624,6 +647,10 @@ export function connectChat() {
     gui.onChatFloat((float) => {
       floatReceived = true
       applyInOrder(() => useChat.setState({ float }))
+    }),
+    gui.onChatSeen((seen) => {
+      seenReceived = true
+      setSeen(seen)
     }),
     gui.onCommand((command) => {
       if (command === 'chooseModel') chooseModel()

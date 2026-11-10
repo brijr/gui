@@ -786,6 +786,11 @@ export class ProjectTab implements ChatPanelOwner {
     this.host = host
   }
 
+  /** Its window was minimized, hidden or shown again: the chat page hears if it's in sight. */
+  windowShownChanged() {
+    this.panel.syncSeen()
+  }
+
   getState() {
     return this.state
   }
@@ -813,7 +818,10 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   getChat(): ChatSnapshot {
-    if (this.resources.chat) return { ...this.resources.chat.snapshot(), float: this.panel.float() }
+    // A page that asks has just loaded: it starts from whether it's in sight now.
+    const seen = this.panel.syncSeen()
+    if (this.resources.chat)
+      return { ...this.resources.chat.snapshot(), float: this.panel.float(), seen }
     return {
       meta: {
         agentId: this.state.agentId,
@@ -850,6 +858,7 @@ export class ProjectTab implements ChatPanelOwner {
       },
       turns: [],
       float: this.panel.float(),
+      seen,
     }
   }
 

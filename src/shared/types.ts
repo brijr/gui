@@ -1126,6 +1126,8 @@ export interface ChatSnapshot {
   turns: Turn[]
   /** How the floating chat is drawn; from the window, when it asks (`getChat`) */
   float?: ChatFloat
+  /** Whether anyone can see the chat page now (`onChatSeen`); when it asks (`getChat`) */
+  seen?: boolean
 }
 
 /** A preview clip saved locally, attached to a draft or kept with a turn. */

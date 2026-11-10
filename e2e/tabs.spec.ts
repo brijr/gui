@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type TabInfo, type Turn } from '../src/shared/types'
-import { electronExecutable, waitFor } from './helpers/env'
+import { electronExecutable, sleep, waitFor } from './helpers/env'
 import type { FixtureCopy } from './helpers/fixtures'
 import { devServerPids } from './helpers/processes'
 import type { GuiSession } from './helpers/session'
@@ -10,10 +10,12 @@ import { expect, test } from './helpers/test'
 
 // A window holds projects as tabs, each with its own preview, chat, dev server and agent;
 // background tabs keep running. A stand-in ACP agent (like queue.spec.ts's) does the turns:
-// TABS-WORK takes WORK_MS, TABS-ASK waits on a permission card. No login or usage needed.
+// TABS-WORK takes WORK_MS (TABS-LONG, LONG_MS), TABS-ASK waits on a permission card. No login
+// or usage needed.
 
 const AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Tabs`
 const WORK_MS = 4000
+const LONG_MS = 120_000
 
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
@@ -58,7 +60,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const timer = setTimeout(() => {
       running.delete(params.sessionId)
       write({ id, result: { stopReason: 'end_turn' } })
-    }, ${WORK_MS})
+    }, text.includes('TABS-LONG') ? ${LONG_MS} : ${WORK_MS})
     running.set(params.sessionId, { id, timer })
   } else if (method === 'session/cancel') {
     const turn = running.get(params.sessionId)
@@ -452,3 +454,163 @@ for (const colorScheme of ['light', 'dark'] as const) {
     await expect(tabStrip(session)).toHaveCount(0)
   })
 }
+
+/**
+ * Runs in a chat page: whether it's been told nobody can see it, how its spinners are playing
+ * (each state once), and the Working row's count with the time it was read.
+ */
+function chatAtRest() {
+  const count = [...document.querySelectorAll('p')]
+    .map((row) => /^Working (\d+)s$/.exec(row.textContent ?? ''))
+    .find((match) => match !== null)
+  return {
+    unseen: document.documentElement.hasAttribute('data-unseen'),
+    spinners: [
+      ...new Set(
+        document
+          .getAnimations()
+          .filter((animation) => (animation as CSSAnimation).animationName === 'spin')
+          .map((animation) => animation.playState),
+      ),
+    ],
+    seconds: count ? Number(count[1]) : null,
+    at: Date.now(),
+  }
+}
+
+test('a chat nobody can see rests, and is right the moment it is seen again', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  const first = await session.waitForPreview()
+  await useTabsAgent(session)
+  const { chat, chrome } = session
+  await session.expandChat()
+  expect(await chat.evaluate(() => window.gui.send('TABS-LONG'))).toBe(true)
+  const rest = () => chat.evaluate(chatAtRest)
+  const startedAt = async () => (await turnsIn(chat))[0]?.startedAt ?? Number.NaN
+  /** How far the count shown is from the turn's real age, in seconds. */
+  const off = async (shown: { seconds: number | null; at: number }) =>
+    Math.abs((shown.seconds ?? Number.NaN) - (shown.at - (await startedAt())) / 1000)
+
+  // In front, the agent working: the spinner turns and the count keeps up.
+  await waitFor(async () => (await rest()).seconds !== null, 'the Working row')
+  expect(await rest()).toMatchObject({ unseen: false, spinners: ['running'] })
+
+  /**
+   * Out of sight by `hide`, the chat holds still: its spinner paused and its count stopped,
+   * while it goes on taking in what main sends. Back in sight by `show`, the spinner turns and
+   * the count is the turn's age in the first frame drawn, not the old one until the next tick.
+   */
+  const restsWhile = async (
+    label: string,
+    hide: () => Promise<unknown>,
+    show: () => Promise<unknown>,
+  ) => {
+    await hide()
+    await waitFor(async () => (await rest()).unseen, `the chat to rest (${label})`)
+    const held = await rest()
+    expect(held.spinners, label).toEqual(['paused'])
+    // Longer than the count's tick, and long enough that a stale count would be seen as one.
+    await sleep(3200)
+    expect((await rest()).seconds, label).toBe(held.seconds)
+    // Still listening: main's word of its state arrives as ever.
+    const meta = await chat.evaluate(() => window.gui.getChat().then((snapshot) => snapshot.seen))
+    expect(meta, label).toBe(false)
+    await chat.evaluate(() => {
+      const root = document.documentElement
+      const page = window as unknown as { seenAgain?: ReturnType<typeof read> }
+      const read = () => {
+        const count = [...document.querySelectorAll('p')]
+          .map((row) => /^Working (\d+)s$/.exec(row.textContent ?? ''))
+          .find((match) => match !== null)
+        return { seconds: count ? Number(count[1]) : null, at: Date.now() }
+      }
+      page.seenAgain = undefined
+      new MutationObserver((_records, observer) => {
+        if (root.hasAttribute('data-unseen')) return
+        observer.disconnect()
+        // What the first frame in sight draws.
+        requestAnimationFrame(() => {
+          page.seenAgain = read()
+        })
+      }).observe(root, { attributes: true, attributeFilter: ['data-unseen'] })
+    })
+    await show()
+    type Shown = { seconds: number | null; at: number }
+    const again = await waitFor(
+      () => chat.evaluate(() => (window as unknown as { seenAgain?: Shown }).seenAgain),
+      `the chat in sight again (${label})`,
+    )
+    expect(await off(again), label).toBeLessThan(0.6)
+    expect(again.seconds, label).toBeGreaterThanOrEqual((held.seconds ?? 0) + 3)
+    expect(await rest(), label).toMatchObject({ unseen: false, spinners: ['running'] })
+    // And it counts on from there.
+    await waitFor(async () => ((await rest()).seconds ?? 0) > (again.seconds ?? 0), 'the count')
+  }
+
+  // Its tab in the background.
+  await restsWhile(
+    'background tab',
+    async () => {
+      await chrome.evaluate(() => window.gui.newTab())
+      await waitFor(async () => (await tabsOf(session)).length === 2, 'a second tab')
+    },
+    () => chrome.evaluate((id) => window.gui.selectTab(id), first.activeTab),
+  )
+  // The chat hidden (⌘B), and shown again.
+  await restsWhile(
+    'chat hidden',
+    () => chat.evaluate(() => window.gui.toggleChat()),
+    () => chrome.evaluate(() => window.gui.toggleChat()),
+  )
+  // The window hidden, as ⌘H does, and shown again. macOS reports a window going or coming
+  // by what's really on screen, which a see-through test window never is: the test says so
+  // itself, as Electron would.
+  const showWindow = (shown: boolean) =>
+    session.app.evaluate(({ BrowserWindow }, show) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      if (show) win?.showInactive()
+      else win?.hide()
+      win?.emit(show ? 'show' : 'hide')
+    }, shown)
+  await restsWhile(
+    'window hidden',
+    () => showWindow(false),
+    () => showWindow(true),
+  )
+
+  // Popped out, the chat is in a window of its own: in sight there, at rest with its tab, and
+  // in sight again back in the window.
+  const second = (await tabsOf(session)).find((tab) => tab.id !== first.activeTab)
+  if (!second) throw new Error('The second tab is gone')
+  const inSight = async (label: string) => {
+    await waitFor(async () => !(await rest()).unseen, label, { timeout: 5000 })
+    expect((await rest()).spinners, label).toEqual(['running'])
+  }
+  await chat.evaluate(() => window.gui.togglePopOut())
+  await waitFor(async () => (await session.windowCount()) === 2, 'the chat in its own window')
+  await inSight('the popped-out chat in sight')
+  await restsWhile(
+    'popped out, its tab in the background',
+    () => chrome.evaluate((id) => window.gui.selectTab(id), second.id),
+    () => chrome.evaluate((id) => window.gui.selectTab(id), first.activeTab),
+  )
+  await chat.evaluate(() => window.gui.togglePopOut())
+  await waitFor(async () => (await session.windowCount()) === 1, 'the chat back in the window')
+  await inSight('the chat in sight, back in the window')
+
+  // A chat page that loads out of sight starts at rest: it asks main as it loads.
+  await chrome.evaluate((id) => window.gui.selectTab(id), second.id)
+  await waitFor(async () => (await rest()).unseen, 'the chat to rest again')
+  await chat.reload()
+  await chat.waitForFunction(() => 'gui' in window)
+  await waitFor(async () => (await rest()).seconds !== null, 'the reloaded chat to draw its turn')
+  expect(await rest()).toMatchObject({ unseen: true, spinners: ['paused'] })
+  await chrome.evaluate((id) => window.gui.selectTab(id), first.activeTab)
+  await waitFor(async () => !(await rest()).unseen, 'the reloaded chat in sight')
+  const shown = await rest()
+  expect(shown.spinners).toEqual(['running'])
+  expect(await off(shown)).toBeLessThan(1.6)
+  await chat.evaluate(() => window.gui.cancel())
+})

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useLayoutEffect, useState } from 'react'
 import type { ShortcutId } from '../../../shared/shortcuts'
 import {
   isRegion,
@@ -933,11 +933,16 @@ function Waiting() {
 }
 
 function Working({ since }: { since: number }) {
+  const seen = useChat((s) => s.seen)
   const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
+  // Counts only while someone can see it. Back in sight, it's right before it's drawn again
+  // (a layout effect), not a second later.
+  useLayoutEffect(() => {
+    if (!seen) return
+    setNow(Date.now())
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
-  }, [])
+  }, [seen])
   const seconds = Math.max(0, Math.round((now - since) / 1000))
   return (
     <p className="flex h-6 items-center gap-2 text-small text-subtle">

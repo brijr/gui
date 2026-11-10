@@ -243,6 +243,8 @@ export const Events = {
   chatFloat: 'chat:float',
   /** The chat mid-way between the floating card and the sidebar (`ChatShape`) */
   chatShape: 'chat:shape',
+  /** Whether anyone can see the chat page (true) or it's out of sight (false) */
+  chatSeen: 'chat:seen',
   morph: 'layout:morph',
   /** The chat sidebar mid-slide (`SidebarSlide`) */
   sidebarSlide: 'layout:sidebar-slide',
@@ -582,6 +584,12 @@ export interface GuiApi {
    * or back (`ChatShape`), then null.
    */
   onChatShape(cb: (shape: ChatShape | null) => void): Unsubscribe
+  /**
+   * Whether anyone can see this chat page: false while its tab is in the background, the chat
+   * is hidden, or its window is minimized or hidden. Out of sight it takes in everything as
+   * usual and only stops what's there to be looked at (spinners, the Working count).
+   */
+  onChatSeen(cb: (seen: boolean) => void): Unsubscribe
   /**
    * The chat has finished morphing into `form` (the float numbered `seq`), so main can shrink
    * the view to it. Without this main shrinks it after a short while anyway.

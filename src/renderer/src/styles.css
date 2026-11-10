@@ -606,6 +606,15 @@ html.transparent body {
   }
 }
 
+/* A chat page nobody can see (`seen` in chat/store.ts: its tab in the background, the chat
+   hidden, its window minimized) is still drawn by Chromium, sixty frames a second for a spinner.
+   So what repeats for as long as it's there holds still until someone can see it; everything
+   that happens once (a row arriving) is left to finish. Outside the layers, so it wins over the
+   utilities' own `animation`. */
+:root[data-unseen] :is(.animate-spin, .animate-sweep, .animate-pulse) {
+  animation-play-state: paused;
+}
+
 /* Moves between chat states (chat/transitions.ts): what moves rides the default spring. The
    rest of the panel is in its new state at once: cross-fading it would show anything that
    shifted (the transcript scrolling up for a new message) twice. */

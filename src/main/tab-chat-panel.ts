@@ -182,6 +182,8 @@ export class ChatPanel {
   } | null = null
   /** The last `ChatShape` the chat page was sent, as JSON */
   private shapeSent = 'null'
+  /** Whether the chat page was last told it's in sight (`syncSeen`); null before the first word */
+  private seenSent: boolean | null = null
 
   constructor(private readonly tab: ChatPanelOwner) {}
 
@@ -292,6 +294,13 @@ export class ChatPanel {
     this.tab.chatView.setVisible(true)
     this.layoutPopout()
     win.on('resize', () => this.layoutPopout())
+    // Its own window, with its own coming and going (it hides with its tab).
+    const shownChanged = () => this.syncSeen()
+    win.on('show', shownChanged)
+    win.on('hide', shownChanged)
+    win.on('minimize', shownChanged)
+    win.on('restore', shownChanged)
+    win.on('focus', shownChanged)
     win.on('close', (event) => {
       if (this.popout !== win) return
       event.preventDefault()
@@ -307,6 +316,8 @@ export class ChatPanel {
       if (this.popout !== win || !this.tab.host.isActive(this.tab)) return
       fadeIn(win, this.tab.chatView.webContents)
       showWindow(win)
+      // Shown by us: said now, whatever macOS reports of it (nothing, opened behind others).
+      this.syncSeen()
       this.focusChat()
     })
   }
@@ -814,7 +825,38 @@ export class ChatPanel {
   layoutChat() {
     if (this.tab.disposed || !this.tab.host.isActive(this.tab)) return
     this.placeChat()
+    this.syncSeen()
     this.tab.chatPlaced()
+  }
+
+  /**
+   * Whether anyone can see the chat page: its tab is the one in the window, the window it's in
+   * (its own, popped out) is neither minimized nor hidden, and its view is showing: not hidden
+   * (⌘B), on a start screen, in focus mode, or under the shortcuts sheet. A pill or a bubble is
+   * still the chat in sight. Chromium goes on drawing a page whose view is hidden or out of its
+   * window, so the page is told.
+   */
+  private get seen() {
+    const { tab } = this
+    if (tab.disposed || !tab.host.isActive(tab)) return false
+    const win = this.popout ?? tab.host.win
+    if (win.isDestroyed() || !win.isVisible() || win.isMinimized()) return false
+    return tab.chatView.getVisible()
+  }
+
+  /**
+   * Tells the chat page whether it's in sight, when that has changed; out of sight it stops what
+   * is only there to be looked at (`onChatSeen`). Called wherever any part of `seen` may have
+   * changed, and by a page that just loaded (`getChat`), so what the page holds is always what
+   * was last said here. Returns it.
+   */
+  syncSeen() {
+    const seen = this.seen
+    if (seen !== this.seenSent) {
+      this.seenSent = seen
+      this.tab.sendChat(Events.chatSeen, seen)
+    }
+    return seen
   }
 
   /**
@@ -1409,6 +1451,7 @@ export class ChatPanel {
     this.flight?.finish()
     this.settleForm(this.wantedForm())
     this.settleCollapse(this.collapsed())
+    this.syncSeen()
   }
 
   dispose() {
