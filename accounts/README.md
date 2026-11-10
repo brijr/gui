@@ -27,9 +27,7 @@ Apply the migrations in order before deploying. `0002_gui_accounts.sql` turns ev
 Install the root dependencies and run `bun install` inside `accounts/`. Register a development GitHub App with device flow enabled and these permissions:
 
 - Account email addresses: read-only.
-- Repository contents: read and write.
-- Repository pull requests: read and write.
-- Repository administration: read and write (required for repository creation; also permits broader repository administration).
+- Repository contents: read-only (Gui clones; it never writes through the app).
 - Repository metadata: read-only.
 
 Enable expiring user access tokens. Enter its client ID, app slug, and app ID (`GITHUB_APP_ID`) in a local Wrangler configuration or `.dev.vars`. Add `GITHUB_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`, and the app's private key (`GITHUB_APP_PRIVATE_KEY`) to `.dev.vars`. The encryption key must be 64 hexadecimal characters from a cryptographically random 32-byte value. Keep this file out of Git. Changing the key without migrating encrypted records makes existing connections unreadable.

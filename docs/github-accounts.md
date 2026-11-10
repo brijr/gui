@@ -18,7 +18,7 @@ The `accounts/` Cloudflare Worker owns sign-in (WorkOS AuthKit, and the legacy d
 
 The Electron main process stores the device session using secure storage, checks canonical repository names, and supplies git credentials using a temporary askpass script. The renderer receives display state and project actions. Untrusted project previews cannot invoke account IPC. Clone failure only removes the directory reserved by that clone, and never an existing directory or remote repository. Each clone asks the service for a fresh credential.
 
-Repository access is the intersection of the user's access and the installed app's access. Credentials recheck the connected repository ID. The GitHub App still asks for Contents, Pull requests, and Administration write, plus Metadata and account Email read; with only cloning left, Contents read would do, and narrowing the app is separate cleanup.
+Repository access is the intersection of the user's access and the installed app's access. Credentials recheck the connected repository ID. The GitHub App asks only for what cloning needs: Contents and Metadata read, and account Email read.
 
 The GitHub name, handle, and verified primary email refresh when GitHub is connected or used to sign in. New accounts with an email start subscribed to product updates, as the terms and privacy page say; people turn them off in **Settings → Account**, and the choice survives repeat sign-in. Email campaigns require a separate provider and authorization. Authorized Cloudflare operators can query opted-in contact fields; there is no public export endpoint.
 
