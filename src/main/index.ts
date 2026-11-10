@@ -1853,7 +1853,7 @@ if (!app.requestSingleInstanceLock()) {
     if (accountState().signedIn) void getAccount().catch(() => undefined)
     // Know up front whether the likely agents are ready or need sign-in; costs no usage.
     void agentHealth.checkOnLaunch(getPrefs().agentId)
-    const initial = process.env.GUI_OPEN
+    const initial = !app.isPackaged ? process.env.GUI_OPEN : undefined
     if (initial) openSafely(win, resolve(initial))
     afterFirstWindow(win.win, () => {
       startUpdates()
