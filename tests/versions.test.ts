@@ -1,9 +1,8 @@
 import { expect, test } from 'bun:test'
 import { settleVersions } from '../src/main/history-format'
 
-// The checkpoint save/restore round-trip itself is covered by e2e/versions.spec.ts:
-// Checkpoints' import chain reaches Electron (developer-tools → shell-env), which a
-// plain bun test can't load. What's pure here is how saved versions are read back.
+// The checkpoint save/restore round-trip itself is covered by tests/checkpoints.test.ts, and
+// through the app by e2e/versions.spec.ts. What's pure here is how saved versions are read back.
 
 test('saved versions load only when whole, keeping named and safety entries', () => {
   const id = '01234567-0123-0123-0123-0123456789ab'
