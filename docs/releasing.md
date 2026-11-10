@@ -8,7 +8,13 @@ Builds from source are yours: they don't ask for a Gui account (you can still si
 
 ## Releases
 
-`bun run release` publishes a version from main. If the version in `package.json` is already released, it bumps the last number (`0.1.0-alpha.9` → `0.1.0-alpha.10`) and commits that; to pick a version yourself, commit it first. It runs `bun run check`, builds, verifies the signature, notarization and Gatekeeper, notarizes the DMG, uploads the build to the `gui-releases` R2 bucket, and tags and pushes `v<version>`. The setup it needs is at the top of `scripts/release.sh`. Official releases check `usegui.com/releases` at launch and every 4 hours, download a new version in the background, and offer to restart into it (**Gui → Check for Updates…** checks now). A prerelease version publishes to its own channel (`alpha-mac.yml`), and `usegui.com/download` serves the newest alpha DMG.
+Before a release, add it to the top of `www/src/changelog.ts` (the site's /changelog): the version the script will release, today's date, and a few plain bullets of what a user would notice. The script stops before building without that entry, and the bullets become the GitHub Release's notes.
+
+`bun run release` publishes a version from main, which must already have everything on `origin/main`. If the version in `package.json` is already tagged, it bumps the last number (`0.1.0-alpha.9` → `0.1.0-alpha.10`) and commits that; to pick a version yourself, commit it first. It runs `bun run check`, builds, checks that the packaged app can load its agent adapters and the main process's modules (`scripts/check-packaged-app.sh`), verifies the signature, notarization and Gatekeeper, notarizes the DMG, uploads the build to the `gui-releases` R2 bucket, reads the feed back from `usegui.com/releases`, tags and pushes `v<version>`, and creates the GitHub Release (a prerelease for an alpha). The setup it needs is at the top of `scripts/release.sh`: a Developer ID certificate, notarization credentials, and Wrangler and `gh` signed in. Afterwards, deploy the site (`cd www && bun run deploy`) so /changelog shows the release.
+
+Official releases check `usegui.com/releases` at launch and every 4 hours, download a new version in the background, and offer to restart into it (**Gui → Check for Updates…** checks now).
+
+An installed copy follows the channel of its own version: `0.1.0-alpha.N` reads `alpha-mac.yml`, a stable version reads `latest-mac.yml`. An alpha release writes only `alpha-mac.yml`. A stable release writes `latest-mac.yml`, `alpha-mac.yml` and `beta-mac.yml`, so copies installed from an alpha update to it and follow stable releases from then on. `usegui.com/download` serves the newest stable DMG (`Gui-arm64.dmg`), and the newest alpha's (`Gui-alpha-arm64.dmg`) until there is one.
 
 ## Crash reports
 

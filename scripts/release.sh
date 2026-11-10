@@ -1,7 +1,8 @@
 #!/bin/sh
 # Builds a signed, notarized Gui and publishes it to the update feed (electron-builder.yml
-# `publish`) and https://usegui.com/download. Each version publishes once, tagged v<version>,
-# with a GitHub Release whose notes are its entry in www/src/changelog.ts (add that first).
+# `publish`) and https://usegui.com/download (which serves the newest stable release, and the
+# newest alpha until there is one). Each version publishes once, tagged v<version>, with a
+# GitHub Release whose notes are its entry in www/src/changelog.ts (add that first).
 # If package.json's version is already tagged, this bumps it (0.1.0-alpha.9 → 0.1.0-alpha.10,
 # 1.2.3 → 1.2.4) and commits that; to pick a version yourself, commit it first.
 #
