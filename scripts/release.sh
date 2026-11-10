@@ -92,8 +92,7 @@ bunx --bun electron-builder --mac --publish never
 app=release/mac-arm64/Gui.app
 dmg="release/Gui-$version-arm64.dmg"
 zip="release/Gui-$version-arm64.zip"
-feed="release/$channel-mac.yml"
-for file in "$app" "$dmg" "$zip" "$zip.blockmap" "$feed"; do
+for file in "$app" "$dmg" "$zip" "$zip.blockmap" "release/$channel-mac.yml"; do
   [ -e "$file" ] || fail "The build didn't produce $file"
 done
 
@@ -115,10 +114,18 @@ put() {
 put "$(basename "$zip")" "$zip" application/zip
 put "$(basename "$zip").blockmap" "$zip.blockmap" application/octet-stream
 put "$(basename "$dmg")" "$dmg" application/x-apple-diskimage
-# usegui.com/download serves this copy.
+# usegui.com/download serves Gui-arm64.dmg, the newest stable release, and the alpha's copy
+# until there is one. A prerelease replaces only its own channel's copy.
 put "Gui-$channel-arm64.dmg" "$dmg" application/x-apple-diskimage
-# Last, so installed copies only see the version once its files are there.
-put "$channel-mac.yml" "$feed" text/yaml
+if [ "$channel" = latest ]; then
+  put "Gui-arm64.dmg" "$dmg" application/x-apple-diskimage
+fi
+# Last, so installed copies only see the version once its files are there. An alpha build
+# writes one feed; a stable one also writes alpha-mac.yml and beta-mac.yml, which is how
+# copies installed from a prerelease reach it (generateUpdatesFilesForAllChannels).
+for feed in release/*-mac.yml; do
+  put "$(basename "$feed")" "$feed" text/yaml
+done
 
 git tag -a "$tag" -m "Gui $version"
 git push origin main "$tag"

@@ -55,11 +55,16 @@ extraResources:
     to: bin/gui-transcribe
 
 # Where installed copies look for updates (src/main/updates.ts): an R2 bucket served by the
-# usegui.com worker (www/worker.js). A prerelease version publishes to its own channel, so
-# 0.1.0-alpha.N writes alpha-mac.yml and only alpha installs follow it.
+# usegui.com worker (www/worker.js). An installed copy follows the channel of its own version:
+# 0.1.0-alpha.N reads alpha-mac.yml, a stable version reads latest-mac.yml.
 publish:
   provider: generic
   url: https://usegui.com/releases
+
+# An alpha release writes only alpha-mac.yml. A stable release writes latest-mac.yml and also
+# alpha-mac.yml and beta-mac.yml (a beta: beta-mac.yml and alpha-mac.yml), so copies installed
+# from a prerelease update to it instead of waiting on a feed that no longer changes.
+generateUpdatesFilesForAllChannels: true
 
 asar: true
 # The agent adapters are spawned as `Gui -e "import('…/app.asar.unpacked/node_modules/…')"`
