@@ -509,8 +509,13 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
-  // A canvas's frame thumbnails, for its board (main/board.ts).
-  { scheme: 'gui-thumb', privileges: { standard: true, secure: true } },
+  // A canvas's frame thumbnails, for its board (main/board.ts). supportFetchAPI and
+  // corsEnabled: the board can fetch one and use its pixels (a WebGL texture needs them read
+  // with CORS), not only show it in an <img>.
+  {
+    scheme: 'gui-thumb',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true },
+  },
 ])
 
 /**

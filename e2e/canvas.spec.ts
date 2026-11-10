@@ -196,21 +196,29 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   await new Promise<void>((done) => app.listen(0, '127.0.0.1', () => done()))
   try {
     const appUrl = `http://127.0.0.1:${(app.address() as AddressInfo).port}/`
-    const seen = await session.app.evaluate(async ({ session: sessions, webContents }, url) => {
-      const preview = sessions.fromPartition('persist:gui-preview')
-      await preview.cookies.set({ url, name: 'app', value: 'secret' })
-      await preview.cookies.set({ url: 'http://localhost/', name: 'local', value: 'secret' })
-      const wc = webContents
-        .getAllWebContents()
-        .find((w) => w.session === preview && w.getURL().includes('/frames/mobile.html'))
-      if (!wc) throw new Error('No live frame')
-      const frame = await wc.executeJavaScript(
-        `document.cookie = 'frame=1; path=/'; fetch(${JSON.stringify(url)}, { mode: 'no-cors', credentials: 'include' }).then(() => document.cookie)`,
-      )
-      const app = (await preview.cookies.get({ url })).map((cookie) => cookie.name)
-      return { host: new URL(wc.getURL()).hostname, frame, app }
-    }, appUrl)
+    const seen = await session.app.evaluate(
+      async ({ session: sessions, webContents }, { url, thumbs }) => {
+        const preview = sessions.fromPartition('persist:gui-preview')
+        await preview.cookies.set({ url, name: 'app', value: 'secret' })
+        await preview.cookies.set({ url: 'http://localhost/', name: 'local', value: 'secret' })
+        const wc = webContents
+          .getAllWebContents()
+          .find((w) => w.session === preview && w.getURL().includes('/frames/mobile.html'))
+        if (!wc) throw new Error('No live frame')
+        const frame = await wc.executeJavaScript(
+          `document.cookie = 'frame=1; path=/'; fetch(${JSON.stringify(url)}, { mode: 'no-cors', credentials: 'include' }).then(() => document.cookie)`,
+        )
+        // Nor read the canvas's thumbnails: only Gui's own session serves them.
+        const thumb = await wc.executeJavaScript(
+          `fetch(${JSON.stringify(`${thumbs}/mobile`)}).then(() => 'read', () => 'refused')`,
+        )
+        const app = (await preview.cookies.get({ url })).map((cookie) => cookie.name)
+        return { host: new URL(wc.getURL()).hostname, frame, app, thumb }
+      },
+      { url: appUrl, thumbs: opened.thumbs },
+    )
     expect(seen.frame).toBe('frame=1')
+    expect(seen.thumb).toBe('refused')
     expect(seen.app).toEqual(['app'])
     expect(cookies).toEqual([undefined])
     expect(seen.host).toBe(`${opened.id}.localhost`)
@@ -415,6 +423,16 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
   expect(readdirSync(thumbs).sort()).toEqual(
     expect.arrayContaining(frames.flatMap((f) => [`${f.id}.jpg`, `${f.id}.small.jpg`])),
   )
+  // The window can read a thumbnail's bytes with CORS, as a texture needs, not only show it.
+  const fetched = await chrome.evaluate(async (url) => {
+    const response = await fetch(url)
+    const blob = await response.blob()
+    const bitmap = await createImageBitmap(blob)
+    const read = { status: response.status, type: blob.type, width: bitmap.width }
+    bitmap.close()
+    return read
+  }, `${canvas.thumbs}/${frames[0].id}.small?v=${frames[0].version}`)
+  expect(fetched).toEqual({ status: 200, type: 'image/jpeg', width: 360 })
   // Counts the animation frames where a frame that had shown its thumbnail shows none.
   await chrome.evaluate(() => {
     const shown = new Set<string>()

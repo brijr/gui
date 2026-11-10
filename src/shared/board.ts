@@ -17,6 +17,11 @@ export const FRAME_MIN = 120
 export const FRAME_MAX = 4000
 
 /**
+ * A thumbnail's widest, in pixels: a desktop frame's own width, so the board stays sharp on a
+ * Retina screen up to about 50%.
+ */
+export const THUMB_WIDTH = 1440
+/**
  * The board's zoomed-out thumbnails are this wide, in pixels: a full one decoded for a frame
  * a hundred pixels wide on screen costs its memory many times over.
  */

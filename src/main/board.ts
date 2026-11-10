@@ -152,7 +152,8 @@ export const thumbsUrl = (id: string) => `gui-thumb://${id}`
 
 /**
  * Serves frame thumbnails to Gui's own pages, `gui-thumb://<canvas>/<frame>`. Only Gui's UI
- * session has the protocol; previewed pages can't read them.
+ * session has the protocol; previewed pages can't read them. So any origin may read one's
+ * pixels (CORS): the only pages that can ask are Gui's own.
  */
 export function registerThumbProtocol() {
   protocol.handle('gui-thumb', async (request) => {
@@ -167,7 +168,11 @@ export function registerThumbProtocol() {
         readFile(join(dir, `${frame}.jpg`)),
       )
       return new Response(image, {
-        headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'no-store' },
+        headers: {
+          'Content-Type': 'image/jpeg',
+          'Cache-Control': 'no-store',
+          'Access-Control-Allow-Origin': '*',
+        },
       })
     } catch {
       return new Response(null, { status: 404 })

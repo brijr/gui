@@ -2,7 +2,13 @@ import { randomBytes } from 'node:crypto'
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
-import { type BoardFrameLayout, FRAME_MAX, FRAMES_DIR, SMALL_THUMB_WIDTH } from '../shared/board'
+import {
+  type BoardFrameLayout,
+  FRAME_MAX,
+  FRAMES_DIR,
+  SMALL_THUMB_WIDTH,
+  THUMB_WIDTH,
+} from '../shared/board'
 import { writeFileAtomic } from './atomic-file'
 import { boardAssetSignature, pageSignature } from './board-assets'
 import {
@@ -12,11 +18,6 @@ import {
   type CaptureJob,
 } from './board-capture-queue'
 
-/**
- * A thumbnail's widest, in pixels: a desktop frame's own width, so the board stays sharp on a
- * Retina screen up to about 50%.
- */
-const THUMB_WIDTH = 1440
 /** How much of a tall frame its thumbnail shows; screenshots and exports show all of it. */
 const THUMB_MAX_HEIGHT = 3000
 
