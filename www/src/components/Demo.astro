@@ -9,7 +9,6 @@ import { svg } from './demo/icons'
 // src/components/demo/demo.ts runs it all.
 const suggestions = [
   { id: 'bolder', label: 'Make this bolder' },
-  { id: 'serif', label: 'Use a serif font' },
   { id: 'blue', label: 'Make this blue' },
 ]
 
@@ -98,14 +97,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
         <span class="tool" aria-hidden="true"><Fragment set:html={svg('more')} /></span>
       </header>
 
-      <div class="demo-guide">
-        <p>Browser demo: bold, serif, or blue. No live AI agent.</p>
-        <p data-demo-status role="status">An example plays first.</p>
-        <div class="demo-guide-actions">
-          <button class="button" type="button" data-skip>Try it yourself</button>
-          <button class="button" type="button" data-play hidden>Watch example</button>
-        </div>
-      </div>
+      <p class="sr-only" data-demo-status role="status">An example plays first.</p>
       <div class="transcript" data-transcript aria-live="polite"></div>
 
       <div class="suggest" data-suggest hidden>
@@ -121,7 +113,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
         </div>
       </div>
 
-      <span id="demo-input-help" class="sr-only">This browser demo supports bold, serif, and blue. Other requests need the Mac app and your own agent.</span>
+      <span id="demo-input-help" class="sr-only">This browser demo supports bold and blue. Other requests need the Mac app and your own agent.</span>
       <p class="hint" data-empty>
         <Fragment set:html={svg('pointer')} />
         Select something in the preview, then try a change.
@@ -137,6 +129,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
           <button class="send" type="submit" data-send aria-label="Send" disabled>
             <Fragment set:html={svg('arrowUp')} />
           </button>
+          <span class="send stop" data-stop aria-hidden="true" hidden><Fragment set:html={svg('stop')} /></span>
         </div>
       </form>
     </aside>
@@ -610,19 +603,6 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .grow {
     flex: 1;
   }
-  .demo .demo-guide {
-    flex: none;
-    padding: 8px 12px;
-    border-bottom: var(--hairline) solid var(--line);
-    color: var(--c-muted);
-    font-size: 12px;
-    line-height: 1.4;
-  }
-  .demo .demo-guide-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 6px;
-  }
   .demo .sr-only {
     position: absolute;
     width: 1px;
@@ -684,6 +664,7 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
 
   .demo .suggest {
     flex: none;
+    animation: row-in 200ms var(--ease-out);
     padding: 4px 12px 8px;
     color: var(--c-muted);
     font-size: 12px;
@@ -839,6 +820,15 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo .send.is-pressed {
     transform: scale(0.96);
   }
+  /* While the agent works, as in the app (the demo can't stop it) */
+  .demo .send.stop {
+    background: var(--raised);
+    box-shadow:
+      inset 0 0 0 1px var(--line-strong),
+      var(--elevation-control);
+    color: var(--c-fg);
+    cursor: default;
+  }
 
   /* Rows that demo.ts adds to the transcript */
   .demo .transcript .row {
@@ -900,34 +890,6 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     gap: 6px;
     color: var(--c-muted);
   }
-  .demo .transcript .thinking {
-    /* As wide as its words, so the shimmer's sweep crosses them, not the whole column */
-    align-self: flex-start;
-    color: var(--c-muted);
-    background: linear-gradient(
-      90deg,
-      var(--c-muted) 0%,
-      var(--c-muted) 40%,
-      var(--c-fg) 50%,
-      var(--c-muted) 60%,
-      var(--c-muted) 100%
-    );
-    background-size: 250% 100%;
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation:
-      row-in 160ms var(--ease-out),
-      shimmer 1.6s linear infinite;
-  }
-  @keyframes shimmer {
-    from {
-      background-position: 100% 0;
-    }
-    to {
-      background-position: -150% 0;
-    }
-  }
   .demo .transcript .step {
     display: flex;
     align-items: center;
@@ -962,6 +924,9 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
     to {
       transform: rotate(1turn);
     }
+  }
+  .demo .transcript .timer {
+    font-variant-numeric: tabular-nums;
   }
   .demo .transcript .step.is-done .step-icon {
     color: var(--success);
@@ -1069,14 +1034,9 @@ const fallback = await getImage({ src: wallpaper, width: 1920, format: 'jpg', qu
   .demo[data-narrow] .composer textarea {
     font-size: 16px;
   }
-  .demo[data-narrow] .demo-guide [data-demo-status] {
-    display: none;
-  }
   @media (prefers-reduced-motion: reduce) {
-    .demo .transcript .thinking {
-      animation: row-fade 150ms linear;
-      -webkit-text-fill-color: currentColor;
-      background: none;
+    .demo .suggest {
+      animation-name: row-fade;
     }
     .demo .transcript .spinner {
       animation: none;

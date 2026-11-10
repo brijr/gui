@@ -154,10 +154,10 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   const chips = q('[data-chips]')
   const input = q<HTMLTextAreaElement>('[data-input]')
   const send = q<HTMLButtonElement>('[data-send]')
+  const stop = q('[data-stop]')
+  const placeholder = input.placeholder
   const toolbarSelect = q<HTMLButtonElement>('[data-toolbar] [data-select]')
   const closeButton = q<HTMLButtonElement>('.done')
-  const skip = q<HTMLButtonElement>('[data-skip]')
-  const play = q<HTMLButtonElement>('[data-play]')
   const demoStatus = q('[data-demo-status]')
   const selectButtons = root.querySelectorAll<HTMLButtonElement>('[data-select]')
   const suggestions = root.querySelectorAll<HTMLButtonElement>('[data-suggestion]')
@@ -178,6 +178,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   let navigatingBack = false
   /** The transcript's scroll height when it last scrolled to the end */
   let transcriptHeight = 0
+  /** "Working 3s" at the end of the transcript while a turn runs; rows go in above it */
+  let working: HTMLElement | null = null
   const applied: Change[] = []
   /** The style attribute of each element the demo changed, from before the demo */
   const originals = new Map<Styled, string | null>()
@@ -663,10 +665,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     await sleep(380, id)
 
     const field = input.getBoundingClientRect()
-    await moveTo(
-      { x: field.left + Math.min(60, field.width / 3), y: field.top + field.height / 2 },
-      id,
-    )
+    // Right of where the words go, so the pointer doesn't sit on them as they're typed
+    await moveTo({ x: field.left + field.width * 0.72, y: field.top + field.height / 2 }, id)
     await click(id)
     form.classList.add('is-active')
     await type(PROMPT, id, 30)
@@ -690,46 +690,70 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     setPicking(true)
     suggest.hidden = false
     sync()
+    // The suggestions take room from the transcript: keep the result in view.
+    scrollDown(true)
   }
 
   async function converse(turn: Turn, id: number) {
     empty.hidden = true
     input.value = ''
-    sync()
     const you = h('div', 'row you')
     if (turn.target) you.append(chip(turn.target))
     you.append(h('p', '', turn.prompt))
     add(you)
+    // Sending clears the selection, as it does in the app.
+    select(null)
     const started = performance.now()
+    const seconds = () => Math.max(0, Math.round((performance.now() - started) / 1000))
 
-    const thinking = add(h('p', 'row thinking', 'Thinking…'))
-    await sleep(900, id)
-    thinking.remove()
-    if (turn.change) {
-      const read = add(step('Read', 0, 0))
-      await sleep(700, id)
-      finish(read)
-      const edit = add(step('Edit', turn.change.plus, turn.change.minus))
-      await sleep(380, id)
-      turn.change.apply()
-      turn.change.applied = true
-      applied.push(turn.change)
+    // While it runs: "Working 0s" counting under the turn, and a stop button by the send.
+    const timer = h('span', 'timer', '0s')
+    const mark = h('span', 'step-icon')
+    mark.append(h('span', 'spinner'))
+    const row = h('p', 'row step working')
+    row.append(mark, 'Working ', timer)
+    add(row)
+    working = row
+    setBusy(true)
+    const tick = setInterval(() => (timer.textContent = `${seconds()}s`), 1000)
+    try {
       await sleep(900, id)
-      finish(edit)
-      await sleep(200, id)
-      // Done, the steps fold into one line, as they do in the app
-      const seconds = Math.max(1, Math.round((performance.now() - started) / 1000))
-      const folded = h('p', 'row folded')
-      folded.innerHTML = svg('chevronRight', 12)
-      folded.append(`2 steps · ${seconds}s`)
-      read.replaceWith(folded)
-      edit.remove()
+      if (turn.change) {
+        // The group being worked in shows only its latest step, live.
+        const read = add(step('Read', 0, 0))
+        await sleep(700, id)
+        const edit = step('Edit', turn.change.plus, turn.change.minus)
+        read.replaceWith(edit)
+        await sleep(380, id)
+        turn.change.apply()
+        turn.change.applied = true
+        applied.push(turn.change)
+        await sleep(900, id)
+        finish(edit)
+        await sleep(240, id)
+        // Done, the steps fold into one line, as they do in the app
+        const folded = h('p', 'row folded')
+        folded.innerHTML = svg('chevronRight', 12)
+        folded.append(`2 steps · ${Math.max(1, seconds())}s`)
+        edit.replaceWith(folded)
+      }
+      await stream(turn.reply, id)
+      await sleep(160, id)
+    } finally {
+      clearInterval(tick)
+      // A cancelled turn is cleared with the rest of the chat (resetChat).
+      if (id === run) {
+        row.remove()
+        working = null
+        setBusy(false)
+      }
     }
-    await stream(turn.reply, id)
-    if (turn.change) {
-      await sleep(120, id)
-      add(card(turn.change, turn.compare ? turn.target : null))
-    }
+    if (turn.change) add(card(turn.change, turn.compare ? turn.target : null))
+  }
+
+  function setBusy(on: boolean) {
+    stop.hidden = !on
+    input.placeholder = on ? 'Queue a message…' : placeholder
   }
 
   async function stream(text: string, id: number) {
@@ -751,15 +775,17 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   // Transcript rows
 
   function add<T extends HTMLElement>(row: T): T {
-    transcript.append(row)
+    if (working?.isConnected) working.before(row)
+    else transcript.append(row)
     scrollDown()
     return row
   }
 
-  /** Only when the transcript has grown: a new smooth scroll per word restarts it from rest. */
-  function scrollDown() {
+  /** Only when the transcript has grown: a new smooth scroll per word restarts it from rest.
+      `force`: the transcript itself got shorter. */
+  function scrollDown(force = false) {
     const { scrollHeight, clientHeight } = transcript
-    if (scrollHeight === transcriptHeight) return
+    if (scrollHeight === transcriptHeight && !force) return
     transcriptHeight = scrollHeight
     if (scrollHeight <= clientHeight) return
     transcript.scrollTo({
@@ -863,6 +889,8 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   function resetChat() {
     transcript.replaceChildren()
     transcriptHeight = 0
+    working = null
+    setBusy(false)
     empty.hidden = false
     suggest.hidden = true
     input.value = ''
@@ -884,58 +912,21 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     }
   }
 
-  function restyle(
-    el: Styled,
-    prop: string,
-    value: string,
-    transition: string,
-    fade = false,
-  ): Change {
+  function restyle(el: Styled, prop: string, value: string, transition: string): Change {
     remember(el)
     const before = el.style.getPropertyValue(prop)
-    /** A font change's dip, while it's on its way down */
-    let dip: Animation | null = null
-    const set = (v: string) => {
+    const set = (v: string, instant = false) => {
       // With reduced motion the words change in place: no weight or color easing across.
-      el.style.transition = reduce.matches ? 'none' : transition
+      el.style.transition = instant || reduce.matches ? 'none' : transition
       if (v) el.style.setProperty(prop, v)
       else el.style.removeProperty(prop)
-    }
-    // A font can't animate from one family to the next, so it dips out and back instead: the
-    // family changes once the dip has bottomed out, never while the old one still shows.
-    const swap = (v: string) => {
-      if (!fade || reduce.matches) return set(v)
-      dip?.cancel()
-      const out = el.animate([{ opacity: 1 }, { opacity: 0.08 }], {
-        duration: 250,
-        easing: EASE_IN,
-        fill: 'forwards',
-      })
-      dip = out
-      out.finished
-        .catch(() => {})
-        .then(() => {
-          // Reverted or swapped again meanwhile: that change stands.
-          if (dip !== out) return
-          dip = null
-          set(v)
-          el.animate([{ opacity: 0.08 }, { opacity: 1 }], { duration: 310, easing: EASE_OUT })
-          out.cancel()
-        })
     }
     return {
       plus: 1,
       minus: 1,
       applied: false,
-      apply: () => swap(value),
-      revert: (instant = false) => {
-        if (!instant) return swap(before)
-        dip?.cancel()
-        dip = null
-        el.style.transition = 'none'
-        if (before) el.style.setProperty(prop, before)
-        else el.style.removeProperty(prop)
-      },
+      apply: () => set(value),
+      revert: (instant = false) => set(before, instant),
     }
   }
 
@@ -958,20 +949,6 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
         target: el,
         change: restyle(el, 'font-weight', String(to), `font-weight 700ms ${EASE_DRAW}`),
         reply: `I changed the weight of the \`${tag}\` from ${weight} to ${to}. The page uses a variable font, so each weight is available.`,
-      }
-    }
-    if (kind === 'serif') {
-      return {
-        prompt: 'Use a serif font for this.',
-        target: el,
-        change: restyle(
-          el,
-          'font-family',
-          "'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif",
-          'none',
-          true,
-        ),
-        reply: `I set the \`${tag}\` in Iowan Old Style, with Georgia as the fallback.`,
       }
     }
     if (kind === 'blue') {
@@ -1006,15 +983,14 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
   function sync() {
     const idle = state === 'idle'
     input.readOnly = !idle
-    send.disabled = !idle || !input.value.trim()
-    skip.hidden = state !== 'intro'
-    play.hidden = !idle
+    // Lit once there's a message, the scripted one too; sending works only on the visitor's turn.
+    send.disabled = !input.value.trim()
     demoStatus.textContent =
       state === 'intro' || state === 'opening'
-        ? 'Example playing. Choose Try it yourself to start now.'
+        ? 'Example playing. This browser demo has no live AI agent.'
         : state === 'working'
           ? 'Applying your demo change…'
-          : 'Your turn. Select text and try bold, serif, or blue.'
+          : 'Your turn. Select text and try bold or blue.'
     for (const button of suggestions) button.disabled = !idle || !selected
     // The suggestions say the same, once they show
     if (selected || !suggest.hidden) empty.hidden = true
@@ -1055,18 +1031,6 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
       if (state === 'idle') setPicking(!picking)
     })
   }
-  skip.addEventListener('click', () => {
-    if (state !== 'intro') return
-    run++
-    hideCursor()
-    revertAll(true)
-    setHover(null)
-    select(null)
-    form.classList.remove('is-active')
-    send.classList.remove('is-pressed')
-    resetChat()
-    ready()
-  })
   const replay = () => {
     if (state !== 'intro' && state !== 'idle' && state !== 'working') return
     run++
@@ -1080,7 +1044,6 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     script(intro)
   }
   q('[data-restart]').addEventListener('click', replay)
-  play.addEventListener('click', replay)
   for (const button of suggestions) {
     button.addEventListener('click', () => {
       if (state !== 'idle' || !selected) return
@@ -1101,11 +1064,9 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     if (state !== 'idle' || !prompt) return
     const kind = /\b(bold|bolder|semi[- ]?bold)\b/i.test(prompt)
       ? 'bolder'
-      : /\bserif\b/i.test(prompt)
-        ? 'serif'
-        : /\bblue\b/i.test(prompt)
-          ? 'blue'
-          : ''
+      : /\bblue\b/i.test(prompt)
+        ? 'blue'
+        : ''
     const requested = selected && kind ? suggestion(kind, selected) : null
     const turn: Turn = requested
       ? { ...requested, prompt }
@@ -1114,7 +1075,7 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
           target: selected,
           reply: selected
             ? FREE_REPLY
-            : 'Select some text on the page first, then ask for bold, a serif font, or blue.',
+            : 'Select some text on the page first, then ask for bold or blue.',
         }
     setState('working')
     script(async (id) => {
@@ -1150,6 +1111,15 @@ function demo(root: HTMLElement, page: HTMLElement, openers: NodeListOf<HTMLElem
     true,
   )
 
+  // A reload keeps the history entry the demo pushed, but not the demo: drop it, or closing a
+  // demo opened later would go back a page.
+  if (history.state?.guiDemo) {
+    history.replaceState(
+      { ...history.state, guiDemo: false },
+      '',
+      location.pathname + location.search,
+    )
+  }
   addEventListener('popstate', () => {
     navigatingBack = false
     if (!history.state?.guiDemo && state !== 'closed') close()
