@@ -1,17 +1,34 @@
 // Sends www.usegui.com and http:// to https://usegui.com, so search engines see one site.
 // /releases/ is the app's update feed and builds, from the gui-releases R2 bucket
-// (scripts/release.sh publishes there), and /download is the newest DMG, counted in the gui-www
-// D1 database. /downloads is that count as one number, for the homepage. /waitlist adds an
-// address to the Windows and Linux waitlist in the same database, and /crash keeps the crash
-// reports installed copies send (src/main/crash-reports.ts). Everything else is the static
-// site in dist/ (with dist/404.html for pages that don't exist).
+// (scripts/release.sh publishes there), and /download is the newest DMG, whatever its channel,
+// counted in the gui-www D1 database. Both send the part of a file a Range header asks for, so
+// an update downloads only what changed and an interrupted download can resume. /downloads is
+// that count as one number, for the homepage. /waitlist adds an address to the Windows and
+// Linux waitlist in the same database, and /crash keeps the crash reports installed copies send
+// (src/main/crash-reports.ts). Everything else is the static site in dist/ (with dist/404.html
+// for pages that don't exist); its videos are sent in parts too.
 
-/** The channel /download serves: alpha until Gui has a stable release. */
-const DOWNLOAD = 'Gui-alpha-arm64.dmg'
+/** What /download serves: the copy of the newest DMG every release uploads, alpha or stable. */
+const DOWNLOAD = 'Gui-arm64.dmg'
+/** What /download serves until a release has uploaded that copy: the newest alpha DMG. */
+const DOWNLOAD_ALPHA = 'Gui-alpha-arm64.dmg'
 
 /**
- * @typedef {{ body: ReadableStream, httpEtag: string, writeHttpMetadata(headers: Headers): void }} R2Object
- * @typedef {{ get(key: string): Promise<R2Object | null> }} R2Bucket
+ * @typedef {{ offset: number, length: number }} ByteRange
+ * @typedef {{
+ *   size: number
+ *   etag: string
+ *   httpEtag: string
+ *   writeHttpMetadata(headers: Headers): void
+ * }} R2Object
+ * @typedef {R2Object & { body: ReadableStream }} R2ObjectBody
+ * @typedef {{
+ *   head(key: string): Promise<R2Object | null>
+ *   get(
+ *     key: string,
+ *     options?: { range?: ByteRange, onlyIf?: { etagMatches: string } },
+ *   ): Promise<R2ObjectBody | R2Object | null>
+ * }} R2Bucket
  * @typedef {{
  *   bind(...values: unknown[]): D1Statement
  *   first(): Promise<Record<string, unknown> | null>
@@ -36,44 +53,140 @@ export default {
       if (/iPhone|iPod|Android/.test(request.headers.get('user-agent') ?? '')) {
         return Response.redirect(new URL('/#mac-only', request.url).toString(), 303)
       }
-      const response = await release(env, DOWNLOAD, 'Gui.dmg')
-      if (response.ok && startsDownload(request)) ctx.waitUntil(countDownload(request, env))
+      let file = DOWNLOAD
+      let response = await release(request, env, file, 'Gui.dmg')
+      if (response.status === 404) {
+        file = DOWNLOAD_ALPHA
+        response = await release(request, env, file, 'Gui.dmg')
+      }
+      if (response.ok && startsDownload(request)) ctx.waitUntil(countDownload(request, env, file))
       return response
     }
     if (url.pathname === '/downloads') return countedDownloads(request, env, ctx)
     if (url.pathname === '/waitlist' && request.method === 'POST') return waitlist(request, env)
     if (url.pathname === '/crash' && request.method === 'POST') return crash(request, env)
     const file = url.pathname.match(/^\/releases\/([\w.-]+)$/)?.[1]
-    if (file) return release(env, file)
-    return secure(await env.ASSETS.fetch(request), url.pathname)
+    if (file) return release(request, env, file)
+    const asset = await env.ASSETS.fetch(request)
+    const video = url.pathname.startsWith('/video/')
+    return secure(video ? await inParts(request, asset) : asset, url.pathname)
   },
 }
+
+/**
+ * The hero videos keep their names when they change, so a browser keeps one for an hour and
+ * then asks whether it is still the current one.
+ */
+const VIDEO_CACHE = 'public, max-age=3600'
 
 /** The site's pages and files, with the headers that keep browsers on HTTPS and off frames. */
 function secure(/** @type {Response} */ asset, /** @type {string} */ pathname) {
   const response = new Response(asset.body, asset)
-  response.headers.set(
-    'cache-control',
-    pathname.startsWith('/_astro/') && asset.ok
-      ? 'public, max-age=31536000, immutable'
-      : 'no-cache',
-  )
+  let cache = 'no-cache'
+  if (pathname.startsWith('/_astro/') && asset.ok) cache = 'public, max-age=31536000, immutable'
+  // A 304 renews the copy a browser kept, so it carries the video's rule as well.
+  if (pathname.startsWith('/video/') && (asset.ok || asset.status === 304)) cache = VIDEO_CACHE
+  response.headers.set('cache-control', cache)
   protect(response.headers)
   return response
 }
 
-/** @param {{ RELEASES: R2Bucket }} env @param {string} key @param {string} [filename] */
-async function release(env, key, filename) {
-  const object = await env.RELEASES.get(key)
-  if (!object) return new Response('Not found', { status: 404 })
-  const headers = new Headers()
-  object.writeHttpMetadata(headers)
-  headers.set('etag', object.httpEtag)
-  // Feeds and /download change with every release; versioned builds never do.
-  const changes = key.endsWith('.yml') || filename
-  headers.set('cache-control', changes ? 'no-cache' : 'public, max-age=31536000, immutable')
-  if (filename) headers.set('content-disposition', `attachment; filename="${filename}"`)
-  return new Response(object.body, { headers })
+/**
+ * A video with the part of it a Range header asks for. The static site sends the whole file
+ * whatever was asked, and Safari only plays a video it can fetch in parts. The videos are a few
+ * hundred kilobytes, so the part is cut from the whole file here.
+ * @param {Request} request @param {Response} asset
+ */
+async function inParts(request, asset) {
+  if (asset.status !== 200) return asset
+  const headers = new Headers(asset.headers)
+  headers.set('accept-ranges', 'bytes')
+  if (request.method !== 'GET' || !request.headers.has('range')) {
+    return new Response(asset.body, { headers })
+  }
+  const bytes = await asset.arrayBuffer()
+  const range = wantedRange(request, bytes.byteLength, headers.get('etag'))
+  if (range === false) return unsatisfiable(bytes.byteLength)
+  if (!range) return new Response(bytes, { headers })
+  headers.set('content-range', contentRange(range, bytes.byteLength))
+  headers.set('content-length', String(range.length))
+  const part = bytes.slice(range.offset, range.offset + range.length)
+  return new Response(part, { status: 206, headers })
+}
+
+/**
+ * A file from the releases bucket: all of it, or the one range of bytes a GET asks for.
+ * @param {Request} request @param {{ RELEASES: R2Bucket }} env @param {string} key
+ * @param {string} [filename]
+ */
+async function release(request, env, key, filename) {
+  // The size and ETag come first: a range is worked out from them, and a HEAD needs no more.
+  const known = await env.RELEASES.head(key)
+  if (!known) return new Response('Not found', { status: 404 })
+  const range = wantedRange(request, known.size, known.httpEtag)
+  if (range === false) return unsatisfiable(known.size)
+
+  const respond = (/** @type {R2Object} */ object, /** @type {ByteRange | null} */ part) => {
+    const headers = new Headers()
+    object.writeHttpMetadata(headers)
+    headers.set('etag', object.httpEtag)
+    headers.set('accept-ranges', 'bytes')
+    headers.set('content-length', String(part ? part.length : object.size))
+    if (part) headers.set('content-range', contentRange(part, object.size))
+    // Feeds and /download change with every release; versioned builds never do.
+    const changes = key.endsWith('.yml') || filename
+    headers.set('cache-control', changes ? 'no-cache' : 'public, max-age=31536000, immutable')
+    if (filename) headers.set('content-disposition', `attachment; filename="${filename}"`)
+    const body = 'body' in object ? /** @type {R2ObjectBody} */ (object).body : null
+    return new Response(body, { status: part ? 206 : 200, headers })
+  }
+
+  if (request.method === 'HEAD') return respond(known, null)
+  if (range) {
+    // The range was worked out for one version, so R2 only sends it from that version. If a
+    // release replaced the file a moment ago, the whole new file is sent instead.
+    const part = await env.RELEASES.get(key, { range, onlyIf: { etagMatches: known.etag } })
+    if (part && 'body' in part) return respond(part, range)
+  }
+  const whole = await env.RELEASES.get(key)
+  return whole ? respond(whole, null) : new Response('Not found', { status: 404 })
+}
+
+/**
+ * The part of a file a request asks for: null for all of it, false when the file has none of
+ * the bytes asked for. Only a GET for one range gets a part. A request for several ranges gets
+ * the whole file, and so does a resumed download whose If-Range names another version, so it
+ * never continues with a slice of a different file.
+ * @param {Request} request @param {number} size @param {string | null} etag
+ * @returns {ByteRange | null | false}
+ */
+function wantedRange(request, size, etag) {
+  const ifRange = request.headers.get('if-range')
+  if (request.method !== 'GET' || (ifRange !== null && ifRange !== etag)) return null
+  const [, first, last] = request.headers.get('range')?.match(/^bytes=(\d*)-(\d*)$/i) ?? []
+  if (!first && !last) return null
+  if (!first) {
+    // bytes=-n is the last n bytes.
+    const length = Math.min(Number(last), size)
+    return length > 0 && { offset: size - length, length }
+  }
+  const offset = Number(first)
+  // An end before the start is not a range at all, so the header is ignored.
+  if (last && Number(last) < offset) return null
+  const end = last ? Math.min(Number(last), size - 1) : size - 1
+  return offset < size && { offset, length: end - offset + 1 }
+}
+
+function contentRange(/** @type {ByteRange} */ range, /** @type {number} */ size) {
+  return `bytes ${range.offset}-${range.offset + range.length - 1}/${size}`
+}
+
+/** The answer to a range that has none of the file's bytes in it. */
+function unsatisfiable(/** @type {number} */ size) {
+  return new Response(null, {
+    status: 416,
+    headers: { 'accept-ranges': 'bytes', 'content-range': `bytes */${size}` },
+  })
 }
 
 /** Crawlers and link previews, which fetch /download but are not people downloading Gui. */
@@ -89,15 +202,15 @@ function startsDownload(/** @type {Request} */ request) {
   return !range || /^bytes=0-/.test(range)
 }
 
-/** @param {Request} request @param {Env} env */
-async function countDownload(request, env) {
+/** @param {Request} request @param {Env} env @param {string} file The DMG that was sent. */
+async function countDownload(request, env, file) {
   // Only the referring site, not the full address, so no query strings are kept.
   const referrer = URL.parse(request.headers.get('referer') ?? '')?.hostname ?? null
   try {
     await env.DB.prepare(
       'INSERT INTO downloads (file, country, referrer, created_at) VALUES (?, ?, ?, ?)',
     )
-      .bind(DOWNLOAD, country(request), referrer, now())
+      .bind(file, country(request), referrer, now())
       .run()
   } catch (error) {
     console.error('download count failed', error)
