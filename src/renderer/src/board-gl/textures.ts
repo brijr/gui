@@ -57,6 +57,8 @@ export class ThumbTextures {
   private draws = 0
   private active = 0
   private disposed = false
+  /** Counts each texture made or freed: what frames hold has changed when this has */
+  changes = 0
 
   constructor(
     private readonly gl: WebGL2RenderingContext,
@@ -218,13 +220,21 @@ export class ThumbTextures {
     entry.bytes = bitmap.width * bitmap.height * 4 * (levels ? MIPS : 1)
     entry.made = ready.key
     this.bytes += entry.bytes
+    this.changes++
     bitmap.close()
+  }
+
+  /** The width of the texture a frame holds, in pixels; 0 while it has none. */
+  width(id: string) {
+    const entry = this.entries.get(id)
+    return entry?.texture ? entry.width : 0
   }
 
   private free(entry: Entry) {
     if (!entry.texture) return
     this.gl.deleteTexture(entry.texture)
     this.bytes -= entry.bytes
+    this.changes++
     entry.texture = null
     entry.bytes = 0
     entry.made = ''
@@ -262,6 +272,7 @@ export class ThumbTextures {
     this.decoded.clear()
     this.queue.length = 0
     this.bytes = 0
+    this.changes++
   }
 
   dispose() {

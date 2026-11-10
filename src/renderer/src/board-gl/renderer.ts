@@ -226,6 +226,16 @@ export class BoardRenderer {
     this.textures.keep(ids)
   }
 
+  /** The width of the thumbnail texture a frame has, in pixels; 0 while it has none. */
+  thumbWidth(id: string) {
+    return this.textures.width(id)
+  }
+
+  /** Changes each time a frame's texture is made or freed. */
+  get thumbChanges() {
+    return this.textures.changes
+  }
+
   /** Draws the board. Returns how soon it wants drawing again (ms), or null if it doesn't. */
   draw(input: SceneInput, camera: BoardCamera, now: number): number | null {
     const { gl, view } = this

@@ -1,4 +1,11 @@
-import { type Ref, useEffect, useImperativeHandle, useLayoutEffect, useRef } from 'react'
+import {
+  type Ref,
+  type RefObject,
+  useEffect,
+  useImperativeHandle,
+  useLayoutEffect,
+  useRef,
+} from 'react'
 import type { BoardCamera } from '../../../shared/board'
 import { BoardRenderer } from './renderer'
 import type { SceneInput } from './scene'
@@ -8,7 +15,9 @@ import { readInks } from './theme'
  * The canvas the board's pixels are drawn on, and when: React says what's on the board (each
  * render), the board says the camera moved (`invalidate`), and one draw a frame at most
  * follows, only while something changed. Nothing here handles input: the board's DOM above
- * the canvas does, as it did when it drew the frames itself.
+ * the canvas does, as it did when it drew the frames itself. Each frame's tile in that DOM
+ * says which thumbnail the canvas holds for it (`data-thumb`, its width in pixels, 0 for
+ * none), for tests and for anyone inspecting the board.
  */
 
 /** A spare buffer of the canvas's is given back once nothing has been drawn for this long. */
@@ -31,6 +40,8 @@ export function BoardSurface({
   input,
   camera,
   thumbs,
+  tiles,
+  onUnavailable,
 }: {
   ref: Ref<BoardSurfaceHandle>
   input: BoardSurfaceInput
@@ -38,9 +49,22 @@ export function BoardSurface({
   camera: () => BoardCamera | null
   /** Where thumbnails load from (`BoardState.thumbs`) */
   thumbs: string
+  /** What holds the frames' tiles (`[data-frame]`), which say which thumbnail is drawn */
+  tiles: RefObject<HTMLElement | null>
+  /** WebGL2 couldn't start here: nothing will be drawn */
+  onUnavailable: () => void
 }) {
   const canvas = useRef<HTMLCanvasElement>(null)
-  const latest = useRef({ input, camera, thumbs, hovered: null as string | null })
+  const latest = useRef({
+    input,
+    camera,
+    thumbs,
+    tiles,
+    onUnavailable,
+    hovered: null as string | null,
+    /** React has rendered since the tiles were last marked: some may be new */
+    rendered: true,
+  })
   const loop = useRef<{ invalidate(): void; frames(ids: ReadonlySet<string>): void } | null>(null)
 
   useImperativeHandle(ref, () => ({
@@ -57,6 +81,9 @@ export function BoardSurface({
     latest.current.input = input
     latest.current.camera = camera
     latest.current.thumbs = thumbs
+    latest.current.tiles = tiles
+    latest.current.onUnavailable = onUnavailable
+    latest.current.rendered = true
     loop.current?.invalidate()
   })
 
@@ -74,12 +101,31 @@ export function BoardSurface({
     const invalidate = () => {
       if (!frame) frame = requestAnimationFrame(() => draw())
     }
-    const renderer = new BoardRenderer(
-      el,
-      (want) =>
-        `${latest.current.thumbs}/${want.id}${want.source === 'small' ? '.small' : ''}?v=${want.version}`,
-      invalidate,
-    )
+    let renderer: BoardRenderer
+    try {
+      renderer = new BoardRenderer(
+        el,
+        (want) =>
+          `${latest.current.thumbs}/${want.id}${want.source === 'small' ? '.small' : ''}?v=${want.version}`,
+        invalidate,
+      )
+    } catch {
+      latest.current.onUnavailable()
+      return
+    }
+    let marked = -1
+    /** Each tile says the width of the texture its frame has now, when that may have changed. */
+    const markTiles = () => {
+      if (!latest.current.rendered && marked === renderer.thumbChanges) return
+      latest.current.rendered = false
+      marked = renderer.thumbChanges
+      for (const tile of latest.current.tiles.current?.querySelectorAll<HTMLElement>(
+        '[data-frame]',
+      ) ?? []) {
+        const width = String(renderer.thumbWidth(tile.dataset.frame ?? ''))
+        if (tile.dataset.thumb !== width) tile.dataset.thumb = width
+      }
+    }
     let trimmer: ReturnType<typeof setTimeout> | undefined
     const draw = (trimmed = false) => {
       frame = 0
@@ -88,6 +134,7 @@ export function BoardSurface({
       if (!camera) return
       const lit = hovered && !input.hand && !input.selected.has(hovered) ? hovered : null
       const again = renderer.draw({ ...input, hovered: lit }, camera, performance.now())
+      markTiles()
       clearTimeout(timer)
       if (again === 0) invalidate()
       else if (again !== null) timer = setTimeout(invalidate, again)
@@ -129,6 +176,7 @@ export function BoardSurface({
       // Without this the context is never given back.
       event.preventDefault()
       renderer.contextLost()
+      invalidate()
     }
     const restored = () => {
       renderer.contextRestored()

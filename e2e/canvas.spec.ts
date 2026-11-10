@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
+import { SMALL_THUMB_WIDTH, THUMB_WIDTH } from '../src/shared/board'
 import type { BoardState } from '../src/shared/types'
 import { electronExecutable, waitFor } from './helpers/env'
 import { type GuiSession, standInsFile } from './helpers/session'
@@ -433,16 +434,32 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
     return read
   }, `${canvas.thumbs}/${frames[0].id}.small?v=${frames[0].version}`)
   expect(fetched).toEqual({ status: 200, type: 'image/jpeg', width: 360 })
-  // Counts the animation frames where a frame that had shown its thumbnail shows none.
+  // How wide the thumbnail each frame shows is, 0 for none, as the page draws it: an <img> in
+  // the tile, or (GUI_BOARD_WEBGL) the texture the canvas holds, which the tile reports. A tile
+  // still swapping one <img> for another reads 0 here: `widths` waits for what it settles on.
   await chrome.evaluate(() => {
+    const read = (tile: HTMLElement, settled: boolean) => {
+      if (tile.dataset.thumb !== undefined) return Number(tile.dataset.thumb)
+      const images = [...tile.querySelectorAll('img')]
+      if (!settled) return Math.max(0, ...images.map((img) => img.naturalWidth))
+      return images.length === 1 && images[0].complete ? images[0].naturalWidth : 0
+    }
+    const page = window as unknown as {
+      thumbWidths: (settled: boolean) => [string, number][]
+      thumbProbe: { blank: number }
+    }
+    page.thumbWidths = (settled) =>
+      [...document.querySelectorAll<HTMLElement>('[data-frame]')].map((tile) => [
+        tile.dataset.frame ?? '',
+        read(tile, settled),
+      ])
+    // Counts the animation frames where a frame that had shown its thumbnail shows none.
     const shown = new Set<string>()
     const probe = { blank: 0 }
-    ;(window as unknown as { thumbProbe: typeof probe }).thumbProbe = probe
+    page.thumbProbe = probe
     const tick = () => {
-      for (const tile of document.querySelectorAll<HTMLElement>('[data-frame]')) {
-        const id = tile.dataset.frame ?? ''
-        const images = [...tile.querySelectorAll('img')]
-        if (images.some((img) => img.naturalWidth > 0)) shown.add(id)
+      for (const [id, width] of page.thumbWidths(false)) {
+        if (width > 0) shown.add(id)
         else if (shown.has(id)) probe.blank++
       }
       requestAnimationFrame(tick)
@@ -451,17 +468,17 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
   })
   const widths = () =>
     chrome.evaluate(() =>
-      [...document.querySelectorAll<HTMLElement>('[data-frame]')].map((tile) => {
-        const images = tile.querySelectorAll('img')
-        const img = images.length === 1 ? images[0] : null
-        return img?.complete ? img.naturalWidth : 0
-      }),
+      (window as unknown as { thumbWidths: (settled: boolean) => [string, number][] })
+        .thumbWidths(true)
+        .map(([, width]) => width),
     )
-  // ⌘− and ⌘= as real keys to the board, one step a poll, until each copy shows.
-  const zoomUntil = (keyCode: '-' | '=', width: number) =>
+  // ⌘− and ⌘= as real keys to the board, one step a poll, until each copy shows: zoomed out,
+  // one no wider than the small copy (the canvas may make it narrower still); zoomed in, the
+  // full one.
+  const zoomUntil = (keyCode: '-' | '=', wanted: (width: number) => boolean, label: string) =>
     waitFor(async () => {
       const now = await widths()
-      if (now.length === 2 && now.every((w) => w === width)) return true
+      if (now.length === 2 && now.every(wanted)) return true
       await session.app.evaluate(({ webContents }, keyCode) => {
         const contents = webContents
           .getAllWebContents()
@@ -470,11 +487,13 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
         contents?.sendInputEvent({ type: 'keyUp', keyCode, modifiers: ['meta'] })
       }, keyCode)
       return false
-    }, `thumbnails ${width} wide`)
+    }, label)
+  const small = (width: number) => width > 0 && width <= SMALL_THUMB_WIDTH
+  const full = (width: number) => width === THUMB_WIDTH
   await chrome.locator('[role="application"]').focus()
-  await zoomUntil('-', 360)
-  await zoomUntil('=', 1440)
-  await zoomUntil('-', 360)
+  await zoomUntil('-', small, 'small thumbnails')
+  await zoomUntil('=', full, 'full thumbnails')
+  await zoomUntil('-', small, 'small thumbnails again')
   expect(
     await chrome.evaluate(
       () => (window as unknown as { thumbProbe: { blank: number } }).thumbProbe.blank,

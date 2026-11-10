@@ -196,6 +196,8 @@ export function Board({
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const surface = useRef<BoardSurfaceHandle>(null)
+  /** WebGL2 couldn't start, so the canvas can't draw the board */
+  const [unavailable, setUnavailable] = useState(false)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   const [camera, commitCamera] = useState<BoardCamera | null>(board.camera)
   const liveCamera = useRef(camera)
@@ -624,6 +626,7 @@ export function Board({
   }))
 
   if (!camera) return <div ref={ref} className="absolute inset-0" />
+  if (gl && unavailable) return <BoardUnavailable />
 
   // The camera as drawn this moment, which `camera` follows a little behind during a pan or pinch.
   const drawnCamera = () => liveCamera.current ?? camera
@@ -1028,6 +1031,8 @@ export function Board({
           ref={surface}
           camera={drawnCamera}
           thumbs={board.thumbs}
+          tiles={layer}
+          onUnavailable={() => setUnavailable(true)}
           input={{
             frames,
             sections: sections.flatMap((section) => {
@@ -1492,6 +1497,21 @@ const SectionLabel = memo(function SectionLabel({
     </p>
   )
 })
+
+/** In place of the board when the canvas it's drawn on can't start. */
+function BoardUnavailable() {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-canvas p-8">
+      <Card padding="canvas" role="alert" className="flex w-full max-w-md flex-col gap-1">
+        <h2 className="font-semibold">This canvas can’t be shown</h2>
+        <p className="text-pretty text-muted">
+          Gui draws canvases with WebGL 2, which isn’t available on this Mac right now. Quitting and
+          opening Gui again may bring it back.
+        </p>
+      </Card>
+    </div>
+  )
+}
 
 /**
  * An empty canvas: what to ask for, rather than a blank void. A starter goes to the chat once:
