@@ -28,6 +28,11 @@ bucket=gui-releases
 # The site (www/) isn't part of the app, so work on it can be in progress.
 [ -z "$(git status --porcelain -- . ':!www')" ] || fail "Commit or stash your changes first: a release is built from a commit."
 [ "$(git branch --show-current)" = main ] || fail "Release from main."
+# The last steps push main and the tag. Find out now whether GitHub would refuse that push,
+# not after the feed is live.
+git fetch -q origin main || fail "Couldn't fetch main from origin."
+git merge-base --is-ancestor FETCH_HEAD main ||
+  fail "origin/main has commits your main doesn't. Pull them first: a release pushes main."
 
 if [ -z "${DEVELOPER_DIR:-}" ] && ! xcrun --find actool >/dev/null 2>&1; then
   if [ -d /Applications/Xcode.app/Contents/Developer ]; then
@@ -125,6 +130,11 @@ fi
 # copies installed from a prerelease reach it (generateUpdatesFilesForAllChannels).
 for feed in release/*-mac.yml; do
   put "$(basename "$feed")" "$feed" text/yaml
+done
+# Read each feed back the way an installed copy does, before anything is tagged.
+for feed in release/*-mac.yml; do
+  curl -fsS --max-time 60 "$site/$(basename "$feed")" | grep -qxF "version: $version" ||
+    fail "$site/$(basename "$feed") doesn't name $version after the upload. The files are in the bucket; nothing is tagged or pushed. Find out why before running this again."
 done
 
 git tag -a "$tag" -m "Gui $version"
