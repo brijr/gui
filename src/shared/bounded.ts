@@ -27,6 +27,18 @@ export const MAX_RECORDING_VIDEO_BYTES = 64 * 1024 * 1024
 /** 16 kHz mono 16-bit WAV of a narrated recording, kept until it's transcribed (~5.8 MB at most). */
 export const MAX_RECORDING_AUDIO_BYTES = 8 * 1024 * 1024
 
+/** Images attached to one chat message: the composer stops there, and main accepts no more. */
+export const MAX_IMAGES = 6
+/** The composer keeps images to about 5 MB, under 7 MB as base64; bigger didn't come from it. */
+export const MAX_IMAGE_BASE64 = 7 * 1024 * 1024
+/** An attachment's thumbnail, as the length of its data URL. */
+export const MAX_THUMBNAIL = 256 * 1024
+/**
+ * A downscaled PNG this big is photo-like; as a JPEG it stays well under agents'
+ * per-image limits (Claude's is 5 MB) and costs the same tokens.
+ */
+export const MAX_PNG_BYTES = 3 * 1024 * 1024
+
 /** Newest `max` items, in the same order. */
 export function bounded<T>(items: readonly T[], max: number): T[] {
   if (max <= 0) return []

@@ -17,7 +17,13 @@ import {
   type WebContents,
   webContents,
 } from 'electron'
-import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_MS } from '../shared/bounded'
+import {
+  MAX_IMAGE_BASE64,
+  MAX_IMAGES,
+  MAX_NARRATED_RECORDING_MS,
+  MAX_RECORDING_MS,
+  MAX_THUMBNAIL,
+} from '../shared/bounded'
 import {
   Events,
   GUIDE_POINTER_PHASES,
@@ -634,10 +640,6 @@ function isRect(value: unknown): value is Rect {
 
 /** What the composer sends: it re-encodes every image, so never a GIF. */
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
-const MAX_IMAGES = 6
-/** The composer keeps images to about 5 MB, under 7 MB as base64; bigger didn't come from it. */
-const MAX_IMAGE_BASE64 = 7 * 1024 * 1024
-const MAX_THUMBNAIL = 256 * 1024
 /** The whole thumbnail, as history accepts it on load (`THUMBNAIL` in history.ts). */
 const THUMBNAIL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
 

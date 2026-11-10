@@ -12,6 +12,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { MAX_IMAGES } from '../../../shared/bounded'
 import { shortcutText } from '../../../shared/shortcuts'
 import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -35,7 +36,7 @@ import { Button, Counter, HIT_AREA, IconButton, Kbd, Spinner, TIGHT_HIT_AREA } f
 import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
-import { ImageError, imageFiles, MAX_IMAGES, prepareImage } from './images'
+import { ImageError, imageFiles, prepareImage } from './images'
 import { ModelButton } from './model-picker'
 import { QueuedMessages } from './queue'
 import { RecordingClip } from './recording-clip'

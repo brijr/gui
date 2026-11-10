@@ -1,5 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_FRAMES } from '../shared/bounded'
+import {
+  MAX_IMAGE_BASE64,
+  MAX_NARRATED_RECORDING_MS,
+  MAX_RECORDING_FRAMES,
+  MAX_THUMBNAIL,
+} from '../shared/bounded'
 import { parseCommands } from '../shared/commands'
 import {
   type AgentCommand,
@@ -108,7 +113,6 @@ function settleCommands(value: unknown): Record<string, AgentCommand[]> {
 
 /** Same limits main puts on attachments when they're sent (see `isImage` in index.ts). */
 const THUMBNAIL = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/]+={0,2}$/
-const MAX_THUMBNAIL = 256 * 1024
 const MAX_NAME = 200
 
 type Attachment = NonNullable<Turn['attachments']>[number]
@@ -185,8 +189,6 @@ function settleNarration(value: unknown, id: string): RecordingNarration | undef
 }
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
-/** As main accepts them when they're sent (`MAX_IMAGE_BASE64` in index.ts) */
-const MAX_IMAGE_BASE64 = 7 * 1024 * 1024
 
 function isImage(value: unknown): value is ImageAttachment {
   if (!isAttachment(value)) return false

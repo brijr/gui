@@ -1,5 +1,6 @@
 import { isAbsolute, relative, resolve, sep } from 'node:path'
 import { dialog, type NativeImage } from 'electron'
+import { MAX_PNG_BYTES } from '../shared/bounded'
 import type { ImageAttachment, PreviewFrame, ProjectInfo, Rect } from '../shared/types'
 import type { DeveloperToolsStatus } from './developer-tools'
 import { firstCommandWord, type InstallTarget } from './setup'
@@ -7,7 +8,6 @@ import type { TabState } from './tab-host'
 
 const ATTACH_EDGE = 1568
 const ATTACH_THUMBNAIL_EDGE = 160
-const ATTACH_MAX_PNG_BYTES = 3 * 1024 * 1024
 
 /** A source path the inspector found, relative to the repo, as a file to edit; null outside it. */
 export function sourceInProject(root: string, file: string) {
@@ -90,7 +90,7 @@ export function screenshotName(project: string, date = new Date()) {
 export function chatImage(source: NativeImage, name: string): ImageAttachment {
   const image = fitImage(source, ATTACH_EDGE)
   const png = image.toPNG()
-  const jpeg = png.length > ATTACH_MAX_PNG_BYTES
+  const jpeg = png.length > MAX_PNG_BYTES
   const thumbnail = fitImage(source, ATTACH_THUMBNAIL_EDGE).toPNG()
   return {
     name: `${name}.${jpeg ? 'jpg' : 'png'}`,

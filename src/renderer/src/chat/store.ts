@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { MAX_IMAGES } from '../../../shared/bounded'
 import { applyTurnUpdate, type ChatTurnUpdate } from '../../../shared/chat-transport'
 import type {
   ChatFloat,
@@ -10,7 +11,7 @@ import type {
   Turn,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
-import { type DraftImage, MAX_IMAGES } from './images'
+import type { DraftImage } from './images'
 import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
 import { closeVersions, useVersions } from './versions-state'
 

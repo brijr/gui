@@ -1,17 +1,11 @@
+import { MAX_PNG_BYTES } from '../../../shared/bounded'
 import type { ImageAttachment } from '../../../shared/types'
 
-/** Main accepts at most this many images per message. */
-export const MAX_IMAGES = 6
 /** Claude's recommended long edge; bigger images only cost more and get downscaled anyway. */
 const MAX_EDGE = 1568
 const THUMBNAIL_EDGE = 160
 /** Larger files aren't decoded at all: a huge image could exhaust the renderer's memory. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024
-/**
- * A downscaled PNG this big is photo-like; as a JPEG it stays well under agents'
- * per-image limits (Claude's is 5 MB) and costs the same tokens.
- */
-const MAX_PNG_BYTES = 3 * 1024 * 1024
 
 /** An image attached to the draft; `id` only keys it in the composer and isn't sent. */
 export interface DraftImage extends ImageAttachment {
