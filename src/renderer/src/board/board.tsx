@@ -291,8 +291,9 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       role="application"
       aria-label={`Canvas ${board.name}, ${count} ${count === 1 ? 'frame' : 'frames'}. Tab steps through sections and frames; arrows move them; Enter opens one; F2 renames; Shift+F10 shows its menu.`}
       aria-activedescendant={active ? tileId(tiles, active) : undefined}
+      // The focus ring is drawn on a layer above the canvas, which would cover the board's own outline.
       className={cn(
-        'absolute inset-0 overflow-hidden bg-canvas outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-muted',
+        'absolute inset-0 overflow-hidden bg-canvas outline-none select-none after:pointer-events-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-muted focus-visible:after:ring-inset',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
       )}
       // The canvas lights up the edge of the frame under the pointer.
