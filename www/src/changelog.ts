@@ -19,6 +19,7 @@ export const releases: Release[] = [
       'Copy and paste frames with ⌘C and ⌘V, on the same canvas or another one. ⌘X cuts them, and one ⌘Z undoes a paste.',
       'Find with ⌘F: in the preview, or in the terminal when you’re typing in it. ⌘G and ⇧⌘G step through the matches.',
       'File → Reopen Closed Tab (⇧⌘T) brings back the tab you closed last, with its chat.',
+      'When the agent checks your page at a phone or tablet width, the preview resizes into that size and back, as if you had picked it, instead of jumping.',
       'OpenCode’s questions now show as choices in the chat instead of failing.',
       'Fixes: the canvas shows its focus ring when you reach it with the keyboard, a screen reader names each frame, and a canvas whose graphics stop says so instead of going blank.',
     ],
