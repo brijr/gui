@@ -475,6 +475,13 @@ export const SHORTCUTS = {
     group: 'tabs',
     description: 'Close the tab, stopping its agent and app',
   },
+  reopenClosedTab: {
+    label: 'Reopen Closed Tab',
+    accelerator: 'Shift+CmdOrCtrl+T',
+    menu: 'file',
+    group: 'tabs',
+    description: 'Open the tab you closed last again, with its chat',
+  },
   previousTab: {
     label: 'Show Previous Tab',
     accelerator: 'Ctrl+Shift+Tab',

@@ -10,6 +10,8 @@ import {
   TRAFFIC_LIGHTS,
 } from '../shared/layout'
 import type { RecentBoard, RecentProject, Rect, TabInfo, WindowState } from '../shared/types'
+import { boardIdOf } from './board'
+import { type ClosedTab, ClosedTabs, reopenIndex } from './closed-tabs'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
 import { followSurface, surfaceColor } from './theme'
@@ -95,6 +97,8 @@ export class ProjectWindow implements TabHost {
   private sheet = false
   /** The sheet has closed and is still fading out, with the tab's views kept hidden till then. */
   private sheetLeaving: NodeJS.Timeout | null = null
+  /** Tabs closed in this window, for File → Reopen Closed Tab */
+  private closed = new ClosedTabs()
   private disposed = false
 
   /** Opens with a start-screen tab, or with `tab`, moved here from another window. */
@@ -314,6 +318,24 @@ export class ProjectWindow implements TabHost {
     return tab
   }
 
+  /** Whether File → Reopen Closed Tab has a tab to reopen. */
+  get canReopenTab() {
+    return this.closed.size > 0
+  }
+
+  /**
+   * ⇧⌘T: the tab closed last, no longer remembered, with a start-screen tab where it was,
+   * shown, to open its project in. Undefined when there's none to reopen.
+   */
+  reopenTab(): { closed: ClosedTab; tab: ProjectTab } | undefined {
+    const closed = this.closed.pop()
+    if (!closed) return undefined
+    const tab = new ProjectTab(this)
+    this.list.splice(reopenIndex(closed, this.list.length), 0, tab)
+    this.showTab(tab)
+    return { closed, tab }
+  }
+
   /** Shows `tab`: its views go in the window and the chrome shows its state. */
   showTab(tab: ProjectTab) {
     if (!this.list.includes(tab)) return
@@ -355,6 +377,7 @@ export class ProjectWindow implements TabHost {
       this.win.close()
       return
     }
+    this.remember(tab)
     this.remove(tab)
     tab.dispose()
     this.syncChrome()
@@ -365,9 +388,18 @@ export class ProjectWindow implements TabHost {
     if (!keep) return
     this.showTab(keep)
     const others = this.list.filter((tab) => tab !== keep)
+    for (const tab of others) this.remember(tab)
     this.list = [keep]
     for (const tab of others) tab.dispose()
     this.syncChrome()
+  }
+
+  /** A tab about to close, to reopen later; a start screen has nothing to reopen. */
+  private remember(tab: ProjectTab) {
+    const root = tab.projectRoot
+    if (!root) return
+    const kind = boardIdOf(root) ? 'canvas' : 'project'
+    this.closed.push({ kind, root, index: this.list.indexOf(tab) })
   }
 
   /** Puts the tab at `index` in the strip (dragging it there). */

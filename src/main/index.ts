@@ -233,11 +233,11 @@ const canonical = (path: string) => realpath(path).catch(() => path)
  * no window given, the focused one (or the one focused last) is used. A folder already open
  * opens again in another tab, so a monorepo can run two of its apps side by side.
  */
-async function openProjectIn(target: ProjectWindow | undefined, root: string) {
+async function openProjectIn(target: ProjectWindow | undefined, root: string, into?: ProjectTab) {
   // Gui needs an account first: the start screen asks for it, and the folder opens after.
   if (mustSignIn()) {
     waitingForAccount.push({ target, root })
-    const tab = tabToOpenIn(target)
+    const tab = tabToOpenIn(target, into)
     const win = allWindows().find((win) => win.tabs.includes(tab))
     if (win) focusWindow(win.win, { steal: true })
     return
@@ -251,7 +251,7 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   const member = await findWorkspaceRoot(root)
   const real = member?.root ?? (await canonical(root))
   if (isOpening(real)) return
-  const tab = tabToOpenIn(target)
+  const tab = tabToOpenIn(target, into)
   opening.set(real, tab)
   try {
     // The tab reads the app to run from prefs as it opens.
@@ -278,16 +278,20 @@ function onAccountChange() {
   for (const { target, root } of waitingForAccount.splice(0)) openSafely(target, root)
 }
 
-/** The window's start-screen tab, or a new tab in it; ⌘N is what makes a new window. */
-function tabToOpenIn(target: ProjectWindow | undefined) {
+/**
+ * The window's start-screen tab, or a new tab in it; ⌘N is what makes a new window. `into`, a
+ * start-screen tab made for this opening (Reopen Closed Tab's), while it's still in a window.
+ */
+function tabToOpenIn(target: ProjectWindow | undefined, into?: ProjectTab) {
+  if (into && !into.hasProject && allTabs().includes(into)) return into
   const live = target && allWindows().includes(target) ? target : undefined
   const win = live ?? lastFocusedWindow() ?? createWindow()
   return win.activeTab.hasProject ? win.newTab() : win.activeTab
 }
 
 /** For user-initiated opens: surface failures instead of dropping them. */
-function openSafely(target: ProjectWindow | undefined, root: string) {
-  openProjectIn(target, root).catch((error: unknown) => {
+function openSafely(target: ProjectWindow | undefined, root: string, into?: ProjectTab) {
+  openProjectIn(target, root, into).catch((error: unknown) => {
     dialog.showErrorBox(
       "Couldn't open project",
       error instanceof Error ? error.message : String(error),
@@ -349,7 +353,7 @@ async function newProject(
  * A canvas in the window's start-screen tab, or a new tab there. One already open in a tab
  * shows that tab instead: two tabs on one canvas would each keep their own layout.
  */
-async function openBoardIn(target: ProjectWindow | undefined, id: string) {
+async function openBoardIn(target: ProjectWindow | undefined, id: string, into?: ProjectTab) {
   if (!isBoardId(id) || mustSignIn()) return
   const root = boardRoot(id)
   const open = allTabs().find((tab) => tab.projectRoot === root)
@@ -364,7 +368,7 @@ async function openBoardIn(target: ProjectWindow | undefined, id: string) {
     return
   }
   if (isOpening(root)) return
-  const tab = tabToOpenIn(target)
+  const tab = tabToOpenIn(target, into)
   opening.set(root, tab)
   try {
     await tab.openBoard(root)
@@ -1392,6 +1396,7 @@ async function editHistory(direction: 'undo' | 'redo') {
 
 const AUTO_MODE_ITEM = 'auto-mode'
 const MOVE_TAB_ITEM = 'move-tab'
+const REOPEN_TAB_ITEM = 'reopen-tab'
 const ALLOW_ITEM = 'allow'
 const DONT_ALLOW_ITEM = 'dont-allow'
 const FOCUS_MODE_ITEM = 'focus-mode'
@@ -1407,7 +1412,8 @@ type SyncedItem = Pick<MenuItemConstructorOptions, 'checked' | 'enabled' | 'visi
  * Menu items that follow the window menus act on: View → Focus Mode is checked while the
  * window's in it; Agent → Auto Mode is checked when the project it would change is in Auto
  * mode; Allow and Don't Allow answer a permission card
- * that's waiting (see `permissionAnswer`); Window → Move Tab to New Window needs a second tab.
+ * that's waiting (see `permissionAnswer`); Window → Move Tab to New Window needs a second tab,
+ * and File → Reopen Closed Tab a tab closed in the window.
  * View → Show Chat or Hide Chat, and Show Terminal or Hide Terminal, say what ⌘B and ⌘J
  * will do (menu-toggles.ts).
  *
@@ -1432,6 +1438,7 @@ function syncedItemStates(): Record<string, SyncedItem> {
     [ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(true) },
     [DONT_ALLOW_ITEM]: { enabled: !!tab?.permissionAnswer(false) },
     [MOVE_TAB_ITEM]: { enabled: (menuWindow()?.tabs.length ?? 0) > 1 },
+    [REOPEN_TAB_ITEM]: { enabled: menuWindow()?.canReopenTab ?? false },
   }
 }
 
@@ -1486,6 +1493,33 @@ function closeTab() {
   const win = menuWindow()
   if (!win) BrowserWindow.getFocusedWindow()?.close()
   else if (!win.win.isMinimized()) win.closeTab(win.activeTab.id)
+}
+
+/**
+ * ⇧⌘T: the window's tab closed last, back where it was, as a fresh opening of its project or
+ * canvas: its chat as saved, its dev server started again. One whose folder is gone is
+ * skipped for the one closed before it.
+ */
+async function reopenClosedTab() {
+  const win = menuWindow()
+  if (!win || win.win.isMinimized()) return
+  while (win.canReopenTab) {
+    const reopened = win.reopenTab()
+    if (!reopened) break
+    const { closed, tab } = reopened
+    if (!(await isDirectory(closed.root))) {
+      if (win.tabs.includes(tab)) win.closeTab(tab.id)
+      continue
+    }
+    if (closed.kind === 'canvas') {
+      const id = boardIdOf(closed.root)
+      if (id) await openBoardIn(win, id, tab)
+      // Open in another tab already, which showed instead: the empty one isn't needed.
+      if (!tab.hasProject && win.tabs.includes(tab)) win.closeTab(tab.id)
+    } else openSafely(win, closed.root, tab)
+    return
+  }
+  shell.beep()
 }
 
 /** The Agent menu's agents: none checked, since the menu acts on whichever tab is active. */
@@ -1625,6 +1659,11 @@ function buildMenu() {
         { type: 'separator' },
         ...item('closeTab', { click: closeTab }),
         ...item('closeWindow', { role: 'close' }),
+        ...item('reopenClosedTab', {
+          id: REOPEN_TAB_ITEM,
+          ...synced[REOPEN_TAB_ITEM],
+          click: () => void reopenClosedTab(),
+        }),
       ],
     },
     {
