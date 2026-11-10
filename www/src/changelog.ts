@@ -11,6 +11,19 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.17',
+    date: '2026-11-10',
+    changes: [
+      'The canvas is drawn on the GPU. Zooming a large board is smoother, and the board gives memory back after you zoom out.',
+      'Figma’s zoom keys work on the canvas: ⇧1 fits the board, ⇧2 zooms to the selection, ⇧0 goes to 100%, and + and − zoom.',
+      'Copy and paste frames with ⌘C and ⌘V, on the same canvas or another one. ⌘X cuts them, and one ⌘Z undoes a paste.',
+      'Find with ⌘F: in the preview, or in the terminal when you’re typing in it. ⌘G and ⇧⌘G step through the matches.',
+      'File → Reopen Closed Tab (⇧⌘T) brings back the tab you closed last, with its chat.',
+      'OpenCode’s questions now show as choices in the chat instead of failing.',
+      'Fixes: the canvas shows its focus ring when you reach it with the keyboard, a screen reader names each frame, and a canvas whose graphics stop says so instead of going blank.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.16',
     date: '2026-11-10',
     changes: [

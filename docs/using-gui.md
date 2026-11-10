@@ -32,7 +32,7 @@ While the rulers are on, the agent sees your guides with each message, so "line 
 
 ## Canvases
 
-**New canvas** on the start screen (⌥⌘N) opens a freeform board at once, with no folder, install or dev server: ask the agent for a page, or a few versions of one, and each lands as a frame you can move, resize, compare and name, like artboards in Figma. Each frame is a single-file HTML page. Scroll pans, ⌘-scroll or a pinch zooms, and dragging pans with the Hand tool (H, or hold Space; V goes back to Move), and the board's corner handle resizes a frame; drag across empty board (or ⇧-click) to select several, which the agent's next message is about. ⌥⌘D duplicates the selection, ⇧⌘E (or the toolbar's export button) exports it as PNGs at 2×, Delete deletes it, arrow keys nudge it, ⌘0 fits the board, and ⌘Z takes back your own board changes before the agent's turns. **+ Frame** adds a Desktop, Tablet or Mobile frame. **Sections** group frames under a name (⌥⌘G or right-click → Add Section, around what's selected): a section sizes itself to its frames, dragging its name moves them all, a frame dropped on it joins it and one dragged out leaves it, and Delete with the section picked removes only the section. The agent groups related frames into sections too. **Export** saves PNGs at 2×: a frame, the selection (⇧⌘E), a section, or the whole canvas (the canvas menu's Export All Frames…), with a folder per section when the frames span several. Double-click a frame (or press Return) to open it live in the preview: in the device viewport its size (or width) is, or else at exactly its own size, like a 1080 × 1080 post or a 300 × 250 ad, drawn smaller when the window can't fit it; the size menu lists that size above the devices, so you can try a device and come back. ⌘D opens the selected frame and starts picking in it. Live, picking (⌘D), viewports, screenshots and the agent's preview tools work as in a project; **Canvas** or Esc goes back. The agent can also screenshot any website ("make it feel like linear.app") to use as a reference, at a desktop or mobile width or as the whole page, and save it to the canvas's `assets/` to put it in a frame; it loads the site in a hidden window with its own cookies, apart from your previews, so it isn't signed in anywhere. Right-click a frame to rename, duplicate, delete, copy it as a PNG, export it as a PNG, copy or save its HTML, or **Turn into Project…**, which makes a Vite project of it where you choose and opens it in a new tab. Canvases are listed on the start screen and kept in Gui's data folder, with their chats, Undo, and the board's layout, across restarts.
+**New canvas** on the start screen (⌥⌘N) opens a freeform board at once, with no folder, install or dev server: ask the agent for a page, or a few versions of one, and each lands as a frame you can move, resize, compare and name, like artboards in Figma. Each frame is a single-file HTML page. Scroll pans, ⌘-scroll or a pinch zooms, and dragging pans with the Hand tool (H, or hold Space; V goes back to Move), and the board's corner handle resizes a frame; drag across empty board (or ⇧-click) to select several, which the agent's next message is about. ⌥⌘D duplicates the selection, ⌘C and ⌘V copy and paste it onto this canvas or another (⌘X cuts), ⇧⌘E (or the toolbar's export button) exports it as PNGs at 2×, Delete deletes it, arrow keys nudge it, ⇧1 (or ⌘0) fits the board, ⇧2 zooms to the selection, ⇧0 goes to 100%, + and − zoom, and ⌘Z takes back your own board changes before the agent's turns. **+ Frame** adds a Desktop, Tablet or Mobile frame. **Sections** group frames under a name (⌥⌘G or right-click → Add Section, around what's selected): a section sizes itself to its frames, dragging its name moves them all, a frame dropped on it joins it and one dragged out leaves it, and Delete with the section picked removes only the section. The agent groups related frames into sections too. **Export** saves PNGs at 2×: a frame, the selection (⇧⌘E), a section, or the whole canvas (the canvas menu's Export All Frames…), with a folder per section when the frames span several. Double-click a frame (or press Return) to open it live in the preview: in the device viewport its size (or width) is, or else at exactly its own size, like a 1080 × 1080 post or a 300 × 250 ad, drawn smaller when the window can't fit it; the size menu lists that size above the devices, so you can try a device and come back. ⌘D opens the selected frame and starts picking in it. Live, picking (⌘D), viewports, screenshots and the agent's preview tools work as in a project; **Canvas** or Esc goes back. The agent can also screenshot any website ("make it feel like linear.app") to use as a reference, at a desktop or mobile width or as the whole page, and save it to the canvas's `assets/` to put it in a frame; it loads the site in a hidden window with its own cookies, apart from your previews, so it isn't signed in anywhere. Right-click a frame to rename, duplicate, delete, copy it as a PNG, export it as a PNG, copy or save its HTML, or **Turn into Project…**, which makes a Vite project of it where you choose and opens it in a new tab. Canvases are listed on the start screen and kept in Gui's data folder, with their chats, Undo, and the board's layout, across restarts.
 
 ## Keyboard shortcuts
 
@@ -51,6 +51,10 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | Undo typing, or with the chat showing, the agent's last change | ⌘Z |
 | Redo typing, or with the chat showing, the agent's change you undid | ⇧⌘Z |
 | Show the keyboard shortcuts | ⌘/ |
+| Find text in the preview, or in the terminal you're typing in | ⌘F |
+| Show the next match | ⌘G |
+| Show the previous match | ⇧⌘G |
+| Close the find bar (in it) | Esc |
 | Move the keyboard to the next pane: toolbar, preview, chat | F6 |
 | Move the keyboard to the previous pane | ⇧F6 |
 | Inspect Gui's own window | ⌥⌘J |
@@ -89,6 +93,11 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | **Canvas** | |
 | Hand tool: drag to pan | H |
 | Move tool: select and drag frames | V |
+| Zoom the canvas in | + or = or ⌘+ |
+| Zoom the canvas out | − or ⌘− |
+| Zoom to 100% | ⇧0 |
+| Zoom to fit every frame | ⇧1 or ⌘0 |
+| Zoom to the selected frames, or the section picked by its name | ⇧2 |
 | Select the next section or frame, or the previous one | ⇥ or ⇧⇥ |
 | Open the selected frame | ↩ |
 | Rename the selected frame or section | F2 |
@@ -98,6 +107,9 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | Select every frame | ⌘A |
 | Group the selected frames in a section | ⌥⌘G |
 | Duplicate the selected frames | ⌥⌘D |
+| Copy the selected frames, to paste on any canvas | ⌘C |
+| Cut the selected frames | ⌘X |
+| Paste copied frames onto this canvas | ⌘V |
 | Export the selected frames as PNG | ⇧⌘E |
 | Delete the selected frames, or the section picked by its name | ⌫ or ⌦ |
 | **Terminal** | |
@@ -107,6 +119,7 @@ Every shortcut is in the app's menus, and **Help → Keyboard Shortcuts** (⌘/)
 | **Tabs** | |
 | Open a new tab | ⌘T |
 | Close the tab, stopping its agent and app | ⌘W |
+| Open the tab you closed last again, with its chat | ⇧⌘T |
 | Show the previous tab | ⌃⇧⇥ or ⇧⌘[ |
 | Show the next tab | ⌃⇥ or ⇧⌘] |
 
