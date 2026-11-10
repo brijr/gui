@@ -52,6 +52,12 @@ export function Board({ board, working = false }: { board: BoardState; working?:
   const surface = useRef<BoardSurfaceHandle>(null)
   /** WebGL2 couldn't start, or its context was lost for good: the canvas can't draw the board */
   const [unavailable, setUnavailable] = useState(false)
+  /**
+   * The keyboard just arrived on the board (Tab, F6): its focus ring shows until the first key
+   * or press on it. The board takes the keyboard for its own tools, so a ring that stayed while
+   * it has focus would frame the board almost all the time.
+   */
+  const [ringed, setRinged] = useState(false)
   const layer = useRef<HTMLDivElement>(null)
   /** The gesture under way, for listeners that run between renders (pointer-up, the wheel) */
   const gestureRef = useRef<Gesture | null>(null)
@@ -297,7 +303,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
       aria-activedescendant={active ? tileId(tiles, active) : undefined}
       // The focus ring is drawn on a layer above the canvas, which would cover the board's own outline.
       className={cn(
-        'absolute inset-0 overflow-hidden bg-canvas outline-none select-none after:pointer-events-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-muted focus-visible:after:ring-inset',
+        'absolute inset-0 overflow-hidden bg-canvas outline-none select-none after:pointer-events-none after:absolute after:inset-0',
+        ringed && 'after:ring-2 after:ring-muted after:ring-inset',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
       )}
       // The canvas lights up the edge of the frame under the pointer.
@@ -310,17 +317,29 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         ref.current?.focus({ preventScroll: true })
         select([id])
       }}
-      onPointerDown={onPointerDown}
+      onFocus={(event) => {
+        if (event.target === event.currentTarget)
+          setRinged(event.currentTarget.matches(':focus-visible'))
+      }}
+      onPointerDown={(event) => {
+        setRinged(false)
+        onPointerDown(event)
+      }}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
       onPointerCancel={finish}
       onLostPointerCapture={finish}
-      onKeyDown={onKeyDown}
+      onKeyDown={(event) => {
+        setRinged(false)
+        onKeyDown(event)
+      }}
       onKeyUp={(event) => {
         if (event.key.startsWith('Arrow')) commitNudge()
       }}
       onBlur={(event) => {
-        if (event.target === event.currentTarget) commitNudge()
+        if (event.target !== event.currentTarget) return
+        setRinged(false)
+        commitNudge()
       }}
       onContextMenu={(event) => {
         const target = {
