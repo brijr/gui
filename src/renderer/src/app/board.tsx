@@ -42,6 +42,8 @@ import {
   shownShare,
   zoomAbout,
 } from '../board/camera'
+import { GRID, GRID_MIN, HANDLE } from '../board-gl/scene'
+import { BoardSurface, type BoardSurfaceHandle } from '../board-gl/surface'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
@@ -54,8 +56,6 @@ import { PromptButton, Spinner } from '../lib/ui'
 const LABEL_HEIGHT = 22
 /** A section's name's height, in screen pixels. */
 const SECTION_LABEL_HEIGHT = LABEL_HEIGHT + 2
-/** The dot grid's spacing at 100%, in board pixels. */
-const GRID = 24
 /** A press that moves less than this (screen pixels) is a click, not a drag. */
 const DRAG_SLOP = 3
 /** A section's name sits this far inside its top-left corner, in screen pixels. */
@@ -64,8 +64,6 @@ const SECTION_INSET = 10
 const SIZE_LABEL_MIN = 140
 /** Zoomed out further, frames' names go without their sizes. */
 const SIZE_LABEL_ZOOM = 0.5
-/** The resize handle's size, in screen pixels. */
-const HANDLE = 10
 /** Each ⌘+ or ⌘− step. */
 const ZOOM_STEP = 1.25
 /** Two clicks on a frame this close together open it. */
@@ -182,8 +180,22 @@ type Gesture =
  * resize them, across empty board to select several; double-click opens one live, as ⌘D does
  * to pick in it.
  */
-export function Board({ board, working = false }: { board: BoardState; working?: boolean }) {
+export function Board({
+  board,
+  working = false,
+  gl = false,
+}: {
+  board: BoardState
+  working?: boolean
+  /**
+   * Development only (`GUI_BOARD_WEBGL=1`): the board's pixels (the grid, sections, frames and
+   * their thumbnails, what's selected, the marquee) are drawn on a canvas under this DOM,
+   * which keeps the names, the fields and what the pointer presses.
+   */
+  gl?: boolean
+}) {
   const ref = useRef<HTMLDivElement>(null)
+  const surface = useRef<BoardSurfaceHandle>(null)
   const [size, setSize] = useState<Size>({ width: 0, height: 0 })
   const [camera, commitCamera] = useState<BoardCamera | null>(board.camera)
   const liveCamera = useRef(camera)
@@ -203,6 +215,8 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     layer.current.style.setProperty('--board-px', `${1 / zoom}px`)
     layer.current.style.setProperty('--board-zoom', String(zoom))
     layer.current.style.setProperty('--board-unzoom', String(1 / zoom))
+    surface.current?.invalidate()
+    if (gl) return
     ref.current.style.backgroundPosition = `${origin.x}px ${origin.y}px`
     ref.current.style.backgroundSize = `${GRID * zoom}px ${GRID * zoom}px`
   }
@@ -957,12 +971,29 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         'absolute inset-0 overflow-hidden bg-canvas outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-muted',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
       )}
-      style={{
-        backgroundImage:
-          grid >= 8 ? 'radial-gradient(var(--line-strong) 1px, transparent 1px)' : undefined,
-        backgroundSize: `${grid}px ${grid}px`,
-        backgroundPosition: `${origin.x}px ${origin.y}px`,
-      }}
+      style={
+        gl
+          ? undefined
+          : {
+              backgroundImage:
+                grid >= GRID_MIN
+                  ? 'radial-gradient(var(--line-strong) 1px, transparent 1px)'
+                  : undefined,
+              backgroundSize: `${grid}px ${grid}px`,
+              backgroundPosition: `${origin.x}px ${origin.y}px`,
+            }
+      }
+      // The canvas lights up the edge of the frame under the pointer, as :hover does a tile's.
+      onPointerOver={
+        gl
+          ? (event) =>
+              surface.current?.hover(
+                (event.target as HTMLElement).closest<HTMLElement>('[data-frame]')?.dataset.frame ??
+                  null,
+              )
+          : undefined
+      }
+      onPointerLeave={gl ? () => surface.current?.hover(null) : undefined}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
@@ -992,6 +1023,24 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         }
       }}
     >
+      {gl && (
+        <BoardSurface
+          ref={surface}
+          camera={drawnCamera}
+          thumbs={board.thumbs}
+          input={{
+            frames,
+            sections: sections.flatMap((section) => {
+              const area = sectionBounds(section, frames)
+              return area ? [{ id: section.id, area, picked: picked?.id === section.id }] : []
+            }),
+            selected,
+            handle: hand ? null : single,
+            hand,
+            marquee,
+          }}
+        />
+      )}
       {/*
         The board itself, in board pixels: one layer the camera moves and scales, so a pan or
         zoom changes it alone and none of the frames inside. Names and handles in it are drawn
@@ -1009,24 +1058,25 @@ export function Board({ board, working = false }: { board: BoardState; working?:
           } as CSSProperties
         }
       >
-        {areas.map(({ section, area }) => (
-          <div
-            key={section.id}
-            aria-hidden="true"
-            className={cn(
-              'pointer-events-none absolute border-solid bg-fill/60',
-              picked?.id === section.id ? 'border-accent' : 'border-line',
-            )}
-            style={{
-              left: area.x,
-              top: area.y,
-              width: area.width,
-              height: area.height,
-              borderWidth: 'var(--board-px)',
-              borderRadius: 'calc(12 * var(--board-px))',
-            }}
-          />
-        ))}
+        {!gl &&
+          areas.map(({ section, area }) => (
+            <div
+              key={section.id}
+              aria-hidden="true"
+              className={cn(
+                'pointer-events-none absolute border-solid bg-fill/60',
+                picked?.id === section.id ? 'border-accent' : 'border-line',
+              )}
+              style={{
+                left: area.x,
+                top: area.y,
+                width: area.width,
+                height: area.height,
+                borderWidth: 'var(--board-px)',
+                borderRadius: 'calc(12 * var(--board-px))',
+              }}
+            />
+          ))}
 
         {shown.map((frame) => (
           <FrameTile
@@ -1035,6 +1085,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
             thumbs={board.thumbs}
             small={frame.width * zoom * window.devicePixelRatio <= SMALL_THUMB_WIDTH}
             hoverable={!hand && !selected.has(frame.id)}
+            drawn={!gl}
           />
         ))}
 
@@ -1076,21 +1127,26 @@ export function Board({ board, working = false }: { board: BoardState; working?:
           if (!selected.has(frame.id)) return null
           return (
             <div key={frame.id} aria-hidden="true">
-              <div
-                className="pointer-events-none absolute outline-solid outline-accent"
-                style={{
-                  left: frame.x,
-                  top: frame.y,
-                  width: frame.width,
-                  height: frame.height,
-                  outlineWidth: 'calc(2 * var(--board-px))',
-                }}
-              />
+              {!gl && (
+                <div
+                  className="pointer-events-none absolute outline-solid outline-accent"
+                  style={{
+                    left: frame.x,
+                    top: frame.y,
+                    width: frame.width,
+                    height: frame.height,
+                    outlineWidth: 'calc(2 * var(--board-px))',
+                  }}
+                />
+              )}
               {single === frame.id && !hand && (
                 <div
                   data-resize={frame.id}
                   // 10px drawn, 26px to grab: nothing else sits at the corner.
-                  className="cursor-nwse-resize rounded-sm border-2 border-accent bg-raised before:absolute before:-inset-2"
+                  className={cn(
+                    'cursor-nwse-resize before:absolute before:-inset-2',
+                    !gl && 'rounded-sm border-2 border-accent bg-raised',
+                  )}
                   style={{
                     ...pinned(
                       { x: frame.x + frame.width, y: frame.y + frame.height },
@@ -1106,7 +1162,7 @@ export function Board({ board, working = false }: { board: BoardState; working?:
         })}
       </div>
 
-      {marquee && (
+      {marquee && !gl && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute border border-accent bg-accent-soft"
@@ -1178,6 +1234,7 @@ const FrameTile = memo(
     thumbs,
     small,
     hoverable,
+    drawn,
   }: {
     frame: BoardFrame
     thumbs: string
@@ -1185,13 +1242,16 @@ const FrameTile = memo(
     small: boolean
     /** Not selected, and the Hand is off: its edge lights up under the pointer */
     hoverable: boolean
+    /** False when the canvas under the board draws it: the tile is then where it's pressed */
+    drawn: boolean
   }) {
     return (
       <div
         data-frame={frame.id}
         className={cn(
-          'absolute overflow-hidden bg-raised shadow-raised outline-solid outline-line',
-          hoverable && 'hover:outline-accent',
+          'absolute overflow-hidden',
+          drawn && 'bg-raised shadow-raised outline-solid outline-line',
+          drawn && hoverable && 'hover:outline-accent',
         )}
         style={{
           left: frame.x,
@@ -1203,7 +1263,9 @@ const FrameTile = memo(
         }}
       >
         {frame.captured ? (
-          <Thumbnail src={`${thumbs}/${frame.id}${small ? '.small' : ''}?v=${frame.version}`} />
+          drawn && (
+            <Thumbnail src={`${thumbs}/${frame.id}${small ? '.small' : ''}?v=${frame.version}`} />
+          )
         ) : (
           <div
             className="p-3 text-caption whitespace-nowrap text-subtle"
@@ -1219,7 +1281,8 @@ const FrameTile = memo(
     sameFrame(a.frame, b.frame) &&
     a.thumbs === b.thumbs &&
     a.small === b.small &&
-    a.hoverable === b.hoverable,
+    a.hoverable === b.hoverable &&
+    a.drawn === b.drawn,
 )
 
 /**
