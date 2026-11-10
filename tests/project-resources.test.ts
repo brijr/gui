@@ -4,8 +4,12 @@ import { ProjectResources } from '../src/main/project-resources'
 function fixture() {
   const events: string[] = []
   const resources = new ProjectResources({
-    release: (file) => events.push(`release:${file}`),
-    retire: (root, file) => events.push(`retire:${root}:${file}`),
+    release: (file) => {
+      events.push(`release:${file}`)
+    },
+    retire: (root, file) => {
+      events.push(`retire:${root}:${file}`)
+    },
   })
   return { resources, events }
 }
@@ -174,7 +178,7 @@ describe('project lifetime', () => {
       },
     } as never
     const completion = resources.dispose()
-    expect(reentrant).toBe(completion)
+    expect<Promise<void> | null>(reentrant).toBe(completion)
     await completion
     expect(events).toEqual(['server'])
   })

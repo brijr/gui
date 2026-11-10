@@ -149,14 +149,14 @@ readiness = null
 // the next capture gets a new worker.
 for (const when of ['loading', 'loaded'] as const) {
   stuck = when
-  const before = Window.all.length
+  const before: number = Window.all.length
   const hungAt = Date.now()
   await assert.rejects(
     renderer.render(frame, url, 2, control.signal, 3000),
     (error) => error instanceof UnresponsiveFrameError && /didn't respond/.test(error.message),
   )
   assert.ok(Date.now() - hungAt < 6000, `A page stuck while ${when} is stopped quickly`)
-  const worker = Window.all[before - 1]
+  const worker: Window = Window.all[before - 1]
   assert.equal(worker.webContents.crashed, true)
   assert.equal(worker.destroyed, true)
   stuck = null

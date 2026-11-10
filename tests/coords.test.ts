@@ -3,10 +3,12 @@ import {
   pageFromViewport,
   pagePoint,
   viewFromViewport,
+  viewPoint,
   viewportFromPage,
   viewportFromView,
   viewportPoint,
   viewportRect,
+  viewRect,
   viewRectFromViewport,
 } from '../src/shared/coords'
 
@@ -22,8 +24,8 @@ describe('preview coordinate spaces', () => {
   test('view pixels are viewport CSS pixels times scale', () => {
     const box = viewportRect(8, 4, 40, 20)
     const scaled = viewRectFromViewport(box, 0.5)
-    expect(scaled).toEqual({ x: 4, y: 2, width: 20, height: 10 })
-    expect(viewFromViewport(viewportPoint(8, 4), 2)).toEqual({ x: 16, y: 8 })
+    expect(scaled).toEqual(viewRect(4, 2, 20, 10))
+    expect(viewFromViewport(viewportPoint(8, 4), 2)).toEqual(viewPoint(16, 8))
     expect(viewportFromView(viewFromViewport(viewportPoint(8, 4), 2), 2)).toEqual(
       viewportPoint(8, 4),
     )

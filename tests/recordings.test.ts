@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs'
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { setTimeout as sleep } from 'node:timers/promises'
 import { execFileSync } from '../src/main/process'
 
 const userData = await mkdtemp(join(tmpdir(), 'gui-recordings-'))
@@ -99,9 +100,9 @@ describe('Recordings', () => {
     const { id } = await narratedClip(recordings)
     recordings.dispose()
     // Removed in the background as the project closes
-    for (let tries = 0; tries < 100 && existsSync(dirOf(id)); tries++) await Bun.sleep(20)
+    for (let tries = 0; tries < 100 && existsSync(dirOf(id)); tries++) await sleep(20)
     expect(existsSync(dirOf(id))).toBe(false)
-    await Bun.sleep(100)
+    await sleep(100)
     expect(updates).toEqual([])
   })
 

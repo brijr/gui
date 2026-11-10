@@ -40,7 +40,7 @@ function socks(port: number, host: string, target: number, payload = 'ping') {
     socket.on('close', () => resolve({ code, echoed: '' }))
     socket.on('connect', () => socket.write(Buffer.from([0x05, 0x01, 0x00])))
     socket.on('data', (chunk) => {
-      received = Buffer.concat([received, chunk])
+      received = Buffer.concat([received, typeof chunk === 'string' ? Buffer.from(chunk) : chunk])
       if (stage === 0 && received.length >= 2) {
         received = received.subarray(2)
         stage = 1

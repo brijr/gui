@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { execFileSync } from '../src/main/process'
 
-const root = resolve(import.meta.dir, '..')
+const root = resolve(import.meta.dirname, '..')
 mock.module('electron', () => ({ app: { isPackaged: false, getAppPath: () => root } }))
 // Electron's; the helper itself reports an older macOS too.
 const system = process as typeof process & { getSystemVersion?: () => string }

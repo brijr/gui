@@ -84,7 +84,7 @@ function saved(id: string, prompt: string, undone = false): SavedChat {
 function checkpoints() {
   const restored: string[] = []
   let held: { call: 'snapshot' | 'restore'; nth: number; gate: Promise<void> } | null = null
-  let reached = noop
+  let reached: () => void = noop
   const counts = { snapshot: 0, restore: 0 }
   const pause = async (call: 'snapshot' | 'restore') => {
     if (held?.call !== call || ++counts[call] !== held.nth) return
@@ -95,7 +95,7 @@ function checkpoints() {
     restored,
     /** Holds the `nth` call open; resolves once it's reached, with what lets it go on. */
     hold(call: 'snapshot' | 'restore', nth: number) {
-      let release = noop
+      let release: () => void = noop
       const gate = new Promise<void>((resolve) => {
         release = resolve
       })

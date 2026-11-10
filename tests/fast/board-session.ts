@@ -48,18 +48,20 @@ function emitWatch(root: string, file: string) {
 
 mock.module('node:fs/promises', () => ({
   ...nativeFs,
-  readdir: (async (path, options) => {
+  readdir: (async (...args: Parameters<typeof fs.readdir>) => {
+    const [path] = args
     if (path === unreadableFrames)
       throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' })
     if (frameRead && path === frameRead.directory) {
       frameRead.calls++
       await frameRead.gate
     }
-    return nativeFs.readdir(path, options)
+    return nativeFs.readdir(...args)
   }) as typeof fs.readdir,
-  readFile: (async (path, options) => {
+  readFile: (async (...args: Parameters<typeof fs.readFile>) => {
+    const [path] = args
     if (manifestRead && path === join(manifestRead.root, 'canvas.json')) await manifestRead.gate
-    return nativeFs.readFile(path, options)
+    return nativeFs.readFile(...args)
   }) as typeof fs.readFile,
   writeFile: (async (path, data, options) => {
     if (frameWrite?.path === path) {
