@@ -516,6 +516,9 @@ export async function launchGui(
     executablePath: electronExecutable(),
     args: [REPO_ROOT, `--user-data-dir=${copy.userData}`],
     env: launchEnv({
+      // amp-acp records every session it starts, a health check's included. Keep those in
+      // the test's profile rather than the developer's ~/.local/state.
+      AMP_ACP_STATE_DIR: join(copy.userData, 'amp-acp'),
       ...options.env,
       GUI_OPEN: options.open === 'recent' ? '' : copy.root,
       GUI_AGENT_STAND_INS: standInsFile(copy),

@@ -67,13 +67,19 @@ for (const id of ['amp', 'devin', 'cursor', 'fx'] as const) {
         .split('\n')
         .map((line) => JSON.parse(line))
       if (id === 'amp') {
-        expect(calls[0].args).toContain('--stream-json')
-        expect(calls[0].args).not.toContain('--dangerously-allow-all')
-        expect(calls[0].cwd).toBe(session.fixture.root)
-        expect(calls[0].prompt).toContain('Hello from Gui')
-        const mcpIndex = calls[0].args.indexOf('--mcp-config')
+        // The adapter also asks the CLI for Amp's plugin modes (`amp plugins list`) as each
+        // session starts. The chat's own CLI is the one it runs the turn in.
+        const turns = calls.filter((call) => call.args.includes('--execute'))
+        expect(turns).toHaveLength(1)
+        const [run] = turns
+        expect(run.args).toContain('--stream-json-thinking')
+        expect(run.args).toContain('--stream-json-input')
+        expect(run.args).not.toContain('--dangerously-allow-all')
+        expect(run.cwd).toBe(session.fixture.root)
+        expect(run.prompt).toContain('Hello from Gui')
+        const mcpIndex = run.args.indexOf('--mcp-config')
         expect(mcpIndex).toBeGreaterThan(-1)
-        expect(Object.keys(JSON.parse(calls[0].args[mcpIndex + 1]))).not.toHaveLength(0)
+        expect(Object.keys(JSON.parse(run.args[mcpIndex + 1]))).not.toHaveLength(0)
       } else {
         expect(calls.some((call) => call.args?.[0] === 'acp')).toBe(true)
         expect(
@@ -173,16 +179,43 @@ process.stdin.on('data', chunk => {
 })
 `
 
+/**
+ * Amp's CLI as amp-acp 0.12 drives it: `amp plugins list` as a session starts, then one
+ * `amp --execute --stream-json-thinking --stream-json-input` per session. That one reads
+ * each prompt as a line of JSON on stdin, echoes it back as the turn starts, and stays up
+ * until stdin closes (https://ampcode.com/docs/cli/streaming-json).
+ */
 const AMP_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
-let prompt = ''
-process.stdin.setEncoding('utf8')
-process.stdin.on('data', chunk => { prompt += chunk })
-process.stdin.on('end', () => {
-  appendFileSync(process.env.GUI_CLI_LOG, JSON.stringify({ args: process.argv.slice(2), cwd: process.cwd(), prompt }) + '\n')
-  console.log(JSON.stringify({ type: 'assistant', session_id: 'thread-1', message: { content: [{ type: 'text', text: 'Hello from the CLI' }] } }))
-  console.log(JSON.stringify({ type: 'result', session_id: 'thread-1', is_error: false }))
-})
+const { createInterface } = require('node:readline')
+const args = process.argv.slice(2)
+const log = call => appendFileSync(process.env.GUI_CLI_LOG, JSON.stringify({ args, cwd: process.cwd(), ...call }) + '\n')
+const fail = message => {
+  console.error(message)
+  process.exit(1)
+}
+if (args[0] === 'plugins') {
+  log({})
+  process.exit(0)
+}
+if (!args.includes('--stream-json-input')) fail('This stand-in only reads prompts with --stream-json-input')
+if (!args.includes('--execute')) fail('The --stream-json-input flag requires --execute mode')
+if (!args.includes('--stream-json') && !args.includes('--stream-json-thinking')) fail('The --stream-json-input flag requires --stream-json')
+const session_id = 'T-01a03c00-e608-7007-8181-5c1cc56757be'
+const write = message => console.log(JSON.stringify({ ...message, session_id }))
+let started = false
+createInterface({ input: process.stdin })
+  .on('line', line => {
+    if (!line.trim()) return
+    const { type, message } = JSON.parse(line)
+    if (type !== 'user' || message.role !== 'user') fail('Expected a user message, got ' + line)
+    log({ prompt: message.content.map(part => part.text ?? '').join('') })
+    if (!started) write({ type: 'system', subtype: 'init', cwd: process.cwd(), tools: [], mcp_servers: [] })
+    started = true
+    write({ type: 'user', message: { role: 'user', content: message.content }, parent_tool_use_id: null })
+    write({ type: 'assistant', message: { type: 'message', role: 'assistant', content: [{ type: 'text', text: 'Hello from the CLI' }], stop_reason: 'end_turn' }, parent_tool_use_id: null })
+  })
+  .on('close', () => write({ type: 'result', subtype: 'success', is_error: false, result: 'Hello from the CLI' }))
 `
 
 const DEVIN_SCRIPT = String.raw`
