@@ -21,7 +21,7 @@ export const releases: Release[] = [
       'File → Reopen Closed Tab (⇧⌘T) brings back the tab you closed last, with its chat.',
       'When the agent checks your page at a phone or tablet width, the preview resizes into that size and back, as if you had picked it, instead of jumping.',
       'OpenCode’s questions now show as choices in the chat instead of failing.',
-      'Fixes: the canvas shows its focus ring when you reach it with the keyboard, a screen reader names each frame, and a canvas whose graphics stop says so instead of going blank.',
+      'Fixes: resizing the chat no longer makes its messages draw over each other, the canvas shows its focus ring when you reach it with the keyboard, a screen reader names each frame, and a canvas whose graphics stop says so instead of going blank.',
     ],
   },
   {
