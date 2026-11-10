@@ -1,0 +1,89 @@
+// Isolated process: the Electron stub must not replace modules used by other fast tests.
+import { mock } from 'bun:test'
+import assert from 'node:assert/strict'
+import { EventEmitter } from 'node:events'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { RulerGuide } from '../../src/shared/types'
+
+const userData = await mkdtemp(join(tmpdir(), 'gui-guides-tabs-'))
+const noop = () => undefined
+class Contents extends EventEmitter {
+  setWindowOpenHandler = noop
+  isDestroyed = () => false
+  send = noop
+  close = noop
+}
+mock.module('electron', () => ({
+  app: { isPackaged: false, getPath: () => userData },
+  nativeTheme: Object.assign(new EventEmitter(), { shouldUseDarkColors: false }),
+  WebContentsView: class {
+    webContents = new Contents()
+  },
+}))
+mock.module('../../src/main/renderer', () => ({
+  PRELOAD: '',
+  guardAppContents: noop,
+  loadRenderer: async () => undefined,
+}))
+
+const { Guides } = await import('../../src/main/guides')
+const { getPrefs } = await import('../../src/main/prefs')
+
+const root = join(userData, 'project')
+const x = (at: number): RulerGuide => ({ axis: 'x', at })
+const y = (at: number): RulerGuide => ({ axis: 'y', at })
+/** A tab on the project, its page filling a 800 by 600 canvas. */
+function tab() {
+  const guides = new Guides({} as never, {
+    inspector: { nodeAt: async () => null } as never,
+    scale: () => 1,
+    root: () => root,
+    sendChrome: noop,
+    relayout: noop,
+  })
+  const page = { x: 0, y: 0, width: 800, height: 600 }
+  guides.place(null, page, page)
+  return guides
+}
+const saved = async () =>
+  JSON.parse(await readFile(join(userData, 'prefs.json'), 'utf8')).guides[root]
+const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+
+try {
+  // The same folder open in two tabs, each with the project's guides (none yet) read.
+  const a = tab()
+  const b = tab()
+  assert.deepEqual(a.list(), [])
+  assert.deepEqual(b.list(), [])
+
+  // A guide added in each: both tabs show both, and both are saved.
+  a.change({ add: [x(100)], remove: [] })
+  b.change({ add: [y(50)], remove: [] })
+  assert.deepEqual(a.list(), [x(100), y(50)])
+  assert.deepEqual(b.list(), [x(100), y(50)])
+  assert.deepEqual(await saved(), [x(100), y(50)])
+
+  // One removed in a tab goes from the other.
+  a.change({ add: [], remove: [y(50)] })
+  assert.deepEqual(b.list(), [x(100)])
+  assert.deepEqual(await saved(), [x(100)])
+
+  // A guide held mid-drag in one tab while the other changes: let go, both are kept.
+  assert.equal(getPrefs().rulers, true)
+  b.rulerDrag('y', 'move', { x: 10, y: 200 })
+  await settle()
+  a.change({ add: [x(300)], remove: [] })
+  b.rulerDrag('y', 'end', { x: 10, y: 200 })
+  await settle()
+  assert.deepEqual(a.list(), [x(100), x(300), y(200)])
+  assert.deepEqual(b.list(), [x(100), x(300), y(200)])
+  assert.deepEqual(await saved(), [x(100), x(300), y(200)])
+
+  a.dispose()
+  b.dispose()
+  console.log('Guides shared by two tabs passed.')
+} finally {
+  await rm(userData, { recursive: true, force: true })
+}

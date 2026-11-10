@@ -233,6 +233,11 @@ export class Guides {
   }
 
   private onPrefs = () => {
+    // Mid-drag the guides stay as they are; they're read again as it ends (`endDrag`).
+    if (!this.drag && this.reload()) {
+      this.syncStrips()
+      this.sendRulers()
+    }
     const { rulers } = getPrefs()
     if (rulers === this.shown) return
     this.shown = rulers
@@ -253,6 +258,26 @@ export class Guides {
     this.scroll = { x: 0, y: 0 }
     const saved = root ? (getPrefs().guides[root] ?? []) : []
     this.guides = saved.map((guide) => ({ ...guide, id: String(this.nextId++) }))
+  }
+
+  /**
+   * Takes up the project's guides as they're saved now, when another tab on the same folder
+   * changed them: each tab saves the whole list, so one keeping an old list would drop the
+   * other's guides. Guides that stay keep their ids, and so their strips. True when any changed.
+   */
+  private reload() {
+    const saved = this.root ? (getPrefs().guides[this.root] ?? []) : []
+    const same = (a: RulerGuide, b: RulerGuide) => a.axis === b.axis && a.at === b.at
+    const mine = [...this.guides]
+    if (saved.length === mine.length && saved.every((guide, i) => same(guide, mine[i]))) {
+      return false
+    }
+    this.guides = saved.map((guide) => {
+      const kept = mine.findIndex((each) => same(each, guide))
+      return kept === -1 ? { ...guide, id: String(this.nextId++) } : mine.splice(kept, 1)[0]
+    })
+    if (this.hover && !this.guides.some((guide) => guide.id === this.hover)) this.hover = null
+    return true
   }
 
   private save() {
@@ -303,6 +328,8 @@ export class Guides {
     void drag.run.then(() => {
       if (this.drag !== drag) return
       this.drag = null
+      // What another tab saved while this one was held, with this change on top.
+      this.reload()
       if (at && drag.moved && drag.at !== null) this.commit(drag, drag.at)
       this.syncStrips()
       this.sendRulers()
