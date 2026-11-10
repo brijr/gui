@@ -6,6 +6,7 @@ import {
   type Picked,
   type PreviewFrame,
   type SourceLocation,
+  type TextEdit,
   type Turn,
   type TurnItem,
 } from '../../../shared/types'
@@ -16,6 +17,7 @@ import { Disclosure, TechnicalDetails, useReveal } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import {
+  ArrowRight,
   Brain,
   Check,
   Circle,
@@ -29,6 +31,7 @@ import {
   Hand,
   Info,
   MousePointer2,
+  Pencil,
   Redo2,
   Reply,
   Search,
@@ -191,6 +194,7 @@ function UserMessage({ turn }: { turn: Turn }) {
           <span className="truncate">Following up on “{turn.followUp.prompt}”</span>
         </p>
       )}
+      {turn.textEdit && <TextEdited edit={turn.textEdit} />}
       <p
         data-user-message={turn.id}
         className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
@@ -198,6 +202,26 @@ function UserMessage({ turn }: { turn: Turn }) {
         {turn.prompt}
       </p>
     </div>
+  )
+}
+
+/** A text edit from the preview in one line: what the page said, and what it says now. */
+export function textEditLabel({ before, after }: TextEdit) {
+  return `“${before}” → “${after}”`
+}
+
+/** The text edit a message asked for, above the message: the texts are the page's, not its words. */
+function TextEdited({ edit }: { edit: TextEdit }) {
+  return (
+    <p
+      className="flex max-w-7/8 min-w-0 items-center gap-1.5 text-caption text-subtle"
+      title={textEditLabel(edit)}
+    >
+      <Pencil className="size-3 shrink-0" aria-hidden="true" />
+      <span className="min-w-0 truncate">“{edit.before}”</span>
+      <ArrowRight className="size-3 shrink-0" aria-label="changed to" />
+      <span className="min-w-0 truncate text-fg">“{edit.after}”</span>
+    </p>
   )
 }
 

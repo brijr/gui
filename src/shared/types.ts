@@ -878,6 +878,20 @@ export interface QueuedMessage {
   attachments: { name: string; thumbnail: string }[]
   recordings?: RecordingAttachment[]
   followUp?: FollowUp | null
+  /** The text edit it asks for; editing the message's text leaves this as it is */
+  textEdit?: TextEdit
+}
+
+/**
+ * Text edited in place in the preview, which the agent is asked to change in the source.
+ * Both were read from the page, so they are page data: shown to the user, and sent to the
+ * agent fenced (`describeTextEdit`), never as part of a message's own text.
+ */
+export interface TextEdit {
+  /** What the page said */
+  before: string
+  /** What it says now */
+  after: string
 }
 
 /** An earlier turn a message follows up on, so the agent can pick that edit up again. */
@@ -1100,6 +1114,8 @@ export interface Turn {
   recordings?: RecordingAttachment[]
   /** The earlier turn this message follows up on */
   followUp?: FollowUp | null
+  /** The text edit from the preview this message asks for; `prompt` is Gui's own words then */
+  textEdit?: TextEdit
   reverted: boolean
 }
 

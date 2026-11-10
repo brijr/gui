@@ -29,6 +29,7 @@ import {
   type QueuedMessage,
   type QueuePauseReason,
   type RecordingAttachment,
+  type TextEdit,
   type ToolStatus,
   type Turn,
   type TurnItem,
@@ -69,6 +70,7 @@ import {
   type PromptGuides,
   type PromptViewport,
   placeCommand,
+  TEXT_EDIT_PROMPT,
 } from './prompt'
 import { recordingBlocks } from './recording-prompt'
 import type { Recordings } from './recordings'
@@ -151,6 +153,7 @@ interface TurnRecord {
 interface QueuedPayload {
   recordings?: RecordingAttachment[]
   followUp?: FollowUp | null
+  textEdit?: TextEdit | null
   images: ImageAttachment[]
   selection: Picked[]
   /** The viewport the message was written in; null when that's unknown */
@@ -546,6 +549,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         images,
         recordings: message.recordings ?? [],
         followUp: message.followUp ?? null,
+        textEdit: message.textEdit ?? null,
         selection,
         viewport,
         ...(fix ? { fix } : {}),
@@ -729,16 +733,35 @@ export class ChatController extends EventEmitter<ChatEvents> {
     recordings: RecordingAttachment[] = [],
     followUpId: string | null = null,
   ): boolean {
-    const followUp = this.followUpFor(followUpId)
-    if (this.lock && !this.disposed) return this.enqueue(text, images, recordings, followUp)
+    return this.submit(text, images, recordings, this.followUpFor(followUpId), null)
+  }
+
+  /**
+   * Asks the agent to make a text edit from the preview in the source, as a message would:
+   * it starts a turn or waits its turn, with the element picked. The message is Gui's fixed
+   * words; the old and new text were read from the page, so they ride along as page data.
+   */
+  sendTextEdit(edit: TextEdit): boolean {
+    return this.submit(TEXT_EDIT_PROMPT, [], [], null, edit)
+  }
+
+  private submit(
+    text: string,
+    images: ImageAttachment[],
+    recordings: RecordingAttachment[],
+    followUp: FollowUp | null,
+    textEdit: TextEdit | null,
+  ): boolean {
+    if (this.lock && !this.disposed)
+      return this.enqueue(text, images, recordings, followUp, textEdit)
     // An agent that isn't installed or signed in can't take it yet: it waits, with the setup
     // step above it, and goes out once the agent is ready (refreshAgent).
     if (needsSetup(this.meta.agent)) {
-      if (!this.enqueue(text, images, recordings, followUp)) return false
+      if (!this.enqueue(text, images, recordings, followUp, textEdit)) return false
       this.patchMeta({ queuePaused: true, queuePauseReason: 'setup' })
       return true
     }
-    return this.startTurn(text, null, images, null, recordings, followUp)
+    return this.startTurn(text, null, images, null, recordings, followUp, textEdit)
   }
 
   private followUpFor(turnId: string | null): FollowUp | null {
@@ -770,7 +793,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * Rewrites a queued message's text; what it carries (the pick, images, clips) stays.
+   * Rewrites a queued message's text; what it carries (the pick, images, clips, a text edit
+   * from the preview) stays, and stays apart from the text.
    * Text that leaves nothing to ask (empty, with nothing attached) changes nothing.
    */
   editQueued(id: string, text: string) {
@@ -1177,6 +1201,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     queued: QueuedPayload | null = null,
     recordings: RecordingAttachment[] = queued?.recordings ?? [],
     followUp: FollowUp | null = queued?.followUp ?? null,
+    textEdit: TextEdit | null = queued?.textEdit ?? null,
   ): boolean {
     const prompt =
       messagePrompt(text, images) ||
@@ -1194,6 +1219,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       images = []
       recordings = []
       followUp = null
+      textEdit = null
     }
     const picked = queued ? queued.selection : fix ? [] : this.meta.selection
     const selection = command === 'alone' ? [] : picked
@@ -1223,6 +1249,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
           : {}),
         recordings,
         ...(followUp ? { followUp } : {}),
+        ...(textEdit ? { textEdit } : {}),
         reverted: false,
       },
       command,
@@ -1254,6 +1281,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     images: ImageAttachment[],
     recordings: RecordingAttachment[] = [],
     followUp: FollowUp | null = null,
+    textEdit: TextEdit | null = null,
   ): boolean {
     const prompt =
       messagePrompt(text, images) ||
@@ -1269,11 +1297,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
       attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })),
       recordings,
       ...(followUp ? { followUp } : {}),
+      ...(textEdit ? { textEdit } : {}),
     }
     this.queued.set(item.id, {
       images,
       recordings,
       followUp,
+      textEdit,
       selection,
       viewport: this.options.viewport(),
     })
@@ -1294,6 +1324,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const payload = this.queued.get(next.id) ?? {
       images: [],
       followUp: next.followUp ?? null,
+      textEdit: next.textEdit ?? null,
       selection: next.context,
       viewport: null,
     }
@@ -1410,6 +1441,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
               images: info.supportsImages,
               attachments: images,
               followUp: earlier ? describeFollowUp(earlier, info.supportsImages) : [],
+              textEdit: record.turn.textEdit ?? null,
             })
       // A narrated clip's transcript may still be on its way when the message is queued.
       const sent = record.turn.recordings ?? []

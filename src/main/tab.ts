@@ -2274,7 +2274,9 @@ export class ProjectTab implements ChatPanelOwner {
    * The edit ended, with the text as typed (null: put back, or unchanged). It's written to
    * the source when the text is there plainly, in the file that rendered the element (a
    * canvas frame's own page); otherwise the agent is asked to make the change, with the
-   * element picked.
+   * element picked. The page's scripts can change both texts, so neither is trusted: the
+   * source takes only plain text for plain text (`replaceText`), and the agent gets them
+   * fenced, as page data.
    */
   endTextEdit(id: string, after: string | null) {
     const edit = this.textEdit
@@ -2306,7 +2308,8 @@ export class ProjectTab implements ChatPanelOwner {
         this.pickedNodes.set(element.id, node)
         chat.setSelection([{ ...element, kind: 'element' }])
       }
-      chat.send(`Change the text “${before}” to “${collapseText(after)}”.`)
+      // Both texts came from the page: they go as page data, never as the message's words.
+      chat.sendTextEdit({ before, after: collapseText(after) })
       if (this.panel.untuck()) this.layout()
       for (const [pick, pickNode] of nodes) this.pickedNodes.set(pick, pickNode)
       chat.setSelection(picked)

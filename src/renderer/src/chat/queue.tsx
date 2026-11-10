@@ -18,6 +18,7 @@ import { Banner, Card } from '../lib/surface'
 import { Button, IconButton } from '../lib/ui'
 import { noteRemoveQueued } from './store'
 import { isNewRow, markSeen } from './transitions'
+import { textEditLabel } from './turn-view'
 
 /** Why the queue is holding back. */
 const PAUSED: Record<QueuePauseReason, string> = {
@@ -190,6 +191,7 @@ function QueuedItem({
   }, [editing])
 
   const name = excerpt(item.prompt)
+  const edit = item.textEdit ? textEditLabel(item.textEdit) : null
   const startEdit = () => {
     setDraft(item.prompt)
     setEditing(true)
@@ -275,12 +277,14 @@ function QueuedItem({
       ) : (
         <Clock className="size-3 shrink-0 text-subtle" aria-hidden="true" />
       )}
+      {/* A text edit shows beside the message and stays out of its text, which is what Edit edits. */}
       <p
         className="min-w-0 flex-1 truncate text-small"
-        title={item.prompt}
+        title={edit ? `${item.prompt} ${edit}` : item.prompt}
         onDoubleClick={startEdit}
       >
         {item.prompt}
+        {edit && <span className="text-subtle"> {edit}</span>}
       </p>
       {!!item.recordings?.length && (
         <span className="shrink-0 text-caption text-subtle tabular-nums">
