@@ -51,8 +51,8 @@ const X = 'aaaaaaaa-0000-4000-8000-000000000001'
 const O = 'bbbbbbbb-0000-4000-8000-000000000002'
 const turnOf = (id: string) => `${id.slice(0, 8)}-turn`
 
-/** A chat of one finished turn that changed `a.txt`. */
-function saved(id: string, prompt: string): SavedChat {
+/** A chat of one finished turn that changed `a.txt`; `undone` leaves it waiting to be redone. */
+function saved(id: string, prompt: string, undone = false): SavedChat {
   const turnId = turnOf(id)
   return {
     version: 1,
@@ -61,7 +61,7 @@ function saved(id: string, prompt: string): SavedChat {
     agentId: 'claude',
     sessionId: null,
     checkpoints: { [turnId]: { before: `${turnId}-before`, after: `${turnId}-after` } },
-    redo: null,
+    redo: undone ? { sha: `${turnId}-redo`, paths: ['a.txt'], turnIds: [turnId] } : null,
     turns: [
       {
         id: turnId,
@@ -71,7 +71,7 @@ function saved(id: string, prompt: string): SavedChat {
         items: [],
         status: 'done',
         error: null,
-        reverted: false,
+        reverted: undone,
         startedAt: 1,
         endedAt: 2,
         changes: [{ path: 'a.txt', status: 'modified', additions: 1, deletions: 1 }],
@@ -80,12 +80,52 @@ function saved(id: string, prompt: string): SavedChat {
   }
 }
 
+/** A checkpoint store that records what it restores and can hold one call open. */
+function checkpoints() {
+  const restored: string[] = []
+  let held: { call: 'snapshot' | 'restore'; nth: number; gate: Promise<void> } | null = null
+  let reached = noop
+  const counts = { snapshot: 0, restore: 0 }
+  const pause = async (call: 'snapshot' | 'restore') => {
+    if (held?.call !== call || ++counts[call] !== held.nth) return
+    reached()
+    await held.gate
+  }
+  return {
+    restored,
+    /** Holds the `nth` call open; resolves once it's reached, with what lets it go on. */
+    hold(call: 'snapshot' | 'restore', nth: number) {
+      let release = noop
+      const gate = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      held = { call, nth, gate }
+      return new Promise<() => void>((resolve) => {
+        reached = () => resolve(release)
+      })
+    },
+    store: {
+      hasCommits: async () => true,
+      snapshot: async (message: string) => {
+        await pause('snapshot')
+        return `snapshot: ${message}`
+      },
+      diff: async () => [],
+      changedAmong: async () => [],
+      restore: async (sha: string) => {
+        await pause('restore')
+        restored.push(sha)
+      },
+    },
+  }
+}
+
 let projects = 0
-async function open(chat: SavedChat) {
+async function open(chat: SavedChat, store: object = {}) {
   const root = join(userData, `project-${++projects}`)
   await mkdir(root, { recursive: true })
   const file = await history.claimHistoryFile(root)
-  const controller = new ChatController(root, {} as never, {
+  const controller = new ChatController(root, store as never, {
     agentId: 'claude',
     docked: false,
     saved: chat,
@@ -128,6 +168,46 @@ try {
     assert.equal(tab.internals.lock, null)
     await tab.close()
     console.log('Overlapping replacements passed.')
+  }
+
+  // Undo, then New chat while the undo takes its second snapshot (after its last epoch check).
+  {
+    const files = checkpoints()
+    const tab = await open(saved(O, 'The open chat'), files.store)
+    const held = files.hold('snapshot', 2)
+    const undoing = tab.chat.restoreTurn(turnOf(O))
+    const release = await held
+    assert.equal(await tab.chat.reset(), true)
+    release()
+    await undoing
+    await settle()
+    // The new chat has nothing to redo, and the archived one's files are as it says they are.
+    assert.deepEqual(tab.chat.snapshot().meta.redoTurnIds, [])
+    assert.deepEqual(files.restored, [])
+    assert.equal((await history.loadArchived(tab.root, O))?.turns[0]?.reverted, false)
+    await tab.close()
+    console.log('Undo across a new chat passed.')
+  }
+
+  // Redo, then New chat and an archived chat opened while the redo restores its files.
+  {
+    const files = checkpoints()
+    const tab = await open(saved(O, 'The open chat', true), files.store)
+    assert.ok(await history.archiveChat(tab.root, saved(X, 'The archived chat', true)))
+    const held = files.hold('restore', 1)
+    const redoing = tab.chat.redo()
+    const release = await held
+    assert.equal(await tab.chat.reset(), true)
+    await tab.chat.openArchived(X)
+    release()
+    await redoing
+    await settle()
+    // The chat opened meanwhile still has its own undone turn to redo.
+    assert.deepEqual(tab.prompts(), ['The archived chat'])
+    assert.deepEqual(tab.chat.snapshot().meta.redoTurnIds, [turnOf(X)])
+    assert.equal(tab.chat.snapshot().turns[0]?.reverted, true)
+    await tab.close()
+    console.log('Redo across a reopened chat passed.')
   }
 } finally {
   await rm(userData, { recursive: true, force: true })

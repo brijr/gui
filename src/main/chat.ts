@@ -907,6 +907,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // Record the way back first, so a restore that fails halfway can still be redone. Taken
       // again because files may have been saved while the confirmation was open.
       const latest = await this.checkpoints.snapshot(message)
+      if (!this.live(epoch)) return
       const turnIds = undone.map((r) => r.turn.id)
       // Later turns already undone and waiting to be redone: undoing further back keeps them,
       // so one Redo brings every turn back. Their point was taken with all of them in place,
@@ -1002,6 +1003,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
       await this.checkpoints.restore(point.sha, paths)
       if (restored) await this.restoreLayout(restored, point.sha)
+      // A chat opened meanwhile has its own turns to redo.
+      if (!this.live(epoch)) return
       for (const r of this.records) {
         if (!point.turnIds.includes(r.turn.id)) continue
         r.turn.reverted = false
