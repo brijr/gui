@@ -500,3 +500,95 @@ test('zoomed out, the board shows small thumbnails, and full ones zoomed in, nev
     ),
   ).toBe(0)
 })
+
+test('a screen reader finds each frame by its name, and is on the frame Tab or a click selects', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  await openCanvas(session)
+  await chrome.evaluate(() => {
+    window.gui.boardAddFrame('desktop', null)
+    window.gui.boardAddFrame('mobile', null)
+  })
+  const { frames } = await waitFor(async () => {
+    const state = await board(session)
+    return state.frames.length === 2 ? state : null
+  }, 'two frames')
+  await zoomToFit(session)
+
+  // Each frame is an option named for it, in the board's list of frames.
+  const area = chrome.getByRole('application')
+  const list = area.getByRole('listbox', { name: 'Frames' })
+  await expect(list.getByRole('option')).toHaveCount(2)
+  const [first, second] = frames.map((frame) =>
+    list.getByRole('option', { name: frame.name, exact: true }),
+  )
+  await expect(first).toBeVisible()
+  await expect(first).toHaveAttribute('data-frame', frames[0].id)
+
+  // A frame added is selected, and the board points a screen reader at it; with nothing
+  // selected, at nothing.
+  await expect(second).toHaveAttribute('aria-selected', 'true')
+  await expect(area).toHaveAttribute(
+    'aria-activedescendant',
+    (await second.getAttribute('id')) ?? '',
+  )
+  await area.focus()
+  await chrome.keyboard.press('Escape')
+  await expect(second).toHaveAttribute('aria-selected', 'false')
+  await expect(area).not.toHaveAttribute('aria-activedescendant')
+
+  // Tab selects a frame, and the board points a screen reader at it.
+  await chrome.keyboard.press('Tab')
+  await expect(first).toHaveAttribute('aria-selected', 'true')
+  await expect(area).toHaveAttribute(
+    'aria-activedescendant',
+    (await first.getAttribute('id')) ?? '',
+  )
+  await chrome.keyboard.press('Tab')
+  await expect(area).toHaveAttribute(
+    'aria-activedescendant',
+    (await second.getAttribute('id')) ?? '',
+  )
+  await expect(first).toHaveAttribute('aria-selected', 'false')
+
+  // In Chromium's own accessibility tree, the focused board's active descendant is that
+  // frame's option, selected: what a screen reader is given as the focus.
+  const cdp = await session.app.context().newCDPSession(chrome)
+  const reading = async () => {
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree')
+    const value = (node: (typeof nodes)[number] | undefined, name: string) =>
+      node?.properties?.find((property) => property.name === name)?.value
+    const area = nodes.find((node) => node.role?.value === 'application')
+    const active = value(area, 'activedescendant')?.relatedNodes?.[0]?.backendDOMNodeId
+    const option = nodes.find((node) => node.backendDOMNodeId === active)
+    return {
+      focused: value(area, 'focused')?.value,
+      role: option?.role?.value,
+      name: option?.name?.value,
+      selected: value(option, 'selected')?.value,
+    }
+  }
+  await waitFor(
+    async () => (await reading()).name === frames[1].name,
+    'the second frame active for a screen reader',
+  )
+  expect(await reading()).toEqual({
+    focused: true,
+    role: 'option',
+    name: frames[1].name,
+    selected: true,
+  })
+
+  // A click from assistive tech (no pointer behind it) selects the frame it's on.
+  await first.dispatchEvent('click')
+  await waitFor(
+    async () => (await board(session)).selection.join() === frames[0].id,
+    'the first frame selected',
+  )
+  await expect(area).toHaveAttribute(
+    'aria-activedescendant',
+    (await first.getAttribute('id')) ?? '',
+  )
+})

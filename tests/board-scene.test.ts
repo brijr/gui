@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import {
+  activeFrame,
   buildScene,
   INK,
   LABEL_HEIGHT,
@@ -140,7 +141,9 @@ test('the DOM over the board mounts what is within half a view of it, and a name
   const size = { width: 1000, height: 800 }
   const camera = { x: 0, y: 0, zoom: 1 }
   const ids = (frame: string | null = null) =>
-    overlayScene(frames, [], camera, size, { frame, section: null }).shown.map((f) => f.id)
+    overlayScene(frames, [], camera, size, { frames: [frame], section: null }).shown.map(
+      (f) => f.id,
+    )
   expect(ids()).toEqual(['near', 'edge'])
   expect(ids('far')).toEqual(['near', 'edge', 'far'])
 })
@@ -152,19 +155,19 @@ test('a name shows above its frame only where it has room, and its size only whe
   const top = tile('top', 0, 0)
   const under = tile('under', 0, 300 + LABEL_HEIGHT - 1)
   const clear = tile('clear', 500, 0)
-  const scene = overlayScene([top, under, clear], [], camera, size, { frame: null, section: null })
+  const scene = overlayScene([top, under, clear], [], camera, size, { frames: [], section: null })
   expect(scene.named(top)).toBe(true)
   expect(scene.named(under)).toBe(false)
   expect(scene.named(clear)).toBe(true)
   expect(scene.sized(top)).toBe(true)
   const far = overlayScene([top], [], { ...camera, zoom: 0.25 }, size, {
-    frame: null,
+    frames: [],
     section: null,
   })
   expect(far.sized(top)).toBe(false)
   // In a section, a name never covers the section's own.
   const section = { id: 's', name: 'Hero', frames: ['top'] }
-  const inSection = overlayScene([top], [section], camera, size, { frame: null, section: null })
+  const inSection = overlayScene([top], [section], camera, size, { frames: [], section: null })
   expect(inSection.areas.map(({ section }) => section.id)).toEqual(['s'])
   expect(inSection.named(top)).toBe(true)
 })
@@ -191,4 +194,12 @@ test('a screen reader is told what is selected', () => {
   expect(selectionSaid(['a', 'b'], frames, { id: 's', name: 'Hero', frames: ['a', 'b'] })).toBe(
     'Hero selected',
   )
+})
+
+test('a screen reader is on the frame last selected, unless a section is picked', () => {
+  const frames = [tile('a', 0, 0), tile('b', 500, 0)]
+  expect(activeFrame([], frames, false)).toBeNull()
+  expect(activeFrame(['a', 'b'], frames, false)).toBe('b')
+  expect(activeFrame(['a', 'gone'], frames, false)).toBe('a')
+  expect(activeFrame(['a', 'b'], frames, true)).toBeNull()
 })

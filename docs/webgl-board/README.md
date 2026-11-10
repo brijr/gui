@@ -1,8 +1,8 @@
 # The board in WebGL: measurements, decisions, plan
 
 Moving the canvas board's drawing from DOM to WebGL. A prototype measured it and settled the
-decisions below; stages 1–5 of the plan are done, so the renderer is in
-`src/renderer/src/board/` behind a development-only switch, and stages 6–7 are to come.
+decisions below; stages 1–6 of the plan are done, so the renderer is in
+`src/renderer/src/board/` behind a development-only switch, and stage 7 is to come.
 [inventory.md](inventory.md) lists everything the board does today and where each part goes.
 The prototype itself, its probe and its raw results are on the branch
 `brijr/webgl-board-prototype` (commit `e9f7d31`).
@@ -212,9 +212,11 @@ specs find, and what assistive tech can be pointed at. Run against the prototype
 `e2e/canvas.spec.ts` passes 4 of 5 unchanged; the fifth reads `<img>` and needs the tile to
 say which width is drawn (`data-thumb`), two lines of the spec.
 
-Stage 6 then gives the mirror what it lacks today: a role and a name on each tile, and
-`aria-activedescendant` on the board following the selection, so a screen reader speaks the
-frame Tab moves to.
+Stage 6 gave the mirror what it lacked: each tile is an `option` named for its frame, with
+`aria-selected`, in a `listbox` ("Frames", multi-selectable) inside the board's
+`application`; the board's `aria-activedescendant` follows the selection, so a screen reader
+speaks the frame Tab moves to. The board keeps the focus, as before; the options aren't
+focusable themselves.
 
 ### Coordinates
 
@@ -299,7 +301,7 @@ they have never had.
 
 ## Stages
 
-Stages 1–5 are done (2026-11-10), one commit each. Each leaves main working and releasable. S is under 100 lines changed, M under 400, L more.
+Stages 1–6 are done (2026-11-10), one commit each. Each leaves main working and releasable. S is under 100 lines changed, M under 400, L more.
 
 1. **Thumbnails readable as pixels** (S, main). `gui-thumb:` gets `supportFetchAPI` and
    `corsEnabled`, its responses `Access-Control-Allow-Origin`, the CSP `connect-src`;
@@ -339,7 +341,16 @@ Stages 1–5 are done (2026-11-10), one commit each. Each leaves main working an
    keyboard menu's point, culling and name room joined the camera and scene tests.
 6. **A named mirror** (S). Role and name on each tile, `aria-activedescendant` on the board,
    a click from assistive tech selects. *Proves it:* a spec that finds a frame with
-   `getByRole` and reads the board's active descendant after Tab.
+   `getByRole` and reads the board's active descendant after Tab. **Done**, as described
+   under Accessibility and tests. The active descendant is the frame last selected (`activeFrame`
+   in `scene.ts`), and its tile stays mounted wherever it is, so the reference always
+   resolves; while a section is picked by its name there is none, and the live region says
+   which section (sections aren't options: making them groups of options would need
+   `aria-owns`, as their frames aren't inside them in the DOM). A click with no pointer behind
+   it (`detail` 0, as a screen reader's is) selects the frame it lands on. The spec is the last
+   in `canvas.spec.ts`, so it runs both ways; it also reads Chromium's own accessibility tree,
+   where the focused board's active descendant is the frame's option, named and selected.
+   Still not listened to with VoiceOver.
 7. **Switch and delete** (M, mostly deletions). WebGL is the board. The DOM painting
    (`Thumbnail`, the tile, section, selection and marquee styles, the CSS grid), the switch
    and `GUI_BOARD_WEBGL` go; `docs/architecture.md`'s Canvases entry is rewritten. One board,

@@ -19,7 +19,8 @@ import type { BoardFrame } from '../../../shared/types'
 import { onFrames, prefersReducedMotion } from '../lib/motion'
 import { centreIn, clearArea, fitIn, shownShare, wheelBy, zoomAbout } from './camera'
 import type { Area } from './gestures'
-import { chatCover, sendIntent } from './intents'
+import { chatCover, onBoardCommand, sendIntent } from './intents'
+import { ZOOM_STEP } from './keys'
 import { GRID } from './scene'
 import type { BoardSurfaceHandle } from './surface'
 import { publishView } from './view'
@@ -263,6 +264,18 @@ export function useBoardCamera({
       const last = live.current ?? unsaved.current
       if (unsaved.current && last) sendIntent({ type: 'camera', camera: last, board: boardId })
     },
+    [],
+  )
+
+  // The View menu's zoom and fit.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: fit and zoomCentred read the latest state themselves.
+  useEffect(
+    () =>
+      onBoardCommand((command) => {
+        if (command.type === 'fit' || (command.type === 'zoom' && command.step === 0)) fit()
+        else if (command.type === 'zoom')
+          zoomCentred(command.step === 1 ? ZOOM_STEP : 1 / ZOOM_STEP)
+      }),
     [],
   )
 

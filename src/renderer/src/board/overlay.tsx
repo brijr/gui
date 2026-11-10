@@ -4,7 +4,7 @@ import { type BoardViewRect, boardPoint, boardViewFromBoard } from '../../../sha
 import type { BoardFrame, BoardState } from '../../../shared/types'
 import { cn } from '../lib/cn'
 import { FIELD_LOOK } from '../lib/field'
-import { sendIntent } from './intents'
+import { onBoardCommand, sendIntent } from './intents'
 import {
   GRID,
   GRID_MIN,
@@ -48,6 +48,15 @@ export function useNaming(
     if (renamingSection && !board.sections.some((section) => section.id === renamingSection))
       setRenamingSection(null)
   }, [board.frames, board.sections, renaming, renamingSection])
+  // A menu's Rename opens the field.
+  useEffect(
+    () =>
+      onBoardCommand((command) => {
+        if (command.type === 'renameFrame') setRenaming(command.id)
+        else if (command.type === 'renameSection') setRenamingSection(command.id)
+      }),
+    [],
+  )
   const naming = renaming ?? renamingSection
   const wasNaming = useRef(naming)
   useEffect(() => {
@@ -102,6 +111,8 @@ export function BoardOverlay({
   picked,
   renaming,
   renamingSection,
+  active,
+  tiles,
   thumbs,
   labels,
   marquee,
@@ -124,6 +135,10 @@ export function BoardOverlay({
   picked: BoardSection | undefined
   renaming: string | null
   renamingSection: string | null
+  /** The frame a screen reader is on, whose tile stays mounted wherever it is */
+  active: string | null
+  /** What the tiles' element ids start with (`tileId`) */
+  tiles: string
   thumbs: string
   labels: LabelActions
   marquee: BoardViewRect | null
@@ -133,7 +148,7 @@ export function BoardOverlay({
   const { zoom } = camera
   const origin = boardViewFromBoard(boardPoint(0, 0), camera)
   const { shown, areas, named, sized } = overlayScene(frames, sections, camera, size, {
-    frame: renaming,
+    frames: [renaming, active],
     section: renamingSection,
   })
   return (
@@ -175,16 +190,23 @@ export function BoardOverlay({
             />
           ))}
 
-        {shown.map((frame) => (
-          <FrameTile
-            key={frame.id}
-            frame={frame}
-            thumbs={thumbs}
-            small={frame.width * zoom * window.devicePixelRatio <= SMALL_THUMB_WIDTH}
-            hoverable={!hand && !selected.has(frame.id)}
-            drawn={!gl}
-          />
-        ))}
+        {/* The frames are options a screen reader moves through: the board's active descendant. */}
+        {shown.length > 0 && (
+          <div role="listbox" aria-label="Frames" aria-multiselectable="true">
+            {shown.map((frame) => (
+              <FrameTile
+                key={frame.id}
+                id={tileId(tiles, frame.id)}
+                frame={frame}
+                thumbs={thumbs}
+                small={frame.width * zoom * window.devicePixelRatio <= SMALL_THUMB_WIDTH}
+                selected={selected.has(frame.id)}
+                hand={hand}
+                drawn={!gl}
+              />
+            ))}
+          </div>
+        )}
 
         {/* Names after every frame: no frame hides a section's name, or another frame's. */}
         {areas.map(({ section, area }) => (
@@ -326,31 +348,52 @@ function sameFrame(a: BoardFrame, b: BoardFrame) {
   )
 }
 
-/** A frame's thumbnail on the board, or that it's still being drawn. */
+/**
+ * A frame's element id on the board: `prefix` (one board's own) and the frame's id, with
+ * anything but letters, digits and hyphens spelled out, so the id is one token.
+ */
+export function tileId(prefix: string, frame: string) {
+  const safe = frame.replace(/[^A-Za-z0-9-]/g, (c) => `_${c.codePointAt(0)?.toString(16)}_`)
+  return `${prefix}-frame-${safe}`
+}
+
+/**
+ * A frame's thumbnail on the board, or that it's still being drawn; to a screen reader, an
+ * option named for the frame, selected or not.
+ */
 const FrameTile = memo(
   function FrameTile({
+    id,
     frame,
     thumbs,
     small,
-    hoverable,
+    selected,
+    hand,
     drawn,
   }: {
+    id: string
     frame: BoardFrame
     thumbs: string
     /** Drawn no wider on screen than the small thumbnail: that one is as sharp, and far lighter */
     small: boolean
-    /** Not selected, and the Hand is off: its edge lights up under the pointer */
-    hoverable: boolean
+    selected: boolean
+    /** The Hand is on: no frame's edge lights up under the pointer */
+    hand: boolean
     /** False when the canvas under the board draws it: the tile is then where it's pressed */
     drawn: boolean
   }) {
     return (
+      // biome-ignore lint/a11y/useFocusableInteractive: the board keeps focus and points at the option it's on (aria-activedescendant).
       <div
+        id={id}
         data-frame={frame.id}
+        role="option"
+        aria-label={frame.name}
+        aria-selected={selected}
         className={cn(
           'absolute overflow-hidden',
           drawn && 'bg-raised shadow-raised outline-solid outline-line',
-          drawn && hoverable && 'hover:outline-accent',
+          drawn && !hand && !selected && 'hover:outline-accent',
         )}
         style={{
           left: frame.x,
@@ -378,9 +421,11 @@ const FrameTile = memo(
   },
   (a, b) =>
     sameFrame(a.frame, b.frame) &&
+    a.id === b.id &&
     a.thumbs === b.thumbs &&
     a.small === b.small &&
-    a.hoverable === b.hoverable &&
+    a.selected === b.selected &&
+    a.hand === b.hand &&
     a.drawn === b.drawn,
 )
 

@@ -2,6 +2,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from 'react'
@@ -23,10 +24,10 @@ import {
   type Override,
   pressGesture,
 } from './gestures'
-import { onBoardCommand, sendIntent } from './intents'
-import { boardKey, type KeyAction, type Nudge, nudged, nudgeLanding, ZOOM_STEP } from './keys'
-import { BoardOverlay, gridStyle, useNaming } from './overlay'
-import { sectionAreas, selectionSaid } from './scene'
+import { sendIntent } from './intents'
+import { boardKey, type KeyAction, type Nudge, nudged, nudgeLanding } from './keys'
+import { BoardOverlay, gridStyle, tileId, useNaming } from './overlay'
+import { activeFrame, sectionAreas, selectionSaid } from './scene'
 import { BoardSurface, type BoardSurfaceHandle, BoardUnavailable } from './surface'
 import { useBoardCamera } from './use-camera'
 import { setBoardTool, useHand } from './view'
@@ -57,6 +58,8 @@ export function Board({
   gl?: boolean
 }) {
   const ref = useRef<HTMLDivElement>(null)
+  /** What this board's tiles' element ids start with */
+  const tiles = useId()
   const surface = useRef<BoardSurfaceHandle>(null)
   /** WebGL2 couldn't start, so the canvas can't draw the board */
   const [unavailable, setUnavailable] = useState(false)
@@ -158,19 +161,6 @@ export function Board({
     if (hasCamera && document.activeElement === document.body)
       ref.current?.focus({ preventScroll: true })
   }, [hasCamera])
-
-  // biome-ignore lint/correctness/useExhaustiveDependencies: fit reads the latest frames itself.
-  useEffect(
-    () =>
-      onBoardCommand((command) => {
-        if (command.type === 'renameFrame') setRenaming(command.id)
-        else if (command.type === 'renameSection') setRenamingSection(command.id)
-        else if (command.type === 'fit' || (command.type === 'zoom' && command.step === 0)) fit()
-        else if (command.type === 'zoom')
-          zoomCentred(command.step === 1 ? ZOOM_STEP : 1 / ZOOM_STEP)
-      }),
-    [],
-  )
 
   if (!camera) return <div ref={ref} className="absolute inset-0" />
   if (gl && unavailable) return <BoardUnavailable />
@@ -301,6 +291,8 @@ export function Board({
   const marquee = gesture?.kind === 'marquee' ? marqueeRect(gesture.start, gesture.now) : null
   const single = board.selection.length === 1 ? board.selection[0] : null
   const count = board.frames.length
+  /** The frame a screen reader is on: the one last selected */
+  const active = activeFrame(board.selection, board.frames, !!picked)
 
   return (
     // The board is one control: it takes the keyboard when pressed, and names what's selected.
@@ -310,6 +302,7 @@ export function Board({
       tabIndex={0}
       role="application"
       aria-label={`Canvas ${board.name}, ${count} ${count === 1 ? 'frame' : 'frames'}. Tab steps through sections and frames; arrows move them; Enter opens one; F2 renames; Shift+F10 shows its menu.`}
+      aria-activedescendant={active ? tileId(tiles, active) : undefined}
       className={cn(
         'absolute inset-0 overflow-hidden bg-canvas outline-none select-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-muted',
         hand && (gesture?.kind === 'pan' ? 'cursor-grabbing' : 'cursor-grab'),
@@ -320,6 +313,13 @@ export function Board({
         gl ? (event) => surface.current?.hover(idOf(event.target, 'frame') ?? null) : undefined
       }
       onPointerLeave={gl ? () => surface.current?.hover(null) : undefined}
+      // A click with no pointer behind it (a screen reader's) selects the frame it's on.
+      onClick={(event) => {
+        const id = event.detail === 0 && idOf(event.target, 'frame')
+        if (!id) return
+        ref.current?.focus({ preventScroll: true })
+        select([id])
+      }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={finish}
@@ -374,6 +374,8 @@ export function Board({
         picked={picked}
         renaming={renaming}
         renamingSection={renamingSection}
+        active={active}
+        tiles={tiles}
         thumbs={board.thumbs}
         labels={labels}
         marquee={marquee}

@@ -276,7 +276,7 @@ const SIZE_LABEL_MIN = 140
 const SIZE_LABEL_ZOOM = 0.5
 
 export interface OverlayScene {
-  /** The frames near the view, and the one whose name is being edited, wherever it is */
+  /** The frames near the view, and those kept wherever they are (a name being edited) */
   shown: BoardFrame[]
   /** The sections near the view, and the one being renamed, with the area each covers */
   areas: { section: BoardSection; area: Area }[]
@@ -288,15 +288,16 @@ export interface OverlayScene {
 
 /**
  * The frames and sections the DOM over the board mounts, in board pixels: those near a view
- * of `size` through `camera`. The margin (half a view each way) keeps a pan from adding and
- * dropping them at every step.
+ * of `size` through `camera`, and those `keep` names wherever they are (a name being edited,
+ * the frame a screen reader is on). The margin (half a view each way) keeps a pan from
+ * adding and dropping them at every step.
  */
 export function overlayScene(
   frames: readonly BoardFrame[],
   sections: readonly BoardSection[],
   camera: BoardCamera,
   size: { width: number; height: number },
-  renaming: { frame: string | null; section: string | null },
+  keep: { frames: readonly (string | null)[]; section: string | null },
 ): OverlayScene {
   const reach = boardRectFromBoardView(
     boardViewRect(
@@ -312,10 +313,10 @@ export function overlayScene(
     area.y <= reach.y + reach.height &&
     area.x + area.width >= reach.x &&
     area.y + area.height >= reach.y
-  const shown = frames.filter((frame) => near(frame) || frame.id === renaming.frame)
+  const shown = frames.filter((frame) => near(frame) || keep.frames.includes(frame.id))
   const areas = sections.flatMap((section) => {
     const area = sectionBounds(section, frames)
-    return area && (near(area) || section.id === renaming.section) ? [{ section, area }] : []
+    return area && (near(area) || section.id === keep.section) ? [{ section, area }] : []
   })
   const sectionOf = new Map<string, Area>()
   for (const { section, area } of areas) for (const id of section.frames) sectionOf.set(id, area)
@@ -352,6 +353,20 @@ export function sectionAreas(
     const area = sectionBounds(section, frames)
     return area ? [{ id: section.id, area, picked: picked === section.id }] : []
   })
+}
+
+/**
+ * The frame a screen reader is on (the board's active descendant): the one last selected, of
+ * those on the board. None while a section is picked by its name: the live region says that.
+ */
+export function activeFrame(
+  selection: readonly string[],
+  frames: readonly { id: string }[],
+  picked: boolean,
+) {
+  if (picked) return null
+  const last = selection.findLast((id) => frames.some((frame) => frame.id === id))
+  return last ?? null
 }
 
 /** What a screen reader is told is selected: a section picked by its name, a frame, or a count. */
