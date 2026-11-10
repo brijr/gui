@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import type { ChatMeta, Turn } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { ErrorBoundary } from '../lib/error-boundary'
@@ -8,7 +9,7 @@ import { Archive, MessageSquare, SquarePen } from '../lib/icons'
 import { Banner, Card, Message } from '../lib/surface'
 import { Button, PromptButton } from '../lib/ui'
 import { setDraft, useChat, waitingCard } from './store'
-import { type TurnHeight, TurnLayout } from './turn-layout'
+import { TurnLayout } from './turn-layout'
 import { TurnPresentation, TurnPresentationProvider } from './turn-presentation'
 import { TurnView } from './turn-view'
 
@@ -104,7 +105,6 @@ const TRANSCRIPT_INSET = 16
 
 function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
   const scroller = useRef<HTMLDivElement>(null)
-  const content = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const toggledAt = useRef(Number.NEGATIVE_INFINITY)
   /** When the user last wheeled, touched or pressed a key over the transcript. */
@@ -123,18 +123,16 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
       .join('\0'),
   )
   const [presentation] = useState(() => new TurnPresentation())
-  const [heights, setHeights] = useState<Map<string, TurnHeight>>(() => new Map())
+  /** Each turn's last measured height; `heights` is the copy the layout was made from. */
+  const known = useRef(new Map<string, number>())
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map())
   const [viewport, setViewport] = useState({ top: 0, height: 600, width: 0 })
-  const layout = useMemo(
-    () => new TurnLayout(turnIds, heights, viewport.width),
-    [turnIds, heights, viewport.width],
-  )
+  const layout = useMemo(() => new TurnLayout(turnIds, heights), [turnIds, heights])
   const currentLayout = useRef(layout)
   const currentWidth = useRef(viewport.width)
   const anchor = useRef<ReturnType<TurnLayout['anchor']>>(null)
-  const pendingHeights = useRef(new Map<string, TurnHeight>())
-  const measureFrame = useRef<number | null>(null)
   const scrollFrame = useRef<number | null>(null)
+  const hint = turnIds.length >= LONG_CHAT && !running
 
   const readViewport = useCallback(() => {
     const el = scroller.current
@@ -147,38 +145,53 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
     })
   }, [])
 
-  const measure = useCallback((id: string, height: number) => {
-    const width = scroller.current?.clientWidth ?? 0
-    pendingHeights.current.set(id, { height, width })
-    if (measureFrame.current !== null) return
-    measureFrame.current = requestAnimationFrame(() => {
-      measureFrame.current = null
-      const el = scroller.current
-      if (el && !stick.current) {
-        anchor.current = currentLayout.current.anchor(el.scrollTop - TRANSCRIPT_INSET)
-      }
-      const pending = pendingHeights.current
-      pendingHeights.current = new Map()
-      setHeights((before) => {
-        let next = before
-        for (const [id, size] of pending) {
-          const old = before.get(id)
-          if (old?.width === size.width && Math.abs(old.height - size.height) < 0.5) continue
-          if (next === before) next = new Map(before)
-          next.set(id, size)
-        }
-        return next
-      })
+  /**
+   * Takes rows' new heights, and the panel's new width, for the layout. Away from the end, the
+   * turn at the top of the view stays where it is while those around it change height.
+   */
+  const remeasure = useCallback((measured: [string, number][], widthChanged: boolean) => {
+    const el = scroller.current
+    // Hidden, every row measures nothing: keep the heights they had in view.
+    if (!el || el.clientWidth === 0) return
+    const changed = measured.filter(([id, height]) => {
+      const old = known.current.get(id)
+      return old === undefined || Math.abs(old - height) >= 0.5
     })
+    if (!stick.current && (changed.length > 0 || widthChanged)) {
+      anchor.current = currentLayout.current.anchor(el.scrollTop - TRANSCRIPT_INSET)
+    }
+    if (changed.length === 0) return
+    for (const [id, height] of changed) known.current.set(id, height)
+    setHeights(new Map(known.current))
   }, [])
+
+  // Sizes are taken in the frame they change, before it's painted: dragging the panel's edge
+  // rewraps every row each frame, and rows placed by the heights they had a frame ago draw
+  // over each other.
+  const [sizes] = useState(
+    () =>
+      new RowSizes((measured, resized) => {
+        const el = scroller.current
+        if (!el) return
+        const widthChanged = resized && el.clientWidth !== currentWidth.current
+        flushSync(() => {
+          remeasure(measured, widthChanged)
+          if (resized) readViewport()
+        })
+        anchor.current = null
+        if (!resized) return
+        if (stick.current && performance.now() - toggledAt.current >= TOGGLE_WINDOW) toEnd(el)
+        readViewport()
+      }),
+  )
 
   useEffect(() => {
     presentation.retain(turnIds)
     const allowed = new Set(turnIds)
-    setHeights((before) => {
-      if ([...before.keys()].every((id) => allowed.has(id))) return before
-      return new Map([...before].filter(([id]) => allowed.has(id)))
-    })
+    const gone = [...known.current.keys()].filter((id) => !allowed.has(id))
+    if (gone.length === 0) return
+    for (const id of gone) known.current.delete(id)
+    setHeights(new Map(known.current))
   }, [presentation, turnIds])
 
   // A sent/queued message must already be in view when the store's transition takes its
@@ -197,6 +210,7 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
   useLayoutEffect(() => {
     if (waiting !== null) pin()
   }, [waiting, pin])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the hint below the turns coming or going moves the end too.
   useLayoutEffect(() => {
     currentLayout.current = layout
     currentWidth.current = viewport.width
@@ -209,21 +223,17 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
     }
     anchor.current = null
     readViewport()
-  }, [layout, viewport.width, readViewport])
+  }, [layout, viewport.width, hint, readViewport])
+  // Rows that just mounted are measured before they're painted, wherever the layout guessed.
+  useLayoutEffect(() => {
+    const measured = sizes.takeMounted()
+    if (measured.length > 0) remeasure(measured, false)
+  })
 
   useEffect(() => {
     const el = scroller.current
-    const inner = content.current
-    if (!el || !inner) return
-    const observer = new ResizeObserver(() => {
-      if (!stick.current && el.clientWidth !== currentWidth.current) {
-        anchor.current = currentLayout.current.anchor(el.scrollTop - TRANSCRIPT_INSET)
-      }
-      if (stick.current && performance.now() - toggledAt.current >= TOGGLE_WINDOW) toEnd(el)
-      readViewport()
-    })
-    observer.observe(el)
-    observer.observe(inner)
+    if (!el) return
+    const stop = sizes.watch(el)
     // What the user does to scroll, so onScroll can tell their scrolling from the layout's.
     const intend = () => {
       intentAt.current = performance.now()
@@ -242,17 +252,16 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
     window.addEventListener('pointerup', release)
     window.addEventListener('pointercancel', release)
     return () => {
-      observer.disconnect()
+      stop()
       el.removeEventListener('wheel', intend)
       el.removeEventListener('touchmove', intend)
       el.removeEventListener('keydown', intend)
       el.removeEventListener('pointerdown', hold)
       window.removeEventListener('pointerup', release)
       window.removeEventListener('pointercancel', release)
-      if (measureFrame.current !== null) cancelAnimationFrame(measureFrame.current)
       if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current)
     }
-  }, [readViewport])
+  }, [sizes])
 
   const top = stick.current
     ? Math.max(0, layout.total - viewport.height)
@@ -289,19 +298,19 @@ function Turns({ turnIds, meta }: { turnIds: string[]; meta: ChatMeta }) {
         }}
         className="min-h-0 flex-1 select-text overflow-y-auto scroll-stable scroll-fade px-3 py-4"
       >
-        <div ref={content} className="flex flex-col gap-6">
+        <div className="flex flex-col gap-6">
           <div className="relative shrink-0" style={{ height: layout.total }}>
             {indices.map((index) => (
               <TurnRow
                 key={turnIds[index]}
                 id={turnIds[index]}
                 top={layout.offsets[index]}
-                measure={measure}
+                sizes={sizes}
                 showRedo={meta.redoTurnIds[0] === turnIds[index]}
               />
             ))}
           </div>
-          {turnIds.length >= LONG_CHAT && !running && <LongChatHint />}
+          {hint && <LongChatHint />}
         </div>
       </div>
       <Announcer />
@@ -335,32 +344,100 @@ function Announcer() {
   )
 }
 
+/**
+ * Watches the transcript and its rows for size changes, and hands them over in the frame they
+ * happen, before it's painted. A row is measured as it mounts, and watched from the next frame:
+ * watched from inside a resize callback, the browser would report it a frame late, as an error.
+ */
+class RowSizes {
+  private readonly observer: ResizeObserver
+  private readonly ids = new Map<Element, string>()
+  private readonly mounted = new Set<HTMLElement>()
+  private readonly unwatched = new Set<Element>()
+  private frame: number | null = null
+
+  constructor(onResize: (measured: [string, number][], resized: boolean) => void) {
+    this.observer = new ResizeObserver((entries) => {
+      const measured: [string, number][] = []
+      let resized = false
+      for (const entry of entries) {
+        const id = this.ids.get(entry.target)
+        if (id === undefined) resized = true
+        else {
+          // The layout height, not getBoundingClientRect's: while the panel grows in (morph.ts)
+          // it's scaled, and growing doesn't resize the row, so a scaled height would stay.
+          const box = entry.borderBoxSize[0]?.blockSize
+          measured.push([id, box ?? (entry.target as HTMLElement).offsetHeight])
+        }
+      }
+      onResize(measured, resized)
+    })
+  }
+
+  /** Watches the transcript itself, and the rows it holds, until the returned stop. */
+  watch(scroller: HTMLElement) {
+    this.observer.observe(scroller)
+    this.watchSoon()
+    return () => {
+      this.observer.disconnect()
+      if (this.frame !== null) cancelAnimationFrame(this.frame)
+      this.frame = null
+      for (const row of this.ids.keys()) this.unwatched.add(row)
+    }
+  }
+
+  add(id: string, row: HTMLElement) {
+    this.ids.set(row, id)
+    this.mounted.add(row)
+    return () => {
+      this.ids.delete(row)
+      this.mounted.delete(row)
+      this.unwatched.delete(row)
+      this.observer.unobserve(row)
+    }
+  }
+
+  /** The rows mounted since last asked, measured now. */
+  takeMounted() {
+    const measured: [string, number][] = []
+    for (const row of this.mounted) {
+      const id = this.ids.get(row)
+      if (id !== undefined) measured.push([id, row.offsetHeight])
+      this.unwatched.add(row)
+    }
+    this.mounted.clear()
+    this.watchSoon()
+    return measured
+  }
+
+  private watchSoon() {
+    if (this.unwatched.size === 0 || this.frame !== null) return
+    this.frame = requestAnimationFrame(() => {
+      this.frame = null
+      for (const row of this.unwatched) this.observer.observe(row)
+      this.unwatched.clear()
+    })
+  }
+}
+
 /** Each row observes its own turn; streaming does not rerender the transcript shell. */
 function TurnRow({
   id,
   top,
-  measure,
+  sizes,
   showRedo,
 }: {
   id: string
   top: number
-  measure: (id: string, height: number) => void
+  sizes: RowSizes
   showRedo: boolean
 }) {
   const turn = useChat((s) => s.turnsById[id])
   const row = useRef<HTMLDivElement>(null)
   useLayoutEffect(() => {
     const el = row.current
-    if (!el) return
-    // The layout height, not getBoundingClientRect's: while the panel grows in (morph.ts) it's
-    // scaled, and growing doesn't resize the row, so a scaled height would never be corrected.
-    // Observing reports the row once to start.
-    const observer = new ResizeObserver(([entry]) => {
-      measure(id, entry.borderBoxSize[0]?.blockSize ?? el.offsetHeight)
-    })
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [id, measure])
+    return el ? sizes.add(id, el) : undefined
+  }, [id, sizes])
   if (!turn) return null
   return (
     <div ref={row} data-turn-row={id} className="absolute inset-x-0 top-0" style={{ top }}>

@@ -1,9 +1,3 @@
-/** Measured turn heights, including the width at which their content wrapped. */
-export interface TurnHeight {
-  height: number
-  width: number
-}
-
 export const TURN_GAP = 24
 export const ESTIMATED_TURN_HEIGHT = 180
 export const TURN_OVERSCAN = 400
@@ -14,15 +8,18 @@ export class TurnLayout {
   readonly indices: Map<string, number>
   readonly total: number
 
+  /**
+   * `heights` are the turns' last measured heights. One measured at another width (the panel
+   * resized since) is still a better guess than the estimate; a turn on screen is measured
+   * again before that frame paints.
+   */
   constructor(
     readonly ids: readonly string[],
-    heights: ReadonlyMap<string, TurnHeight>,
-    width: number,
+    heights: ReadonlyMap<string, number>,
   ) {
     this.indices = new Map(ids.map((id, index) => [id, index]))
     for (const id of ids) {
-      const measured = heights.get(id)
-      const height = measured?.width === width ? measured.height : ESTIMATED_TURN_HEIGHT
+      const height = heights.get(id) ?? ESTIMATED_TURN_HEIGHT
       this.offsets.push(this.offsets[this.offsets.length - 1] + height + TURN_GAP)
     }
     this.total = Math.max(0, this.offsets[this.offsets.length - 1] - TURN_GAP)

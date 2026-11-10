@@ -11,7 +11,7 @@ import {
   safeMarkdownUrl,
 } from '../src/renderer/src/chat/markdown-parser'
 import { markdownCadence } from '../src/renderer/src/chat/markdown-worker-client'
-import { TurnLayout } from '../src/renderer/src/chat/turn-layout'
+import { TURN_GAP, TurnLayout } from '../src/renderer/src/chat/turn-layout'
 import { TurnPresentation } from '../src/renderer/src/chat/turn-presentation'
 
 function finalHtml(text: string) {
@@ -36,7 +36,7 @@ function expectedHtml(text: string) {
 test('the turn window stays bounded as archived history grows, while active turns stay mounted', () => {
   for (const count of [50, 300, 10_000]) {
     const ids = Array.from({ length: count }, (_, index) => `turn-${index}`)
-    const layout = new TurnLayout(ids, new Map(), 400)
+    const layout = new TurnLayout(ids, new Map())
     const middle = layout.offsets[Math.floor(count / 2)]
     const visible = layout.window(middle, 600, [ids[count - 1]])
     expect(visible.length).toBeLessThanOrEqual(10)
@@ -46,21 +46,23 @@ test('the turn window stays bounded as archived history grows, while active turn
   }
 })
 
-test('measured heights preserve a reading anchor, and old-width measurements are invalidated', () => {
+test('measured heights preserve a reading anchor, and stand until the turn is measured again', () => {
   const ids = ['first', 'second', 'reading', 'last']
-  const before = new TurnLayout(ids, new Map(), 400)
+  const before = new TurnLayout(ids, new Map())
   const anchor = before.anchor(before.offsets[2] + 45)
   expect(anchor).toEqual({ id: 'reading', offset: 45 })
   const heights = new Map([
-    ['first', { height: 400, width: 400 }],
-    ['second', { height: 20, width: 400 }],
+    ['first', 400],
+    ['second', 20],
   ])
-  const after = new TurnLayout(ids, heights, 400)
+  const after = new TurnLayout(ids, heights)
   if (!anchor) throw new Error('Expected a reading anchor')
   expect(after.restore(anchor)).toBe(after.offsets[2] + 45)
   expect(after.restore({ id: 'removed', offset: 10 })).toBeNull()
-  expect(new TurnLayout(ids, heights, 320).total).toBe(before.total)
-  expect(new TurnLayout([], new Map(), 320).window(0, 600)).toEqual([])
+  // Measured at another width (the panel resized since), a height is still a better guess for
+  // a turn out of view than the estimate; one in view is measured again before it's painted.
+  expect(after.offsets[2]).toBe(400 + 20 + 2 * TURN_GAP)
+  expect(new TurnLayout([], new Map()).window(0, 600)).toEqual([])
 })
 
 test('disclosures and pending actions survive row unmount subscriptions and prune on chat replacement', () => {
