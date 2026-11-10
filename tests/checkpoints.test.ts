@@ -504,15 +504,48 @@ describe.skipIf(!gitRuns)('a folder inside the project with a repository of its 
     expect(get(root, 'vendor/lib/x.ts')).toBe('old\n')
   })
 
-  //   input:    fresh/ after `git init`, before its first commit; a snapshot of the project
-  //   expected: the snapshot is taken
-  //   actual:   it rejects with "git add failed: error: 'fresh/' does not have a commit
-  //             checked out", so no turn in the project can be undone while the folder is there
-  test.failing('a new, empty repository does not stop checkpoints', async () => {
-    const root = project('nested-empty', { 'src/app.ts': 'old\n', 'fresh/x.ts': 'old\n' })
-    git(join(root, 'fresh'), 'init', '--quiet')
+  // A turn that makes such a folder, as scaffolding tools do (`create-next-app` runs
+  // `git init` and commits), is credited with the folder as one added entry.
+  //   input:    a turn changes src/app.ts and creates my-app/ with a repository and a commit
+  //   expected: Undo puts src/app.ts back
+  //   actual:   Undo rejects with "Path is a directory: rm returned EISDIR ... my-app" before
+  //             it restores anything, so the turn can't be undone at all
+  test.failing('a turn that creates one with a commit can still be undone', async () => {
+    const root = project('nested-created', { 'src/app.ts': 'old\n' })
     const points = new Checkpoints(root, store, env)
-    await points.snapshot('before turn')
+    const before = await points.snapshot('before turn')
+    put(root, 'src/app.ts', 'agent\n')
+    put(root, 'my-app/index.ts', 'agent\n')
+    ownRepo(join(root, 'my-app'))
+    const after = await points.snapshot('after turn')
+    const paths = (await points.diff(before, after)).map((change) => change.path).sort()
+    await undo(points, [{ before, after, paths }])
+    expect(get(root, 'src/app.ts')).toBe('old\n')
+  })
+
+  // After `git init` and before its first commit there is no commit to point to, and git
+  // can't record the folder at all ("'fresh/' does not have a commit checked out"). It is
+  // left out, like a secret or a file over the size limit, and the rest is recorded.
+  test('a new, empty repository does not stop checkpoints: it is left out', async () => {
+    const files = ['src/app.ts', 'fresh/x.ts', 'apps/new app/y.ts']
+    const root = project('nested-empty', Object.fromEntries(files.map((file) => [file, 'old\n'])))
+    const empty = [join(root, 'fresh'), join(root, 'apps/new app')]
+    for (const dir of empty) git(dir, 'init', '--quiet')
+    const own = empty.map((dir) => fingerprint(join(dir, '.git')))
+
+    const points = new Checkpoints(root, store, env)
+    const ran = await turn(points, root, Object.fromEntries(files.map((file) => [file, 'agent\n'])))
+    expect(ran.paths).toEqual(['src/app.ts'])
+    expect(recorded(root, ran.after)).toEqual(['src/app.ts'])
+
+    await undo(points, [ran])
+    // The rest of the project goes back; what was never recorded stays as the turn left it.
+    expect(state(root, files)).toEqual({
+      'src/app.ts': 'old\n',
+      'fresh/x.ts': 'agent\n',
+      'apps/new app/y.ts': 'agent\n',
+    })
+    expect(empty.map((dir) => fingerprint(join(dir, '.git')))).toEqual(own)
   })
 })
 

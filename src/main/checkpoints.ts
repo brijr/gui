@@ -147,8 +147,10 @@ export class Checkpoints {
   snapshot(message: string): Promise<string> {
     return this.enqueue(async () => {
       const repo = await this.ready()
-      const { secrets, large } = await this.leftOut(repo)
-      const excluded = [...secrets, ...large].map((path) => `:(exclude,literal)${path}`)
+      const { secrets, large, noCommit } = await this.leftOut(repo)
+      const excluded = [...secrets, ...large, ...noCommit].map(
+        (path) => `:(exclude,literal)${path}`,
+      )
       await this.git(repo, ['add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], {
         literal: false,
         input: ['.', ...excluded].join('\0'),
@@ -308,9 +310,12 @@ export class Checkpoints {
 
   /**
    * What snapshots leave out of what git would add: files that may hold secrets (named
-   * anywhere in the project, tracked or not), and new or changed files over the size limit.
+   * anywhere in the project, tracked or not), new or changed files over the size limit, and
+   * folders holding a repository of their own that has no commit yet.
    */
-  private async leftOut(repo: Repo): Promise<{ secrets: string[]; large: string[] }> {
+  private async leftOut(
+    repo: Repo,
+  ): Promise<{ secrets: string[]; large: string[]; noCommit: string[] }> {
     const listed = (args: string[]) =>
       this.git(repo, ['ls-files', '-z', '--exclude-standard', ...args]).then(splitNul)
     const [all, changed] = await Promise.all([
@@ -334,7 +339,21 @@ export class Checkpoints {
         if (sizes[j] > MAX_FILE_BYTES) large.push(path)
       })
     }
-    return { secrets, large }
+    // Git lists a new folder with a repository of its own as one entry, "name/", and records
+    // it as a pointer to that repository's commit. With no commit yet (a fresh `git init`)
+    // there is nothing to point to, and adding it would fail the snapshot of the whole
+    // project: git itself says which it can't add.
+    const noCommit: string[] = []
+    for (const path of candidates) {
+      if (!path.endsWith('/')) continue
+      const dir = path.slice(0, -1)
+      const addable = await this.git(repo, ['add', '--dry-run', '--', dir]).then(
+        () => true,
+        () => false,
+      )
+      if (!addable) noCommit.push(dir)
+    }
+    return { secrets, large, noCommit }
   }
 
   /**
