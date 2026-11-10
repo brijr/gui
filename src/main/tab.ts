@@ -878,6 +878,8 @@ export class ProjectTab implements ChatPanelOwner {
       if (!current()) return
 
       if (!(await this.attachChat(root, file, saved, resources, current, null))) return
+      const branch = await branchStatus(root)
+      if (!current()) return
 
       // The agent, checkpoints and history stay at the root; only the dev server moves into the app.
       const devServer = new DevServer(appRoot(project))
@@ -893,13 +895,7 @@ export class ProjectTab implements ChatPanelOwner {
       terminals.on('change', () => this.patchDrawer({ terminals: terminals.list() }))
       this.resources.terminals = terminals
 
-      this.patch({
-        project,
-        setup,
-        devServer: devServer.state,
-        drawer: closedDrawer(),
-        branch: await branchStatus(root),
-      })
+      this.patch({ project, setup, devServer: devServer.state, drawer: closedDrawer(), branch })
       this.layout()
 
       if (!project.devCommand && !choosing) this.watchForApp(project.root)
