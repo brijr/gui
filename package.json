@@ -44,7 +44,7 @@
     "node-pty": "^1.1.0",
     "pi-acp": "0.0.34",
     "source-map-js": "^1.2.2",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@babel/parser": "7.29.9",
@@ -79,6 +79,6 @@
     "zustand": "^5.0.15"
   },
   "overrides": {
-    "zod": "4.6.5"
+    "zod": "4.6.7"
   }
 }
