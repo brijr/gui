@@ -97,11 +97,16 @@ function project(name: string, files: Record<string, string> = {}) {
 const git = (cwd: string, ...args: string[]) =>
   execFileSync('git', args, { cwd, env, encoding: 'utf8' }).trim()
 
+/** Commits what's in the repository at `dir`. */
+function commit(dir: string) {
+  git(dir, 'add', '-A')
+  git(dir, '-c', 'user.name=me', '-c', 'user.email=me@example.com', 'commit', '-qm', 'mine')
+}
+
 /** A repository of the user's own in `dir`, with what's there committed. */
 function ownRepo(dir: string) {
   git(dir, 'init', '--quiet')
-  git(dir, 'add', '-A')
-  git(dir, '-c', 'user.name=me', '-c', 'user.email=me@example.com', 'commit', '-qm', 'mine')
+  commit(dir)
 }
 
 /** Every file checkpoint `sha` holds, read from the shadow repo itself. */
@@ -134,10 +139,15 @@ interface Turn {
   paths: string[]
 }
 
-/** One agent turn: a checkpoint, the agent's changes, a checkpoint. */
-async function turn(points: Checkpoints, root: string, changes: Record<string, Text>) {
+/** One agent turn: a checkpoint, the agent's changes (files, or what `changes` does), a checkpoint. */
+async function turn(
+  points: Checkpoints,
+  root: string,
+  changes: Record<string, Text> | (() => void),
+) {
   const before = await points.snapshot('before turn')
-  for (const [file, text] of Object.entries(changes)) put(root, file, text)
+  if (typeof changes === 'function') changes()
+  else for (const [file, text] of Object.entries(changes)) put(root, file, text)
   const after = await points.snapshot('after turn')
   const paths = (await points.diff(before, after)).map((change) => change.path).sort()
   return { before, after, paths } satisfies Turn
@@ -145,15 +155,19 @@ async function turn(points: Checkpoints, root: string, changes: Record<string, T
 
 /**
  * Undo of `turns` (a turn and every later one), as `restoreTurn` does it. `warned` is what
- * the "Overwrite changes made outside Gui?" prompt would list; `redo` is the way back.
+ * the "Overwrite changes made outside Gui?" prompt would list; `alone` is the folders the
+ * turn's notice then names ("Undo left my-app alone. …"); `redo` is the way back, and
+ * resolves to the folders it left alone in turn.
  */
 async function undo(points: Checkpoints, turns: Turn[]) {
   const current = await points.snapshot('before restoring')
   const paths = [...new Set(turns.flatMap((each) => each.paths))]
   const last = turns.at(-1)
-  const warned = last ? await points.changedAmong(last.after, current, paths) : []
-  await points.restore(turns[0].before, paths)
-  return { warned, redo: () => points.restore(current, paths) }
+  const edited = last ? await points.changedAmong(last.after, current, paths) : []
+  const kept = await points.leftAlone(turns[0].before, edited)
+  const warned = edited.filter((path) => !kept.includes(path))
+  const alone = await points.restore(turns[0].before, paths)
+  return { warned, alone, redo: () => points.restore(current, paths) }
 }
 
 describe.skipIf(!gitRuns)('undoing a turn', () => {
@@ -489,11 +503,211 @@ describe.skipIf(!gitRuns)('what a checkpoint leaves out', () => {
 
 describe.skipIf(!gitRuns)('a folder inside the project with a repository of its own', () => {
   // A submodule, a clone kept inside the project, or an app scaffolded in a subfolder by a
-  // tool that runs `git init`. Git records such a folder as a pointer to its commit, not as
-  // its files.
+  // tool that runs `git init`. Git records such a folder as a link to its commit, not as
+  // its files, so it isn't Gui's to restore: Undo and Redo leave the folder exactly as it
+  // is, its `.git` included, put everything else back, and name the folder.
+
+  /** `path` as it is on disk: a folder's fingerprint, a file's text, null when it isn't there. */
+  const asIs = (root: string, path: string) =>
+    lstatSync(join(root, path), { throwIfNoEntry: false })?.isDirectory()
+      ? fingerprint(join(root, path))
+      : get(root, path)
+
+  const nested = (root: string) => {
+    put(root, 'vendor/lib/x.ts', 'old\n')
+    ownRepo(join(root, 'vendor/lib'))
+  }
+
+  interface Row {
+    name: string
+    why: string
+    /** Before the turn, besides src/app.ts */
+    start?: (root: string) => void
+    /** What the turn does, besides changing src/app.ts */
+    turn: (root: string) => void
+    /** What the turn is credited with: how git records what it did */
+    paths: string[]
+    /** The folder Undo leaves as the turn left it, and names */
+    folder: string
+    /** What Redo leaves alone, when that isn't `folder` again */
+    redone?: string[]
+  }
+  const rows: Row[] = [
+    {
+      name: 'created',
+      why: 'one the turn created (as `create-next-app` does) stays',
+      turn: (root) => {
+        put(root, 'my-app/index.ts', 'agent\n')
+        ownRepo(join(root, 'my-app'))
+      },
+      paths: ['my-app', 'src/app.ts'],
+      folder: 'my-app',
+    },
+    {
+      name: 'deleted',
+      why: 'one the turn deleted is not brought back, not even as an empty folder',
+      start: nested,
+      turn: (root) => rmSync(join(root, 'vendor/lib'), { recursive: true }),
+      paths: ['src/app.ts', 'vendor/lib'],
+      folder: 'vendor/lib',
+      // Nothing is there, as when the undo began, and nothing is asked of it.
+      redone: [],
+    },
+    {
+      name: 'committed',
+      why: 'one the turn committed in keeps the commit and its files',
+      start: nested,
+      turn: (root) => {
+        put(root, 'vendor/lib/x.ts', 'agent\n')
+        commit(join(root, 'vendor/lib'))
+      },
+      paths: ['src/app.ts', 'vendor/lib'],
+      folder: 'vendor/lib',
+    },
+    {
+      name: 'from-file',
+      why: 'one the turn put where a file was stays, and the file is not written over it',
+      start: (root) => put(root, 'lib', 'old\n'),
+      turn: (root) => {
+        put(root, 'lib', null)
+        put(root, 'lib/x.ts', 'agent\n')
+        ownRepo(join(root, 'lib'))
+      },
+      paths: ['lib', 'src/app.ts'],
+      folder: 'lib',
+    },
+    {
+      name: 'from-folder',
+      // Git goes on recording the files of a folder it already knew, repository or not.
+      why: 'one the turn made of a folder Gui was recording stays, with the files in it',
+      start: (root) => put(root, 'pkg/a.ts', 'old\n'),
+      turn: (root) => {
+        put(root, 'pkg/a.ts', 'agent\n')
+        put(root, 'pkg/b.ts', 'agent\n')
+        ownRepo(join(root, 'pkg'))
+      },
+      paths: ['pkg/a.ts', 'pkg/b.ts', 'src/app.ts'],
+      folder: 'pkg',
+    },
+    {
+      name: 'to-file',
+      why: 'a file the turn put where one was stays: there is no repository to put back',
+      start: nested,
+      turn: (root) => {
+        rmSync(join(root, 'vendor/lib'), { recursive: true })
+        put(root, 'vendor/lib', 'agent\n')
+      },
+      paths: ['src/app.ts', 'vendor/lib'],
+      folder: 'vendor/lib',
+      // A plain file by then, which Gui recorded: Redo writes what is already there.
+      redone: [],
+    },
+  ]
+
+  test.each(rows)('$why', async ({ name, start, turn: change, paths, folder, redone }) => {
+    const root = project(`nested-${name}`, { 'src/app.ts': 'old\n' })
+    start?.(root)
+    const points = new Checkpoints(root, store, env)
+    const ran = await turn(points, root, () => {
+      put(root, 'src/app.ts', 'agent\n')
+      change(root)
+    })
+    expect(ran.paths).toEqual(paths)
+    const left = asIs(root, folder)
+
+    const undone = await undo(points, [ran])
+    expect(undone.alone).toEqual([folder])
+    expect(get(root, 'src/app.ts')).toBe('old\n')
+    expect(asIs(root, folder)).toBe(left)
+
+    expect(await undone.redo()).toEqual(redone ?? [folder])
+    expect(get(root, 'src/app.ts')).toBe('agent\n')
+    expect(asIs(root, folder)).toBe(left)
+  })
+
+  /** A turn that changes src/app.ts and scaffolds my-app/, a repository with a commit. */
+  const scaffold = (points: Checkpoints, root: string) =>
+    turn(points, root, () => {
+      put(root, 'src/app.ts', 'agent\n')
+      put(root, 'my-app/index.ts', 'agent\n')
+      ownRepo(join(root, 'my-app'))
+    })
+
+  test('undoing an earlier turn takes a later one that created a repository with it', async () => {
+    const root = project('nested-later', { 'a.ts': 'old\n', 'src/app.ts': 'old\n' })
+    const points = new Checkpoints(root, store, env)
+    const first = await turn(points, root, { 'a.ts': 'first\n' })
+    const second = await scaffold(points, root)
+    const left = asIs(root, 'my-app')
+
+    const undone = await undo(points, [first, second])
+    expect(undone.alone).toEqual(['my-app'])
+    expect(state(root, ['a.ts', 'src/app.ts'])).toEqual({ 'a.ts': 'old\n', 'src/app.ts': 'old\n' })
+    expect(asIs(root, 'my-app')).toBe(left)
+  })
+
+  // Deleting the `.git` a scaffolding tool left is how its app joins the project's own
+  // repository. Git still lists the folder as a link, and Gui still has none of its files.
+  test('one the turn created stays after its .git is deleted, with the files in it', async () => {
+    const root = project('nested-no-git', { 'src/app.ts': 'old\n' })
+    const points = new Checkpoints(root, store, env)
+    const ran = await scaffold(points, root)
+    rmSync(join(root, 'my-app/.git'), { recursive: true })
+
+    const undone = await undo(points, [ran])
+    expect(undone.alone).toEqual(['my-app'])
+    expect(state(root, ['src/app.ts', 'my-app/index.ts'])).toEqual({
+      'src/app.ts': 'old\n',
+      'my-app/index.ts': 'agent\n',
+    })
+  })
+
+  // Over two turns git does record a repository giving way to plain files: the folder gone
+  // after the first, files in its place after the second. Before both, what was there was
+  // the repository's, which Gui never had: removing the files would not put that back.
+  test('files a later turn wrote where a repository was are not removed', async () => {
+    const root = project('nested-to-folder', { 'src/app.ts': 'old\n' })
+    nested(root)
+    const points = new Checkpoints(root, store, env)
+    const first = await turn(points, root, () => {
+      put(root, 'src/app.ts', 'agent\n')
+      rmSync(join(root, 'vendor/lib'), { recursive: true })
+    })
+    const second = await turn(points, root, { 'vendor/lib/x.ts': 'agent\n' })
+    expect(second.paths).toEqual(['vendor/lib/x.ts'])
+
+    const undone = await undo(points, [first, second])
+    expect(undone.alone).toEqual(['vendor/lib'])
+    expect(state(root, ['src/app.ts', 'vendor/lib/x.ts'])).toEqual({
+      'src/app.ts': 'old\n',
+      'vendor/lib/x.ts': 'agent\n',
+    })
+  })
+
+  test('the warning before an overwrite leaves it out: nothing in it is overwritten', async () => {
+    const root = project('nested-warned', { 'src/app.ts': 'old\n' })
+    const points = new Checkpoints(root, store, env)
+    const ran = await scaffold(points, root)
+    // Afterwards the user edits a file of the turn's, and commits in the new repository.
+    put(root, 'src/app.ts', 'mine\n')
+    put(root, 'my-app/index.ts', 'mine\n')
+    commit(join(root, 'my-app'))
+
+    const undone = await undo(points, [ran])
+    expect(undone.warned).toEqual(['src/app.ts'])
+    expect(undone.alone).toEqual(['my-app'])
+    expect(state(root, ['src/app.ts', 'my-app/index.ts'])).toEqual({
+      'src/app.ts': 'old\n',
+      'my-app/index.ts': 'mine\n',
+    })
+  })
+
+  // Still a gap. A file changed in such a folder without a commit there changes nothing git
+  // records (the link is to the same commit), so the turn isn't credited with the folder
+  // and nothing names it to Undo: there is nothing to leave alone, and nothing to say.
   //   input:    vendor/lib/ holds its own .git (one commit); a turn changes vendor/lib/x.ts
   //   expected: the turn is credited with vendor/lib/x.ts, and Undo puts 'old' back
-  //   actual:   the turn is credited with nothing, and Undo leaves 'agent'
+  //   actual:   the turn is credited with nothing, and Undo leaves 'agent' without a word
   test.failing('a file the turn changed in it goes back', async () => {
     const root = project('nested', { 'vendor/lib/x.ts': 'old\n' })
     ownRepo(join(root, 'vendor/lib'))
@@ -502,25 +716,6 @@ describe.skipIf(!gitRuns)('a folder inside the project with a repository of its 
     expect(ran.paths).toEqual(['vendor/lib/x.ts'])
     await undo(points, [ran])
     expect(get(root, 'vendor/lib/x.ts')).toBe('old\n')
-  })
-
-  // A turn that makes such a folder, as scaffolding tools do (`create-next-app` runs
-  // `git init` and commits), is credited with the folder as one added entry.
-  //   input:    a turn changes src/app.ts and creates my-app/ with a repository and a commit
-  //   expected: Undo puts src/app.ts back
-  //   actual:   Undo rejects with "Path is a directory: rm returned EISDIR ... my-app" before
-  //             it restores anything, so the turn can't be undone at all
-  test.failing('a turn that creates one with a commit can still be undone', async () => {
-    const root = project('nested-created', { 'src/app.ts': 'old\n' })
-    const points = new Checkpoints(root, store, env)
-    const before = await points.snapshot('before turn')
-    put(root, 'src/app.ts', 'agent\n')
-    put(root, 'my-app/index.ts', 'agent\n')
-    ownRepo(join(root, 'my-app'))
-    const after = await points.snapshot('after turn')
-    const paths = (await points.diff(before, after)).map((change) => change.path).sort()
-    await undo(points, [{ before, after, paths }])
-    expect(get(root, 'src/app.ts')).toBe('old\n')
   })
 
   // After `git init` and before its first commit there is no commit to point to, and git

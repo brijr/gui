@@ -115,6 +115,7 @@ function checkpoints() {
       restore: async (sha: string) => {
         await pause('restore')
         restored.push(sha)
+        return []
       },
     },
   }

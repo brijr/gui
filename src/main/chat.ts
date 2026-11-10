@@ -926,7 +926,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const message = `before restoring message ${record.turn.index + 1}`
       const current = await this.checkpoints.snapshot(message)
       const { paths, inferred } = await this.changedPaths(undone, current)
-      if (!(await this.confirmOverwrite(baseline, current, paths, inferred, 'Undo'))) return
+      if (!(await this.confirmOverwrite(baseline, current, before, paths, inferred, 'Undo'))) return
       if (!this.live(epoch)) return
       // Record the way back first, so a restore that fails halfway can still be redone. Taken
       // again because files may have been saved while the confirmation was open.
@@ -956,7 +956,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
       }
       this.patchMeta({ redoTurnIds: this.redoPoint.turnIds })
       this.schedulePersist()
-      await this.checkpoints.restore(before, paths)
+      const alone = await this.checkpoints.restore(before, paths)
+      this.noteLeftAlone(record, 'Undo', alone)
       // The layout the turns left (their last checkpoint), back to how it was before them.
       await this.restoreLayout(baseline?.sha ?? latest, before)
     } finally {
@@ -1016,19 +1017,21 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.lock = token
     try {
       // The undo left these paths as they were before its first turn.
-      const restored = this.records.find((r) => point.turnIds.includes(r.turn.id))?.before ?? null
+      const first = this.records.find((r) => point.turnIds.includes(r.turn.id))
+      const restored = first?.before ?? null
       await this.requireCheckpoints([point.sha, restored], "so they can't be redone")
       const paths = this.restorable(point.paths)
       if (restored) {
         const current = await this.checkpoints.snapshot('before redo')
         const baseline = { sha: restored, complete: true }
-        if (!(await this.confirmOverwrite(baseline, current, paths, [], 'Redo'))) return
+        if (!(await this.confirmOverwrite(baseline, current, point.sha, paths, [], 'Redo'))) return
         if (!this.live(epoch)) return
       }
-      await this.checkpoints.restore(point.sha, paths)
+      const alone = await this.checkpoints.restore(point.sha, paths)
       if (restored) await this.restoreLayout(restored, point.sha)
       // A chat opened meanwhile has its own turns to redo.
       if (!this.live(epoch)) return
+      if (first) this.noteLeftAlone(first, 'Redo', alone)
       for (const r of this.records) {
         if (!point.turnIds.includes(r.turn.id)) continue
         r.turn.reverted = false
@@ -2155,11 +2158,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   /**
    * Undo and redo rewrite whole files, so they'd silently discard edits made outside
-   * Gui (e.g. in the user's editor) since Gui last recorded those files. Asks first.
+   * Gui (e.g. in the user's editor) since Gui last recorded those files. Asks first. `to`
+   * is the checkpoint being restored: what restoring it leaves alone isn't overwritten.
    */
   private async confirmOverwrite(
     baseline: Baseline | null,
     current: string,
+    to: string,
     paths: string[],
     inferred: string[],
     action: 'Undo' | 'Redo',
@@ -2167,7 +2172,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (paths.length === 0) return true
     const edited = baseline ? await this.checkpoints.changedAmong(baseline.sha, current, paths) : []
     // Paths only attributed to a turn by diffing may hold the user's edits too.
-    const changed = [...new Set([...edited, ...inferred])]
+    const touched = [...new Set([...edited, ...inferred])]
+    if (touched.length === 0) return true
+    // A folder with a repository of its own is left as it is, so nothing in it is overwritten.
+    const alone = new Set(await this.checkpoints.leftAlone(to, touched))
+    const changed = touched.filter((path) => !alone.has(path))
     if (changed.length === 0) return true
     const certain = baseline?.complete === true && inferred.length === 0
     const listed = changed.slice(0, OVERWRITE_LIST_MAX).map((path) => `  ${path}`)
@@ -2190,6 +2199,17 @@ export class ChatController extends EventEmitter<ChatEvents> {
       ? await dialog.showMessageBox(parent, options)
       : await dialog.showMessageBox(options)
     return response === 0 && !this.disposed
+  }
+
+  /**
+   * Says, on the turn the undo or redo was asked on, which folders it left alone
+   * (`Checkpoints.restore`). Once: undoing again after a redo leaves the same ones.
+   */
+  private noteLeftAlone(record: TurnRecord, action: 'Undo' | 'Redo', folders: string[]) {
+    if (folders.length === 0) return
+    const text = `${action} left ${folders.join(', ')} alone. Gui doesn't record folders with a git repository of their own, so it can't ${action.toLowerCase()} changes to them.`
+    if (record.turn.items.some((item) => item.kind === 'notice' && item.text === text)) return
+    this.pushItem(record, { kind: 'notice', id: randomUUID(), tone: 'info', text })
   }
 
   /** Shows the session's mode as the agent last reported it, however it changed. */

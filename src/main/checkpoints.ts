@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import { lstat, mkdir, realpath, rm, rmdir, stat, writeFile } from 'node:fs/promises'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import { MAX_CHECKPOINT_FILE_BYTES } from '../shared/bounded'
 import { developerTools } from './developer-tools'
 import { execFile } from './process'
@@ -73,6 +73,8 @@ const SHA_RE = /^[0-9a-f]{4,64}$/i
  * add its whole size to the store each time. Undo leaves them as they are.
  */
 const MAX_FILE_BYTES = MAX_CHECKPOINT_FILE_BYTES
+/** How git lists a folder with a repository of its own: a link to its commit, not its files. */
+const LINK = '160000 '
 /** Each checkpoint is a commit of its own under this prefix, so one nothing needs can go. */
 const KEEP_REF = 'refs/gui/checkpoints/'
 /** How often a project's store is pruned, at most. */
@@ -283,12 +285,19 @@ export class Checkpoints {
     })
   }
 
-  restore(sha: string, paths: string[]): Promise<void> {
+  /**
+   * Puts `paths` back as checkpoint `sha` has them, all but those in a folder with a git
+   * repository of its own (`nested`), which is left exactly as it is. Returns those folders,
+   * for the caller to name.
+   */
+  restore(sha: string, paths: string[]): Promise<string[]> {
     return this.enqueue(async () => {
       assertSha(sha)
       const repo = await this.ready()
-      const files = [...new Set(paths.map((path) => toRepoPath(repo.root, path)))]
-      if (files.length === 0) return
+      const listed = [...new Set(paths.map((path) => toRepoPath(repo.root, path)))]
+      if (listed.length === 0) return []
+      const alone = await this.nested(repo, sha, listed)
+      const files = listed.filter((file) => !alone.has(file))
       const keep = new Set((this.options.keepDirs ?? []).map((dir) => resolve(repo.root, dir)))
 
       const present = new Set<string>()
@@ -305,7 +314,64 @@ export class Checkpoints {
       for (const batch of chunk(files.filter((file) => present.has(file)))) {
         await this.git(repo, ['checkout', sha, '--', ...batch])
       }
+      return [...new Set(alone.values())].sort()
     })
+  }
+
+  /** Of `paths`, the ones `restore` to `sha` would leave alone. */
+  leftAlone(sha: string, paths: string[]): Promise<string[]> {
+    return this.enqueue(async () => {
+      assertSha(sha)
+      const repo = await this.ready()
+      const files = [...new Set(paths.map((path) => toRepoPath(repo.root, path)))]
+      return [...(await this.nested(repo, sha, files)).keys()]
+    })
+  }
+
+  /**
+   * The paths among `files` that are in a folder with a git repository of its own, each with
+   * that folder (the outermost). Git records such a folder as a link to its commit, never as
+   * its files, so Gui has nothing to put back there and no business removing it: checking a
+   * link out can delete a file standing in its place, and checking a file out over a
+   * repository deletes the repository. A folder counts when checkpoint `sha` records it as a
+   * link, when the last snapshot did (the index, where it stays a link even after its `.git`
+   * is deleted), or when it holds a `.git` now, however it was recorded.
+   */
+  private async nested(repo: Repo, sha: string, files: string[]): Promise<Map<string, string>> {
+    // A path and each folder above it, outermost first: "a", "a/b", "a/b/c.ts".
+    const upTo = (file: string) => {
+      const chain = [file]
+      while (posix.dirname(chain[0]) !== '.') chain.unshift(posix.dirname(chain[0]))
+      return chain
+    }
+    const candidates = [...new Set(files.flatMap(upTo))]
+    const repositories = new Set<string>()
+    const index = (await this.git(repo, ['write-tree'])).trim()
+    for (const batch of chunk(candidates)) {
+      for (const tree of [sha, index]) {
+        const out = await this.git(repo, ['ls-tree', '-z', tree, '--', ...batch])
+        for (const entry of splitNul(out)) {
+          if (entry.startsWith(LINK)) repositories.add(entry.slice(entry.indexOf('\t') + 1))
+        }
+      }
+      const held = await Promise.all(
+        batch.map((folder) =>
+          lstat(join(repo.root, folder, '.git')).then(
+            () => true,
+            () => false,
+          ),
+        ),
+      )
+      batch.forEach((folder, i) => {
+        if (held[i]) repositories.add(folder)
+      })
+    }
+    const found = new Map<string, string>()
+    for (const file of files) {
+      const folder = upTo(file).find((each) => repositories.has(each))
+      if (folder) found.set(file, folder)
+    }
+    return found
   }
 
   /**
@@ -513,7 +579,9 @@ function realpathOr(path: string) {
 }
 
 function gitEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const out: NodeJS.ProcessEnv = { ...env, GIT_TERMINAL_PROMPT: '0' }
+  // No optional locks: to see whether a nested repository changed, git runs `git status` in
+  // it, which would otherwise rewrite that repository's own index.
+  const out: NodeJS.ProcessEnv = { ...env, GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' }
   for (const key of STRIPPED_ENV) delete out[key]
   return out
 }
