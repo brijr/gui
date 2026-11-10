@@ -48,7 +48,7 @@ Validate live sign-in, private-repository cloning, revoked access, and token ref
 
 ## Creating and managing projects
 
-The connection UI creates private repositories under the signed-in personal account, initialized with a README. The user must install Gui on their personal GitHub account first. Creation and cloning are separate actions, so canceling or failing a local clone never deletes the repository. Name conflicts are surfaced without retrying creation automatically. Organization repository creation and merging are outside this flow.
+Gui's connection UI no longer creates repositories: **Clone…** on the start screen and **Settings → GitHub** only connect GitHub, choose repositories and clone one. The service still has a route that creates private repositories under the signed-in personal account, initialized with a README; the app doesn't call it. The user must install Gui on their personal GitHub account first. Creation and cloning are separate actions, so canceling or failing a local clone never deletes the repository. Name conflicts are surfaced without retrying creation automatically. Organization repository creation and merging are outside this flow.
 
 The existing shipping sheet reviews a branch, title, description, and files before committing, pushing, and opening a pull request. The service checks repository access again for credentials and PR creation. Existing open PRs are reused. GitHub write access still depends on both the user and installed app, and branch protection continues to apply.
 
