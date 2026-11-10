@@ -30,10 +30,28 @@ const { light, dark, stillLight, stillDark, alt, sizes } = Astro.props
   const START = 0.5
   const video = document.querySelector<HTMLVideoElement>('[data-hero-video]')
   const still = matchMedia('(prefers-reduced-motion: reduce)')
+  // The clip's last ~0.45s fades to the page color, made for a loop it no longer plays: it stops
+  // this far from the end instead, on the last full frame.
+  const END = 0.8
   if (video) {
     let visible = false
+    let done = false
+    const stopBeforeFade = () => {
+      if (done || !(video.duration - video.currentTime <= END)) return false
+      done = true
+      video.pause()
+      return true
+    }
+    if ('requestVideoFrameCallback' in video) {
+      const onFrame = () => {
+        if (!stopBeforeFade()) video.requestVideoFrameCallback(onFrame)
+      }
+      video.requestVideoFrameCallback(onFrame)
+    } else {
+      video.addEventListener('timeupdate', stopBeforeFade)
+    }
     const update = () => {
-      if (visible && !still.matches && !video.ended) {
+      if (visible && !still.matches && !done) {
         if (video.currentTime < START) video.currentTime = START
         video.play().catch(() => {})
       } else {
