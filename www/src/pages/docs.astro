@@ -13,6 +13,7 @@ const sections = [
   ['variations', 'Variations'],
   ['chat', 'The chat'],
   ['sizes', 'Screen sizes'],
+  ['rulers', 'Rulers and guides'],
   ['recordings', 'Screenshots and recordings'],
   ['terminal', 'Terminal and logs'],
   ['canvases', 'Canvases'],
@@ -28,6 +29,7 @@ const shortcuts = [
   ['New tab', '⌘T'],
   ['Close the tab', '⌘W'],
   ['Design mode', '⌘D'],
+  ['Rulers', '⇧R'],
   ['Screenshot', '⇧⌘S'],
   ['Record the page', '⌥⌘R'],
   ['Desktop, Laptop, Tablet, Mobile', '⌘1 – ⌘4'],
@@ -36,11 +38,12 @@ const shortcuts = [
   ['Show or hide the chat', '⌘B'],
   ['Go to the message box', '⌘L'],
   ['Chat as a sidebar, or floating', '⇧⌘D'],
+  ['Chat in its own window', '⌥⌘L'],
   ['New chat', '⇧⌘K'],
   ['Stop the agent', '⌘.'],
   ['Auto or Ask', '⇧⌘A'],
   ['Allow, or don’t allow', '⌘↩ ⌘⌫'],
-  ['Undo the agent’s last change', '⌘Z'],
+  ['Undo the agent’s last change, when the chat shows', '⌘Z'],
   ['Terminal and logs', '⌘J'],
   ['Settings', '⌘,'],
   ['All shortcuts', '⌘/'],
@@ -76,7 +79,8 @@ const shortcuts = [
   <p>
     <a href="/download">Download Gui</a>, open Gui.dmg, and drag Gui to Applications. When you
     first open it, Gui shows your agents. <strong>Install</strong> gets Claude Code or Codex for
-    you, and <strong>Sign in</strong> starts the agent’s login.
+    you, and <strong>Sign in</strong> starts the agent’s login. For a different agent, Gui opens
+    its install page, and its login runs in Terminal.
   </p>
   <p>
     Gui also works with Cursor, Amp, OpenCode, Grok Build, Kiro, Devin, Pi, Muse Code, fx and
@@ -87,7 +91,7 @@ const shortcuts = [
 
   <h2 id="projects">Open a project</h2>
   <p>
-    On the start screen, click <strong>Open project…</strong> and choose your project folder. Gui
+    On the start screen, click <strong>Open project…</strong> (⌘O) and choose your project folder. Gui
     finds the package manager and the dev script. The first time, it shows you the command and
     asks before it runs it. If the dependencies are missing, Gui installs them in the same step.
     In a monorepo, Gui asks which app to show. If the project has a <code>.env.example</code>,
@@ -102,14 +106,20 @@ const shortcuts = [
     Blank.
   </p>
   <p>
-    Each project opens in its own tab, with its own preview, chat, dev server and agent. Tabs in
-    the background keep running. A tab shows when its agent is working, is waiting for you, or
-    has failed.
+    Each project opens in its own tab, with its own preview, chat, dev server and agent. ⌘T
+    opens a new tab. Tabs in the background keep running. A tab shows when its agent is working,
+    is waiting for you, or has failed.
   </p>
   <p>
     To open folders from Terminal, choose <strong>Gui&nbsp;→ Install 'gui' Command…</strong> once.
     Then <code>gui</code> opens the current folder, and <code>gui path/to/app</code> opens a
     different one.
+  </p>
+  <p>
+    When a project is open already, the <code>gui</code> command, the Dock and{' '}
+    <strong>File&nbsp;→ Open Recent</strong> show its tab. <strong>Open project…</strong> and the
+    recent projects on the start screen open it again in a new tab, so you can run two apps of a
+    monorepo side by side.
   </p>
 
   <h2 id="select">Design mode</h2>
@@ -128,7 +138,12 @@ const shortcuts = [
     HTML and styles, and the file and line it came from. You can also paste or drag a reference
     image into the chat. The agent sees it.
   </p>
-  <p>To change a few words, double-click the text on the page and type.</p>
+  <p>
+    To change a few words, turn design mode off, double-click the text on the page, and type.
+    Press Return or click away to keep the change. Press Esc to put the old text back. Gui
+    writes the change into your source file when it finds the same text there. When it does not,
+    it asks the agent to make the change.
+  </p>
 
   <h2 id="variations">Variations</h2>
   <p>
@@ -155,12 +170,12 @@ const shortcuts = [
     line, and the chat shows what changed: the selected element before and after, and the files.
     Click <strong>Undo</strong> to put the files back, or <strong>Follow up</strong> to ask for
     more. On an earlier message, <strong>Undo to here</strong> undoes that change and each change
-    after it. Gui asks first.
+    after it. Gui asks first. When the chat shows, ⌘Z also undoes the last change.
   </p>
   <p>
     Gui keeps a copy of your project files before and after each change, and Undo uses these
     copies. Gui does not change your git history. It also does not commit, push or make branches.
-    Ask your agent for that, or use the terminal.
+    Ask your agent for that, or use the terminal. The toolbar shows the project’s current branch.
   </p>
   <p>
     Messages that you send while the agent works wait in a queue above the message box, and run
@@ -168,8 +183,9 @@ const shortcuts = [
     <strong>Send now</strong>. <strong>Stop</strong> stops the agent and pauses the queue.
   </p>
   <p>
-    <strong>Auto</strong> and <strong>Ask</strong> set what the agent can do without you. Auto is
-    on by default. In Auto, Gui lets the agent edit project files and run commands. It still asks
+    <strong>Auto</strong> and <strong>Ask</strong> set what the agent can do without you. The
+    shield button in the message box, or ⇧⌘A, changes between them. Auto is on by default. In
+    Auto, Gui lets the agent edit project files and run commands. It still asks
     you about files outside the project, sensitive files such as config files, lockfiles,{' '}
     <code>package.json</code> and git hooks, and anything the agent flags. Commands do not run in
     a sandbox. In Ask, Gui asks you about everything except edits to ordinary project files. Each
@@ -177,9 +193,14 @@ const shortcuts = [
     allow.
   </p>
   <p>
+    Amp, fx, Kiro, OpenCode and Pi use their own settings to decide when to ask you. For these
+    agents, the message box says so in place of the shield button.
+  </p>
+  <p>
     The chat floats on the page. Drag it by its header to a different corner, and drag an edge to
-    resize it. ⇧⌘D shows it as a sidebar, and ⌘B hides it. Errors from the console and the build
-    show above the message box, with a button that gives the error to your agent.
+    resize it. Drag it to the left or right edge of the window, or press ⇧⌘D, to show it as a
+    sidebar. ⌥⌘L moves it to a window of its own, and ⌘B hides it. Errors from the console and
+    the dev server show above the message box, with a button that gives the errors to your agent.
   </p>
 
   <h2 id="sizes">Screen sizes</h2>
@@ -193,25 +214,55 @@ const shortcuts = [
   <p>
     In a small window, Gui draws the device frame smaller and shows how much. The page still lays
     out at the full size, and the agent knows which size you look at. ⌘+ and ⌘− zoom, and ⌘0
-    goes back. Focus mode (⌘\) hides everything except the page, until you press Esc.
+    goes back. Focus mode (⌘\) hides everything except the page, until you press ⌘\ again or
+    Esc.
+  </p>
+
+  <h2 id="rulers">Rulers and guides</h2>
+  <p>
+    The ruler button in the toolbar, or ⇧R, shows rulers along the top and the left of the page.
+    They measure in the CSS pixels of your page. ⇧R works when you are not typing in a field.
+  </p>
+  <ul>
+    <li>
+      Drag out of the top ruler to make a horizontal guide. Drag out of the left ruler to make a
+      vertical guide.
+    </li>
+    <li>Drag a guide to move it. Drag it back onto its ruler to remove it.</li>
+    <li>
+      While you drag, a guide snaps to a near edge or the middle of the element under the
+      pointer.
+    </li>
+  </ul>
+  <p>
+    Guides stay with the page when it scrolls. Gui keeps up to 50 guides for each project. Gui
+    draws guides over the page, not in it, so they do not show in screenshots or recordings. A
+    canvas has no rulers.
+  </p>
+  <p>
+    While the rulers show, the agent gets your guides with each message, so you can write “line
+    this up with the guide”. The agent can also find element edges that are within 8 pixels of a
+    guide but not on it, and it can add or remove guides to show you what lines up.
   </p>
 
   <h2 id="recordings">Screenshots and recordings</h2>
   <p>
-    The camera button in the toolbar copies or saves a screenshot of the page, or attaches it to
-    the chat. It takes the visible area or the full page.
+    The camera button in the toolbar, or ⇧⌘S, copies or saves a screenshot of the page, or
+    attaches it to the chat. It takes the visible area or the full page.
   </p>
   <p>
-    <strong>Record</strong> makes a video of the page only, up to 60 seconds long. When you stop,
-    the clip goes with your next message. The agent can examine each frame of an animation.
-    Agents that cannot read images cannot see the clip.
+    <strong>Record</strong> (⌥⌘R) makes a video of the page only, up to 60 seconds long. When
+    you stop, the clip goes with your next message. The agent gets frames from the clip and a
+    timeline of what happened on the page, and it can examine each frame of an animation. Agents
+    that cannot read images cannot see the clip. They use the timeline.
   </p>
   <p>
     To talk while you record, turn on the microphone next to <strong>Record</strong>, then point at
-    the problem as you speak. Your Mac makes the transcript, so your voice does not go to a
-    server. The agent gets your words and where the pointer was when you said them. Narrated
-    recordings can be up to 3 minutes long and need macOS 26 or later. Gui uses the microphone
-    only while you record with narration on.
+    the problem as you speak. The first time, macOS asks you to let Gui use the microphone. Your
+    Mac makes the transcript, so your voice does not go to a server. The agent gets your words
+    and where the pointer was when you said them. Narrated recordings can be up to 3 minutes
+    long and need macOS 26 or later. When you send a narrated clip, Gui waits for the transcript
+    first. Gui uses the microphone only while you record with narration on.
   </p>
 
   <h2 id="terminal">Terminal and logs</h2>
