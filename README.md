@@ -36,7 +36,7 @@ Gui speaks the [Agent Client Protocol](https://agentclientprotocol.com) and reus
 | Muse Code | Your `muse`, through the bundled `@bex-co/muse-code-acp` adapter | `muse login` |
 | Amp | Your `amp`, through the bundled [`amp-acp`](https://github.com/tao12345666333/amp-acp) adapter | `amp login` |
 | Devin | `devin acp` | `devin auth login` |
-| Cursor | `cursor-agent acp` | `cursor-agent login` |
+| Cursor | `cursor-agent acp`, or `agent acp` when that command is Cursor's | `cursor-agent login` |
 | fx | `fx acp` | `fx login` |
 | jcode | `jcode acp` | `jcode`, which runs its setup |
 
@@ -72,11 +72,13 @@ The code is in four parts: the Electron main process in `src/main`, preloads in 
 
 ## Security model
 
-The preview runs your app plus whatever third-party scripts it loads, so it is treated as semi-trusted: it has no preload or IPC access, its session denies permission requests (camera, clipboard reads, devices, external protocols) by default, and element picking only works on local origins.
+The preview runs your app plus whatever third-party scripts it loads, so it is treated as semi-trusted. It never gets the preload Gui's own UI uses, and Gui's own messages are accepted from the window or tab page that sent them, which a preview is not. Its session denies permission requests (camera, clipboard reads, devices, external protocols) by default, and element picking only works on local origins.
+
+The preview has a small preload of its own (`src/preload/preview.ts`), for editing text in place and for the rulers. It runs in an isolated world and exposes nothing to the page: no `contextBridge` API and no globals, so page scripts can't call it or read what it sends. It listens to the page's events and sends main four messages: a double-click on an element that holds only text (the point and the text), to start an edit; how that edit ended (the new text, or nothing); how far the page is scrolled, so guides stay with the content; and ⇧R pressed outside anything that takes typing, to show or hide the rulers. An edit starts only on a real double-click, and the rulers switch only on a real key press (`isTrusted`), not on events a script dispatched. Main takes these messages only from the top frame of a view that a tab owns as its preview, and checks the arguments: finite numbers, and text of at most 4,000 characters. An edit starts only in an open project or canvas frame, on a local address, outside design mode, one at a time, and its end must carry the id main issued. Main finds the element itself through the DevTools protocol. The edit's text is read from the page's DOM, which the page's scripts can change. Main writes it into the project file that rendered the element when the old text is there plainly and the new text needs no escaping; otherwise it sends the change to the agent as a message.
 
 The terminals are your own shell, started only when you open one, at the project root; nothing the project defines runs in them on its own (your shell's startup files run as they do in Terminal, so tools hooked into them, like direnv, react to the folder as usual). Only the window's own UI can type into them.
 
-Agents get Gui's preview tools over a loopback MCP server that needs a per-tab token and rejects other `Host` headers. The tools only act on the local dev server. Everything they return from the page or dev server (element data, console, logs) is fenced and marked as untrusted, the same as selected-element context. Claude's preview tools are pre-allowed by exact name; nothing is auto-approved by matching a tool's title. Chat history is stored owner-only (`0600`), without URL query strings.
+Agents get Gui's preview tools over a loopback MCP server that needs a per-tab token and rejects other `Host` headers. The page tools act on your app at its local address, or on a public website the agent opens (`preview_navigate` with a full address; in a canvas, `canvas_screenshot_url`). A website loads in a view with no preload, in a separate signed-out session that is kept in memory and wiped when it closes: public addresses only, with no permissions, downloads or form posts. Everything they return from the page or dev server (element data, console, logs) is fenced and marked as untrusted, the same as selected-element context. Claude's preview tools are pre-allowed by exact name; nothing is auto-approved by matching a tool's title. Chat history is stored owner-only (`0600`), without URL query strings.
 
 **Auto** (on by default, per project) approves the agent's requests to edit project files and run commands. It still asks about files outside the project, sensitive files (config, dotfiles, lockfiles, scripts, `package.json`, git hooks) and anything the agent itself flags. Commands aren't sandboxed. In **Ask** (⇧⌘A), Gui still approves edits to ordinary project files, and asks you about everything else.
 
