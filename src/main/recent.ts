@@ -19,10 +19,17 @@ function updateRecent(update: (recent: RecentProject[]) => RecentProject[]) {
   return task
 }
 
+/** A saved entry with what the rest of Gui reads; a damaged or hand-edited file can hold anything. */
+function isRecent(entry: unknown): entry is RecentProject {
+  if (typeof entry !== 'object' || entry === null) return false
+  const { root, name } = entry as Record<string, unknown>
+  return typeof root === 'string' && root !== '' && typeof name === 'string'
+}
+
 export async function loadRecent(): Promise<RecentProject[]> {
   try {
     const parsed: unknown = JSON.parse(await readFile(file(), 'utf8'))
-    return Array.isArray(parsed) ? (parsed as RecentProject[]) : []
+    return Array.isArray(parsed) ? parsed.filter(isRecent) : []
   } catch {
     return []
   }
