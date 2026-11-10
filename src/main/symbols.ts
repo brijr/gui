@@ -1,41 +1,70 @@
-import { type NativeImage, nativeImage } from 'electron'
-import { SYMBOLS, type SymbolImages } from '../shared/symbols'
+import { version as kernelVersion } from 'node:os'
+import { join } from 'node:path'
+import { app, type NativeImage, nativeImage, screen } from 'electron'
+import { SYMBOLS, type SymbolImages, type SymbolName } from '../shared/symbols'
+import { cachedSymbols, symbolsKey } from './symbols-cache'
 
-let images: SymbolImages | undefined
+let images: Promise<SymbolImages> | undefined
 
-const POINT_SIZE = 48
+/** 3× toolbar size; CSS masks give every symbol the control's text color. */
+const DRAWING = { pointSize: 48, weight: 'regular' } as const
 
-const draw = (name: string) =>
-  nativeImage.createFromNamedImage(name, { pointSize: POINT_SIZE, weight: 'regular' })
+const draw = (name: string) => nativeImage.createFromNamedImage(name, DRAWING)
 
 /**
- * Rasterize once at 3× toolbar size; CSS masks give every symbol the control's text color.
+ * Every symbol the UI uses, as images. Drawing them holds the main thread for over a tenth
+ * of a second while the first window's pages load, so what was drawn is kept in Gui's data
+ * folder and later launches read that instead.
+ */
+export function getSymbols(): Promise<SymbolImages> {
+  images ??= loadSymbols()
+  return images
+}
+
+async function loadSymbols(): Promise<SymbolImages> {
+  if (process.platform !== 'darwin') return {}
+  const names = [...new Set(Object.values(SYMBOLS))]
+  const key = symbolsKey({
+    system: [process.getSystemVersion(), kernelVersion()],
+    versions: [app.getVersion(), process.versions.electron],
+    scales: [screen.getPrimaryDisplay(), ...screen.getAllDisplays()].map((d) => d.scaleFactor),
+    drawing: [DRAWING, FAINT],
+    names,
+  })
+  const file = join(app.getPath('userData'), 'symbols.json')
+  return cachedSymbols(file, key, names, () => drawSymbols(names))
+}
+
+/**
  * Symbols come out as wide or tall as they're drawn, so each carries its size against a plain
  * circle at the same point size: icons then share one size, as they do in a Mac toolbar,
- * rather than each being stretched to fill a square.
+ * rather than each being stretched to fill a square. Main goes back to its loop between
+ * symbols (each takes a millisecond or two), so the pages loading are answered meanwhile.
  */
-export function getSymbols(): SymbolImages {
-  if (images) return images
-  images = {}
-  if (process.platform !== 'darwin') return images
+async function drawSymbols(names: readonly SymbolName[]): Promise<SymbolImages> {
+  const drawn: SymbolImages = {}
   const circle = draw('circle').getSize()
-  const unit = circle.height || POINT_SIZE
+  const unit = circle.height || DRAWING.pointSize
   const fraction = (pixels: number) => Math.round((pixels / unit) * 1000) / 1000
-  for (const name of new Set(Object.values(SYMBOLS))) {
+  for (const name of names) {
+    await new Promise((resolve) => setImmediate(resolve))
     const image = draw(name)
     if (image.isEmpty()) continue
     const { width, height } = image.getSize()
-    images[name] = {
+    drawn[name] = {
       src: withoutFaintLayer(image).toDataURL(),
       width: fraction(width),
       height: fraction(height),
     }
   }
-  return images
+  return drawn
 }
 
-/** Alpha of the see-through layer some symbols draw under their outline, and the band around it. */
-const FAINT = { low: 48, high: 112 }
+/**
+ * Alpha of the see-through layer some symbols draw under their outline, the band around it,
+ * and the share of a symbol that has to sit in it.
+ */
+const FAINT = { low: 48, high: 112, share: 0.25 }
 
 /**
  * Some symbols (display, iphone, ipad, laptopcomputer) fill their screen with a see-through
@@ -53,7 +82,7 @@ function withoutFaintLayer(image: NativeImage): NativeImage {
     shown++
     if (alpha >= FAINT.low && alpha < FAINT.high) faint++
   }
-  if (faint < shown * 0.25) return image
+  if (faint < shown * FAINT.share) return image
   const floor = FAINT.high
   for (let i = 3; i < pixels.length; i += 4) {
     pixels[i] = Math.round((Math.max(0, pixels[i] - floor) * 255) / (255 - floor))
