@@ -231,6 +231,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * operation's own token, so a superseded operation can't release someone else's lock.
    */
   private lock: object | null = null
+  /** The replacement under way and those waiting behind it (see `replace`). */
+  private replacing: Promise<unknown> = Promise.resolve()
   /** Bumped by reset; work started in an older epoch must not touch current state. */
   private epoch = 0
   /** False after dispose or a reset that bumped `epoch`; late async work must not apply. */
@@ -405,10 +407,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.lock) throw new Error('Wait for the agent to finish first.')
     if (!(await this.replace(saved)))
       throw new Error("This chat couldn't be archived, so it's still open.")
-    // Now the live chat; the live file keeps it.
-    await removeArchived(this.root, id).catch((error: unknown) => {
-      console.error('[gui] failed to remove a reopened chat from the archive', error)
-    })
   }
 
   /** The archive copy of this chat, for the archive itself and the "archived" notice. */
@@ -421,13 +419,23 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /**
    * Stops whatever is running, archives the transcript (when it has turns), and puts `next`
    * (or an empty chat) in its place. An archive that fails keeps the transcript where it is.
+   * One at a time, in the order asked: two at once would both archive the chat the first is
+   * leaving, and the second would overwrite the one the first opened.
    */
-  private async replace(next: SavedChat | null) {
+  private replace(next: SavedChat | null) {
     const token = {}
     this.lock = token
     this.epoch++
     // Messages queued for the old chat go with it; ones sent while this runs are for the new one.
     this.clearQueue()
+    const done = this.replacing.then(() => this.swap(next, token))
+    this.replacing = done.catch(() => undefined)
+    return done
+  }
+
+  private async swap(next: SavedChat | null, token: object) {
+    // Closed while it waited: the final save kept the transcript.
+    if (this.disposed) return false
     const running = this.active
     if (running) {
       // Let the agent stop on its own before killing it, so it isn't cut off mid-write.
@@ -477,6 +485,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     })
     this.emit('reset', this.snapshot())
     this.drainQueue()
+    // Now the live chat, which the live file keeps: out of the archive before the next
+    // replacement, which may put it back.
+    if (next) {
+      await removeArchived(this.root, next.id).catch((error: unknown) => {
+        console.error('[gui] failed to remove a reopened chat from the archive', error)
+      })
+    }
     return true
   }
 
