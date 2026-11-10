@@ -201,7 +201,7 @@ export function Composer({
         clips,
         about,
       )
-      if (accepted) setNotice(null)
+      setNotice(accepted ? null : 'Gui couldn’t send that message. Try again.')
     } finally {
       sending.current = false
     }

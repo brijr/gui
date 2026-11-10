@@ -51,6 +51,26 @@ test('busy chat queues sends and a cancelled start leaves no trace', async ({ la
   expect(await session.consentPrompts()).toEqual([])
 })
 
+// Main can decline a message (the project closing as it's sent, a clip that's gone): the
+// message box says so, and keeps the draft to send again.
+test('a message Gui could not send stays in the message box, with a notice', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  // Every message is declined, so nothing reaches an agent.
+  await session.app.evaluate(({ ipcMain }) => {
+    ipcMain.removeHandler('chat:send')
+    ipcMain.handle('chat:send', () => false)
+  })
+  const box = session.chat.getByRole('textbox')
+  await box.fill('Make the counter button red.')
+  await box.press('Enter')
+  await expect(session.chat.getByRole('status').filter({ hasText: 'send' })).toHaveText(
+    'Gui couldn’t send that message. Try again.',
+  )
+  await expect(box).toHaveValue('Make the counter button red.')
+  expect((await session.chatSnapshot()).turns).toEqual([])
+})
+
 // Hot reload that falls back to a full reload (an agent's edit, mid-turn) loads a new document
 // in the preview, which takes the keyboard from the chat's message box as it goes.
 test('a full reload of the preview leaves the keyboard in the message box', async ({ launch }) => {
