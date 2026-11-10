@@ -18,10 +18,10 @@ export const releases: Release[] = [
       'Agents can check alignment against your guides: they find edges that are a few pixels off, fix them, and check again. They can also place guides to show you what lines up.',
       'Gui starts faster and does less in the background. The window paints sooner, a chat you can’t see stops animating, and a dev script that never opens a port is no longer checked every second and a half.',
       'Gui asks first in more cases: edits to more config and dependency files, and any file path that starts with ~. The prompt before a project’s script runs can no longer hide part of a long or padded script.',
-      'When Gui asks your agent to make a text edit from the preview, the old and new text are marked as coming from the page, so a page can’t slip in instructions as if they were yours.',
+      'Text you edit in the preview is handled more carefully. Gui writes the edit into your files itself only when it is plain text inside one element, and anything else goes to your agent. There, the old and new text are marked as coming from the page, so a page can’t slip in instructions as if they were yours.',
       'A new version is offered once, not every few hours. If a restart can’t install it, Gui says so.',
       'A chat reopened from the archive is no longer lost if you start a new chat right after. Settings → Chat position now moves the chat in projects that are already open. The message box says when a message couldn’t be sent.',
-      'Fixes: a damaged recent-projects file no longer blanks the start screen, an empty git repository in a subfolder no longer breaks Undo, guides stay the same in two tabs of one project, and an agent switched off in Settings no longer says “checking”.',
+      'Fixes: a damaged recent-projects file no longer blanks the start screen, Undo works when a subfolder has a git repository of its own (it leaves that folder alone and says so), guides stay the same in two tabs of one project, and an agent switched off in Settings no longer says “checking”.',
     ],
   },
   {
