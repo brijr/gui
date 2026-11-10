@@ -50,6 +50,26 @@ export function pickAddress(
   return [...candidates].sort((a, b) => score(b) - score(a) || order(a, b))[0] ?? null
 }
 
+/** Most dev servers are up well within this; past it, the UI offers a way forward. */
+export const SLOW_START_MS = 30_000
+/** Output this recent keeps the looking frequent: it almost always comes before or with the port. */
+export const RECENT_OUTPUT_MS = 10_000
+const FIND_INTERVAL_MS = 400
+const FIND_INTERVAL_LATER_MS = 1500
+const FIND_INTERVAL_QUIET_MS = 20_000
+
+/**
+ * How long until a starting server's ports are looked at again; each look runs `ps` and
+ * `lsof`. Often while most servers come up. Past SLOW_START_MS, every second or two while
+ * something of the server's is listening or it printed in the last RECENT_OUTPUT_MS (`quiet`
+ * is how long ago it last did), and otherwise rarely: a script that never opens a port (a
+ * build watcher, a prompt waiting for an answer) is looked at for as long as it runs.
+ */
+export function findInterval(elapsed: number, quiet: number, listening: boolean) {
+  if (elapsed <= SLOW_START_MS) return FIND_INTERVAL_MS
+  return listening || quiet < RECENT_OUTPUT_MS ? FIND_INTERVAL_LATER_MS : FIND_INTERVAL_QUIET_MS
+}
+
 /** How long a GET of `/` gets to answer before the address counts as `slow`. */
 const PROBE_TIMEOUT_MS = 4000
 

@@ -2,22 +2,26 @@ import { EventEmitter } from 'node:events'
 import { type IPty, spawn as spawnPty } from 'node-pty'
 import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
-import { type AddressCandidate, type PageKind, pickAddress, portOf, probePage } from './app-address'
+import {
+  type AddressCandidate,
+  findInterval,
+  type PageKind,
+  pickAddress,
+  portOf,
+  probePage,
+  RECENT_OUTPUT_MS,
+  SLOW_START_MS,
+} from './app-address'
 import { Output } from './output'
 import { listenersOf, listenersOn, loopbackFor, portOpen, processGroups } from './ports'
 import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 
 const PROBE_TIMEOUT_MS = 120_000
-/** How often a starting server's ports are looked at: often at first, then less. */
-const FIND_INTERVAL_MS = 400
-const FIND_INTERVAL_LATER_MS = 1500
 /** A port that isn't a web page yet is asked again after this long. */
 const REPROBE_MS = 1500
 /** Addresses a server prints that are kept as candidates; the first ones count. */
 const MAX_PRINTED = 10
-/** Most dev servers are up well within this; past it, the UI offers a way forward. */
-const SLOW_START_MS = 30_000
 /** After this long, accept any listener on the port even if we can't prove it's ours. */
 const OWNERSHIP_GRACE_MS = 20_000
 /** How long a stopped server and what it started get to exit before what's left is killed. */
@@ -88,8 +92,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private fixedUrl: string | null = null
   /** Local addresses this run printed, in order: candidates for the app's address */
   private printed: string[] = []
-  /** Cuts `findApp`'s wait short: there's something new to look at. */
+  /** Cuts `findApp`'s wait short: there's something new to look at, or nothing left to find. */
   private wakeFind = () => {}
+  /** When the starting server last printed anything (or was started) */
+  private lastOutput = 0
 
   /** `cwd` is where the dev script runs: the project root, or a monorepo app's folder. */
   constructor(private cwd: string) {
@@ -119,6 +125,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.stopping = false
     this.partial = ''
     this.printed = []
+    this.lastOutput = Date.now()
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
     this.update({
       status: 'starting',
@@ -263,6 +270,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (this.ended) return this.ended
     this.disposed = true
     this.run++
+    this.wakeFind()
     this.output.dispose()
     if (this.lastLineTimer) clearTimeout(this.lastLineTimer)
     if (this.slowTimer) clearTimeout(this.slowTimer)
@@ -307,6 +315,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (last) this.setLastLine(last)
 
     if (this.state.status !== 'starting' || this.fixedUrl) return
+    // Output almost always comes before or with the port: after a quiet spell, when the
+    // looking has slowed down, look at once.
+    const now = Date.now()
+    if (now - this.lastOutput >= RECENT_OUTPUT_MS) this.wakeFind()
+    this.lastOutput = now
     for (const line of lines) {
       for (const match of line.matchAll(LOCAL_URL)) {
         const url = normalizeUrl(match[0])
@@ -387,8 +400,9 @@ export class DevServer extends EventEmitter<DevServerEvents> {
         noted = true
         this.update({ lastLine: `No response from ${this.printed[0]} yet. Check the logs.` })
       }
-      const wait = elapsed > SLOW_START_MS ? FIND_INTERVAL_LATER_MS : FIND_INTERVAL_MS
-      // An address printed or a page found goes on at once, not a whole interval later.
+      const wait = findInterval(elapsed, now - this.lastOutput, candidates.size > 0)
+      // An address printed or a page found goes on at once, not a whole interval later; so
+      // does the end of the run, which leaves no timer behind.
       await new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, wait)
         this.wakeFind = () => {
@@ -478,7 +492,10 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     // Only a server that's still starting can be slow to start.
     const slow =
       (patch.status ?? this.state.status) === 'starting' && (patch.slow ?? this.state.slow)
+    const wasStarting = this.state.status === 'starting'
     this.state = { ...this.state, ...patch, slow }
+    // It exited or was found: `findApp` has nothing left to wait for.
+    if (wasStarting && this.state.status !== 'starting') this.wakeFind()
     this.emit('change', this.state)
   }
 }

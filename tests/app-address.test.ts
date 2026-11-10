@@ -3,10 +3,13 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import {
   type AddressCandidate,
+  findInterval,
   type PageKind,
   pickAddress,
   probePage,
+  RECENT_OUTPUT_MS,
   SETTLE_MS,
+  SLOW_START_MS,
 } from '../src/main/app-address'
 import { listenersOf } from '../src/main/ports'
 
@@ -62,6 +65,42 @@ describe('picking the app among what a dev server listens on', () => {
 
   test('nothing to pick', () => {
     expect(pickAddress([], 100_000)).toBeNull()
+  })
+})
+
+describe('how often a starting server is looked for', () => {
+  // Each look runs `ps` and `lsof`: how many of them a minute of waiting costs.
+  const looksIn = (from: number, ms: number, quiet: (at: number) => number, listening = false) => {
+    let looks = 0
+    for (let at = from; at < from + ms; at += findInterval(at, quiet(at), listening)) looks++
+    return looks
+  }
+  const silent = (at: number) => at
+
+  test('a normal start is looked at several times a second', () => {
+    expect(findInterval(0, 0, false)).toBeLessThanOrEqual(500)
+    expect(findInterval(SLOW_START_MS, SLOW_START_MS, false)).toBeLessThanOrEqual(500)
+  })
+
+  test('a script that never opens a port and prints nothing is looked at rarely', () => {
+    // 40 looks a minute before; a build watcher or a waiting prompt goes on for hours.
+    expect(looksIn(SLOW_START_MS + 1, 60_000, silent)).toBeLessThanOrEqual(4)
+    expect(findInterval(3_600_000, 3_600_000, false)).toBeGreaterThanOrEqual(15_000)
+    expect(findInterval(3_600_000, 3_600_000, false)).toBeLessThanOrEqual(30_000)
+  })
+
+  test('a server that printed lately is looked at as often as before', () => {
+    // The port usually opens with the output or just after it.
+    expect(findInterval(SLOW_START_MS + 1, 0, false)).toBe(1500)
+    expect(findInterval(600_000, RECENT_OUTPUT_MS - 1, false)).toBe(1500)
+    expect(findInterval(600_000, RECENT_OUTPUT_MS, false)).toBeGreaterThanOrEqual(15_000)
+    // The clock can read a moment before the output it's compared with.
+    expect(findInterval(600_000, -5, false)).toBe(1500)
+  })
+
+  test('with something listening it never slows: an address is picked within moments', () => {
+    expect(findInterval(600_000, 600_000, true)).toBe(1500)
+    expect(looksIn(SLOW_START_MS + 1, SETTLE_MS * 2, silent, true)).toBeGreaterThanOrEqual(3)
   })
 })
 
