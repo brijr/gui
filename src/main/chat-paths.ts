@@ -31,6 +31,13 @@ function within(dir: string, path: string) {
   return isOutside(rel) ? null : rel
 }
 
+/**
+ * A path from `~`: `~`, `~/notes.md`, `~name/notes.md`. Agent CLIs take the `~` for a home
+ * folder, so it is never a file in the project, though Node would resolve it to a folder
+ * named `~` there.
+ */
+export const isFromHome = (path: string) => path.trimStart().startsWith('~')
+
 const isMissing = (error: unknown) =>
   typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT'
 
@@ -52,11 +59,12 @@ async function realLocation(path: string) {
 
 /**
  * Where an edit to `path` lands, relative to the project root, when it may be approved
- * without asking; otherwise null. That's never outside the project, never through a
- * symlink inside it (a link can point anywhere, Gui's own data included), only to a plain
- * file or one that doesn't exist yet, and never in the home folder's dotfiles, ~/Library
- * or `protectedDirs`, for projects that contain those. With `folders` (for reads and
- * searches), it may also be a folder, the project root ('') included.
+ * without asking; otherwise null. That's never outside the project, never from `~` (see
+ * `isFromHome`), never through a symlink inside it (a link can point anywhere, Gui's own
+ * data included), only to a plain file or one that doesn't exist yet, and never in the home
+ * folder's dotfiles, ~/Library or `protectedDirs`, for projects that contain those. With
+ * `folders` (for reads and searches), it may also be a folder, the project root ('')
+ * included.
  */
 export async function projectEditPath(
   path: string,
@@ -65,6 +73,7 @@ export async function projectEditPath(
 ): Promise<string | null> {
   // `..` after a symlink climbs out of where the link points, not where it sits.
   if (path.includes('\0') || path.split(/[\\/]/).includes('..')) return null
+  if (isFromHome(path)) return null
   const target = resolvePath(scope.root, path)
   const rel = [scope.root, scope.realRoot]
     .map((root) => relative(root, target))

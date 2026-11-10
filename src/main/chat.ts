@@ -48,7 +48,7 @@ import { agentHealth } from './agent-status'
 import { declaresOwnPermissions, type PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import { availableModels, chosenValue, offersChoice, withChoices } from './chat-models'
-import { type EditScope, isOutside, projectEditPath } from './chat-paths'
+import { type EditScope, isFromHome, isOutside, projectEditPath } from './chat-paths'
 import { GUI_TOOL_LABELS, previewTool } from './chat-tools'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
@@ -2082,6 +2082,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * Only for labels: it doesn't follow symlinks (see `projectEditPath`).
    */
   private projectPath(path: string) {
+    if (isFromHome(path)) return null
     const rel = relative(this.root, resolvePath(this.root, path))
     return rel !== '' && !isOutside(rel) ? rel : null
   }

@@ -125,6 +125,9 @@ describe('projectEditPath: a change is approved only on a plain file inside the 
     ['..notes.md', '..notes.md', 'a name that only starts with two dots'],
     ['package.json', 'package.json', 'a sensitive file is still inside (auto-approve asks)'],
     ['SRC/app.tsx', 'SRC/app.tsx', 'other letter case: kept as the agent wrote it'],
+    ['src/a~b.tsx', 'src/a~b.tsx', 'a ~ inside a name'],
+    ['./~/notes.md', '~/notes.md', 'a folder named ~, when the path does not start with it'],
+    ['$/proj/~/notes.md', '~/notes.md', 'the same folder, absolute'],
   ]
   test.each(inside)('%p → %p (%s)', async (path, lands) => {
     expect(await projectEditPath(at(path), scope)).toBe(lands)
@@ -156,18 +159,16 @@ describe('projectEditPath: a change is approved only on a plain file inside the 
     ['dangling/new.txt', 'a new file under a link to nothing'],
     ['hard.ts', 'a hard link: also a file somewhere else'],
     ['pipe', 'a named pipe, not a file'],
+    // Claude Code expands a leading `~` to the home folder, and its adapter passes a path on
+    // as the agent wrote it, so `~` is never a folder in the project.
+    ['~/notes.md', 'from ~: the home folder, which is outside the project'],
+    ['~/Library/LaunchAgents/run.plist', 'from ~, into ~/Library'],
+    ['~other/notes.md', "from ~name: someone else's home folder"],
+    ['~notes.md', 'any name that starts with ~'],
+    [' ~/notes.md', 'from ~, after a space'],
   ]
   test.each(asks)('%p asks (%s)', async (path) => {
     expect(await projectEditPath(at(path), scope)).toBeNull()
-  })
-
-  // Claude Code expands a leading `~` to the home folder, and its adapter passes a path on
-  // as the agent wrote it. Gui takes `~` for a folder in the project.
-  //   input:    projectEditPath('~/notes.md', scope), the home folder not in the project
-  //   expected: null (the user is asked: the file is outside the project)
-  //   actual:   '~/notes.md' (approved as a file inside it)
-  test.failing('a path from ~ is the home folder, which is outside the project', async () => {
-    expect(await projectEditPath('~/notes.md', scope)).toBeNull()
   })
 })
 
@@ -190,6 +191,11 @@ describe('projectEditPath with folders: what a read or a search may name', () =>
     ['link-out/secret.txt', null, 'a file through a link'],
     ['hard.ts', null, 'a hard link'],
     ['src/app.tsx/child.ts', null, 'a file used as a folder'],
+    ['~', null, 'the home folder'],
+    ['~/', null, 'the home folder, with a slash'],
+    ['~/Documents', null, 'a folder in the home folder'],
+    ['~/.ssh/id_ed25519', null, 'a file in the home folder'],
+    ['~other', null, "someone else's home folder"],
   ]
   test.each(cases)('%p → %p (%s)', async (path, lands) => {
     expect(await projectEditPath(at(path), scope, true)).toBe(lands)

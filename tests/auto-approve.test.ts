@@ -145,17 +145,21 @@ describe('asks: the request names a file outside the project', () => {
     ["a change to Gui's own data", edit('$/gui-data/prefs.json')],
     ['a tool of no kind that names a file outside', { paths: ['/etc/hosts'] }],
     ['an edit whose raw input names a file outside', { kind: 'edit', input: { path: '/etc/x' } }],
+    // See tests/chat-paths.test.ts: to Claude Code, `~/notes.md` is a file in the home folder.
+    ['an edit to a path from ~, the home folder', edit('~/notes.md')],
+    ['an edit to several files, one of them from ~', edit('src/app.tsx', '~/notes.md')],
+    ['a read from ~', { kind: 'read', paths: ['~/.ssh/id_ed25519'] }],
+    ['a search of ~', { kind: 'search', paths: ['~'] }],
+    ['deleting a file from ~', { kind: 'delete', paths: ['~/notes.md'] }],
+    ['a move to ~', { kind: 'move', paths: ['src/app.tsx', '~/app.tsx'] }],
+    [
+      'an edit whose raw input names a file from ~',
+      { kind: 'edit', input: { file_path: '~/Library/LaunchAgents/run.plist' } },
+    ],
+    ['a tool of no kind that names a file from ~', { input: { path: '~/notes.md' } }],
   ]
   test.each(cases)('%s', async (_what, asked) => {
     expect(await decide(asked)).toBeNull()
-  })
-
-  // See tests/chat-paths.test.ts: to Claude Code, `~/notes.md` is a file in the home folder.
-  //   input:    an edit to `~/notes.md`, the usual options on offer
-  //   expected: null (asks: the file is outside the project)
-  //   actual:   'once' (approved)
-  test.failing('an edit to a path from ~, the home folder', async () => {
-    expect(await decide(edit('~/notes.md'))).toBeNull()
   })
 })
 
