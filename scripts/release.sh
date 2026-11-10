@@ -122,6 +122,11 @@ put() {
   (cd www && bunx wrangler r2 object put "$bucket/$1" --file "../$2" --content-type "$3" --remote)
 }
 put "$(basename "$zip")" "$zip" application/zip
+# Installed copies fetch an update one byte range at a time (useMultipleRangeRequest in
+# electron-builder.yml) and take whatever comes back. Nothing points at the zip yet.
+ranged=$(curl -s -o /dev/null -w '%{http_code}' -r 0-0 --max-filesize 1024 --max-time 60 "$site/$(basename "$zip")" || true)
+[ "$ranged" = 206 ] ||
+  fail "usegui.com/releases answers a Range request with $ranged, not 206, so an update would download the whole zip many times. Only the zip is uploaded. Fix and deploy www/worker.js, then run this again."
 put "$(basename "$zip").blockmap" "$zip.blockmap" application/octet-stream
 put "$(basename "$dmg")" "$dmg" application/x-apple-diskimage
 # usegui.com/download serves Gui-arm64.dmg, the newest stable release, and the alpha's copy

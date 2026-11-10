@@ -60,6 +60,11 @@ extraResources:
 publish:
   provider: generic
   url: https://usegui.com/releases
+  # An update downloads only the parts of the zip that changed, one byte range per request:
+  # the worker answers a single range with 206 and anything else with the whole file. The
+  # updater doesn't check for the 206, so a server that ignores Range would send it the whole
+  # zip for every range. scripts/release.sh checks for the 206 before it publishes a feed.
+  useMultipleRangeRequest: false
 
 # An alpha release writes only alpha-mac.yml. A stable release writes latest-mac.yml and also
 # alpha-mac.yml and beta-mac.yml (a beta: beta-mac.yml and alpha-mac.yml), so copies installed
