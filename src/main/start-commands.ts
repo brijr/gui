@@ -10,7 +10,9 @@ import { canonical, rootStore } from './root-store'
  * find or starts wrong (another script, another folder, a command outside package.json).
  * In Gui's data rather than the project, so a project can't set its own.
  */
-const MAX_COMMAND = 2000
+
+/** The longest start command Gui takes: short enough for the trust prompt to show whole. */
+export const MAX_START_COMMAND = 2000
 
 const isStartCommand = (value: unknown): value is StartCommand => {
   if (!value || typeof value !== 'object') return false
@@ -52,7 +54,7 @@ export async function validateStartCommand(
 ): Promise<StartCommand> {
   const command = input.command.trim()
   if (!command) throw new Error('Enter the command that starts your app.')
-  if (command.length > MAX_COMMAND) throw new Error('That command is too long.')
+  if (command.length > MAX_START_COMMAND) throw new Error('That command is too long.')
   if (/[\0\r\n]/.test(command)) throw new Error('Put the command on one line.')
 
   let dir: string | null = null

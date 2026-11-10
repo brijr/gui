@@ -93,46 +93,67 @@ export async function askToTrust(
   return true
 }
 
-/** Script text longer than this is cut off in the trust prompt. */
+/** Script text longer than this is cut off in the trust prompt, which then says so. */
 const MAX_PROMPT_TEXT = 300
+/** A name inside a sentence of the prompt is cut off here. */
+const MAX_PROMPT_NAME = 80
 
 /**
- * Controls (newline aside) and bidi overrides, isolates and marks: they can make a script
- * in the trust prompt read as something other than what runs.
+ * Spaces of every width (no-break, em, ideographic and the rest), the tab and the blank
+ * Braille cell. Each is shown as one space, so a run of any of them collapses like a run of
+ * spaces: padding can't push the rest out of view.
  */
-function isHidden(code: number) {
-  return (
-    (code < 0x20 && code !== 0x0a) ||
-    (code >= 0x7f && code <= 0x9f) ||
-    code === 0x061c ||
-    code === 0x200e ||
-    code === 0x200f ||
-    (code >= 0x202a && code <= 0x202e) ||
-    (code >= 0x2066 && code <= 0x2069)
-  )
-}
+const SPACE = /[\t\p{Zs}\u2800]/u
+
+/**
+ * Characters that draw nothing, or change the order the rest is drawn in: controls, format
+ * characters (bidi overrides, isolates and marks, zero-width spaces and joiners, tags) and
+ * whatever else Unicode says to draw nothing for (variation selectors, fillers). They can
+ * make a script in the trust prompt read as something other than what runs, and pad it
+ * without showing.
+ */
+const HIDDEN = /[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/u
 
 /** Newline and the Unicode line and paragraph separators, which display as line breaks. */
-const isBreak = (code: number) => code === 0x0a || code === 0x2028 || code === 0x2029
+const isBreak = (char: string) => char === '\n' || char === '\u2028' || char === '\u2029'
 
 /**
- * Project text (a script, a folder name) as the trust prompt shows it. The project wrote it,
- * so hidden characters go, blank lines and runs of spaces collapse (padding can't push the
- * rest out of view), and it's cut off at `max` characters with "…".
+ * The characters of project text (a script, a folder name) as the trust prompt shows them.
+ * The project wrote it, so hidden characters go, every kind of space is a space, and blank
+ * lines and runs of spaces collapse.
  */
-export function promptText(text: string, max = MAX_PROMPT_TEXT, oneLine = false): string {
+function shownChars(text: string, oneLine: boolean): string[] {
   let visible = ''
   for (const char of text.replace(/\r\n?/g, '\n')) {
-    const code = char.codePointAt(0) ?? 0
-    if (code === 0x09 || (oneLine && isBreak(code))) visible += ' '
-    else if (isBreak(code)) visible += '\n'
-    else if (!isHidden(code)) visible += char
+    if (isBreak(char)) visible += oneLine ? ' ' : '\n'
+    else if (SPACE.test(char)) visible += ' '
+    else if (!HIDDEN.test(char)) visible += char
   }
   const lines = visible.split('\n').map((line) => line.replace(/ {2,}/g, ' ').trimEnd())
   const kept = lines.filter((line, i) => line !== '' || (i > 0 && lines[i - 1] !== ''))
-  const chars = Array.from(kept.join('\n').trim())
-  return chars.length > max ? `${chars.slice(0, max).join('').trimEnd()}…` : chars.join('')
+  return Array.from(kept.join('\n').trim())
 }
 
-/** `promptText` on one line, for a name inside a sentence. */
-export const promptName = (text: string) => promptText(text, 80, true)
+const cutAt = (chars: string[], max: number) => `${chars.slice(0, max).join('').trimEnd()}…`
+
+/**
+ * A script as the trust prompt shows it (see `shownChars`). Past `max` characters it is cut
+ * off, and a sentence under it says how much isn't shown and that the whole script is in
+ * `file`, so the end of a long script is never left out without a word. `file` goes into
+ * the prompt as given: pass project text through `promptName` first.
+ */
+export function promptText(text: string, max = MAX_PROMPT_TEXT, file = 'package.json'): string {
+  const chars = shownChars(text, false)
+  if (chars.length <= max) return chars.join('')
+  const shown = cutAt(chars, max)
+  // Counted in characters, as the limit is: `shown` ends with the "…".
+  const more = chars.length - (Array.from(shown).length - 1)
+  const left = `${more.toLocaleString('en-US')} more ${more === 1 ? 'character is' : 'characters are'}`
+  return `${shown}\n\nThis script is cut short: ${left} not shown. Read all of it in ${file} before you start it.`
+}
+
+/** Project text on one line, for a name inside a sentence: cut off at 80 characters with "…". */
+export function promptName(text: string): string {
+  const chars = shownChars(text, true)
+  return chars.length > MAX_PROMPT_NAME ? cutAt(chars, MAX_PROMPT_NAME) : chars.join('')
+}

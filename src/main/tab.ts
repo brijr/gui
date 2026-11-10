@@ -136,7 +136,12 @@ import {
   settleSetup,
 } from './setup'
 import { getShellEnv } from './shell-env'
-import { resolveProject, saveStartCommand, validateStartCommand } from './start-commands'
+import {
+  MAX_START_COMMAND,
+  resolveProject,
+  saveStartCommand,
+  validateStartCommand,
+} from './start-commands'
 import {
   agreedScripts,
   type CurrentScripts,
@@ -231,6 +236,9 @@ const CHROME_ESC_FREE = `(() => {
 })()`
 /** A project trusted to run a start command set in Gui, and nothing of its own yet */
 const NOTHING_AGREED: TrustedScripts = { starts: {}, installs: null }
+/** The package.json a script is in, as the trust prompt names it: the app's folder's or the root's. */
+const packageFile = (appDir: string | null) =>
+  appDir ? `${promptName(appDir)}/package.json` : 'package.json'
 /** An install that runs longer than this is stuck (a prompt, a hung download): Gui stops it. */
 const INSTALL_TIMEOUT_MS = 20 * 60_000
 /** At most this many automatic restarts in AUTO_RESTART_WINDOW_MS, so a loop can't run on. */
@@ -1472,7 +1480,7 @@ export class ProjectTab implements ChatPanelOwner {
 
     // Scripts and folder names come from the project: shown cleaned up and cut short.
     const devCommand = this.startDescription(project)
-    const script = promptText(project.devScript ?? project.devCommand ?? '')
+    const script = this.startScript(project)
     const agreed = agreedScripts(now, installing, null)
     if (!installing) {
       return this.askToTrust(
@@ -1485,9 +1493,7 @@ export class ProjectTab implements ChatPanelOwner {
         agreed,
       )
     }
-    const scripts = Object.entries(now.installs).map(
-      ([name, body]) => `${promptName(name)}: ${promptText(body)}`,
-    )
+    const scripts = Object.keys(now.installs).map((key) => this.installScript(project, now, key))
     const installScripts = scripts.length ? `Installing runs:\n\n${scripts.join('\n\n')}\n\n` : ''
     return this.askToTrust(
       project.root,
@@ -1515,11 +1521,9 @@ export class ProjectTab implements ChatPanelOwner {
   ) {
     const changes = [
       ...(startChanged
-        ? [
-            `The dev server, ${this.startDescription(project)}:\n${promptText(project.devScript ?? project.devCommand ?? '')}`,
-          ]
+        ? [`The dev server, ${this.startDescription(project)}:\n${this.startScript(project)}`]
         : []),
-      ...installsChanged.map((key) => `${promptName(key)}: ${promptText(now.installs[key] ?? '')}`),
+      ...installsChanged.map((key) => this.installScript(project, now, key)),
     ]
     const installing = installs.length > 0
     return this.askToTrust(
@@ -1531,6 +1535,24 @@ export class ProjectTab implements ChatPanelOwner {
       },
       agreedScripts(now, installing, saved),
     )
+  }
+
+  /**
+   * What starting the project runs, for the trust prompt: cut short past the limit, with
+   * the package.json that has all of it named. A start command set in Gui is in no file to
+   * read, so it is shown whole, as it was when it was set.
+   */
+  private startScript(project: ProjectInfo) {
+    const text = project.devScript ?? project.devCommand ?? ''
+    if (project.custom) return promptText(text, MAX_START_COMMAND)
+    return promptText(text, undefined, packageFile(project.appDir))
+  }
+
+  /** "postinstall: patch-package", an install script for the trust prompt, as `startScript`. */
+  private installScript(project: ProjectInfo, now: CurrentScripts, key: string) {
+    // The app's own are keyed "folder: name" (`installScriptsOf`); the root's by name alone.
+    const file = packageFile(key.includes(': ') ? project.appDir : null)
+    return `${promptName(key)}: ${promptText(now.installs[key] ?? '', undefined, file)}`
   }
 
   /** "bun run dev in apps/web", project text cleaned up. */
@@ -3149,7 +3171,7 @@ export class ProjectTab implements ChatPanelOwner {
       project.root,
       {
         message: `Start ${promptName(project.name)} a different way?`,
-        detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, 2000)}\n\nGui will run it now and whenever you open this project. You can go back to the detected command in Settings. It runs code on your Mac. Only use commands you trust.`,
+        detail: `Your agent wants Gui to start this app${where}${address} with:\n\n${promptText(start.command, MAX_START_COMMAND)}\n\nGui will run it now and whenever you open this project. You can go back to the detected command in Settings. It runs code on your Mac. Only use commands you trust.`,
         buttons: ['Use This Command', 'Cancel'],
         // The agent asked, not the user: Return mustn't be what agrees.
         defaultId: 1,
