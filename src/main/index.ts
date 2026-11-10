@@ -88,6 +88,7 @@ import { registerBoardIpc } from './board-ipc'
 import { offersChoice } from './chat'
 import { cloneRepo, parseRepo } from './clone'
 import { errorReport, sendCrashReport } from './crash-reports'
+import { applyDevFlags } from './dev-flags'
 import { developerTools } from './developer-tools'
 import { cloneGitHub } from './github'
 import { flushHistorySync } from './history'
@@ -197,6 +198,8 @@ function adoptGratData(from: string, to: string) {
 // Must run before anything reads userData, including the single-instance lock below. The
 // imports above have already run by now, so no module may read userData (prefs included)
 // as it's imported.
+applyDevFlags()
+
 if (!app.commandLine.hasSwitch('user-data-dir')) {
   const appData = app.getPath('appData')
   if (app.isPackaged) {

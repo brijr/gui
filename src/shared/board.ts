@@ -10,6 +10,17 @@ export const BOARD_MANIFEST = 'canvas.json'
 export const FRAMES_DIR = 'frames'
 /** The most frames a canvas holds; more would make its thumbnails slow to keep current. */
 export const MAX_FRAMES = 60
+
+let frameCap = MAX_FRAMES
+/** The most frames a canvas holds in this process: MAX_FRAMES, unless a development run raised it. */
+export const frameLimit = () => frameCap
+/**
+ * Development only (`GUI_DEV_MAX_FRAMES`, main/dev-flags.ts): lets an unpackaged build open a
+ * canvas larger than MAX_FRAMES, to try the board at that size.
+ */
+export function setFrameLimitForDevelopment(frames: number) {
+  if (Number.isInteger(frames) && frames > 0) frameCap = frames
+}
 /** The room left between frames placed side by side, in board pixels. */
 export const FRAME_GAP = 80
 /** A frame's smallest and largest edge, in CSS pixels. */
@@ -150,7 +161,7 @@ export function parseManifest(text: string | null, fallbackName: string): BoardM
       width: clampEdge(finite(frame.width) ? frame.width : 1440),
       height: clampEdge(finite(frame.height) ? frame.height : 900),
     })
-    if (frames.length >= MAX_FRAMES) break
+    if (frames.length >= frameCap) break
   }
   const sections: BoardSection[] = []
   for (const value of Array.isArray(raw.sections) ? raw.sections : []) {

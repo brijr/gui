@@ -18,9 +18,9 @@ import {
   cleanSections,
   FRAMES_DIR,
   frameId,
+  frameLimit,
   isFrameId,
   isReadableManifest,
-  MAX_FRAMES,
   parseManifest,
   placeFrame,
   placeInSection,
@@ -376,8 +376,8 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     user: boolean,
     agent = false,
   ): Promise<BoardFrameLayout> {
-    if (this.manifest.frames.length >= MAX_FRAMES)
-      throw new Error(`A canvas holds up to ${MAX_FRAMES} frames. Delete some first.`)
+    if (this.manifest.frames.length >= frameLimit())
+      throw new Error(`A canvas holds up to ${frameLimit()} frames. Delete some first.`)
     const name = cleanName(spec.name) ?? 'Frame'
     const taken = new Set(this.manifest.frames.map((frame) => frame.id))
     // A file left behind (deleted from the board, not the disk) keeps its name.
@@ -473,7 +473,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   paste(copied: CopiedFrames, assets: string | null, user = true): Promise<BoardFrameLayout[]> {
     return this.mutations.run(async () => {
       const here = copied.canvas === this.id
-      const room = copied.frames.length <= MAX_FRAMES - this.manifest.frames.length
+      const room = copied.frames.length <= frameLimit() - this.manifest.frames.length
       // Only when they'll fit: a paste that can't happen leaves nothing behind.
       if (assets && !here && room) await this.bringAssets(copied.frames, assets)
       const originals = here ? copied.frames.flatMap((frame) => this.frame(frame.id) ?? []) : []
@@ -521,10 +521,10 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     user: boolean,
   ): Promise<BoardFrameLayout[]> {
     if (!specs.length) return []
-    const room = MAX_FRAMES - this.manifest.frames.length
+    const room = frameLimit() - this.manifest.frames.length
     if (specs.length > room)
       throw new Error(
-        `A canvas holds up to ${MAX_FRAMES} frames, so there's room for ${room} more, not ${specs.length}. Delete some first.`,
+        `A canvas holds up to ${frameLimit()} frames, so there's room for ${room} more, not ${specs.length}. Delete some first.`,
       )
     const before = new Set(this.manifest.frames.map((frame) => frame.id))
     this.beginEdit(user)
@@ -740,7 +740,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
    */
   async ignoredPages(): Promise<IgnoredPage[]> {
     const names = await readdir(join(this.root, FRAMES_DIR)).catch(() => [] as string[])
-    const full = this.manifest.frames.length >= MAX_FRAMES
+    const full = this.manifest.frames.length >= frameLimit()
     return names
       .filter((file) => file.endsWith('.html'))
       .sort()
@@ -807,7 +807,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     let frames = this.manifest.frames.filter((frame) => files.has(frame.id))
     const known = new Set(frames.map((frame) => frame.id))
     for (const id of [...files].sort()) {
-      if (known.has(id) || frames.length >= MAX_FRAMES) continue
+      if (known.has(id) || frames.length >= frameLimit()) continue
       const size = { width: 1440, height: 900 }
       const last = frames.at(-1)
       frames = [
