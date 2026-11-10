@@ -216,8 +216,15 @@ async function isDirectory(path: string) {
   }
 }
 
-/** Real paths currently being opened, so a double-click can't open one project twice. */
-const opening = new Set<string>()
+/** Projects on their way into a tab, by real path, so a double-click can't open one twice. */
+const opening = new Map<string, ProjectTab>()
+
+/**
+ * Whether `real` is on its way into a tab that still wants it. An opening whose tab was
+ * closed meanwhile takes a moment to wind down, and must not swallow the next request for
+ * the same project.
+ */
+const isOpening = (real: string) => opening.get(real)?.projectRoot === real
 
 const canonical = (path: string) => realpath(path).catch(() => path)
 
@@ -243,14 +250,15 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string) {
   // agent and checkpoints work from the root.
   const member = await findWorkspaceRoot(root)
   const real = member?.root ?? (await canonical(root))
-  if (opening.has(real)) return
-  opening.add(real)
+  if (isOpening(real)) return
+  const tab = tabToOpenIn(target)
+  opening.set(real, tab)
   try {
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    await tabToOpenIn(target).openProject(real)
+    await tab.openProject(real)
   } finally {
-    opening.delete(real)
+    if (opening.get(real) === tab) opening.delete(real)
     syncMenuItems()
   }
 }
@@ -355,17 +363,18 @@ async function openBoardIn(target: ProjectWindow | undefined, id: string) {
     shareBoards(await listBoards())
     return
   }
-  if (opening.has(root)) return
-  opening.add(root)
+  if (isOpening(root)) return
+  const tab = tabToOpenIn(target)
+  opening.set(root, tab)
   try {
-    await tabToOpenIn(target).openBoard(root)
+    await tab.openBoard(root)
   } catch (error) {
     dialog.showErrorBox(
       "Couldn't open the canvas",
       error instanceof Error ? error.message : String(error),
     )
   } finally {
-    opening.delete(root)
+    if (opening.get(root) === tab) opening.delete(root)
     syncMenuItems()
   }
 }
