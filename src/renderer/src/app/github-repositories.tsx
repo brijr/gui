@@ -107,11 +107,12 @@ export function GitHubRepositories({
             </Button>
           )}
         </div>
-        <p className="text-small text-muted">
-          {connect.pending
-            ? 'Sign in to GitHub in your browser and allow Gui, then come back here.'
-            : 'Connect GitHub to see your repositories here, private ones included.'}
-        </p>
+        {/* The button says what it does; only the wait needs a word. */}
+        {connect.pending && (
+          <p className="text-small text-muted">
+            Sign in to GitHub in your browser and allow Gui, then come back here.
+          </p>
+        )}
         {connect.error && <InlineError>{connect.error}</InlineError>}
       </div>
     )

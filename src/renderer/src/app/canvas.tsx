@@ -887,7 +887,7 @@ const FORMS: Record<
   cloneRepo: {
     label: 'GitHub repository',
     placeholder: 'owner/repo or github.com/owner/repo',
-    hint: 'Copy a GitHub repository to your Mac by its name or address. You choose where to save it next.',
+    hint: 'Name or address, like owner/repo.',
     submit: 'Clone…',
     busy: 'Cloning…',
     mono: true,
