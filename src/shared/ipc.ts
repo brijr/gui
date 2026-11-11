@@ -162,7 +162,6 @@ export const Send = {
   clearSelection: 'chat:clear-selection',
   removeSelection: 'chat:remove-selection',
   hoverSelection: 'chat:hover-selection',
-  setMinimized: 'chat:minimize',
   expandChat: 'chat:expand',
   togglePopOut: 'chat:pop-out',
   toggleDock: 'chat:dock',
@@ -610,8 +609,8 @@ export interface GuiApi {
   /** A choice from the More menu that the chat page carries out */
   onChatMenuChoice(cb: (choice: ChatMenuChoice) => void): Unsubscribe
   /**
-   * What the floating chat is drawn as, and the corner it's anchored by: the panel, the pill
-   * while minimized, or the bubble while the user picks an element. The view grows to a larger
+   * What the floating chat is drawn as, and the corner it's anchored by: the panel, or the
+   * bubble while the user picks an element. The view grows to a larger
    * form at once; to a smaller one only once the chat has morphed into it (`chatMorphed`).
    */
   onChatFloat(cb: (float: ChatFloat) => void): Unsubscribe
@@ -716,7 +715,6 @@ export interface GuiApi {
   removeSelection(id: string): void
   /** The pointer is over a picked element's chip (null: it left), so the page outlines it */
   hoverSelection(id: string | null): void
-  setMinimized(minimized: boolean): void
   /** Shows the conversation: the floating panel grows from its message box */
   expandChat(): void
   /** Moves the chat into a window of its own, or back into the project's window */
@@ -740,7 +738,7 @@ export interface GuiApi {
    */
   setUpChatAgent(): Promise<void>
   /**
-   * The pointer pressed the floating panel's header or the pill, to drag it. A panel still
+   * The pointer pressed the floating panel's header, to drag it. A panel still
    * landing from a throw stops where it was under the pointer, and the drag goes on from there.
    */
   grabChat(at: ChatGrab): void

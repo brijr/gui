@@ -875,7 +875,6 @@ export class ProjectTab implements ChatPanelOwner {
         canSelect: this.canSelect,
         canvas: !!this.resources.board,
         canvasEmpty: this.resources.board?.frames.length === 0,
-        minimized: false,
         docked: getPrefs().chatSidebar,
         sidebarSide: getPrefs().chatSidebarSide,
         trafficLights: false,
@@ -3744,10 +3743,6 @@ export class ProjectTab implements ChatPanelOwner {
    */
   focusMessageBox() {
     this.panel.focusMessageBox()
-  }
-
-  setMinimized(minimized: boolean) {
-    this.panel.setMinimized(minimized)
   }
 
   /** The message box's Show conversation: the floating panel grows to show it. */

@@ -12,7 +12,6 @@ import {
 } from 'react'
 import {
   BUBBLE,
-  MINI,
   PANEL_SHADOW_MARGIN,
   TAB_ROW_HEIGHT,
   TOOLBAR_HEIGHT,
@@ -34,16 +33,14 @@ import { cn } from '../lib/cn'
 import {
   ChevronDown,
   Ellipsis,
-  Maximize2,
   MessageSquare,
-  Minus,
   PanelLeft,
   PictureInPicture2,
   SquareArrowOutDownLeft,
   SquarePen,
 } from '../lib/icons'
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
-import { Badge, type Status, StatusDot } from '../lib/status'
+import { Badge, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
 import { Button, IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { ArchivePopover } from './archive'
@@ -134,7 +131,7 @@ const SIDES = ['top', 'right', 'bottom', 'left'] as const
  * corners, shadow and outer borders going as it becomes the sidebar (whose border along the
  * preview stays), and its header growing into the title bar's height, the name moving clear
  * of the traffic lights. Main moves and sizes the view; a frame only restyles these elements,
- * outside React. Growing from the pill or the message box alone, what's in it fades in as it
+ * outside React. Growing from the message box alone, what's in it fades in as it
  * grows, as the floating panel's conversation does.
  */
 function Sidebar({
@@ -508,8 +505,7 @@ function atCorner(corner: PanelCorner): CSSProperties {
 }
 
 /**
- * The floating chat as the panel (`children`), the pill while minimized, or the bubble while
- * the user picks an element, each at the view's anchored corner. Changing form morphs (see
+ * The floating chat as the panel (`children`), or the bubble while the user picks an element, each at the view's anchored corner. Changing form morphs (see
  * morph.ts): main keeps the view at the larger form's size meanwhile, and shrinks it once
  * told the morph is done. The form on its way out is inert.
  */
@@ -536,7 +532,7 @@ function FloatingChat({
     // Mounted with the form, so the morph styles it before the first paint.
     setDrawn((forms) => (forms.includes(form) ? forms : [...forms, form]))
     // The control that was pressed is in the form going away, now inert: the keyboard moves on
-    // to the form taking its place (the pill's button, the panel's message box).
+    // to the form taking its place (the bubble's button, the panel's message box).
     const active = document.activeElement
     const left = CHAT_FORMS.some(
       (each) => each !== form && elements.current[each]?.contains(active),
@@ -577,15 +573,6 @@ function FloatingChat({
           style={{ inset: PANEL_SHADOW_MARGIN }}
         >
           {children}
-        </div>
-      )}
-      {shows('pill') && (
-        <div
-          {...layer('pill')}
-          className={cn('absolute', form !== 'pill' && 'pointer-events-none')}
-          style={{ ...atCorner(corner), width: MINI.width, height: MINI.height }}
-        >
-          <MiniPanel meta={meta} running={running} />
         </div>
       )}
       {shows('bubble') && (
@@ -696,7 +683,7 @@ function trackDrag(
 }
 
 /**
- * Dragging the header (or the minimized pill) moves the floating panel; letting go throws it
+ * Dragging the header moves the floating panel; letting go throws it
  * into a corner, or at the window's left or right edge docks it there. Pressing it while it
  * lands catches it where it is. The sidebar's header, pulled a little, comes off as the
  * floating panel and drags on as it (main decides, `grabChat`); just pressed, it's a click.
@@ -822,14 +809,6 @@ function ResizeHandle({ edge, docked = false }: { edge: PanelEdge; docked?: bool
 const HOVER_ONLY =
   'flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within/chat:opacity-100 group-hover/chat:opacity-100'
 
-/** The agent's state as a dot: busy while it starts or works. */
-function agentStatus(meta: ChatMeta, running: boolean): Status {
-  if (meta.status === 'error') return 'error'
-  if (meta.status === 'starting' || meta.status === 'working' || running) return 'busy'
-  if (meta.status === 'ready') return 'ready'
-  return 'idle'
-}
-
 /**
  * The panel's title bar: the agent's name, which switches agents, the session's
  * mode, and the panel's actions. It's where the panel is dragged from, floating or docked
@@ -891,15 +870,6 @@ function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }
             />
           )}
           <MoreButton />
-          {!meta.docked && !meta.popped && (
-            <IconButton
-              className={TIGHT_HIT_AREA}
-              size="sm"
-              label="Minimize"
-              icon={Minus}
-              onClick={() => gui.setMinimized(true)}
-            />
-          )}
         </span>
       }
     >
@@ -980,28 +950,6 @@ function AgentSwitcher({ name }: { name: string }) {
     >
       <span className="truncate">{name}</span>
     </Button>
-  )
-}
-
-function MiniPanel({ meta, running }: { meta: ChatMeta; running: boolean }) {
-  return (
-    <div
-      onPointerDown={onDragStart}
-      className="flex size-full cursor-grab items-center gap-2 rounded-full border border-line-strong bg-raised pr-1.5 pl-4 shadow-panel active:cursor-grabbing"
-    >
-      {/* One slot for both, so the name doesn't move when it starts or stops working. */}
-      <span className="flex size-3 shrink-0 items-center justify-center">
-        {running ? (
-          <Spinner className="text-muted" />
-        ) : (
-          <StatusDot status={agentStatus(meta, running)} />
-        )}
-      </span>
-      <span className="min-w-0 flex-1 truncate font-medium">
-        {running ? 'Working…' : meta.agentName}
-      </span>
-      <IconButton label="Expand chat" icon={Maximize2} onClick={() => gui.setMinimized(false)} />
-    </div>
   )
 }
 

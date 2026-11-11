@@ -1280,7 +1280,6 @@ function registerIpc() {
   on(Send.clearSelection, (tab) => tab.clearSelection())
   on(Send.removeSelection, (tab, id) => isString(id) && tab.removeSelection(id))
   on(Send.hoverSelection, (tab, id) => (id === null || isString(id)) && tab.hoverSelection(id))
-  on(Send.setMinimized, (tab, minimized) => tab.setMinimized(minimized === true))
   on(Send.expandChat, (tab) => tab.expandChat())
   on(Send.togglePopOut, (tab) => tab.togglePopOut())
   on(Send.toggleDock, (tab) => tab.toggleDock())

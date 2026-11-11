@@ -95,7 +95,7 @@ function inSight(el: Element) {
  */
 export function transition(update: () => void, moves: Move[], rows: string[] = []) {
   const supported = typeof document.startViewTransition === 'function'
-  // Only while the panel's transcript and composer are drawn (not the pill, the bubble or the
+  // Only while the panel's transcript and composer are drawn (not the bubble or the
   // pull-request sheet): elsewhere there's nothing to move, and a transition would only hold
   // back the next updates.
   const able =

@@ -3,22 +3,22 @@ import { CHAT_FORMS, type ChatForm, type PanelCorner } from '../../../shared/typ
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 
 /*
- * The floating chat moving between its forms (the panel, the pill, the bubble), all drawn at
+ * The floating chat moving between its forms (the panel, the bubble), all drawn at
  * the view's anchored corner. Each form has a presence on a spring, 1 shown and 0 gone: the
  * one going away shrinks toward the corner and fades while the next grows out of it, so the
  * panel reads as becoming the bubble and back. Interrupted, every form turns around from where
  * it is, at the speed it was going. With reduced motion they cross-fade in place.
  */
 
-/** How small the pill and the bubble are as they appear or go: grown out of the corner. */
-const SMALL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { pill: 0.8, bubble: 0.5 }
+/** How small the bubble is as it appears or goes: grown out of the corner. */
+const SMALL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { bubble: 0.5 }
 /**
  * How small the panel gets going into (or coming out of) each: about the smaller form's share
  * of a panel's width, so it shrinks into it rather than just fading. Fixed rather than measured,
  * since the panel's layer is the smaller form's size while the view is, and it's out of sight
  * well before it gets this small.
  */
-const PANEL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { pill: 0.6, bubble: 0.15 }
+const PANEL_SCALE: Record<Exclude<ChatForm, 'panel'>, number> = { bubble: 0.15 }
 /** Presence is close enough to 0 or 1 to stop at this. */
 const PRECISION = 0.002
 
@@ -62,7 +62,6 @@ export class Morph {
       new Spring(shown ? 1 : 0, { config: { ...SPRINGS.default, response: 0.22 } })
     this.presence = {
       panel: spring(form === 'panel'),
-      pill: spring(form === 'pill'),
       bubble: spring(form === 'bubble'),
     }
   }

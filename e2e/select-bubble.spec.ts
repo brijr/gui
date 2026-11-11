@@ -19,8 +19,6 @@ const SHADOW = 18
 const PANEL_MARGIN = 12
 /** The bubble's view: the 44px bubble (BUBBLE in window.ts) and its shadow margin. */
 const BUBBLE_VIEW = 44 + SHADOW * 2
-/** The minimized pill's view height (MINI in window.ts). */
-const PILL_VIEW_HEIGHT = 52 + SHADOW * 2
 const SELECTOR = 'button.counter'
 
 interface Views {
@@ -139,7 +137,7 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   const restored = await chatWhere(session, 'the panel again', (chat) => !isBubble(chat))
   expect(restored.chat).toEqual(panel.chat)
   await expect(showChat(session.chat)).toHaveCount(0)
-  await expect(session.chat.getByRole('button', { name: 'Minimize' })).toBeVisible()
+  await expect(session.chat.getByRole('button', { name: 'Minimize' })).toHaveCount(0)
   await shot(session, 'bubble-restored')
 
   // Over the element to pick: the bubble leaves it uncovered, then the panel moves aside.
@@ -185,31 +183,19 @@ test('the floating chat is a bubble while picking and comes back as it was', asy
   await shot(session, 'bubble-picked')
 })
 
-test('a minimized chat comes back minimized, the bubble ends picking, docked stays put', async ({
-  launch,
-}) => {
+test('the bubble ends picking, docked stays put', async ({ launch }) => {
   const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   await session.waitForPreview()
-  await chatWhere(session, 'the floating panel', (chat) => !isBubble(chat))
-
-  await session.chat.evaluate(() => window.gui.setMinimized(true))
-  const pill = await chatWhere(session, 'the pill', (chat) => chat.height === PILL_VIEW_HEIGHT)
-  await startSelecting(session)
-  await chatWhere(session, 'the bubble', isBubble)
-  expect((await session.app.evaluate(views))?.chat).toEqual(bubbleAt(pill.chat))
-  await pressEscape(session)
-  const back = await chatWhere(session, 'the pill again', (chat) => !isBubble(chat))
-  expect(back.chat).toEqual(pill.chat)
-  expect((await session.chatSnapshot()).meta.minimized).toBe(true)
+  const panel = await chatWhere(session, 'the floating panel', (chat) => !isBubble(chat))
 
   // Clicking the bubble stops picking and brings the chat back as it was.
   await startSelecting(session)
-  await chatWhere(session, 'the bubble again', isBubble)
+  await chatWhere(session, 'the bubble', isBubble)
+  expect((await session.app.evaluate(views))?.chat).toEqual(bubbleAt(panel.chat))
   await showChat(session.chat).click()
   await selecting(session, false)
-  const shown = await chatWhere(session, 'the pill after the click', (chat) => !isBubble(chat))
-  expect(shown.chat).toEqual(pill.chat)
-  expect((await session.chatSnapshot()).meta.minimized).toBe(true)
+  const shown = await chatWhere(session, 'the panel after the click', (chat) => !isBubble(chat))
+  expect(shown.chat).toEqual(panel.chat)
 
   // As the sidebar beside the preview, the chat covers nothing and stays as it is.
   await session.chat.evaluate(() => window.gui.toggleDock())

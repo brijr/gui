@@ -668,13 +668,6 @@ test('⇧⌘M shows the chat and opens the model picker, searching', async ({ la
   await chat.keyboard.press('Escape')
   await expect(picker).toHaveCount(0)
 
-  // From the minimized pill, too.
-  await chat.evaluate(() => window.gui.setMinimized(true))
-  await waitFor(async () => (await session.chatSnapshot()).meta.minimized, 'the chat minimized')
-  await clickMenu(session, 'Choose Model…')
-  await expect(picker).toBeVisible()
-  await expect(search).toBeFocused()
-  expect((await session.chatSnapshot()).meta.minimized).toBe(false)
   const button = chat.getByRole('button', { name: /^Model: / })
   await expect(button).toHaveAttribute('aria-keyshortcuts', 'Shift+Meta+M')
 })

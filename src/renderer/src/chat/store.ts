@@ -20,7 +20,7 @@ interface ChatStore {
   turns: Turn[]
   turnsById: Record<string, Turn>
   turnIds: string[]
-  /** Unsent composer text; kept here so it survives the composer remounting on dock/float/minimize */
+  /** Unsent composer text; kept here so it survives the composer remounting on dock/float */
   draft: string
   /** Images attached to the draft, already downscaled; kept here for the same reason */
   attachments: DraftImage[]
@@ -195,7 +195,7 @@ function attachFromMain(image: ImageAttachment) {
 
 /**
  * ⇧⌘M: the composer's model picker. Main shows the chat first; the composer may still be
- * on its way (minimized, a bubble), so its model button opens the picker once it's there.
+ * on its way (from a bubble), so its model button opens the picker once it's there.
  */
 function chooseModel() {
   if (!useChat.getState().meta?.models) return
@@ -640,7 +640,7 @@ export function connectChat() {
     }),
     gui.onChatTurn(onTurnUpdate),
     gui.onChatReset(onReset),
-    // Here rather than in the composer, which isn't mounted while the panel is minimized.
+    // Here rather than in the composer, which isn't mounted while the panel is a bubble.
     gui.onChatAttach(attachFromMain),
     gui.onRecordingAttach((clip) => {
       if (useChat.getState().recordings.length >= 3) {

@@ -188,7 +188,6 @@ const api: GuiApi = {
   clearSelection: send(Send.clearSelection),
   removeSelection: send(Send.removeSelection),
   hoverSelection: send(Send.hoverSelection),
-  setMinimized: send(Send.setMinimized),
   expandChat: send(Send.expandChat),
   togglePopOut: send(Send.togglePopOut),
   toggleDock: send(Send.toggleDock),

@@ -43,13 +43,13 @@ function segmentsFit(labels: string[], width: number) {
 
 /**
  * At most this many frames for the panel to settle before ⇧⌘M opens the picker: the view to
- * stop resizing, and the panel to finish growing out of the pill or the bubble.
+ * stop resizing, and the panel to finish growing out of the bubble.
  */
 const SETTLE_FRAMES = 60
 
 /**
  * Calls `fn` once the view has kept its size for a frame, or after `frames`. ⇧⌘M can bring
- * the panel back as it asks (from minimized, say), and the picker closes on a resize.
+ * the panel back as it asks (from its bubble, say), and the picker closes on a resize.
  */
 function whenSettled(button: HTMLElement | null, fn: () => void, frames = SETTLE_FRAMES) {
   let size = `${window.innerWidth}×${window.innerHeight}`

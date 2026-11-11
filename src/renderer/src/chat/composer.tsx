@@ -88,7 +88,7 @@ export function Composer({
   onShowConversation,
   onGrab,
 }: ComposerProps) {
-  // The draft lives in the store: docking, floating and minimizing remount this component.
+  // The draft lives in the store: docking and floating remount this component.
   const text = useChat((s) => s.draft)
   const firstMessage = useChat((s) => s.turnIds.length === 0)
   const attachments = useChat((s) => s.attachments)
@@ -99,7 +99,7 @@ export function Composer({
   const unseenProblem = meta.problems.some((problem) => !dismissed.includes(problem.id))
   const input = useRef<HTMLTextAreaElement>(null)
   const picker = useRef<HTMLInputElement>(null)
-  // What's above the box when it mounts (docking, floating and minimizing remount it) was
+  // What's above the box when it mounts (docking and floating remount it) was
   // already showing: only what comes after rises in.
   const [settled, setSettled] = useState(false)
   useEffect(() => setSettled(true), [])

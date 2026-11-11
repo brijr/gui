@@ -234,16 +234,7 @@ test('the bar sits right of a floating chat in the bottom-left corner, and moves
 }) => {
   const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
   const { overlay } = await showVariations(session)
-  const panel = await barWhere(session, overlay, 'the bar beside the chat', besideChat)
-
-  // Minimized to its pill, the chat is narrower: the bar follows it.
-  await session.chat.evaluate(() => window.gui.setMinimized(true))
-  await barWhere(
-    session,
-    overlay,
-    'the bar beside the pill',
-    (bar, layout) => besideChat(bar, layout) && bar.x < panel.bar.x,
-  )
+  await barWhere(session, overlay, 'the bar beside the chat', besideChat)
 
   // Docked as a sidebar, the chat is beside the preview: the bar goes back to the corner.
   await session.chat.evaluate(() => window.gui.toggleDock())

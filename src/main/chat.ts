@@ -358,7 +358,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
       canSelect: false,
       canvas: !!options.board,
       canvasEmpty: false,
-      minimized: false,
       docked: options.docked,
       sidebarSide: getPrefs().chatSidebarSide,
       trafficLights: false,
@@ -625,12 +624,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (canvasEmpty !== this.meta.canvasEmpty) this.patchMeta({ canvasEmpty })
   }
 
-  setMinimized(minimized: boolean) {
-    this.patchMeta({ minimized })
-  }
-
   setPopped(popped: boolean) {
-    if (popped !== this.meta.popped) this.patchMeta({ popped, minimized: false })
+    if (popped !== this.meta.popped) this.patchMeta({ popped })
   }
 
   setTrafficLights(trafficLights: boolean) {
@@ -646,7 +641,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   setDocked(docked: boolean) {
-    this.patchMeta({ docked, minimized: false })
+    this.patchMeta({ docked })
   }
 
   setProblems(problems: Problem[]) {

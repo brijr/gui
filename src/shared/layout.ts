@@ -30,9 +30,6 @@ export const PANEL_SHADOW_MARGIN = 18
 /** The floating panel while the user picks an element: a round button at its anchored corner. */
 export const BUBBLE = { width: 44, height: 44 } as const
 
-/** The minimized chat pill. */
-export const MINI = { width: 248, height: 52 } as const
-
 /** Room a device frame (a fixed viewport) leaves around it on the canvas. */
 export const FRAME_MARGIN = 24
 

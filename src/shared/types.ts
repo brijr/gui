@@ -620,19 +620,19 @@ export function isPanelEdge(value: unknown): value is PanelEdge {
   return PANEL_EDGES.some((edge) => edge === value)
 }
 
-/** The floating chat panel's anchored corner, which stays put; its bubble and pill sit there too */
+/** The floating chat panel's anchored corner, which stays put; its bubble sits there too */
 export interface PanelCorner {
   x: 'left' | 'right'
   y: 'top' | 'bottom'
 }
 
 /**
- * What the floating chat is drawn as: the panel, the pill while minimized, or the bubble while
- * the user picks an element or uses the page. Each sits at the anchored corner.
+ * What the floating chat is drawn as: the panel, or the bubble while the user picks an element
+ * or uses the page. Each sits at the anchored corner.
  */
-export type ChatForm = 'panel' | 'pill' | 'bubble'
+export type ChatForm = 'panel' | 'bubble'
 
-export const CHAT_FORMS: readonly ChatForm[] = ['panel', 'pill', 'bubble']
+export const CHAT_FORMS: readonly ChatForm[] = ['panel', 'bubble']
 
 export function isChatForm(value: unknown): value is ChatForm {
   return CHAT_FORMS.some((form) => form === value)
@@ -677,7 +677,7 @@ export interface ChatShape {
   trafficLights: boolean
   /** The tab row shows beside the sidebar, so its header is that tall */
   tabRow: boolean
-  /** From the pill or the message box alone: what's in it fades in as it grows */
+  /** From the message box alone: what's in it fades in as it grows */
   reveal: boolean
 }
 
@@ -1006,7 +1006,6 @@ export interface ChatMeta {
   canvas: boolean
   /** The canvas has no frames yet, so the canvas itself says what to ask for */
   canvasEmpty: boolean
-  minimized: boolean
   /** The window's sidebar, top to bottom, instead of floating over the preview */
   docked: boolean
   sidebarSide: 'left' | 'right'

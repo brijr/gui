@@ -3,7 +3,6 @@ import { viewportRectFrom, viewRectFromViewport } from '../shared/coords'
 import { Events } from '../shared/ipc'
 import {
   BUBBLE,
-  MINI,
   PANEL_SHADOW_MARGIN,
   TAB_ROW_HEIGHT,
   TOOLBAR_HEIGHT,
@@ -57,7 +56,7 @@ const DOCK_ZONE = 56
 const DOCK_ZONE_HOLD = 24
 /** The floating panel's header (PanelHeader's h-9) */
 const FLOATING_HEADER = 36
-/** The floating panel's corners (rounded-xl); the pill's are half its height */
+/** The floating panel's corners (rounded-xl) */
 const CARD_RADIUS = 12
 const MORPH_TIMEOUT_MS = 700
 /**
@@ -67,7 +66,7 @@ const MORPH_TIMEOUT_MS = 700
 const COLLAPSE_DELAY_MS = 2500
 /** The message box's height until the chat says (one line, its tools and the panel's border) */
 const BOX_HEIGHT = 96
-const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, pill: 1, panel: 2 }
+const FORM_SIZE: Record<ChatForm, number> = { bubble: 0, panel: 1 }
 
 type DockSide = 'left' | 'right'
 
@@ -99,8 +98,8 @@ export interface ChatPanelOwner {
 }
 
 /**
- * The chat as a native view: docked, floating (panel, or its message box alone / pill /
- * bubble), or popped out.
+ * The chat as a native view: docked, floating (panel, or its message box alone / bubble), or
+ * popped out.
  * ProjectTab owns preview layout; this owns the chat view's place and springs.
  */
 export class ChatPanel {
@@ -171,7 +170,7 @@ export class ChatPanel {
    * The chat turning between the floating card and the sidebar on `side` (dock-morph.ts).
    * Docking, `card` is where the card was let go or sat; floating, null: the card is wherever
    * the panel is now, under the pointer or flying to its corner. `radius` is the card's
-   * corners; `reveal`, it grows from the pill or the message box alone.
+   * corners; `reveal`, it grows from the message box alone.
    */
   private shape: {
     morph: DockMorph
@@ -221,7 +220,7 @@ export class ChatPanel {
   coverRect(): Rect | null {
     if (!this.chatShown || this.docked || this.bubbled) return null
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
-    return this.floatingRect(contentWidth, contentHeight, undefined, true)
+    return this.floatingRect(contentWidth, contentHeight, true)
   }
 
   clearFloatShown() {
@@ -248,11 +247,6 @@ export class ChatPanel {
   focusMessageBox() {
     if (!this.tab.hasProject) return
     this.focusChat()
-  }
-
-  setMinimized(minimized: boolean) {
-    this.tab.resources.chat?.setMinimized(minimized)
-    this.tab.layout()
   }
 
   /** The message box's Show conversation: the panel grows, its message box keeping the keyboard. */
@@ -502,7 +496,7 @@ export class ChatPanel {
   }
 
   /**
-   * A press on the floating chat's header (or the pill), or the sidebar's. Floating, a flight
+   * A press on the floating chat's header, or the sidebar's. Floating, a flight
    * is caught where it is and the panel follows the pointer from there; the sidebar waits to
    * be pulled (`dragChat`).
    */
@@ -700,7 +694,7 @@ export class ChatPanel {
       this.dockWidth = Math.round(clamp(width, DOCK_MIN_WIDTH, contentWidth * DOCK_MAX_SHARE))
       this.resizing = 'docked'
     } else {
-      if (this.tab.resources.chat?.meta.minimized || this.bubbled || this.collapsed()) return
+      if (this.bubbled || this.collapsed()) return
       this.holdFlight()
       const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
       const area = this.anchorArea(contentWidth, contentHeight)
@@ -769,7 +763,7 @@ export class ChatPanel {
     this.tab.sendChat(Events.chatFocus, null)
   }
 
-  /** Brings the chat back in the window if ⌘B hid it or it was minimized. */
+  /** Brings the chat back in the window if ⌘B hid it. */
   private showPanel() {
     if (!this.tab.state.chatVisible) {
       if (this.docked) {
@@ -778,7 +772,6 @@ export class ChatPanel {
       }
       this.tab.patch({ chatVisible: true })
     }
-    if (this.tab.resources.chat?.meta.minimized) this.tab.resources.chat.setMinimized(false)
     this.tab.layout()
   }
 
@@ -819,7 +812,7 @@ export class ChatPanel {
   /**
    * The user pressed in the page (the preview, a website over it, or the board): the floating
    * chat, not in use, hides to its bubble, as while picking. Not with a draft or a waiting
-   * card in it, while picking (already its bubble), minimized, docked or popped out.
+   * card in it, while picking (already its bubble), docked or popped out.
    */
   pagePressed() {
     const chat = this.tab.resources.chat
@@ -827,7 +820,7 @@ export class ChatPanel {
     // (theirs does while the agent works as well).
     if (this.tab.agentInput) return
     if (this.tucked || !chat || !this.chatShown || this.docked) return
-    if (this.drafted || chat.awaitingPermission || chat.meta.minimized) return
+    if (this.drafted || chat.awaitingPermission) return
     if (this.tab.state.preview.selecting) return
     this.tucked = true
     this.tab.layout()
@@ -854,8 +847,8 @@ export class ChatPanel {
   /**
    * Whether anyone can see the chat page: its tab is the one in the window, the window it's in
    * (its own, popped out) is neither minimized nor hidden, and its view is showing: not hidden
-   * (⌘B), on a start screen, in focus mode, or under the shortcuts sheet. A pill or a bubble is
-   * still the chat in sight. Chromium goes on drawing a page whose view is hidden or out of its
+   * (⌘B), on a start screen, in focus mode, or under the shortcuts sheet. A bubble is still the
+   * chat in sight. Chromium goes on drawing a page whose view is hidden or out of its
    * window, so the page is told.
    */
   private get seen() {
@@ -882,7 +875,7 @@ export class ChatPanel {
   }
 
   /**
-   * The floating chat (panel, pill or bubble) where it's drawn in the window, while it's
+   * The floating chat (panel or bubble) where it's drawn in the window, while it's
    * anchored in the canvas's bottom-left corner; null in any other corner, docked or hidden.
    */
   bottomLeftRect(): Rect | null {
@@ -950,7 +943,7 @@ export class ChatPanel {
     else if (form !== this.viewForm) this.awaitMorph(form)
     else this.settleForm(form)
     // Growing from the message box, the view is the full panel at once; shrinking to it, only
-    // once the panel has (a bubble or pill drawn meanwhile takes the box's corner at once).
+    // once the panel has (a bubble drawn meanwhile takes the box's corner at once).
     if (!float.collapsed) this.settleCollapse(false)
     else if (this.viewCollapsed) this.settleCollapse(true)
     else if (form === 'panel' && this.viewForm === 'panel') this.awaitCollapse()
@@ -962,8 +955,7 @@ export class ChatPanel {
   }
 
   wantedForm(): ChatForm {
-    if (this.bubbled) return 'bubble'
-    return this.tab.resources.chat?.meta.minimized ? 'pill' : 'panel'
+    return this.bubbled ? 'bubble' : 'panel'
   }
 
   float(): ChatFloat {
@@ -999,10 +991,7 @@ export class ChatPanel {
   }
 
   private floatingBounds(contentWidth: number, contentHeight: number, form: ChatForm): Rect {
-    const base =
-      form === 'bubble'
-        ? this.floatingRect(contentWidth, contentHeight)
-        : this.floatingRect(contentWidth, contentHeight, form)
+    const base = this.floatingRect(contentWidth, contentHeight)
     const { x, y, width, height } = form === 'bubble' ? inCorner(base, BUBBLE, this.anchor) : base
     return {
       x: x - PANEL_SHADOW_MARGIN,
@@ -1012,14 +1001,8 @@ export class ChatPanel {
     }
   }
 
-  private floatingRect(
-    contentWidth: number,
-    contentHeight: number,
-    shape: 'panel' | 'pill' = this.tab.resources.chat?.meta.minimized ? 'pill' : 'panel',
-    atRest = false,
-  ): Rect {
-    const { width, height } =
-      shape === 'pill' ? MINI : this.floatingSize(contentWidth, contentHeight, this.viewCollapsed)
+  private floatingRect(contentWidth: number, contentHeight: number, atRest = false): Rect {
+    const { width, height } = this.floatingSize(contentWidth, contentHeight, this.viewCollapsed)
     const area = this.anchorArea(contentWidth, contentHeight)
     const { x, y, dx, dy } = this.anchor
     const held = !atRest && this.heldAt ? cornerPoint(this.heldAt, this.anchor) : null
@@ -1051,7 +1034,7 @@ export class ChatPanel {
 
   private restingCorner(): Point {
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
-    return cornerPoint(this.floatingRect(contentWidth, contentHeight, undefined, true), this.anchor)
+    return cornerPoint(this.floatingRect(contentWidth, contentHeight, true), this.anchor)
   }
 
   private fly(from: Rect, velocity: Point, config: SpringConfig) {
@@ -1229,7 +1212,6 @@ export class ChatPanel {
     }
     const [contentWidth, contentHeight] = this.tab.host.win.getContentSize()
     const before = this.drawnRect(contentWidth, contentHeight)
-    const pill = !!this.tab.resources.chat?.meta.minimized
     this.dockSlide?.flight?.stop()
     this.dockSlide = null
     const morph: DockMorph =
@@ -1244,8 +1226,8 @@ export class ChatPanel {
       morph,
       side,
       card: docked ? (this.dockCard ?? this.floatingRect(contentWidth, contentHeight)) : null,
-      radius: docked && pill ? MINI.height / 2 : CARD_RADIUS,
-      reveal: docked && (pill || this.viewCollapsed),
+      radius: CARD_RADIUS,
+      reveal: docked && this.viewCollapsed,
     }
     morph.to(docked ? 1 : 0)
     morph.absorb(before, this.shapeRect(contentWidth, contentHeight, false))

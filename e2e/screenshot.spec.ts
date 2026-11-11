@@ -373,7 +373,7 @@ const right = (chat: Bounds) => chat.x + chat.width
 const bottom = (chat: Bounds) => chat.y + chat.height
 
 /**
- * How far the visible panel (or the pill, or the bubble) is from each edge of the canvas,
+ * How far the visible panel (or the bubble) is from each edge of the canvas,
  * which the preview fills.
  */
 function gaps({ chat, preview }: Layout) {
@@ -438,7 +438,7 @@ test("a new window's chat panel starts at the bottom-right and stays in its corn
   )
 
   // Dropped near the top-left, it springs into that corner (at the usual margin) and keeps
-  // to it from then on, and so does the pill; new windows start there too.
+  // to it from then on; new windows start there too.
   const before = gaps(closed)
   const topLeft = { left: PANEL_MARGIN, top: PANEL_MARGIN }
   await session.chat.evaluate(
@@ -461,13 +461,10 @@ test("a new window's chat panel starts at the bottom-right and stays in its corn
   const grown = await layoutWhen(session, 'the larger window', resizedTo(larger))
   expect(gaps(grown)).toMatchObject(topLeft)
   expect(grown.chat.width).toBe(dragged.chat.width)
-  await session.chat.evaluate(() => window.gui.setMinimized(true))
-  const pill = await layoutWhere(session, 'the pill', (chat) => chat.height < dragged.chat.height)
-  expect(gaps(pill)).toMatchObject(topLeft)
 
   // The bubble, while picking, is in that corner too.
   await session.chrome.evaluate(() => window.gui.toggleSelect())
-  const bubble = await layoutWhere(session, 'the bubble', (chat) => chat.width < pill.chat.width)
+  const bubble = await layoutWhere(session, 'the bubble', (chat) => chat.width < grown.chat.width)
   expect(gaps(bubble)).toMatchObject(topLeft)
 })
 

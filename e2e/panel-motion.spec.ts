@@ -294,7 +294,7 @@ test('with Reduce motion on, the panel jumps to its corner', async ({ launch }) 
   expect(moves.at(-1)).toMatchObject({ x: end.chat.x, y: end.chat.y })
 })
 
-// The panel and its bubble (or pill) are one thing changing shape: the panel shrinks toward
+// The panel and its bubble are one thing changing shape: the panel shrinks toward
 // its anchored corner as the bubble grows out of it, inside a view main keeps at the panel's
 // size until the chat says the morph is done. These record every frame in the chat page.
 
@@ -303,7 +303,6 @@ interface MorphFrame {
   t: number
   width: number
   panel?: { scale: number; opacity: number }
-  pill?: { scale: number; opacity: number }
   bubble?: { scale: number; opacity: number }
 }
 
@@ -324,7 +323,7 @@ function startRecording() {
     for (const el of document.querySelectorAll<HTMLElement>('[data-chat-form]')) {
       const style = getComputedStyle(el)
       const scale = style.transform === 'none' ? 1 : Number(style.transform.slice(7).split(',')[0])
-      const form = el.dataset.chatForm as 'panel' | 'pill' | 'bubble'
+      const form = el.dataset.chatForm as 'panel' | 'bubble'
       frame[form] = { scale, opacity: Number(style.opacity) }
     }
     frames.push(frame)
@@ -421,31 +420,6 @@ test('picking morphs the panel into its bubble and back along the same path', as
   }
   expect(turned.at(-1)?.panel).toEqual({ scale: 1, opacity: 1 })
   expect((await session.app.evaluate(chatLayout))?.chat).toEqual(start.chat)
-})
-
-test('minimizing morphs the panel into its pill and back', async ({ launch }) => {
-  const session = await launch({ fixture: 'vite', prefs: BOTTOM_LEFT_PREFS })
-  const start = await ready(session)
-  await session.chat.evaluate(startRecording)
-  await session.chat.evaluate(() => window.gui.setMinimized(true))
-  const pill = await layoutWhen(session, 'the pill', ({ chat }) => chat.height === 52 + SHADOW * 2)
-  const into = await session.chat.evaluate(stopRecording)
-  // In the panel's view while it shrank, then the pill's, in the same bottom-left corner.
-  expect(into.some((f) => f.width === start.chat.width && f.panel && f.panel.scale < 0.95)).toBe(
-    true,
-  )
-  expect(pill.chat.x).toBe(start.chat.x)
-  expect(pill.chat.y + pill.chat.height).toBe(start.chat.y + start.chat.height)
-  await expect(session.chat.getByRole('button', { name: 'Expand chat' })).toBeVisible()
-
-  await session.chat.getByRole('button', { name: 'Expand chat' }).click()
-  const back = await layoutWhen(
-    session,
-    'the panel again',
-    ({ chat }) => chat.height > pill.chat.height,
-  )
-  expect(back.chat).toEqual(start.chat)
-  await expect(session.chat.getByRole('button', { name: 'Minimize' })).toBeVisible()
 })
 
 test('with reduced motion the bubble cross-fades in place', async ({ launch }) => {

@@ -266,10 +266,10 @@ test('an answered permission card collapses into its line; new rows fade up once
   expect(fading.some((text) => text.includes('Looked.'))).toBe(true)
   expect(fading.some((text) => text.includes('Look at the header.'))).toBe(false)
 
-  // Back from the pill, the same rows are already there: nothing fades in again.
-  await chat.evaluate(() => window.gui.setMinimized(true))
-  await expect(chat.getByRole('button', { name: 'Expand chat' })).toBeVisible()
-  await chat.getByRole('button', { name: 'Expand chat' }).click()
+  // Back from the bubble, the same rows are already there: nothing fades in again.
+  await session.chrome.evaluate(() => window.gui.toggleSelect())
+  await expect(chat.getByRole('button', { name: 'Show chat' })).toBeVisible()
+  await chat.getByRole('button', { name: 'Show chat' }).click()
   await expect(chat.getByText('Look at the header.')).toBeVisible()
   expect(await chat.locator('.animate-row-in').count()).toBe(0)
 
