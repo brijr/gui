@@ -79,10 +79,16 @@ interface Layers {
 /** What Playwright passes to `app.evaluate` callbacks. */
 type ElectronModule = typeof import('electron/main')
 
-/** Runs in the Electron main process: one PNG per visible view of the first window. */
-async function captureLayers(api: ElectronModule): Promise<Layers | null> {
+/**
+ * Runs in the Electron main process: one PNG per visible view of the app's window, the one
+ * showing `chrome` (the app chrome's address). Not merely the first window: the agent's hidden
+ * website and canvas capture windows come and go beside it, and capture blank.
+ */
+async function captureLayers(api: ElectronModule, chrome: string): Promise<Layers | null> {
   const { BrowserWindow, WebContentsView } = api
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = BrowserWindow.getAllWindows().find(
+    (each) => !each.isDestroyed() && each.webContents.getURL() === chrome,
+  )
   if (!win) return null
   const [width = 0, height = 0] = win.getContentSize()
   const out = [{ x: 0, y: 0, url: (await win.webContents.capturePage()).toDataURL() }]
@@ -458,7 +464,7 @@ export class GuiSession {
    */
   async shot(name: string, force = false): Promise<void> {
     if (!force && process.env.GUI_E2E_SHOTS !== '1') return
-    const layers = await this.app.evaluate(captureLayers)
+    const layers = await this.app.evaluate(captureLayers, this.chrome.url())
     if (!layers) return
     const dataUrl = await this.chrome.evaluate(drawLayers, layers)
     const file = this.testInfo.outputPath(`${name}.png`)
