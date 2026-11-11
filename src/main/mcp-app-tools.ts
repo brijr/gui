@@ -1,54 +1,19 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
-import type { Turn, Version } from '../shared/types'
-import { failure, text, untrusted } from './mcp-results'
+import type { Turn } from '../shared/types'
+import { text, untrusted } from './mcp-results'
 
-/**
- * Gui's own tools, by name, with their titles: the chat's saved versions and its earlier
- * turns. Nothing here changes the project.
- */
+/** Gui's own tools, by name, with their titles: the chat's earlier turns. Nothing here changes the project. */
 export const APP_TOOL_TITLES = {
-  versions_list: 'List versions',
   chat_turns: "Read this chat's earlier messages",
 } as const
 
 export interface AppTools {
-  /** This chat's versions, newest first, in a few lines each */
-  versions: (limit: number) => Promise<string>
   /** This chat's turns before the running one, oldest first, in a few lines each */
   turns: (limit: number) => string
 }
 
 export function registerAppTools(server: McpServer, app: AppTools) {
-  server.registerTool(
-    'versions_list',
-    {
-      title: APP_TOOL_TITLES.versions_list,
-      description:
-        "This chat's versions of the project's files, newest first: the automatic version at each finished turn's end, versions the user named, and states Gui saved just before a restore. Each entry gives its ID, kind, time, whether the files match it now, and the files it changed. Use it to find an earlier state or tell the user which version to restore in Gui's Versions sheet, where how the files are now is saved first. This only lists versions; it does not restore anything, and the running turn's version appears when it finishes.",
-      inputSchema: {
-        limit: z
-          .number()
-          .int()
-          .min(1)
-          .max(100)
-          .optional()
-          .describe('Most recent versions (default 30)'),
-      },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ limit }) => {
-      try {
-        const versions = await app.versions(limit ?? 30)
-        return versions
-          ? untrusted('versions_list', versions)
-          : text('No versions yet in this chat.')
-      } catch (error) {
-        return failure(error)
-      }
-    },
-  )
-
   server.registerTool(
     'chat_turns',
     {
@@ -71,47 +36,6 @@ export function registerAppTools(server: McpServer, app: AppTools) {
       return turns ? untrusted('chat_turns', turns) : text('No earlier messages in this chat.')
     },
   )
-}
-
-/** Changed files listed under one version before the rest are summarized. */
-const VERSION_FILE_LIMIT = 20
-
-/** versions_list: the newest `limit` versions, in the order Gui gives them (newest first). */
-export function describeVersions(versions: Version[], limit: number, turnRunning = false): string {
-  const shown = versions.slice(0, limit)
-  if (shown.length === 0) return ''
-  const lines = [
-    `Versions (${versions.length}, newest first${shown.length < versions.length ? `; showing ${shown.length}` : ''}):`,
-  ]
-  if (turnRunning) lines.push("The current message's version will appear when it finishes.")
-  for (const version of shown) {
-    const name = version.name.replace(/\s+/g, ' ').trim()
-    lines.push(
-      `- id: ${version.id}; kind: ${version.kind}; current: ${version.current ? 'yes' : 'no'}${
-        version.reverted ? '; undone: yes' : ''
-      }; created: ${new Date(version.createdAt).toISOString()}; name: ${name}`,
-    )
-    if (version.changes === null) {
-      lines.push('  changes: not recorded')
-    } else if (version.changes.length === 0) {
-      lines.push('  changes: none recorded')
-    } else {
-      const additions = version.changes.reduce((sum, change) => sum + change.additions, 0)
-      const deletions = version.changes.reduce((sum, change) => sum + change.deletions, 0)
-      lines.push(
-        `  changes: ${version.changes.length} ${version.changes.length === 1 ? 'file' : 'files'} (+${additions} -${deletions})`,
-      )
-      for (const change of version.changes.slice(0, VERSION_FILE_LIMIT)) {
-        lines.push(
-          `   - ${change.status} ${change.path} (+${change.additions} -${change.deletions})`,
-        )
-      }
-      if (version.changes.length > VERSION_FILE_LIMIT) {
-        lines.push(`   - …and ${version.changes.length - VERSION_FILE_LIMIT} more`)
-      }
-    }
-  }
-  return lines.join('\n')
 }
 
 const STATUS = { done: 'done', cancelled: 'stopped', error: 'failed', running: 'running' } as const

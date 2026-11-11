@@ -93,8 +93,11 @@ export function Composer({
   const firstMessage = useChat((s) => s.turnIds.length === 0)
   const attachments = useChat((s) => s.attachments)
   const recordings = useChat((s) => s.recordings)
-  // A turn that's gone (a new session) has nothing to follow up on.
-  const followUp = useChat((s) => s.turnsById[s.followUp ?? ''] ?? null)
+  // A turn that's gone (a new session) or undone has nothing to follow up on.
+  const followUp = useChat((s) => {
+    const turn = s.turnsById[s.followUp ?? '']
+    return turn && !turn.reverted ? turn : null
+  })
   const dismissed = useChat((s) => s.dismissedProblems)
   const unseenProblem = meta.problems.some((problem) => !dismissed.includes(problem.id))
   const input = useRef<HTMLTextAreaElement>(null)

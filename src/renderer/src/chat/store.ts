@@ -13,7 +13,6 @@ import type {
 import { gui } from '../lib/api'
 import type { DraftImage } from './images'
 import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
-import { closeVersions, useVersions } from './versions-state'
 
 interface ChatStore {
   meta: ChatMeta | null
@@ -199,11 +198,7 @@ function attachFromMain(image: ImageAttachment) {
  */
 function chooseModel() {
   if (!useChat.getState().meta?.models) return
-  // The Versions sheet hides the composer. It stays while busy.
-  closeVersions()
-  if (!useVersions.getState().open) {
-    useChat.setState({ pickModel: true })
-  }
+  useChat.setState({ pickModel: true })
 }
 
 function applySnapshot(snapshot: ChatSnapshot) {
@@ -241,12 +236,7 @@ function upsertTurn(turn: Turn) {
 
 function transcriptShown() {
   const { meta, float } = useChat.getState()
-  // The Versions sheet takes the transcript's place while it's open.
-  return (
-    document.visibilityState === 'visible' &&
-    (meta?.docked || float.form === 'panel') &&
-    !useVersions.getState().open
-  )
+  return document.visibilityState === 'visible' && (meta?.docked || float.form === 'panel')
 }
 
 // Elements that move between states, by what they show.

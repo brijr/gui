@@ -1499,7 +1499,8 @@ function Shot({
 
 /**
  * The end of a turn that changed files: how the element looked before and after, what
- * changed, Follow up (talk about this change again, later on), and Undo (Redo once undone).
+ * changed, Follow up (talk about this change again, later on), and Undo. Once undone, it
+ * reads Undone, with Redo while that can bring it back, and no Follow up.
  * Undo also undoes every later message (`restoreTurn`), so on an older one it reads "Undo to
  * here" and asks first.
  */
@@ -1559,15 +1560,17 @@ function Result({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
           unrecorded && <span className="text-small text-muted">Changes not recorded</span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2">
-          <Toggle
-            size="sm"
-            icon={Reply}
-            pressed={following}
-            title="Ask about this change in your next message"
-            onClick={() => setFollowUp(following ? null : turn.id)}
-          >
-            Follow up
-          </Toggle>
+          {!turn.reverted && (
+            <Toggle
+              size="sm"
+              icon={Reply}
+              pressed={following}
+              title="Ask about this change in your next message"
+              onClick={() => setFollowUp(following ? null : turn.id)}
+            >
+              Follow up
+            </Toggle>
+          )}
           {turn.reverted ? (
             <>
               <Badge>Undone</Badge>

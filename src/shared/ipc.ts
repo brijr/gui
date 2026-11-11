@@ -35,7 +35,6 @@ import type {
   TerminalId,
   ToolbarMenuItem,
   VariationAction,
-  Version,
   Viewport,
   WindowState,
 } from './types'
@@ -65,9 +64,6 @@ export const Invoke = {
   githubClone: 'github:clone',
   newProject: 'project:new',
   send: 'chat:send',
-  listVersions: 'versions:list',
-  saveVersion: 'versions:save',
-  restoreVersion: 'versions:restore',
   restoreTurn: 'chat:restore',
   redo: 'chat:redo',
   fixProblems: 'chat:fix-problems',
@@ -234,7 +230,7 @@ export const MAX_TERMINAL_INPUT = 64 * 1024
 
 /** Main → renderer */
 /** What the chat's More menu hands back to the chat page to do. */
-export type ChatMenuChoice = 'archive' | 'versions'
+export type ChatMenuChoice = 'archive'
 
 export const Events = {
   state: 'state',
@@ -403,8 +399,8 @@ export interface GuiApi {
    */
   showAgentMenu(at?: { x: number; y: number }): void
   /**
-   * The chat header's More menu, under the button: Versions, Archived Chats, Pop
-   * Out. Main does Pop Out itself; the rest come back as `onChatMenuChoice`.
+   * The chat header's More menu, under the button: Archived Chats, Pop Out. Main does
+   * Pop Out itself; Archived Chats comes back as `onChatMenuChoice`.
    */
   showChatMenu(at: { x: number; y: number }): void
   showProjectMenu(): void
@@ -700,12 +696,6 @@ export interface GuiApi {
   stopSubagent(turnId: string, subagent: string): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
-  /** This chat's versions of the project's files, newest first; null without a project */
-  getVersions(): Promise<Version[] | null>
-  /** Saves the files as they are now as a named version; rejects with a readable message */
-  saveVersion(name: string): Promise<Version>
-  /** Puts the files back to a version, saving how they are now first */
-  restoreVersion(id: string): Promise<void>
   /** Archives this chat and starts an empty one (`ChatMeta.archived` offers it back) */
   newSession(): void
   /** The project's archived chats, newest first */

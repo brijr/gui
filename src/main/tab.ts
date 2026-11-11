@@ -110,7 +110,7 @@ import { Inspector } from './inspector'
 import { recordInstall } from './install-state'
 import { crashFailure, loadFailure } from './load-failure'
 import { isLoopback } from './loopback'
-import { describeTurns, describeVersions } from './mcp-app-tools'
+import { describeTurns } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
 import { prefersReducedMotion } from './panel-flight'
@@ -292,7 +292,7 @@ const boardProject = (root: string, name: string): ProjectInfo => ({
 })
 
 /**
- * A canvas's `canvas.json` in undo, redo and restoring versions (chat.ts `BoardLayout`): read
+ * A canvas's `canvas.json` in undo and redo (chat.ts `BoardLayout`): read
  * at each checkpoint, merged onto the board as it is (`mergeLayout`), and written once the
  * board has taken in the pages the restore put back, so its own sync can't write over it.
  */
@@ -1422,7 +1422,6 @@ export class ProjectTab implements ChatPanelOwner {
       recordings,
       // This opening's chat, never the next project's: `resources` empties as it closes.
       {
-        versions: (limit) => this.versionsForAgent(resources, limit),
         turns: (limit) => describeTurns(resources.chat?.snapshot().turns ?? [], limit),
       },
       board
@@ -3090,15 +3089,6 @@ export class ProjectTab implements ChatPanelOwner {
     this.patch({ branch })
   }
 
-  /** versions_list: what the Versions sheet shows, for an agent helping find a restore point. */
-  private async versionsForAgent(resources: ProjectResources, limit: number) {
-    const chat = resources.chat
-    if (!chat) throw new Error('No project is open')
-    const versions = await chat.listVersions()
-    if (resources.chat !== chat) throw new Error('No project is open')
-    return describeVersions(versions, limit, chat.turnRunning)
-  }
-
   // Project setup (WindowState.setup)
 
   /** Runs the picked monorepo app from now on, and remembers it for this project. */
@@ -3608,22 +3598,6 @@ export class ProjectTab implements ChatPanelOwner {
 
   restoreTurn(turnId: string) {
     return this.resources.chat?.restoreTurn(turnId)
-  }
-
-  listVersions() {
-    return this.resources.chat?.listVersions() ?? null
-  }
-
-  saveVersion(name: string) {
-    const chat = this.resources.chat
-    if (!chat) throw new Error('No project is open.')
-    return chat.saveVersion(name)
-  }
-
-  restoreVersion(id: string) {
-    const chat = this.resources.chat
-    if (!chat) throw new Error('No project is open.')
-    return chat.restoreVersion(id)
   }
 
   redo() {
@@ -4197,7 +4171,6 @@ export class ProjectTab implements ChatPanelOwner {
     if (!this.hasProject) return
     const choose = (choice: ChatMenuChoice) => this.sendChat(Events.chatMenuChoice, choice)
     const template: MenuItemConstructorOptions[] = [
-      { label: 'Versions…', click: () => choose('versions') },
       { label: 'Archived Chats', click: () => choose('archive') },
       { type: 'separator' },
       {

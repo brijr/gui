@@ -81,6 +81,15 @@ test('double-click in Design mode edits page text in place; Return writes it, wi
   )
   await expect(heading).toHaveText('Gui Vite fixture')
   await expect(line).toContainText('Undone')
+
+  // Redo puts the edit back, as for an agent's message.
+  await line.getByRole('button', { name: 'Redo' }).click()
+  await waitFor(
+    async () => readFileSync(app, 'utf8').includes('<h1>Edited in place</h1>'),
+    'the edit to be redone',
+  )
+  await expect(heading).toHaveText('Edited in place')
+  await expect(line.getByRole('button', { name: 'Undo' })).toBeVisible()
 })
 
 // An edit Gui can't write itself goes to the agent. A tiny ACP agent stands in for a real

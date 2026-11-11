@@ -62,9 +62,9 @@ export interface SavedChat {
    */
   queue?: SavedQueued[]
   /**
-   * Versions of the project's files the user named, and the states saved automatically
-   * before a restore (absent with none, and in older files). Turn versions are derived
-   * from `turns` and `checkpoints`, so only these are stored.
+   * Versions the user named in the Versions sheet Gui used to have, and the states saved
+   * before restoring one (absent with none). Nothing offers them now; they're kept, with
+   * their checkpoints, as they were saved.
    */
   versions?: Version[]
 }
@@ -202,7 +202,6 @@ async function referenceFiles(folder: string): Promise<string[] | null> {
   }
 }
 
-export { MAX_VERSIONS } from './history-format'
 export { flushHistorySync, HistoryWriter } from './history-writer'
 
 // Archived chats: each project's live chat file stays where it is (`historyFile`), and the

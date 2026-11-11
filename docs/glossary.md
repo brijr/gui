@@ -37,7 +37,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 | logs | output | dev server and install errors (`LogsToggle` in `canvas.tsx`, `drawer.tsx`) | "Show logs" / "Hide logs" |
 | chat | conversation, thread, session | chat UI, errors (`chat/store.ts`) | "New Chat", "Archived Chats" in menus |
 | message | turn | Undo's tooltip (`turn-view.tsx`), Settings clear dialog (`settings.ts`) | "Restore files to how they were before this message". "You can no longer undo changes from past chats." |
-| version | checkpoint, snapshot | Settings → Storage (`storage-section.tsx`), the chat's Versions sheet (`versions-sheet.tsx`) | Matches "Versions…". Settings reads "Versions · Saved states that power Undo" |
+| undo history | checkpoint, snapshot, version | Settings → Storage (`storage-section.tsx`, `settings.ts`) | Settings reads "Undo history · Saved states that power Undo" and asks "Clear undo history?". Getting files back is Undo and Redo on a message, nothing else |
 | Ready | Installed (as a status) | agent status on start screen and Settings (`agent-status.tsx`) | An agent Gui found but hasn't checked yet reads **Not checked**, with a **Check now** button |
 | Not installed | not on your PATH | Settings, Agent menu sublabel | Button: "Install {name}". Hint: "Gui can't find the `x` command on this Mac." |
 | Turn on / Off | Enable, Enabled | agent card (`agent-card.tsx`), Settings agent switch (`agent-row.tsx`) | Status "Off". The switch's label is the agent's name |

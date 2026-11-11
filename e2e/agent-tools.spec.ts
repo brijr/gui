@@ -223,14 +223,22 @@ test("the dev server tool gives its status and output; Gui's own tools read this
   await session.waitForPreview()
   await installToolAgent(session)
   await ask(session, [{ write: { path: 'src/note.txt', text: 'first change' } }])
-  const [logs, turns, versions] = await ask(session, [
+  const [logs, turns] = await ask(session, [
     { name: 'dev_server_logs', args: { lines: 5 } },
     { name: 'chat_turns' },
-    { name: 'versions_list' },
   ])
   expect(text(logs)).toContain('running')
   expect(text(logs)).toContain('Latest output:')
   expect(text(turns)).toContain('TOOLS')
   expect(text(turns)).toContain('src/note.txt')
-  expect(text(versions)).toMatch(/Versions \(\d+, newest first/)
+
+  // Undo is the one way back: an undone message offers Redo, and nothing to follow up on.
+  const result = session.chat.getByRole('region', { name: 'Result' })
+  await expect(result.getByRole('button', { name: 'Follow up' })).toBeVisible()
+  await result.getByRole('button', { name: 'Undo', exact: true }).dispatchEvent('click')
+  await expect(result.getByText('Undone', { exact: true })).toBeVisible()
+  await expect(result.getByRole('button', { name: 'Redo' })).toBeVisible()
+  await expect(result.getByRole('button', { name: 'Follow up' })).toHaveCount(0)
+  const [undone] = await ask(session, [{ name: 'chat_turns' }])
+  expect(text(undone)).toMatch(/\[done, undone\]/)
 })

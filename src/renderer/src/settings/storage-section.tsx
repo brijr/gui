@@ -21,7 +21,7 @@ const ROWS: readonly StorageInfo[] = [
   },
   {
     kind: 'checkpoints',
-    title: 'Versions',
+    title: 'Undo history',
     detail: 'Saved states that power Undo',
   },
   {

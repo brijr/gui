@@ -59,7 +59,6 @@ import {
   archiveChat,
   HistoryWriter,
   loadArchived,
-  MAX_VERSIONS,
   removeArchived,
   type SavedChat,
   type SavedQueued,
@@ -264,7 +263,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private turnPublisher = new TurnPublisher()
   private emitTimers = new Map<string, NodeJS.Timeout>()
   private redoPoint: RedoPoint | null = null
-  /** Named and pre-restore versions, oldest first; turn versions are derived from records. */
+  /**
+   * Versions saved from the Versions sheet Gui used to have, kept as they were: saving them
+   * back keeps their checkpoints referenced, so pruning doesn't take them.
+   */
   private savedVersions: Version[] = []
   /** Current agent session, persisted so the next launch can resume it. */
   private sessionId: string | null = null
@@ -1182,124 +1184,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (this.lock === token) this.lock = null
       this.drainQueue()
     }
-  }
-
-  /**
-   * Every version of the project's files this chat knows, newest first: each finished
-   * turn's end, the versions the user named, and the states saved before a restore.
-   * The one the files match now is marked `current`.
-   */
-  async listVersions(): Promise<Version[]> {
-    const versions = this.versions()
-    if (versions.length === 0 || this.disposed) return versions
-    // A fresh snapshot says which version the files are at; without one, none is marked.
-    const here = await this.checkpoints.snapshot('version list').catch(() => null)
-    if (!here || this.disposed) return versions
-    const trees = await this.checkpoints
-      .trees([here, ...versions.map((version) => version.sha)])
-      .catch(() => null)
-    const tree = trees?.get(here)
-    if (!trees || !tree) return versions
-    return versions.map((version) => ({ ...version, current: trees.get(version.sha) === tree }))
-  }
-
-  /** Saves the files as they are now under `name`, kept until the chat's versions fill up. */
-  async saveVersion(name: string): Promise<Version> {
-    const cleaned = versionName(name)
-    if (!cleaned) throw new Error('Add a name for this version first.')
-    if (this.lock) throw new Error('Wait for the agent to finish first.')
-    if (this.disposed) throw new Error('This chat is closed.')
-    const token = {}
-    this.lock = token
-    try {
-      const previous = this.versions()[0]?.sha ?? null
-      const sha = await this.checkpoints.snapshot(`version: ${cleaned}`)
-      const changes =
-        previous && previous !== sha
-          ? await this.checkpoints.diff(previous, sha).catch(() => null)
-          : null
-      const version: Version = {
-        id: randomUUID(),
-        sha,
-        kind: 'named',
-        name: cleaned,
-        createdAt: Date.now(),
-        changes,
-      }
-      this.keepVersion(version)
-      this.schedulePersist()
-      return { ...version, current: true }
-    } finally {
-      if (this.lock === token) this.lock = null
-      this.drainQueue()
-    }
-  }
-
-  /**
-   * Puts the project's files back to a version. How they are now is saved first (as a
-   * `safety` version), so restoring can itself be restored. Files checkpoints never
-   * record (secrets, ignored files, big files) are left alone.
-   */
-  async restoreVersion(id: string): Promise<void> {
-    if (this.lock) throw new Error('Wait for the agent to finish first.')
-    if (this.disposed) throw new Error('This chat is closed.')
-    const version = this.versions().find((candidate) => candidate.id === id)
-    if (!version) {
-      throw new Error('That version is no longer here. Reopen Versions to see the current list.')
-    }
-    const token = {}
-    const epoch = this.epoch
-    this.lock = token
-    try {
-      await this.requireCheckpoints([version.sha], "so this version can't be restored")
-      const current = await this.checkpoints.snapshot(`before restoring ${version.name}`)
-      const changed = await this.pathsBetween(version.sha, current)
-      const paths = this.restorable(changed)
-      // A canvas's camera alone isn't a change to restore.
-      const layout =
-        paths.length !== changed.length &&
-        (await this.options.layout?.changed(version.sha, current).catch(() => true)) === true
-      if ((paths.length === 0 && !layout) || !this.live(epoch)) return
-      // Record the way back before touching a file, so even a restore that stops
-      // halfway can be taken back from the safety version.
-      this.keepVersion({
-        id: randomUUID(),
-        sha: current,
-        kind: 'safety',
-        name: `Before restoring “${version.name}”`,
-        createdAt: Date.now(),
-        changes: null,
-      })
-      this.schedulePersist()
-      await this.checkpoints.restore(version.sha, paths)
-      if (layout) await this.restoreLayout(current, version.sha)
-    } finally {
-      if (this.lock === token) this.lock = null
-      this.drainQueue()
-    }
-  }
-
-  /** Turn ends and saved versions together, newest first. */
-  private versions(): Version[] {
-    const turns: Version[] = []
-    for (const { turn, after } of this.records) {
-      if (!after || turn.status === 'running') continue
-      turns.push({
-        id: `turn:${turn.id}`,
-        sha: after,
-        kind: 'turn',
-        name: versionName(turn.prompt) || `Message ${turn.index + 1}`,
-        createdAt: turn.endedAt ?? turn.startedAt,
-        changes: turn.changes,
-        turnId: turn.id,
-        reverted: turn.reverted,
-      })
-    }
-    return [...turns, ...this.savedVersions].sort((a, b) => b.createdAt - a.createdAt)
-  }
-
-  private keepVersion(version: Version) {
-    this.savedVersions = [...this.savedVersions, version].slice(-MAX_VERSIONS)
   }
 
   dispose(): Promise<void> {
@@ -2633,12 +2517,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
 export { availableModels, offersChoice } from './chat-models'
 export { type EditScope, projectEditPath } from './chat-paths'
-
-/** A version's name on one line, cut short. */
-function versionName(text: string): string {
-  const name = text.replace(/\s+/g, ' ').trim()
-  return name.length > 120 ? `${name.slice(0, 119).trimEnd()}…` : name
-}
 
 /** The newest checkpoint of these turns, i.e. how Gui last left the files they touched. */
 function lastRecorded(turns: TurnRecord[]): Baseline | null {

@@ -248,7 +248,7 @@ const CLEAR_PROMPTS: Record<StorageKind, { message: string; detail: string }> = 
       'Your chats and archived chats are deleted, and agents can no longer pick them back up.',
   },
   checkpoints: {
-    message: 'Clear versions?',
+    message: 'Clear undo history?',
     detail: 'You can no longer undo changes from past chats.',
   },
   previewData: {

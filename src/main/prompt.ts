@@ -14,7 +14,7 @@ import {
 } from '../shared/types'
 
 /** Re-send updated guidance once when resuming a session primed by an older build. */
-export const PROMPT_VERSION = 10
+export const PROMPT_VERSION = 11
 
 const INTRO = `You are working inside Gui, a visual design tool. The user sees their app running live in a browser preview backed by its dev server with hot reload. In Gui's Design Mode they click elements (or drag out areas) in the preview and ask for interface changes.`
 
@@ -50,7 +50,7 @@ function previewTools(websites: boolean) {
     "For animations, transitions and other motion, use preview_motion rather than screenshots, which catch one frame: it plays the motion (an input, a replay of the page's animations, or a reload) and returns timed frames on one image with a timeline of the animations that ran, optionally in slow motion or with reduced motion emulated. Check the reduced-motion path too when you add motion.",
     "preview_guides reads the user's guides with the element edges that just miss them (a few pixels off), and can place guides the user sees, to show what lines up and what doesn't. Read it again after editing to check the alignment.",
     'When the user asks for options, alternatives or several ways to improve something, write them as real code in their project behind one small switch and show them with preview_variations, whose description gives the switch; the user flips through them in the preview and keeps one.',
-    "Gui also has chat_turns (this chat's earlier requests and the files each changed) and versions_list (this chat's saved versions of the project's files).",
+    "Gui also has chat_turns (this chat's earlier requests, whether the user undid them, and the files each changed).",
   ]
 }
 

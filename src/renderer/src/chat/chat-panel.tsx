@@ -49,7 +49,6 @@ import { Morph } from './morph'
 import { connectShape, currentShape, subscribeShape, useShaping } from './shape'
 import { connectChat, keyedAnswer, useChat, waitingCard, whenPanelShown } from './store'
 import { Transcript } from './transcript'
-import { toggleVersions, useVersions, VersionsSheet } from './versions-sheet'
 
 /** Fields ⌘⌫ deletes typing in. */
 const TEXT_INPUT = /^(text|search|url|email|password|tel|number)$/
@@ -64,8 +63,8 @@ function typing(target: EventTarget | null) {
 /**
  * ⌘↩ and ⌘⌫ answer the oldest waiting permission card from anywhere in the panel, with its
  * Allow or Don't Allow, as Agent → Allow and Don't Allow do from elsewhere; otherwise the
- * composer would send on ⌘↩ and a text field take ⌘⌫. Not while the Versions sheet is open,
- * nor ⌘⌫ in a field with text in it, which it deletes. Ahead
+ * composer would send on ⌘↩ and a text field take ⌘⌫. Not ⌘⌫ in a field with text in it,
+ * which it deletes. Ahead
  * of the panel's own handlers: a key answered here goes no further, the menu included.
  */
 function answerPermissionKeys() {
@@ -74,7 +73,6 @@ function answerPermissionKeys() {
     if (!event.metaKey || modifiers || event.isComposing) return
     const allow = event.key === 'Enter'
     if (!allow && event.key !== 'Backspace') return
-    if (useVersions.getState().open) return
     if (!allow && typing(event.target)) return
     const answer = keyedAnswer(useChat.getState().turns, allow)
     if (!answer) return
@@ -282,7 +280,6 @@ function FloatingPanel({
   const upper = useRef<HTMLDivElement>(null)
   const inner = useRef<HTMLDivElement>(null)
   const composer = useRef<HTMLFormElement>(null)
-  const versioning = useVersions((s) => s.open)
   /** 1 showing the conversation, 0 the message box alone */
   const [spring] = useState(
     () =>
@@ -306,7 +303,7 @@ function FloatingPanel({
     const upperEl = upper.current
     const innerEl = inner.current
     if (!cardEl || !upperEl || !innerEl) {
-      // Nothing to reveal (Versions in its place): no stray edge left mid-motion.
+      // Nothing to reveal yet: no stray edge left mid-motion.
       if (edge.current) edge.current.style.display = 'none'
       return
     }
@@ -348,7 +345,7 @@ function FloatingPanel({
   // Measures the message box for main, which sizes the view to it while collapsed.
   useLayoutEffect(() => {
     const el = composer.current
-    if (!el || versioning) return
+    if (!el) return
     const measure = () => {
       const border = card.current ? card.current.offsetHeight - card.current.clientHeight : 2
       const height = el.offsetHeight + border
@@ -361,7 +358,7 @@ function FloatingPanel({
     const observer = new ResizeObserver(measure)
     observer.observe(el)
     return () => observer.disconnect()
-  }, [apply, versioning])
+  }, [apply])
 
   // Collapsing or growing, on a spring from wherever it is.
   useLayoutEffect(() => {
@@ -408,14 +405,9 @@ function FloatingPanel({
   useEffect(() => () => motion.current.stop?.(), [])
 
   // At the panel: it stays as it is until the user leaves it.
-  const held = hovered || versioning
   useEffect(() => {
-    gui.holdChat(held)
-  }, [held])
-  // Versions asked for from the menu bar while collapsed: they need the panel.
-  useEffect(() => {
-    if (versioning && float.collapsed) gui.expandChat()
-  }, [versioning, float.collapsed])
+    gui.holdChat(hovered)
+  }, [hovered])
 
   return (
     <>
@@ -433,45 +425,33 @@ function FloatingPanel({
           top ? 'top-0' : 'bottom-0',
         )}
       >
-        {versioning ? (
-          <>
+        <div
+          ref={upper}
+          inert={float.collapsed}
+          className="relative min-h-0 flex-1 overflow-hidden"
+        >
+          <div
+            ref={inner}
+            className={cn('absolute inset-x-0 flex h-full flex-col', top ? 'top-0' : 'bottom-0')}
+          >
             <Header meta={meta} />
-            <VersionsSheet />
-          </>
-        ) : (
-          <>
-            <div
-              ref={upper}
-              inert={float.collapsed}
-              className="relative min-h-0 flex-1 overflow-hidden"
-            >
-              <div
-                ref={inner}
-                className={cn(
-                  'absolute inset-x-0 flex h-full flex-col',
-                  top ? 'top-0' : 'bottom-0',
-                )}
-              >
-                <Header meta={meta} />
-                <Transcript turnIds={turnIds} meta={meta} />
-              </div>
-            </div>
-            <Composer
-              formRef={composer}
-              meta={meta}
-              running={running}
-              maxHeight={float.panelHeight > 0 ? Math.round(float.panelHeight * 0.6) : undefined}
-              alone={float.collapsed}
-              onGrab={onDragStart}
-              // With a conversation to show, or the chat New chat just archived to reopen.
-              onShowConversation={
-                float.collapsed && (turnIds.length > 0 || meta.archived)
-                  ? () => gui.expandChat()
-                  : undefined
-              }
-            />
-          </>
-        )}
+            <Transcript turnIds={turnIds} meta={meta} />
+          </div>
+        </div>
+        <Composer
+          formRef={composer}
+          meta={meta}
+          running={running}
+          maxHeight={float.panelHeight > 0 ? Math.round(float.panelHeight * 0.6) : undefined}
+          alone={float.collapsed}
+          onGrab={onDragStart}
+          // With a conversation to show, or the chat New chat just archived to reopen.
+          onShowConversation={
+            float.collapsed && (turnIds.length > 0 || meta.archived)
+              ? () => gui.expandChat()
+              : undefined
+          }
+        />
       </div>
       {/* The hairline along the moving edge, rounded into the corners like the card's own. */}
       <div
@@ -487,10 +467,8 @@ function FloatingPanel({
   )
 }
 
-/** Under the header: the Versions sheet takes over the transcript and composer until closed. */
+/** Under the header: the transcript and the composer. */
 function Body({ meta, turnIds, running }: { meta: ChatMeta; turnIds: string[]; running: boolean }) {
-  const versioning = useVersions((s) => s.open)
-  if (versioning) return <VersionsSheet />
   return (
     <>
       <Transcript turnIds={turnIds} meta={meta} />
@@ -887,9 +865,9 @@ function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }
 }
 
 /**
- * The header's less-used actions in one native menu (main's `showChatMenu`): Versions,
- * Archived Chats, Pop Out. The Versions sheet and the archived chats are this page's, so main
- * says which was chosen; the archived chats open under this button.
+ * The header's less-used actions in one native menu (main's `showChatMenu`): Archived Chats
+ * and Pop Out. The archived chats are this page's, so main says when they were chosen; they
+ * open under this button.
  */
 function MoreButton() {
   const button = useRef<HTMLButtonElement>(null)
@@ -897,8 +875,7 @@ function MoreButton() {
   useEffect(
     () =>
       gui.onChatMenuChoice((choice) => {
-        if (choice === 'versions') toggleVersions()
-        else if (choice === 'archive') whenPanelShown(() => setArchive(true))
+        if (choice === 'archive') whenPanelShown(() => setArchive(true))
       }),
     [],
   )
