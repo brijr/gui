@@ -102,19 +102,90 @@ for (const id of ['amp', 'devin', 'cursor', 'fx'] as const) {
   })
 }
 
+// Gemini CLI runs as `gemini --acp`, takes Gui's preview tools over HTTP, and is set to its
+// Default mode, which asks first. It says that mode change as a message of its own, which
+// mustn't reach the chat.
+test('gemini is selectable, starts in the mode that asks first, and streams a CLI response', async ({
+  launch,
+}) => {
+  const scratch = mkdtempSync(join(tmpdir(), 'gui-cli-'))
+  const log = join(scratch, 'calls.jsonl')
+  const cli = join(scratch, 'gemini')
+  writeFileSync(cli, `#!${process.execPath}\n${GEMINI_SCRIPT}`)
+  chmodSync(cli, 0o755)
+  try {
+    const session = await launch({
+      fixture: 'vite',
+      env: { SHELL: fakeShell(scratch), PATH: `${scratch}:${process.env.PATH}`, GUI_CLI_LOG: log },
+    })
+    await session.waitForPreview()
+    await session.chrome.evaluate(() => window.gui.setAgent('gemini'))
+    const health = (await session.state()).agents.find((agent) => agent.id === 'gemini')
+    expect(health?.name).toBe('Gemini CLI')
+    expect(health?.command).toBe('gemini')
+    expect(health?.status).not.toBe('not-installed')
+    expect(await session.chat.evaluate(() => window.gui.send('Hello from Gui'))).toBe(true)
+    const { turn } = await session.waitForTurn(0)
+    expect(turn.status).toBe('done')
+    await expect(session.chat.getByText('Hello from the CLI', { exact: true })).toBeVisible()
+    await expect(session.chat.getByText(/MODE_UPDATE/)).toHaveCount(0)
+    const meta = (await session.chatSnapshot()).meta
+    expect(meta.ownPermissions).toBe(false)
+    expect(meta.modeName).toBe('Default')
+    await expect(session.chat.getByRole('button', { name: 'Auto mode' })).toHaveCount(1)
+
+    const calls = readFileSync(log, 'utf8')
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    expect(calls.some((call) => call.args?.[0] === '--acp')).toBe(true)
+    const chat = calls.filter((call) => call.params?.cwd === session.fixture.root)
+    const opened = chat.find((call) => call.method === 'session/new')
+    expect(
+      opened?.params.mcpServers.some((server: { type?: string }) => server.type === 'http'),
+    ).toBe(true)
+    const steps = calls
+      .filter((call) => call.method === 'session/set_mode' || call.method === 'session/prompt')
+      .map((call) => (call.method === 'session/prompt' ? 'prompt' : call.params.modeId))
+    expect(steps).toEqual(['default', 'prompt'])
+  } finally {
+    rmSync(scratch, { recursive: true, force: true })
+  }
+})
+
+test('gemini reads as not installed, with its install page, until it is on the PATH', async ({
+  launch,
+}) => {
+  // A Mac with no gemini anywhere (GUI_PATH is the whole PATH). Nor bun, so the fixture's
+  // dev server doesn't start; the agent list doesn't need it.
+  const session = await launch({ fixture: 'vite', env: { GUI_PATH: '/usr/bin:/bin' } })
+  const health = await waitFor(async () => {
+    const agent = (await session.state()).agents.find((item) => item.id === 'gemini')
+    return agent?.status === 'not-installed' ? agent : null
+  }, 'gemini to read as not installed')
+  expect(health.installUrl).toBe('https://geminicli.com/docs/get-started/installation')
+})
+
 // fx refuses to start without a login; jcode starts but fails each session until its setup
-// has run, behind the Go ACP SDK's "Internal error". Gui offers their sign-in rather than
-// "Try again".
+// has run, behind the Go ACP SDK's "Internal error"; Gemini starts but refuses a session
+// with ACP's auth_required when it has no login or API key. Gui offers their sign-in rather
+// than "Try again".
 for (const [id, says] of [
   ['fx', 'fx login'],
   ['jcode', 'please run setup first'],
+  ['gemini', 'Gemini API key is missing or not configured.'],
 ] as const) {
   test(`${id}: an agent that needs a login before it starts reads as signed out`, async ({
     launch,
   }) => {
     const scratch = mkdtempSync(join(tmpdir(), 'gui-cli-'))
     const cli = join(scratch, id)
-    const script = id === 'fx' ? SIGNED_OUT_SCRIPT : NOT_SET_UP_SCRIPT
+    const script =
+      id === 'fx'
+        ? SIGNED_OUT_SCRIPT
+        : id === 'jcode'
+          ? NOT_SET_UP_SCRIPT
+          : GEMINI_SIGNED_OUT_SCRIPT
     writeFileSync(cli, `#!${process.execPath}\n${script}`)
     chmodSync(cli, 0o755)
     try {
@@ -175,6 +246,75 @@ process.stdin.on('data', chunk => {
       continue
     }
     console.log(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32603, message: 'Internal error', data: { error: 'config error: config file not found at /Users/me/.jcode/config.json, please run setup first: open /Users/me/.jcode/config.json: no such file or directory' } } }))
+  }
+})
+`
+
+/**
+ * Gemini CLI's ACP mode without a login: `initialize` works, and session/new fails with
+ * auth_required and the reason, as its AcpSessionManager does when there's no API key.
+ */
+const GEMINI_SIGNED_OUT_SCRIPT = String.raw`
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', chunk => {
+  for (const line of chunk.split('\n')) {
+    if (!line.trim()) continue
+    const { id, method } = JSON.parse(line)
+    if (id === undefined) continue
+    if (method === 'initialize') {
+      const authMethods = [{ id: 'oauth-personal', name: 'Log in with Google' }, { id: 'gemini-api-key', name: 'Gemini API key' }]
+      console.log(JSON.stringify({ jsonrpc: '2.0', id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods } }))
+      continue
+    }
+    console.log(JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32000, message: 'Gemini API key is missing or not configured.' } }))
+  }
+})
+`
+
+/**
+ * Gemini CLI's ACP mode as its source has it: Google's sign-in methods, HTTP MCP servers,
+ * and its approval levels as session modes, here starting in Auto Edit as a user's own
+ * settings may pick. Changing the mode sends `[MODE_UPDATE] <mode>` as a message chunk
+ * before the answer, as Gemini's ApprovalModeChanged handler does.
+ */
+const GEMINI_SCRIPT = String.raw`
+const { appendFileSync } = require('node:fs')
+const log = call => appendFileSync(process.env.GUI_CLI_LOG, JSON.stringify(call) + '\n')
+log({ args: process.argv.slice(2) })
+const write = message => console.log(JSON.stringify({ jsonrpc: '2.0', ...message }))
+const notify = (sessionId, update) => write({ method: 'session/update', params: { sessionId, update } })
+const availableModes = [
+  { id: 'default', name: 'Default', description: 'Prompts for approval' },
+  { id: 'autoEdit', name: 'Auto Edit', description: 'Auto-approves edit tools' },
+  { id: 'yolo', name: 'YOLO', description: 'Auto-approves all tools' },
+  { id: 'plan', name: 'Plan', description: 'Read-only mode' },
+]
+let mode = 'autoEdit'
+let buffer = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', chunk => {
+  buffer += chunk
+  for (let end = buffer.indexOf('\n'); end !== -1; end = buffer.indexOf('\n')) {
+    const line = buffer.slice(0, end)
+    buffer = buffer.slice(end + 1)
+    if (!line.trim()) continue
+    const { id, method, params } = JSON.parse(line)
+    if (id === undefined || method === undefined) continue
+    log({ method, params })
+    if (method === 'initialize') {
+      const agentCapabilities = { loadSession: true, promptCapabilities: { image: true, audio: true, embeddedContext: true }, mcpCapabilities: { http: true, sse: true } }
+      const authMethods = [{ id: 'oauth-personal', name: 'Log in with Google' }, { id: 'gemini-api-key', name: 'Gemini API key' }]
+      write({ id, result: { protocolVersion: 1, agentCapabilities, authMethods, agentInfo: { name: 'gemini-cli', title: 'Gemini CLI', version: '0.70.0' } } })
+    } else if (method === 'session/new') {
+      write({ id, result: { sessionId: 'session-1', modes: { availableModes, currentModeId: mode } } })
+    } else if (method === 'session/set_mode') {
+      if (params.modeId !== mode) notify(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[MODE_UPDATE] ' + params.modeId } })
+      mode = params.modeId
+      write({ id, result: {} })
+    } else if (method === 'session/prompt') {
+      notify(params.sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Hello from the CLI' } })
+      write({ id, result: { stopReason: 'end_turn' } })
+    } else write({ id, error: { code: -32601, message: 'Method not found' } })
   }
 })
 `

@@ -42,6 +42,26 @@ export function displayedModes(
 }
 
 /**
+ * How Gemini CLI says its mode changed: `[MODE_UPDATE] plan`, as a whole message chunk,
+ * whenever it changes, Gui's own switch included.
+ */
+export const GEMINI_MODE_NOTICE = /^\[MODE_UPDATE\] (\S+)$/
+
+/**
+ * A mode change the agent says as a message of its own (AgentDefinition.modeNotice), as the
+ * `current_mode_update` it stands for; null for any other update.
+ */
+export function modeNoticeUpdate(
+  update: acp.SessionNotification['update'],
+  notice: RegExp | undefined,
+): Extract<acp.SessionNotification['update'], { sessionUpdate: 'current_mode_update' }> | null {
+  if (!notice || update.sessionUpdate !== 'agent_message_chunk') return null
+  if (update.content.type !== 'text') return null
+  const modeId = notice.exec(update.content.text.trim())?.[1]
+  return modeId ? { sessionUpdate: 'current_mode_update', currentModeId: modeId } : null
+}
+
+/**
  * The useful part of an agent's error. Many put it in `data` behind a generic "Internal
  * error": the ACP TypeScript SDK wraps anything an agent throws as `{ details }` (Codex),
  * the Go SDK as `{ error }` (jcode), and Codex reports a failed turn as `{ message }`.

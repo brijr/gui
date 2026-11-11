@@ -40,6 +40,8 @@ const muse: PermissionControls = {
   mode: { ask: ['default'], auto: ['bypassApprovals'] },
   options: { nativeApprovalPolicy: { ask: ['promptUnmatched', 'onRequest'], auto: ['onRequest'] } },
 }
+const gemini: PermissionControls = { mode: { ask: ['default'], auto: ['default'] } }
+const GEMINI_MODES = ['default', 'autoEdit', 'yolo', 'plan']
 const CLAUDE_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'bypassPermissions']
 
 describe('ownPermissions: does the agent decide what it asks, rather than Gui?', () => {
@@ -120,6 +122,19 @@ describe('permissionChanges', () => {
     expect(result.changes).toEqual([])
     expect(result.missing).toEqual(['No auto or acceptEdits mode offered.'])
     expect(permissionChanges(codex, 'ask', nothing).missing).toEqual(['No read-only mode offered.'])
+  })
+
+  test('Gemini goes back to Default, which asks first, from whatever its own settings picked', () => {
+    for (const policy of ['ask', 'auto'] as const) {
+      expect(permissionChanges(gemini, policy, withModes('yolo', GEMINI_MODES))).toEqual({
+        changes: [{ kind: 'mode', modeId: 'default' }],
+        missing: [],
+      })
+      expect(permissionChanges(gemini, policy, withModes('default', GEMINI_MODES)).changes).toEqual(
+        [],
+      )
+    }
+    expect(ownPermissions({ permissions: gemini }, withModes('autoEdit', GEMINI_MODES))).toBe(false)
   })
 
   test('skips an option the session lacks, but sets one it has', () => {

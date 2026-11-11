@@ -5,6 +5,8 @@ import {
   displayedModes,
   errorDetail,
   formQuestions,
+  GEMINI_MODE_NOTICE,
+  modeNoticeUpdate,
   resumeMethods,
 } from '../src/main/agent-protocol'
 
@@ -61,6 +63,36 @@ describe('displayedModes', () => {
     expect(displayedModes(null, piOptions)).toBeNull()
     const odd = { currentModeId: 'a', availableModes: null } as unknown as acp.SessionModeState
     expect(displayedModes(odd, piOptions)).toBe(odd)
+  })
+})
+
+describe('modeNoticeUpdate', () => {
+  const said = (text: string): acp.SessionNotification['update'] => ({
+    sessionUpdate: 'agent_message_chunk',
+    content: { type: 'text', text },
+  })
+
+  test('Gemini’s mode message stands for the mode change it reports', () => {
+    // As Gemini CLI sends it when entering Plan, or when Gui sets Default.
+    expect(modeNoticeUpdate(said('[MODE_UPDATE] plan'), GEMINI_MODE_NOTICE)).toEqual({
+      sessionUpdate: 'current_mode_update',
+      currentModeId: 'plan',
+    })
+    expect(modeNoticeUpdate(said('[MODE_UPDATE] default\n'), GEMINI_MODE_NOTICE)).toEqual({
+      sessionUpdate: 'current_mode_update',
+      currentModeId: 'default',
+    })
+  })
+
+  test('the reply itself, and agents that say no such thing, are left alone', () => {
+    expect(modeNoticeUpdate(said('Switched. [MODE_UPDATE] plan'), GEMINI_MODE_NOTICE)).toBeNull()
+    expect(modeNoticeUpdate(said('[MODE_UPDATE]'), GEMINI_MODE_NOTICE)).toBeNull()
+    expect(modeNoticeUpdate(said('[MODE_UPDATE] plan'), undefined)).toBeNull()
+    const thought: acp.SessionNotification['update'] = {
+      sessionUpdate: 'agent_thought_chunk',
+      content: { type: 'text', text: '[MODE_UPDATE] plan' },
+    }
+    expect(modeNoticeUpdate(thought, GEMINI_MODE_NOTICE)).toBeNull()
   })
 })
 

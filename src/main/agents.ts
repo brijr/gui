@@ -9,6 +9,7 @@ import {
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
 } from '../shared/types'
+import { GEMINI_MODE_NOTICE } from './agent-protocol'
 import { writeFileAtomic } from './atomic-file'
 import { type CommandFallback, findAgentCommand } from './executables'
 import { getShellEnv } from './shell-env'
@@ -74,6 +75,11 @@ export interface AgentDefinition extends AgentInfo {
    * call of no particular kind ('other'). They, and their updates, never reach the chat.
    */
   hiddenTools?: RegExp
+  /**
+   * A message the agent sends to say its mode changed, rather than `current_mode_update`;
+   * the first group is the mode's id. Such messages update the mode and never reach the chat.
+   */
+  modeNotice?: RegExp
 }
 
 export interface AgentListing {
@@ -157,6 +163,24 @@ const LAUNCH: Record<string, Omit<AgentDefinition, keyof AgentInfo>> = {
     // Read-only asks before editing files or using the network; Auto review asks only
     // about actions it flags as unsafe.
     permissions: { mode: { ask: ['read-only'], auto: ['agent'] } },
+  },
+  gemini: {
+    launch: cli('gemini', '--acp'),
+    signIn: 'Sign in from Settings → Agents, or run `gemini` in a terminal.',
+    inAppSignIn: false,
+    installUrl: 'https://geminicli.com/docs/get-started/installation',
+    // Plain `gemini` asks how to sign in (Google, an API key, or Vertex AI) when it has no
+    // login yet; GEMINI_API_KEY in the user's shell profile works without it.
+    terminalSignIn: {
+      command: 'gemini',
+      hint: 'Pick how you sign in, then follow the steps. When Gemini is ready, type /quit and close this window.',
+    },
+    // Default asks before every edit and command, so Gui's own rules answer them in Ask and
+    // Auto alike. Not Auto Edit or YOLO, which approve edits (or everything) without asking,
+    // so Gui's rules would never see them; nor Plan, which is read-only.
+    permissions: { mode: { ask: ['default'], auto: ['default'] } },
+    // Gemini says a mode change (its own, like entering Plan, or Gui's) as a message.
+    modeNotice: GEMINI_MODE_NOTICE,
   },
   grok: {
     launch: cli('grok', 'agent', 'stdio'),

@@ -8,21 +8,28 @@ import { expect, test } from './helpers/test'
 
 // Ask and Auto set the agent's own permission controls, as agents.ts declares them for
 // each built-in agent. A stand-in ACP agent (a small Node script) takes the place of Muse
-// Code or Grok Build through GUI_AGENT_STAND_INS, so it gets that agent's mapping, and
+// Code, Grok Build or Gemini CLI through GUI_AGENT_STAND_INS, so it gets that agent's mapping, and
 // records every request. No agent login or usage is needed.
 
 /**
  * Speaks ACP (ndjson JSON-RPC) on stdio, as `kind`: `muse` offers Muse Code's modes as a
  * `mode` config option and as ACP session modes, plus its native approval policies;
  * `muse-old` is an older Muse host, with its modes only as session modes and only the
- * onRequest policy; `grok` has no modes. A prompt containing SWITCH=<mode> changes the
- * mode itself (like Muse's /plan) and reports only the mode; one containing RUN asks to
- * run a command.
+ * onRequest policy; `grok` has no modes; `gemini` has Gemini CLI's approval levels as session
+ * modes only, starts in Auto Edit (as a user's own settings may pick), and says each mode
+ * change as a `[MODE_UPDATE] <mode>` message rather than a mode update. A prompt containing
+ * SWITCH=<mode> changes the mode itself (like Muse's /plan) and reports only the mode; one
+ * containing RUN asks to run a command.
  */
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
 const [log, kind] = process.argv.slice(2)
-const MODES = [
+const MODES = kind === 'gemini' ? [
+  { id: 'default', name: 'Default' },
+  { id: 'autoEdit', name: 'Auto Edit' },
+  { id: 'yolo', name: 'YOLO' },
+  { id: 'plan', name: 'Plan' },
+] : [
   { id: 'default', name: 'On request' },
   { id: 'readOnly', name: 'Read-only' },
   { id: 'plan', name: 'Plan' },
@@ -31,10 +38,11 @@ const MODES = [
 ]
 const POLICIES =
   kind === 'muse' ? ['onRequest', 'promptUnmatched', 'denyUnmatched', 'allowAll'] : ['onRequest']
-const state = { mode: 'default', nativeApprovalPolicy: 'onRequest' }
+const state = { mode: kind === 'gemini' ? 'autoEdit' : 'default', nativeApprovalPolicy: 'onRequest' }
 const select = (id, name, currentValue, options, extra = {}) =>
   ({ id, name, type: 'select', currentValue, options, ...extra })
 const configOptions = () => {
+  if (kind === 'gemini') return []
   if (kind === 'grok') {
     return [select('model', 'Model', 'grok-code', [{ value: 'grok-code', name: 'Grok Code' }], { category: 'model' })]
   }
@@ -52,6 +60,10 @@ const session = () => ({
 })
 const write = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
 const notify = (sessionId, update) => write({ method: 'session/update', params: { sessionId, update } })
+const modeChanged = (sessionId, mode) =>
+  notify(sessionId, kind === 'gemini'
+    ? { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '[MODE_UPDATE] ' + mode } }
+    : { sessionUpdate: 'current_mode_update', currentModeId: mode })
 
 // Requests sent to Gui that it hasn't answered yet, by id.
 const pending = new Map()
@@ -68,7 +80,7 @@ const prompt = async ({ sessionId, prompt }) => {
   const mode = /SWITCH=(\w+)/.exec(text)?.[1]
   if (mode) {
     state.mode = mode
-    notify(sessionId, { sessionUpdate: 'current_mode_update', currentModeId: mode })
+    modeChanged(sessionId, mode)
   }
   if (text.includes('RUN')) {
     const toolCall = { toolCallId: 'run-1', title: 'npm test', kind: 'execute', status: 'pending' }
@@ -100,6 +112,8 @@ const handle = (message) => {
   if (method === 'session/new') return write({ id, result: { sessionId: 'session-1', ...session() } })
   if (method === 'session/load') return write({ id, result: session() })
   if (method === 'session/set_mode' && kind !== 'grok') {
+    // Gemini says the change before it answers.
+    if (kind === 'gemini' && params.modeId !== state.mode) modeChanged(params.sessionId, params.modeId)
     state.mode = params.modeId
     return write({ id, result: {} })
   }
@@ -125,7 +139,7 @@ process.stdin.on('data', (chunk) => {
 })
 `
 
-type Kind = 'muse' | 'muse-old' | 'grok'
+type Kind = 'muse' | 'muse-old' | 'grok' | 'gemini'
 
 interface Call {
   pid: number
@@ -339,4 +353,36 @@ test('Ask and Auto start Grok Build’s session with its own permission mode, re
   await turn(session, 3, 'Once more')
   expect(starts(agent.runs()).at(-1)).toEqual({ method: 'session/load', meta: { autoMode: true } })
   expect(agent.runs().map(steps)).toEqual([['prompt'], ['prompt', 'prompt'], ['prompt']])
+})
+
+test('Ask and Auto set Gemini CLI to Default, and its mode messages only change the mode', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  const agent = await useStandIn(session, 'gemini', 'gemini')
+  const { chat } = session
+
+  // Auto: from the Auto Edit its own settings picked to Default, which asks first, so Gui's
+  // Auto rules see every edit and command. Gemini's message saying so isn't shown.
+  await autoModeIs(session, true)
+  await turn(session, 0, 'Hello')
+  expect(steps(agent.runs()[0])).toEqual(['set_mode default', 'prompt'])
+  await modeIs(session, 'Default')
+
+  // Gemini enters Plan itself, saying so only as a message: the header shows Plan.
+  await turn(session, 1, 'SWITCH=plan Plan the next step')
+  await modeIs(session, 'Plan')
+
+  // Ask between turns sets Default again.
+  await autoChip(chat).click()
+  await autoModeIs(session, false)
+  await modeIs(session, 'Default')
+  expect(steps(agent.runs()[0])).toEqual([
+    'set_mode default',
+    'prompt',
+    'prompt',
+    'set_mode default',
+  ])
+  await expect(chat.getByText(/MODE_UPDATE/)).toHaveCount(0)
 })

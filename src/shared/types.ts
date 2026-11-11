@@ -23,6 +23,7 @@ export const AGENTS: readonly AgentInfo[] = [
   { id: 'cursor', name: 'Cursor' },
   { id: 'fx', name: 'fx' },
   { id: 'jcode', name: 'jcode' },
+  { id: 'gemini', name: 'Gemini CLI' },
 ]
 
 export const DEFAULT_AGENT_ID: AgentId = 'claude'
