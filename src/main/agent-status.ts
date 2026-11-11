@@ -5,6 +5,7 @@ import { app, shell } from 'electron'
 import { AGENTS, type AgentHealth, type AgentId } from '../shared/types'
 import { AgentAuthError, AgentSession, type AuthMethod } from './agent'
 import {
+  AgentMissingError,
   agentBinary,
   forgetBinaries,
   type InstallProgress,
@@ -491,6 +492,9 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
     } catch (error) {
       if (error instanceof AgentAuthError) {
         this.signedOut(id, error)
+      } else if (error instanceof AgentMissingError && !pinned) {
+        // Gone since Gui found it: Not installed, with its install page, not an error to retry.
+        this.set(id, { status: 'not-installed', message: null, detail: null, models: null })
       } else {
         const { message, detail } = describeError(error)
         this.set(id, {

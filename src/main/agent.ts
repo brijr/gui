@@ -12,7 +12,7 @@ import {
   agentName,
   type ModelSettings,
 } from '../shared/types'
-import { pinnedAgent, requireAgentBinary } from './agent-binaries'
+import { AgentMissingError, pinnedAgent, requireAgentBinary } from './agent-binaries'
 import {
   displayedModes,
   errorDetail,
@@ -85,8 +85,8 @@ async function requireExecutable(
 ) {
   const path = (await findAgentCommand(command, fallback, env.PATH))?.path
   if (!path) {
-    throw new DetailedError(
-      `${agent.name} isn't installed. Install it from Settings → Agents, then try again.`,
+    throw new AgentMissingError(
+      `${agent.name} isn't installed.`,
       `\`${command}\` wasn't found on your login shell's PATH.`,
     )
   }

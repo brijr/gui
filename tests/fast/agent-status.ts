@@ -15,6 +15,9 @@ import { AGENTS, type AgentHealth, type AgentId } from '../../src/shared/types'
 let userData = ''
 /** Agents a session was started for, in order: each start is a check. */
 const started: AgentId[] = []
+/** Agents whose CLI is gone when a check starts them, though the scan found them */
+const gone = new Set<AgentId>()
+class AgentMissingError extends Error {}
 /** Holds the scan for installed agents open, to act while launch is still getting to the checks. */
 let scanning: Promise<void> = Promise.resolve()
 
@@ -43,12 +46,14 @@ mock.module('../../src/main/agent', () => ({
     constructor(readonly id: AgentId) {}
     async start() {
       started.push(this.id)
+      if (gone.has(this.id)) throw new AgentMissingError(`${this.id} isn't installed.`)
       return { models: null }
     }
     dispose() {}
   },
 }))
 mock.module('../../src/main/agent-binaries', () => ({
+  AgentMissingError,
   agentBinary: async () => ({ kind: 'ready', binary: { path: '', version: '1', source: 'own' } }),
   forgetBinaries: () => undefined,
   installAgentBinary: async () => undefined,
@@ -85,6 +90,7 @@ async function until(check: () => boolean) {
 beforeEach(() => {
   userData = mkdtempSync(join(tmpdir(), 'gui-agent-status-'))
   started.length = 0
+  gone.clear()
   scanning = Promise.resolve()
 })
 afterEach(() => {
@@ -156,4 +162,14 @@ test('the default agent is checked too, unless it is switched off', async () => 
   await store.checkOnLaunch('opencode')
   expect(statusOf('opencode')).toBe('unknown')
   expect([...started].sort()).toEqual(['claude', 'codex'])
+})
+
+test('an agent gone since Gui found it reads Not installed, not an error to try again', async () => {
+  setPrefs({ disabledAgents: [] })
+  store = new AgentHealthStore()
+  await store.checkOnLaunch('claude')
+  gone.add('opencode')
+  await store.check('opencode')
+  expect(statusOf('opencode')).toBe('not-installed')
+  expect(store.list().find((agent) => agent.id === 'opencode')?.message ?? null).toBeNull()
 })

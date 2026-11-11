@@ -7,6 +7,7 @@ import { app } from 'electron'
 import type { AgentBinaries, AgentBinary } from '../../scripts/agent-binaries'
 import { type AgentBinarySource, type AgentId, agentName } from '../shared/types'
 import { type DownloadProgress, download } from './download'
+import { DetailedError } from './errors'
 import { execFile } from './process'
 import { getShellEnv } from './shell-env'
 
@@ -43,7 +44,12 @@ export type BinaryStatus =
       mismatch: 'older' | 'newer' | null
     }
 
-export class AgentMissingError extends Error {}
+/** The agent's CLI isn't on this Mac (any longer): it reads as Not installed, never as an error. */
+export class AgentMissingError extends DetailedError {
+  constructor(message: string, detail: string | null = null) {
+    super(message, detail)
+  }
+}
 
 /**
  * The pinned CLI for this Mac. Unpackaged builds (dev, e2e) may swap the manifest via
