@@ -26,6 +26,11 @@ export interface UpdatePromptsOptions {
   inApplications(): boolean
   /** Calls `run` once a restart has had long enough to happen; must not keep Gui alive. */
   afterRestartWait(run: () => void): void
+  /**
+   * The version a restart installs, for the quiet Restart to Update item (app menu, window
+   * chrome). Nothing pops up for it.
+   */
+  offer(version: string): void
 }
 
 const NOT_IN_APPLICATIONS =
@@ -36,8 +41,9 @@ const NOT_IN_APPLICATIONS =
  *
  * electron-updater downloads a version, says so, and only then hands the file to Squirrel.Mac
  * (Electron's own updater), which is what installs it. It says "downloaded" again on every
- * later check, because the file it kept is still good. So a version is offered once on its
- * own, and a restart counts on Squirrel.Mac: if that fails, the restart never comes.
+ * later check, because the file it kept is still good. So a version is offered once, quietly
+ * (`offer`: a Restart to Update item, never a dialog), and a restart counts on Squirrel.Mac:
+ * if that fails, the restart never comes, and Gui says so.
  */
 export function updatePrompts(options: UpdatePromptsOptions) {
   const { updater, dialog } = options
@@ -50,24 +56,6 @@ export function updatePrompts(options: UpdatePromptsOptions) {
   let installError: Error | null = null
   /** The restart the user chose, until Gui quits or says it couldn't */
   let restarting: { version: string } | null = null
-
-  async function offer(version: string) {
-    if (!options.inApplications()) {
-      await dialog.showMessageBox({
-        message: `Gui ${version} is ready`,
-        detail: NOT_IN_APPLICATIONS,
-      })
-      return
-    }
-    const { response } = await dialog.showMessageBox({
-      message: `Gui ${version} is ready`,
-      detail: 'Restart now to use it, or it installs the next time you quit Gui.',
-      buttons: ['Restart Now', 'Later'],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    if (response === 0) await restart(version)
-  }
 
   async function restart(version: string) {
     const attempt = { version }
@@ -99,12 +87,25 @@ export function updatePrompts(options: UpdatePromptsOptions) {
 
   return {
     /** electron-updater has this version's file. It says so again on every later check. */
-    async downloaded(version: string) {
+    downloaded(version: string) {
       // Squirrel.Mac is handed the file again each time.
       installError = null
       if (version === ready) return
       ready = version
-      await offer(version)
+      options.offer(version)
+    },
+
+    /** Restart to Update: the user chose to restart into the version offered. */
+    async restartToUpdate() {
+      if (!ready) return
+      if (!options.inApplications()) {
+        await dialog.showMessageBox({
+          message: `Gui ${ready} is ready`,
+          detail: NOT_IN_APPLICATIONS,
+        })
+        return
+      }
+      await restart(ready)
     },
 
     /** Squirrel.Mac has the update too. */
@@ -123,10 +124,13 @@ export function updatePrompts(options: UpdatePromptsOptions) {
     failed(error: Error) {
       if (!checkingByHand) return
       checkingByHand = false
-      dialog.showErrorBox("Couldn't check for updates", error.message)
+      dialog.showErrorBox('Couldn’t check for updates', error.message)
     },
 
-    /** Gui → Check for Updates…: says what it found, unlike the quiet background checks. */
+    /**
+     * Gui → Check for Updates…: says when Gui is up to date or the check failed. A new version
+     * downloads quietly and is offered (`offer`) when it's ready, like a background check's.
+     */
     async checkByHand() {
       checkingByHand = true
       const result = await updater.check()
@@ -138,13 +142,6 @@ export function updatePrompts(options: UpdatePromptsOptions) {
           message: 'Gui is up to date',
           detail: `You have the latest version, ${options.version()}.`,
         })
-      } else if (result.updateInfo.version !== ready) {
-        await dialog.showMessageBox({
-          message: `Downloading Gui ${result.updateInfo.version}…`,
-          detail: 'Gui will tell you when it’s ready.',
-        })
-      } else {
-        await offer(result.updateInfo.version)
       }
     },
   }

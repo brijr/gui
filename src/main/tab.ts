@@ -189,6 +189,7 @@ import {
   trust,
   trustedScripts,
 } from './trust'
+import { readyUpdate, updateOffer } from './updates'
 import { Variations } from './variations'
 import { placePreview, ViewportEmulation, type Zoom, zoomed } from './viewport'
 import { isPublicWebsite, LOCAL_ADDRESS } from './web-session'
@@ -611,6 +612,7 @@ export class ProjectTab implements ChatPanelOwner {
       setup: null,
       branch: null,
       developerTools: shownTools(developerTools.state),
+      updateReady: readyUpdate(),
       board: null,
       recentBoards: null,
     }
@@ -693,6 +695,7 @@ export class ProjectTab implements ChatPanelOwner {
     agentHealth.on('change', this.onAgentHealth)
     nodeRuntime.on('change', this.onNodeRuntime)
     developerTools.on('change', this.onDeveloperTools)
+    updateOffer.on('change', this.onUpdateReady)
 
     this.bindPreview()
     guardAppContents(this.chatView.webContents)
@@ -4532,6 +4535,8 @@ export class ProjectTab implements ChatPanelOwner {
   private onDeveloperTools = (status: DeveloperToolsStatus) =>
     this.patch({ developerTools: shownTools(status) })
 
+  private onUpdateReady = (updateReady: string) => this.patch({ updateReady })
+
   /**
    * Stops the tab's dev server, terminals and agent and closes its pages; it's out of its
    * window.
@@ -4546,6 +4551,7 @@ export class ProjectTab implements ChatPanelOwner {
     agentHealth.off('change', this.onAgentHealth)
     nodeRuntime.off('change', this.onNodeRuntime)
     developerTools.off('change', this.onDeveloperTools)
+    updateOffer.off('change', this.onUpdateReady)
     this.morph.dispose()
     if (this.rehighlightTimer) clearTimeout(this.rehighlightTimer)
     this.clearGuideEnd()

@@ -4,7 +4,7 @@ One word per concept, in every user-facing string. Code names can differ (`board
 
 ## Rules
 
-- **Capitalization.** Native menus, menu-bar items, context menus (`Menu.buildFromTemplate`) and native dialog buttons use macOS Title Case: "Move Tab to New Window", "New Chat", "Restart Now". Everything else in the app UI uses sentence case: "Close tab", "Get latest", "Archived chats". When app UI names a menu command (the Keyboard Shortcuts list, "Settings → Agents"), it keeps the menu's casing.
+- **Capitalization.** Native menus, menu-bar items, context menus (`Menu.buildFromTemplate`) and native dialog buttons use macOS Title Case: "Move Tab to New Window", "New Chat", "Restart to Update". Everything else in the app UI uses sentence case: "Close tab", "Get latest", "Archived chats". When app UI names a menu command (the Keyboard Shortcuts list, "Settings → Agents"), it keeps the menu's casing.
 - **"…" means "asks for more first".** Use the single `…` character, only on items that open a dialog, sheet or picker before acting.
 - **Name what the user sees.** Say "your app", "the preview", "this chat", not the mechanism behind it (process, session, PATH, ACP).
 - **Plain words over git and dev jargon.** Gui leaves Git to the agent and the terminal; where it does name Git things (the toolbar's branch, Clone…), it uses the words below, which users also see on GitHub.

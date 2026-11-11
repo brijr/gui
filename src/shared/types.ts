@@ -559,6 +559,8 @@ export interface WindowState {
    * installing them; null when it can (or hasn't been needed yet). Undo and sharing need git.
    */
   developerTools: 'missing' | 'installing' | null
+  /** A new version of Gui is downloaded: Restart to Update installs it. Null with none */
+  updateReady: string | null
   /** The window's tabs, in order; the strip shows once there are two or more */
   tabs: TabInfo[]
   /** The canvas this tab shows, when it's a canvas rather than a project; null otherwise */

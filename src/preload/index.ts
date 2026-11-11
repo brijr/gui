@@ -97,6 +97,7 @@ const api: GuiApi = {
   checkAgents: send(Send.checkAgents),
   installNode: send(Send.installNode),
   installDeveloperTools: send(Send.installDeveloperTools),
+  restartToUpdate: send(Send.restartToUpdate),
   signIn: (agentId) => legacyInvoke(Invoke.signIn, agentId),
   installAgent: (agentId) => legacyInvoke(Invoke.installAgent, agentId),
   connectAgent: (agentId) => legacyInvoke(Invoke.connectAgent, agentId),

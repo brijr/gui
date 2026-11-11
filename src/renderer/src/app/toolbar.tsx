@@ -25,6 +25,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { FIELD_LOOK, Input } from '../lib/field'
 import {
+  ArrowDownCircle,
   ArrowLeft,
   ArrowRight,
   Camera,
@@ -215,9 +216,10 @@ export function Toolbar({ state }: { state: WindowState }) {
         branched={fit('branch') !== 'compact'}
       />
 
-      {project && (
+      {project ? (
         <>
           <AddressBar state={state} />
+          <UpdateButton version={state.updateReady} />
 
           {shown('viewport') && (
             <ViewportButton
@@ -251,8 +253,31 @@ export function Toolbar({ state }: { state: WindowState }) {
 
           <ChatButton visible={state.chatVisible} />
         </>
+      ) : (
+        state.updateReady && (
+          <div className="ml-auto flex">
+            <UpdateButton version={state.updateReady} />
+          </div>
+        )
       )}
     </header>
+  )
+}
+
+/**
+ * A new version of Gui is downloaded: one quiet button restarts into it, as the app menu's
+ * Restart to Update does. Right after the address bar, so only the bar gives up room for it
+ * and no other control moves when it appears.
+ */
+function UpdateButton({ version }: { version: string | null }) {
+  if (!version) return null
+  return (
+    <IconButton
+      label={`Restart to update to ${version}`}
+      icon={ArrowDownCircle}
+      onClick={() => gui.restartToUpdate()}
+      className={cn(HIT_AREA, 'text-accent-text')}
+    />
   )
 }
 

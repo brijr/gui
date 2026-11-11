@@ -115,6 +115,7 @@ export const Send = {
   checkAgents: 'agents:check',
   installNode: 'node:install',
   installDeveloperTools: 'developer-tools:install',
+  restartToUpdate: 'updates:restart',
   navigate: 'preview:navigate',
   backToApp: 'preview:back-to-app',
   back: 'preview:back',
@@ -473,6 +474,8 @@ export interface GuiApi {
   installNode(): void
   /** Opens macOS's installer for Apple's developer tools, which git needs (`WindowState.developerTools`) */
   installDeveloperTools(): void
+  /** Restarts Gui into the downloaded version (`WindowState.updateReady`) */
+  restartToUpdate(): void
   /**
    * Gets the agent working in one step: downloads it if Gui can (or opens its install
    * page), then runs its sign-in. Progress and the outcome arrive through `WindowState.agents`.

@@ -137,7 +137,13 @@ import { getSymbols } from './symbols'
 import type { ProjectTab } from './tab'
 import { showToolbarMenu, toolbarMenuItems } from './toolbar-menu'
 import { prepareTranscription } from './transcribe'
-import { checkForUpdatesByHand, startUpdates } from './updates'
+import {
+  checkForUpdatesByHand,
+  readyUpdate,
+  restartToUpdate,
+  startUpdates,
+  updateOffer,
+} from './updates'
 import {
   allTabs,
   allWindows,
@@ -1157,6 +1163,7 @@ function registerIpc() {
   )
   onAppUi(Send.installNode, () => void nodeRuntime.install())
   onAppUi(Send.installDeveloperTools, () => developerTools.install())
+  onAppUi(Send.restartToUpdate, () => restartToUpdate())
   onAppUi(Send.checkAgents, (agentId) =>
     isAgentId(agentId) ? void agentHealth.check(agentId) : void agentHealth.checkAll(),
   )
@@ -1676,6 +1683,8 @@ function buildMenu() {
       submenu: [
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdatesByHand() },
+        // Quiet: there once a new version is downloaded, never a dialog (updates.ts).
+        ...(readyUpdate() ? [{ label: 'Restart to Update', click: () => restartToUpdate() }] : []),
         { type: 'separator' },
         ...item('settings', { click: () => openSettings() }),
         { label: "Install 'gui' Command…", click: () => void installCli() },
@@ -1948,6 +1957,8 @@ if (!app.requestSingleInstanceLock()) {
     accountEvents.on('change', onAccountChange)
     watchSettings()
     buildMenu()
+    // Restart to Update shows in the app menu once a new version is downloaded.
+    updateOffer.on('change', () => buildMenu())
     // The Agent menu lists what's installed and signed in.
     agentHealth.on('change', onAgentHealth)
     // Pick up agents installed (or added to agents.json) while Gui was in the background.

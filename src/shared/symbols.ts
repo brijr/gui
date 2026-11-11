@@ -5,6 +5,7 @@ export const SYMBOLS = {
   ArrowLeft: 'arrow.left',
   ArrowRight: 'arrow.right',
   ArrowUp: 'arrow.up',
+  ArrowDownCircle: 'arrow.down.circle',
   Bot: 'cpu',
   Brain: 'brain',
   Camera: 'camera',
