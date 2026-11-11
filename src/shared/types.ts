@@ -1086,6 +1086,8 @@ export type TurnItem = (
   | {
       kind: 'permission'
       id: string
+      /** The step it asks about, when the agent said which; missing in older history */
+      toolCallId?: string
       /** The agent's own description of the action, paths relative to the project */
       title: string
       /** ACP tool kind (edit, delete, move, execute, fetch, read, …) */

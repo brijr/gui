@@ -2272,6 +2272,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.pushItem(record, {
       kind: 'permission',
       id,
+      toolCallId,
       title: title?.trim()
         ? this.relativize(title)
         : tool?.kind === 'tool'

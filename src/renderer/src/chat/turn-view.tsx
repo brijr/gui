@@ -56,28 +56,46 @@ type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
 type ThoughtItem = Extract<TurnItem, { kind: 'thought' }>
 type SubagentItem = Extract<TurnItem, { kind: 'subagent' }>
 type Step = ToolItem | ThoughtItem
-type Block = { kind: 'steps'; id: string; steps: Step[] } | Exclude<TurnItem, Step>
+/** `answers`: what the user said to each step that asked first, by the step's id */
+type StepsBlock = { kind: 'steps'; id: string; steps: Step[]; answers: Map<string, PermissionItem> }
+type Block = StepsBlock | Exclude<TurnItem, Step>
 
 /**
  * What shows at one level of the turn: the agent's own (`owner` undefined), or a subagent's,
  * in its group. Questions always wait at the turn's level, where the user answers them, and
  * say which subagent asks. Consecutive tool calls and the thinking between them render as one
- * compact group.
+ * compact group. Once a question about one of the group's steps is settled, its answer goes on
+ * that step's row, and the group carries on past it.
  */
-function toBlocks(items: TurnItem[], owner?: string): Block[] {
+function toBlocks(items: TurnItem[], live: boolean, owner?: string): Block[] {
   const blocks: Block[] = []
   for (const item of items) {
     const at = item.kind === 'permission' ? undefined : item.subagent
     if (at !== owner) continue
+    const last = blocks.at(-1)
+    if (item.kind === 'permission') {
+      const settled = item.resolved !== null || !live
+      const step = item.toolCallId
+      if (settled && step && last?.kind === 'steps' && last.steps.some((s) => s.id === step)) {
+        last.answers.set(step, item)
+        continue
+      }
+    }
     if (item.kind !== 'tool' && item.kind !== 'thought') {
       blocks.push(item)
       continue
     }
-    const last = blocks.at(-1)
     if (last?.kind === 'steps') last.steps.push(item)
-    else blocks.push({ kind: 'steps', id: item.id, steps: [item] })
+    else blocks.push({ kind: 'steps', id: item.id, steps: [item], answers: new Map() })
   }
   return blocks
+}
+
+/** Its latest tool call is still going: its row says so, with a spinner and the time. */
+function stepRunning(block: Block | undefined) {
+  if (block?.kind !== 'steps') return false
+  const latest = block.steps.findLast((step): step is ToolItem => step.kind === 'tool')
+  return !!latest && isInFlight(latest)
 }
 
 function plural(count: number, word: string) {
@@ -97,8 +115,8 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
 }
 
 function AgentTurn({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
-  const blocks = toBlocks(turn.items)
   const running = turn.status === 'running'
+  const blocks = toBlocks(turn.items, running)
   // The agent can't go on until a question it asked is answered.
   const waiting =
     running && turn.items.some((item) => item.kind === 'permission' && item.resolved === null)
@@ -127,7 +145,9 @@ function AgentTurn({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               />
             </Row>
           ))}
-          {running && (waiting ? <Waiting /> : <Working since={turn.startedAt} />)}
+          {/* Between steps only: a running step shows its own spinner and time, and a waiting
+              question is its own card. */}
+          {running && !waiting && !stepRunning(blocks.at(-1)) && <Working since={turn.startedAt} />}
           {turn.status === 'error' && (
             <Row rowKey={end}>
               <Note tone="error" detail={turn.errorDetail} stateKey="error" announce={end}>
@@ -439,6 +459,7 @@ function BlockView({
         <StepGroup
           stateKey={block.id}
           steps={block.steps}
+          answers={block.answers}
           live={live}
           last={!next}
           asking={asking}
@@ -669,6 +690,7 @@ function ToolStatusIcon({ tool, live }: { tool: ToolItem; live: boolean }) {
 function StepGroup({
   stateKey,
   steps,
+  answers,
   live,
   last,
   asking,
@@ -676,6 +698,7 @@ function StepGroup({
 }: {
   stateKey: string
   steps: Step[]
+  answers: Map<string, PermissionItem>
   live: boolean
   last: boolean
   asking: boolean
@@ -697,10 +720,14 @@ function StepGroup({
     )
   }
   const failed = tools.filter((tool) => tool.status === 'failed').length
-  const failedNote = failed > 0 && (
-    <span className="text-danger tabular-nums"> · {failed} failed</span>
+  const refused = [...answers.values()].filter((item) => permissionAnswer(item).refused).length
+  const failedNote = (
+    <>
+      {failed > 0 && <span className="text-danger tabular-nums"> · {failed} failed</span>}
+      {refused > 0 && <span className="tabular-nums"> · {refused} not allowed</span>}
+    </>
   )
-  const list = open && <StepList steps={steps} live={live} className={reveal} />
+  const list = open && <StepList steps={steps} answers={answers} live={live} className={reveal} />
   // Earlier groups of a running turn fold once the agent has moved on.
   const active = live && (last || tools.some(isInFlight))
 
@@ -708,6 +735,7 @@ function StepGroup({
 
   if (active && !asking) {
     const Icon = TOOL_ICONS[latest.toolKind] ?? Wrench
+    const answer = answers.get(latest.id)
     return (
       <div className="flex flex-col gap-1.5">
         <div className="flex h-6 min-w-0 items-center gap-2 text-small">
@@ -722,7 +750,11 @@ function StepGroup({
           >
             {stepLabel(latest)}
           </span>
+          {answer && <StepAnswer item={answer} />}
           <ToolStatusIcon tool={latest} live={live} />
+          {live && isInFlight(latest) && latest.startedAt !== undefined && (
+            <Elapsed since={latest.startedAt} className="shrink-0 text-subtle" />
+          )}
           {tools.length > 1 && (
             <span className="ml-auto shrink-0">
               <Disclosure
@@ -756,10 +788,12 @@ function StepGroup({
 
 function StepList({
   steps,
+  answers,
   live,
   className,
 }: {
   steps: Step[]
+  answers: Map<string, PermissionItem>
   live: boolean
   className?: string
 }) {
@@ -777,6 +811,7 @@ function StepList({
           const Icon = TOOL_ICONS[step.toolKind] ?? Wrench
           const detail = stepDetail(step)
           const failed = step.status === 'failed'
+          const answer = answers.get(step.id)
           return (
             <li key={step.id} className="flex h-7 min-w-0 items-center gap-2 px-3 text-small">
               <Icon
@@ -796,6 +831,7 @@ function StepList({
               >
                 {detail}
               </span>
+              {answer && <StepAnswer item={answer} />}
               <ToolStatusIcon tool={step} live={live} />
             </li>
           )
@@ -894,8 +930,8 @@ function permissionSubject(toolKind: string, title: string, locations: string[])
   return onFiles && locations.length ? locations.join('\n') : title
 }
 
-/** The answer to a permission request, or why there wasn't one, on one quiet line. */
-function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: string }) {
+/** What was said to a permission request, or why nothing was: "Allowed", "Not allowed", "Expired". */
+function permissionAnswer(item: PermissionItem) {
   const chosen = item.options.find((option) => option.optionId === item.resolved)
   // An unanswered request in an ended turn has no agent waiting on it anymore.
   const [Icon, tone, outcome] = !chosen
@@ -907,6 +943,21 @@ function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: s
       : chosen.kind.startsWith('allow')
         ? [Check, 'text-success', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
         : [X, 'text-subtle', OUTCOME_LABELS[chosen.kind] ?? chosen.name]
+  return { Icon, tone, outcome, refused: !!chosen && chosen.kind.startsWith('reject') }
+}
+
+/** The answer on the row of the step it was about, in a few quiet words. */
+function StepAnswer({ item }: { item: PermissionItem }) {
+  return (
+    <span data-permission={item.id} className="shrink-0 text-caption text-muted">
+      {permissionAnswer(item).outcome}
+    </span>
+  )
+}
+
+/** The answer to a permission request, or why there wasn't one, on one quiet line. */
+function PermissionOutcome({ item, subject }: { item: PermissionItem; subject: string }) {
+  const { Icon, tone, outcome } = permissionAnswer(item)
   const firstLine = subject.split('\n')[0]
   return (
     <p
@@ -1082,7 +1133,7 @@ function SubagentGroup({
     (step): step is ToolItem => step.kind === 'tool' && step.subagent === item.id,
   )
   const latest = tools.at(-1)
-  const blocks = toBlocks(items, item.id)
+  const blocks = toBlocks(items, live, item.id)
   const steps = tools.length > 0 ? plural(tools.length, 'step') : null
   const took = duration(item.endedAt === null ? null : item.endedAt - item.startedAt)
   const detail =
@@ -1185,28 +1236,29 @@ function SubagentTask({ id, text }: { id: string; text: string }) {
   )
 }
 
-/** In place of Working while a question waits: the agent is paused on the user, not busy. */
-function Waiting() {
-  return (
-    <p className="flex h-6 items-center gap-2 text-small text-muted">
-      <Hand className="size-3.5 shrink-0 text-warning" aria-hidden="true" />
-      Waiting for you
-    </p>
-  )
-}
-
-function Working({ since }: { since: number }) {
+/** Whole seconds since `since`, counting each second while someone can see the chat. */
+function useSeconds(since: number) {
   const seen = useChat((s) => s.seen)
   const [now, setNow] = useState(() => Date.now())
-  // Counts only while someone can see it. Back in sight, it's right before it's drawn again
-  // (a layout effect), not a second later.
+  // Back in sight, it's right before it's drawn again (a layout effect), not a second later.
   useLayoutEffect(() => {
     if (!seen) return
     setNow(Date.now())
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [seen])
-  const seconds = Math.max(0, Math.round((now - since) / 1000))
+  return Math.max(0, Math.round((now - since) / 1000))
+}
+
+/** How long a running step has taken: "12s", "2m 5s"; nothing in its first second. */
+function Elapsed({ since, className }: { since: number; className?: string }) {
+  const text = duration(useSeconds(since) * 1000)
+  return text && <span className={cn('text-caption tabular-nums', className)}>{text}</span>
+}
+
+/** Between steps, while the agent thinks or writes. */
+function Working({ since }: { since: number }) {
+  const seconds = useSeconds(since)
   return (
     <p className="flex h-6 items-center gap-2 text-small text-subtle">
       <span className="flex size-3.5 shrink-0 items-center justify-center">

@@ -220,13 +220,17 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
   await expect(buttons.last()).toHaveClass(/\bbg-accent\b/)
   await buttons.last().click()
 
-  // Answered, it's one quiet line: the outcome and what it was about.
+  // Answered, the answer goes on the step's own row: no second line for it.
   const { turn: asked } = await session.waitForTurn(1)
   const permission = asked.items.find((item) => item.kind === 'permission')
   expect(permission?.kind === 'permission' && permission.resolved).toBe('once')
   await expect(card).toHaveCount(0)
-  const outcome = chat.getByRole('article').nth(1).getByText('Allowed', { exact: true })
-  await expect(outcome).toBeVisible()
+  const article = chat.getByRole('article').nth(1)
+  await expect(article.getByText('Allowed', { exact: true })).toHaveCount(0)
+  await article.getByRole('button', { name: /^1 step/ }).click()
+  await expect(article.getByRole('list', { name: 'Steps' }).getByRole('listitem')).toHaveText([
+    /^Run a command\s*npm run build\s*Allowed/,
+  ])
 })
 
 test('the transcript stays at its newest line as the queue appears; a re-logged error counts once', async ({
