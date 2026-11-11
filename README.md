@@ -15,7 +15,7 @@ Gui is a Mac app for designing real interfaces with the AI coding agent you alre
 - **Your agent, your code.** Gui doesn't include a model. It drives the agent on your Mac with your login and your plan, and the agent edits files in your project.
 - **Undo any turn.** Gui snapshots your files before and after every turn, so you can undo one, or go back to any earlier message. Your `.git` is never touched.
 - **Every screen size.** Desktop fills the window; Laptop, Tablet and Mobile show your app at exactly their size. The agent knows which one you're looking at.
-- **The agent can see.** Agents get tools to screenshot, inspect, click and type in the same preview you're looking at, so they check their own work.
+- **The agent can see.** Agents get tools to screenshot, inspect, click and type in the same preview you're looking at, and to play an animation and watch it frame by frame, so they check their own work.
 - **Canvases.** Start without a project: ask for a page, or a few versions of one, and compare them side by side on a board.
 - **The rest of a dev setup.** Tabs per project, the dev server's logs, your own shell in a terminal, screen recordings, and reference images you paste into the chat.
 

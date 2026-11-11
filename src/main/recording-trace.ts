@@ -143,19 +143,27 @@ const TRACER = String.raw`(() => {
   // Animations and transitions: CSS ones and element.animate() alike, as they start.
   const seen = new WeakSet()
   const SKIP = new Set(['offset', 'easing', 'composite', 'computedOffset'])
-  const changes = (effect) => {
+  // Chromium reports a CSS transition's keyframes in device pixels (160px reads 320px at 2×).
+  const cssPx = (value) => devicePixelRatio === 1 ? value
+    : String(value).replace(/(-?\d*\.?\d+)px/g, (_, n) => Math.round((n / devicePixelRatio) * 100) / 100 + 'px')
+  const changes = (effect, transition) => {
     let frames = []
     try { frames = effect.getKeyframes() } catch {}
     const props = new Map()
     for (const frame of frames) for (const key of Object.keys(frame)) {
       if (SKIP.has(key)) continue
       if (!props.has(key)) props.set(key, [])
-      props.get(key).push(clip(frame[key], 50))
+      props.get(key).push(clip(transition ? cssPx(frame[key]) : frame[key], 50))
     }
     return [...props].slice(0, 8).map(([key, values]) => {
       const kept = values.length > 4 ? [values[0], '…', values.at(-1)] : values
       return key.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase()) + ' ' + kept.join(' → ')
     })
+  }
+  // A CSS animation's timing function is on its keyframes, not its effect.
+  const easing = (effect, timing) => {
+    if (timing.easing && timing.easing !== 'linear') return timing.easing
+    try { return effect.getKeyframes()[0]?.easing || 'linear' } catch { return 'linear' }
   }
   const watch = (running) => {
     for (const animation of document.getAnimations()) {
@@ -171,9 +179,9 @@ const TRACER = String.raw`(() => {
       push({
         kind: 'animation', at: now(), type, target: label, name,
         duration: Math.round(Number(timing.duration) || 0), delay: Math.round(timing.delay || 0),
-        easing: clip(timing.easing || 'linear', 80),
+        easing: clip(easing(effect, timing), 80),
         iterations: timing.iterations === Infinity ? 'infinite' : timing.iterations ?? 1,
-        changes: changes(effect),
+        changes: changes(effect, type === 'transition'),
         ...(running ? { running: true } : {}),
       })
       animation.finished.then(
@@ -302,10 +310,23 @@ export class RecordingTrace {
   private entries: TraceEntry[] = []
   private timer: NodeJS.Timeout
   private stopped = false
+  private injected: Promise<void>
 
-  constructor(private contents: WebContents) {
-    void this.inject()
+  /**
+   * `world`: the isolated world it traces from. Another trace of the same page at once (the
+   * agent's preview_motion during a user's recording) needs its own.
+   */
+  constructor(
+    private contents: WebContents,
+    private world = TRACE_WORLD,
+  ) {
+    this.injected = this.inject()
     this.timer = setInterval(() => void this.drain(), 1000)
+  }
+
+  /** Settles once the page is being traced (or couldn't be) */
+  ready() {
+    return this.injected
   }
 
   /** Drains the old page before it goes, when it still can. */
@@ -390,7 +411,7 @@ export class RecordingTrace {
     try {
       if (this.contents.isDestroyed()) return null
       return await Promise.race([
-        this.contents.executeJavaScriptInIsolatedWorld(TRACE_WORLD, [{ code }]),
+        this.contents.executeJavaScriptInIsolatedWorld(this.world, [{ code }]),
         new Promise((resolve) => {
           timer = setTimeout(() => resolve(null), 1000)
         }),

@@ -10,12 +10,14 @@ const { appendFileSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 const write = message => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
 let mcp, cwd
-const call = async (name, args) => {
+const call = async (name, args, save) => {
   const headers = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }
   for (const header of mcp.headers) headers[header.name] = header.value
   const response = await fetch(mcp.url, { method: 'POST', headers, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) })
   const reply = await response.json()
   if (reply.error) throw new Error(reply.error.message)
+  const image = save && reply.result.content.find(item => item.type === 'image')
+  if (image) writeFileSync(save, Buffer.from(image.data, 'base64'))
   return { ...reply.result, content: reply.result.content.map(item => item.type === 'image' ? { type: 'image', bytes: item.data.length } : item) }
 }
 const prompt = async params => {
@@ -33,7 +35,7 @@ const prompt = async params => {
     } else if (step.context) {
       const texts = params.prompt.filter(block => block.type === 'text' && block.text.startsWith(step.context))
       results.push({ content: texts.map(block => ({ type: 'text', text: block.text })) })
-    } else results.push(await call(step.name, step.args || {}))
+    } else results.push(await call(step.name, step.args || {}, step.save))
   }
   write({ method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: JSON.stringify(results) } } } })
   return { stopReason: 'end_turn' }
@@ -91,6 +93,8 @@ export interface Step {
   wait?: number
   /** Echoes the message's text blocks that start with this, as the agent received them */
   context?: string
+  /** Writes the result's first image to this path */
+  save?: string
 }
 /** Sends `steps` as one message; `during` acts as the user while its turn runs. */
 export async function ask(

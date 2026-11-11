@@ -12,6 +12,7 @@ import { alignGuides, describeAlignment } from './guide-alignment'
 import type { ForcedState, Inspector, InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import { type BeforeInput, PreviewInteractions } from './preview-interactions'
+import { type MotionRequest, planMotion } from './preview-motion-format'
 import type { Problems } from './problems'
 import { navigationTarget } from './public-address'
 import { logTail } from './startup'
@@ -973,6 +974,24 @@ export class PreviewTools extends PageTools {
     }))
     lines.push(describeAlignment(guides, alignGuides(guides, boxes), measured))
     return lines.join('\n')
+  }
+
+  /**
+   * preview_motion: plays motion in the app and films it (preview-motion.ts, loaded when used:
+   * it needs Electron's images, which the unit tests run without).
+   */
+  async motion(request: MotionRequest) {
+    const plan = planMotion(request)
+    const { filmMotion } = await import('./preview-motion')
+    return filmMotion(
+      {
+        wc: this.deps.wc,
+        inspector: this.deps.inspector,
+        assertLoaded: () => this.assertLoaded(),
+        input: (action) => this.input(action),
+      },
+      plan,
+    )
   }
 
   /** The dev server's last `lines` lines, cut to fit (logTail). */

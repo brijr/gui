@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_FRAMES } from '../shared/bounded'
 import { failure, text, untrusted } from './mcp-results'
 import { PREVIEW_KEYS } from './preview-interactions'
+import { motionTool } from './preview-motion-format'
 import { MAX_WAIT_MS, type PageTools, type PreviewTools } from './preview-tools'
 import { fenceUntrusted } from './prompt'
 import { formatNarration } from './recording-narration'
@@ -17,6 +18,7 @@ import { MAX_VARIANTS, VARIATION_ID } from './variations'
  */
 export const PREVIEW_TOOL_TITLES = {
   preview_screenshot: 'Screenshot the preview',
+  preview_motion: 'Watch motion in the preview',
   preview_inspect: 'Inspect an element',
   preview_snapshot: 'Read the preview page',
   preview_click: 'Click in the preview',
@@ -447,6 +449,25 @@ export function registerPreviewTools(
       }
     },
   )
+
+  server.registerTool('preview_motion', motionTool, async (request) => {
+    try {
+      if (tools.shown().kind === 'website')
+        throw new Error(
+          "preview_motion films the user's app only. preview_navigate with a path on the app goes back.",
+        )
+      const { image, summary, timeline } = await tools.motion(request)
+      return {
+        content: [
+          { type: 'image' as const, data: image.data, mimeType: image.mimeType },
+          { type: 'text' as const, text: summary },
+          ...untrusted('preview_motion', timeline).content,
+        ],
+      }
+    } catch (error) {
+      return failure(error)
+    }
+  })
 
   server.registerTool(
     'preview_inspect',
