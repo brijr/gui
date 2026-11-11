@@ -133,7 +133,6 @@ function AgentTurn({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
               <Note tone="error" detail={turn.errorDetail} stateKey="error" announce={end}>
                 {turn.error}
               </Note>
-              {turn.signIn && <SignInAgain />}
             </Row>
           )}
           {turn.status === 'cancelled' && (
@@ -541,45 +540,6 @@ function Note({
           open={details[0]}
           onOpenChange={details[1]}
         />
-      )}
-    </div>
-  )
-}
-
-/** After the agent's login expired: signs in again here, rather than leaving the chat stuck. */
-function SignInAgain() {
-  const [state, setState] = useTurnPresentation<'idle' | 'pending' | 'done' | 'failed'>(
-    'sign-in',
-    'idle',
-  )
-  if (state === 'done') {
-    return (
-      <p className={cn('flex gap-1.5 text-small text-success', NOTE_INSET)}>
-        <Check className="mt-px size-3.5 shrink-0" aria-hidden="true" />
-        Signed in. Send your message again.
-      </p>
-    )
-  }
-  return (
-    <div className={cn('flex flex-col items-start gap-1.5', NOTE_INSET)}>
-      <Button
-        variant="primary"
-        loading={state === 'pending'}
-        onClick={() => {
-          setState('pending')
-          gui.signInAgain().then(
-            (signedIn) => setState(signedIn ? 'done' : 'failed'),
-            () => setState('failed'),
-          )
-        }}
-      >
-        {state === 'pending' ? 'Signing in…' : 'Sign in'}
-      </Button>
-      {state === 'pending' && (
-        <p className="text-small text-muted">Continue in your browser to sign in.</p>
-      )}
-      {state === 'failed' && (
-        <InlineError>Not signed in yet. Try again, or sign in from Settings → Agents.</InlineError>
       )}
     </div>
   )

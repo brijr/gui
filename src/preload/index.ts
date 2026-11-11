@@ -195,7 +195,6 @@ const api: GuiApi = {
   fixProblems: () => legacyInvoke(Invoke.fixProblems),
   fixStartup: () => legacyInvoke(Invoke.fixStartup),
   setStartCommand: (start) => invokeOrThrow(Invoke.setStartCommand, start),
-  signInAgain: () => legacyInvoke(Invoke.chatSignIn),
   setUpChatAgent: () => legacyInvoke(Invoke.chatSetUpAgent),
   grabChat: send(Send.grabChat),
   dragChat: send(Send.dragChat),

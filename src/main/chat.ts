@@ -654,18 +654,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * The agent's login expired mid-chat: runs its sign-in, and once it's signed in, ends the
-   * session that still holds the old login, so the next message starts one that has it.
-   */
-  async signInAgain() {
-    const id = this.meta.agentId
-    await agentHealth.signIn(id)
-    const signedIn = agentHealth.list().find((agent) => agent.id === id)?.status === 'ready'
-    if (signedIn && !this.active) this.stopAgent()
-    return signedIn
-  }
-
-  /**
    * Asks the agent to fix what's currently broken; the errors ride along in the prompt.
    * A pending element selection is left for the user's next message.
    */
@@ -1625,7 +1613,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
           // Every surface (start screen, Settings) now shows it signed out, with its sign-in.
           agentHealth.signedOut(this.meta.agentId, error)
           record.turn.error = error.message
-          record.turn.signIn = true
         } else {
           const { message, detail } = describeError(error)
           record.turn.error = message
@@ -2004,10 +1991,17 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return this.sessionModels && withChoices(this.sessionModels, agentId, this.refused)
   }
 
-  /** Follows the agent's install and sign-in state; once it's ready, held messages go out. */
+  /**
+   * Follows the agent's install and sign-in state; once it's ready, held messages go out.
+   * Signed in again (its login expired mid-chat), the session that still holds the old login
+   * ends, so the next message starts one that has it.
+   */
   private refreshAgent = () => {
     const agent = agentHealth.list().find((health) => health.id === this.meta.agentId) ?? null
+    const was = this.meta.agent?.status
     if (JSON.stringify(agent) !== JSON.stringify(this.meta.agent)) this.patchMeta({ agent })
+    const signedIn = (was === 'signed-out' || was === 'signing-in') && agent?.status === 'ready'
+    if (signedIn && this.agent && !this.active) this.stopAgent()
     if (this.meta.queuePauseReason === 'setup' && agent?.status === 'ready') this.sendQueuedNow()
   }
 

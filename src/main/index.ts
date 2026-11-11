@@ -979,7 +979,6 @@ function registerIpc() {
       await requireTab(event).setStartCommand(start)
     }),
   )
-  handleLegacy(Invoke.chatSignIn, (event) => tabFor(event)?.signInAgain() ?? false)
   handleLegacy(Invoke.chatSetUpAgent, (event) => requireTab(event).setUpAgent())
   handleLegacy(Invoke.loadCommands, (event) => tabFor(event)?.loadCommands())
   const chatRequest = {

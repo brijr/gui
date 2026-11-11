@@ -3645,10 +3645,6 @@ export class ProjectTab implements ChatPanelOwner {
     this.layout()
   }
 
-  signInAgain() {
-    return this.resources.chat?.signInAgain() ?? Promise.resolve(false)
-  }
-
   setUpAgent() {
     return this.resources.chat?.setUpAgent() ?? Promise.resolve()
   }

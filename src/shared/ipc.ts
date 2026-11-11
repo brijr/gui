@@ -73,7 +73,6 @@ export const Invoke = {
   fixProblems: 'chat:fix-problems',
   fixStartup: 'chat:fix-startup',
   setStartCommand: 'project:set-start-command',
-  chatSignIn: 'chat:sign-in',
   chatSetUpAgent: 'chat:set-up-agent',
   loadCommands: 'chat:load-commands',
   listChats: 'chat:list',
@@ -732,8 +731,6 @@ export interface GuiApi {
    * again; rejects with what's wrong with it
    */
   setStartCommand(start: StartCommandInput | null): Promise<void>
-  /** Runs the chat's agent's sign-in after its login expired; true once it's signed in */
-  signInAgain(): Promise<boolean>
   /**
    * Sets up the chat's own agent (`ChatMeta.agent`): downloads it, signs in, or checks it
    * again, whichever it needs next. Held messages go out once it's ready.
