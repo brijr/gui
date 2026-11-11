@@ -603,14 +603,7 @@ const isPoint = (value: unknown): value is { x: number; y: number } =>
   isNumber((value as Record<string, unknown>).x) &&
   isNumber((value as Record<string, unknown>).y)
 
-const SECTIONS: readonly SettingsSection[] = [
-  'agents',
-  'chat',
-  'projects',
-  'github',
-  'storage',
-  'account',
-]
+const SECTIONS: readonly SettingsSection[] = ['agents', 'projects', 'github', 'storage', 'account']
 const STORAGE_KINDS: readonly StorageKind[] = ['chats', 'checkpoints', 'previewData']
 const isRecordOfStrings = (value: unknown): value is Record<string, string> =>
   !!value &&

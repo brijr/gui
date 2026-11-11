@@ -4,11 +4,10 @@ import type { SettingsSection, SettingsState } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { GitHubMark } from '../lib/github-mark'
-import { Bot, CircleUser, FolderOpen, HardDrive, MessageSquare } from '../lib/icons'
+import { Bot, CircleUser, FolderOpen, HardDrive } from '../lib/icons'
 import { PRESS } from '../lib/ui'
 import { AccountSection } from './account-section'
 import { AgentsSection } from './agents-section'
-import { ChatSection } from './chat-section'
 import { GitHubSection } from './github-section'
 import { ProjectsSection } from './projects-section'
 import { StorageSection } from './storage-section'
@@ -21,7 +20,6 @@ interface SectionInfo {
 
 const SECTIONS: readonly SectionInfo[] = [
   { id: 'agents', label: 'Agents', icon: Bot },
-  { id: 'chat', label: 'Chat', icon: MessageSquare },
   { id: 'projects', label: 'Projects', icon: FolderOpen },
   { id: 'github', label: 'GitHub', icon: GitHubMark },
   { id: 'storage', label: 'Storage', icon: HardDrive },
@@ -112,8 +110,6 @@ function SectionContent({ section, settings }: SectionContentProps) {
   switch (section) {
     case 'agents':
       return <AgentsSection settings={settings} />
-    case 'chat':
-      return <ChatSection settings={settings} />
     case 'projects':
       return <ProjectsSection settings={settings} />
     case 'github':

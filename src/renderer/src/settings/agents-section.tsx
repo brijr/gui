@@ -13,7 +13,7 @@ import { InlineError } from '../lib/field'
 import { ExternalLink, Plus, TriangleAlert } from '../lib/icons'
 import { PathText } from '../lib/path-text'
 import { Card, List, ListItem } from '../lib/surface'
-import { Button, Code } from '../lib/ui'
+import { Button, Code, SegmentedControl } from '../lib/ui'
 import { AgentRow } from './agent-row'
 import { AgentStatusLabel } from './agent-status'
 import { CustomAgentForm } from './custom-agent-form'
@@ -64,6 +64,12 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
         }
       />
 
+      <SettingsGroup heading="Chat">
+        <List>
+          <ListItem heading="Chat position" trailing={<ChatPosition settings={settings} />} />
+        </List>
+      </SettingsGroup>
+
       <SettingsGroup
         heading="Installed agents"
         action={
@@ -101,6 +107,28 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 
       <CustomAgents settings={settings} />
     </>
+  )
+}
+
+/** Where the chat sits: floating over the preview, or the window's sidebar on either side. */
+function ChatPosition({ settings }: { settings: SettingsState }) {
+  return (
+    <SegmentedControl
+      label="Chat position"
+      value={settings.chatSidebar ? settings.chatSidebarSide : 'floating'}
+      segments={[
+        { value: 'floating', label: 'Floating' },
+        { value: 'left', label: 'Left' },
+        { value: 'right', label: 'Right' },
+      ]}
+      onChange={(position) => {
+        if (position === 'floating') gui.setChatDocked(false)
+        else {
+          gui.setChatSidebarSide(position)
+          gui.setChatDocked(true)
+        }
+      }}
+    />
   )
 }
 

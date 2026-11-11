@@ -62,7 +62,7 @@ test('chat sidebar switches sides, resizes from its inner edge, and saves the ch
   layout = await bounds()
   expect(layout.chat.x + layout.chat.width).toBe(layout.width)
 
-  await session.chrome.evaluate(() => window.gui.openSettings('chat'))
+  await session.chrome.evaluate(() => window.gui.openSettings('agents'))
   await expect
     .poll(() =>
       session.app
@@ -88,7 +88,7 @@ test('chat sidebar switches sides, resizes from its inner edge, and saves the ch
     .toBe((await session.state()).sidebarWidth)
   await expect.poll(async () => (await bounds()).previewVisible).toBe(true)
   await session.shot('sidebar-left', true)
-  await session.chrome.evaluate(() => window.gui.openSettings('chat'))
+  await session.chrome.evaluate(() => window.gui.openSettings('agents'))
   await expect
     .poll(() =>
       session.app
@@ -142,7 +142,7 @@ test("Settings' chat position moves the chat of a project that's open", async ({
   expect(await docked()).toBe(false)
   expect(await sidebar()).toBe(0)
 
-  await session.chrome.evaluate(() => window.gui.openSettings('chat'))
+  await session.chrome.evaluate(() => window.gui.openSettings('agents'))
   const opened = () =>
     session.app
       .context()

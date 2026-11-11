@@ -27,8 +27,8 @@ test('signed-out Projects opens without accessing Keychain', async ({ launch }) 
   if (!page) throw new Error('Settings did not open')
   await expect(page.getByRole('button', { name: 'Connect GitHub', exact: true })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
-  await page.getByRole('button', { name: 'Chat', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Chat', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true })).toBeVisible()
 })
 
 test('GitHub connects to the Gui account, its repositories clone from Clone…, and it disconnects', async ({
