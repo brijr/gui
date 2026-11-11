@@ -109,11 +109,22 @@ async function zoomToFit(session: GuiSession) {
   }, 'every frame in view')
 }
 
-const undo = (session: GuiSession) =>
-  session.app.evaluate(({ Menu }) => {
+const editMenu = (session: GuiSession, label: 'Undo' | 'Redo') =>
+  session.app.evaluate(({ Menu }, label) => {
     const edit = Menu.getApplicationMenu()?.items.find((item) => item.label === 'Edit')
-    edit?.submenu?.items.find((item) => item.label === 'Undo')?.click()
-  })
+    edit?.submenu?.items.find((item) => item.label === label)?.click()
+  }, label)
+const undo = (session: GuiSession) => editMenu(session, 'Undo')
+const redo = (session: GuiSession) => editMenu(session, 'Redo')
+
+/** Runs in main: Edit › Copy, Cut or Paste as the menu's roles do it, to the app chrome. */
+const chromeEdit = (session: GuiSession, command: 'copy' | 'cut' | 'paste') =>
+  session.app.evaluate(({ webContents }, command) => {
+    const chrome = webContents
+      .getAllWebContents()
+      .find((wc) => /\/index\.html(?:[?#]|$)/.test(wc.getURL()))
+    chrome?.[command]()
+  }, command)
 
 test('a canvas opens from the start screen and its frames are moved, undone, duplicated and opened', async ({
   launch,
@@ -136,6 +147,17 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   expect(desktop).toMatchObject({ id: 'desktop', x: 0, y: 0, width: 1440, height: 900 })
   // Beside the one before it, never on top of it.
   expect(mobile.x).toBeGreaterThanOrEqual(desktop.x + desktop.width)
+  // A frame narrower than a desktop one has a thumbnail twice its width, for a Retina screen
+  // at 100%; a desktop one stays 1440 wide.
+  const thumbWidth = (frame: { id: string; version: number }) =>
+    chrome.evaluate(async (url) => {
+      const bitmap = await createImageBitmap(await (await fetch(url)).blob())
+      const width = bitmap.width
+      bitmap.close()
+      return width
+    }, `${opened.thumbs}/${frame.id}?v=${frame.version}`)
+  expect(await thumbWidth(mobile)).toBe(780)
+  expect(await thumbWidth(desktop)).toBe(1440)
 
   // A page written straight to the folder joins the board.
   const root = project?.root ?? ''
@@ -161,6 +183,18 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
   await waitFor(
     async () => (await board(session)).frames.find((frame) => frame.id === 'desktop')?.x === 0,
     'the move undone',
+  )
+  // ⇧⌘Z puts it back on the board, and ⌘Z takes it back again.
+  expect((await board(session)).canRedo).toBe(true)
+  await redo(session)
+  await waitFor(
+    async () => (await board(session)).frames.find((frame) => frame.id === 'desktop')?.x !== 0,
+    'the move redone',
+  )
+  await undo(session)
+  await waitFor(
+    async () => (await board(session)).frames.find((frame) => frame.id === 'desktop')?.x === 0,
+    'the move undone again',
   )
 
   // ⌘D on the board duplicates the selection, as in Figma, and doesn't open Design mode.
@@ -812,6 +846,63 @@ function stubClipboard({ clipboard }: typeof import('electron')) {
     )
 }
 
+test('frames in a section keep their names zoomed out, under the section name', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { chrome } = session
+  await openCanvas(session)
+  await chrome.evaluate(() => {
+    window.gui.boardAddFrame('desktop', null)
+    window.gui.boardAddFrame('desktop', null)
+  })
+  const { frames } = await waitFor(async () => {
+    const state = await board(session)
+    return state.frames.length === 2 ? state : null
+  }, 'two frames')
+  const ids = frames.map((frame) => frame.id)
+  await chrome.evaluate((ids) => window.gui.boardAddSection(ids), ids)
+  await waitFor(async () => (await board(session)).sections.length === 1, 'the section')
+  await chrome.locator('[role="application"]').focus()
+  await zoomToFit(session)
+  /** The zoom as drawn, and whether each name sits above its frame, clear of the section's. */
+  const look = () =>
+    chrome.evaluate((ids) => {
+      const rect = (selector: string) => document.querySelector(selector)?.getBoundingClientRect()
+      const section = rect('[data-section]')
+      const tiles = ids.map((id) => rect(`[data-frame="${id}"]`))
+      const names = ids.map((id) => rect(`[data-frame-label="${id}"]`))
+      const zoom = (tiles[0]?.width ?? 0) / 1440
+      const clear = names.every(
+        (name, i) =>
+          !!name &&
+          !!section &&
+          name.bottom <= (tiles[i]?.top ?? 0) + 1 &&
+          name.top >= section.bottom - 1 &&
+          name.top >= section.top,
+      )
+      return { zoom, clear }
+    }, ids)
+  // ⌘− a step at a time, checking at each zoom from fit down past 19%.
+  const seen: number[] = []
+  await waitFor(async () => {
+    const now = await look()
+    seen.push(now.zoom)
+    expect(now.clear, `names at ${Math.round(now.zoom * 100)}%`).toBe(true)
+    if (now.zoom < 0.19) return true
+    await session.app.evaluate(({ webContents }) => {
+      const contents = webContents
+        .getAllWebContents()
+        .find((wc) => /\/index\.html(?:[?#]|$)/.test(wc.getURL()))
+      contents?.sendInputEvent({ type: 'keyDown', keyCode: '-', modifiers: ['meta'] })
+      contents?.sendInputEvent({ type: 'keyUp', keyCode: '-', modifiers: ['meta'] })
+    })
+    return false
+  }, 'zoomed out past 19%')
+  expect(seen.some((zoom) => zoom >= 0.19 && zoom <= 0.28)).toBe(true)
+  await session.shot('section-names-zoomed-out')
+})
+
 test('⌘C and ⌘V copy frames onto the same canvas and another, as one undo step each', async ({
   launch,
 }) => {
@@ -865,6 +956,24 @@ test('⌘C and ⌘V copy frames onto the same canvas and another, as one undo st
   expect(copy.x).toBeGreaterThan((original?.x ?? 0) + (original?.width ?? 0))
   await undo(session)
   await waitFor(async () => (await board(session)).frames.length === 2, 'the paste undone')
+
+  // Edit › Copy and Paste from the menu are the board's too, with no text field focused.
+  await mobile.click()
+  await session.app.evaluate(() => {
+    ;(globalThis as unknown as { guiClipboard: unknown[] }).guiClipboard.length = 0
+  })
+  // Again until it lands: the click's selection reaches main, and comes back, a moment later.
+  const menuCopy = await waitFor(async () => {
+    await chromeEdit(session, 'copy')
+    return clipboard()
+  }, 'the menu copy')
+  expect(JSON.parse(menuCopy.text ?? '')).toMatchObject({
+    frames: [{ id: 'mobile' }],
+  })
+  await chromeEdit(session, 'paste')
+  await waitFor(async () => (await board(session)).frames.length === 3, 'the menu paste')
+  await undo(session)
+  await waitFor(async () => (await board(session)).frames.length === 2, 'the menu paste undone')
 
   // ⌘V on another canvas, in another tab: the same page.
   await chrome.evaluate(() => window.gui.newBoard())
