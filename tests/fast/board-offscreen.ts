@@ -124,7 +124,10 @@ await renderer.render(frame, url, 1, control.signal, 3000)
 assert.equal(Window.all.length, 1, 'Same-scale captures reuse an unloaded worker')
 await renderer.render(frame, url, 2, control.signal, 3000)
 assert.equal(Window.all.length, 2)
-assert.equal(Window.all[0].destroyed, true, 'Changing scale does not accumulate idle windows')
+// Thumbnails alternate 1× (desktop frames) and 2× (narrower ones): a worker is kept for each.
+assert.equal(Window.all[0].destroyed, false, 'A worker is kept for each of two scales')
+await renderer.render(frame, url, 1, control.signal, 3000)
+assert.equal(Window.all.length, 2, 'Going back to 1× reuses its worker')
 
 failedNavigation = true
 const capturesBeforeFailure = events.filter((event) => event === 'capture').length
@@ -164,8 +167,15 @@ for (const when of ['loading', 'loaded'] as const) {
   assert.equal(Window.all.length, before + 1, 'A stuck worker is replaced, not reused')
 }
 
+// A third scale (an export at another) takes the place of the one used longest ago.
+await renderer.render(frame, url, 3, control.signal, 3000)
+assert.equal(
+  Window.all.filter((window) => !window.destroyed).length,
+  2,
+  'Changing scale does not accumulate idle windows',
+)
 renderer.dispose()
-assert.equal(Window.all.at(-1)?.destroyed, true)
+assert.ok(Window.all.every((window) => window.destroyed))
 assert.equal(await renderer.render(frame, url, 1, control.signal, 3000), null)
 assert.equal(sessions.length, 1, 'One capture session, locked down once')
 console.log('Offscreen readiness, unload, painting, reuse, scale, hangs, and cancellation passed.')
