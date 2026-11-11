@@ -561,6 +561,8 @@ export interface BoardFrame extends BoardFrameLayout {
   version: number
   /** A thumbnail has been captured for it */
   captured: boolean
+  /** Its page was rewritten (by the agent) and its new thumbnail is being made */
+  rendering: boolean
 }
 
 /** A canvas open in a tab: its frames, what's selected, and the frame open in the preview. */

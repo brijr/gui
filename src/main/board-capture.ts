@@ -90,6 +90,8 @@ export class BoardCaptures {
   private versions = new Map<string, number>()
   /** Frames whose page hung, by the assets and page they hung with: not tried again until one changes */
   private hung = new Map<string, string>()
+  /** Frames rewritten by someone else (the agent) whose new thumbnail is being made */
+  private refreshing = new Set<string>()
   /** Thumbnails being deleted, so a new capture of the same frame lands after */
   private removing = new Map<string, Promise<void>>()
   private revisions = new Map<string, number>()
@@ -119,7 +121,29 @@ export class BoardCaptures {
   }
 
   status(id: string) {
-    return { version: this.versions.get(id) ?? this.firstVersion, captured: this.captured.has(id) }
+    return {
+      version: this.versions.get(id) ?? this.firstVersion,
+      captured: this.captured.has(id),
+      rendering: this.refreshing.has(id),
+    }
+  }
+
+  /**
+   * Someone else rewrote the frame's page (the agent): its thumbnail is made again, and the
+   * board says so on its old one until the new one is in.
+   */
+  refresh(id: string): Promise<void> {
+    if (this.disposed || !this.host.frame(id)) return Promise.resolve()
+    if (this.captured.has(id) && !this.refreshing.has(id)) {
+      this.refreshing.add(id)
+      this.host.changed(id)
+    }
+    return this.thumbnail(id)
+  }
+
+  /** The frame's capture is done, made or not: the board stops saying it's rendering. */
+  private settled(id: string) {
+    if (this.refreshing.delete(id) && !this.disposed) this.host.changed(id)
   }
 
   async open() {
@@ -210,7 +234,9 @@ export class BoardCaptures {
     return request.job.done
       .catch((error: unknown) => console.error(`[gui] could not capture frame ${id}`, error))
       .finally(() => {
-        if (this.thumbnails.get(id) === request) this.thumbnails.delete(id)
+        if (this.thumbnails.get(id) !== request) return
+        this.thumbnails.delete(id)
+        this.settled(id)
       })
       .then(() => undefined)
   }
@@ -229,6 +255,7 @@ export class BoardCaptures {
     this.thumbnails.get(id)?.job.cancel()
     this.thumbnails.delete(id)
     this.captured.delete(id)
+    this.refreshing.delete(id)
     this.hung.delete(id)
     delete this.cache[id]
     const removal = Promise.all([
@@ -328,6 +355,7 @@ export class BoardCaptures {
       await writeFileAtomic(this.cachePath, JSON.stringify(this.cache))
       if (!current()) return
       this.captured.add(id)
+      this.refreshing.delete(id)
       this.versions.set(id, (this.versions.get(id) ?? this.firstVersion) + 1)
       this.host.changed(id)
     } finally {

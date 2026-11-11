@@ -132,6 +132,37 @@ test('thumbnails made at 1× before are made again at 2×, and desktop frames st
   await until(() => scales.length === 2)
 })
 
+test('a frame rewritten by someone else says it is rendering until its new thumbnail is in', async () => {
+  const f = await fixture(['a'])
+  let gate = deferred()
+  gate.resolve()
+  const owner = f.create({
+    render: async (frame) => {
+      await gate.promise
+      return image(frame.id)
+    },
+    dispose: () => undefined,
+  })
+  await owner.open()
+  await until(() => owner.status('a').captured)
+  // A first thumbnail isn't a re-render: the board already says "Rendering…" without one.
+  expect(owner.status('a').rendering).toBe(false)
+  gate = deferred()
+  const refreshed = owner.refresh('a')
+  expect(owner.status('a').rendering).toBe(true)
+  gate.resolve()
+  await refreshed
+  expect(owner.status('a').rendering).toBe(false)
+  // Nor does it stay when the capture fails.
+  const failing = f.create({
+    render: async () => null,
+    dispose: () => undefined,
+  })
+  await failing.open()
+  await failing.refresh('a')
+  expect(failing.status('a').rendering).toBe(false)
+})
+
 test('the shared capture budget is bounded and waiting visible work can be promoted', async () => {
   const queue = new BoardCaptureQueue(1)
   const gate = deferred()

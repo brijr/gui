@@ -139,6 +139,7 @@ const tile = (id: string, x: number, y: number, width = 400, height = 300) => ({
   height,
   version: 1,
   captured: true,
+  rendering: false,
 })
 
 test('the DOM over the board mounts what is within half a view of it, and a name being edited', () => {

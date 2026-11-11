@@ -896,11 +896,13 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     // Someone else rewrote the page (the agent, by hand): undoing the user's earlier board
     // changes could now delete or overwrite what they wrote, so ⌘Z goes to the agent's turn.
     const html = await readFile(this.framePath(id), 'utf8').catch(() => null)
-    if (html !== null && html !== this.written.get(id)) {
+    const rewritten = html !== null && html !== this.written.get(id)
+    if (rewritten) {
       this.written.delete(id)
       this.clearUndo()
     }
-    this.queueCapture(id)
+    if (rewritten && this.port && !this.disposed) void this.captures.refresh(id)
+    else this.queueCapture(id)
     this.emit('frameChanged', id)
   }
 

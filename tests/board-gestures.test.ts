@@ -28,6 +28,7 @@ const frame = (id: string, x: number, y = 0): BoardFrame => ({
   height: 80,
   version: 1,
   captured: true,
+  rendering: false,
 })
 const frames = [frame('a', 0), frame('b', 200), frame('c', 400)]
 const board = (selection: string[] = [], drawn = frames): GestureBoard => ({

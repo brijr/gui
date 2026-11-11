@@ -25,6 +25,7 @@ const frame = (id: string, x: number): BoardFrame => ({
   height: 80,
   version: 1,
   captured: true,
+  rendering: false,
 })
 const frames = [frame('a', 0), frame('b', 200), frame('c', 400)]
 const section = { id: 's', name: 'Hero', frames: ['b', 'c'] }

@@ -260,7 +260,8 @@ function sameFrame(a: BoardFrame, b: BoardFrame) {
     a.width === b.width &&
     a.height === b.height &&
     a.version === b.version &&
-    a.captured === b.captured
+    a.captured === b.captured &&
+    a.rendering === b.rendering
   )
 }
 
@@ -299,13 +300,22 @@ const FrameTile = memo(
         className="absolute overflow-hidden"
         style={{ left: frame.x, top: frame.y, width: frame.width, height: frame.height }}
       >
-        {!frame.captured && (
+        {!frame.captured ? (
           <div
             className="p-3 text-caption whitespace-nowrap text-subtle"
             style={pinned({ x: 0, y: 0 })}
           >
             Rendering…
           </div>
+        ) : (
+          frame.rendering && (
+            // Over the old thumbnail until the new one is in, on a backing it can be read on.
+            <div style={pinned({ x: 0, y: 0 })} className="p-2">
+              <div className="rounded-md bg-raised px-2 py-1 text-caption whitespace-nowrap text-subtle shadow-raised">
+                Rendering…
+              </div>
+            </div>
+          )
         )}
       </div>
     )
