@@ -1,6 +1,7 @@
 import {
   type BoardCamera,
   type BoardSection,
+  SECTION_TOP,
   SMALL_THUMB_WIDTH,
   sectionBounds,
   THUMB_WIDTH,
@@ -194,7 +195,7 @@ export function buildScene(
   const toView = (area: Area): BoardViewRect => boardViewRectFromBoard(boardRectFrom(area), camera)
 
   for (const { area, picked } of input.sections) {
-    const rect = toView(area)
+    const rect = toView(drawnSection(area, zoom))
     if (!inView(rect, 0)) continue
     quads.push(
       rect,
@@ -271,6 +272,23 @@ export const LABEL_HEIGHT = 22
 export const SECTION_LABEL_HEIGHT = LABEL_HEIGHT + 2
 /** A section's name sits this far inside its top-left corner, in screen pixels. */
 export const SECTION_INSET = 10
+/** A section's name, then its frames' names under it: the room its top needs, in screen pixels. */
+const SECTION_HEAD = SECTION_INSET + SECTION_LABEL_HEIGHT + LABEL_HEIGHT + 4
+/**
+ * Zoomed out past this, a section's top grows no more and its frames' names go instead: a top
+ * that kept growing would reach over whatever is above the section.
+ */
+const SECTION_HEAD_ZOOM = 0.125
+
+/**
+ * A section's area as the board draws it at `zoom`: its top (SECTION_TOP board pixels) grown
+ * zoomed out so its name and its frames' names, which keep their screen size, both fit.
+ */
+export function drawnSection(area: Area, zoom: number): Area {
+  const grow = Math.max(0, SECTION_HEAD / Math.max(zoom, SECTION_HEAD_ZOOM) - SECTION_TOP)
+  return grow ? { ...area, y: area.y - grow, height: area.height + grow } : area
+}
+
 /** A frame narrower than this on screen shows its name above it without its size. */
 const SIZE_LABEL_MIN = 140
 /** Zoomed out further, frames' names go without their sizes. */
@@ -316,13 +334,15 @@ export function overlayScene(
     area.y + area.height >= reach.y
   const shown = frames.filter((frame) => near(frame) || keep.frames.includes(frame.id))
   const areas = sections.flatMap((section) => {
-    const area = sectionBounds(section, frames)
+    const bounds = sectionBounds(section, frames)
+    const area = bounds && drawnSection(bounds, camera.zoom)
     return area && (near(area) || section.id === keep.section) ? [{ section, area }] : []
   })
   const sectionOf = new Map<string, Area>()
   for (const { section, area } of areas) for (const id of section.frames) sectionOf.set(id, area)
   // Zoomed out, a frame's name goes where there's no room for it above the frame: it would
-  // cover its section's name, or the frame above it (and take its clicks).
+  // cover the frame above it (and take its clicks), or, zoomed out past where a section's top
+  // grows (`drawnSection`), its section's name.
   const { zoom } = camera
   const nameBand = LABEL_HEIGHT / zoom
   const sectionName = (SECTION_INSET + SECTION_LABEL_HEIGHT) / zoom

@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import {
   activeFrame,
   buildScene,
+  drawnSection,
   INK,
   LABEL_HEIGHT,
   overlayScene,
@@ -9,6 +10,8 @@ import {
   QUAD_STRIDE,
   QuadList,
   type SceneInput,
+  SECTION_INSET,
+  SECTION_LABEL_HEIGHT,
   sectionAreas,
   selectionSaid,
   thumbTier,
@@ -172,6 +175,29 @@ test('a name shows above its frame only where it has room, and its size only whe
   const inSection = overlayScene([top], [section], camera, size, { frames: [], section: null })
   expect(inSection.areas.map(({ section }) => section.id)).toEqual(['s'])
   expect(inSection.named(top)).toBe(true)
+  // Zoomed out, the section's top grows on screen so both names still fit (at 19% and 28%)...
+  for (const zoom of [0.19, 0.28]) {
+    const out = overlayScene([top], [section], { ...camera, zoom }, size, {
+      frames: [],
+      section: null,
+    })
+    expect(out.named(top)).toBe(true)
+    const head = (top.y - out.areas[0].area.y) * zoom
+    expect(head).toBeGreaterThanOrEqual(SECTION_INSET + SECTION_LABEL_HEIGHT + LABEL_HEIGHT)
+  }
+  // ...up to a point: far out, the frame's name goes rather than the top reaching further.
+  const tiny = overlayScene([top], [section], { ...camera, zoom: 0.06 }, size, {
+    frames: [],
+    section: null,
+  })
+  expect(tiny.named(top)).toBe(false)
+  // At 50% and in, it's the section's own padding, in board pixels.
+  expect(drawnSection({ x: 0, y: 0, width: 10, height: 10 }, 0.6)).toEqual({
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+  })
 })
 
 test('the canvas gets each section around its frames, and which is picked', () => {
