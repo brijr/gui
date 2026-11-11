@@ -46,38 +46,42 @@ export function EmptyBoard({ working }: { working: boolean }) {
       setSending(null)
     }
   }
+  if (working || sent) {
+    // The agent has it: only say so. The starters can't be used until it's done.
+    return (
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
+        <p role="status" className="flex items-center gap-2 text-muted">
+          <Spinner />
+          Your agent is adding frames…
+        </p>
+      </div>
+    )
+  }
   return (
     <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-8">
       <Card
         padding="canvas"
-        className="pointer-events-auto flex w-full max-w-md flex-col gap-4"
+        className="pointer-events-auto flex w-fit max-w-md flex-col gap-4"
         onPointerDown={(event) => event.stopPropagation()}
       >
         <div className="flex flex-col gap-1">
           <h2 className="font-semibold">Start your canvas</h2>
           <p className="text-pretty text-muted">Ask for a page or a few versions to compare.</p>
         </div>
-        <div className="flex flex-col gap-2">
-          <div className="flex flex-col gap-1.5">
-            {STARTERS.map((prompt) => (
+        <ul aria-label="Ideas to start with" className="flex flex-col items-start gap-1.5">
+          {STARTERS.map((prompt) => (
+            <li key={prompt} className="max-w-full">
               <PromptButton
-                key={prompt}
                 loading={sending === prompt}
                 disabled={busy}
                 onClick={() => void start(prompt)}
               >
                 {prompt}
               </PromptButton>
-            ))}
-          </div>
-          {(working || sent) && (
-            <p role="status" className="flex items-center gap-1.5 text-small text-muted">
-              <Spinner />
-              Your agent is adding frames…
-            </p>
-          )}
-          {error && <InlineError>{error}</InlineError>}
-        </div>
+            </li>
+          ))}
+        </ul>
+        {error && <InlineError>{error}</InlineError>}
       </Card>
     </div>
   )
