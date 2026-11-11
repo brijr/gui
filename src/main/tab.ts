@@ -3302,7 +3302,7 @@ export class ProjectTab implements ChatPanelOwner {
       (devServer.status === 'running' && preview.visible
         ? `The app is running at ${devServer.url}, and the preview shows it.`
         : devServer.status === 'starting' || devServer.status === 'running'
-          ? 'Still starting. Check again in a moment with dev_server_status.'
+          ? 'Still starting. Check again in a moment with dev_server_logs.'
           : "The app isn't running.")
     const output = logTail(this.getLogs(), AGENT_LOG_LINES)
     return [headline, describeServer(this.state), `Latest output:\n${output || '(none)'}`].join(

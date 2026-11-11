@@ -28,7 +28,8 @@ class FakeImage implements EncodableImage {
 }
 
 const { encodeWithin, MAX_AGENT_IMAGE_BYTES } = await import('../src/main/agent-image')
-const { PreviewTools, withinBytes } = await import('../src/main/preview-tools')
+const { changedStyles, PreviewTools, withinBytes } = await import('../src/main/preview-tools')
+const { describeClip } = await import('../src/main/mcp-preview-tools')
 const { logTail, LOG_LINE_MAX, LOG_TAIL_MAX } = await import('../src/main/startup')
 type Deps = ConstructorParameters<typeof PreviewTools>[0]
 
@@ -42,6 +43,8 @@ function page(options: {
   scroll?: number
   onGlide?: () => void
   loading?: boolean
+  /** What the page says to preview_wait's check, call by call */
+  present?: () => unknown
 }) {
   const sent: { method: string; params?: Record<string, unknown> }[] = []
   const answers: Record<string, (params?: Record<string, unknown>) => unknown> = {
@@ -55,6 +58,7 @@ function page(options: {
     'Runtime.callFunctionOn': () => ({ result: { value: TARGET } }),
     'Runtime.releaseObject': () => ({}),
     'Input.dispatchMouseEvent': () => ({}),
+    'Runtime.evaluate': () => ({ result: { value: options.present?.() } }),
     'DOM.getBoxModel': () => ({ model: { border: [40, 100, 140, 100, 140, 150, 40, 150] } }),
     'Page.getLayoutMetrics': () => ({
       cssVisualViewport: {
@@ -240,5 +244,74 @@ describe('dev server output is cut to fit', () => {
     expect(tail.length).toBeLessThanOrEqual(LOG_TAIL_MAX + 40)
     expect(tail).toMatch(/^…\[\d+ earlier lines left out\]/)
     expect(tail.endsWith(lines[399])).toBe(true)
+  })
+})
+
+describe('preview_wait', () => {
+  test('returns once the page shows what it waits for', async () => {
+    let checks = 0
+    const { tools } = page({ present: () => ++checks >= 3 })
+    expect(await tools.shown().wait({ selector: '#toast' })).toMatch(
+      /^`#toast` showed after \d+ms\.$/,
+    )
+    expect(checks).toBe(3)
+  })
+
+  test('says so when it never shows, after at most the time asked', async () => {
+    const { tools } = page({ present: () => false })
+    const started = Date.now()
+    expect(await tools.shown().wait({ text: 'Saved', ms: 300 })).toBe(
+      '"Saved" didn\'t show after 300ms.',
+    )
+    expect(Date.now() - started).toBeLessThan(1000)
+  })
+
+  test('waits for something to go away', async () => {
+    let checks = 0
+    const { tools } = page({ present: () => ++checks < 2 })
+    expect(await tools.shown().wait({ selector: '.spinner', gone: true })).toContain('went away')
+  })
+
+  test('a selector that does not parse is an error, not a wait', async () => {
+    const { tools } = page({ present: () => 'invalid' })
+    await expect(tools.shown().wait({ selector: '##' })).rejects.toThrow(/Invalid selector/)
+  })
+
+  test('stops if the project closes while it waits', async () => {
+    let live = true
+    const present = () => {
+      live = false
+      return false
+    }
+    const { tools } = page({ live: () => live, present })
+    await expect(tools.shown().wait({ selector: '#toast', ms: 2000 })).rejects.toThrow(
+      /project was closed/,
+    )
+  })
+})
+
+test("a forced state's styles are what changed, and what went back to its default", () => {
+  expect(
+    changedStyles(
+      { color: 'black', 'box-shadow': '0 0 1px red', cursor: 'pointer' },
+      { color: 'red', cursor: 'pointer', outline: 'blue solid 2px' },
+    ),
+  ).toEqual({ color: 'red', 'box-shadow': 'initial', outline: 'blue solid 2px' })
+})
+
+describe("recording_timeline's header", () => {
+  const clip = { id: 'c', width: 800, height: 600, durationMs: 1234.5, frameCount: 3 }
+  test('a short clip lists every frame timestamp', () => {
+    expect(describeClip({ ...clip, timestamps: [0, 33.4, 66.6] })).toBe(
+      'Recording c: 800×600, 1235 ms, 3 frames (indexes 0–2).\nFrame timestamps (ms): 0, 33, 67',
+    )
+  })
+
+  test('a long one gives the interval and its longest gaps instead', () => {
+    const timestamps = Array.from({ length: 300 }, (_, i) => i * 100 + (i >= 150 ? 900 : 0))
+    const header = describeClip({ ...clip, frameCount: 300, timestamps })
+    expect(header).toContain('Frames come about every 100 ms.')
+    expect(header).toContain('1000 ms after frame 149')
+    expect(header).not.toContain('Frame timestamps')
   })
 })

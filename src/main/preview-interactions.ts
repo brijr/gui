@@ -208,6 +208,22 @@ interface Target {
  */
 export type BeforeInput = (at: { x: number; y: number }, click: boolean) => Promise<void>
 
+/** Page JavaScript for `present`: true when what's asked for is on the page and visible. */
+const PRESENT = `(selector, text) => {
+  let found = true;
+  if (selector !== null) {
+    let nodes;
+    try { nodes = document.querySelectorAll(selector) } catch { return 'invalid' }
+    found = [...nodes].some((el) => {
+      const rect = el.getBoundingClientRect();
+      const style = getComputedStyle(el);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none';
+    });
+  }
+  if (found && text !== null) found = (document.body?.innerText || '').includes(text);
+  return found;
+}`
+
 /** Real Chromium input in the shared preview; serializes with screenshots and picking. */
 export class PreviewInteractions {
   /**
@@ -244,6 +260,23 @@ export class PreviewInteractions {
       if (JSON.stringify(result.value).length > MAX_SNAPSHOT_CHARS)
         throw new Error('The page is too large to read as a snapshot; use preview_screenshot')
       return result.value
+    })
+  }
+
+  /**
+   * preview_wait: whether a visible element matches `selector` and/or the page's visible text
+   * contains `text`; null while the page can't say (mid-load). Throws for a selector that
+   * doesn't parse.
+   */
+  async present(selector: string | undefined, text: string | undefined): Promise<boolean | null> {
+    return this.exclusive(async () => {
+      const { result } = await this.cmd<{ result: { value?: unknown } }>('Runtime.evaluate', {
+        expression: `(${PRESENT})(${JSON.stringify(selector ?? null)}, ${JSON.stringify(text ?? null)})`,
+        contextId: await this.world(),
+        returnByValue: true,
+      }).catch(() => ({ result: { value: null } }))
+      if (result.value === 'invalid') throw new Error(`Invalid selector: ${selector}`)
+      return typeof result.value === 'boolean' ? result.value : null
     })
   }
 

@@ -9,7 +9,7 @@ import {
 import type { ElementContext, Rect, RulerGuide, StartCommandInput } from '../shared/types'
 import { base64Bytes, type DecodedImage, encodeWithin, MAX_AGENT_IMAGE_BYTES } from './agent-image'
 import { alignGuides, describeAlignment } from './guide-alignment'
-import type { Inspector, InspectorSession } from './inspector'
+import type { ForcedState, Inspector, InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import { type BeforeInput, PreviewInteractions } from './preview-interactions'
 import type { Problems } from './problems'
@@ -32,6 +32,10 @@ const MAX_CAPTURE_PIXELS = 16_384
 /** First visits can compile the route on demand, which takes a while on large apps. */
 const NAVIGATION_TIMEOUT_MS = 30_000
 const RELOAD_TIMEOUT_MS = 10_000
+/** The longest preview_wait waits, for anything */
+export const MAX_WAIT_MS = 15_000
+/** How often preview_wait looks again */
+const WAIT_POLL_MS = 150
 /** Media queries, layout, and lazy content settling after a viewport change. */
 export const SETTLE_MS = 400
 /** Restoring the viewport resizes the page asynchronously; how long to wait for its width. */
@@ -146,6 +150,8 @@ export interface InspectedElement {
   /** Page (document) CSS pixels, the space guides and fullPage screenshots use */
   pageBox: PageRect
   styles: Record<string, string>
+  /** For each state asked for, the styles that differ in it ("initial": back to the default) */
+  states?: Partial<Record<ForcedState, Record<string, string>>>
   componentStack: string[]
   source: ElementContext['source']
 }
@@ -240,6 +246,33 @@ function withTimeout<T>(promise: Promise<T>, message: string, ms: number) {
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
+
+/** What preview_wait waits for: an element, text, either going away, or just time. */
+export interface WaitOptions {
+  selector?: string
+  text?: string
+  gone?: boolean
+  /** How long to wait at most (or, with nothing to wait for, how long), in ms */
+  ms?: number
+}
+
+/**
+ * Resolves when `wc` next stops loading or moves within its page (history.pushState, a hash),
+ * or after `ms`.
+ */
+function settled(wc: WebContents, ms: number) {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer)
+      wc.off('did-stop-loading', done)
+      wc.off('did-navigate-in-page', done)
+      resolve()
+    }
+    const timer = setTimeout(done, ms)
+    wc.on('did-stop-loading', done)
+    wc.on('did-navigate-in-page', done)
+  })
+}
 
 /** Resolves when `wc` next stops loading, or after `ms`. */
 function stoppedLoading(wc: WebContents, ms: number) {
@@ -372,13 +405,19 @@ export class PageTools {
    * Computed styles, box, and source location for the first element matching `selector`, as
    * the agent reads it: its box in page CSS pixels, nothing it can't use.
    */
-  async inspect(selector: string): Promise<InspectedElement> {
+  async inspect(selector: string, forced: ForcedState[] = []): Promise<InspectedElement> {
     this.assertLoaded()
     const backendNodeId = await this.page.inspector.querySelector(selector)
     this.assertLoaded()
     const element = await this.page.inspectNode(backendNodeId)
     this.assertLoaded()
     const pageBox = await this.pageBox(backendNodeId)
+    const states: InspectedElement['states'] = {}
+    for (const state of forced) {
+      const styles = await this.page.inspector.stateStyles(backendNodeId, state)
+      this.assertLoaded()
+      states[state] = changedStyles(element.styles, styles)
+    }
     return {
       url: element.url,
       viewport: element.viewport,
@@ -391,7 +430,65 @@ export class PageTools {
       styles: element.styles,
       componentStack: element.componentStack,
       source: element.source,
+      ...(forced.length ? { states } : {}),
     }
+  }
+
+  /**
+   * preview_wait: until `selector` and/or `text` shows (or, `gone`, stops showing), up to
+   * `ms`; with neither, just `ms`. What happened, in a line.
+   */
+  async wait({ selector, text, gone = false, ms }: WaitOptions): Promise<string> {
+    this.assertLoaded()
+    const started = Date.now()
+    if (selector === undefined && text === undefined) {
+      const wait = Math.min(ms ?? 1000, MAX_WAIT_MS)
+      await sleep(wait)
+      this.assertLive()
+      return `Waited ${wait}ms.`
+    }
+    const limit = Math.min(ms ?? 5000, MAX_WAIT_MS)
+    const what = [
+      selector !== undefined ? `\`${selector}\`` : null,
+      text !== undefined ? JSON.stringify(text) : null,
+    ]
+      .filter(Boolean)
+      .join(' with ')
+    for (;;) {
+      const present = await this.interactions.present(selector, text)
+      const waited = Date.now() - started
+      if (present !== null && present !== gone)
+        return `${what} ${gone ? 'went away' : 'showed'} after ${waited}ms.`
+      if (waited >= limit)
+        return `${what} ${gone ? 'still showed' : "didn't show"} after ${limit}ms.`
+      await sleep(Math.min(WAIT_POLL_MS, limit - waited))
+      this.assertLoaded()
+    }
+  }
+
+  /**
+   * preview_back: the page before this one in the preview's history, when it's one these tools
+   * may act on (the app at its own address, or the website); where it is after.
+   */
+  async back() {
+    this.assertLoaded()
+    const { wc } = this.page
+    const history = wc.navigationHistory
+    const index = history.getActiveIndex()
+    const previous = index > 0 ? history.getEntryAtIndex(index - 1) : null
+    if (!previous || this.refusal(previous.url))
+      throw new Error(
+        this.page.kind === 'website'
+          ? 'Nothing earlier on this website to go back to.'
+          : "Nothing earlier in the user's app to go back to.",
+      )
+    const moved = settled(wc, NAVIGATION_TIMEOUT_MS)
+    history.goBack()
+    await moved
+    // An in-page move renders after the event; a load paints after it stops.
+    await sleep(300)
+    this.assertLive()
+    return { url: this.url(), loading: !wc.isDestroyed() && wc.isLoading() }
   }
 
   /** Reloads the page; where it is after, and whether it's still loading after RELOAD_TIMEOUT_MS. */
@@ -458,14 +555,18 @@ export class PageTools {
     this.assertLive()
     const url = this.url()
     if (!url) throw new Error('The preview has no page loaded yet')
-    if (this.page.kind === 'website') {
-      if (!/^https?:/i.test(url) || isLoopback(url)) throw new Error('The website has no page open')
-      return
-    }
+    const refused = this.refusal(url)
+    if (refused) throw new Error(refused)
+  }
+
+  /** Why these tools mustn't act on a page at `url`, or null when they may. */
+  private refusal(url: string): string | null {
+    if (this.page.kind === 'website')
+      return !/^https?:/i.test(url) || isLoopback(url) ? 'The website has no page open' : null
     const elsewhere = this.page.elsewhere ?? 'The preview is not showing the local dev server'
-    if (!isLoopback(url)) throw new Error(elsewhere)
+    if (!isLoopback(url)) return elsewhere
     const origins = this.page.origins?.()
-    if (origins && !origins.includes(new URL(url).origin)) throw new Error(elsewhere)
+    return origins && !origins.includes(new URL(url).origin) ? elsewhere : null
   }
 
   /** Runs inside the inspector's lock; must only use `session` for node lookups. */
@@ -654,6 +755,18 @@ export async function withinBytes<T extends Screenshot>(
     width: encoded.width,
     height: encoded.height,
   }
+}
+
+/**
+ * The styles that differ in a forced state from the element's own: changed or added, and
+ * those that went back to their default ("initial"), which `styles` leaves out.
+ */
+export function changedStyles(base: Record<string, string>, state: Record<string, string>) {
+  const changed: Record<string, string> = {}
+  for (const key of new Set([...Object.keys(base), ...Object.keys(state)])) {
+    if (base[key] !== state[key]) changed[key] = state[key] ?? 'initial'
+  }
+  return changed
 }
 
 /** The part of the page currently on screen, in page coordinates. */

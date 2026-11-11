@@ -125,3 +125,89 @@ test("the app's tools refuse another server on this machine the app links to", a
     other.close()
   }
 })
+
+test('the agent waits for what it expects, goes back, and reads hover styles without hovering', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  writeFileSync(
+    join(session.fixture.root, 'src', 'App.tsx'),
+    `import { useState } from 'react'
+export default function App() {
+  const [saved, setSaved] = useState(false)
+  const save = () => setTimeout(() => setSaved(true), 600)
+  return <main>
+    <h1>{location.pathname === '/next' ? 'Next page' : 'Waiting'}</h1>
+    <button id="save" onClick={save}>Save</button>
+    {saved && <p id="toast">Saved!</p>}
+    <a id="next" href="/next">Next</a>
+  </main>
+}`,
+  )
+  writeFileSync(
+    join(session.fixture.root, 'src', 'index.css'),
+    '#save { color: rgb(0, 0, 0); transition: color 200ms } #save:hover { color: rgb(255, 0, 0) } #save:focus-visible { outline: 3px solid rgb(0, 0, 255) }',
+  )
+  const page = await session.previewPage()
+  await expect(page.locator('h1')).toHaveText('Waiting')
+  await installToolAgent(session)
+
+  const [clicked, shown, notThere, waited, , inspected] = await ask(session, [
+    { name: 'preview_click', args: { selector: '#save' } },
+    { name: 'preview_wait', args: { selector: '#toast', text: 'Saved!' } },
+    { name: 'preview_wait', args: { text: 'Never appears', ms: 300 } },
+    { name: 'preview_wait', args: { ms: 50 } },
+    // The click left the pointer on the button; off it, its own styles aren't its hover's.
+    { name: 'preview_hover', args: { selector: 'h1' } },
+    { wait: 500 },
+    { name: 'preview_inspect', args: { selector: '#save', states: ['hover', 'focus'] } },
+  ])
+  expect(clicked.content[0].text).toBe('Clicked.')
+  expect(text(shown)).toMatch(/showed after \d+ms/)
+  expect(text(notThere)).toContain("didn't show after 300ms")
+  expect(text(waited)).toBe('Waited 50ms.')
+  const element = pageData(inspected)
+  expect(element.styles.color).toBe('rgb(0, 0, 0)')
+  // Read once the transition finished, not where it starts.
+  expect(element.states.hover.color).toBe('rgb(255, 0, 0)')
+  expect(element.states.focus.outline).toContain('rgb(0, 0, 255)')
+
+  // Loaded fresh first: going back reuses the browser's copy of a page, and the first load's
+  // is from before this test rewrote the app.
+  const [, followed, arrived, back, home, noFurther] = await ask(session, [
+    { name: 'preview_navigate', args: { path: '/' } },
+    { name: 'preview_click', args: { selector: '#next' } },
+    { name: 'preview_wait', args: { text: 'Next page' } },
+    { name: 'preview_back' },
+    { name: 'preview_wait', args: { text: 'Waiting' } },
+    { name: 'preview_back' },
+  ])
+  expect(followed.isError).toBeFalsy()
+  expect(text(arrived)).toContain('showed')
+  expect(back.isError, text(back)).toBeFalsy()
+  expect(text(back)).toContain('Went back')
+  expect(text(home)).toContain('showed')
+  // Before the app's first page there's nothing of the app's to go back to.
+  expect(noFurther.isError).toBe(true)
+  expect(text(noFurther)).toContain('Nothing earlier')
+})
+
+test("the dev server tool gives its status and output; Gui's own tools read this chat", async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await installToolAgent(session)
+  await ask(session, [{ write: { path: 'src/note.txt', text: 'first change' } }])
+  const [logs, turns, versions] = await ask(session, [
+    { name: 'dev_server_logs', args: { lines: 5 } },
+    { name: 'chat_turns' },
+    { name: 'versions_list' },
+  ])
+  expect(text(logs)).toContain('running')
+  expect(text(logs)).toContain('Latest output:')
+  expect(text(turns)).toContain('TOOLS')
+  expect(text(turns)).toContain('src/note.txt')
+  expect(text(versions)).toMatch(/Versions \(\d+, newest first/)
+})

@@ -72,7 +72,7 @@ export function startupFailure({ project, setup, devServer, preview }: StartupSt
   return null
 }
 
-/** The dev server's state in a few lines, for the agent's dev_server_status tool. */
+/** The dev server's state in a few lines, heading the agent's dev_server_logs. */
 export function describeServer(state: StartupState) {
   const { project, setup, devServer, preview } = state
   if (!project) return 'No project is open.'

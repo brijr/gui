@@ -26,7 +26,7 @@ export async function recordingBlocks(
   const log = formatTimeline(timeline, { limit: tools ? 80 : 400 })
   const narration = formatNarration(transcript, cursor, timeline)
   const reading = images
-    ? `The following images are a sparse overview, not continuous playback. ${tools ? 'Use recording_timeline for what happened in the page (input, animations with their elements, durations and easing, layout shifts, slow frames), recording_info to read actual frame timestamps, recording_frames to inspect short animation ranges, and recording_frame for exact zero-based frame indexes. Inspect dense frames before drawing conclusions about motion.' : 'Frame tools are unavailable in this session. These sampled images cannot prove fine animation timing; explain that limitation.'}`
+    ? `The following images are a sparse overview, not continuous playback. ${tools ? 'Use recording_timeline for frame timing and what happened in the page (input, animations with their elements, durations and easing, layout shifts, slow frames), and recording_frames to inspect short animation ranges or exact zero-based frame indexes. Inspect dense frames before drawing conclusions about motion.' : 'Frame tools are unavailable in this session. These sampled images cannot prove fine animation timing; explain that limitation.'}`
     : `You cannot see its frames. Work from the timeline of what happened in the page, which has exact timing, elements and values but not how anything looks; if the request depends on appearance, say so.${tools ? ' Use recording_timeline to read all of it or a time range.' : ''}`
   const pointer = cursor
     ? ' The mouse pointer is drawn in the frames as a ring with a dot at its tip (filled while the button is down).'

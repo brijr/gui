@@ -535,7 +535,10 @@ try {
     sectionTools.updateSection(one.id, { frames: ['a', 'missing', 'gone'] }),
     /no frame missing, gone/,
   )
-  await assert.rejects(sectionTools.updateSection(one.id, { frames: [] }), /canvas_delete_section/)
+  await assert.rejects(
+    sectionTools.updateSection(one.id, { frames: [] }),
+    /canvas_section with action delete/,
+  )
   assert.deepEqual(sectioned.section(one.id)?.frames, ['a', 'b'])
   assert.match(await sectionTools.updateSection(one.id, { frames: ['b'] }), /: b\./)
 

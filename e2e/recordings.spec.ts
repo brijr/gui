@@ -21,15 +21,17 @@ const handle = async ({id,method,params}) => {
   if (method === 'session/prompt') {
     const text=params.prompt.filter(b=>b.type==='text').map(b=>b.text).join('\n')
     const clip=/ID ([a-f0-9-]{36})/.exec(text)?.[1]
-    const info=await tool('recording_info',{recordingId:clip})
-    const metadata=JSON.parse(info.content[0].text)
-    const frame=await tool('recording_frame',{recordingId:clip,index:1})
-    const range=await tool('recording_frames',{recordingId:clip,startMs:metadata.timestamps[0],endMs:metadata.timestamps[Math.min(5,metadata.frameCount-1)],fps:30})
-    const outside=await tool('recording_frame',{recordingId:clip,index:metadata.frameCount})
-    const oversized=await tool('recording_frames',{recordingId:clip,startMs:0,endMs:metadata.durationMs,fps:30})
-    const other=await tool('recording_info',{recordingId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'})
     const timeline=await tool('recording_timeline',{recordingId:clip})
-    const result={prompt:text,timeline:timeline.content[0]?.text,imageCount:params.prompt.filter(b=>b.type==='image').length,info:metadata,frame:frame.content.find(b=>b.type==='text')?.text,frameImage:frame.content.some(b=>b.type==='image'),rangeImages:range.content.filter(b=>b.type==='image').length,outside:outside.isError,oversized:oversized.isError,other:other.isError}
+    const head=timeline.content[0].text
+    const frameCount=Number(/, (\d+) frames/.exec(head)[1])
+    const durationMs=Number(/, (\d+) ms,/.exec(head)[1])
+    const timestamps=(/Frame timestamps \(ms\): ([\d, ]+)/.exec(head)?.[1]||'').split(', ').map(Number)
+    const frame=await tool('recording_frames',{recordingId:clip,indexes:[1]})
+    const range=await tool('recording_frames',{recordingId:clip,startMs:timestamps[0],endMs:timestamps[Math.min(5,frameCount-1)],fps:30})
+    const outside=await tool('recording_frames',{recordingId:clip,indexes:[frameCount]})
+    const oversized=await tool('recording_frames',{recordingId:clip,startMs:0,endMs:durationMs,fps:30})
+    const other=await tool('recording_timeline',{recordingId:'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'})
+    const result={prompt:text,timeline:head,imageCount:params.prompt.filter(b=>b.type==='image').length,info:{frameCount,durationMs,timestamps},frame:frame.content.find(b=>b.type==='text')?.text,frameImage:frame.content.some(b=>b.type==='image'),rangeImages:range.content.filter(b=>b.type==='image').length,outside:outside.isError,oversized:oversized.isError,other:other.isError}
     write({method:'session/update',params:{sessionId:params.sessionId,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text:JSON.stringify(result)}}}})
     return write({id,result:{stopReason:'end_turn'}})
   }
@@ -153,12 +155,15 @@ test('preview video plays, sends overview images, and exposes exact frames and b
   expect(result.outside).toBe(true)
   expect(result.oversized).toBe(true)
   expect(result.other).toBe(true)
+  // recording_timeline's header gives the clip's frames and, for a short one, each timestamp.
   const timestamps: number[] = result.info.timestamps
+  expect(result.info.frameCount).toBe(clip.frameCount)
+  expect(timestamps).toHaveLength(clip.frameCount)
   expect(timestamps.every((at, index) => index === 0 || at > timestamps[index - 1])).toBe(true)
   const projects = readdirSync(join(session.fixture.userData, 'recordings'))
   const directory = join(session.fixture.userData, 'recordings', projects[0], clip.id)
   const manifest = JSON.parse(readFileSync(join(directory, 'manifest.json'), 'utf8'))
-  expect(manifest.timestamps).toEqual(timestamps)
+  expect(manifest.timestamps.map(Math.round)).toEqual(timestamps)
   expect(readFileSync(join(directory, 'video.webm')).subarray(0, 4).toString('hex')).toBe(
     '1a45dfa3',
   )

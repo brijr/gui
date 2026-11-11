@@ -67,7 +67,8 @@ test('the first call is answered, and lists the tools', async () => {
   const listed = await call(config, 'tools/list')
   const names = (await listed.json()).result.tools.map((tool: { name: string }) => tool.name)
   expect(names).toContain('preview_screenshot')
-  expect(names).toContain('dev_server_status')
+  expect(names).toContain('dev_server_logs')
+  expect(names).not.toContain('dev_server_status')
   expect(names).not.toContain('canvas_list_frames')
 })
 
@@ -104,6 +105,7 @@ test('a canvas lists its own tools and none that need a dev server, rulers or we
     'dev_server_restart',
     'set_start_command',
     'preview_open_website',
+    'preview_back',
     'preview_guides',
     'preview_variations',
   ]) {
@@ -111,6 +113,8 @@ test('a canvas lists its own tools and none that need a dev server, rulers or we
   }
   expect(canvas.map((tool) => tool.name)).toContain('canvas_list_frames')
   expect(canvas.map((tool) => tool.name)).toContain('preview_navigate')
+  expect(canvas.map((tool) => tool.name)).toContain('preview_wait')
+  expect(canvas.map((tool) => tool.name)).toContain('canvas_section')
 
   // Every tool registers under the title the chat labels it with.
   for (const tool of [...project, ...canvas]) {

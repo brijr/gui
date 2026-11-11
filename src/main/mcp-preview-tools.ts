@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_FRAMES } from '../shared/bounded'
 import { failure, text, untrusted } from './mcp-results'
 import { PREVIEW_KEYS } from './preview-interactions'
-import type { PageTools, PreviewTools } from './preview-tools'
+import { MAX_WAIT_MS, type PageTools, type PreviewTools } from './preview-tools'
 import { fenceUntrusted } from './prompt'
 import { formatNarration } from './recording-narration'
 import { formatTimeline } from './recording-trace'
@@ -24,20 +24,19 @@ export const PREVIEW_TOOL_TITLES = {
   preview_type: 'Type in the preview',
   preview_press: 'Press a key in the preview',
   preview_scroll: 'Scroll the preview',
+  preview_wait: 'Wait for the preview',
   preview_point: 'Point something out in the preview',
   preview_variations: 'Show versions to choose from',
   preview_guides: 'Check alignment with guides',
   preview_console: 'Read preview errors',
   preview_navigate: 'Open a page in the preview',
   preview_open_website: 'Open a website in the preview',
+  preview_back: 'Go back in the preview',
   preview_reload: 'Reload the preview',
-  dev_server_logs: 'Read dev server output',
-  dev_server_status: 'Check the dev server',
+  dev_server_logs: 'Check the dev server',
   dev_server_restart: 'Restart the dev server',
   set_start_command: 'Change how Gui starts the app',
-  recording_info: 'Inspect recording timing',
-  recording_frame: 'Inspect an exact recorded frame',
-  recording_frames: 'Inspect a recorded animation range',
+  recording_frames: 'Inspect recorded frames',
   recording_timeline: 'Read what happened during a recording',
   recording_narration: 'Read what the user said during a recording',
 } as const
@@ -46,14 +45,15 @@ export type PreviewTool = keyof typeof PREVIEW_TOOL_TITLES
 
 /**
  * Only in a project: a canvas has no dev server, no rulers, no variations (each version is
- * its own frame) and no websites in its preview (it captures them with canvas_screenshot_url).
+ * its own frame), no websites in its preview (it captures them with canvas_screenshot_url)
+ * and no page history (canvas_open_frame opens any frame).
  */
 const PROJECT_ONLY: ReadonlySet<PreviewTool> = new Set<PreviewTool>([
   'preview_variations',
   'preview_guides',
   'preview_open_website',
+  'preview_back',
   'dev_server_logs',
-  'dev_server_status',
   'dev_server_restart',
   'set_start_command',
 ])
@@ -102,6 +102,44 @@ function fromWebsite(label: string, page: PageTools, body: string) {
 /** A page's address, which its scripts can set (pushState): fenced, after `lead`. */
 const withAddress = (lead: string, url: string) =>
   text(`${lead}\n${fenceUntrusted('page_address', url)}`)
+
+/** Frame timestamps listed in full only for a clip this short; past it, a summary. */
+const LISTED_TIMESTAMPS = 120
+
+/**
+ * recording_timeline's header: the clip's size, length and frames, with the timestamps of a
+ * short clip, or the interval and its longest gaps for a long one.
+ */
+export function describeClip(clip: {
+  id: string
+  width: number
+  height: number
+  durationMs: number
+  frameCount: number
+  timestamps: number[]
+}) {
+  const lines = [
+    `Recording ${clip.id}: ${clip.width}×${clip.height}, ${Math.round(clip.durationMs)} ms, ${clip.frameCount} frames (indexes 0–${Math.max(0, clip.frameCount - 1)}).`,
+  ]
+  const at = clip.timestamps.map((ms) => Math.round(ms))
+  if (at.length <= LISTED_TIMESTAMPS) {
+    if (at.length) lines.push(`Frame timestamps (ms): ${at.join(', ')}`)
+    return lines.join('\n')
+  }
+  const gaps = at.slice(1).map((ms, i) => ({ after: i, ms: ms - at[i] }))
+  const sorted = gaps.map((gap) => gap.ms).sort((a, b) => a - b)
+  const median = sorted[Math.floor(sorted.length / 2)] ?? 0
+  lines.push(`Frames come about every ${median} ms.`)
+  const long = gaps
+    .filter((gap) => gap.ms > Math.max(3 * median, median + 50))
+    .sort((a, b) => b.ms - a.ms)
+    .slice(0, 10)
+  if (long.length)
+    lines.push(
+      `Longest gaps: ${long.map((gap) => `${gap.ms} ms after frame ${gap.after} (at ${at[gap.after]} ms)`).join('; ')}.`,
+    )
+  return lines.join('\n')
+}
 
 export function registerPreviewTools(
   server: McpServer,
@@ -237,6 +275,30 @@ export function registerPreviewTools(
         const page = tools.shown()
         await page.input((interactions) => interactions.scroll(deltaY, deltaX, selector))
         return text(`Scrolled${where(page)}.${noticed(page)}`)
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+
+  server.registerTool(
+    'preview_wait',
+    {
+      title: T.preview_wait,
+      description: `Wait until something shows on ${shownPage}: a visible element matching \`selector\`, and/or \`text\` in the page's visible text; with \`gone\`, until it stops showing. Use it after an action that takes a moment (a request, a route change, an animation, a toast) instead of reloading or screenshotting again and again. With neither, it just waits \`ms\`. Waits at most \`ms\` (default 5000; up to ${MAX_WAIT_MS}), then says whether it showed.`,
+      inputSchema: {
+        selector: z.string().min(1).max(500).optional().describe('CSS selector to wait for'),
+        text: z.string().min(1).max(500).optional().describe('Text to wait for'),
+        gone: z.boolean().optional().describe('Wait until it stops showing instead'),
+        ms: z.number().int().min(0).max(MAX_WAIT_MS).optional().describe('How long at most'),
+      },
+      annotations: { readOnlyHint: true },
+    },
+    async (options) => {
+      try {
+        const page = tools.shown()
+        const waited = await page.wait(options)
+        return text(`${waited}${where(page) && ` (${where(page).trim()})`}${noticed(page)}`)
       } catch (error) {
         return failure(error)
       }
@@ -390,14 +452,21 @@ export function registerPreviewTools(
     'preview_inspect',
     {
       title: T.preview_inspect,
-      description: `Computed styles, box, text, attributes, React component stack, and source file:line for the first element matching a CSS selector on ${shownPage}. \`pageBox\` is in page CSS pixels (document coordinates, the same as guides): add the page's scroll to compare it with what's on screen. Use to measure spacing, check fonts and colors, or find which file renders something.${project ? ' On a website: styles, markup and box only.' : ''}`,
-      inputSchema: { selector: z.string().min(1).max(500).describe('CSS selector') },
+      description: `Computed styles, box, text, attributes, React component stack, and source file:line for the first element matching a CSS selector on ${shownPage}. \`pageBox\` is in page CSS pixels (document coordinates, the same as guides): add the page's scroll to compare it with what's on screen. Pass \`states\` to also read the styles that change on hover, focus or press, without moving the pointer. Use to measure spacing, check fonts and colors, or find which file renders something.${project ? ' On a website: styles, markup and box only.' : ''}`,
+      inputSchema: {
+        selector: z.string().min(1).max(500).describe('CSS selector'),
+        states: z
+          .array(z.enum(['hover', 'focus', 'active']))
+          .max(3)
+          .optional()
+          .describe('States to read the changed styles in (focus includes focus-visible)'),
+      },
       annotations: { readOnlyHint: true },
     },
-    async ({ selector }) => {
+    async ({ selector, states }) => {
       try {
         const page = tools.shown()
-        const element = JSON.stringify(await page.inspect(selector))
+        const element = JSON.stringify(await page.inspect(selector, [...new Set(states ?? [])]))
         if (page.kind === 'website') return fromWebsite('website_element', page, element)
         return untrusted('preview_element', element)
       } catch (error) {
@@ -486,6 +555,29 @@ export function registerPreviewTools(
         }
       },
     )
+
+    server.registerTool(
+      'preview_back',
+      {
+        title: T.preview_back,
+        description:
+          "Go back one page in the preview's history, like a browser's Back button: on the user's app, or on the website you opened. It never leaves the one for the other; preview_navigate goes back to the app.",
+        inputSchema: {},
+        annotations: { readOnlyHint: false, openWorldHint: false },
+      },
+      async () => {
+        try {
+          const page = tools.shown()
+          const { url, loading } = await page.back()
+          const still = loading ? ' It is still loading; check again in a moment.' : ''
+          return page.kind === 'website'
+            ? text(`Went back on the website ${host(url)}.${still}${noticed(page)}`)
+            : withAddress(`Went back.${still}`, url)
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    )
   }
 
   server.registerTool(
@@ -515,7 +607,7 @@ export function registerPreviewTools(
       {
         title: T.dev_server_logs,
         description:
-          "The tail of the project's dev server output (already running in Gui; never start another one). Long lines are cut.",
+          "Whether the user's app is installing, starting, running or stopped, how Gui starts it (the start command, the folder it runs in, the package manager), then the tail of its dev server output, long lines cut. It's already running in Gui; never start another one.",
         inputSchema: {
           lines: z
             .number()
@@ -523,32 +615,17 @@ export function registerPreviewTools(
             .min(1)
             .max(500)
             .optional()
-            .describe('How many lines (default 80)'),
+            .describe('How many lines of output (default 80)'),
         },
         annotations: { readOnlyHint: true },
       },
       async ({ lines }) => {
         try {
           const output = tools.logs(lines ?? 80)
-          return output ? untrusted('dev_server_logs', output) : text('(no output yet)')
-        } catch (error) {
-          return failure(error)
-        }
-      },
-    )
-
-    server.registerTool(
-      'dev_server_status',
-      {
-        title: T.dev_server_status,
-        description:
-          "Whether the user's app is installing, starting, running or stopped, and how Gui starts it: the start command, the folder it runs in, and the package manager.",
-        inputSchema: {},
-        annotations: { readOnlyHint: true },
-      },
-      async () => {
-        try {
-          return untrusted('dev_server_status', tools.serverStatus())
+          return untrusted(
+            'dev_server',
+            `${tools.serverStatus()}\n\nLatest output:\n${output || '(none yet)'}`,
+          )
         } catch (error) {
           return failure(error)
         }
@@ -609,26 +686,9 @@ export function registerPreviewTools(
   }
 
   const recordingId = z.string().uuid().describe('Recording ID from the user message')
+  /** Images recording_frames returns at most (recordings.ts refuses more for a range) */
+  const MAX_FRAMES_PER_CALL = 12
   const MAX_CLIP_MS = MAX_NARRATED_RECORDING_MS + 1000
-  server.registerTool(
-    'recording_info',
-    {
-      title: T.recording_info,
-      description:
-        'Read a recorded preview clip: dimensions, duration, frame count, and the actual timestamp in milliseconds for every captured frame. Frame indexes start at zero. Frames may have gaps; never assume a constant interval.',
-      inputSchema: { recordingId },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ recordingId }) => {
-      try {
-        const { id, durationMs, width, height, frameCount, timestamps } =
-          await recordings.info(recordingId)
-        return text(JSON.stringify({ id, durationMs, width, height, frameCount, timestamps }))
-      } catch (error) {
-        return failure(error)
-      }
-    },
-  )
   const frameContent = (frames: Awaited<ReturnType<Recordings['frames']>>) => ({
     content: frames.flatMap((frame) => [
       {
@@ -639,46 +699,41 @@ export function registerPreviewTools(
     ]),
   })
   server.registerTool(
-    'recording_frame',
-    {
-      title: T.recording_frame,
-      description:
-        'Retrieve one exact captured frame by its zero-based index. Use neighboring indexes to examine animation progression, jumps, easing, or flicker.',
-      inputSchema: {
-        recordingId,
-        index: z
-          .number()
-          .int()
-          .min(0)
-          .max(MAX_RECORDING_FRAMES - 1),
-      },
-      annotations: { readOnlyHint: true },
-    },
-    async ({ recordingId, index }) => {
-      try {
-        return frameContent([await recordings.frameAt(recordingId, index)])
-      } catch (error) {
-        return failure(error)
-      }
-    },
-  )
-  server.registerTool(
     'recording_frames',
     {
       title: T.recording_frames,
-      description:
-        'Retrieve timestamped frames in a time range, sampled at up to 30 fps. At most 12 images per call; inspect short ranges for animations. For every captured frame without sampling, use the indexes from recording_info with recording_frame.',
+      description: `Retrieve a recorded clip's frames, each with its zero-based index and actual timestamp: sampled from a time range (\`startMs\`/\`endMs\`, at up to 30 fps; default 10), or exactly by \`indexes\` (neighbors show progression, jumps, easing or flicker). At most ${MAX_FRAMES_PER_CALL} images per call; inspect short ranges for animations. Frames may have gaps: never assume a constant interval. recording_timeline gives the clip's size, length and frame count.`,
       inputSchema: {
         recordingId,
-        startMs: z.number().min(0).max(MAX_CLIP_MS),
-        endMs: z.number().min(0).max(MAX_CLIP_MS),
-        fps: z.number().min(0.1).max(30).default(10),
+        startMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
+        endMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
+        fps: z.number().min(0.1).max(30).optional(),
+        indexes: z
+          .array(
+            z
+              .number()
+              .int()
+              .min(0)
+              .max(MAX_RECORDING_FRAMES - 1),
+          )
+          .min(1)
+          .max(MAX_FRAMES_PER_CALL)
+          .optional()
+          .describe('Exact frames, instead of a range'),
       },
       annotations: { readOnlyHint: true },
     },
-    async ({ recordingId, startMs, endMs, fps }) => {
+    async ({ recordingId, startMs, endMs, fps, indexes }) => {
       try {
-        const frames = await recordings.frames(recordingId, startMs, endMs, fps)
+        if (indexes) {
+          const unique = [...new Set(indexes)].sort((a, b) => a - b)
+          return frameContent(
+            await Promise.all(unique.map((index) => recordings.frameAt(recordingId, index))),
+          )
+        }
+        if (startMs === undefined || endMs === undefined)
+          throw new Error('Pass `startMs` and `endMs`, or `indexes`.')
+        const frames = await recordings.frames(recordingId, startMs, endMs, fps ?? 10)
         return frames.length ? frameContent(frames) : text('No captured frames in this range.')
       } catch (error) {
         return failure(error)
@@ -723,7 +778,7 @@ export function registerPreviewTools(
     {
       title: T.recording_timeline,
       description:
-        "Read a text log of what happened in the preview page while it was recorded, with times in ms on the same clock as the frames: the user's clicks, keys and scrolls; every CSS transition, CSS animation and element.animate() with its target element, duration, delay, easing and keyframe values; inline styles changed by script (JS-driven motion); class changes; added and removed elements; layout shifts (boxes in viewport CSS px); and slow frames (jank). Use it to find which element and code drive an animation, and its exact timing. It cannot tell what anything looks like, nor see inside canvas or WebGL.",
+        "Read a recorded clip's size, length and frame timing, then a text log of what happened in the preview page while it was recorded, with times in ms on the same clock as the frames: the user's clicks, keys and scrolls; every CSS transition, CSS animation and element.animate() with its target element, duration, delay, easing and keyframe values; inline styles changed by script (JS-driven motion); class changes; added and removed elements; layout shifts (boxes in viewport CSS px); and slow frames (jank). Use it to find which element and code drive an animation, and its exact timing. It cannot tell what anything looks like, nor see inside canvas or WebGL.",
       inputSchema: {
         recordingId,
         startMs: z.number().min(0).max(MAX_CLIP_MS).optional(),
@@ -733,11 +788,15 @@ export function registerPreviewTools(
     },
     async ({ recordingId, startMs, endMs }) => {
       try {
-        const entries = await recordings.timeline(recordingId)
+        const [info, entries] = await Promise.all([
+          recordings.info(recordingId),
+          recordings.timeline(recordingId),
+        ])
         const log = formatTimeline(entries, { startMs, endMs, limit: 600 })
-        return log
-          ? untrusted('recording_timeline', log)
-          : text('Nothing was traced in this range (or the clip predates timelines).')
+        const body = log
+          ? fenceUntrusted('recording_timeline', log)
+          : 'Nothing was traced in this range (or the clip predates timelines).'
+        return text(`${describeClip(info)}\n\n${body}`)
       } catch (error) {
         return failure(error)
       }

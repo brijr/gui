@@ -13,15 +13,12 @@ export const BOARD_TOOL_TITLES = {
   canvas_list_frames: 'List canvas frames',
   canvas_create_frame: 'Create a canvas frame',
   canvas_duplicate_frames: 'Duplicate canvas frames',
-  canvas_arrange_frames: 'Move or resize canvas frames',
-  canvas_rename_frame: 'Rename a canvas frame',
+  canvas_arrange_frames: 'Move, resize or rename canvas frames',
   canvas_delete_frames: 'Delete canvas frames',
   canvas_screenshot: 'Screenshot a canvas frame',
   canvas_screenshot_url: 'Screenshot a website',
   canvas_open_frame: 'Open a canvas frame in the preview',
-  canvas_create_section: 'Create a canvas section',
-  canvas_update_section: 'Rename a canvas section or change its frames',
-  canvas_delete_section: 'Delete a canvas section',
+  canvas_section: 'Change a canvas section',
 } as const
 
 export interface BoardTools {
@@ -158,7 +155,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
     {
       title: BOARD_TOOL_TITLES.canvas_arrange_frames,
       description:
-        'Moves frames on the board and/or changes their size. Give only what changes for each frame. Keep at least 80px between frames.',
+        'Moves frames on the board, changes their size and/or renames them (the name shown above a frame; its id and file stay the same). Give only what changes for each frame. Keep at least 80px between frames.',
       inputSchema: {
         frames: z
           .array(
@@ -168,23 +165,24 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
               y: boardCoordinate.optional(),
               width: edge.optional(),
               height: edge.optional(),
+              name: nameSchema.optional().describe('New name shown above the frame'),
             }),
           )
           .min(1)
           .max(60),
       },
     },
-    run(({ frames }) => board.arrange(frames)),
-  )
-
-  server.registerTool(
-    'canvas_rename_frame',
-    {
-      title: BOARD_TOOL_TITLES.canvas_rename_frame,
-      description: 'Changes the name shown above a frame. Its id and file stay the same.',
-      inputSchema: { id: frameIdSchema, name: nameSchema },
-    },
-    run(({ id, name }) => board.rename(id, name)),
+    run(async ({ frames }) => {
+      const moves = frames
+        .map(({ name: _name, ...move }) => move)
+        .filter((move) => Object.keys(move).length > 1)
+      const lines = moves.length ? [await board.arrange(moves)] : []
+      for (const { id, name } of frames)
+        if (name !== undefined) lines.push(await board.rename(id, name))
+      if (!lines.length)
+        throw new Error('Give each frame what changes: x, y, width, height or name.')
+      return lines.join('\n')
+    }),
   )
 
   server.registerTool(
@@ -291,43 +289,28 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   )
 
   server.registerTool(
-    'canvas_create_section',
+    'canvas_section',
     {
-      title: BOARD_TOOL_TITLES.canvas_create_section,
+      title: BOARD_TOOL_TITLES.canvas_section,
       description:
-        'Groups frames in a named section, an area of the board drawn around them that sizes itself to fit (like a section in Figma). Use one for each set of related frames: the sizes of one ad, the screens of a flow, the options for one idea. A frame is in one section at most, so these leave any other. Arrange the frames first; the section follows them.',
+        'Sections are named areas of the board drawn around related frames that size themselves to fit (like sections in Figma): the sizes of one ad, the screens of a flow, the options for one idea. `create` groups `frames` under `name`; `update` renames section `id` and/or sets its frames (`frames` replaces the list); `delete` removes section `id`, leaving its frames where they are. A frame is in one section at most, so frames joining one leave any other, and a new frame made beside one in a section joins it by itself. Arrange the frames first; the section follows them.',
       inputSchema: {
-        name: nameSchema.describe('Short name shown on the section'),
-        frames: z.array(frameIdSchema).min(1).max(60),
-      },
-    },
-    run(({ name, frames }) => board.createSection(name, frames)),
-  )
-
-  server.registerTool(
-    'canvas_update_section',
-    {
-      title: BOARD_TOOL_TITLES.canvas_update_section,
-      description:
-        'Renames a section and/or sets which frames are in it (`frames` replaces the list; frames joining leave any other section). Every frame in `frames` must be on the canvas, and there must be at least one; to remove the section, use canvas_delete_section. A new frame made beside one in a section joins it by itself.',
-      inputSchema: {
-        id: sectionIdSchema,
-        name: nameSchema.optional(),
+        action: z.enum(['create', 'update', 'delete']),
+        id: sectionIdSchema.optional().describe('The section, for update and delete'),
+        name: nameSchema.optional().describe('Short name shown on the section'),
         frames: z.array(frameIdSchema).min(1).max(60).optional(),
       },
-    },
-    run(({ id, name, frames }) => board.updateSection(id, { name, frames })),
-  )
-
-  server.registerTool(
-    'canvas_delete_section',
-    {
-      title: BOARD_TOOL_TITLES.canvas_delete_section,
-      description:
-        'Removes a section from the board. Its frames stay where they are; delete them with canvas_delete_frames if that is what the user asked for.',
-      inputSchema: { id: sectionIdSchema },
       annotations: { destructiveHint: true },
     },
-    run(({ id }) => board.removeSection(id)),
+    run(({ action, id, name, frames }) => {
+      if (action === 'create') {
+        if (!name || !frames) throw new Error('Creating a section takes `name` and `frames`.')
+        return board.createSection(name, frames)
+      }
+      if (!id) throw new Error(`Pass the section's \`id\` to ${action} it.`)
+      if (action === 'delete') return board.removeSection(id)
+      if (name === undefined && !frames) throw new Error('Pass a new `name`, `frames`, or both.')
+      return board.updateSection(id, { name, frames })
+    }),
   )
 }

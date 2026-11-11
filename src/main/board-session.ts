@@ -633,7 +633,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
         )
       if (!members.length)
         throw new Error(
-          `A section needs at least one frame. To remove section ${id}, use canvas_delete_section.`,
+          `A section needs at least one frame. To remove section ${id}, use canvas_section with action delete.`,
         )
     }
     if (name === section.name && !members) return

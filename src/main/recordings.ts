@@ -440,7 +440,7 @@ export class Recordings {
     }
     if (indexes.length > 12)
       throw new Error(
-        'At most 12 frames per response. Request a shorter range or lower fps; use recording_frame for exact indexes.',
+        'At most 12 frames per response. Request a shorter range or lower fps; pass `indexes` for exact frames.',
       )
     return Promise.all(indexes.map((index) => this.frameAt(id, index)))
   }

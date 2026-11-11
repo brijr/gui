@@ -266,7 +266,7 @@ test('a frame of no device’s size opens live at exactly its size, and the size
   await expect(session.chrome.getByRole('button', { name: 'Viewport: 1080 × 1080' })).toBeVisible()
   // The agent's own look at the page sees the same size.
   const [snapshot] = await ask(session, [{ name: 'preview_snapshot' }])
-  expect(snapshot.content[0].text).toMatch(/"viewport": \{\s*"height": 1080,\s*"width": 1080\s*\}/)
+  expect(snapshot.content[0].text).toContain('"viewport":{"height":1080,"width":1080}')
 
   // A device from the size menu, then the frame's own size again.
   await session.chrome.evaluate(() => window.gui.setViewport('mobile'))
@@ -283,4 +283,61 @@ test('a frame of no device’s size opens live at exactly its size, and the size
     },
   ])
   await at('1200x630', '1200x630')
+})
+
+test('the agent renames frames as it arranges them, and makes, changes and deletes a section with one tool', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  await openCanvas(session)
+  await installToolAgent(session)
+  const results = await ask(session, [
+    {
+      name: 'canvas_create_frame',
+      args: { name: 'One', width: 400, height: 300, html: page('1') },
+    },
+    {
+      name: 'canvas_create_frame',
+      args: { name: 'Two', width: 400, height: 300, html: page('2') },
+    },
+    {
+      name: 'canvas_arrange_frames',
+      args: {
+        frames: [
+          { id: 'one', x: 0, y: 0, name: 'Hero — calm' },
+          { id: 'two', name: 'Hero — bold' },
+        ],
+      },
+    },
+    { name: 'canvas_section', args: { action: 'create', name: 'Heroes', frames: ['one', 'two'] } },
+  ])
+  expect(
+    results.every((result) => !result.isError),
+    JSON.stringify(results),
+  ).toBe(true)
+  const built = await board(session)
+  expect(frameOf(built, 'one')?.name).toBe('Hero — calm')
+  expect(frameOf(built, 'one')?.x).toBe(0)
+  expect(frameOf(built, 'two')?.name).toBe('Hero — bold')
+  const [section] = built.sections
+  expect(section.name).toBe('Heroes')
+  expect(section.frames).toEqual(['one', 'two'])
+
+  const [renamed, missingId, deleted] = await ask(session, [
+    {
+      name: 'canvas_section',
+      args: { action: 'update', id: section.id, name: 'Hero options', frames: ['two'] },
+    },
+    { name: 'canvas_section', args: { action: 'delete' } },
+    { name: 'canvas_section', args: { action: 'delete', id: section.id } },
+  ])
+  expect(renamed.isError).toBeFalsy()
+  expect(renamed.content[0].text).toContain('Hero options')
+  expect(missingId.isError).toBe(true)
+  expect(missingId.content[0].text).toContain('`id`')
+  expect(deleted.isError).toBeFalsy()
+  const after = await board(session)
+  expect(after.sections).toEqual([])
+  // Deleting a section leaves its frames.
+  expect(after.frames.map((frame) => frame.id).sort()).toEqual(['one', 'two'])
 })

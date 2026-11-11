@@ -54,7 +54,7 @@ The **Record preview** button (⌥⌘R, `src/renderer/src/app/record-button.tsx`
 - `MediaRecorder` writes a VP9 webm for playback. A `requestVideoFrameCallback` loop also saves JPEG frames (≤30 fps, ≤1568 px) with exact timestamps.
 - `RecordingTrace` (`src/main/recording-trace.ts`) injects a tracer into an isolated world in the preview. It logs clicks, hovers over interactive elements, typing, scrolls, animations, layout shifts and slow frames, on the same clock as the frames.
 - `Recordings` (`src/main/recordings.ts`) stores `video.webm`, `N.jpg`, `timeline.json`, `manifest.json` per clip under `userData/recordings/<project>/<id>/`.
-- When sent, `chat.ts` gives the agent the clip ID, a formatted timeline, and 3 overview frames (first, middle, last). With tools, it can call `recording_info`, `recording_frame`, `recording_frames` and `recording_timeline` (`src/main/mcp-preview-tools.ts`).
+- When sent, `chat.ts` gives the agent the clip ID, a formatted timeline, and 3 overview frames (first, middle, last). With tools, it can call `recording_frames` and `recording_timeline` (`src/main/mcp-preview-tools.ts`).
 - Limits: 60 s, 32 MB video, 1830 frames, 128 MB of frames, 3 clips per message.
 
 Missing: **voice**, a **cursor you can see** (or at least a cursor track), and **overview frames chosen by what the user said**.

@@ -275,6 +275,66 @@ interface InspectorEvents {
  * What code running inside `Inspector.exclusive` may use. These skip the lock; the
  * public equivalents would wait for it and deadlock.
  */
+/** A state preview_inspect can force on an element to read its styles in it. */
+export type ForcedState = 'hover' | 'focus' | 'active'
+
+/** The longest a forced state's transitions are waited for. */
+const STATE_SETTLE_MAX_MS = 1000
+
+/**
+ * How long transitions take to finish, in ms: the longest duration plus its delay, from the
+ * computed `transition-duration` and `transition-delay` lists ("0.2s, 300ms").
+ */
+export function transitionTime(durations = '', delays = '') {
+  const times = (list: string) =>
+    list.split(',').map((part) => {
+      const value = Number.parseFloat(part)
+      return Number.isFinite(value) ? value * (part.trim().endsWith('ms') ? 1 : 1000) : 0
+    })
+  const delay = times(delays)
+  const longest = Math.max(
+    0,
+    ...times(durations).map((ms, i) => ms + (delay[i % delay.length] ?? 0)),
+  )
+  return longest > 0 ? Math.min(STATE_SETTLE_MAX_MS, longest + 50) : 0
+}
+
+/** Splits a computed list on its commas, not those inside a function (cubic-bezier(…)). */
+const listItems = (value = '') => value.split(/,(?![^(]*\))/).map((item) => item.trim())
+
+/**
+ * The shorthands STYLE_KEYS reads that the protocol only gives as longhands: `outline` (when
+ * there is one) and `transition` (when anything transitions), as "color style width" and
+ * "property duration easing delay, …".
+ */
+function foldShorthands(computed: Map<string, string>) {
+  const outline = computed.get('outline-style')
+  if (!computed.has('outline') && outline && outline !== 'none')
+    computed.set(
+      'outline',
+      `${computed.get('outline-color') ?? ''} ${outline} ${computed.get('outline-width') ?? ''}`.trim(),
+    )
+  const durations = listItems(computed.get('transition-duration'))
+  if (computed.has('transition') || !durations.some((duration) => Number.parseFloat(duration) > 0))
+    return
+  const properties = listItems(computed.get('transition-property'))
+  const easings = listItems(computed.get('transition-timing-function'))
+  const delays = listItems(computed.get('transition-delay'))
+  computed.set(
+    'transition',
+    properties
+      .map((property, i) =>
+        [
+          property,
+          durations[i % durations.length],
+          easings[i % easings.length],
+          delays[i % delays.length],
+        ].join(' '),
+      )
+      .join(', '),
+  )
+}
+
 export interface InspectorSession {
   /** backendNodeId of the first element matching `selector` */
   querySelector(selector: string): Promise<number>
@@ -434,6 +494,34 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       screenshot: shot?.dataUrl ?? null,
       crop: shot?.crop ?? null,
     }
+  }
+
+  /**
+   * The element's computed styles with `state` forced on it (`:hover`, `:focus`…), as
+   * `inspect` reads them. Transitions are let finish first (up to STATE_SETTLE_MAX_MS), so
+   * what's read is where the state ends up, not where it starts.
+   */
+  async stateStyles(backendNodeId: number, state: ForcedState): Promise<Record<string, string>> {
+    await this.ready()
+    return this.exclusive(async () => {
+      const { nodeId } = await this.pushNode(backendNodeId)
+      await this.cmd('CSS.enable')
+      const classes = state === 'focus' ? ['focus', 'focus-visible', 'focus-within'] : [state]
+      await this.cmd('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: classes })
+      try {
+        const { computedStyle } = await this.cmd<{
+          computedStyle: { name: string; value: string }[]
+        }>('CSS.getComputedStyleForNode', { nodeId })
+        const value = (name: string) => computedStyle.find((style) => style.name === name)?.value
+        const settle = transitionTime(value('transition-duration'), value('transition-delay'))
+        if (settle > 0) await new Promise((resolve) => setTimeout(resolve, settle))
+        return await this.computedStyles(nodeId)
+      } finally {
+        await this.cmd('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] }).catch(
+          () => undefined,
+        )
+      }
+    })
   }
 
   /**
@@ -682,6 +770,7 @@ export class Inspector extends EventEmitter<InspectorEvents> {
       if (values.some((value) => !value)) continue
       computed.set(shorthand, collapseBox(values))
     }
+    foldShorthands(computed)
     const borderless = computed.get('border-style') === 'none'
     const styles: Record<string, string> = {}
     for (const name of STYLE_KEYS) {
