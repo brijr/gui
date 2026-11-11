@@ -11,6 +11,14 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.19',
+    date: '2026-11-10',
+    changes: [
+      'Subagents show in the chat. When Claude Code or Codex hands work to subagents, each one is its own line with what it’s doing now, and its own stop button. A finished one folds to one line; open it to see its task, its steps and its answer. When a subagent asks for approval, the card says which one.',
+      'Gemini CLI is a built-in agent again. It works with Gemini Code Assist and paid Gemini API or Vertex AI keys; Google now sends free and Google AI Pro accounts to its Antigravity CLI instead.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.18',
     date: '2026-11-10',
     changes: [
