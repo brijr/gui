@@ -66,6 +66,7 @@ import {
   type SettingsSection,
   type StartCommandInput,
   type StorageKind,
+  type ToolbarMenuItem,
   VARIATION_ACTIONS,
   type VariationAction,
   VIEWPORTS,
@@ -933,6 +934,25 @@ function registerIpc() {
     // The window's own chrome only, where the toolbar is.
     if (!win || win.win.webContents !== event.sender || !valid || !isPoint(at)) return null
     return showToolbarMenu(win.win, valid, at)
+  })
+  handleLegacy(Invoke.showRecordMenu, async (event, at: unknown, narrate: unknown) => {
+    const win = windowFor(event)
+    if (!win || win.win.webContents !== event.sender || !isPoint(at)) return
+    const voice = narrate === true
+    // ⌥⌘R starts the one chosen last; the menu shows its keys there.
+    const item = (id: string, label: string, checked: boolean): ToolbarMenuItem => ({
+      type: 'checkbox',
+      id,
+      label,
+      checked,
+      ...(checked && { shortcut: 'recordPreview' }),
+    })
+    const chosen = await showToolbarMenu(
+      win.win,
+      [item('plain', 'Record', !voice), item('voice', 'Record with Voice', voice)],
+      at,
+    )
+    if (chosen) win.recordPreview(chosen === 'voice')
   })
   handleLegacy(Invoke.takeScreenshot, (event, at: unknown) => {
     const tab = tabFor(event)

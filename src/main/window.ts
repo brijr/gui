@@ -283,13 +283,18 @@ export class ProjectWindow implements TabHost {
 
   /**
    * ⌥⌘R: the toolbar's Record button, starting or stopping. Run as a user gesture, as a
-   * click is: screen capture only starts from one.
+   * click is: screen capture only starts from one. From Record's menu, `narrate` is the
+   * choice made there (with your voice or not); ⌥⌘R starts the one chosen last.
    */
-  recordPreview() {
+  recordPreview(narrate?: boolean) {
     const { project, preview } = this.active.getState()
     if (!project || !preview.visible || !preview.selectable || this.focus) return shell.beep()
+    const detail = JSON.stringify(narrate === undefined ? null : { narrate })
     this.win.webContents
-      .executeJavaScript(`window.dispatchEvent(new Event('gui:record'))`, true)
+      .executeJavaScript(
+        `window.dispatchEvent(new CustomEvent('gui:record', { detail: ${detail} }))`,
+        true,
+      )
       .catch(() => undefined)
   }
 

@@ -221,6 +221,7 @@ const api: GuiApi = {
   onRecordingUpdate: (cb) => subscribe(Events.recordingUpdate, cb),
   takeScreenshot: (at) => legacyInvoke(Invoke.takeScreenshot, at),
   showToolbarMenu: (items, at) => legacyInvoke(Invoke.showToolbarMenu, items, at),
+  showRecordMenu: (at, narrate) => legacyInvoke(Invoke.showRecordMenu, at, narrate === true),
   resizeChat: send(Send.resizeChat),
   endResizeChat: send(Send.endResizeChat),
   onChatAttach: (cb) => subscribe(Events.chatAttach, cb),

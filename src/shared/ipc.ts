@@ -85,6 +85,7 @@ export const Invoke = {
   connectAgent: 'agents:connect',
   takeScreenshot: 'preview:screenshot',
   showToolbarMenu: 'toolbar:overflow-menu',
+  showRecordMenu: 'recording:menu',
   startRecording: 'recording:start',
   recordingFrame: 'recording:frame',
   recordingVideo: 'recording:video',
@@ -789,6 +790,12 @@ export interface GuiApi {
    * for. Resolves with the chosen item's id, or null when it closes without a choice.
    */
   showToolbarMenu(items: ToolbarMenuItem[], at: { x: number; y: number }): Promise<string | null>
+  /**
+   * Record's menu, under `at` in the chrome's page: Record, or Record with Voice (`narrate`
+   * is the one chosen last, checked). The choice starts recording as ⌥⌘R does, as a user
+   * gesture, with `gui:record`'s `detail.narrate` saying which.
+   */
+  showRecordMenu(at: { x: number; y: number }, narrate: boolean): Promise<void>
   /**
    * Resizes the chat panel by a pointer delta from one of its edges or corners: the dragged
    * edges move and the opposite ones stay put. Docked, only its edge facing the preview resizes it.

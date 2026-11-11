@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { RecordingAttachment } from '../src/shared/types'
 import { electronExecutable, sleep, waitFor } from './helpers/env'
+import { chooseFromButtonMenu } from './helpers/menus'
 import { type GuiSession, launchGui } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -95,10 +96,18 @@ async function record(
         })
       }),
   )
-  await session.chrome.getByRole('button', { name: 'Record preview', exact: true }).click()
+  // Record asks which kind: on its own, or with your voice.
+  const offered = await chooseFromButtonMenu(
+    session.app,
+    session.chrome.getByRole('button', { name: 'Record preview', exact: true }),
+    'Record',
+  )
+  expect(offered).toEqual(['Record', 'Record with Voice'])
   await expect(
     session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }),
   ).toBeVisible()
+  // Without your voice there's no mic in the toolbar at all.
+  await expect(session.chrome.getByRole('img', { name: 'Microphone on' })).toHaveCount(0)
   await sleep(600)
   await during?.()
   await sleep(1200)
@@ -324,7 +333,11 @@ test('switching tabs stops capture and attaches the clip to its original project
         })
       }),
   )
-  await session.chrome.getByRole('button', { name: 'Record preview', exact: true }).click()
+  await chooseFromButtonMenu(
+    session.app,
+    session.chrome.getByRole('button', { name: 'Record preview', exact: true }),
+    'Record',
+  )
   await expect(
     session.chrome.getByRole('button', { name: 'Stop preview recording', exact: true }),
   ).toBeVisible()

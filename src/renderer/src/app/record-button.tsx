@@ -11,7 +11,7 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
-import { CircleDot, Mic, MicOff, Square, X } from '../lib/icons'
+import { CircleDot, Mic, Square, X } from '../lib/icons'
 import { Button, HIT_AREA, IconButton, TIGHT_HIT_AREA } from '../lib/ui'
 import { PointerOverlay } from './recording-pointer'
 import { captureVoice, type Voice } from './recording-voice'
@@ -20,7 +20,10 @@ import { captureVoice, type Voice } from './recording-voice'
 const FRAME_SIZE = 1568
 /** The clip itself, as played back. */
 const VIDEO_SIZE = 1920
+/** Whether the last recording was started with your voice: ⌥⌘R starts that kind again. */
 const NARRATE_KEY = 'gui:narrate-recordings'
+/** Between Record and the menu under it, as the toolbar's other menus */
+const MENU_GAP = 4
 
 function savedNarrate() {
   try {
@@ -55,6 +58,7 @@ export function RecordButton({
   const stop = useRef<(() => void) | null>(null)
   const busy = useRef(false)
   const root = useRef<HTMLDivElement>(null)
+  const button = useRef<HTMLButtonElement>(null)
 
   useEffect(() => () => stop.current?.(), [])
   const shown = error ?? voiceNotice
@@ -85,17 +89,25 @@ export function RecordButton({
     }
   }, [shown])
 
-  const toggleNarrate = () => {
-    const next = !narrate
+  /** Record's menu chose with your voice or without: remembered for ⌥⌘R. */
+  const choose = (next: boolean) => {
+    if (next === narrate) return
     setNarrate(next)
     try {
       localStorage.setItem(NARRATE_KEY, String(next))
     } catch {}
-    // This Mac's speech model downloads now, rather than after the first narrated clip.
+    // This Mac's speech model downloads now, if it hasn't yet, while the clip records.
     if (next) void gui.prepareNarration().catch(() => undefined)
   }
 
-  const start = async () => {
+  /** Record's menu, under it: Record, or Record with Voice. Main starts the one chosen. */
+  const openMenu = () => {
+    const box = button.current?.getBoundingClientRect()
+    if (!box) return
+    void gui.showRecordMenu({ x: box.left, y: box.bottom + MENU_GAP }, narrate)
+  }
+
+  const start = async (narrate: boolean) => {
     if (busy.current) return
     busy.current = true
     setPhase('starting')
@@ -338,53 +350,52 @@ export function RecordButton({
     }
   }
 
-  // ⌥⌘R, from main as a user gesture (window.ts `recordPreview`): the same as a click.
-  const toggle = useRef(() => {})
-  toggle.current = () => {
-    if (phase === 'recording') stop.current?.()
-    else if (phase === 'idle' && unavailable === null) void start()
+  // ⌥⌘R, or a choice in Record's menu, from main as a user gesture (window.ts
+  // `recordPreview`): the menu says whether with your voice; ⌥⌘R does as last time.
+  const toggle = useRef((_narrate: boolean | null) => {})
+  toggle.current = (chosen) => {
+    if (phase === 'recording') return stop.current?.()
+    if (phase !== 'idle' || unavailable !== null) return
+    if (chosen !== null) choose(chosen)
+    void start(chosen ?? narrate)
   }
   useEffect(() => {
-    const onRecord = () => toggle.current()
+    const onRecord = (event: Event) => {
+      const detail = (event as CustomEvent<{ narrate?: unknown } | null>).detail
+      toggle.current(typeof detail?.narrate === 'boolean' ? detail.narrate : null)
+    }
     window.addEventListener('gui:record', onRecord)
     return () => window.removeEventListener('gui:record', onRecord)
   }, [])
 
   const recording = phase === 'recording'
-  const label = recording
-    ? 'Stop preview recording'
-    : narrate
-      ? 'Record preview with your voice'
-      : 'Record preview'
+  const label = recording ? 'Stop preview recording' : 'Record preview'
   const idle = phase === 'idle'
   const blocked = unavailable !== null
   return (
     <div ref={root} className="relative no-drag flex min-w-0 items-center">
-      {/* Record and its mic are one control, highlighted together on hover, so neither
-          fills on its own. The mic shows whether recordings are narrated: tinted while on,
-          struck through while off. While recording, Record is the danger button that stops it. */}
-      <div className="group/record flex h-7 shrink-0 items-center rounded-md transition-colors has-[button:enabled:not([aria-disabled=true]):hover]:bg-hover">
+      {/* Record opens its menu: Record, or Record with Voice. While recording it's the danger
+          button that stops it, with the mic's level beside it when your voice is in the clip. */}
+      <div className="flex h-7 shrink-0 items-center">
         <Button
+          ref={button}
           variant={recording ? 'danger' : 'ghost'}
           icon={recording ? Square : CircleDot}
           disabled={phase === 'starting' || phase === 'saving'}
           // With nothing to record it stays reachable, saying why (as the toolbar's other tools).
           aria-disabled={(blocked && !recording) || undefined}
-          onClick={() => (recording ? stop.current?.() : !blocked && void start())}
+          onClick={() => (recording ? stop.current?.() : !blocked && openMenu())}
+          aria-haspopup={recording ? undefined : 'menu'}
           title={(!recording && unavailable) || label}
           aria-label={label}
           // Its keys in the tooltip, like the toolbar's other tools.
           shortcut="recordPreview"
           // The time counts up in place (m:ss, tabular) rather than shifting the button's width.
           className={cn(
-            // Its hit area reaches above and below, not into the mic beside it.
             HIT_AREA,
-            'before:inset-x-0',
             // Square while it's just the mark, as the toolbar's other tools.
             idle ? 'w-7 justify-center px-0' : 'pr-1.5 pl-2',
-            recording
-              ? 'tabular-nums'
-              : 'text-subtle enabled:hover:bg-transparent group-has-[button:enabled:not([aria-disabled=true]):hover]/record:text-fg',
+            recording ? 'tabular-nums' : 'text-subtle enabled:hover:text-fg',
           )}
         >
           {recording && live ? (
@@ -395,21 +406,6 @@ export function RecordButton({
             'Starting…'
           ) : null}
         </Button>
-        {!recording && (
-          <IconButton
-            icon={narrate ? Mic : MicOff}
-            label="Narrate recordings"
-            pressed={narrate}
-            title={
-              narrate
-                ? 'Recordings include your voice, transcribed for the agent. Click to turn off.'
-                : 'Talk while you record. Gui transcribes your voice for the agent. Click to turn on.'
-            }
-            disabled={!idle}
-            onClick={toggleNarrate}
-            className={cn(HIT_AREA, 'before:inset-x-0', !narrate && 'enabled:hover:bg-transparent')}
-          />
-        )}
         {recording && live?.voice && <Level voice={live.voice} />}
       </div>
       {/* In the toolbar itself: anything hanging below it would sit under the preview, a
