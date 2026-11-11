@@ -845,9 +845,13 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       if (known.has(id) || frames.length >= frameLimit()) continue
       const size = { width: 1440, height: 900 }
       const last = frames.at(-1)
+      // Sections, with the room around their frames, are in the way as frames are.
+      const areas = this.manifest.sections.flatMap(
+        (section) => sectionBounds(section, frames) ?? [],
+      )
       frames = [
         ...frames,
-        { id, name: id, ...size, ...placeFrame(frames, size, last ? [last] : []) },
+        { id, name: id, ...size, ...placeFrame([...frames, ...areas], size, last ? [last] : []) },
       ]
       this.queueCapture(id)
     }

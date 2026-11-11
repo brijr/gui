@@ -8,7 +8,7 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { writeFileAtomic } from '../../src/main/atomic-file'
-import { type BoardManifest, FRAME_GAP, MAX_FRAMES } from '../../src/shared/board'
+import { type BoardManifest, FRAME_GAP, MAX_FRAMES, sectionBounds } from '../../src/shared/board'
 
 const nativeFs = { ...fs }
 const nativeFsSync = { ...fsSync }
@@ -619,6 +619,24 @@ try {
   assert.equal(racing.has('third'), false)
   assert.equal(await exists(thumb), false)
   await racing.dispose()
+
+  // A page the agent writes straight into frames/ lands clear of a section and its padding,
+  // not a frame's gap from the section's last frame (which is inside the padding).
+  const besideSection = await board('beside-section', [
+    { id: 'a', name: 'A', x: 0, y: 0, width: 400, height: 300 },
+  ])
+  await besideSection.addSection(['a'], 'Hero')
+  await nativeFs.writeFile(besideSection.framePath('loose'), '<h1>Loose</h1>')
+  emitWatch(besideSection.root, 'frames/loose.html')
+  await until(() => besideSection.has('loose'))
+  const hero = besideSection.sections[0]
+  const area = hero && sectionBounds(hero, besideSection.frames)
+  assert.ok(area)
+  assert.ok(
+    (besideSection.frame('loose')?.x ?? 0) >= area.x + area.width + FRAME_GAP,
+    'The new frame keeps out of the section',
+  )
+  await besideSection.dispose()
 
   // ⇧⌘Z puts back what ⌘Z took back: moves, deletes (their pages too) and new frames; any new
   // change, the user's or the agent's, ends it.
