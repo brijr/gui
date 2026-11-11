@@ -310,14 +310,22 @@ export class GuiSession {
 
   /**
    * Edits the text of the page's `selector` in place as the user does: Design mode on, then a
-   * double-click on it. Resolves once it's editable.
+   * double-click on it, its two clicks `gapMs` apart (0: back to back). Resolves once it's
+   * editable.
    */
-  async editText(selector: string) {
+  async editText(selector: string, gapMs = 0) {
     const box = await this.viewBox(selector)
     await this.startPicking()
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
-    const gesture: OverlayGesture = { from: center, to: null, add: false, clicks: 2 }
-    await this.app.evaluate(overlayGesture, gesture)
+    if (gapMs > 0) {
+      const click: OverlayGesture = { from: center, to: null, add: false }
+      await this.app.evaluate(overlayGesture, click)
+      await sleep(gapMs)
+      await this.app.evaluate(overlayGesture, click)
+    } else {
+      const gesture: OverlayGesture = { from: center, to: null, add: false, clicks: 2 }
+      await this.app.evaluate(overlayGesture, gesture)
+    }
     const preview = await this.previewPage()
     await preview
       .locator(selector)

@@ -1,4 +1,4 @@
-import { type WebContents, WebContentsView } from 'electron'
+import { systemPreferences, type WebContents, WebContentsView } from 'electron'
 import {
   pagePoint,
   pageRectFrom,
@@ -34,6 +34,15 @@ const STEP_GLIDE_MS = 400
 const BAR_INSET = PANEL_MARGIN
 /** The least room the bar keeps beside the chat (its name shortened) before it goes over it */
 const BAR_MIN_WIDTH = 240
+
+/**
+ * After a click picks, how long the overlay stays (unseen) for a second click, which makes a
+ * double-click: the Mac's own double-click interval, kept to a sensible range.
+ */
+function doubleClickMs() {
+  const seconds = systemPreferences.getUserDefault('com.apple.mouse.doubleClickThreshold', 'double')
+  return seconds > 0 ? Math.min(Math.max(seconds * 1000, 200), 800) : 400
+}
 
 /** The variations bar (docs/variations.md): what it says. */
 export type Bar = Omit<VariationsBar, 'at' | 'room'>
@@ -102,6 +111,10 @@ export class Picker {
   private area: Rect | null = null
   /** The floating chat in the canvas's bottom-left corner, in the window: the bar sits right of it */
   private chat: Rect | null = null
+  /** The next `stop` keeps the overlay up, unseen, for a double-click's second click (`linger`) */
+  private lingerNext = false
+  /** Picking ended on a click; the overlay waits for a second one until this goes off */
+  private lingerTimer: NodeJS.Timeout | null = null
 
   constructor(
     private readonly preview: WebContents,
@@ -132,6 +145,11 @@ export class Picker {
     return this.active
   }
 
+  /** Picking just ended on a click, and a second click there would make it a double-click. */
+  get lingering() {
+    return this.lingerTimer !== null
+  }
+
   get guiding() {
     return this.guided !== null
   }
@@ -150,6 +168,7 @@ export class Picker {
    * where the pointer already is over it, if it is.
    */
   start(bounds: Rect, pointer: Point | null) {
+    this.clearLinger()
     // Picking is the user's: the walkthrough steps aside, and the variations bar until it ends.
     this.guided = null
     this.active = true
@@ -162,17 +181,57 @@ export class Picker {
     this.schedule()
   }
 
+  /**
+   * Ends picking. After a click that picked (`lingerOnStop`), the overlay stays over the page
+   * for the double-click interval, drawing nothing, so a second click there edits the text
+   * (the overlay asks main); then it goes as usual.
+   */
   stop() {
+    const linger = this.lingerNext && !this.bar && !this.guided
+    this.lingerNext = false
     this.active = false
     this.pointer = null
     this.hovered = null
     this.busy = false
-    this.view.setVisible(false)
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
     this.labels.clear()
+    this.clearLinger()
+    if (linger) {
+      this.send({
+        hover: null,
+        picked: [],
+        busy: false,
+        scale: this.scale(),
+        run: this.run,
+        linger: true,
+      })
+      this.lingerTimer = setTimeout(() => this.endLinger(), doubleClickMs())
+      return
+    }
+    this.view.setVisible(false)
     this.send({ hover: null, picked: [], busy: false, scale: this.scale(), run: this.run })
     if (this.bar) this.drawBar()
+  }
+
+  /** The next `stop` comes from a click that picked: see `stop`. */
+  lingerOnStop() {
+    this.lingerNext = true
+  }
+
+  /** The wait for a second click is over, or it came: the overlay goes. */
+  endLinger() {
+    if (!this.lingerTimer) return
+    this.clearLinger()
+    if (this.active || this.guided) return
+    this.view.setVisible(false)
+    this.send({ hover: null, picked: [], busy: false, scale: this.scale(), run: this.run })
+    if (this.bar) this.drawBar()
+  }
+
+  private clearLinger() {
+    if (this.lingerTimer) clearTimeout(this.lingerTimer)
+    this.lingerTimer = null
   }
 
   /**
@@ -181,6 +240,7 @@ export class Picker {
    */
   guide(bounds: Rect, node: number | null, caption: string | null) {
     if (this.active) return false
+    this.clearLinger()
     const previous = this.guided
     this.guided = {
       node,
@@ -340,6 +400,7 @@ export class Picker {
   }
 
   dispose() {
+    this.clearLinger()
     // A walkthrough click timed before the page went away finds nothing to show.
     this.guided = null
     this.bar = null

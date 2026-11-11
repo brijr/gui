@@ -471,6 +471,12 @@ export class ProjectTab implements ChatPanelOwner {
    * edit the text there (`editTextAt`): the only edit `startTextEdit` lets begin, once.
    */
   private textEditAsked: { at: Point; until: number } | null = null
+  /**
+   * The pick a plain click in Design mode just made, while a second click could still make it
+   * a double-click (`Picker.lingering`): that edits the text instead, and the pick is dropped,
+   * the selection back to what it was (`before`).
+   */
+  private clickPick: { before: Picked[]; dropped: boolean } | null = null
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
   disposed = false
@@ -2385,8 +2391,16 @@ export class ProjectTab implements ChatPanelOwner {
    */
   pickElement(at: Point, add: boolean) {
     if (!this.picker.picking) return
-    if (!add) void this.setSelecting(false)
+    // A plain click picks at once; the overlay stays a moment, unseen, in case it's the first
+    // of a double-click (`editTextAt`), which drops this pick.
+    const click = add ? null : { before: this.resources.chat?.meta.selection ?? [], dropped: false }
+    this.clickPick = click
+    if (!add) {
+      this.picker.lingerOnStop()
+      void this.setSelecting(false)
+    }
     this.queuePick(async () => {
+      if (click?.dropped) return
       const node = await this.picker.nodeAt(at)
       if (node === null) return
       const already = [...this.pickedNodes].find(([, picked]) => picked === node)?.[0]
@@ -2394,11 +2408,13 @@ export class ProjectTab implements ChatPanelOwner {
         this.resources.chat?.removeFromSelection(already)
         return
       }
-      await this.readPick(add, { id: PENDING_PICK, kind: 'element', node }, async (project) => {
+      const read = async (project: ProjectInfo): Promise<Picked> => {
         const element = await this.inspectElement(node, project)
         this.pickedNodes.set(element.id, node)
         return { ...element, kind: 'element' }
-      })
+      }
+      const pending: Outlined = { id: PENDING_PICK, kind: 'element', node }
+      await this.readPick(add, pending, read, () => click?.dropped === true)
     })
   }
 
@@ -2431,9 +2447,17 @@ export class ProjectTab implements ChatPanelOwner {
    * edit, so a double-click that selects a word in the app stays just that.
    */
   editTextAt(at: Point) {
-    if (!this.picker.picking || this.textEdit) return
+    if (!(this.picker.picking || this.picker.lingering) || this.textEdit) return
     const page = this.picker.toPagePoint(at)
+    this.picker.endLinger()
     void this.setSelecting(false)
+    // The double-click's first click picked: that pick goes, and no chip is left behind.
+    const click = this.clickPick
+    this.clickPick = null
+    if (click && !click.dropped) {
+      click.dropped = true
+      this.resources.chat?.setSelection(click.before)
+    }
     this.textEditAsked = { at: page, until: Date.now() + TEXT_EDIT_ASK_MS }
     const wc = this.preview.webContents
     wc.focus()
@@ -2774,6 +2798,8 @@ export class ProjectTab implements ChatPanelOwner {
     add: boolean,
     pending: Outlined,
     read: (project: ProjectInfo) => Promise<Picked>,
+    /** The pick was dropped while it was read (a double-click's first click) */
+    dropped: () => boolean = () => false,
   ) {
     const project = this.state.project
     const chat = this.resources.chat
@@ -2783,7 +2809,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.syncOutlined()
     try {
       const picked = await read(project)
-      if (chat !== this.resources.chat) return
+      if (chat !== this.resources.chat || dropped()) return
       // The pick's highlight replaces any post-turn one and belongs to the selection.
       this.cancelRehighlight()
       if (add) chat.addToSelection(picked)
@@ -2793,7 +2819,7 @@ export class ProjectTab implements ChatPanelOwner {
         this.panel.dodge(picked.rect, this.placement, this.emulation.scale)
       }
     } catch (error) {
-      if (chat !== this.resources.chat) return
+      if (chat !== this.resources.chat || dropped()) return
       const message = error instanceof Error ? error.message : String(error)
       const what = pending.kind === 'region' ? 'area' : 'element'
       chat.setSelectionError(`Couldn't read that ${what}: ${message}`)

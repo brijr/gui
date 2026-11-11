@@ -22,11 +22,8 @@ import { Button, Counter, IconButton, Kbd } from '../lib/ui'
 const DRAG_THRESHOLD = 4
 /** Smaller than this either way, a drag is taken as a click after all. */
 const MIN_AREA = 8
-/**
- * A click waits this long for a second one before it picks: two make a double-click, which
- * edits the text there instead.
- */
-const DOUBLE_CLICK_MS = 300
+/** The longest main lingers for a double-click's second click (picker.ts `doubleClickMs`) */
+const SECOND_CLICK_MS = 800
 /** The label's height (h-5) */
 const LABEL_HEIGHT = 20
 /** Between the label and the outline, so the label doesn't sit on what's above the element */
@@ -49,14 +46,29 @@ export function PickOverlay() {
   const [adding, setAdding] = useState(false)
   const [hintRun, setHintRun] = useState(0)
   const press = useRef<{ start: Point; dragging: boolean; second: boolean } | null>(null)
-  /** A click waiting to pick, unless a second click makes it a double-click (`DOUBLE_CLICK_MS`) */
-  const click = useRef<{ at: Point; timer: number } | null>(null)
+  /**
+   * Where a plain click last picked, and when: a second click there before main stops
+   * lingering makes it a double-click, which edits the text there.
+   */
+  const clicked = useRef<{ at: Point; time: number } | null>(null)
+  /** A press at `at` is a double-click's second: the click before it was there, just now. */
+  const secondClick = (at: Point) => {
+    const first = clicked.current
+    clicked.current = null
+    return (
+      !!first &&
+      performance.now() - first.time < SECOND_CLICK_MS &&
+      Math.hypot(at.x - first.at.x, at.y - first.at.y) < DRAG_THRESHOLD
+    )
+  }
   const pending = useRef<{ at: Point | null; frame: number | null }>({ at: null, frame: null })
 
   useEffect(() => gui.onPickState(setState), [])
 
   // Keep the instructions until the user starts a pick, including time spent reading them.
+  // A new run of picking has no click before it to make a double-click with.
   useEffect(() => {
+    clicked.current = null
     if (state.run === 0) return
     setHintRun(state.run)
   }, [state.run])
@@ -97,12 +109,8 @@ export function PickOverlay() {
     if (event.button !== 0) return
     event.currentTarget.setPointerCapture(event.pointerId)
     const start = pointAt(event)
-    const first = click.current
-    const second =
-      !!first && Math.hypot(start.x - first.at.x, start.y - first.at.y) < DRAG_THRESHOLD
-    if (first) window.clearTimeout(first.timer)
-    click.current = null
-    press.current = { start, dragging: false, second }
+    // Before main's linger has reached this page, a quick second click lands here.
+    press.current = { start, dragging: false, second: secondClick(start) }
     setHintRun(0)
   }
 
@@ -131,29 +139,14 @@ export function PickOverlay() {
       gui.pickArea(area, event.shiftKey)
     } else if (pressed.second) {
       gui.editPreviewText(pressed.start)
-    } else if (event.shiftKey) {
-      gui.pickElement(pressed.start, true)
     } else {
-      // A click on its own ends picking, so it waits to be sure it isn't a double-click's first.
-      const start = pressed.start
-      click.current = {
-        at: start,
-        timer: window.setTimeout(() => {
-          click.current = null
-          gui.pickElement(start, false)
-        }, DOUBLE_CLICK_MS),
-      }
+      // Picks at once. A plain click ends picking, but main keeps this overlay a moment
+      // (`linger`) for a second click, which would make it a double-click.
+      clicked.current = event.shiftKey ? null : { at: pressed.start, time: performance.now() }
+      gui.pickElement(pressed.start, event.shiftKey)
     }
     hover(at)
   }
-
-  // A new run of picking starts with no click waiting from the last one.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on each run
-  useEffect(() => {
-    const waiting = click.current
-    if (waiting) window.clearTimeout(waiting.timer)
-    click.current = null
-  }, [state.run])
 
   // Main gives this page the keyboard when picking starts; nothing in it has focus, so Esc is
   // heard on the window.
@@ -184,6 +177,19 @@ export function PickOverlay() {
     )
   // The bar on its own: this overlay is only as big as it is (main/picker.ts).
   if (variations) return variations
+  // Picking just ended on a click: nothing drawn, but a second click on the same spot makes
+  // it a double-click, which edits the text there (main drops the pick the first one made).
+  if (state.linger)
+    return (
+      <div
+        aria-hidden="true"
+        className="fixed inset-0"
+        onPointerDown={(event) => {
+          const at = pointAt(event)
+          if (event.button === 0 && secondClick(at)) gui.editPreviewText(at)
+        }}
+      />
+    )
 
   const area = drag ? rectBetween(drag.start, drag.end) : null
   const several = state.picked.length > 1

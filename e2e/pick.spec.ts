@@ -229,3 +229,37 @@ test('picks below the first screen once the page is scrolled', async ({ launch }
   expect(picked.tag).toBe('p')
   expect(picked.attributes.id).toBe('below')
 })
+
+// Picking is what Design mode is for: a click picks at once, with no wait to see whether a
+// second click makes it a double-click (that waits after it, unseen; text-edit.spec).
+test('a click picks at once, and its chip comes without a wait', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  const box = await session.viewBox('button.counter')
+  await session.startPicking()
+  const started = performance.now()
+  await session.overlayGesture({ x: box.x + box.width / 2, y: box.y + box.height / 2 })
+  await waitFor(async () => !(await selecting(session)), 'picking to end', { interval: 10 })
+  const ended = performance.now() - started
+  await waitFor(async () => (await selection(session)).length === 1, 'the chip', { interval: 10 })
+  const chip = performance.now() - started
+  console.log(`[e2e] click → picking ended ${Math.round(ended)} ms, chip ${Math.round(chip)} ms`)
+  // A click that waited for a second one would end picking 300 ms or more after it, and its
+  // chip later still; reading the pick takes well under that here.
+  expect(ended).toBeLessThan(200)
+  expect(chip).toBeLessThan(300)
+  await expect(session.chat.getByRole('list', { name: 'Selected' })).toContainText('button')
+  // The overlay that waited for a second click is gone, so the page has the pointer again.
+  const overlayShown = () =>
+    session.app.evaluate(({ BrowserWindow, WebContentsView }) =>
+      (BrowserWindow.getAllWindows()[0]?.contentView.children ?? []).some(
+        (view) =>
+          view instanceof WebContentsView &&
+          view.webContents.getURL().endsWith('/pick.html') &&
+          view.getVisible(),
+      ),
+    )
+  await waitFor(async () => !(await overlayShown()), 'the overlay to go')
+  const [picked] = await selection(session)
+  expect(picked && !isRegion(picked) ? picked.tag : null).toBe('button')
+})

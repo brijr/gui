@@ -25,8 +25,14 @@ test('double-click in Design mode edits page text in place; Return writes it, wi
   await expect(heading).not.toHaveAttribute('contenteditable')
   await expect(hint).toHaveCount(0)
 
-  // Esc: nothing changes, in the page or the source. The hint says what the keys do.
-  await session.editText('h1')
+  // Esc: nothing changes, in the page or the source. The hint says what the keys do. Its
+  // clicks come as a hand makes them: the first picks the heading at once, and the second,
+  // on the same spot, makes it an edit and drops that pick, so no chip is left behind.
+  await session.editText('h1', 150)
+  await waitFor(
+    async () => (await session.chatSnapshot()).meta.selection.length === 0,
+    'the first click’s pick to be dropped',
+  )
   await expect(hint).toHaveCount(1)
   await expect(hint).toBeVisible()
   expect((await session.state()).preview.selecting).toBe(false)
@@ -38,8 +44,9 @@ test('double-click in Design mode edits page text in place; Return writes it, wi
   expect(readFileSync(app, 'utf8')).toContain('<h1>Gui Vite fixture</h1>')
   expect((await session.chatSnapshot()).turns).toHaveLength(0)
 
-  // Typing replaces the selected text; Return keeps it.
+  // Typing replaces the selected text; Return keeps it. (Two clicks back to back work too.)
   await session.editText('h1')
+  expect((await session.chatSnapshot()).meta.selection).toEqual([])
   await preview.keyboard.type('Edited in place')
   await preview.keyboard.press('Enter')
   await expect(heading).not.toHaveAttribute('contenteditable')
