@@ -17,9 +17,34 @@ export interface StartupState {
   preview: Pick<PreviewState, 'url' | 'error'>
 }
 
-/** The last `lines` lines of the dev server's output, as plain text. */
+/** A line of output past this many characters is cut (a minified bundle, a JSON dump). */
+export const LOG_LINE_MAX = 500
+/** The most characters of output a tool returns, whatever the line count. */
+export const LOG_TAIL_MAX = 20_000
+
+/**
+ * The last `lines` lines of the dev server's output, as plain text: long lines cut with a
+ * marker, and the oldest lines dropped past LOG_TAIL_MAX characters.
+ */
 export function logTail(logs: string, lines: number) {
-  return logs.replace(ANSI, '').replace(/\r\n?/g, '\n').split('\n').slice(-lines).join('\n').trim()
+  const tail = logs
+    .replace(ANSI, '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
+    .slice(-lines)
+    .map((line) =>
+      line.length > LOG_LINE_MAX
+        ? `${line.slice(0, LOG_LINE_MAX)} …[${line.length - LOG_LINE_MAX} more characters]`
+        : line,
+    )
+  let size = 0
+  let kept = tail.length
+  while (kept > 0 && size + tail[kept - 1].length + 1 <= LOG_TAIL_MAX) {
+    size += tail[kept - 1].length + 1
+    kept--
+  }
+  const dropped = kept > 0 ? [`…[${kept} earlier lines left out]`] : []
+  return [...dropped, ...tail.slice(kept)].join('\n').trim()
 }
 
 /** Where getting the app running stopped; null while it's on its way or running. */

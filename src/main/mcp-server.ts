@@ -4,23 +4,47 @@ import type { AddressInfo } from 'node:net'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import type { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
-import { APP_TOOL_NAMES, type AppTools, registerAppTools } from './mcp-app-tools'
-import { BOARD_TOOL_NAMES, type BoardTools, registerBoardTools } from './mcp-board-tools'
-import { PREVIEW_TOOL_NAMES, registerPreviewTools } from './mcp-preview-tools'
+import { APP_TOOL_TITLES, type AppTools, registerAppTools } from './mcp-app-tools'
+import { BOARD_TOOL_TITLES, type BoardTools, registerBoardTools } from './mcp-board-tools'
+import { PREVIEW_TOOL_TITLES, previewToolNames, registerPreviewTools } from './mcp-preview-tools'
 import type { PreviewTools } from './preview-tools'
 import type { Recordings } from './recordings'
 
 export const MCP_SERVER_NAME = 'gui'
 
 /**
- * Every tool Gui exposes: the preview's (mcp-preview-tools.ts), Gui's own (mcp-app-tools.ts)
- * and, in a canvas, the canvas's (mcp-board-tools.ts).
+ * Every tool Gui exposes, with the title it registers under: the preview's
+ * (mcp-preview-tools.ts), Gui's own (mcp-app-tools.ts) and, in a canvas, the canvas's
+ * (mcp-board-tools.ts). The chat labels each call with its title (chat-tools.ts).
  */
-export const GUI_TOOL_NAMES = [
-  ...PREVIEW_TOOL_NAMES,
-  ...APP_TOOL_NAMES,
-  ...BOARD_TOOL_NAMES,
-] as const
+export const GUI_TOOL_TITLES = {
+  ...PREVIEW_TOOL_TITLES,
+  ...APP_TOOL_TITLES,
+  ...BOARD_TOOL_TITLES,
+} as const
+
+export type GuiTool = keyof typeof GUI_TOOL_TITLES
+
+export const GUI_TOOL_NAMES = Object.keys(GUI_TOOL_TITLES) as GuiTool[]
+
+/** The tools a session lists: a project's, or a canvas's (no dev server, websites or rulers). */
+export function sessionToolNames(canvas: boolean): GuiTool[] {
+  return [
+    ...previewToolNames(!canvas),
+    ...(Object.keys(APP_TOOL_TITLES) as GuiTool[]),
+    ...(canvas ? (Object.keys(BOARD_TOOL_TITLES) as GuiTool[]) : []),
+  ]
+}
+
+/**
+ * Gui's tools that reach outside Gui (loading any website): a page's address can carry data
+ * out, so the user decides each call. Claude isn't allowed them up front (agent.ts), and Gui
+ * never answers a request for one by itself, in Auto mode either (chat.ts).
+ */
+export const ASK_FIRST_TOOLS: ReadonlySet<string> = new Set<GuiTool>([
+  'preview_open_website',
+  'canvas_screenshot_url',
+])
 
 interface Sdk {
   McpServer: typeof McpServer
@@ -78,8 +102,11 @@ export interface RunningMcpServer {
 }
 
 /**
- * Serves Gui's tools over MCP Streamable HTTP on loopback, stateless, behind a
- * per-window bearer token so only the agent sessions Gui starts can call them.
+ * Serves Gui's tools over MCP Streamable HTTP on loopback, stateless, behind a bearer token
+ * made for this opening of the project, so only the agent sessions it starts can call them.
+ * A new McpServer and transport answer each request: the SDK's server holds one transport
+ * at a time, and stateless calls arrive in parallel, so one shared server would cross their
+ * replies.
  */
 export async function startMcpServer(
   tools: PreviewTools,
@@ -144,6 +171,11 @@ export async function startMcpServer(
       url: `http://127.0.0.1:${port}/mcp`,
       headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
     },
-    close: () => http.close(),
+    // Calls still in flight hang up with it; their work checks the opening is still current
+    // before it touches the preview (PreviewTools `live`).
+    close: () => {
+      http.close()
+      http.closeAllConnections()
+    },
   }
 }

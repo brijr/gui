@@ -119,7 +119,7 @@ test('agent tools reject ambiguous, hidden, disabled, covered and noneditable ta
   await page.goto('data:text/html,<button id="remote">Outside app</button>')
   const denied = await ask(session, [{ name: 'preview_click', args: { selector: '#remote' } }])
   expect(denied[0].isError).toBe(true)
-  expect(denied[0].content[0].text).toContain('local dev server')
+  expect(denied[0].content[0].text).toContain("not showing the user's app")
 })
 
 test('agent can edit, view, revise and view again within one turn', async ({ launch }) => {

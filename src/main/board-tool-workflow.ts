@@ -3,6 +3,7 @@ import { constants, copyFile, link, mkdir, rm, writeFile } from 'node:fs/promise
 import { join } from 'node:path'
 import type { NativeImage } from 'electron'
 import { cleanName, frameId } from '../shared/board'
+import { encodeWithin, MAX_AGENT_IMAGE_BYTES } from './agent-image'
 import type { BoardSession, IgnoredPage } from './board-session'
 import type { BoardTools } from './mcp-board-tools'
 import { describeBoard, type PromptBoard } from './prompt'
@@ -15,7 +16,7 @@ const BOARD_SHOT_MAX = { width: 1600, height: 1960 }
  */
 const SHOT_QUALITY = 90
 
-/** Scaled down to what the agent's image input takes. */
+/** Scaled down to what the agent's image input takes, in pixels and in bytes. */
 function fitForAgent(image: NativeImage) {
   const { width, height } = image.getSize()
   const scale = Math.min(1, BOARD_SHOT_MAX.width / width, BOARD_SHOT_MAX.height / height)
@@ -27,7 +28,12 @@ function fitForAgent(image: NativeImage) {
           quality: 'good',
         })
       : image
-  return { data: fitted.toJPEG(SHOT_QUALITY).toString('base64'), ...fitted.getSize() }
+  const data = fitted.toJPEG(SHOT_QUALITY)
+  if (data.length <= MAX_AGENT_IMAGE_BYTES)
+    return { data: data.toString('base64'), ...fitted.getSize() }
+  // A busy page (photos, noise) can still be too many bytes: lower quality, then smaller.
+  const encoded = encodeWithin(fitted, { png: false })
+  return { data: encoded.data.toString('base64'), width: encoded.width, height: encoded.height }
 }
 
 /** "Stripe Home.png" → "stripe-home.jpg": a plain file name, never a path. */

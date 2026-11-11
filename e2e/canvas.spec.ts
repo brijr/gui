@@ -280,13 +280,15 @@ test('the agent builds on the canvas with its canvas tools', async ({ launch }) 
     { name: 'canvas_open_frame', args: { id: 'landing-bold' } },
     { name: 'preview_snapshot' },
     { name: 'canvas_open_frame', args: { id: null } },
-    { name: 'dev_server_status' },
+    // Back on the board, with no frame open: the page tools say how to open one.
+    { name: 'preview_snapshot' },
   ])
   expect(results[0].canvas).toContain('It has no frames yet.')
-  expect(results.slice(1).every((result) => !result.isError)).toBe(true)
+  expect(results.slice(1, 7).every((result) => !result.isError)).toBe(true)
   expect(results[3].content?.[0].type).toBe('image')
   expect(results[5].content?.[0].text).toContain('Bold')
-  expect(results[7].content?.[0].text).toContain('no dev server')
+  expect(results[7].isError).toBe(true)
+  expect(results[7].content?.[0].text).toContain('Open a frame with canvas_open_frame first')
   const built = await board(session)
   expect(built.frames.map((frame) => frame.id)).toEqual(['landing-calm', 'landing-bold'])
   expect(built.frames[1].x).toBeGreaterThan(built.frames[0].x + built.frames[0].width)

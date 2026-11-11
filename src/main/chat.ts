@@ -51,7 +51,7 @@ import { declaresOwnPermissions, type PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import { availableModels, chosenValue, offersChoice, withChoices } from './chat-models'
 import { type EditScope, isFromHome, isOutside, projectEditPath } from './chat-paths'
-import { GUI_TOOL_LABELS, previewTool } from './chat-tools'
+import { asksFirst, GUI_TOOL_LABELS, previewTool } from './chat-tools'
 import type { Checkpoints } from './checkpoints'
 import { type DetailedError, describeError } from './errors'
 import {
@@ -2228,6 +2228,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private autoAnswer(record: TurnRecord, request: RequestPermissionRequest) {
     const { toolCallId, kind } = request.toolCall
     const tool = record.turn.items.find((i) => i.kind === 'tool' && i.id === toolCallId)
+    // Opening a website: its address can carry data out, so the user always decides.
+    if (asksFirst(this.meta.agentId, request.toolCall, tool?.kind === 'tool' ? tool : undefined))
+      return Promise.resolve(null)
     const toolKind = kind ?? (tool?.kind === 'tool' ? tool.toolKind : null)
     return autoApproval(request, {
       agentId: this.meta.agentId,

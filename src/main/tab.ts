@@ -208,9 +208,6 @@ const MORPH_WAIT_MS = 2000
 const AGENT_LOG_LINES = 60
 /** A package.json being written fires several changes; look once they've settled. */
 const APP_CHECK_DELAY_MS = 500
-/** What the dev server tools tell the agent in a canvas, which has none. */
-const BOARD_SERVER_STATUS =
-  'This is a canvas: Gui serves its frames itself and there is no dev server to start, restart or configure. Use the canvas tools.'
 /** Frames export at this device scale factor: as sharp as on a Retina display. */
 const FRAME_EXPORT_SCALE = 2
 /**
@@ -542,6 +539,16 @@ export class ProjectTab implements ChatPanelOwner {
   private watchedStart: string | null = null
   /** The start as the running turn began, to tell what the agent changed in it */
   private turnStartKey: Promise<string | null> | null = null
+  /**
+   * The agent's dev_server_restart (or set_start_command) is getting the app going: a dev
+   * script changed since the user agreed to it asks, as a new start command does, and isn't
+   * taken as one they watched come about (`watchedStart`).
+   */
+  private agentStarting = 0
+  /** The user said no to running what the agent's restart would have run (`agentStarting`) */
+  private agentDeclined = false
+  /** That start (`startKey`), which the end of the turn mustn't then take as watched */
+  private declinedStart: string | null = null
   /** Settles once the end of the last turn has been looked at (`noteTurnScripts`) */
   private scriptsNoted: Promise<void> = Promise.resolve()
   /** What the app last started from (`startSignature`), to restart it only on a real change */
@@ -1316,13 +1323,20 @@ export class ProjectTab implements ChatPanelOwner {
     current: () => boolean,
     board: BoardSession | null,
   ) {
+    // Every call checks `live` before and after each step that waits (PreviewTools), so one
+    // still running when the user opens another project here stops rather than act on it.
     const tools = new PreviewTools({
       wc: this.preview.webContents,
       inspector: this.inspector,
       problems: this.problems,
+      live: current,
+      origins: () => this.appOrigins(),
+      elsewhere: board
+        ? 'No frame is open in the preview. Open a frame with canvas_open_frame first.'
+        : "The preview is not showing the user's app at its dev server's address. preview_navigate with a path such as / goes back.",
       inspectNode: (backendNodeId) => {
         const project = this.state.project
-        if (!project) return Promise.reject(new Error('No project is open'))
+        if (!project || !current()) return Promise.reject(new Error('No project is open'))
         return this.inspectElement(backendNodeId, project, { screenshot: false })
       },
       devOrigin: () => this.devOrigin(),
@@ -1334,10 +1348,10 @@ export class ProjectTab implements ChatPanelOwner {
       restoreViewport: () => this.emulation.restore(),
       atWidth: (width, run) => this.atWidth(width, run, current),
       shownWidth: () => this.emulation.width,
-      serverStatus: () => (board ? BOARD_SERVER_STATUS : describeServer(this.state)),
-      restartServer: () => (board ? Promise.resolve(BOARD_SERVER_STATUS) : this.restartForAgent()),
-      setStartCommand: (input) =>
-        board ? Promise.resolve(BOARD_SERVER_STATUS) : this.setStartCommandForAgent(input),
+      // A canvas lists none of the dev server tools (mcp-preview-tools.ts PROJECT_ONLY).
+      serverStatus: () => describeServer(this.state),
+      restartServer: () => this.restartForAgent(),
+      setStartCommand: (input) => this.setStartCommandForAgent(input),
       guide: (node, caption) => this.guideStep(this.picker, node, caption),
       guideInput: (at, click) => this.guideInput(this.picker, at, click),
       variations: (input) => this.variations.show(input),
@@ -1380,9 +1394,10 @@ export class ProjectTab implements ChatPanelOwner {
     const mcp = await startMcpServer(
       tools,
       recordings,
+      // This opening's chat, never the next project's: `resources` empties as it closes.
       {
-        versions: (limit) => this.versionsForAgent(limit),
-        turns: (limit) => describeTurns(this.resources.chat?.snapshot().turns ?? [], limit),
+        versions: (limit) => this.versionsForAgent(resources, limit),
+        turns: (limit) => describeTurns(resources.chat?.snapshot().turns ?? [], limit),
       },
       board
         ? createBoardTools(board, {
@@ -1521,13 +1536,29 @@ export class ProjectTab implements ChatPanelOwner {
    * Opening a folder must not run its scripts until the user has seen them. Installing runs
    * package scripts too, so it's agreed to in the same dialog. A trusted project asks again
    * when what it runs changed since the user agreed, unless they saw it change here
-   * (`watchedStart`); an install asks about install scripts they haven't seen.
+   * (`watchedStart`), and always when the agent's own restart would run it (`agentStarting`);
+   * an install asks about install scripts they haven't seen.
    */
   private async confirmScripts(project: ProjectInfo, installs: InstallTarget[]) {
+    const fromAgent = this.agentStarting > 0
     await this.scriptsNoted
-    if (this.resources.chat?.turnRunning) await this.noteTurnScripts(false)
+    // The agent restarting the app mid-turn isn't the user watching its script change.
+    if (!fromAgent && this.resources.chat?.turnRunning) await this.noteTurnScripts(false)
     const installing = installs.length > 0
     const now = await scriptsOf(project)
+    const ask = async (options: MessageBoxOptions, scripts: TrustedScripts | null) => {
+      // The agent asked, not the user: Return mustn't be what agrees.
+      const agreed = await this.askToTrust(
+        project.root,
+        fromAgent ? { ...options, defaultId: 1 } : options,
+        scripts,
+      )
+      if (!agreed && fromAgent) {
+        this.agentDeclined = true
+        this.declinedStart = now.start
+      }
+      return agreed
+    }
     if (await isTrusted(project.root)) {
       const saved = await trustedScripts(project.root)
       // Trusted before Gui kept what was agreed to: what it runs now is what was agreed.
@@ -1536,7 +1567,8 @@ export class ProjectTab implements ChatPanelOwner {
         return true
       }
       const picked = !!project.appDir && getPrefs().apps[project.root] === project.appDir
-      const changed = startChanged(project, now, saved, picked, this.watchedStart)
+      const watched = fromAgent ? null : this.watchedStart
+      const changed = startChanged(project, now, saved, picked, watched)
       const installsChanged = installing ? changedInstalls(saved.installs, now.installs) : []
       if (!changed && installsChanged.length === 0) {
         const agreed = agreedScripts(now, installing, saved)
@@ -1544,7 +1576,15 @@ export class ProjectTab implements ChatPanelOwner {
         await this.keepScripts(project.root, agreed)
         return true
       }
-      return this.confirmChangedScripts(project, now, saved, changed, installsChanged, installs)
+      return this.confirmChangedScripts(
+        project,
+        now,
+        saved,
+        changed,
+        installsChanged,
+        installs,
+        ask,
+      )
     }
 
     // Scripts and folder names come from the project: shown cleaned up and cut short.
@@ -1552,8 +1592,7 @@ export class ProjectTab implements ChatPanelOwner {
     const script = this.startScript(project)
     const agreed = agreedScripts(now, installing, null)
     if (!installing) {
-      return this.askToTrust(
-        project.root,
+      return ask(
         {
           message: `Start ${promptName(project.name)}?`,
           detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nGui won't ask again for this project unless its scripts change. Only start projects you trust.`,
@@ -1564,8 +1603,7 @@ export class ProjectTab implements ChatPanelOwner {
     }
     const scripts = Object.keys(now.installs).map((key) => this.installScript(project, now, key))
     const installScripts = scripts.length ? `Installing runs:\n\n${scripts.join('\n\n')}\n\n` : ''
-    return this.askToTrust(
-      project.root,
+    return ask(
       {
         message: `Start ${promptName(project.name)}?`,
         detail: `Gui will install dependencies (${this.installDescription(installs)}) and start the dev server (${devCommand}) to preview the project. ${installScripts}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only start projects you trust.`,
@@ -1587,6 +1625,7 @@ export class ProjectTab implements ChatPanelOwner {
     startChanged: boolean,
     installsChanged: string[],
     installs: InstallTarget[],
+    ask: (options: MessageBoxOptions, scripts: TrustedScripts | null) => Promise<boolean>,
   ) {
     const changes = [
       ...(startChanged
@@ -1595,8 +1634,7 @@ export class ProjectTab implements ChatPanelOwner {
       ...installsChanged.map((key) => this.installScript(project, now, key)),
     ]
     const installing = installs.length > 0
-    return this.askToTrust(
-      project.root,
+    return ask(
       {
         message: `${promptName(project.name)}'s scripts changed`,
         detail: `Since you last started it, ${changes.length > 1 ? 'these changed' : 'this changed'}:\n\n${changes.join('\n\n')}\n\n${installing ? `Gui will install dependencies (${this.installDescription(installs)}) and start it. ` : ''}It runs code on your Mac. Only start projects you trust.`,
@@ -1675,7 +1713,9 @@ export class ProjectTab implements ChatPanelOwner {
     const saved = await trustedScripts(root)
     if (!resources.stillCurrent(generation)) return
     const agreed = Object.values(saved?.starts ?? {}).includes(before)
-    if (agreed || this.watchedStart === before) this.watchedStart = after
+    // Not one the user just said no to running (the agent's restart asked).
+    if ((agreed || this.watchedStart === before) && after !== this.declinedStart)
+      this.watchedStart = after
   }
 
   /** The trust prompt; agreeing trusts the project from then on, and keeps `scripts`. */
@@ -1743,6 +1783,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.opening = null
     this.stopWatchingForApp()
     this.watchedStart = null
+    this.declinedStart = null
     this.turnStartKey = null
     this.scriptsNoted = Promise.resolve()
     this.startedSignature = null
@@ -2571,7 +2612,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (!this.website) return
     if (this.resources.chat?.turnRunning)
       this.websiteClosedNote =
-        "The user went back to their app, so the website is closed and its session cleared. Open it again with preview_navigate and its full address only if they still want it; the page tools now act on the user's app."
+        "The user went back to their app, so the website is closed and its session cleared. Open it again with preview_open_website only if they still want it; the page tools now act on the user's app."
     this.closeWebsite()
   }
 
@@ -2586,7 +2627,7 @@ export class ProjectTab implements ChatPanelOwner {
         if (!this.website) return
         if (this.resources.chat?.turnRunning)
           this.websiteClosedNote =
-            "The website's page crashed, so the preview is back on the user's app. Open it again with preview_navigate if needed."
+            "The website's page crashed, so the preview is back on the user's app. Open it again with preview_open_website if needed."
         this.closeWebsite()
       },
       loadStarted: () => {
@@ -2881,6 +2922,18 @@ export class ProjectTab implements ChatPanelOwner {
     return this.state.devServer.url ? originOf(this.state.devServer.url) : null
   }
 
+  /**
+   * Where the agent's app tools may act: the dev server's address, and any other local
+   * address it printed this run (an app that sends you from its API's port to its web one);
+   * on a canvas, its own file server. Never another server on this machine the app links to.
+   */
+  private appOrigins(): string[] {
+    const origin = this.devOrigin()
+    if (this.resources.board) return origin ? [origin] : []
+    const printed = this.resources.devServer?.printedOrigins() ?? []
+    return [...new Set([...(origin ? [origin] : []), ...printed])]
+  }
+
   // Chat
 
   async sendChatMessage(
@@ -2917,10 +2970,12 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /** versions_list: what the Versions sheet shows, for an agent helping find a restore point. */
-  private async versionsForAgent(limit: number) {
-    const chat = this.resources.chat
-    if (!this.state.project || !chat) throw new Error('No project is open')
-    return describeVersions(await chat.listVersions(), limit, chat.turnRunning)
+  private async versionsForAgent(resources: ProjectResources, limit: number) {
+    const chat = resources.chat
+    if (!chat) throw new Error('No project is open')
+    const versions = await chat.listVersions()
+    if (resources.chat !== chat) throw new Error('No project is open')
+    return describeVersions(versions, limit, chat.turnRunning)
   }
 
   // Project setup (WindowState.setup)
@@ -3259,7 +3314,15 @@ export class ProjectTab implements ChatPanelOwner {
   private async restartForAgent() {
     if (!this.state.project) throw new Error('No project is open')
     this.agentRestartedAt = Date.now()
-    await this.retryStartup()
+    this.agentDeclined = false
+    this.agentStarting++
+    try {
+      await this.retryStartup()
+    } finally {
+      this.agentStarting--
+    }
+    if (this.agentDeclined)
+      return "The user declined to run the project's changed scripts, so Gui didn't start the app. Don't try to start it another way; tell the user what changed and why."
     await this.waitForStart(AGENT_START_WAIT_MS)
     return this.startOutcome()
   }

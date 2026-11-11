@@ -187,3 +187,9 @@ export function boardRectFromBoardView(rect: BoardViewRect, camera: BoardCameraL
     rect.height / camera.zoom,
   )
 }
+
+/**
+ * Room around a picked element in its crop. The turn's after image frames the element
+ * with the same margin, so the two line up.
+ */
+export const CROP_MARGIN = 8

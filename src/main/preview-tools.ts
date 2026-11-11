@@ -1,12 +1,20 @@
 import type { WebContents } from 'electron'
-import { pagePoint, pageRectFromViewport, viewportRectFrom } from '../shared/coords'
+import {
+  CROP_MARGIN,
+  type PageRect,
+  pagePoint,
+  pageRectFromViewport,
+  viewportRectFrom,
+} from '../shared/coords'
 import type { ElementContext, Rect, RulerGuide, StartCommandInput } from '../shared/types'
+import { base64Bytes, type DecodedImage, encodeWithin, MAX_AGENT_IMAGE_BYTES } from './agent-image'
 import { alignGuides, describeAlignment } from './guide-alignment'
-import { CROP_MARGIN, type Inspector, type InspectorSession } from './inspector'
+import type { Inspector, InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
 import { type BeforeInput, PreviewInteractions } from './preview-interactions'
 import type { Problems } from './problems'
 import { navigationTarget } from './public-address'
+import { logTail } from './startup'
 import type { VariationsInput } from './variations'
 
 /**
@@ -28,8 +36,6 @@ const RELOAD_TIMEOUT_MS = 10_000
 export const SETTLE_MS = 400
 /** Restoring the viewport resizes the page asynchronously; how long to wait for its width. */
 const RESIZE_WAIT_MS = 500
-const ESC = '\u001b'
-const ANSI = new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]|${ESC}\\][^\u0007]*(?:\u0007|${ESC}\\\\)`, 'g')
 
 /**
  * Records the scroll offsets of an element's ancestors (nested scrollers and the page)
@@ -51,6 +57,10 @@ export interface Screenshot {
   width: number
   height: number
   viewportWidth: number
+  /** Where a tall capture was cut (CSS pixels from its top), or null when it wasn't */
+  cutAt: number | null
+  /** The height it would have had uncut, in CSS pixels */
+  fullHeight: number
 }
 
 export interface ScreenshotOptions {
@@ -109,6 +119,35 @@ export interface PageDeps {
   guideInput: BeforeInput
   /** Something that happened on the page since the last tool, to tell the agent once */
   notice?: () => string | null
+  /**
+   * False once the project opening these tools belong to is closed or replaced: a call still
+   * running then stops before it touches the next project's preview.
+   */
+  live?: () => boolean
+  /**
+   * `app` only: the origins the user's app is at (its dev server's, or a canvas's own). A page
+   * elsewhere, even on this machine (another project's server, a database UI), isn't theirs.
+   */
+  origins?: () => string[]
+  /** `app` only: what to tell the agent when the preview shows none of `origins` */
+  elsewhere?: string
+}
+
+/** What the agent learns from preview_inspect: the element, its box in page CSS pixels. */
+export interface InspectedElement {
+  url: string
+  viewport: { width: number; height: number }
+  tag: string
+  /** A selector React gave it, when it says more than the tag */
+  selector?: string
+  text: string
+  attributes: Record<string, string>
+  outerHTML: string
+  /** Page (document) CSS pixels, the space guides and fullPage screenshots use */
+  pageBox: PageRect
+  styles: Record<string, string>
+  componentStack: string[]
+  source: ElementContext['source']
 }
 
 /** The website the agent can open in the preview in place of the app (website.ts). */
@@ -240,6 +279,8 @@ export class PageTools {
         } finally {
           this.inputs++
         }
+        // The glide takes a moment: the page may have gone, or the project with it.
+        this.assertLoaded()
       },
       page.kind === 'website',
     )
@@ -289,10 +330,12 @@ export class PageTools {
   async point(selector: string | undefined, caption: string | undefined) {
     this.assertLoaded()
     const node = selector ? await this.interactions.locate(selector) : null
+    this.assertLoaded()
     const text = caption?.replace(/\s+/g, ' ').trim() || null
     if (!this.page.guide(node, text))
       return "Not shown: the user isn't looking at the preview right now (it's hidden, or they're in design mode)."
     await sleep(readingTime(text))
+    this.assertLive()
     return text ? 'Shown, and the user has had time to read it.' : 'Shown.'
   }
 
@@ -310,6 +353,7 @@ export class PageTools {
     if (this.page.wc.isLoading()) {
       await stoppedLoading(this.page.wc, RELOAD_TIMEOUT_MS)
       await sleep(300)
+      this.assertLoaded()
     }
     const width = options.width ? Math.round(Math.min(Math.max(options.width, 240), 3840)) : null
     const shoot = () =>
@@ -319,36 +363,109 @@ export class PageTools {
           return this.capture(session, options, width)
         }),
       )
-    return width && this.page.atWidth ? this.page.atWidth(width, shoot) : shoot()
+    const shot = await (width && this.page.atWidth ? this.page.atWidth(width, shoot) : shoot())
+    this.assertLive()
+    return options.fullResolution ? shot : await withinBytes(shot)
   }
 
-  /** Computed styles, box, and source location for the first element matching `selector`. */
-  async inspect(selector: string): Promise<Omit<ElementContext, 'screenshot'>> {
+  /**
+   * Computed styles, box, and source location for the first element matching `selector`, as
+   * the agent reads it: its box in page CSS pixels, nothing it can't use.
+   */
+  async inspect(selector: string): Promise<InspectedElement> {
     this.assertLoaded()
     const backendNodeId = await this.page.inspector.querySelector(selector)
-    const { screenshot: _screenshot, ...element } = await this.page.inspectNode(backendNodeId)
-    return element
+    this.assertLoaded()
+    const element = await this.page.inspectNode(backendNodeId)
+    this.assertLoaded()
+    const pageBox = await this.pageBox(backendNodeId)
+    return {
+      url: element.url,
+      viewport: element.viewport,
+      tag: element.tag,
+      ...(element.selector !== element.tag ? { selector: element.selector } : {}),
+      text: element.text,
+      attributes: element.attributes,
+      outerHTML: element.outerHTML,
+      pageBox,
+      styles: element.styles,
+      componentStack: element.componentStack,
+      source: element.source,
+    }
   }
 
+  /** Reloads the page; where it is after, and whether it's still loading after RELOAD_TIMEOUT_MS. */
   async reload() {
     this.assertLoaded()
     const { wc } = this.page
     const loaded = stoppedLoading(wc, RELOAD_TIMEOUT_MS)
     wc.reload()
     await loaded
-    return wc.getURL()
+    this.assertLive()
+    return {
+      url: wc.isDestroyed() ? '' : wc.getURL(),
+      loading: !wc.isDestroyed() && wc.isLoading(),
+    }
+  }
+
+  /** The element's border box, in page CSS pixels: its viewport box and the scroll read together. */
+  private pageBox(backendNodeId: number) {
+    return this.page.inspector.exclusive(async () => {
+      this.assertLoaded()
+      const [{ model }, metrics] = await Promise.all([
+        this.cmd<{ model: { border: number[] } }>('DOM.getBoxModel', { backendNodeId }).catch(
+          () => ({ model: { border: [0, 0, 0, 0, 0, 0, 0, 0] } }),
+        ),
+        this.cmd<LayoutMetrics>('Page.getLayoutMetrics'),
+      ])
+      const xs = [model.border[0], model.border[2], model.border[4], model.border[6]]
+      const ys = [model.border[1], model.border[3], model.border[5], model.border[7]]
+      const x = Math.min(...xs)
+      const y = Math.min(...ys)
+      const box = viewportRectFrom({
+        x,
+        y,
+        width: Math.max(...xs) - x,
+        height: Math.max(...ys) - y,
+      })
+      const { pageX, pageY } = metrics.cssVisualViewport
+      const page = pageRectFromViewport(box, pagePoint(pageX, pageY))
+      // Whole pixels read as well and cost fewer tokens.
+      return pageRectFromViewport(
+        viewportRectFrom({
+          x: Math.round(page.x),
+          y: Math.round(page.y),
+          width: Math.round(page.width),
+          height: Math.round(page.height),
+        }),
+        pagePoint(0, 0),
+      )
+    })
+  }
+
+  /** The project these tools belong to is still the one open. */
+  protected assertLive() {
+    if (this.page.live && !this.page.live())
+      throw new Error('The project was closed or replaced in this tab; nothing more was done.')
   }
 
   /**
-   * The app's tools only ever act on the user's own local app, never a page it linked to; a
-   * website's only on a public web page, never this machine.
+   * The app's tools only ever act on the user's own app at its own origin, never a page it
+   * linked to (even one on this machine); a website's only on a public web page, never this
+   * machine. Checked before and after each step that waits.
    */
   protected assertLoaded() {
+    this.assertLive()
     const url = this.url()
     if (!url) throw new Error('The preview has no page loaded yet')
     if (this.page.kind === 'website') {
       if (!/^https?:/i.test(url) || isLoopback(url)) throw new Error('The website has no page open')
-    } else if (!isLoopback(url)) throw new Error('The preview is not showing the local dev server')
+      return
+    }
+    const elsewhere = this.page.elsewhere ?? 'The preview is not showing the local dev server'
+    if (!isLoopback(url)) throw new Error(elsewhere)
+    const origins = this.page.origins?.()
+    if (origins && !origins.includes(new URL(url).origin)) throw new Error(elsewhere)
   }
 
   /** Runs inside the inspector's lock; must only use `session` for node lookups. */
@@ -394,18 +511,17 @@ export class PageTools {
       } else if (options.area) {
         clip = options.area
       } else if (options.fullPage) {
-        const maxHeight = options.fullResolution
-          ? Math.floor(MAX_CAPTURE_PIXELS / dpr)
-          : MAX_FULL_PAGE_HEIGHT
-        clip = {
-          x: 0,
-          y: 0,
-          width: metrics.cssContentSize.width,
-          height: Math.min(metrics.cssContentSize.height, maxHeight),
-        }
+        clip = { x: 0, y: 0, ...metrics.cssContentSize }
       } else {
         clip = visible
       }
+      // A tall element is cut like a full page: past this, the image is too squeezed to read
+      // (or, at full resolution, the compositor repeats the page).
+      const fullHeight = clip.height
+      const maxHeight = options.fullResolution
+        ? Math.floor(MAX_CAPTURE_PIXELS / dpr)
+        : MAX_FULL_PAGE_HEIGHT
+      if (!options.area && clip.height > maxHeight) clip = { ...clip, height: maxHeight }
       const scale = options.fullResolution
         ? 1
         : Math.min(1, MAX_IMAGE_WIDTH / (clip.width * dpr), MAX_IMAGE_HEIGHT / (clip.height * dpr))
@@ -428,6 +544,8 @@ export class PageTools {
         height: Math.round(clip.height * scale * dpr),
         viewportWidth,
         area: clip,
+        cutAt: clip.height < fullHeight ? Math.round(clip.height) : null,
+        fullHeight,
       }
     } finally {
       // Nested scrollers first, in the layout their offsets were recorded in.
@@ -516,6 +634,28 @@ export class PageTools {
   }
 }
 
+/**
+ * A screenshot the agent can take in: one past MAX_AGENT_IMAGE_BYTES (a detailed page at a
+ * high pixel ratio) is encoded again as a JPEG, smaller if it must be.
+ */
+export async function withinBytes<T extends Screenshot>(
+  shot: T,
+  decode: (data: Buffer) => DecodedImage | Promise<DecodedImage> = async (data) =>
+    (await import('electron')).nativeImage.createFromBuffer(data),
+): Promise<T> {
+  if (base64Bytes(shot.data) <= MAX_AGENT_IMAGE_BYTES) return shot
+  const image = await decode(Buffer.from(shot.data, 'base64'))
+  if (image.isEmpty()) return shot
+  const encoded = encodeWithin(image, { png: false })
+  return {
+    ...shot,
+    data: encoded.data.toString('base64'),
+    mimeType: encoded.mimeType,
+    width: encoded.width,
+    height: encoded.height,
+  }
+}
+
 /** The part of the page currently on screen, in page coordinates. */
 function visibleRect(metrics: LayoutMetrics): Clip {
   const { pageX, pageY, clientWidth, clientHeight } = metrics.cssVisualViewport
@@ -590,20 +730,25 @@ export class PreviewTools extends PageTools {
    * after the user went back to their app themselves, it says so rather than act on the app.
    */
   shown(): PageTools {
+    this.assertLive()
     const closed = this.deps.website.takeClosedNote()
     if (closed) throw new Error(closed)
     return this.deps.website.shown() ?? this
   }
 
   /**
-   * A path, or an address on the app: the app, closing any website. A full http(s) address
-   * elsewhere: that website, in its own signed-out session. Where the preview ended up.
+   * preview_navigate: a path, or an address on the app (on a canvas, a frame's page), closing
+   * any website. Where the preview ended up. Websites open with `openWebsite`, which asks.
    */
-  async navigate(input: string): Promise<{ kind: 'app' | 'website'; url: string }> {
+  async navigate(input: string): Promise<string> {
+    this.assertLive()
     const target = navigationTarget(input, this.deps.devOrigin())
-    if (target.kind === 'website') {
-      return { kind: 'website', url: await this.deps.website.open(target.url) }
-    }
+    if (target.kind === 'website')
+      throw new Error(
+        this.deps.openFrame
+          ? 'On a canvas, open a frame with canvas_open_frame; look at websites with canvas_screenshot_url.'
+          : "That isn't the user's app. Open websites with preview_open_website.",
+      )
     this.deps.website.close()
     const { url } = target
     const { openFrame } = this.deps
@@ -613,7 +758,8 @@ export class PreviewTools extends PageTools {
         `${url} didn't finish loading within ${NAVIGATION_TIMEOUT_MS / 1000}s`,
         NAVIGATION_TIMEOUT_MS,
       )
-      return { kind: 'app', url: opened }
+      this.assertLive()
+      return opened
     }
     await withTimeout(
       this.deps.navigate(url.toString()),
@@ -621,10 +767,28 @@ export class PreviewTools extends PageTools {
       NAVIGATION_TIMEOUT_MS,
     )
     await sleep(300)
-    return { kind: 'app', url: this.deps.currentUrl() ?? url.toString() }
+    this.assertLive()
+    return this.deps.currentUrl() ?? url.toString()
+  }
+
+  /**
+   * preview_open_website: a full http(s) address elsewhere, in its own signed-out session over
+   * the app. Where it landed.
+   */
+  async openWebsite(input: string): Promise<string> {
+    this.assertLive()
+    if (!/^https?:\/\//i.test(input.trim()))
+      throw new Error("Pass a website's full address, starting with https://.")
+    const target = navigationTarget(input, this.deps.devOrigin())
+    if (target.kind === 'app')
+      throw new Error("That's the user's app. Open its pages with preview_navigate.")
+    const opened = await this.deps.website.open(target.url)
+    this.assertLive()
+    return opened
   }
 
   console() {
+    this.assertLive()
     return {
       url: this.deps.currentUrl(),
       messages: this.deps.problems.recentConsole(),
@@ -633,18 +797,26 @@ export class PreviewTools extends PageTools {
   }
 
   serverStatus() {
+    this.assertLive()
     return this.deps.serverStatus()
   }
 
-  restartServer() {
-    return this.deps.restartServer()
+  async restartServer() {
+    this.assertLive()
+    const outcome = await this.deps.restartServer()
+    this.assertLive()
+    return outcome
   }
 
-  setStartCommand(input: StartCommandInput | null) {
-    return this.deps.setStartCommand(input)
+  async setStartCommand(input: StartCommandInput | null) {
+    this.assertLive()
+    const outcome = await this.deps.setStartCommand(input)
+    this.assertLive()
+    return outcome
   }
 
   variations(input: VariationsInput) {
+    this.assertLive()
     return this.deps.variations(input)
   }
 
@@ -666,6 +838,7 @@ export class PreviewTools extends PageTools {
         lines.push('The rulers were off; they are on now, so the user sees the guides.')
         // The page moves over for the rulers, which can reflow it.
         await sleep(SETTLE_MS)
+        this.assertLoaded()
       }
     }
     const guides = this.deps.guides.list()
@@ -678,6 +851,7 @@ export class PreviewTools extends PageTools {
     if (!this.deps.guides.shown())
       lines.push("The rulers are off, so the user doesn't see these guides now.")
     const measured = await this.interactions.boxes()
+    this.assertLive()
     const scroll = pagePoint(measured.scroll.x, measured.scroll.y)
     const boxes = measured.boxes.map(({ selector, label, ...rect }) => ({
       selector,
@@ -688,8 +862,9 @@ export class PreviewTools extends PageTools {
     return lines.join('\n')
   }
 
+  /** The dev server's last `lines` lines, cut to fit (logTail). */
   logs(lines: number) {
-    const text = this.deps.logs().replace(ANSI, '').replace(/\r\n?/g, '\n')
-    return text.split('\n').slice(-lines).join('\n')
+    this.assertLive()
+    return logTail(this.deps.logs(), lines)
   }
 }

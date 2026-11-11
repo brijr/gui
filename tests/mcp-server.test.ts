@@ -1,5 +1,11 @@
 import { afterEach, expect, test } from 'bun:test'
-import { type RunningMcpServer, startMcpServer } from '../src/main/mcp-server'
+import {
+  ASK_FIRST_TOOLS,
+  GUI_TOOL_TITLES,
+  type RunningMcpServer,
+  sessionToolNames,
+  startMcpServer,
+} from '../src/main/mcp-server'
 
 // Each tab serves Gui's tools to its agent over MCP on loopback (docs/architecture.md,
 // "Preview tools for the agent"). The server listens before the MCP SDK has loaded, so a
@@ -77,4 +83,44 @@ test('only the token Gui gave its agent gets in', async () => {
   expect((await call(config, 'tools/list', { Authorization: 'Bearer nope' })).status).toBe(401)
   const { url, headers } = endpoint(config)
   expect((await fetch(url, { headers })).status).toBe(405)
+})
+
+async function listed(config: RunningMcpServer['config']) {
+  const reply = await call(config, 'tools/list')
+  return (await reply.json()).result.tools as { name: string; title: string }[]
+}
+
+test('a canvas lists its own tools and none that need a dev server, rulers or websites', async () => {
+  const project = await listed(await start())
+  const canvasServer = await startMcpServer(unused, unused, unused, unused)
+  servers.push(canvasServer)
+  const canvas = await listed(canvasServer.config)
+
+  // What each session is told it has is what it gets.
+  expect(project.map((tool) => tool.name).sort()).toEqual(sessionToolNames(false).sort())
+  expect(canvas.map((tool) => tool.name).sort()).toEqual(sessionToolNames(true).sort())
+  for (const name of [
+    'dev_server_logs',
+    'dev_server_restart',
+    'set_start_command',
+    'preview_open_website',
+    'preview_guides',
+    'preview_variations',
+  ]) {
+    expect(canvas.map((tool) => tool.name)).not.toContain(name)
+  }
+  expect(canvas.map((tool) => tool.name)).toContain('canvas_list_frames')
+  expect(canvas.map((tool) => tool.name)).toContain('preview_navigate')
+
+  // Every tool registers under the title the chat labels it with.
+  for (const tool of [...project, ...canvas]) {
+    expect(tool.title).toBe(GUI_TOOL_TITLES[tool.name as keyof typeof GUI_TOOL_TITLES])
+  }
+})
+
+test('opening a website is its own tool, which asks first', async () => {
+  const names = (await listed(await start())).map((tool) => tool.name)
+  expect(names).toContain('preview_open_website')
+  expect(ASK_FIRST_TOOLS.has('preview_open_website')).toBe(true)
+  expect(ASK_FIRST_TOOLS.has('preview_navigate')).toBe(false)
 })

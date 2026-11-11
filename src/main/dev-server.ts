@@ -111,6 +111,20 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.cwd = cwd
   }
 
+  /** The origins of the local addresses this run printed, in order (see `printed`). */
+  printedOrigins(): string[] {
+    const origins: string[] = []
+    for (const url of this.printed) {
+      try {
+        const { origin } = new URL(url)
+        if (!origins.includes(origin)) origins.push(origin)
+      } catch {
+        // Only parsed addresses are kept; nothing to add.
+      }
+    }
+    return origins
+  }
+
   /** `url` is where the app will answer, for a server that doesn't print its address. */
   async start(command: string, url: string | null = null) {
     // A restart or app switch can still be waiting on the old server when its tab closes.

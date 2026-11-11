@@ -60,7 +60,7 @@ test('canvas_screenshot_url captures a website in a session of its own and saves
   // The agent opens it in this project's preview, which keeps its own cookie.
   await installToolAgent(session)
   const [opened] = await ask(session, [
-    { name: 'preview_navigate', args: { path: `${url}/?by=website` } },
+    { name: 'preview_open_website', args: { url: `${url}/?by=website` } },
   ])
   expect(opened.isError, text(opened)).not.toBe(true)
   const website = await waitFor(

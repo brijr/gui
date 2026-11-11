@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { nativeTheme, type WebContents } from 'electron'
 import {
+  CROP_MARGIN,
   pageFromViewport,
   pagePoint,
   pageRectFromViewport,
@@ -16,11 +17,6 @@ import type { ElementContext, Point, Rect, SourceLocation } from '../shared/type
 import { normalizeSourcePath, projectRelativePath, resolveStack } from './source-resolver'
 
 const COMMAND_TIMEOUT_MS = 15_000
-/**
- * Room around a picked element in its crop. The turn's after image frames the element
- * with the same margin, so the two line up.
- */
-export const CROP_MARGIN = 8
 /** Gui's accent for the current appearance, as the protocol takes colors. */
 function accent() {
   const hex = nativeTheme.shouldUseDarkColors ? ACCENT.dark : ACCENT.light

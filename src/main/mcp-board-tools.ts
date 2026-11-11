@@ -9,20 +9,20 @@ import { fenceUntrusted } from './prompt'
  * agent places, sizes, names and removes frames through these and writes their pages itself.
  * Only offered in a canvas's tab.
  */
-export const BOARD_TOOL_NAMES = [
-  'canvas_list_frames',
-  'canvas_create_frame',
-  'canvas_duplicate_frames',
-  'canvas_arrange_frames',
-  'canvas_rename_frame',
-  'canvas_delete_frames',
-  'canvas_screenshot',
-  'canvas_screenshot_url',
-  'canvas_open_frame',
-  'canvas_create_section',
-  'canvas_update_section',
-  'canvas_delete_section',
-] as const
+export const BOARD_TOOL_TITLES = {
+  canvas_list_frames: 'List canvas frames',
+  canvas_create_frame: 'Create a canvas frame',
+  canvas_duplicate_frames: 'Duplicate canvas frames',
+  canvas_arrange_frames: 'Move or resize canvas frames',
+  canvas_rename_frame: 'Rename a canvas frame',
+  canvas_delete_frames: 'Delete canvas frames',
+  canvas_screenshot: 'Screenshot a canvas frame',
+  canvas_screenshot_url: 'Screenshot a website',
+  canvas_open_frame: 'Open a canvas frame in the preview',
+  canvas_create_section: 'Create a canvas section',
+  canvas_update_section: 'Rename a canvas section or change its frames',
+  canvas_delete_section: 'Delete a canvas section',
+} as const
 
 export interface BoardTools {
   /** Every frame, its file, place and size, which are selected and open, and pages left off */
@@ -74,6 +74,18 @@ const frameIdSchema = z.string().min(1).max(64).describe('Frame id, as canvas_li
 /** A name shown on the board: blank ones are refused, not taken as "nothing changed". */
 const nameSchema = z.string().trim().min(1).max(80)
 const edge = z.number().int().min(FRAME_MIN).max(FRAME_MAX)
+/**
+ * The most HTML canvas_create_frame takes, in UTF-8 bytes. Its call travels as one JSON
+ * request, which the MCP transport refuses past 4 MiB (the SDK's DEFAULT_MAX_REQUEST_BODY_SIZE),
+ * and JSON can take twice the bytes for escaped text, or six per character for \u escapes.
+ */
+export const MAX_FRAME_HTML_BYTES = 1_000_000
+/**
+ * How far from the board's origin a frame can be put: 60 frames of the largest size side by
+ * side still fit, and nothing ends up where no one would find it.
+ */
+const BOARD_REACH = 250_000
+const boardCoordinate = z.number().int().min(-BOARD_REACH).max(BOARD_REACH)
 const sectionIdSchema = z
   .string()
   .min(1)
@@ -94,7 +106,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_list_frames',
     {
-      title: 'List canvas frames',
+      title: BOARD_TOOL_TITLES.canvas_list_frames,
       description:
         "The canvas's frames: each one's id, name, page file (relative to the canvas folder), position and size on the board in pixels, and which the user has selected or open; then its sections and their frames, and any page in frames/ that isn't on the canvas and why. Read it before placing or editing frames.",
       inputSchema: {},
@@ -106,14 +118,20 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_create_frame',
     {
-      title: 'Create a canvas frame',
+      title: BOARD_TOOL_TITLES.canvas_create_frame,
       description:
-        'Adds a frame to the canvas and writes its page. Placed to the right of the frames in `after` (or of everything) without overlapping any frame. Pass the complete single-file HTML page in `html` (inline <style> and <script>; shared images go in assets/, referenced as ../assets/name), or omit it and write the returned file yourself. Name the frame for its idea ("Pricing — three tiers"). Desktop pages are usually 1440×900, tablet 820×1180, mobile 390×844.',
+        'Adds a frame to the canvas and writes its page. Placed to the right of the frames in `after` (or of everything) without overlapping any frame. Pass the complete single-file HTML page in `html` (inline <style> and <script>; shared images go in assets/, referenced as ../assets/name), or omit it and write the returned file yourself (always, for a page over 1 MB). Name the frame for its idea ("Pricing — three tiers"). Desktop pages are usually 1440×900, tablet 820×1180, mobile 390×844.',
       inputSchema: {
         name: nameSchema.describe('Short name shown above the frame'),
         width: edge.describe('Page width in CSS pixels'),
         height: edge.describe('Frame height in CSS pixels (the page can scroll past it)'),
-        html: z.string().max(2_000_000).optional().describe('The whole HTML page'),
+        html: z
+          .string()
+          .refine((html) => Buffer.byteLength(html, 'utf8') <= MAX_FRAME_HTML_BYTES, {
+            message: `\`html\` is over ${MAX_FRAME_HTML_BYTES / 1_000_000} MB. Omit it, then write the page to the frame's file yourself.`,
+          })
+          .optional()
+          .describe('The whole HTML page, up to 1 MB'),
         after: z
           .array(frameIdSchema)
           .max(20)
@@ -127,7 +145,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_duplicate_frames',
     {
-      title: 'Duplicate canvas frames',
+      title: BOARD_TOOL_TITLES.canvas_duplicate_frames,
       description:
         'Copies frames, pages included, placed beside the originals. Use it to start a variation from an existing frame, then edit the copy’s file.',
       inputSchema: { ids: z.array(frameIdSchema).min(1).max(20) },
@@ -138,7 +156,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_arrange_frames',
     {
-      title: 'Move or resize canvas frames',
+      title: BOARD_TOOL_TITLES.canvas_arrange_frames,
       description:
         'Moves frames on the board and/or changes their size. Give only what changes for each frame. Keep at least 80px between frames.',
       inputSchema: {
@@ -146,8 +164,8 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
           .array(
             z.object({
               id: frameIdSchema,
-              x: z.number().int().optional(),
-              y: z.number().int().optional(),
+              x: boardCoordinate.optional(),
+              y: boardCoordinate.optional(),
               width: edge.optional(),
               height: edge.optional(),
             }),
@@ -162,7 +180,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_rename_frame',
     {
-      title: 'Rename a canvas frame',
+      title: BOARD_TOOL_TITLES.canvas_rename_frame,
       description: 'Changes the name shown above a frame. Its id and file stay the same.',
       inputSchema: { id: frameIdSchema, name: nameSchema },
     },
@@ -172,7 +190,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_delete_frames',
     {
-      title: 'Delete canvas frames',
+      title: BOARD_TOOL_TITLES.canvas_delete_frames,
       description:
         'Removes frames from the canvas and deletes their pages. Only when the user asks for it.',
       inputSchema: { ids: z.array(frameIdSchema).min(1).max(60) },
@@ -184,7 +202,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_screenshot',
     {
-      title: 'Screenshot a canvas frame',
+      title: BOARD_TOOL_TITLES.canvas_screenshot,
       description:
         "A frame's page rendered at the frame's size, as the board shows it. Check every frame you create or change with it before replying. A page that stops responding while it renders (a script that never ends) is stopped, and this says so.",
       inputSchema: { id: frameIdSchema },
@@ -208,7 +226,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_screenshot_url',
     {
-      title: 'Screenshot a website',
+      title: BOARD_TOOL_TITLES.canvas_screenshot_url,
       description:
         'Loads any website (http or https) in a hidden browser and screenshots it, to see a reference the user names ("like linear.app", a competitor, their live site) or check a public page. Pass `width`/`height` for the viewport (default 1440×900; 390×844 for mobile) and `fullPage` for the whole scrollable page (long pages are cut at 12000px, and the image is scaled down to fit 1600×1960, so capture the viewport for detail). Pass `saveAs` to keep the full-resolution image (a JPEG) in the canvas\'s assets/ folder, e.g. to put it in a frame as <img src="../assets/<file>"> or a mood board. It runs in a fresh session with no sign-ins, so pages behind a login show their login screen.',
       inputSchema: {
@@ -264,7 +282,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_open_frame',
     {
-      title: 'Open a canvas frame in the preview',
+      title: BOARD_TOOL_TITLES.canvas_open_frame,
       description:
         "Shows a frame's live page in the preview, where the preview_* tools (snapshot, click, type, inspect, console) work on it. Pass null to go back to the board.",
       inputSchema: { id: frameIdSchema.nullable() },
@@ -275,7 +293,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_create_section',
     {
-      title: 'Create a canvas section',
+      title: BOARD_TOOL_TITLES.canvas_create_section,
       description:
         'Groups frames in a named section, an area of the board drawn around them that sizes itself to fit (like a section in Figma). Use one for each set of related frames: the sizes of one ad, the screens of a flow, the options for one idea. A frame is in one section at most, so these leave any other. Arrange the frames first; the section follows them.',
       inputSchema: {
@@ -289,7 +307,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_update_section',
     {
-      title: 'Rename a canvas section or change its frames',
+      title: BOARD_TOOL_TITLES.canvas_update_section,
       description:
         'Renames a section and/or sets which frames are in it (`frames` replaces the list; frames joining leave any other section). Every frame in `frames` must be on the canvas, and there must be at least one; to remove the section, use canvas_delete_section. A new frame made beside one in a section joins it by itself.',
       inputSchema: {
@@ -304,7 +322,7 @@ export function registerBoardTools(server: McpServer, board: BoardTools) {
   server.registerTool(
     'canvas_delete_section',
     {
-      title: 'Delete a canvas section',
+      title: BOARD_TOOL_TITLES.canvas_delete_section,
       description:
         'Removes a section from the board. Its frames stay where they are; delete them with canvas_delete_frames if that is what the user asked for.',
       inputSchema: { id: sectionIdSchema },

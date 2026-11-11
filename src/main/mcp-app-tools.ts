@@ -4,10 +4,13 @@ import type { Turn, Version } from '../shared/types'
 import { failure, text, untrusted } from './mcp-results'
 
 /**
- * Tool names for Gui itself: the chat's saved versions and its earlier turns. Nothing here
- * changes the project.
+ * Gui's own tools, by name, with their titles: the chat's saved versions and its earlier
+ * turns. Nothing here changes the project.
  */
-export const APP_TOOL_NAMES = ['versions_list', 'chat_turns'] as const
+export const APP_TOOL_TITLES = {
+  versions_list: 'List versions',
+  chat_turns: "Read this chat's earlier messages",
+} as const
 
 export interface AppTools {
   /** This chat's versions, newest first, in a few lines each */
@@ -20,7 +23,7 @@ export function registerAppTools(server: McpServer, app: AppTools) {
   server.registerTool(
     'versions_list',
     {
-      title: 'List versions',
+      title: APP_TOOL_TITLES.versions_list,
       description:
         "This chat's versions of the project's files, newest first: the automatic version at each finished turn's end, versions the user named, and states Gui saved just before a restore. Each entry gives its ID, kind, time, whether the files match it now, and the files it changed. Use it to find an earlier state or tell the user which version to restore in Gui's Versions sheet, where how the files are now is saved first. This only lists versions; it does not restore anything, and the running turn's version appears when it finishes.",
       inputSchema: {
@@ -49,7 +52,7 @@ export function registerAppTools(server: McpServer, app: AppTools) {
   server.registerTool(
     'chat_turns',
     {
-      title: "Read this chat's earlier messages",
+      title: APP_TOOL_TITLES.chat_turns,
       description:
         "This chat's earlier requests, oldest first: what the user asked, how each message ended, whether they undid it, and the files it changed with lines added and removed. Covers messages from other agents and earlier chats too. Use it to summarize the work, e.g. for a pull request description.",
       inputSchema: {

@@ -273,7 +273,7 @@ test('the agent opens a website in the preview, uses it with its pointer, and go
   const session = await launchWithSite(launch)
 
   const [opened, snapshot, clicked] = await ask(session, [
-    { name: 'preview_navigate', args: { path: site.url } },
+    { name: 'preview_open_website', args: { url: site.url } },
     { name: 'preview_snapshot' },
     { name: 'preview_click', args: { selector: '#start' } },
   ])
@@ -303,7 +303,7 @@ test('the agent opens a website in the preview, uses it with its pointer, and go
 
   // Test data where nothing is sent; never a password or a card number, and nothing sent.
   const [, email, password, card, filled, submit, enter, posted, after] = await ask(session, [
-    { name: 'preview_navigate', args: { path: `${site.url}/signup` } },
+    { name: 'preview_open_website', args: { url: `${site.url}/signup` } },
     { name: 'preview_type', args: { selector: '#email', text: 'test@example.com' } },
     { name: 'preview_type', args: { selector: '#password', text: 'hunter2' } },
     { name: 'preview_type', args: { selector: '#card', text: '4242424242424242' } },
@@ -348,7 +348,7 @@ test('the agent opens a website in the preview, uses it with its pointer, and go
   await waitFor(() => !websiteOpen(session), 'the website to close')
 
   // Reopened, the user goes back with one click.
-  await ask(session, [{ name: 'preview_navigate', args: { path: site.url } }])
+  await ask(session, [{ name: 'preview_open_website', args: { url: site.url } }])
   await expect(back).toBeVisible()
   await back.click()
   await expect(back).toHaveCount(0)
@@ -370,7 +370,7 @@ test('a website never shares the preview’s sign-ins, and its session is cleare
     site.url,
   )
 
-  const [opened] = await ask(session, [{ name: 'preview_navigate', args: { path: site.url } }])
+  const [opened] = await ask(session, [{ name: 'preview_open_website', args: { url: site.url } }])
   expect(opened.isError, text(opened)).not.toBe(true)
   const first = await websitePage(session)
   await expect(first.locator('#before')).toHaveText('none')
@@ -386,7 +386,7 @@ test('a website never shares the preview’s sign-ins, and its session is cleare
 
   // Opened again, it starts from nothing: no cookie or storage from the last visit.
   const visits = site.requests.length
-  await ask(session, [{ name: 'preview_navigate', args: { path: site.url } }])
+  await ask(session, [{ name: 'preview_open_website', args: { url: site.url } }])
   const second = await websitePage(session)
   await expect(second.locator('#before')).toHaveText('none')
   await expect(second.locator('#stored')).toHaveText('none')
@@ -402,11 +402,11 @@ test('a website reaches nothing on this Mac, opens nothing else, and stops posti
     session.app.evaluate(({ webContents }) =>
       webContents.getAllWebContents().map((each) => each.getURL()),
     )
-  await ask(session, [{ name: 'preview_navigate', args: { path: site.url } }])
+  await ask(session, [{ name: 'preview_open_website', args: { url: site.url } }])
   const before = (await contents()).length
 
   const [opened, , , stayed, toLocal, wentBack] = await ask(session, [
-    { name: 'preview_navigate', args: { path: `${site.url}/hostile` } },
+    { name: 'preview_open_website', args: { url: `${site.url}/hostile` } },
     { wait: 1500 },
     { name: 'preview_click', args: { selector: '#to-file' } },
     { name: 'preview_click', args: { selector: '#to-app' } },
@@ -443,7 +443,7 @@ test('a website reaches nothing on this Mac, opens nothing else, and stops posti
 
   // A redirect to this Mac is stopped too.
   const [redirected] = await ask(session, [
-    { name: 'preview_navigate', args: { path: `${site.url}/redirect` } },
+    { name: 'preview_open_website', args: { url: `${site.url}/redirect` } },
   ])
   expect(redirected.isError).toBe(true)
   expect(text(redirected)).toContain('Gui only opens public websites')
@@ -453,7 +453,7 @@ test('a website reaches nothing on this Mac, opens nothing else, and stops posti
   // A page that posts itself each time it shows goes back once, then stays on the blocked page
   // rather than loop, and the agent hears to stop.
   const [, posting, settled] = await ask(session, [
-    { name: 'preview_navigate', args: { path: `${site.url}/autopost` } },
+    { name: 'preview_open_website', args: { url: `${site.url}/autopost` } },
     { name: 'preview_click', args: { selector: '#continue' } },
     { wait: 3000 },
     { name: 'preview_snapshot' },
@@ -476,7 +476,7 @@ test('mid-turn, what the user types into secret fields stays hidden, and going b
   const [, snapshot, form, card] = await ask(
     session,
     [
-      { name: 'preview_navigate', args: { path: `${site.url}/signup` } },
+      { name: 'preview_open_website', args: { url: `${site.url}/signup` } },
       { wait: 2500 },
       { name: 'preview_snapshot' },
       { name: 'preview_inspect', args: { selector: 'form' } },
@@ -517,7 +517,7 @@ test('mid-turn, what the user types into secret fields stays hidden, and going b
   const [, pointed, closed] = await ask(
     session,
     [
-      { name: 'preview_navigate', args: { path: site.url } },
+      { name: 'preview_open_website', args: { url: site.url } },
       { name: 'preview_point', args: { selector: '#start', caption } },
       { name: 'preview_snapshot' },
     ],
@@ -536,7 +536,7 @@ test('mid-turn, what the user types into secret fields stays hidden, and going b
   const [, , , onApp] = await ask(
     session,
     [
-      { name: 'preview_navigate', args: { path: site.url } },
+      { name: 'preview_open_website', args: { url: site.url } },
       { name: 'preview_point', args: { selector: '#start', caption } },
       { name: 'preview_navigate', args: { path: '/' } },
       { name: 'preview_snapshot' },
@@ -559,8 +559,8 @@ test('a website still being looked up never opens once the user stopped the turn
   const index = (await session.chatSnapshot()).turns.length
   const visits = site.requests.length
   const steps = [
-    { name: 'preview_navigate', args: { path: site.url } },
-    { name: 'preview_navigate', args: { path: slow } },
+    { name: 'preview_open_website', args: { url: site.url } },
+    { name: 'preview_open_website', args: { url: slow } },
   ]
   expect(
     await session.chat.evaluate((text) => window.gui.send(text), `TOOLS ${JSON.stringify(steps)}`),
@@ -593,7 +593,7 @@ test('mid-turn the website is the agent’s: the user’s clicks and keys wait, 
   const [opened, alerted, confirmed, prompted, answered, left, home] = await ask(
     session,
     [
-      { name: 'preview_navigate', args: { path: `${site.url}/dialogs` } },
+      { name: 'preview_open_website', args: { url: `${site.url}/dialogs` } },
       { wait: 6000 },
       { name: 'preview_click', args: { selector: '#alert' } },
       { name: 'preview_click', args: { selector: '#confirm' } },
