@@ -207,9 +207,18 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
 
   // The card asks a question, shows the command, and offers Don't allow, then Allow: last,
   // and primary. The agent's "Always allow" isn't offered (Auto mode does that job).
+  const composer = chat.locator('[data-composer]')
+  await chat.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
   expect(await send(chat, 'ASK Run the build.')).toBe(true)
   const card = chat.getByRole('region', { name: 'Run a command?' })
   await expect(card).toBeVisible()
+  // The card doesn't pull the keyboard in from wherever the user types (⌘↩ answers it from
+  // anywhere); the chat's status line reads it out instead.
+  await expect(chat.getByRole('status').filter({ hasText: 'Permission needed' })).toHaveText(
+    'Permission needed: npm run build',
+  )
+  await sleep(300)
+  await expect(composer).not.toBeFocused()
   await expect(card.getByText('npm run build', { exact: true })).toBeVisible()
   const buttons = card.getByRole('button')
   // Each named as it says; the card waiting longest shows the keys that answer it.
@@ -218,7 +227,10 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
     await expect(buttons.nth(i)).toHaveAccessibleName(name)
   }
   await expect(buttons.last()).toHaveClass(/\bbg-accent\b/)
-  await buttons.last().click()
+  // Answered from the keyboard, the keyboard moves on to the message box as the card goes.
+  await buttons.last().focus()
+  await chat.keyboard.press('Enter')
+  await expect(composer).toBeFocused()
 
   // Answered, the answer goes on the step's own row: no second line for it.
   const { turn: asked } = await session.waitForTurn(1)
@@ -276,7 +288,10 @@ test('the transcript stays at its newest line as the queue appears; a re-logged 
   await expect(queued).toHaveCount(2)
   await expect.poll(atBottom, { timeout: 2000 }).toBe(true)
 
-  await chat.evaluate(() => window.gui.cancel())
+  // Stop from the keyboard leaves the keyboard in the message box, not on the page.
+  await chat.getByRole('button', { name: 'Stop', exact: true }).focus()
+  await chat.keyboard.press('Enter')
   const { turn } = await session.waitForTurn(0)
   expect(turn.status).toBe('cancelled')
+  await expect(chat.locator('[data-composer]')).toBeFocused()
 })

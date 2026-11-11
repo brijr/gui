@@ -476,7 +476,11 @@ export function Composer({
                 shortcut="stop"
                 icon={Square}
                 filled
-                onClick={() => gui.cancel()}
+                onClick={() => {
+                  // Stop goes once the agent has stopped: the keyboard stays in the message box.
+                  input.current?.focus({ preventScroll: true })
+                  gui.cancel()
+                }}
               />
             )}
           </div>

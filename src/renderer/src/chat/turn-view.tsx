@@ -47,7 +47,7 @@ import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, IconButton, PRESS, Spinner, Toggle } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
-import { setFollowUp, useChat, waitingCard } from './store'
+import { focusComposer, setFollowUp, useChat, waitingCard } from './store'
 import { isNewRow, markSeen } from './transitions'
 import { TurnPresentationScope, useTurnPresentation } from './turn-presentation'
 
@@ -1052,7 +1052,11 @@ function Permission({
               title={option.name}
               shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
               keys
-              onClick={() => gui.respondPermission(turnId, item.id, option.optionId)}
+              onClick={() => {
+                // The card goes once answered: the keyboard moves on to the message box.
+                focusComposer()
+                gui.respondPermission(turnId, item.id, option.optionId)
+              }}
               className={cn(
                 'min-w-0',
                 // `!`: Button's own fixed height would win otherwise (cn doesn't merge).

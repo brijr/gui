@@ -4445,10 +4445,7 @@ export class ProjectTab implements ChatPanelOwner {
       this.syncHighlight()
     }
     this.resources.chat?.setSelecting(preview.selecting)
-    const attention = this.panel.takeAttention()
-    // A permission card that came up while the user picked shows now, as it would have then.
-    if (!preview.selecting && attention && this.resources.chat?.awaitingPermission)
-      this.panel.focusChat()
+    if (!preview.selecting) this.panel.attentionShown()
   }
 
   private send(channel: string, payload: unknown) {

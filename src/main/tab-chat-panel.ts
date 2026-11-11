@@ -763,6 +763,14 @@ export class ChatPanel {
       })
       return
     }
+    this.showPanel()
+    if (!this.tab.host.isActive(this.tab)) return
+    this.tab.chatView.webContents.focus()
+    this.tab.sendChat(Events.chatFocus, null)
+  }
+
+  /** Brings the chat back in the window if ⌘B hid it or it was minimized. */
+  private showPanel() {
     if (!this.tab.state.chatVisible) {
       if (this.docked) {
         this.tab.morphLayout('dock')
@@ -772,20 +780,40 @@ export class ChatPanel {
     }
     if (this.tab.resources.chat?.meta.minimized) this.tab.resources.chat.setMinimized(false)
     this.tab.layout()
-    if (!this.tab.host.isActive(this.tab)) return
-    this.tab.chatView.webContents.focus()
-    this.tab.sendChat(Events.chatFocus, null)
   }
 
+  /**
+   * Something waits on the user (a permission card): the panel shows it, but the keyboard stays
+   * where the user is typing (the terminal, the app). ⌘↩ and ⌘⌫ answer the card from anywhere,
+   * and the chat's status line reads it out. While the user picks an element, the bubble stays
+   * until they're done (`attentionShown`).
+   */
   onAttention() {
-    // Whatever waits on the user is in the conversation: the panel shows it.
     this.showConversation()
-    if (!this.tab.state.preview.selecting || this.docked) return this.focusChat()
-    this.attentionWaiting = true
-    if (!this.tab.state.chatVisible) {
-      this.tab.patch({ chatVisible: true })
-      this.tab.layout()
+    if (this.tab.state.preview.selecting && !this.docked) {
+      this.attentionWaiting = true
+      if (!this.tab.state.chatVisible) {
+        this.tab.patch({ chatVisible: true })
+        this.tab.layout()
+      }
+      return
     }
+    this.revealChat()
+  }
+
+  /** As focusChat shows the chat, without taking the keyboard. */
+  private revealChat() {
+    this.tab.leaveFocusMode()
+    this.cancelCollapse()
+    this.untuck()
+    if (!this.popout) this.showPanel()
+  }
+
+  /** Picking ended with a card that came up meanwhile: it shows now, as it would have then. */
+  attentionShown() {
+    const waiting = this.attentionWaiting
+    this.attentionWaiting = false
+    if (waiting && this.tab.resources.chat?.awaitingPermission) this.revealChat()
   }
 
   /**
@@ -814,12 +842,6 @@ export class ChatPanel {
 
   setDrafted(drafted: boolean) {
     this.drafted = drafted
-  }
-
-  takeAttention() {
-    const waiting = this.attentionWaiting
-    this.attentionWaiting = false
-    return waiting
   }
 
   layoutChat() {

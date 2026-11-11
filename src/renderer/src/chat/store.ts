@@ -128,6 +128,11 @@ function setSeen(seen: boolean) {
   useChat.setState({ seen })
 }
 
+/** Puts the keyboard in the message box, as a control that's going away hands it on. */
+export function focusComposer() {
+  document.querySelector<HTMLElement>('[data-composer]')?.focus({ preventScroll: true })
+}
+
 export function setDraft(draft: string) {
   useChat.setState({ draft })
 }
