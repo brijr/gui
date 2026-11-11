@@ -42,7 +42,7 @@ const variant = useSyncExternalStore(subscribe, () => localStorage.getItem(key) 
 | `variants` | `{ id, name }[]`, 1–15 | the new versions in order, without `original`; `name` is short ("Tighter hierarchy", up to 40 characters) |
 | `show` | string, optional | the version to show; by default the first |
 
-Gui shows the bar, flips the page to `show`, waits up to 3 s for the element to say it's showing it, and scrolls it into view (the tool returns once the scroll ends, so a screenshot after it sees the page at rest). The result says which version is up, or why not: nothing matches `[data-gui-variation="<set>"]`, or it shows another version. The agent calls it again with each `show` and takes a `preview_screenshot` to check every version renders. Its description says to keep a set in as few files as possible, so it's easy to remove.
+Gui flips the page to `show`, waits up to 3 s for the element to say it's showing it, and only then shows the bar (it never names a version the page isn't showing) and scrolls it into view (the tool returns once the scroll ends, so a screenshot after it sees the page at rest). The result says which version is up, or why not: nothing matches `[data-gui-variation="<set>"]`, or it shows another version. The agent calls it again with each `show` and takes a `preview_screenshot` to check every version renders. Its description says to keep a set in as few files as possible, so it's easy to remove.
 
 The set belongs to the project opening and to the message (turn) that first showed it. Calling the tool again with the same set id, even in a later message, keeps that first message.
 
@@ -56,7 +56,7 @@ The set also goes when its message is undone from the chat, on a new chat, and w
 ## When things go wrong
 
 - **One broken version breaks the build.** The versions share a build, so the dev server's error shows for all of them, above the composer and in `preview_console`. The tool's check times out and says the page isn't showing the version; the agent fixes it and calls again. Discard still undoes everything.
-- **The agent ignores the contract.** If nothing carries the set's attribute, the bar still shows, the page doesn't scroll, and the tool tells the agent what to add. If the page doesn't switch, the tool says so. Flipping then does nothing visible; × still undoes the code.
+- **The agent ignores the contract.** If nothing carries the set's attribute, or the page doesn't switch to the version asked for, no bar shows and the tool tells the agent what to fix; the user sees the page as it is, with the message's Undo.
 - **The element disappears** (another page, a version that renders nothing). The bar stays in its corner; a flip finds nothing to scroll to and leaves the page where it is.
 - **You edit files mid-set.** Discard uses Undo's checks: when a file it would restore changed outside Gui, it asks before overwriting it ("Overwrite changes made outside Gui?"); Cancel leaves the code alone. If Gui's saved versions are missing, or the agent is still working, the bar says so and nothing changes.
 - **You switch tabs.** The bar is the tab's, like its preview: it goes with the tab and comes back with it. The agent's work in a background tab carries on.

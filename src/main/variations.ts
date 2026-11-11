@@ -104,22 +104,26 @@ export class Variations {
       busy: false,
       error: null,
     }
-    this.shown = shown
-    this.render()
+    // The bar comes up once the page shows the version it names, never before: a bar over a
+    // page that shows something else would have the user judge the wrong thing.
+    const before = this.shown
     const variant = all[index]
     await this.write(set, variant.id)
     const showing = await this.waitFor(set, variant.id)
-    if (this.shown !== shown) return 'The user closed the versions meanwhile.'
+    if (this.shown !== before || !this.deps.stillCurrent(generation) || this.deps.chat() !== chat)
+      return 'The user closed the versions meanwhile.'
     if (showing === null)
       throw new Error(
-        `The bar is up, but nothing in the page matches ${elementOf(set)}. Put data-gui-variation="${set}" and data-gui-variant="<version id>" on the root element of every version, the original too, then call this again.`,
+        `No bar yet: nothing in the page matches ${elementOf(set)}. Put data-gui-variation="${set}" and data-gui-variant="<version id>" on the root element of every version, the original too, then call this again.`,
       )
     if (showing !== variant.id) {
       const other = all.find((v) => v.id === showing)
       throw new Error(
-        `Gui switched to "${variant.id}", but the page shows ${other ? `"${other.id}"` : 'another version'}. Make the switch read localStorage and re-render on the gui:variation event, as this tool describes, then call this again.`,
+        `No bar yet: Gui switched to "${variant.id}", but the page shows ${other ? `"${other.id}"` : 'another version'}. Make the switch read localStorage and re-render on the gui:variation event, as this tool describes, then call this again.`,
       )
     }
+    this.shown = shown
+    this.render()
     await this.reveal(set, variant.id)
     return `The preview shows ${this.label(shown, index)}, scrolled into view, with Gui's bar at the preview's bottom-left. The user flips through the versions there, then keeps one (Use this, which sends you a message) or discards them all (which undoes this message).`
   }

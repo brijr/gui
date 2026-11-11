@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 import type { PanelCorner, Rect } from '../src/shared/types'
-import { waitFor } from './helpers/env'
+import { sleep, waitFor } from './helpers/env'
 import { gitStatus } from './helpers/fixtures'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
@@ -248,4 +248,37 @@ test('the bar sits right of a floating chat in the bottom-left corner, and moves
   // Docked as a sidebar, the chat is beside the preview: the bar goes back to the corner.
   await session.chat.evaluate(() => window.gui.toggleDock())
   await barWhere(session, overlay, 'the bar in the corner beside the sidebar', inCorner)
+})
+
+// The bar names the version on the page: it waits for the page to show it, and when the page
+// can't (no switch that follows the contract), it never comes up.
+test('the bar never shows a version the page does not', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await installToolAgent(session)
+  const overlay = await session.pickPage()
+  let seen = false
+  let asking = true
+  const watch = (async () => {
+    while (asking) {
+      if ((await overlay.locator('[data-variations]').count()) > 0) seen = true
+      await sleep(50)
+    }
+  })()
+  // The hero has no switch: Gui flips nothing the page reads.
+  const [shown] = await ask(session, [
+    {
+      write: {
+        path: 'src/App.tsx',
+        text: VARIATIONS_APP.replace('data-gui-variant={variant}', 'data-gui-variant="original"'),
+      },
+    },
+    { name: 'preview_variations', args: { set: 'hero', variants: VARIANTS } },
+  ])
+  asking = false
+  await watch
+  expect(shown.isError).toBe(true)
+  expect(shown.content[0].text).toContain('No bar yet')
+  expect(seen).toBe(false)
+  await expect(overlay.locator('[data-variations]')).toHaveCount(0)
 })
