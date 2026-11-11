@@ -1181,6 +1181,7 @@ function registerIpc() {
   on(Send.pickHover, (tab, at) => (at === null || isPoint(at)) && tab.pickHover(at))
   on(Send.pickElement, (tab, at, add) => isPoint(at) && tab.pickElement(at, add === true))
   on(Send.pickArea, (tab, rect, add) => isRect(rect) && tab.pickArea(rect, add === true))
+  on(Send.editPreviewText, (tab, at) => isPoint(at) && tab.editTextAt(at))
   on(Send.pickWheel, (tab, at, dx, dy) => {
     if (isPoint(at) && isNumber(dx) && isNumber(dy)) tab.pickWheel(at, dx, dy)
   })

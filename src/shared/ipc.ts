@@ -127,6 +127,7 @@ export const Send = {
   pickHover: 'pick:hover',
   pickElement: 'pick:element',
   pickArea: 'pick:area',
+  editPreviewText: 'pick:edit-text',
   pickWheel: 'pick:wheel',
   endGuide: 'pick:end-guide',
   variations: 'pick:variations',
@@ -522,6 +523,8 @@ export interface GuiApi {
   pickElement(at: Point, add: boolean): void
   /** A drag picks the area `rect` as a screenshot; `add` as for `pickElement` */
   pickArea(rect: Rect, add: boolean): void
+  /** A double-click at `at` edits the text there in place, in the page; it ends picking */
+  editPreviewText(at: Point): void
   /** The wheel over the overlay scrolls the page under it */
   pickWheel(at: Point, deltaX: number, deltaY: number): void
   /** The user clicked the agent's walkthrough away */

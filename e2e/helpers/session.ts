@@ -96,18 +96,25 @@ async function captureLayers(api: ElectronModule): Promise<Layers | null> {
   return { width, height, out }
 }
 
-/** What to do in the pick overlay: click at `from`, or drag from it to `to`, holding ⇧ to add. */
+/**
+ * What to do in the pick overlay: click at `from` (`clicks` times in a row: 2 double-clicks),
+ * or drag from it to `to`, holding ⇧ to add.
+ */
 interface OverlayGesture {
   from: Point
   to: Point | null
   add: boolean
+  clicks?: number
 }
 
 /**
  * Runs in main: real input to the pick overlay that lies over the preview while picking, at
  * points in its coordinates (the preview view's), as the user's pointer would give it.
  */
-function overlayGesture({ webContents }: ElectronModule, { from, to, add }: OverlayGesture) {
+function overlayGesture(
+  { webContents }: ElectronModule,
+  { from, to, add, clicks = 1 }: OverlayGesture,
+) {
   const overlay = webContents.getAllWebContents().find((wc) => wc.getURL().endsWith('/pick.html'))
   if (!overlay) throw new Error('The pick overlay is missing')
   const modifiers: ('shift' | 'leftbuttondown')[] = add ? ['shift'] : []
@@ -117,11 +124,16 @@ function overlayGesture({ webContents }: ElectronModule, { from, to, add }: Over
   marked.guiE2eInput = true
   try {
     overlay.sendInputEvent({ type: 'mouseMove', ...at(from), modifiers })
+    for (let click = 1; click < clicks; click++) {
+      const press = { ...at(from), button: 'left' as const, clickCount: click, modifiers }
+      overlay.sendInputEvent({ type: 'mouseDown', ...press })
+      overlay.sendInputEvent({ type: 'mouseUp', ...press })
+    }
     overlay.sendInputEvent({
       type: 'mouseDown',
       ...at(from),
       button: 'left',
-      clickCount: 1,
+      clickCount: clicks,
       modifiers,
     })
     if (to) {
@@ -142,7 +154,7 @@ function overlayGesture({ webContents }: ElectronModule, { from, to, add }: Over
       type: 'mouseUp',
       ...at(to ?? from),
       button: 'left',
-      clickCount: 1,
+      clickCount: clicks,
       modifiers,
     })
   } finally {
@@ -294,6 +306,23 @@ export class GuiSession {
   async overlayGesture(at: Point, options: { to?: Point; add?: boolean } = {}) {
     const gesture: OverlayGesture = { from: at, to: options.to ?? null, add: options.add ?? false }
     await this.app.evaluate(overlayGesture, gesture)
+  }
+
+  /**
+   * Edits the text of the page's `selector` in place as the user does: Design mode on, then a
+   * double-click on it. Resolves once it's editable.
+   */
+  async editText(selector: string) {
+    const box = await this.viewBox(selector)
+    await this.startPicking()
+    const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+    const gesture: OverlayGesture = { from: center, to: null, add: false, clicks: 2 }
+    await this.app.evaluate(overlayGesture, gesture)
+    const preview = await this.previewPage()
+    await preview
+      .locator(selector)
+      .and(preview.locator('[contenteditable="plaintext-only"]'))
+      .waitFor({ timeout: 10_000 })
   }
 
   /** The pointer moves to `at` in the pick overlay, or the wheel turns there by `deltaY`. */

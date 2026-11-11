@@ -308,6 +308,11 @@ export class Picker {
     return this.inspector.nodeAt(this.toPage(at))
   }
 
+  /** The overlay's point `at` as the viewport's, in CSS pixels. */
+  toPagePoint(at: Point): Point {
+    return this.toPage(at)
+  }
+
   /** The overlay's `rect` as the viewport's, in CSS pixels. */
   toPageRect(rect: Rect): Rect {
     const page = viewportRectFromView(viewRectFrom(rect), this.scale())

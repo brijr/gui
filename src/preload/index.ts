@@ -122,6 +122,7 @@ const api: GuiApi = {
   pickHover: send(Send.pickHover),
   pickElement: send(Send.pickElement),
   pickArea: send(Send.pickArea),
+  editPreviewText: send(Send.editPreviewText),
   pickWheel: send(Send.pickWheel),
   endGuide: send(Send.endGuide),
   variations: send(Send.variations),

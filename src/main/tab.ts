@@ -40,6 +40,7 @@ import {
   type GuidePointerPhase,
 } from '../shared/ipc'
 import { RULER_SIZE } from '../shared/layout'
+import { PreviewText } from '../shared/preview-text'
 import { SHORTCUTS } from '../shared/shortcuts'
 import {
   type AgentId,
@@ -202,6 +203,8 @@ const PENDING_PICK = 'pending'
 const AGENT_START_WAIT_MS = 45_000
 /** The walkthrough's last step stays this long after the agent's turn ends */
 const GUIDE_LINGER_MS = 5000
+/** How long the page has to answer Design mode's double-click with the text it'll edit */
+const TEXT_EDIT_ASK_MS = 2000
 /** The longest an agent's width check waits for the preview to resize into its viewport */
 const MORPH_WAIT_MS = 2000
 /** How much of the dev server's output the agent's dev server tools return */
@@ -460,6 +463,11 @@ export class ProjectTab implements ChatPanelOwner {
   private hoveredPick: string | null = null
   /** Text double-clicked in the page and being edited there (`startTextEdit`) */
   private textEdit: { id: string; before: string; node: Promise<number | null> } | null = null
+  /**
+   * Where Design mode was just double-clicked, in the viewport's CSS pixels, for the page to
+   * edit the text there (`editTextAt`): the only edit `startTextEdit` lets begin, once.
+   */
+  private textEditAsked: { at: Point; until: number } | null = null
   /** The screenshot menu is open or its capture is running. */
   private screenshotting = false
   disposed = false
@@ -2382,11 +2390,31 @@ export class ProjectTab implements ChatPanelOwner {
   // Editing the page's text in place (src/preload/preview.ts)
 
   /**
-   * Text was double-clicked in the page, at `at` (its CSS pixels in the viewport): it may be
-   * edited there when it's the app's (or a canvas frame's) and the user isn't picking. The
-   * element under `at` is found now, before typing moves it. An id for the edit, or null.
+   * Design mode was double-clicked at `at` (the overlay's coordinates): picking ends, and the
+   * page is asked to edit the text there in place, if it's copy. Only Design mode starts an
+   * edit, so a double-click that selects a word in the app stays just that.
+   */
+  editTextAt(at: Point) {
+    if (!this.picker.picking || this.textEdit) return
+    const page = this.picker.toPagePoint(at)
+    void this.setSelecting(false)
+    this.textEditAsked = { at: page, until: Date.now() + TEXT_EDIT_ASK_MS }
+    const wc = this.preview.webContents
+    wc.focus()
+    wc.send(PreviewText.begin, page)
+  }
+
+  /**
+   * The page found copy to edit where Design mode was double-clicked (`editTextAt`), at `at`
+   * (its CSS pixels in the viewport): it may be edited there when it's the app's (or a canvas
+   * frame's). The element under `at` is found now, before typing moves it. An id for the
+   * edit, or null.
    */
   startTextEdit(at: Point, before: string): string | null {
+    const asked = this.textEditAsked
+    this.textEditAsked = null
+    if (!asked || asked.until < Date.now() || asked.at.x !== at.x || asked.at.y !== at.y)
+      return null
     if (!this.state.project || !this.resources.chat || this.picker.picking) return null
     if (!this.state.preview.selectable || this.textEdit) return null
     const id = randomUUID()
@@ -2423,8 +2451,16 @@ export class ProjectTab implements ChatPanelOwner {
         ? board.framePath(board.openId)
         : element?.source && sourceInProject(project.root, element.source.file)
       const line = board?.openId ? null : (element?.source?.line ?? null)
-      // During a turn, the change would be the agent's to undo; it waits its turn instead.
-      if (file && !chat.busy && (await rewriteText(file, before, after, line))) return
+      // Written by Gui, it's a turn of its own in the chat, with Undo. During a turn, the
+      // change would be the agent's to undo; it waits its turn instead.
+      const written = { before, after: collapseText(after) }
+      const write = () => rewriteText(file || '', before, after, line)
+      if (file && (await chat.writeTextEdit(written, file, write))) {
+        // The chat's line for it is the only sign a file changed, and holds its Undo.
+        if (chat === this.resources.chat && this.panel.untuck()) this.layout()
+        return
+      }
+      if (chat !== this.resources.chat) return
       // The user's own picks stay for their next message.
       const picked = chat.meta.selection
       const nodes = [...this.pickedNodes]

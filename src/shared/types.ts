@@ -1154,6 +1154,11 @@ export interface Turn {
   followUp?: FollowUp | null
   /** The text edit from the preview this message asks for; `prompt` is Gui's own words then */
   textEdit?: TextEdit
+  /**
+   * Gui wrote `textEdit` into this file itself (relative to the project): the user's own
+   * edit, with no agent behind it. The chat shows it in one line, with Undo.
+   */
+  editedFile?: string
   reverted: boolean
 }
 

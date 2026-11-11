@@ -73,6 +73,7 @@ import {
   type PromptViewport,
   placeCommand,
   TEXT_EDIT_PROMPT,
+  TEXT_EDITED_PROMPT,
 } from './prompt'
 import { recordingBlocks } from './recording-prompt'
 import type { Recordings } from './recordings'
@@ -757,6 +758,73 @@ export class ChatController extends EventEmitter<ChatEvents> {
    */
   sendTextEdit(edit: TextEdit): boolean {
     return this.submit(TEXT_EDIT_PROMPT, [], [], null, edit)
+  }
+
+  /**
+   * Writes a text edit from the preview into `file` (`write`, which says whether it could) as
+   * a turn of the user's own: no agent runs, but it's checkpointed before and after like any
+   * turn, so it shows in the chat with Undo. False, with nothing recorded, when it can't be
+   * done now (a turn, undo or redo is running here or on this folder in another tab) or
+   * `write` didn't write; the caller hands the edit to the agent then.
+   */
+  async writeTextEdit(edit: TextEdit, file: string, write: () => Promise<boolean>) {
+    if (this.lock || this.disposed) return false
+    const record: TurnRecord = {
+      turn: {
+        id: randomUUID(),
+        index: this.records.length,
+        prompt: TEXT_EDITED_PROMPT,
+        context: [],
+        items: [],
+        status: 'running',
+        error: null,
+        startedAt: Date.now(),
+        endedAt: null,
+        changes: null,
+        textEdit: edit,
+        editedFile: this.displayPath(file),
+        reverted: false,
+      },
+      command: null,
+      fix: null,
+      before: null,
+      after: null,
+      cancelRequested: false,
+      settled: Promise.resolve(),
+    }
+    this.lock = record
+    const epoch = this.epoch
+    const slot = this.checkpoints.turnSlot()
+    let free = false
+    void slot.ready.then(() => {
+      free = true
+    })
+    try {
+      await sleep(0)
+      // An agent in another tab on this folder is mid-turn: its checkpoint would take this in.
+      if (!free || !this.live(epoch)) return false
+      record.before = await this.checkpoints.snapshot('before a text edit').catch(() => null)
+      if (!record.before || !this.live(epoch)) return false
+      if (!(await write())) return false
+      record.after = await this.checkpoints.snapshot('after a text edit').catch(() => null)
+      if (record.after) record.turn.changes = await this.turnChanges(record.before, record.after)
+      if (!this.live(epoch)) return true
+      record.turn.status = 'done'
+      record.turn.endedAt = Date.now()
+      record.turn.index = this.records.length
+      this.records.push(record)
+      this.transcriptAgent ??= this.meta.agentId
+      if (this.meta.archived) this.patchMeta({ archived: null })
+      // New work makes the previous undo unrecoverable by redo.
+      this.redoPoint = null
+      this.patchMeta({ redoTurnIds: [] })
+      this.flushTurn(record)
+      return true
+    } finally {
+      slot.release()
+      if (this.lock === record) this.lock = null
+      if (this.live(epoch)) this.drainQueue()
+    }
   }
 
   private submit(

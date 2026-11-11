@@ -22,6 +22,11 @@ import { Button, Counter, IconButton, Kbd } from '../lib/ui'
 const DRAG_THRESHOLD = 4
 /** Smaller than this either way, a drag is taken as a click after all. */
 const MIN_AREA = 8
+/**
+ * A click waits this long for a second one before it picks: two make a double-click, which
+ * edits the text there instead.
+ */
+const DOUBLE_CLICK_MS = 300
 /** The label's height (h-5) */
 const LABEL_HEIGHT = 20
 /** Between the label and the outline, so the label doesn't sit on what's above the element */
@@ -35,15 +40,17 @@ const IDLE: PickOverlayState = { hover: null, picked: [], busy: false, scale: 1,
  * Picking, drawn over the preview (main/picker.ts lays this view over the page): the element
  * under the pointer with its name and size, what's been picked (numbered when there are
  * several), and an area being dragged out. A click picks the element; a drag picks the area as
- * a screenshot; with ⇧ either adds to what's picked and picking goes on. The wheel scrolls the
- * page underneath; Esc ends picking.
+ * a screenshot; with ⇧ either adds to what's picked and picking goes on. A double-click on text
+ * edits it in place, in the page. The wheel scrolls the page underneath; Esc ends picking.
  */
 export function PickOverlay() {
   const [state, setState] = useState<PickOverlayState>(IDLE)
   const [drag, setDrag] = useState<{ start: Point; end: Point } | null>(null)
   const [adding, setAdding] = useState(false)
   const [hintRun, setHintRun] = useState(0)
-  const press = useRef<{ start: Point; dragging: boolean } | null>(null)
+  const press = useRef<{ start: Point; dragging: boolean; second: boolean } | null>(null)
+  /** A click waiting to pick, unless a second click makes it a double-click (`DOUBLE_CLICK_MS`) */
+  const click = useRef<{ at: Point; timer: number } | null>(null)
   const pending = useRef<{ at: Point | null; frame: number | null }>({ at: null, frame: null })
 
   useEffect(() => gui.onPickState(setState), [])
@@ -89,7 +96,13 @@ export function PickOverlay() {
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return
     event.currentTarget.setPointerCapture(event.pointerId)
-    press.current = { start: pointAt(event), dragging: false }
+    const start = pointAt(event)
+    const first = click.current
+    const second =
+      !!first && Math.hypot(start.x - first.at.x, start.y - first.at.y) < DRAG_THRESHOLD
+    if (first) window.clearTimeout(first.timer)
+    click.current = null
+    press.current = { start, dragging: false, second }
     setHintRun(0)
   }
 
@@ -116,11 +129,31 @@ export function PickOverlay() {
     const area = rectBetween(pressed.start, at)
     if (pressed.dragging && area.width >= MIN_AREA && area.height >= MIN_AREA) {
       gui.pickArea(area, event.shiftKey)
+    } else if (pressed.second) {
+      gui.editPreviewText(pressed.start)
+    } else if (event.shiftKey) {
+      gui.pickElement(pressed.start, true)
     } else {
-      gui.pickElement(pressed.start, event.shiftKey)
+      // A click on its own ends picking, so it waits to be sure it isn't a double-click's first.
+      const start = pressed.start
+      click.current = {
+        at: start,
+        timer: window.setTimeout(() => {
+          click.current = null
+          gui.pickElement(start, false)
+        }, DOUBLE_CLICK_MS),
+      }
     }
     hover(at)
   }
+
+  // A new run of picking starts with no click waiting from the last one.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on each run
+  useEffect(() => {
+    const waiting = click.current
+    if (waiting) window.clearTimeout(waiting.timer)
+    click.current = null
+  }, [state.run])
 
   // Main gives this page the keyboard when picking starts; nothing in it has focus, so Esc is
   // heard on the window.
@@ -611,6 +644,9 @@ function Hint({ shown }: { shown: boolean }) {
       </span>
       <span>
         <span className="font-medium text-fg">Drag</span> for a screenshot
+      </span>
+      <span>
+        <span className="font-medium text-fg">Double-click</span> text to edit it
       </span>
       <span className="flex items-center gap-1">
         <Kbd>⇧</Kbd> to select more

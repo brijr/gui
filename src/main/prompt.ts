@@ -413,6 +413,12 @@ export function fenceUntrusted(label: string, body: string) {
  */
 export const TEXT_EDIT_PROMPT = 'Change this text.'
 
+/**
+ * What a text edit Gui wrote into the source itself is called in the transcript (and the
+ * history and versions): the user's own change, with no agent turn behind it.
+ */
+export const TEXT_EDITED_PROMPT = 'Edited text in the preview.'
+
 /** A text edit's old and new text, one line each, fenced as everything from the page is. */
 function fenceTextEdit({ before, after }: TextEdit) {
   return fenceUntrusted('text_edit', `Old text: ${oneLine(before)}\nNew text: ${oneLine(after)}`)

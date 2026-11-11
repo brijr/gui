@@ -89,6 +89,14 @@ function plural(count: number, word: string) {
  * at the end the result to judge, with Undo.
  */
 export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
+  if (turn.editedFile && turn.textEdit)
+    return (
+      <DirectEdit turn={turn} file={turn.editedFile} edit={turn.textEdit} showRedo={showRedo} />
+    )
+  return <AgentTurn turn={turn} showRedo={showRedo} />
+}
+
+function AgentTurn({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
   const blocks = toBlocks(turn.items)
   const running = turn.status === 'running'
   // The agent can't go on until a question it asked is answered.
@@ -232,6 +240,126 @@ function TextEdited({ edit }: { edit: TextEdit }) {
       <ArrowRight className="size-3 shrink-0" aria-label="changed to" />
       <span className="min-w-0 truncate text-fg">“{edit.after}”</span>
     </p>
+  )
+}
+
+/**
+ * Text the user edited in the preview that Gui wrote into the source itself, in one line:
+ * what changed and where, with Undo (and Redo once undone), as an agent's turn has.
+ */
+function DirectEdit({
+  turn,
+  file,
+  edit,
+  showRedo,
+}: {
+  turn: Turn
+  file: string
+  edit: TextEdit
+  showRedo: boolean
+}) {
+  const [busy, setBusy] = useTurnPresentation<'undo' | 'redo' | null>('result:busy', null)
+  const [error, setError] = useTurnPresentation<string | null>('result:error', null)
+  const [confirming, setConfirming] = useTurnPresentation('result:confirm', false)
+  // Later messages with changes that Undo here would take back too.
+  const later = useChat(
+    (s) =>
+      s.turnIds.slice(s.turnIds.indexOf(turn.id) + 1).filter((id) => {
+        const next = s.turnsById[id]
+        return !!next && !next.reverted && (!!next.changes?.length || !!next.changesUnknown)
+      }).length,
+  )
+  const asking = confirming && later > 0 && !turn.reverted
+  const name = file.split('/').at(-1) ?? file
+
+  const run = async (which: 'undo' | 'redo', action: () => Promise<void>) => {
+    setBusy(which)
+    setError(null)
+    try {
+      await action()
+    } catch (err) {
+      setError(readableError(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+  const undo = () => {
+    setConfirming(false)
+    void run('undo', () => gui.restoreTurn(turn.id))
+  }
+
+  return (
+    <TurnPresentationScope id={turn.id}>
+      <Row rowKey={`${turn.id}:edit`}>
+        <section aria-label="Text edit" data-direct-edit={turn.id} className="flex flex-col gap-2">
+          <div className="flex min-w-0 items-center gap-2 text-small">
+            <p
+              className={cn(
+                'flex min-w-0 flex-1 items-center gap-1.5 text-muted',
+                turn.reverted && UNDONE,
+              )}
+              title={`${textEditLabel(edit)} · ${file}`}
+            >
+              <Pencil className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+              {/* Short of room, the old text gives way first: the new one is what to check. */}
+              <span className="min-w-8 shrink-[1000] truncate">“{edit.before}”</span>
+              <ArrowRight className="size-3 shrink-0 text-subtle" aria-label="changed to" />
+              <span className="min-w-0 truncate text-fg">“{edit.after}”</span>
+              <span className="shrink-0 text-subtle">· {name}</span>
+            </p>
+            {turn.reverted ? (
+              <span className="flex shrink-0 items-center gap-2">
+                <Badge>Undone</Badge>
+                {showRedo && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon={Redo2}
+                    loading={busy === 'redo'}
+                    onClick={() => run('redo', () => gui.redo())}
+                  >
+                    Redo
+                  </Button>
+                )}
+              </span>
+            ) : (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={Undo2}
+                className="shrink-0"
+                loading={busy === 'undo'}
+                aria-expanded={later > 0 ? asking : undefined}
+                title={
+                  later > 0
+                    ? 'Put the text back, undoing later messages too'
+                    : 'Put the text back as it was'
+                }
+                onClick={() => (later > 0 ? setConfirming(!asking) : undo())}
+              >
+                {later > 0 ? 'Undo to here' : 'Undo'}
+              </Button>
+            )}
+          </div>
+          {asking && (
+            <div className="flex flex-wrap items-center gap-2">
+              <p role="status" className="min-w-0 flex-1 text-small text-pretty text-muted">
+                Undo this and {plural(later, 'later message')}? You can redo.
+              </p>
+              <span className="flex shrink-0 items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setConfirming(false)}>
+                  Cancel
+                </Button>
+                <Button size="sm" variant="primary" icon={Undo2} onClick={undo}>
+                  Undo
+                </Button>
+              </span>
+            </div>
+          )}
+          {error && <InlineError>{error}</InlineError>}
+        </section>
+      </Row>
+    </TurnPresentationScope>
   )
 }
 

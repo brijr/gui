@@ -4,9 +4,11 @@ import { PreviewGuides } from '../shared/preview-guides'
 import { MAX_PREVIEW_TEXT, PreviewText } from '../shared/preview-text'
 import { ACCENT } from '../shared/theme'
 
-// Double-click page copy in the preview to edit it in place; main writes it to the source
-// (src/main/text-edit.ts) or hands it to the agent. This runs in the preview's isolated world:
-// the page can't reach it or fake its events, and it only reads and edits the DOM.
+// Double-click page copy in Design mode to edit it in place: main asks for the text where it
+// was double-clicked (`PreviewText.begin`), then writes the edit to the source
+// (src/main/text-edit.ts) or hands it to the agent. A double-click in the app itself is the
+// app's: it selects a word, as in a browser. This runs in the preview's isolated world: the
+// page can't reach it or fake main's messages, and it only reads and edits the DOM.
 
 /** Elements whose text isn't copy to rewrite: form controls, code, drawings. */
 const NOT_COPY = 'input,textarea,select,option,script,style,svg,canvas,video,audio,iframe'
@@ -23,12 +25,14 @@ interface Editing {
   editable: string | null
   outline: string
   outlineOffset: string
+  /** What Return and Esc do, beside the element; Gui's own, in a closed shadow root */
+  hint: HTMLElement
 }
 
 let editing: Editing | null = null
 let starting = false
 
-/** The element to edit from a double-click's target: one that holds only text. */
+/** The element to edit where Design mode was double-clicked: one that holds only text. */
 function copyAt(target: EventTarget | null): HTMLElement | null {
   if (!(target instanceof HTMLElement) || target.isContentEditable) return null
   if (target.closest(NOT_COPY)) return null
@@ -38,15 +42,14 @@ function copyAt(target: EventTarget | null): HTMLElement | null {
   return text.trim() && text.length <= MAX_PREVIEW_TEXT ? target : null
 }
 
-// Bubbling, so a page that handles its own double-clicks (and says so) keeps them.
-window.addEventListener('dblclick', (event) => {
-  if (!event.isTrusted || event.defaultPrevented || editing || starting) return
-  const el = copyAt(event.target)
+ipcRenderer.on(PreviewText.begin, (_event, at: unknown) => {
+  if (editing || starting || !isPoint(at)) return
+  const el = copyAt(document.elementFromPoint(at.x, at.y))
   if (!el) return
   const before = el.textContent ?? ''
   starting = true
   ipcRenderer
-    .invoke(PreviewText.start, { x: event.clientX, y: event.clientY }, before)
+    .invoke(PreviewText.start, { x: at.x, y: at.y }, before)
     .then((id: unknown) => {
       if (typeof id !== 'string') return
       if (!el.isConnected || el.textContent !== before) {
@@ -61,6 +64,68 @@ window.addEventListener('dblclick', (event) => {
     })
 })
 
+function isPoint(value: unknown): value is { x: number; y: number } {
+  if (!value || typeof value !== 'object') return false
+  const { x, y } = value as Record<string, unknown>
+  return typeof x === 'number' && typeof y === 'number' && Number.isFinite(x + y)
+}
+
+/** Below the element (above it near the viewport's bottom), at its left edge */
+const HINT_GAP = 8
+const HINT_HEIGHT = 24
+
+/**
+ * The hint beside an edit: Return keeps it, Esc cancels. Gui's own, so it sits in a closed
+ * shadow root on the document element, out of the page's styles and its framework's way;
+ * it never takes the pointer.
+ */
+function makeHint(): HTMLElement {
+  const host = document.createElement('gui-text-edit-hint')
+  const root = host.attachShadow({ mode: 'closed' })
+  const style = document.createElement('style')
+  style.textContent = `
+    :host { all: initial; position: fixed; z-index: 2147483647; pointer-events: none;
+      animation: in 120ms ease-out both; }
+    div { display: flex; align-items: center; gap: 4px; height: ${HINT_HEIGHT}px;
+      padding: 0 8px; border-radius: 6px; background: rgba(20, 20, 22, 0.92); color: #e6e6e8;
+      font: 500 11px/1 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      white-space: nowrap; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18); }
+    kbd { font: inherit; color: #fff; }
+    span { color: #9a9aa0; }
+    span:not(:last-child) { margin-right: 6px; }
+    @keyframes in { from { opacity: 0; transform: translateY(-2px); } }
+    @media (prefers-reduced-motion: reduce) { :host { animation-name: fade; } }
+    @keyframes fade { from { opacity: 0; } }
+  `
+  const line = document.createElement('div')
+  for (const [key, what] of [
+    ['Return', 'to keep'],
+    ['Esc', 'to cancel'],
+  ]) {
+    const kbd = document.createElement('kbd')
+    kbd.textContent = key
+    const span = document.createElement('span')
+    span.textContent = what
+    line.append(kbd, span)
+  }
+  root.append(style, line)
+  return host
+}
+
+/** Puts the hint under the element being edited, or over it when there's no room below. */
+function placeHint() {
+  const current = editing
+  if (!current) return
+  const rect = current.el.getBoundingClientRect()
+  const below = rect.bottom + HINT_GAP
+  const top =
+    below + HINT_HEIGHT <= window.innerHeight
+      ? below
+      : Math.max(HINT_GAP, rect.top - HINT_GAP - HINT_HEIGHT)
+  current.hint.style.top = `${Math.round(top)}px`
+  current.hint.style.left = `${Math.round(Math.max(HINT_GAP, rect.left))}px`
+}
+
 function begin(el: HTMLElement, id: string, before: string) {
   editing = {
     el,
@@ -73,7 +138,10 @@ function begin(el: HTMLElement, id: string, before: string) {
     editable: el.getAttribute('contenteditable'),
     outline: el.style.outline,
     outlineOffset: el.style.outlineOffset,
+    hint: makeHint(),
   }
+  document.documentElement.append(editing.hint)
+  placeHint()
   el.contentEditable = 'plaintext-only'
   el.style.outline = `2px solid ${ACCENT.light}`
   el.style.outlineOffset = '2px'
@@ -87,6 +155,8 @@ function begin(el: HTMLElement, id: string, before: string) {
   for (const type of POINTER) window.addEventListener(type, onPointer, true)
   el.addEventListener('focusout', onBlur)
   window.addEventListener('pagehide', onLeave)
+  window.addEventListener('scroll', placeHint, { capture: true, passive: true })
+  window.addEventListener('resize', placeHint)
 }
 
 /** Ends the edit: the element goes back to how the page made it, with the new text if any. */
@@ -99,6 +169,9 @@ function finish(keep: boolean) {
   for (const type of POINTER) window.removeEventListener(type, onPointer, true)
   el.removeEventListener('focusout', onBlur)
   window.removeEventListener('pagehide', onLeave)
+  window.removeEventListener('scroll', placeHint, { capture: true })
+  window.removeEventListener('resize', placeHint)
+  current.hint.remove()
 
   const after = (el.textContent ?? '').replace(/\s+/g, ' ').trim()
   const changed = keep && after !== current.before.replace(/\s+/g, ' ').trim()
