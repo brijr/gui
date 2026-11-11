@@ -16,6 +16,7 @@ export const releases: Release[] = [
     changes: [
       'You can follow your agent as it uses your app or a website: its pointer glides to what it clicks, the page scrolls there smoothly, text types in, and scrolls slow to a stop. Clicks are quicker than before. With Reduce motion on, it all happens at once.',
       'Agents can play an animation in the preview and watch it frame by frame, to check the motion they built.',
+      'Agents get a smaller, sharper set of Gui tools. They can wait for something to appear on the page and go back a page.',
       'Agents ask before they open a website, and their preview tools act only on your app, not on other local servers. Amp, fx, Kiro, OpenCode and Pi, whose own settings decide what they ask, aren’t offered websites at all.',
       'When your agent changes your dev script, Gui asks before running it, every time.',
       'Double-click text in Design mode to edit it in place. When Gui writes the change into your source, the chat shows it in one line with Undo. Outside Design mode, a double-click selects a word as usual.',
@@ -34,7 +35,6 @@ export const releases: Release[] = [
       'On a canvas, ⌘D duplicates and ⇧⌘Z redoes your own board changes, as in Figma.',
       'One way back: Undo on a message (Undo to here on an older one, Redo, ⌘Z). The Versions sheet is gone, and an undone message no longer offers Follow up.',
       'Fix: if the page reloaded while your agent took a screenshot, the preview could go blank or stay shrunk inside its device frame until you changed the size. It now comes back on its own, and the screenshot is taken again.',
-      'Agents get a smaller, sharper set of Gui tools. They can wait for something to appear on the page and go back a page.',
     ],
   },
   {
