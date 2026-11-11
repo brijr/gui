@@ -32,6 +32,7 @@ export const releases: Release[] = [
       'The chat shows one status line at a time, a finished plan folds to one line, and the minimized chat pill is gone (⌘B hides the chat). Chat position moved to Settings → Agents.',
       'Canvas frames stay sharp at 100% on Retina screens, and keep their names inside sections when you zoom out. A frame your agent is changing says Rendering… until its new preview is in.',
       'On a canvas, ⌘D duplicates and ⇧⌘Z redoes your own board changes, as in Figma.',
+      'One way back: Undo on a message (Undo to here on an older one, Redo, ⌘Z). The Versions sheet is gone, and an undone message no longer offers Follow up.',
       'Fix: if the page reloaded while your agent took a screenshot, the preview could go blank or stay shrunk inside its device frame until you changed the size. It now comes back on its own, and the screenshot is taken again.',
       'Agents get a smaller, sharper set of Gui tools. They can wait for something to appear on the page and go back a page.',
     ],
