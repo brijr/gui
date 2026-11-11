@@ -45,17 +45,15 @@ export async function scriptsOf(project: ProjectInfo): Promise<CurrentScripts> {
 /**
  * Whether starting now runs something the user hasn't agreed to: the app's script changed
  * since they did, or (for an app never started before) Gui chose it rather than the user.
- * A start command set in Gui was the user's, or approved by them; `watched` is a start
- * they saw come about.
+ * A start command set in Gui was the user's, or approved by them.
  */
 export function startChanged(
   project: ProjectInfo,
   now: CurrentScripts,
   saved: TrustedScripts,
   picked: boolean,
-  watched: string | null,
 ): boolean {
-  if (project.custom || watched === now.start) return false
+  if (project.custom) return false
   const agreed = saved.starts[now.app]
   return agreed === undefined ? !picked : agreed !== now.start
 }

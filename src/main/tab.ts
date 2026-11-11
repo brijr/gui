@@ -155,7 +155,6 @@ import {
   changedInstalls,
   scriptsOf,
   startChanged,
-  startKey,
 } from './start-scripts'
 import { reloadsItself, StartWatch, startDirs, startSignature } from './start-watch'
 import { describeServer, logTail, startupFailure, startupReport } from './startup'
@@ -534,24 +533,14 @@ export class ProjectTab implements ChatPanelOwner {
   /** Getting the app going again from the top (`retryStartup`), so it runs once at a time */
   private retrying: Promise<void> | null = null
   /**
-   * A start (`startKey`) the user saw come about in this session: a dev script the agent
-   * changed during a turn. It runs without asking again, and becomes what's trusted.
-   */
-  private watchedStart: string | null = null
-  /** The start as the running turn began, to tell what the agent changed in it */
-  private turnStartKey: Promise<string | null> | null = null
-  /**
-   * The agent's dev_server_restart (or set_start_command) is getting the app going: a dev
-   * script changed since the user agreed to it asks, as a new start command does, and isn't
-   * taken as one they watched come about (`watchedStart`).
+   * The agent's dev_server_restart (or set_start_command) is getting the app going: its
+   * trust prompt doesn't agree on Return.
    */
   private agentStarting = 0
   /** The user said no to running what the agent's restart would have run (`agentStarting`) */
   private agentDeclined = false
-  /** That start (`startKey`), which the end of the turn mustn't then take as watched */
+  /** The start (`startKey`) the user last said no to: the agent's restart doesn't ask again */
   private declinedStart: string | null = null
-  /** Settles once the end of the last turn has been looked at (`noteTurnScripts`) */
-  private scriptsNoted: Promise<void> = Promise.resolve()
   /** What the app last started from (`startSignature`), to restart it only on a real change */
   private startedSignature: string | null = null
   /** Its start files changed mid-turn: restart once the turn is over. */
@@ -1463,7 +1452,6 @@ export class ProjectTab implements ChatPanelOwner {
       // its session is cleared, before this turn's agent can act on it.
       if (turn.status === 'running' && turn.id !== this.runningTurn) {
         this.runningTurn = turn.id
-        this.turnStartKey = this.currentStartKey()
         // A reply is starting: the floating chat shows the conversation.
         this.panel.showConversation()
         this.closeWebsite()
@@ -1499,11 +1487,9 @@ export class ProjectTab implements ChatPanelOwner {
     chat.on('turnEnd', (turn) => {
       // The reply stays in view until the user goes back to their app.
       this.panel.showConversation()
-      // Before anything restarts the app: what the agent changed in how it starts.
-      this.scriptsNoted = this.noteTurnScripts(true)
       if (this.restartAfterTurn) {
         this.restartAfterTurn = false
-        void this.scriptsNoted.then(() => this.restartForChanges())
+        void this.restartForChanges()
       }
       // The agent may have switched branches itself.
       void this.refreshBranch()
@@ -1536,28 +1522,26 @@ export class ProjectTab implements ChatPanelOwner {
   /**
    * Opening a folder must not run its scripts until the user has seen them. Installing runs
    * package scripts too, so it's agreed to in the same dialog. A trusted project asks again
-   * when what it runs changed since the user agreed, unless they saw it change here
-   * (`watchedStart`), and always when the agent's own restart would run it (`agentStarting`);
-   * an install asks about install scripts they haven't seen.
+   * when what it runs changed since the user agreed, whoever changed it (the agent too) and
+   * whatever starts it; an install asks about install scripts they haven't seen.
    */
   private async confirmScripts(project: ProjectInfo, installs: InstallTarget[]) {
     const fromAgent = this.agentStarting > 0
-    await this.scriptsNoted
-    // The agent restarting the app mid-turn isn't the user watching its script change.
-    if (!fromAgent && this.resources.chat?.turnRunning) await this.noteTurnScripts(false)
     const installing = installs.length > 0
     const now = await scriptsOf(project)
     const ask = async (options: MessageBoxOptions, scripts: TrustedScripts | null) => {
-      // The agent asked, not the user: Return mustn't be what agrees.
-      const agreed = await this.askToTrust(
-        project.root,
-        fromAgent ? { ...options, defaultId: 1 } : options,
-        scripts,
-      )
-      if (!agreed && fromAgent) {
-        this.agentDeclined = true
-        this.declinedStart = now.start
-      }
+      // The agent asked, not the user: Return mustn't be what agrees, and what the user
+      // already said no to isn't asked about again.
+      const agreed =
+        fromAgent && now.start === this.declinedStart
+          ? false
+          : await this.askToTrust(
+              project.root,
+              fromAgent ? { ...options, defaultId: 1 } : options,
+              scripts,
+            )
+      this.declinedStart = agreed ? null : now.start
+      if (!agreed && fromAgent) this.agentDeclined = true
       return agreed
     }
     if (await isTrusted(project.root)) {
@@ -1568,8 +1552,7 @@ export class ProjectTab implements ChatPanelOwner {
         return true
       }
       const picked = !!project.appDir && getPrefs().apps[project.root] === project.appDir
-      const watched = fromAgent ? null : this.watchedStart
-      const changed = startChanged(project, now, saved, picked, watched)
+      const changed = startChanged(project, now, saved, picked)
       const installsChanged = installing ? changedInstalls(saved.installs, now.installs) : []
       if (!changed && installsChanged.length === 0) {
         const agreed = agreedScripts(now, installing, saved)
@@ -1687,38 +1670,6 @@ export class ProjectTab implements ChatPanelOwner {
     )
   }
 
-  /** The start as it is now, or null with nothing to start (or an app still to pick). */
-  private async currentStartKey(): Promise<string | null> {
-    const root = this.state.project?.root
-    if (!root || this.state.board) return null
-    const { project, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)
-    return choosing ? null : startKey(project)
-  }
-
-  /**
-   * A dev script the agent changed during the turn (at its end, or mid-turn as it restarts
-   * the app), in a start the user had agreed to, runs without asking: the user watched the
-   * turn. Install scripts aren't covered: they ask before the next install.
-   */
-  private async noteTurnScripts(ending: boolean) {
-    const resources = this.resources
-    const generation = resources.generation
-    const root = this.state.project?.root
-    const pending = this.turnStartKey
-    if (ending) this.turnStartKey = null
-    const before = await pending
-    if (!root || !before) return
-    if (!resources.stillCurrent(generation)) return
-    const after = await this.currentStartKey()
-    if (after === null || after === before || !resources.stillCurrent(generation)) return
-    const saved = await trustedScripts(root)
-    if (!resources.stillCurrent(generation)) return
-    const agreed = Object.values(saved?.starts ?? {}).includes(before)
-    // Not one the user just said no to running (the agent's restart asked).
-    if ((agreed || this.watchedStart === before) && after !== this.declinedStart)
-      this.watchedStart = after
-  }
-
   /** The trust prompt; agreeing trusts the project from then on, and keeps `scripts`. */
   private askToTrust(
     root: string,
@@ -1783,10 +1734,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.variations.clear()
     this.opening = null
     this.stopWatchingForApp()
-    this.watchedStart = null
     this.declinedStart = null
-    this.turnStartKey = null
-    this.scriptsNoted = Promise.resolve()
     this.startedSignature = null
     this.restartAfterTurn = false
     this.autoRestarts = []
@@ -3273,6 +3221,9 @@ export class ProjectTab implements ChatPanelOwner {
     const root = this.state.project?.root
     // A setup in flight (installing, or asking to run the project) goes on by itself.
     if (!devServer || !root || this.settingUp === devServer) return
+    // This reads the project as it is now: a restart waiting on the turn's end would only
+    // ask about the same change again.
+    this.restartAfterTurn = false
     devServer.clearExit()
     await devServer.stopAndWait()
     const { project, apps, choosing } = await resolveProject(root, getPrefs().apps[root] ?? null)

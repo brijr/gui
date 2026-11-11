@@ -37,6 +37,31 @@ test('a dev script the agent changed asks before its restart runs it', async ({ 
   // Nothing ran it, so nothing was recorded as agreed to.
   const state = await session.state()
   expect(state.devServer.status).not.toBe('running')
+
+  // Asked once: not again as the turn ends, nor when the agent tries the same restart again.
+  const [again] = await ask(session, [{ name: 'dev_server_restart' }])
+  expect(text(again)).toContain('declined')
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  expect(await session.consentPrompts()).toHaveLength(1)
+})
+
+test('a dev script the agent changed during a turn asks before it runs at the turn end', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  await installToolAgent(session)
+  await session.declineConsentDialogs()
+
+  // The user watched the turn, but didn't see the script: it asks all the same.
+  await ask(session, [{ write: changedPackage(session, 'vite --clearScreen false') }])
+  const [prompt] = await waitFor(async () => {
+    const prompts = await session.consentPrompts()
+    return prompts.length > 0 ? prompts : null
+  }, 'the changed script prompt')
+  expect(prompt?.message).toContain('scripts changed')
+  expect(prompt?.detail).toContain('vite --clearScreen false')
+  await waitFor(async () => (await session.state()).devServer.status === 'idle', 'the stop')
 })
 
 test("going back to the detected command asks when the project's script changed", async ({
