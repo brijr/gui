@@ -10,7 +10,6 @@ const SENT_WAIT_MS = 10_000
 
 /** Prompts for an empty canvas: the kinds of thing a board is good for. */
 const STARTERS = [
-  'Kiln, a booking app for pottery studios',
   'Three different pricing page options, side by side',
   'A mobile onboarding flow in three screens',
   'A dashboard for a small fitness studio',
