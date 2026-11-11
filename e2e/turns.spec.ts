@@ -18,7 +18,7 @@ import { expect, test } from './helpers/test'
  * reads a file and runs a command around a Muse `reminderChild` bookkeeping call; ASK asks
  * to run a command; LONG writes a long answer, starts a step, and then waits for Stop. FAIL
  * fails the first time with the provider's raw overloaded error, and answers the next. EDIT
- * asks to edit package.json, with the change it would make.
+ * asks to edit package.json, with the change it would make. PLAN finishes a two-item plan.
  */
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
@@ -88,6 +88,15 @@ const prompt = async ({ sessionId, prompt }) => {
     await ask('session/request_permission', { sessionId, toolCall, options })
     done('build-1')
     say('The build passes.')
+  } else if (text.includes('PLAN')) {
+    const plan = (status) => notify(sessionId, { sessionUpdate: 'plan', entries: [
+      { content: 'Find the button', status: 'completed', priority: 'medium' },
+      { content: 'Make it blue', status, priority: 'medium' },
+    ] })
+    plan('in_progress')
+    await sleep(300)
+    plan('completed')
+    say('Planned.')
   } else if (text.includes('EDIT')) {
     const path = cwd + '/package.json'
     const toolCall = { toolCallId: 'edit-1', title: 'Edit package.json', kind: 'edit', status: 'pending',
@@ -301,6 +310,17 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
   await session.shot('permission-diff')
   await edit.getByRole('button', { name: 'Don’t allow' }).click()
   expect((await session.waitForTurn(4)).turn.status).toBe('done')
+
+  // A plan with every item done folds to one line, which opens to the list.
+  expect(await send(chat, 'PLAN Make the button blue.')).toBe(true)
+  expect((await session.waitForTurn(5)).turn.status).toBe('done')
+  const planned = chat.getByRole('article').nth(5)
+  await expect(planned.getByRole('list', { name: 'Plan' })).toHaveCount(0)
+  await planned.getByRole('button', { name: 'Plan · 2 of 2 done' }).click()
+  await expect(planned.getByRole('list', { name: 'Plan' }).getByRole('listitem')).toHaveText([
+    'Find the button',
+    'Make it blue',
+  ])
 })
 
 test('the transcript stays at its newest line as the queue appears; a re-logged error counts once', async ({

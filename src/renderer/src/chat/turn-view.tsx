@@ -494,30 +494,7 @@ function BlockView({
       )
     }
     case 'plan':
-      return (
-        // A compact card: a short list, not a block of prose.
-        <Card tone="inset" padding="compact">
-          <ul aria-label="Plan" className="flex flex-col gap-1">
-            {withKeys(block.entries).map(({ key, entry }) => (
-              <li key={key} className="flex items-start gap-2 text-small">
-                {entry.status === 'completed' ? (
-                  <Check className="mt-0.5 size-3 shrink-0 text-success" aria-hidden="true" />
-                ) : entry.status === 'in_progress' ? (
-                  <CircleDot
-                    className="mt-0.5 size-3 shrink-0 text-accent-text"
-                    aria-hidden="true"
-                  />
-                ) : (
-                  <Circle className="mt-0.5 size-3 shrink-0 text-subtle" aria-hidden="true" />
-                )}
-                <span className={cn(entry.status === 'completed' && 'text-muted line-through')}>
-                  {entry.content}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </Card>
-      )
+      return <Plan id={block.id} entries={block.entries} />
     case 'permission': {
       const asker = block.subagent ? subagentOf(items, block.subagent) : null
       return <Permission item={block} turnId={turnId} live={live} asker={asker?.title ?? null} />
@@ -531,6 +508,54 @@ function BlockView({
         </Note>
       )
   }
+}
+
+/**
+ * The agent's plan as a compact card: a short list, not a block of prose. Once every item is
+ * done it folds to one line ("Plan · 3 of 3 done") that opens to the list.
+ */
+function Plan({ id, entries }: { id: string; entries: { content: string; status: string }[] }) {
+  const [open, setOpen] = useTurnPresentation(`plan:${id}`, false)
+  const reveal = useReveal(open)
+  const done = entries.filter((entry) => entry.status === 'completed').length
+  const finished = entries.length > 0 && done === entries.length
+  const list = (
+    <ul aria-label="Plan" className="flex flex-col gap-1">
+      {withKeys(entries).map(({ key, entry }) => (
+        <li key={key} className="flex items-start gap-2 text-small">
+          {entry.status === 'completed' ? (
+            <Check className="mt-0.5 size-3 shrink-0 text-success" aria-hidden="true" />
+          ) : entry.status === 'in_progress' ? (
+            <CircleDot className="mt-0.5 size-3 shrink-0 text-accent-text" aria-hidden="true" />
+          ) : (
+            <Circle className="mt-0.5 size-3 shrink-0 text-subtle" aria-hidden="true" />
+          )}
+          <span className={cn(entry.status === 'completed' && 'text-muted line-through')}>
+            {entry.content}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+  if (!finished) {
+    return (
+      <Card tone="inset" padding="compact">
+        {list}
+      </Card>
+    )
+  }
+  return (
+    <div className="flex flex-col items-start gap-1.5">
+      <Disclosure open={open} onOpenChange={setOpen}>
+        Plan · <span className="tabular-nums">{`${done} of ${entries.length} done`}</span>
+      </Disclosure>
+      {open && (
+        <Card tone="inset" padding="compact" className={cn(reveal, 'w-full')}>
+          {list}
+        </Card>
+      )}
+    </div>
+  )
 }
 
 /** Plan entries have no ids; key by content, numbering repeats. */
