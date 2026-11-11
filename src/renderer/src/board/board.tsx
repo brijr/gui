@@ -153,6 +153,27 @@ export function Board({ board, working = false }: { board: BoardState; working?:
     ref,
   )
 
+  // Edit › Copy, Cut and Paste with no text field focused (the menu clicked, or the keys with
+  // focus outside the board) are the board's, as its own keys are: those it takes before the
+  // menu, so they never get here. Text selected in the window is the menu's to copy.
+  const clipboardSelection = useRef(board.selection)
+  clipboardSelection.current = board.selection
+  useEffect(() => {
+    const onClipboard = (event: ClipboardEvent) => {
+      if (event.defaultPrevented || isTyping(document.activeElement)) return
+      const ids = clipboardSelection.current
+      if (event.type === 'paste') sendIntent({ type: 'paste' })
+      else if (!ids.length || !(window.getSelection()?.isCollapsed ?? true)) return
+      else sendIntent({ type: 'copy', ids, cut: event.type === 'cut' })
+      event.preventDefault()
+    }
+    const types = ['copy', 'cut', 'paste'] as const
+    for (const type of types) document.addEventListener(type, onClipboard)
+    return () => {
+      for (const type of types) document.removeEventListener(type, onClipboard)
+    }
+  }, [])
+
   // The board takes the keyboard as it opens (Delete, arrows, H and V work at once), unless
   // something else in the window has it.
   const hasCamera = camera !== null
