@@ -10,6 +10,7 @@ import type {
   SessionNotification,
 } from '@agentclientprotocol/sdk'
 import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
+import { MAX_SUBAGENT_STEPS } from '../shared/bounded'
 import { type ChatTurnUpdate, TurnPublisher } from '../shared/chat-transport'
 import { invokedCommand, parseCommands, takesContext } from '../shared/commands'
 import {
@@ -29,6 +30,7 @@ import {
   type QueuedMessage,
   type QueuePauseReason,
   type RecordingAttachment,
+  type SubagentItem,
   type TextEdit,
   type ToolStatus,
   type Turn,
@@ -75,10 +77,20 @@ import {
 import { recordingBlocks } from './recording-prompt'
 import type { Recordings } from './recordings'
 import { findSkills, withSkills } from './skills'
+import {
+  echoedAnswer,
+  messageText,
+  overflowingSteps,
+  ownedBy,
+  sessionMessageRole,
+  subagentPatch,
+} from './subagents'
 import { cornerColor, thumbnail, thumbnailSize } from './thumbnail'
 import { askToTrust, isTrusted, promptName } from './trust'
 
 type SessionUpdate = SessionNotification['update']
+type SubagentUpdate = Extract<SessionUpdate, { sessionUpdate: 'subagent_update' }>
+type SessionMessage = Extract<SessionUpdate, { sessionUpdate: 'session_message' }>
 type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
 
 interface ChatEvents {
@@ -207,6 +219,8 @@ const messagePrompt = (text: string, images: ImageAttachment[]) =>
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
 const isFinished = (status: ToolStatus) => status === 'completed' || status === 'failed'
+
+const isWorking = (item: SubagentItem) => item.status === 'running' || item.status === 'waiting'
 
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
   let timer: NodeJS.Timeout | undefined
@@ -864,7 +878,32 @@ export class ChatController extends EventEmitter<ChatEvents> {
     } else {
       const agent = this.agent
       await agent?.cancel().catch(() => undefined)
+      // The agent stops the subagents it waits on; ones it left working in the background
+      // would go on unseen once the turn ends.
+      for (const item of this.subagentsOf(record)) {
+        if (agent && item.canStop && isWorking(item)) {
+          void agent.cancelSubagent(item.id).catch(() => undefined)
+        }
+      }
       if (agent) void this.stopIfCancelIgnored(agent, record)
+    }
+  }
+
+  /**
+   * Stops one subagent of the running turn, when the agent allows it: the agent and its other
+   * subagents go on. Its questions still open go with it.
+   */
+  stopSubagent(turnId: string, subagent: string) {
+    const record = this.active
+    const agent = this.agent
+    if (!record || !agent || record.turn.id !== turnId || record.cancelRequested) return
+    const item = this.subagentsOf(record).find((candidate) => candidate.id === subagent)
+    if (!item?.canStop || !isWorking(item)) return
+    void agent.cancelSubagent(subagent).catch(() => undefined)
+    for (const asked of record.turn.items) {
+      if (asked.kind === 'permission' && asked.subagent === subagent && asked.resolved === null) {
+        this.respondPermission(turnId, asked.id, null)
+      }
     }
   }
 
@@ -1534,6 +1573,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         }
       }
       slot?.release()
+      this.settleSubagents(record, status)
       // Only now is the turn over; reporting it earlier would let a send race the snapshot.
       record.turn.status = status
       record.turn.endedAt = Date.now()
@@ -1710,9 +1750,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.stopAgent()
     const name = this.meta.agentName
     if (record) this.patchMeta({ status: 'starting', error: null, errorDetail: null })
+    const epoch = this.epoch
     const agent = new AgentSession(this.meta.agentId, this.root, {
-      onUpdate: (update) => this.onUpdate(update),
-      onPermission: (request, resolve) => this.onPermission(request, resolve),
+      // A subagent's work belongs to the chat it started in: none of it reaches a new chat.
+      onUpdate: (update, from) => {
+        if (from === null || this.live(epoch)) this.onUpdate(update, from)
+      },
+      onPermission: (request, resolve, from) => {
+        if (from === null || this.live(epoch)) this.onPermission(request, resolve, from)
+        else resolve(null)
+      },
       onExit: (error) => this.onAgentExit(agent, error),
     })
     this.agent = agent
@@ -1922,7 +1969,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.patchMeta({ status: 'error', error: error.message, errorDetail: error.detail })
   }
 
-  private onUpdate(update: SessionUpdate) {
+  /** `from`: the subagent it comes from (see AgentHandlers), or null for the agent's own. */
+  private onUpdate(update: SessionUpdate, from: string | null) {
+    if (from !== null) return this.onSubagentUpdate(update, from)
     if (update.sessionUpdate === 'available_commands_update') {
       const agentId = this.agent?.agentId
       if (agentId) this.rememberCommands(agentId, parseCommands(update.availableCommands))
@@ -1940,16 +1989,26 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (update.sessionUpdate === 'current_mode_update') this.refreshModeName()
       return
     }
+    if (this.applyItem(record, update, null)) this.scheduleTurn(record)
+  }
+
+  /**
+   * Applies an update of the agent's own (`owner` null) or a subagent's to the turn's items.
+   * Returns whether anything changed.
+   */
+  private applyItem(record: TurnRecord, update: SessionUpdate, owner: string | null): boolean {
     const items = record.turn.items
+    const owned = owner === null ? {} : { subagent: owner }
     switch (update.sessionUpdate) {
       case 'agent_message_chunk':
       case 'agent_thought_chunk': {
-        if (update.content.type !== 'text') break
+        if (update.content.type !== 'text') return false
         const kind = update.sessionUpdate === 'agent_message_chunk' ? 'text' : 'thought'
-        const last = items.at(-1)
+        // Its own last item: the steps of subagents running alongside don't split its words.
+        const last = items.findLast((item) => ownedBy(item, owner))
         if (last && last.kind === kind) last.text += update.content.text
-        else items.push({ kind, id: randomUUID(), text: update.content.text })
-        break
+        else items.push({ kind, id: randomUUID(), text: update.content.text, ...owned })
+        return true
       }
       case 'tool_call': {
         const preview = previewTool(this.meta.agentId, update.title, update.kind)
@@ -1964,12 +2023,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
           locations: (update.locations ?? []).map((l) => this.displayPath(l.path, l.line)),
           startedAt: now,
           endedAt: isFinished(status) ? now : null,
+          ...owned,
         })
-        break
+        return true
       }
       case 'tool_call_update': {
-        const item = items.find((i) => i.kind === 'tool' && i.id === update.toolCallId)
-        if (item?.kind !== 'tool') break
+        const item = items.find(
+          (i) => i.kind === 'tool' && i.id === update.toolCallId && ownedBy(i, owner),
+        )
+        if (item?.kind !== 'tool') return false
         if (update.title && item.toolKind !== 'preview') item.title = this.relativize(update.title)
         if (update.kind && item.toolKind !== 'preview') item.toolKind = update.kind
         if (update.status) item.status = update.status as ToolStatus
@@ -1978,31 +2040,132 @@ export class ChatController extends EventEmitter<ChatEvents> {
         if (update.locations) {
           item.locations = update.locations.map((l) => this.displayPath(l.path, l.line))
         }
-        break
+        return true
       }
+      // Subagents' sessions don't send these (SubagentRouter drops them).
       case 'plan': {
         const entries = update.entries.map(({ content, status }) => ({ content, status }))
         const plan = items.find((i) => i.kind === 'plan')
         if (plan?.kind === 'plan') plan.entries = entries
         else items.push({ kind: 'plan', id: randomUUID(), entries })
-        break
+        return true
       }
       case 'notice': {
         const text = [update.title, update.description].filter(Boolean).join(' — ')
         const tone = update.severity === 'error' ? 'error' : 'info'
         items.push({ kind: 'notice', id: randomUUID(), text, tone })
-        break
+        return true
       }
+      case 'subagent_update':
+        this.applySubagent(record, update, owner)
+        return true
+      case 'session_message':
+        return this.applyMessage(record, update)
       case 'current_mode_update':
         this.refreshModeName()
-        return
+        return false
       default:
-        return
+        return false
     }
+  }
+
+  /**
+   * A subagent's own words and steps, in its group of the running turn. Past
+   * MAX_SUBAGENT_STEPS its oldest steps go, so a long-running one can't grow the transcript
+   * without end.
+   */
+  private onSubagentUpdate(update: SessionUpdate, from: string) {
+    const record = this.active
+    if (!record || this.disposed) return
+    this.subagentIn(record, from)
+    if (!this.applyItem(record, update, from)) return
+    const items = record.turn.items
+    const overflow = overflowingSteps(items, from, MAX_SUBAGENT_STEPS)
+    for (const index of overflow.reverse()) items.splice(index, 1)
     this.scheduleTurn(record)
   }
 
-  private onPermission(request: RequestPermissionRequest, resolve: PermissionResolver) {
+  /** The turn's item for subagent `id`, added where the turn is now when it has none yet. */
+  private subagentIn(record: TurnRecord, id: string, parent?: string | null): SubagentItem {
+    const items = record.turn.items
+    const found = items.find(
+      (item): item is SubagentItem => item.kind === 'subagent' && item.id === id,
+    )
+    if (found) return found
+    // Handed more work in a later turn: it keeps its name and place among subagents.
+    const earlier = this.records
+      .flatMap((r) => r.turn.items)
+      .findLast((item): item is SubagentItem => item.kind === 'subagent' && item.id === id)
+    const above = parent !== undefined ? parent : (earlier?.subagent ?? null)
+    if (above !== null) this.subagentIn(record, above)
+    const item: SubagentItem = {
+      kind: 'subagent',
+      id,
+      title: earlier?.title ?? 'Subagent',
+      description: earlier?.description ?? null,
+      status: 'running',
+      error: null,
+      prompt: null,
+      answer: null,
+      canStop: earlier?.canStop ?? false,
+      startedAt: Date.now(),
+      endedAt: null,
+      ...(above !== null ? { subagent: above } : {}),
+    }
+    items.push(item)
+    return item
+  }
+
+  /** What a `subagent_update` says of a subagent: its labels, whether it can be stopped, its state. */
+  private applySubagent(record: TurnRecord, update: SubagentUpdate, parent: string | null) {
+    const item = this.subagentIn(record, update.sessionId, parent)
+    // SubagentRouter fills in the labels it knows; null is one the agent never gave.
+    if (update.title) item.title = update.title
+    if (update.description !== undefined) item.description = update.description ?? null
+    Object.assign(item, subagentPatch(update, Date.now()))
+  }
+
+  /** A task given to a subagent, or its answer, which take the place of the call that started it. */
+  private applyMessage(record: TurnRecord, update: SessionMessage) {
+    const items = record.turn.items
+    const known = (id: string) => items.some((item) => item.kind === 'subagent' && item.id === id)
+    const role = sessionMessageRole(update, known)
+    const text = messageText(update.content)
+    if (!role || !text) return false
+    const item = this.subagentIn(record, role.subagent)
+    if (role.role === 'prompt') {
+      item.prompt = text
+      return true
+    }
+    item.answer = text
+    const echo = echoedAnswer(items, role.subagent, text)
+    if (echo !== -1) items.splice(echo, 1)
+    return true
+  }
+
+  /** The subagents of a turn. */
+  private subagentsOf(record: TurnRecord) {
+    return record.turn.items.filter((item): item is SubagentItem => item.kind === 'subagent')
+  }
+
+  /**
+   * A turn's subagents still shown as working when it ends: nothing more is shown of them,
+   * so they end with it, stopped if the turn was.
+   */
+  private settleSubagents(record: TurnRecord, status: TurnStatus) {
+    const now = Date.now()
+    for (const item of this.subagentsOf(record)) {
+      if (!isWorking(item)) continue
+      item.status = status === 'done' ? 'done' : 'stopped'
+      item.endedAt = now
+    }
+  }
+
+  private onPermission(
+    request: RequestPermissionRequest,
+    resolve: PermissionResolver,
+    from: string | null,
+  ) {
     const record = this.active
     if (!record || record.cancelRequested || this.disposed) {
       resolve(null)
@@ -2010,7 +2173,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
     void this.autoAnswer(record, request)
       .catch(() => null)
-      .then((auto) => this.askPermission(record, request, resolve, auto))
+      .then((auto) => this.askPermission(record, request, resolve, auto, from))
   }
 
   /** `auto`: the option Gui answers with when it doesn't ask (see `autoApproval`), or null. */
@@ -2019,6 +2182,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     request: RequestPermissionRequest,
     resolve: PermissionResolver,
     auto: string | null,
+    from: string | null,
   ) {
     // The turn may have ended or been stopped while the request's paths were checked.
     if (this.active !== record || record.cancelRequested || this.disposed) {
@@ -2037,6 +2201,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const tool = record.turn.items.find((i) => i.kind === 'tool' && i.id === toolCallId)
     const paths = requestPaths(request).map((path) => this.projectPath(path))
     const id = randomUUID()
+    // Which subagent asks: the session it came from, else the one whose step it's about
+    // (Codex asks about its subagents' steps on the agent's own session).
+    const subagent = from ?? tool?.subagent
+    if (subagent) this.subagentIn(record, subagent)
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
     this.pushItem(record, {
       kind: 'permission',
@@ -2051,6 +2219,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       sensitive: paths.some((rel) => rel !== null && SENSITIVE_PATH.test(rel)),
       options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resolved: null,
+      ...(subagent ? { subagent } : {}),
     })
     this.emit('attention')
   }

@@ -3383,6 +3383,10 @@ export class ProjectTab implements ChatPanelOwner {
     this.resources.chat?.respondPermission(turnId, itemId, optionId)
   }
 
+  stopSubagent(turnId: string, subagent: string) {
+    this.resources.chat?.stopSubagent(turnId, subagent)
+  }
+
   /**
    * What Agent → Allow (⌘↩) or Don't Allow (⌘⌫) answers: the oldest waiting card, with its
    * Allow or Don't Allow (`allow_once`, `reject_once`; never an "always"). Null when no card

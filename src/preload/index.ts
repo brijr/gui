@@ -173,6 +173,7 @@ const api: GuiApi = {
     legacyInvoke(Invoke.send, text, images, recordings, followUp),
   cancel: send(Send.cancel),
   respondPermission: send(Send.respondPermission),
+  stopSubagent: send(Send.stopSubagent),
   restoreTurn: (turnId) => legacyInvoke(Invoke.restoreTurn, turnId),
   redo: () => legacyInvoke(Invoke.redo),
   getVersions: () => legacyInvoke(Invoke.listVersions),

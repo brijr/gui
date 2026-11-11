@@ -254,6 +254,10 @@ function settleQueue(value: unknown): SavedQueued[] | undefined {
 }
 
 function settleItem(item: TurnItem): TurnItem {
+  // A subagent still working when the app quit stopped with it.
+  if (item.kind === 'subagent' && (item.status === 'running' || item.status === 'waiting')) {
+    return { ...item, status: 'stopped', endedAt: item.endedAt ?? item.startedAt }
+  }
   if (item.kind !== 'permission') return item
   // Saved before prompts described the action; fill in what the transcript expects.
   return {

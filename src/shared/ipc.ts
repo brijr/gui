@@ -156,6 +156,7 @@ export const Send = {
   ackOutput: 'output:ack',
   cancel: 'chat:cancel',
   respondPermission: 'chat:permission',
+  stopSubagent: 'chat:stop-subagent',
   newSession: 'chat:new',
   clearSelection: 'chat:clear-selection',
   removeSelection: 'chat:remove-selection',
@@ -684,6 +685,8 @@ export interface GuiApi {
   loadCommands(): Promise<void>
   cancel(): void
   respondPermission(turnId: string, itemId: string, optionId: string | null): void
+  /** Stops one subagent of the running turn (its item's id); the agent goes on. */
+  stopSubagent(turnId: string, subagent: string): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
   /** This chat's versions of the project's files, newest first; null without a project */

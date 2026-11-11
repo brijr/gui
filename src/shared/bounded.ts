@@ -12,6 +12,10 @@ export const MAX_CHECKPOINT_FILE_BYTES = 10 * 1024 * 1024
 export const MAX_UNDO_BYTES = 32 * 1024 * 1024
 /** Frames' pages copied to the clipboard at once (⌘C on the canvas); a paste reads no more. */
 export const MAX_COPIED_FRAMES_BYTES = 32 * 1024 * 1024
+/** A subagent's steps and words kept in its chat transcript; past it the oldest go. */
+export const MAX_SUBAGENT_STEPS = 200
+/** Subagent sessions an agent session remembers, to route their updates; past it the oldest go. */
+export const MAX_SUBAGENT_SESSIONS = 500
 /** Output kept per terminal / dev server so the drawer can redraw after a tab switch. */
 export const MAX_OUTPUT_BYTES = 512 * 1024
 

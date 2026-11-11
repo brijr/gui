@@ -1259,6 +1259,9 @@ function registerIpc() {
       tab.respondPermission(turnId, itemId, optionId)
     }
   })
+  on(Send.stopSubagent, (tab, turnId, subagent) => {
+    if (isString(turnId) && isString(subagent)) tab.stopSubagent(turnId, subagent)
+  })
   on(Send.newSession, (tab) => tab.newChat())
   on(Send.clearSelection, (tab) => tab.clearSelection())
   on(Send.removeSelection, (tab, id) => isString(id) && tab.removeSelection(id))

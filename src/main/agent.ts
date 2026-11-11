@@ -38,6 +38,7 @@ import {
   unregisterLiveGroup,
 } from './process'
 import { getShellEnv } from './shell-env'
+import { SubagentRouter } from './subagents'
 
 const require = createRequire(import.meta.url)
 
@@ -125,9 +126,17 @@ async function spawnSpec(agent: AgentDefinition, env: NodeJS.ProcessEnv): Promis
 
 export type PermissionResolver = (optionId: string | null) => void
 
+/**
+ * `from` is the subagent an update or request comes from (its session id; see subagents.ts),
+ * or null for the agent's own session.
+ */
 export interface AgentHandlers {
-  onUpdate(update: acp.SessionNotification['update']): void
-  onPermission(request: acp.RequestPermissionRequest, resolve: PermissionResolver): void
+  onUpdate(update: acp.SessionNotification['update'], from: string | null): void
+  onPermission(
+    request: acp.RequestPermissionRequest,
+    resolve: PermissionResolver,
+    from: string | null,
+  ): void
   onExit(error: DetailedError): void
 }
 
@@ -299,6 +308,8 @@ export class AgentSession {
   private commands: AgentCommand[] | null = null
   /** Builds the sign-in error for a login that expires mid-session (see prompt) */
   private signInError: ((error: unknown) => AgentAuthError) | null = null
+  /** The session's subagents, which updates and requests may come from */
+  private subagents = new SubagentRouter()
 
   constructor(
     readonly agentId: AgentId,
@@ -370,18 +381,32 @@ export class AgentSession {
           this.commands = parseCommands(update.availableCommands)
           return
         }
-        if (ctx.params.sessionId !== this.sessionId) return
-        if (update.sessionUpdate === 'config_option_update') this.remember(update.configOptions)
-        if (update.sessionUpdate === 'current_mode_update') this.rememberMode(update.currentModeId)
-        if (this.isHidden(update)) return
-        this.handlers.onUpdate(update)
+        // A session that's loading replays its history; Gui keeps its own transcript.
+        const live = this.sessionId !== null
+        for (const { update: shown, from } of this.subagents.route(
+          ctx.params.sessionId,
+          update,
+          live,
+        )) {
+          if (from === null && shown.sessionUpdate === 'config_option_update') {
+            this.remember(shown.configOptions)
+          }
+          if (from === null && shown.sessionUpdate === 'current_mode_update') {
+            this.rememberMode(shown.currentModeId)
+          }
+          if (this.isHidden(shown)) continue
+          this.handlers.onUpdate(shown, from)
+        }
       })
       .onRequest(acp.methods.client.session.requestPermission, (ctx) => {
         return new Promise<acp.RequestPermissionResponse>((resolve) => {
-          this.handlers.onPermission(ctx.params, (optionId) =>
-            resolve({
-              outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' },
-            }),
+          this.handlers.onPermission(
+            ctx.params,
+            (optionId) =>
+              resolve({
+                outcome: optionId ? { outcome: 'selected', optionId } : { outcome: 'cancelled' },
+              }),
+            this.subagents.owner(ctx.params.sessionId) ?? null,
           )
         })
       })
@@ -393,10 +418,13 @@ export class AgentSession {
       app.onRequest('cursor/create_plan', cursorPlan.parse, ({ params }) => {
         const sessionId = this.sessionId
         if (sessionId === null || this.disposed) return { outcome: { outcome: 'cancelled' } }
-        this.handlers.onUpdate({
-          sessionUpdate: 'agent_message_chunk',
-          content: { type: 'text', text: `\n\n${params.plan}\n\n` },
-        })
+        this.handlers.onUpdate(
+          {
+            sessionUpdate: 'agent_message_chunk',
+            content: { type: 'text', text: `\n\n${params.plan}\n\n` },
+          },
+          null,
+        )
         return new Promise<{ outcome: { outcome: string } }>((resolve) => {
           this.handlers.onPermission(
             {
@@ -422,6 +450,7 @@ export class AgentSession {
                         : 'cancelled',
                 },
               }),
+            null,
           )
         })
       })
@@ -439,6 +468,9 @@ export class AgentSession {
           auth: { terminal: true },
           // Muse fails the turn when it has a question for a client that can't take forms.
           elicitation: { form: {} },
+          // Each subagent comes as a session of its own, so the chat can show whose steps
+          // are whose (subagents.ts). Agents without them ignore it.
+          subagents: {},
         },
         clientInfo: { name: 'gui', version: '0.1.0' },
       }),
@@ -485,6 +517,8 @@ export class AgentSession {
     } | null = null
     let resumed = false
     if (resumeSessionId) {
+      // Its replay announces the subagents it had, which can be handed more work later.
+      this.subagents.setRoot(resumeSessionId)
       const params = { sessionId: resumeSessionId, cwd: this.cwd, mcpServers: servers, _meta: meta }
       for (const how of resumeMethods(init.agentCapabilities)) {
         const request: Promise<acp.ResumeSessionResponse | acp.LoadSessionResponse> =
@@ -519,6 +553,7 @@ export class AgentSession {
     this.modes = session.modes ?? null
     this.remember(session.configOptions)
     this.greeting = resumed ? null : sessionGreeting(session._meta)
+    this.subagents.setRoot(session.sessionId)
     this.sessionId = session.sessionId
 
     return {
@@ -671,6 +706,13 @@ export class AgentSession {
     await connection.agent.notify(acp.methods.agent.session.cancel, { sessionId })
   }
 
+  /** Stops one subagent's current work; the agent and its other subagents go on. */
+  async cancelSubagent(subagent: string) {
+    const { connection } = this
+    if (!connection || !this.sessionId || !this.subagents.isChild(subagent)) return
+    await connection.agent.notify(acp.methods.agent.session.cancel, { sessionId: subagent })
+  }
+
   dispose() {
     if (this.disposed) return
     this.disposed = true
@@ -702,6 +744,9 @@ export class AgentSession {
     const sessionId = this.sessionId
     if (request.mode !== 'form') return { action: 'decline' }
     if (sessionId === null || this.disposed) return { action: 'cancel' }
+    // A subagent's question says it's that subagent's.
+    const asking = 'sessionId' in request ? request.sessionId : null
+    const from = this.subagents.isChild(asking) ? asking : null
     const questions = formQuestions(
       (request as acp.CreateElicitationRequest & { requestedSchema?: unknown }).requestedSchema,
     )
@@ -729,6 +774,7 @@ export class AgentSession {
             ],
           },
           resolve,
+          from,
         ),
       )
       if (answer === null) return { action: 'cancel' }

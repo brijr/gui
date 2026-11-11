@@ -246,8 +246,9 @@ export function describeFollowUp(turn: Turn, images: boolean): ContentBlock[] {
     `The user's message follows up on an earlier change in this chat (message ${turn.index + 1}). They asked:`,
     quote(turn.prompt),
   ]
+  // The agent's own words: its subagents' are steps along the way.
   const reply = turn.items
-    .flatMap((item) => (item.kind === 'text' ? [item.text] : []))
+    .flatMap((item) => (item.kind === 'text' && !item.subagent ? [item.text] : []))
     .join('')
     .trim()
   if (reply) {

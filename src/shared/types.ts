@@ -1021,7 +1021,18 @@ export interface PermissionChoice {
   kind: string
 }
 
-export type TurnItem =
+/**
+ * Where a subagent's work stands: working, waiting on a question to the user, or ended (its
+ * work done, failed, or stopped). A parent can hand it more work, so an ended one can run again.
+ */
+export type SubagentStatus = 'running' | 'waiting' | 'done' | 'failed' | 'stopped'
+
+/**
+ * Items of a turn. `subagent` is the session id of the subagent an item belongs to (its own
+ * words and steps, a subagent it started, a question it asks); absent for the agent's own.
+ * The list stays flat: the transcript groups a subagent's items under its `subagent` item.
+ */
+export type TurnItem = (
   | { kind: 'text'; id: string; text: string }
   | { kind: 'thought'; id: string; text: string }
   | {
@@ -1036,6 +1047,25 @@ export type TurnItem =
       endedAt?: number | null
     }
   | { kind: 'plan'; id: string; entries: { content: string; status: string }[] }
+  | {
+      /** A subagent the agent started, where it started it; `id` is its session id */
+      kind: 'subagent'
+      id: string
+      /** The agent's name for it ("Explore", "Check the styles") */
+      title: string
+      /** Its role, when the agent says more than the title */
+      description: string | null
+      status: SubagentStatus
+      /** Why it failed, in the agent's words */
+      error: string | null
+      /** What the agent asked of it, and what it answered */
+      prompt: string | null
+      answer: string | null
+      /** The agent lets the user stop it alone */
+      canStop: boolean
+      startedAt: number
+      endedAt: number | null
+    }
   | {
       kind: 'permission'
       id: string
@@ -1058,6 +1088,9 @@ export type TurnItem =
       /** Technical detail, shown on request */
       detail?: string
     }
+) & { subagent?: string }
+
+export type SubagentItem = Extract<TurnItem, { kind: 'subagent' }>
 
 export interface FileChange {
   path: string

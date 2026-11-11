@@ -35,6 +35,7 @@ import {
   Redo2,
   Reply,
   Search,
+  Square,
   SquareTerminal,
   TriangleAlert,
   Undo2,
@@ -43,7 +44,7 @@ import {
 } from '../lib/icons'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
-import { Button, PRESS, Spinner, Toggle } from '../lib/ui'
+import { Button, IconButton, PRESS, Spinner, Toggle } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
 import { setFollowUp, useChat, waitingCard } from './store'
@@ -53,13 +54,21 @@ import { TurnPresentationScope, useTurnPresentation } from './turn-presentation'
 type ToolItem = Extract<TurnItem, { kind: 'tool' }>
 type PermissionItem = Extract<TurnItem, { kind: 'permission' }>
 type ThoughtItem = Extract<TurnItem, { kind: 'thought' }>
+type SubagentItem = Extract<TurnItem, { kind: 'subagent' }>
 type Step = ToolItem | ThoughtItem
 type Block = { kind: 'steps'; id: string; steps: Step[] } | Exclude<TurnItem, Step>
 
-/** Consecutive tool calls and the thinking between them render as one compact group. */
-function toBlocks(items: TurnItem[]): Block[] {
+/**
+ * What shows at one level of the turn: the agent's own (`owner` undefined), or a subagent's,
+ * in its group. Questions always wait at the turn's level, where the user answers them, and
+ * say which subagent asks. Consecutive tool calls and the thinking between them render as one
+ * compact group.
+ */
+function toBlocks(items: TurnItem[], owner?: string): Block[] {
   const blocks: Block[] = []
   for (const item of items) {
+    const at = item.kind === 'permission' ? undefined : item.subagent
+    if (at !== owner) continue
     if (item.kind !== 'tool' && item.kind !== 'thought') {
       blocks.push(item)
       continue
@@ -103,6 +112,7 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
               <BlockView
                 block={block}
                 next={blocks[index + 1]}
+                items={turn.items}
                 turnId={turn.id}
                 live={running}
                 turnEnd={turn.endedAt}
@@ -298,6 +308,7 @@ function PickedChip({ picked }: { picked: Picked }) {
 function BlockView({
   block,
   next,
+  items,
   turnId,
   live,
   turnEnd,
@@ -305,6 +316,8 @@ function BlockView({
   block: Block
   /** The block after it, if any */
   next: Block | undefined
+  /** All of the turn's items, for subagents' groups */
+  items: TurnItem[]
   turnId: string
   live: boolean
   turnEnd: number | null
@@ -313,8 +326,13 @@ function BlockView({
     case 'text':
       return <Markdown text={block.text} live={live} />
     case 'steps': {
-      // The card below asks about the step the agent is on, so it speaks for that step.
-      const asking = live && next?.kind === 'permission' && next.resolved === null
+      // The card below asks about the step the agent is on, so it speaks for that step; a
+      // subagent's question is about a step in its own group.
+      const asking =
+        live &&
+        next?.kind === 'permission' &&
+        next.resolved === null &&
+        next.subagent === block.steps[0]?.subagent
       return (
         <StepGroup
           stateKey={block.id}
@@ -351,8 +369,12 @@ function BlockView({
           </ul>
         </Card>
       )
-    case 'permission':
-      return <Permission item={block} turnId={turnId} live={live} />
+    case 'permission': {
+      const asker = block.subagent ? subagentOf(items, block.subagent) : null
+      return <Permission item={block} turnId={turnId} live={live} asker={asker?.title ?? null} />
+    }
+    case 'subagent':
+      return <SubagentGroup item={block} items={items} turnId={turnId} live={live} />
     case 'notice':
       return (
         <Note tone={block.tone} detail={block.detail} stateKey={block.id}>
@@ -835,10 +857,13 @@ function Permission({
   item,
   turnId,
   live,
+  asker,
 }: {
   item: PermissionItem
   turnId: string
   live: boolean
+  /** The subagent asking, by name; null for the agent itself */
+  asker: string | null
 }) {
   // ⌘↩ and ⌘⌫ answer the card waiting longest, which shows them.
   const keyed = useChat((s) => waitingCard(s.turns)?.item.id === item.id)
@@ -866,7 +891,10 @@ function Permission({
       className="flex flex-col gap-3"
     >
       <div className="flex min-w-0 items-start gap-2">
-        <p className="min-w-0 flex-1 break-words font-semibold">{question}</p>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          {asker && <GroupLabel className="truncate">{asker}</GroupLabel>}
+          <p className="break-words font-semibold">{question}</p>
+        </div>
         {item.sensitive && (
           <Badge tone="warning" icon={TriangleAlert} title={why} className="shrink-0">
             {many ? 'Sensitive files' : 'Sensitive file'}
@@ -919,6 +947,165 @@ function Permission({
         </div>
       </div>
     </Card>
+  )
+}
+
+const subagentOf = (items: TurnItem[], id: string) =>
+  items.find((item): item is SubagentItem => item.kind === 'subagent' && item.id === id) ?? null
+
+/** "12s", "2m 5s"; null under a second or when it isn't known. */
+function duration(ms: number | null) {
+  if (ms === null) return null
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 1) return null
+  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function SubagentStatusIcon({ status }: { status: SubagentItem['status'] }) {
+  switch (status) {
+    case 'running':
+      return <Spinner className="text-subtle" />
+    case 'waiting':
+      return <Hand className="size-3 shrink-0 text-warning" aria-label="Waiting for you" />
+    case 'done':
+      return <Check className="size-3 shrink-0 text-success" aria-label="Done" />
+    case 'failed':
+      return <X className="size-3 shrink-0 text-danger" aria-label="Failed" />
+    case 'stopped':
+      return <CircleSlash className="size-3 shrink-0 text-subtle" aria-label="Stopped" />
+  }
+}
+
+/**
+ * A subagent the agent started, where it started it, on one line: its name, then the step
+ * it's on while it works, or how it ended. It opens to what it was asked, its words and steps,
+ * and its answer. While it works, it can be stopped alone; the agent and other subagents go on.
+ */
+function SubagentGroup({
+  item,
+  items,
+  turnId,
+  live,
+}: {
+  item: SubagentItem
+  items: TurnItem[]
+  turnId: string
+  live: boolean
+}) {
+  const [open, setOpen] = useTurnPresentation(`subagent:${item.id}`, false)
+  const [stopping, setStopping] = useTurnPresentation(`subagent-stop:${item.id}`, false)
+  const reveal = useReveal(open)
+  // A turn that has ended has no subagent working in it anymore.
+  const working = item.status === 'running' || item.status === 'waiting'
+  const status = live || !working ? item.status : 'stopped'
+  // Asked to stop: the button waits for the agent to say it has. Handed more work later, it's back.
+  useEffect(() => {
+    if (!working) setStopping(false)
+  }, [working, setStopping])
+  const tools = items.filter(
+    (step): step is ToolItem => step.kind === 'tool' && step.subagent === item.id,
+  )
+  const latest = tools.at(-1)
+  const blocks = toBlocks(items, item.id)
+  const steps = tools.length > 0 ? plural(tools.length, 'step') : null
+  const took = duration(item.endedAt === null ? null : item.endedAt - item.startedAt)
+  const detail =
+    status === 'running'
+      ? latest
+        ? stepLabel(latest)
+        : null
+      : status === 'waiting'
+        ? 'Waiting for you'
+        : status === 'failed'
+          ? 'Failed'
+          : status === 'stopped'
+            ? 'Stopped'
+            : [steps, took].filter(Boolean).join(' · ')
+  return (
+    <section aria-label={item.title} data-subagent={item.id} className="flex flex-col gap-1.5">
+      <div className="flex h-6 min-w-0 items-center gap-2 text-small">
+        <Disclosure open={open} onOpenChange={setOpen} title={item.description ?? undefined}>
+          <span className="min-w-0 truncate">
+            <span className="text-fg">{item.title}</span>
+            {detail && (
+              <span
+                // The step it's on comes in as it changes, as a running step group's does.
+                key={status === 'running' ? latest?.id : status}
+                className={cn(
+                  status === 'running' &&
+                    'motion-safe:animate-fade-in motion-reduce:animate-row-fade',
+                  status === 'failed' && 'text-danger',
+                )}
+              >
+                {' · '}
+                {detail}
+              </span>
+            )}
+          </span>
+        </Disclosure>
+        <SubagentStatusIcon status={status} />
+        {live && working && item.canStop && (
+          <IconButton
+            size="xs"
+            icon={Square}
+            filled
+            label={`Stop ${item.title}`}
+            disabled={stopping}
+            className="ml-auto"
+            onClick={() => {
+              setStopping(true)
+              gui.stopSubagent(turnId, item.id)
+            }}
+          />
+        )}
+      </div>
+      {open && (
+        <div className={cn(reveal, 'flex flex-col gap-3 pl-4')}>
+          {item.prompt && <SubagentTask id={item.id} text={item.prompt} />}
+          {blocks.map((block, index) => (
+            <Row key={block.id} rowKey={block.id}>
+              <BlockView
+                block={block}
+                next={blocks[index + 1]}
+                items={items}
+                turnId={turnId}
+                live={live && working}
+                turnEnd={item.endedAt}
+              />
+            </Row>
+          ))}
+          {item.answer && <Markdown text={item.answer} live={false} />}
+          {item.error && (
+            <Note tone="error" stateKey={`subagent:${item.id}`}>
+              {item.error}
+            </Note>
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+/** What the agent asked of a subagent: folded, as it's often long and written for the subagent. */
+function SubagentTask({ id, text }: { id: string; text: string }) {
+  const [open, setOpen] = useTurnPresentation(`subagent-task:${id}`, false)
+  const reveal = useReveal(open)
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Disclosure open={open} onOpenChange={setOpen}>
+        Task
+      </Disclosure>
+      {open && (
+        <p
+          className={cn(
+            reveal,
+            'select-text whitespace-pre-wrap break-words pl-4 text-small text-muted',
+          )}
+        >
+          {text}
+        </p>
+      )}
+    </div>
   )
 }
 
