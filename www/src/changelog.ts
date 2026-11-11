@@ -11,6 +11,14 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.18',
+    date: '2026-11-10',
+    changes: [
+      'Smaller updates: from the next update after this one, Gui downloads only the parts that changed instead of the whole app.',
+      'While your agent fills an empty canvas, the canvas just says so. Before that, its starter ideas are tidier.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.17',
     date: '2026-11-10',
     changes: [

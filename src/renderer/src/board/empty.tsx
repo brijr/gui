@@ -18,7 +18,7 @@ const STARTERS = [
 
 /**
  * An empty canvas: what to ask for, rather than a blank void. A starter goes to the chat once:
- * the starters wait while it's sending and while the agent works on it.
+ * the starters wait while it's sending, and give way to a status line while the agent works.
  */
 export function EmptyBoard({ working }: { working: boolean }) {
   const [sending, setSending] = useState<string | null>(null)
