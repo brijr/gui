@@ -516,9 +516,20 @@ function runSkillCommand(action: 'setup' | 'remove') {
 
 /**
  * Links `gui` into /usr/local/bin, asking for an administrator password if it must, then
- * installs the open-in-gui agent skill so coding agents know the command is there.
+ * installs the open-in-gui agent skill so coding agents know the command is there. Says so,
+ * skill included, before it does either.
  */
 async function installCli() {
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    message: "Install the 'gui' command?",
+    detail:
+      'Run gui in a project folder to open it here and start its dev server. It also adds an open-in-gui skill for your agents to ~/.agents/skills and ~/.claude/skills.',
+    buttons: ['Install', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (response !== 0) return
   const script = cliScript()
   try {
     try {
@@ -1687,8 +1698,13 @@ function buildMenu() {
         ...(readyUpdate() ? [{ label: 'Restart to Update', click: () => restartToUpdate() }] : []),
         { type: 'separator' },
         ...item('settings', { click: () => openSettings() }),
-        { label: "Install 'gui' Command…", click: () => void installCli() },
-        { label: 'Remove Agent Skill…', click: () => void removeAgentSkill() },
+        {
+          label: "'gui' Command",
+          submenu: [
+            { label: "Install 'gui' Command…", click: () => void installCli() },
+            { label: 'Remove Agent Skill…', click: () => void removeAgentSkill() },
+          ],
+        },
         { type: 'separator' },
         { role: 'services' },
         { type: 'separator' },
