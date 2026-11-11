@@ -916,7 +916,7 @@ gui.onCommand((command) => {
  * the user's GitHub repositories above it, or offers to connect GitHub); main asks where to
  * put the folder, then opens it like any project.
  */
-function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolean }) {
+function OpenActions({ connect }: { connect: boolean }) {
   const [form, setForm] = useState<StartForm | null>(null)
   const github = useGitHub(form === 'cloneRepo')
   const [template, setTemplate] = useState<ProjectTemplate>('website')
@@ -957,24 +957,20 @@ function OpenActions({ firstRun, connect }: { firstRun: boolean; connect: boolea
         <Button
           variant={connect ? 'secondary' : 'primary'}
           size="lg"
-          icon={firstRun ? FolderPlus : FolderOpen}
+          icon={FolderOpen}
           className={cell}
-          onClick={() => (firstRun ? setForm('newProject') : void gui.openProject())}
+          onClick={() => void gui.openProject()}
         >
-          {firstRun ? 'New project…' : 'Open project…'}
+          Open project…
         </Button>
         <div className="grid grid-cols-3 gap-2">
           <Button
-            icon={firstRun ? FolderOpen : FolderPlus}
+            icon={FolderPlus}
             className={cell}
-            title={
-              firstRun
-                ? 'Choose a project folder already on your Mac'
-                : 'Start a new website or app'
-            }
-            onClick={() => (firstRun ? void gui.openProject() : setForm('newProject'))}
+            title="Start a new website or app"
+            onClick={() => setForm('newProject')}
           >
-            {firstRun ? 'Open project…' : 'New project…'}
+            New project…
           </Button>
           {/* No folder, install or server: a canvas to design on with the agent, open at once. */}
           <Button
@@ -1157,7 +1153,7 @@ function StartScreen({ state }: { state: WindowState }) {
             onOtherAgents={() => setOtherAgents(true)}
           />
         )}
-        <OpenActions firstRun={firstRun} connect={connect} />
+        <OpenActions connect={connect} />
       </div>
 
       {chats.length > 0 && (
