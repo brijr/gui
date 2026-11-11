@@ -14,25 +14,27 @@ import {
 /** Nothing here calls a tool: the server only has to list them. */
 const unused = {} as never
 
+type McpConfig = ReturnType<RunningMcpServer['config']>
+
 const servers: RunningMcpServer[] = []
 async function start() {
   const server = await startMcpServer(unused, unused, unused)
   servers.push(server)
-  return server.config
+  return server.config()
 }
 afterEach(() => {
   for (const server of servers.splice(0)) server.close()
 })
 
 /** Where the agent is told to call, and the token it's told to send. */
-function endpoint(config: RunningMcpServer['config']) {
+function endpoint(config: McpConfig) {
   if (!('url' in config)) throw new Error('Gui serves its tools over HTTP')
   const headers = Object.fromEntries(config.headers.map((header) => [header.name, header.value]))
   return { url: config.url, headers }
 }
 
 function call(
-  config: RunningMcpServer['config'],
+  config: McpConfig,
   method: string,
   headers: Record<string, string> = endpoint(config).headers,
 ) {
@@ -86,7 +88,7 @@ test('only the token Gui gave its agent gets in', async () => {
   expect((await fetch(url, { headers })).status).toBe(405)
 })
 
-async function listed(config: RunningMcpServer['config']) {
+async function listed(config: McpConfig) {
   const reply = await call(config, 'tools/list')
   return (await reply.json()).result.tools as { name: string; title: string }[]
 }
@@ -95,7 +97,7 @@ test('a canvas lists its own tools and none that need a dev server, rulers or we
   const project = await listed(await start())
   const canvasServer = await startMcpServer(unused, unused, unused, unused)
   servers.push(canvasServer)
-  const canvas = await listed(canvasServer.config)
+  const canvas = await listed(canvasServer.config())
 
   // What each session is told it has is what it gets.
   expect(project.map((tool) => tool.name).sort()).toEqual(sessionToolNames(false).sort())
@@ -127,4 +129,21 @@ test('opening a website is its own tool, which asks first', async () => {
   expect(names).toContain('preview_open_website')
   expect(ASK_FIRST_TOOLS.has('preview_open_website')).toBe(true)
   expect(ASK_FIRST_TOOLS.has('preview_navigate')).toBe(false)
+})
+
+test("a session that can't open websites is served every tool but that one", async () => {
+  const server = await startMcpServer(unused, unused, unused)
+  servers.push(server)
+  const all = (await listed(server.config())).map((tool) => tool.name)
+  const without = (await listed(server.config(false))).map((tool) => tool.name)
+  expect(without.sort()).toEqual(sessionToolNames(false, false).sort())
+  expect(without).not.toContain('preview_open_website')
+  expect(all.filter((name) => name !== 'preview_open_website').sort()).toEqual(without)
+  // The same token; only that session's own address.
+  expect(endpoint(server.config(false)).headers).toEqual(endpoint(server.config()).headers)
+  const elsewhere = {
+    ...server.config(),
+    url: endpoint(server.config()).url.replace('/mcp', '/other'),
+  }
+  expect((await call(elsewhere, 'tools/list')).status).toBe(401)
 })

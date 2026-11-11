@@ -881,7 +881,8 @@ export class PreviewTools extends PageTools {
       throw new Error(
         this.deps.openFrame
           ? 'On a canvas, open a frame with canvas_open_frame; look at websites with canvas_screenshot_url.'
-          : "That isn't the user's app. Open websites with preview_open_website.",
+          : // Not every agent can open websites (`opensWebsites`), so this doesn't say how.
+            "That isn't the user's app: preview_navigate opens only its pages.",
       )
     this.deps.website.close()
     const { url } = target

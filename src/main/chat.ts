@@ -47,7 +47,7 @@ import {
 } from './agent'
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
-import { declaresOwnPermissions, type PermissionPolicy } from './agents'
+import { declaresOwnPermissions, opensWebsites, type PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import { availableModels, chosenValue, offersChoice, withChoices } from './chat-models'
 import { type EditScope, isFromHome, isOutside, projectEditPath } from './chat-paths'
@@ -112,8 +112,8 @@ export interface ChatOptions {
   saved: SavedChat | null
   historyFile: string
   recordings: Recordings
-  /** Gui's preview tools, offered to every agent session */
-  mcpServers: () => McpServer[]
+  /** Gui's preview tools, offered to every agent session; without `websites`, none opens one */
+  mcpServers: (websites: boolean) => McpServer[]
   /** The preview's viewport as the user sees it now, which each prompt names; null on a canvas's board */
   viewport: () => PromptViewport | null
   /** The user's guides over the preview while the rulers show them, which each prompt names */
@@ -1480,6 +1480,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
                 record.fix === 'startup' ? this.options.startupReport(this.agentHasTools) : null,
               preamble,
               tools: this.agentHasTools,
+              websites: opensWebsites(agent.agentId),
               images: info.supportsImages,
               attachments: images,
               followUp: earlier ? describeFollowUp(earlier, info.supportsImages) : [],
@@ -1764,7 +1765,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     })
     this.agent = agent
     try {
-      const mcpServers = this.options.mcpServers()
+      const mcpServers = this.options.mcpServers(opensWebsites(this.meta.agentId))
       const info = await withTimeout(
         agent.start({
           mcpServers,

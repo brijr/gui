@@ -283,6 +283,12 @@ const BUILT_IN: readonly AgentDefinition[] = AGENTS.map((agent) => ({
 export const declaresOwnPermissions = (id: AgentId) =>
   BUILT_IN.some((agent) => agent.id === id && agent.ownPermissions === true)
 
+/**
+ * Whether the agent is offered preview_open_website. Opening a website asks the user first
+ * (ASK_FIRST_TOOLS), which Gui can't make an agent whose own settings decide do.
+ */
+export const opensWebsites = (id: AgentId) => !declaresOwnPermissions(id)
+
 const customFile = () => join(app.getPath('userData'), 'agents.json')
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>

@@ -60,10 +60,16 @@ const PROJECT_ONLY: ReadonlySet<PreviewTool> = new Set<PreviewTool>([
   'set_start_command',
 ])
 
-/** The preview tools a project's session gets, or a canvas's. */
-export function previewToolNames(project: boolean): PreviewTool[] {
+/**
+ * The preview tools a project's session gets, or a canvas's. Without `websites`, none opens
+ * one: for an agent whose own settings decide what it asks (`declaresOwnPermissions`), as
+ * Gui can't make it ask before opening a website.
+ */
+export function previewToolNames(project: boolean, websites = true): PreviewTool[] {
   const names = Object.keys(PREVIEW_TOOL_TITLES) as PreviewTool[]
-  return project ? names : names.filter((name) => !PROJECT_ONLY.has(name))
+  return names.filter(
+    (name) => (project || !PROJECT_ONLY.has(name)) && (websites || name !== 'preview_open_website'),
+  )
 }
 
 /** What Gui does and doesn't stop on a website, for the input tools' descriptions. */
@@ -152,12 +158,17 @@ export function registerPreviewTools(
    * websites (PROJECT_ONLY).
    */
   project = true,
+  /** False for an agent Gui can't make ask first: no preview_open_website (`previewToolNames`) */
+  allowWebsites = true,
 ) {
   const T = PREVIEW_TOOL_TITLES
+  const websites = project && allowWebsites
   /** The page the page tools act on, in their descriptions. */
-  const shownPage = project
-    ? "the page the preview shows (the user's app, or the website you opened with preview_open_website)"
-    : 'the frame open in the preview (canvas_open_frame)'
+  const shownPage = !project
+    ? 'the frame open in the preview (canvas_open_frame)'
+    : websites
+      ? "the page the preview shows (the user's app, or the website you opened with preview_open_website)"
+      : "the user's app in the preview"
 
   server.registerTool(
     'preview_snapshot',
@@ -529,7 +540,7 @@ export function registerPreviewTools(
     {
       title: T.preview_navigate,
       description: project
-        ? "Open a page of the user's app in the preview they are watching: a path such as `/pricing`, or an address on its dev server. It closes any website you opened, so `/` is how you go back. Websites open with preview_open_website."
+        ? `Open a page of the user's app in the preview they are watching: a path such as \`/pricing\`, or an address on its dev server.${websites ? ' It closes any website you opened, so `/` is how you go back. Websites open with preview_open_website.' : ''}`
         : 'Open a frame in the preview by its page, `/frames/<id>.html`, the same as canvas_open_frame. A canvas has no other pages.',
       inputSchema: {
         path: z
@@ -550,7 +561,7 @@ export function registerPreviewTools(
     },
   )
 
-  if (project) {
+  if (websites) {
     server.registerTool(
       'preview_open_website',
       {
@@ -576,7 +587,9 @@ export function registerPreviewTools(
         }
       },
     )
+  }
 
+  if (project) {
     server.registerTool(
       'preview_back',
       {

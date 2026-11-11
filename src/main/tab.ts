@@ -1417,7 +1417,7 @@ export class ProjectTab implements ChatPanelOwner {
       saved,
       historyFile: file,
       recordings,
-      mcpServers: () => (resources.mcp ? [resources.mcp.config] : []),
+      mcpServers: (websites) => (resources.mcp ? [resources.mcp.config(websites)] : []),
       viewport: () => this.promptViewport(),
       guides: () => this.promptGuides(),
       board: board ? () => this.promptBoard() : undefined,

@@ -27,10 +27,13 @@ export type GuiTool = keyof typeof GUI_TOOL_TITLES
 
 export const GUI_TOOL_NAMES = Object.keys(GUI_TOOL_TITLES) as GuiTool[]
 
-/** The tools a session lists: a project's, or a canvas's (no dev server, websites or rulers). */
-export function sessionToolNames(canvas: boolean): GuiTool[] {
+/**
+ * The tools a session lists: a project's, or a canvas's (no dev server, websites or rulers).
+ * Without `websites`, no preview_open_website (`previewToolNames`).
+ */
+export function sessionToolNames(canvas: boolean, websites = true): GuiTool[] {
   return [
-    ...previewToolNames(!canvas),
+    ...previewToolNames(!canvas, websites),
     ...(Object.keys(APP_TOOL_TITLES) as GuiTool[]),
     ...(canvas ? (Object.keys(BOARD_TOOL_TITLES) as GuiTool[]) : []),
   ]
@@ -87,19 +90,26 @@ function buildServer(
   recordings: Recordings,
   app: AppTools,
   board: BoardTools | null,
+  websites: boolean,
 ) {
   const server = new McpServer({ name: 'gui', version: '0.2.0' })
-  registerPreviewTools(server, tools, recordings, board === null)
+  registerPreviewTools(server, tools, recordings, board === null, websites)
   registerAppTools(server, app)
   if (board) registerBoardTools(server, board)
   return server
 }
 
 export interface RunningMcpServer {
-  /** Ready to pass in ACP `session/new` / `session/load` */
-  config: AcpMcpServer
+  /**
+   * Ready to pass in ACP `session/new` / `session/load`. Without `websites`, the session
+   * can't open one (`previewToolNames`).
+   */
+  config(websites?: boolean): AcpMcpServer
   close(): void
 }
+
+/** Where a session's tools are served: the same tools but preview_open_website at the second. */
+const PATHS = { websites: '/mcp', noWebsites: '/mcp/no-websites' } as const
 
 /**
  * Serves Gui's tools over MCP Streamable HTTP on loopback, stateless, behind a bearer token
@@ -123,7 +133,8 @@ export async function startMcpServer(
 
   let allowedHosts: string[] = []
   const http: Server = createServer((req, res) => {
-    if (req.url !== '/mcp' || !authorized(req.headers.authorization)) {
+    const websites = req.url === PATHS.websites
+    if ((!websites && req.url !== PATHS.noWebsites) || !authorized(req.headers.authorization)) {
       res.writeHead(401).end()
       return
     }
@@ -138,7 +149,7 @@ export async function startMcpServer(
       .then((loaded) => {
         // Hung up while the SDK loaded: nothing to answer, and no `close` left to wait for.
         if (res.destroyed) return
-        const server = buildServer(loaded, tools, recordings, app, board)
+        const server = buildServer(loaded, tools, recordings, app, board, websites)
         const transport = new loaded.StreamableHTTPServerTransport({
           sessionIdGenerator: undefined,
           enableJsonResponse: true,
@@ -165,12 +176,12 @@ export async function startMcpServer(
   allowedHosts = [`127.0.0.1:${port}`]
 
   return {
-    config: {
+    config: (websites = true) => ({
       type: 'http',
       name: MCP_SERVER_NAME,
-      url: `http://127.0.0.1:${port}/mcp`,
+      url: `http://127.0.0.1:${port}${websites ? PATHS.websites : PATHS.noWebsites}`,
       headers: [{ name: 'Authorization', value: `Bearer ${token}` }],
-    },
+    }),
     // Calls still in flight hang up with it; their work checks the opening is still current
     // before it touches the preview (PreviewTools `live`).
     close: () => {

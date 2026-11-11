@@ -1,4 +1,7 @@
 import { expect, test } from 'bun:test'
+import { execFile } from 'node:child_process'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { AgentDefinition } from '../src/main/agents'
 
 // Opening a website can carry data out in its address, so the user decides every call:
@@ -59,3 +62,14 @@ test('Gui leaves a request to open a website to the user, by its title or its ca
     ),
   ).toBe(false)
 })
+
+test("agents Gui can't make ask first aren't offered a website, in their own process", async () => {
+  const file = join(import.meta.dirname, 'fast', 'agent-websites.ts')
+  const result = await promisify(execFile)(process.execPath, ['test', file]).catch(
+    (error: { stdout: string; stderr: string }) => error,
+  )
+  // The whole report, so a failure in there is shown here.
+  const report = `${result.stdout}${result.stderr}`
+  expect(report).toContain('\n 0 fail\n')
+  expect(report).toMatch(/\n 2 pass\n/)
+}, 10_000)
