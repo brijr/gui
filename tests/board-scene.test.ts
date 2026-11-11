@@ -60,9 +60,11 @@ test('a frame wants the smallest texture a little wider than it is drawn', () =>
   // Far out, less than the small file holds: resized as it's decoded.
   expect(thumbTier(1440, 60)).toEqual({ width: 90, source: 'small', sourceWidth: 360 })
   expect(thumbTier(1440, 144)).toEqual({ width: 180, source: 'small', sourceWidth: 360 })
-  // A narrow frame's thumbnail is its own width at most.
-  expect(thumbTier(390, 700)).toEqual({ width: 390, source: 'full', sourceWidth: 390 })
-  expect(thumbTier(200, 700)).toEqual({ width: 200, source: 'small', sourceWidth: 200 })
+  // A narrow frame's thumbnail is twice its width at most, for a Retina screen at 100%.
+  expect(thumbTier(390, 700)).toEqual({ width: 780, source: 'full', sourceWidth: 780 })
+  expect(thumbTier(390, 2000)).toEqual({ width: 780, source: 'full', sourceWidth: 780 })
+  expect(thumbTier(1000, 2000)).toEqual({ width: 1440, source: 'full', sourceWidth: 1440 })
+  expect(thumbTier(100, 700)).toEqual({ width: 200, source: 'small', sourceWidth: 200 })
 })
 
 test('only what reaches into the view is drawn, in paint order', () => {

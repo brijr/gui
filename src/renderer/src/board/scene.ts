@@ -4,6 +4,7 @@ import {
   SMALL_THUMB_WIDTH,
   sectionBounds,
   THUMB_WIDTH,
+  thumbWidthOf,
 } from '../../../shared/board'
 import {
   type BoardViewRect,
@@ -77,7 +78,7 @@ export interface ThumbWant {
 
 /** The texture a frame `frameWidth` board pixels wide wants, drawn `drawn` device pixels wide. */
 export function thumbTier(frameWidth: number, drawn: number): Omit<ThumbWant, 'id' | 'version'> {
-  const full = Math.min(THUMB_WIDTH, Math.round(frameWidth))
+  const full = thumbWidthOf(frameWidth)
   const small = Math.min(SMALL_THUMB_WIDTH, full)
   const tier = THUMB_TIERS.find((width) => width >= drawn * THUMB_OVERSAMPLE) ?? THUMB_WIDTH
   const width = Math.min(tier, full)

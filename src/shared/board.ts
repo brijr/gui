@@ -28,10 +28,17 @@ export const FRAME_MIN = 120
 export const FRAME_MAX = 4000
 
 /**
- * A thumbnail's widest, in pixels: a desktop frame's own width, so the board stays sharp on a
- * Retina screen up to about 50%.
+ * A thumbnail's widest, in pixels: a desktop frame's own width. Narrower frames are captured at
+ * twice their size up to this (`thumbWidthOf`), so they stay sharp on a Retina screen at 100%.
  */
 export const THUMB_WIDTH = 1440
+/** The most device pixels a thumbnail has per CSS pixel: a Retina screen's. */
+export const THUMB_DENSITY = 2
+
+/** A frame's thumbnail's width, in pixels: twice the frame's, THUMB_WIDTH at most. */
+export function thumbWidthOf(frameWidth: number) {
+  return Math.min(THUMB_WIDTH, Math.round(frameWidth * THUMB_DENSITY))
+}
 /**
  * The board's zoomed-out thumbnails are this wide, in pixels: a full one decoded for a frame
  * a hundred pixels wide on screen costs its memory many times over.

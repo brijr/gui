@@ -7,6 +7,7 @@ import {
   FRAME_MAX,
   FRAMES_DIR,
   SMALL_THUMB_WIDTH,
+  THUMB_DENSITY,
   THUMB_WIDTH,
 } from '../shared/board'
 import { writeFileAtomic } from './atomic-file'
@@ -67,6 +68,8 @@ interface CachedThumbnail {
   thumbWidth?: number
   /** SMALL_THUMB_WIDTH when it was made; without a small copy, it's made again */
   smallWidth?: number
+  /** THUMB_DENSITY when it was made; one captured at 1× is made again */
+  density?: number
 }
 
 interface ThumbnailRequest {
@@ -154,7 +157,8 @@ export class BoardCaptures {
           cached.width !== frame.width ||
           cached.height !== frame.height ||
           cached.thumbWidth !== THUMB_WIDTH ||
-          cached.smallWidth !== SMALL_THUMB_WIDTH
+          cached.smallWidth !== SMALL_THUMB_WIDTH ||
+          cached.density !== THUMB_DENSITY
         )
           void this.thumbnail(frame.id)
       }),
@@ -280,7 +284,10 @@ export class BoardCaptures {
       this.assets === assets
     let image: NativeImage | null
     try {
-      image = await this.renderer.render(frame, this.host.url(id), 1, signal, THUMB_MAX_HEIGHT)
+      // Narrower than THUMB_WIDTH, it's captured at 2× and narrowed to THUMB_WIDTH at most
+      // (`thumbWidthOf`): two worker scales, not one for every width.
+      const scale = frame.width < THUMB_WIDTH ? THUMB_DENSITY : 1
+      image = await this.renderer.render(frame, this.host.url(id), scale, signal, THUMB_MAX_HEIGHT)
     } catch (error) {
       if (!(error instanceof UnresponsiveFrameError)) throw error
       this.hung.set(id, attempt)
@@ -316,6 +323,7 @@ export class BoardCaptures {
         height: frame.height,
         thumbWidth: THUMB_WIDTH,
         smallWidth: SMALL_THUMB_WIDTH,
+        density: THUMB_DENSITY,
       }
       await writeFileAtomic(this.cachePath, JSON.stringify(this.cache))
       if (!current()) return

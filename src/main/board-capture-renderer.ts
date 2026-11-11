@@ -106,9 +106,16 @@ async function load(wc: WebContents, url: string, signal: AbortSignal) {
   return null
 }
 
-/** One reusable worker per board; it has no frame document while idle. */
+/**
+ * Thumbnails take two scales (1× for desktop frames, 2× for narrower ones), so a board keeps
+ * a worker for each rather than remaking one whenever the next frame's width differs.
+ */
+const MAX_WORKERS = 2
+
+/** Reusable workers per board, one a scale; they have no frame document while idle. */
 export class OffscreenBoardRenderer implements BoardCaptureRenderer {
-  private worker: { scale: number; window: BrowserWindow } | null = null
+  /** By scale, the one used longest ago first */
+  private workers = new Map<number, BrowserWindow>()
   private disposed = false
 
   async render(
@@ -162,7 +169,7 @@ export class OffscreenBoardRenderer implements BoardCaptureRenderer {
           wc.stopPainting()
           if (wc.getURL() !== 'about:blank') {
             win.destroy()
-            if (this.worker?.window === win) this.worker = null
+            this.drop(win)
           }
         }
       }
@@ -179,14 +186,24 @@ export class OffscreenBoardRenderer implements BoardCaptureRenderer {
       }
       win.destroy()
     }
-    if (this.worker?.window === win) this.worker = null
+    this.drop(win)
+  }
+
+  private drop(win: BrowserWindow) {
+    for (const [scale, worker] of this.workers) if (worker === win) this.workers.delete(scale)
   }
 
   private window(scale: number, origin: string) {
-    const existing = this.worker
-    if (existing && !existing.window.isDestroyed()) {
-      if (existing.scale === scale) return existing.window
-      existing.window.destroy()
+    const existing = this.workers.get(scale)
+    this.workers.delete(scale)
+    if (existing && !existing.isDestroyed()) {
+      this.workers.set(scale, existing)
+      return existing
+    }
+    for (const [old, worker] of this.workers) {
+      if (this.workers.size < MAX_WORKERS) break
+      worker.destroy()
+      this.workers.delete(old)
     }
     const window = new BrowserWindow({
       show: false,
@@ -204,7 +221,7 @@ export class OffscreenBoardRenderer implements BoardCaptureRenderer {
         session: canvasSession(),
       },
     })
-    this.worker = { scale, window }
+    this.workers.set(scale, window)
     const wc = window.webContents
     wc.setAudioMuted(true)
     wc.stopPainting()
@@ -217,7 +234,7 @@ export class OffscreenBoardRenderer implements BoardCaptureRenderer {
 
   dispose() {
     this.disposed = true
-    if (this.worker && !this.worker.window.isDestroyed()) this.worker.window.destroy()
-    this.worker = null
+    for (const worker of this.workers.values()) if (!worker.isDestroyed()) worker.destroy()
+    this.workers.clear()
   }
 }

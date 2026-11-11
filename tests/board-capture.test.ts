@@ -93,14 +93,43 @@ test('interactive screenshots overtake queued thumbnails and active stale result
   const other = ['a', 'b', 'c'].find((id) => id !== first) ?? ''
   const replacement = owner.thumbnail(first)
   const coalesced = owner.thumbnail(first)
-  const shot = owner.screenshot(other, 2)
+  const shot = owner.screenshot(other, 1)
   gate.resolve()
   expect((await shot).toJPEG(82).toString()).toBe(other)
-  expect(rendered.slice(0, 2)).toEqual([`${first}:1`, `${other}:2`])
+  // A frame narrower than THUMB_WIDTH is captured at 2×, for a Retina screen at 100%.
+  expect(rendered.slice(0, 2)).toEqual([`${first}:2`, `${other}:1`])
   await Promise.all([replacement, coalesced])
   await until(() => f.changed.length === 3)
-  expect(rendered.filter((value) => value === `${first}:1`)).toHaveLength(2)
+  expect(rendered.filter((value) => value === `${first}:2`)).toHaveLength(2)
   expect(f.changed.filter((id) => id === first)).toHaveLength(1)
+})
+
+test('thumbnails made at 1× before are made again at 2×, and desktop frames stay at 1×', async () => {
+  const f = await fixture(['a', 'b'])
+  const desktop = f.frames.get('b')
+  if (desktop) desktop.width = 1440
+  const scales: string[] = []
+  const renderer = (): BoardCaptureRenderer => ({
+    render: async (frame, _url, scale) => {
+      scales.push(`${frame.id}:${scale}`)
+      return image(frame.id)
+    },
+    dispose: () => undefined,
+  })
+  const first = f.create(renderer())
+  await first.open()
+  await until(() => f.changed.length === 2)
+  expect(scales.sort()).toEqual(['a:2', 'b:1'])
+  await first.dispose()
+  // A cache from before thumbnails had a density: every frame is captured again.
+  const cachePath = join(f.thumbs, 'cache.json')
+  const cache = JSON.parse(await readFile(cachePath, 'utf8'))
+  for (const entry of Object.values(cache)) delete (entry as { density?: number }).density
+  await writeFile(cachePath, JSON.stringify(cache))
+  scales.length = 0
+  const second = f.create(renderer())
+  await second.open()
+  await until(() => scales.length === 2)
 })
 
 test('the shared capture budget is bounded and waiting visible work can be promoted', async () => {
