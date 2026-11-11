@@ -11,6 +11,17 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.20',
+    date: '2026-11-11',
+    changes: [
+      'You can follow your agent as it uses your app or a website: its pointer glides to what it clicks, the page scrolls there smoothly, text types in, and scrolls slow to a stop. Clicks are quicker than before. With Reduce motion on, it all happens at once.',
+      'Agents can play an animation in the preview and watch it frame by frame, to check the motion they built.',
+      'Agents ask before they open a website, and their preview tools act only on your app, not on other local servers. Amp, fx, Kiro, OpenCode and Pi, whose own settings decide what they ask, aren’t offered websites at all.',
+      'When your agent changes your dev script, Gui asks before running it, every time.',
+      'Agents get a smaller, sharper set of Gui tools. They can wait for something to appear on the page and go back a page.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.19',
     date: '2026-11-10',
     changes: [
