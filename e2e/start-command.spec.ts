@@ -23,6 +23,11 @@ test('a failed start offers the agent, and a start command set in Gui starts the
   }, 'the dev server to exit')
   expect(crashed.devServer.exitCode).toBe(1)
   expect(crashed.project?.custom).toBeNull()
+  // The card says why in the output's words, not the package manager's "exited with code 1".
+  expect(crashed.devServer.errorLine).toBe('Error: Cannot find module ./missing')
+  await expect(session.chrome.getByText('Error: Cannot find module ./missing')).toBeVisible()
+  await expect(session.chrome.getByRole('button', { name: 'Details' })).toHaveCount(0)
+  await expect(session.chrome.getByRole('button', { name: /logs/i }).first()).toBeVisible()
 
   // The chat renders what agents write: it can't say what runs in the user's shell.
   await expect(

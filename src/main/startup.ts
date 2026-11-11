@@ -47,6 +47,32 @@ export function logTail(logs: string, lines: number) {
   return [...dropped, ...tail.slice(kept)].join('\n').trim()
 }
 
+/**
+ * A package manager's own line about the script it ran ("error: script "dev" exited with code
+ * 1", npm's ELIFECYCLE), or a stack frame: never the cause, which came before it.
+ */
+const RUNNER_LINE = [
+  /^(error: )?script ".*" exited with code/i,
+  /^npm (ERR!|error) (code|path|command|errno|signal|Lifecycle|A complete log|Failed at)/i,
+  /ELIFECYCLE|ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL/,
+  /^error Command failed with exit code/i,
+  /^info Visit https:\/\/yarnpkg\.com/i,
+  /^at\s/,
+  /^\$ /,
+]
+
+export function isRunnerLine(line: string) {
+  return RUNNER_LINE.some((pattern) => pattern.test(line))
+}
+
+/** Words that mark the line saying what went wrong ("Error: Cannot find module './config'"). */
+const ERROR_LINE =
+  /\b(error|ERR!|fail(ed|ure)?|cannot|can't|could not|couldn't|not found|unexpected|EADDRINUSE|EACCES|ENOENT|exception|traceback|panic)\b/i
+
+export function looksLikeError(line: string) {
+  return ERROR_LINE.test(line) && !isRunnerLine(line)
+}
+
 /** Where getting the app running stopped; null while it's on its way or running. */
 export function startupFailure({ project, setup, devServer, preview }: StartupState) {
   if (!project) return null

@@ -16,6 +16,7 @@ import { Output } from './output'
 import { listenersOf, listenersOn, loopbackFor, portOpen, processGroups } from './ports'
 import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
+import { isRunnerLine, looksLikeError } from './startup'
 
 const PROBE_TIMEOUT_MS = 120_000
 /** A port that isn't a web page yet is asked again after this long. */
@@ -66,8 +67,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     url: null,
     exitCode: null,
     lastLine: '',
+    errorLine: '',
     slow: false,
   }
+  /** This run's first line that reads like an error, and its last that isn't the runner's */
+  private cause = { first: '', last: '' }
   private proc: IPty | null = null
   /** Settles when `proc` has exited and its exit has been handled. */
   private exited: Promise<void> = Promise.resolve()
@@ -139,6 +143,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.stopping = false
     this.partial = ''
     this.printed = []
+    this.cause = { first: '', last: '' }
     this.lastOutput = Date.now()
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
     this.update({
@@ -147,6 +152,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       url: null,
       exitCode: null,
       lastLine: '',
+      errorLine: '',
       slow: false,
     })
     if (this.slowTimer) clearTimeout(this.slowTimer)
@@ -160,7 +166,12 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       this.write(`${ESC}[31mCouldn't start the dev server: ${message}${ESC}[0m\r\n`)
-      this.update({ status: 'exited', exitCode: null, lastLine: `Couldn't start: ${message}` })
+      this.update({
+        status: 'exited',
+        exitCode: null,
+        lastLine: `Couldn't start: ${message}`,
+        errorLine: message,
+      })
       return
     }
     if (url) {
@@ -177,7 +188,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       this.update(
         this.stopping
           ? { status: 'idle', url: null, exitCode: null }
-          : { status: 'exited', url: null, exitCode },
+          : { status: 'exited', url: null, exitCode, errorLine: exitCode ? this.causeLine() : '' },
       )
     })
   }
@@ -196,6 +207,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const run = ++this.run
     const env = await getShellEnv()
     if (run !== this.run) return null
+    this.cause = { first: '', last: '' }
+    if (this.state.errorLine) this.update({ errorLine: '' })
 
     let proc: IPty
     try {
@@ -219,6 +232,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
         this.proc = null
         this.write(`\r\n${ESC}[2m[process exited with code ${exitCode}]${ESC}[0m\r\n`)
         if (timedOut) return resolve('timeout')
+        if (!signal && !this.stopping && exitCode !== 0)
+          this.update({ errorLine: this.causeLine() })
         resolve(signal || this.stopping ? null : exitCode)
       })
     })
@@ -230,7 +245,13 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.run++
     this.write(`${ESC}[31m${message}${ESC}[0m\r\n`)
     this.pendingLastLine = null
-    this.update({ status: 'exited', url: null, exitCode: null, lastLine: message })
+    this.update({
+      status: 'exited',
+      url: null,
+      exitCode: null,
+      lastLine: message,
+      errorLine: message,
+    })
   }
 
   /** Restarting: an exit (a crash) is over, though nothing is running yet. */
@@ -242,9 +263,9 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   /** A message from Gui itself, shown in the log and as the status line. */
   print(message: string) {
     this.write(`${ESC}[33m${message}${ESC}[0m\r\n`)
-    // Output coalesced before it must not replace it.
+    // Output coalesced before it must not replace it; Gui's word is the cause from here on.
     this.pendingLastLine = null
-    this.update({ lastLine: message })
+    this.update({ lastLine: message, errorLine: '' })
   }
 
   /**
@@ -323,6 +344,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const parts = (this.partial + chunk).split(/\r\n|\n|\r/)
     this.partial = (parts.pop() ?? '').slice(-8000)
     const lines = parts.map((line) => stripAnsi(line).trim()).filter(Boolean)
+    for (const line of lines) {
+      if (isRunnerLine(line)) continue
+      this.cause.last = line
+      if (!this.cause.first && looksLikeError(line)) this.cause.first = line
+    }
     // Install output isn't a problem with the app.
     if (!this.task) for (const line of lines) this.emit('line', line)
     const last = lines.at(-1)
@@ -442,6 +468,11 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     if (!ours || !listeners.some((l) => groups.get(l.pid) !== pid)) return url
     parsed.hostname = loopbackFor(ours.host)
     return parsed.toString()
+  }
+
+  /** What a failed run says went wrong (`DevServerState.errorLine`), cut short. */
+  private causeLine() {
+    return (this.cause.first || this.cause.last).slice(0, 300)
   }
 
   /** Chatty servers print constantly; coalesce status-line updates. */

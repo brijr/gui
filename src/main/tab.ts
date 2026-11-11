@@ -272,6 +272,7 @@ const idleDevServer = (): DevServerState => ({
   url: null,
   exitCode: null,
   lastLine: '',
+  errorLine: '',
   slow: false,
 })
 

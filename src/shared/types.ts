@@ -236,6 +236,12 @@ export interface DevServerState {
   url: string | null
   exitCode: number | null
   lastLine: string
+  /**
+   * After a failed run or install: the first line of its output that reads like the cause
+   * ("Error: Cannot find module './config'"), else its last line that isn't the package
+   * manager's own; empty otherwise
+   */
+  errorLine: string
   /** Still starting well after most apps are up (no reachable address yet) */
   slow: boolean
 }

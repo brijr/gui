@@ -244,7 +244,7 @@ function CanvasMessage({ state }: { state: WindowState }) {
         icon={TriangleAlert}
         tone="danger"
         heading="Couldn’t install dependencies"
-        note={devServer.lastLine}
+        detail={<Cause line={devServer.errorLine || devServer.lastLine} />}
         actions={
           <>
             <FixStartupButton agentId={state.agentId} />
@@ -266,15 +266,13 @@ function CanvasMessage({ state }: { state: WindowState }) {
         tone={failed ? 'danger' : 'neutral'}
         heading="Your app stopped"
         detail={
-          failed
-            ? 'It quit with an error.'
-            : stoppedOutside(state)
-              ? 'Something outside Gui stopped it.'
-              : 'It quit on its own, without an error. Restart it to see your changes.'
-        }
-        note={
-          devServer.lastLine ||
-          (devServer.exitCode === null ? undefined : `Exit code ${devServer.exitCode}`)
+          failed ? (
+            <Cause line={devServer.errorLine} fallback="It quit with an error." />
+          ) : stoppedOutside(state) ? (
+            'Something outside Gui stopped it.'
+          ) : (
+            'It quit on its own, without an error. Restart it to see your changes.'
+          )
         }
         actions={
           failed ? (
@@ -525,12 +523,21 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
   )
 }
 
+/**
+ * What went wrong, as the output said it ("Error: Cannot find module './config'"): main picks
+ * the line that reads like the cause (`DevServerState.errorLine`). Selectable, to search for.
+ */
+function Cause({ line, fallback }: { line: string; fallback?: string }) {
+  if (!line) return fallback ?? null
+  return <span className="block select-text break-words font-mono text-caption">{line}</span>
+}
+
 interface SetupCardProps {
   icon: IconComponent | 'loading'
   tone?: 'neutral' | 'danger'
   heading: string
   /** Plain explanation */
-  detail?: string
+  detail?: ReactNode
   /** The specifics (command, last output line), behind a Details toggle for people who want them */
   note?: string
   /** The toggle's label, "Details" unless said */
