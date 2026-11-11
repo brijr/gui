@@ -203,6 +203,9 @@ const PENDING_PICK = 'pending'
 const AGENT_START_WAIT_MS = 45_000
 /** The walkthrough's last step stays this long after the agent's turn ends */
 const GUIDE_LINGER_MS = 5000
+/** The picture of a stopped app's page (`stillPreview`): wide enough for a 2× canvas, light */
+const STILL_WIDTH = 1600
+const STILL_QUALITY = 70
 /** How long the page has to answer Design mode's double-click with the text it'll edit */
 const TEXT_EDIT_ASK_MS = 2000
 /** The longest an agent's width check waits for the preview to resize into its viewport */
@@ -575,6 +578,7 @@ export class ProjectTab implements ChatPanelOwner {
         rulers: getPrefs().rulers,
         selectable: false,
         visible: false,
+        still: null,
         website: null,
       },
       agentId: getPrefs().agentId,
@@ -1796,7 +1800,38 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   stopDevServer() {
-    void this.resources.devServer?.stop()
+    const devServer = this.resources.devServer
+    if (!devServer) return
+    void this.stillPreview(() => devServer.stopAndWait())
+  }
+
+  /**
+   * The app's server is stopping or stopped: its page no longer updates, so it goes, and a
+   * picture of it stays dimmed under the card that says so (`PreviewState.still`), with the
+   * page's tools off. Only the app's own page, while it's on screen. With `stop` (the user's
+   * Stop) the picture is taken first, then the server stops, then the page goes; otherwise
+   * the server quit, and a server back by then (a restart) goes on with the page.
+   */
+  private async stillPreview(stop?: () => Promise<void>) {
+    const { visible, website } = this.state.preview
+    const wc = this.preview.webContents
+    const shown = visible && !website && !this.resources.board && isLoopback(wc.getURL())
+    const resources = this.resources
+    const generation = resources.generation
+    const image = shown ? await wc.capturePage().catch(() => null) : null
+    if (stop) await stop()
+    if (!shown || !resources.stillCurrent(generation) || this.disposed) return
+    const status = this.state.devServer.status
+    if (status !== (stop ? 'idle' : 'exited')) return
+    const narrow =
+      image && !image.isEmpty() && image.getSize().width > STILL_WIDTH
+        ? image.resize({ width: STILL_WIDTH, quality: 'good' })
+        : image
+    const still =
+      narrow && !narrow.isEmpty()
+        ? `data:image/jpeg;base64,${narrow.toJPEG(STILL_QUALITY).toString('base64')}`
+        : null
+    this.patchPreview({ visible: false, selecting: false, loading: false, still })
   }
 
   /** Restart, from the UI: from the top, so changed scripts, packages and settings are used. */
@@ -1927,9 +1962,10 @@ export class ProjectTab implements ChatPanelOwner {
     if (state.status === 'running' && state.url && !wasRunning) {
       void this.loadPreview(state.url)
     } else if (state.status === 'exited') {
-      // Its last page stays on screen, as after Stop, while the toolbar (and for a crash, a bar
-      // under the canvas) says it won't update. Without a page, the canvas says it stopped.
+      // Its last page no longer updates: it stays dimmed under the card that says it stopped,
+      // as after Stop.
       this.patchPreview({ selecting: false, loading: false })
+      if (wasRunning) void this.stillPreview()
     }
   }
 
@@ -4374,6 +4410,8 @@ export class ProjectTab implements ChatPanelOwner {
 
   private patchPreview(patch: Partial<PreviewState>) {
     const { visible, selecting } = this.state.preview
+    // A page on screen again is live: the picture of the stopped one goes.
+    if (patch.visible || patch.url === null) patch = { ...patch, still: null }
     this.patch({ preview: { ...this.state.preview, ...patch } })
     const preview = this.state.preview
     this.resources.chat?.setCanSelect(this.canSelect)

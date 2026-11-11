@@ -1,3 +1,4 @@
+import { waitFor } from './helpers/env'
 import { FIXTURES } from './helpers/fixtures'
 import { expect, test } from './helpers/test'
 
@@ -24,3 +25,27 @@ for (const fixture of FIXTURES) {
     await session.shot('preview')
   })
 }
+
+// A stopped server's page no longer updates, so it doesn't pass for live: it's hidden, a dimmed
+// picture of it stays under the card that says the app isn't running, and Start brings it back.
+test('Stop dims the page under the card that starts the app again', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+
+  await session.chrome.evaluate(() => window.gui.stopDevServer())
+  const stopped = async () => {
+    const { devServer, preview } = await session.state()
+    return devServer.status === 'idle' && !preview.visible ? preview : null
+  }
+  const preview = await waitFor(stopped, 'the page to be hidden once stopped')
+  expect(preview.still).toMatch(/^data:image\/jpeg;base64,/)
+  expect(preview.selecting).toBe(false)
+  await expect(session.chrome.locator('[data-preview-still]')).toBeVisible()
+  await expect(session.chrome.getByText('Your app isn’t running')).toBeVisible()
+  await session.shot('stopped')
+
+  await session.chrome.getByRole('button', { name: 'Start dev server' }).click()
+  const live = await session.waitForPreview()
+  expect(live.preview.still).toBeNull()
+  await expect(session.chrome.locator('[data-preview-still]')).toHaveCount(0)
+})

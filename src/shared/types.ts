@@ -418,6 +418,12 @@ export interface PreviewState {
   selectable: boolean
   visible: boolean
   /**
+   * The app's server stopped (Stop, or it quit): the page is hidden, since it no longer
+   * updates, and this picture of it (a JPEG data URL) is drawn dimmed under the card that
+   * says so. Null otherwise.
+   */
+  still: string | null
+  /**
    * The address of the website the agent opened in the preview, shown over the app in a
    * separate, signed-out session (main/website.ts); null while the preview shows the app
    */

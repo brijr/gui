@@ -117,6 +117,7 @@ export function Canvas({ state }: { state: WindowState }) {
       {preview.frame && preview.visible && !state.shortcutsOpen && !morphing && (
         <DeviceFrame frame={preview.frame} />
       )}
+      {preview.still && !preview.visible && <Still src={preview.still} frame={preview.frame} />}
       {/* The column sits in the middle while it fits (its text still starts at the left);
           scrolls from the top in a short window. */}
       <div
@@ -177,6 +178,28 @@ function DeviceFrame({ frame }: { frame: ViewportFrame }) {
         </span>
       </p>
     </>
+  )
+}
+
+/**
+ * The page of an app whose server stopped, where it was, dimmed: it no longer updates, and
+ * the card over it says so (main's `stillPreview`).
+ */
+function Still({ src, frame }: { src: string; frame: ViewportFrame | null }) {
+  const rect = frame?.rect
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden="true"
+      draggable={false}
+      data-preview-still=""
+      className={cn(
+        'pointer-events-none absolute animate-fade-in select-none object-cover object-top-left opacity-30 grayscale motion-reduce:animate-row-fade',
+        !rect && 'inset-0 size-full',
+      )}
+      style={rect && { left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+    />
   )
 }
 
