@@ -95,6 +95,13 @@ interface UndoEntry {
   bytes: number
 }
 
+/** Past MAX_UNDO steps or MAX_UNDO_BYTES of deleted pages, the oldest go, never the newest. */
+function trimHistory(stack: UndoEntry[]) {
+  if (stack.length > MAX_UNDO) stack.shift()
+  let total = stack.reduce((sum, entry) => sum + entry.bytes, 0)
+  while (stack.length > 1 && total > MAX_UNDO_BYTES) total -= stack.shift()?.bytes ?? 0
+}
+
 /** A page in frames/ left off the board: misnamed, or past MAX_FRAMES */
 export interface IgnoredPage {
   file: string
@@ -144,6 +151,8 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   private selection: string[] = []
   private openFrame: string | null = null
   private undoStack: UndoEntry[] = []
+  /** What ⌘Z took back, newest last, for ⇧⌘Z; any new change, the user's or not, ends it */
+  private redoStack: UndoEntry[] = []
   /**
    * Each page as this session last wrote it, to tell its own writes from someone else's
    * (the agent editing the file) when the watcher reports them.
@@ -264,6 +273,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       camera: this.manifest.camera,
       thumbs: thumbsUrl(this.id),
       canUndo: this.undoStack.length > 0,
+      canRedo: this.redoStack.length > 0,
     }
   }
 
@@ -527,6 +537,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
         `A canvas holds up to ${frameLimit()} frames, so there's room for ${room} more, not ${specs.length}. Delete some first.`,
       )
     const before = new Set(this.manifest.frames.map((frame) => frame.id))
+    const redo = this.redoStack
     this.beginEdit(user)
     const step = user ? this.undoStack.at(-1) : undefined
     const made: BoardFrameLayout[] = []
@@ -546,8 +557,11 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
         this.manifest.sections,
         false,
       )
-      // Nothing changed, so there's nothing new to undo.
-      if (step && this.undoStack.at(-1) === step) this.undoStack.pop()
+      // Nothing changed, so there's nothing new to undo, and what was undone can still come back.
+      if (step && this.undoStack.at(-1) === step) {
+        this.undoStack.pop()
+        this.redoStack = redo
+      }
       await this.save().catch(() => undefined)
       this.emit('change')
       throw error
@@ -661,11 +675,17 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
 
   /** Takes back the user's last board change; false when there's none to take back. */
   undo() {
-    return this.mutations.run(() => this.undoChange())
+    return this.mutations.run(() => this.step(this.undoStack, this.redoStack))
   }
 
-  private async undoChange() {
-    const entry = this.undoStack.at(-1)
+  /** Puts back the board change the user last undid; false when there's none to put back. */
+  redo() {
+    return this.mutations.run(() => this.step(this.redoStack, this.undoStack))
+  }
+
+  /** The board as `from`'s last entry has it, and the board as it was onto `to`, to go back. */
+  private async step(from: UndoEntry[], to: UndoEntry[]) {
+    const entry = from.at(-1)
     if (!entry) return false
     const kept = new Set(entry.frames.map((frame) => frame.id))
     const added = this.manifest.frames.filter((frame) => !kept.has(frame.id))
@@ -675,7 +695,20 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       this.clearUndo()
       return false
     }
-    this.undoStack.pop()
+    from.pop()
+    // Pages it deletes are as this session wrote them (`untouched`): kept to write back.
+    const files: Record<string, string> = {}
+    for (const frame of added) {
+      const html = this.written.get(frame.id)
+      if (html !== undefined) files[frame.id] = html
+    }
+    to.push({
+      frames: this.manifest.frames,
+      sections: this.manifest.sections,
+      files,
+      bytes: Object.values(files).reduce((sum, html) => sum + Buffer.byteLength(html), 0),
+    })
+    trimHistory(to)
     for (const [id, html] of Object.entries(entry.files)) {
       await writeFile(this.framePath(id), html)
       this.written.set(id, html)
@@ -722,10 +755,14 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     return true
   }
 
-  /** The agent changed the canvas: what the user did before it can't be undone on its own. */
+  /**
+   * The agent changed the canvas: what the user did before it can't be undone on its own, and
+   * what they undid can't be put back over it.
+   */
   private clearUndo() {
-    if (!this.undoStack.length) return
+    if (!this.undoStack.length && !this.redoStack.length) return
     this.undoStack = []
+    this.redoStack = []
     this.emit('change')
   }
 
@@ -769,11 +806,9 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
       files,
       bytes,
     })
-    if (this.undoStack.length > MAX_UNDO) this.undoStack.shift()
-    // Deleted pages are kept whole: the oldest go first past the cap, never the newest.
-    let total = this.undoStack.reduce((sum, entry) => sum + entry.bytes, 0)
-    while (this.undoStack.length > 1 && total > MAX_UNDO_BYTES)
-      total -= this.undoStack.shift()?.bytes ?? 0
+    trimHistory(this.undoStack)
+    // A new change of the user's: what they undid before it doesn't come back.
+    this.redoStack = []
   }
 
   private setFrames(frames: BoardFrameLayout[], sections = this.manifest.sections, save = true) {
@@ -830,6 +865,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.manifestRevision++
     // Undoing the user's earlier layout would now take these frames off the board too.
     this.undoStack = []
+    this.redoStack = []
     this.selection = this.selection.filter((id) => files.has(id))
     if (this.openFrame && !files.has(this.openFrame)) this.openFrame = null
     await this.save()
@@ -940,6 +976,7 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     this.manifestRevision++
     this.writer.observe(next)
     this.undoStack = []
+    this.redoStack = []
     await this.syncFrames()
     await this.save()
     for (const frame of this.manifest.frames) {

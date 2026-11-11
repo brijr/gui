@@ -1145,17 +1145,19 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /**
-   * Edit › Undo on a canvas: the user's own last board change, before any of the agent's turns,
-   * with a frame open live too. True when that's all Undo does here: it took one back, or a frame
-   * is open and there's none (Undo there never reaches into the agent's turns, which would take
-   * its frames away). False on the board with nothing of the user's: the chat's turns are next.
+   * Edit › Undo (or Redo) on a canvas: the user's own last board change, before any of the
+   * agent's turns, with a frame open live too. True when that's all it does here: it took one
+   * back (or put one back), or a frame is open and there's none (Undo there never reaches into
+   * the agent's turns, which would take its frames away). False on the board with nothing of
+   * the user's: the chat's turns are next.
    */
-  async undoBoard() {
+  async undoBoard(direction: 'undo' | 'redo' = 'undo') {
     const board = this.resources.board
     if (!board) return false
-    if (board.state().canUndo) {
+    const state = board.state()
+    if (direction === 'undo' ? state.canUndo : state.canRedo) {
       // The agent's change in the meantime left nothing of the user's to take back.
-      if (!(await board.undo())) shell.beep()
+      if (!(await (direction === 'undo' ? board.undo() : board.redo()))) shell.beep()
       return true
     }
     if (!board.openId) return false

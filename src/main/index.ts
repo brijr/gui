@@ -1414,10 +1414,9 @@ async function editHistory(direction: 'undo' | 'redo') {
   if (wc && !wc.isDestroyed() && (await isEditingText(wc))) return textEdit()
   const tab = menuTab()
   if (!tab) return textEdit()
-  // On a canvas, the user's own board changes come back before the agent's turns do; with a
-  // frame open live, only they do (undoBoard). The board has no redo of its own: ⇧⌘Z is the
-  // chat's, as in a project.
-  if (direction === 'undo' && (await tab.undoBoard())) return
+  // On a canvas, the user's own board changes come back (and go again) before the agent's turns
+  // do; with a frame open live, only they do (undoBoard).
+  if (await tab.undoBoard(direction)) return
   await (direction === 'undo' ? tab.undoLastChange() : tab.redoLastChange())
 }
 

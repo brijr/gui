@@ -620,6 +620,45 @@ try {
   assert.equal(await exists(thumb), false)
   await racing.dispose()
 
+  // ⇧⌘Z puts back what ⌘Z took back: moves, deletes (their pages too) and new frames; any new
+  // change, the user's or the agent's, ends it.
+  const redoing = await board('redoing')
+  await redoing.create({ name: 'Mine', width: 400, height: 300, html: '<h1>Mine</h1>' })
+  const placed = redoing.frame('mine')
+  await redoing.arrange([{ id: 'mine', x: 2000 }])
+  assert.equal(redoing.state().canRedo, false)
+  assert.equal(await redoing.undo(), true)
+  assert.equal(redoing.frame('mine')?.x, placed?.x)
+  assert.equal(redoing.state().canRedo, true)
+  assert.equal(await redoing.redo(), true)
+  assert.equal(redoing.frame('mine')?.x, 2000)
+  assert.equal(redoing.state().canRedo, false)
+  assert.equal(await redoing.redo(), false)
+  await redoing.remove(['mine'])
+  assert.equal(await redoing.undo(), true)
+  assert.equal(await nativeFs.readFile(redoing.framePath('mine'), 'utf8'), '<h1>Mine</h1>')
+  assert.equal(await redoing.redo(), true)
+  assert.equal(redoing.has('mine'), false)
+  assert.equal(await exists(redoing.framePath('mine')), false)
+  // Undo all the way back to an empty board, and redo the frame's creation with its page.
+  assert.equal(await redoing.undo(), true)
+  assert.equal(await redoing.undo(), true)
+  assert.equal(await redoing.undo(), true)
+  assert.equal(redoing.has('mine'), false)
+  assert.equal(await redoing.redo(), true)
+  assert.equal(await nativeFs.readFile(redoing.framePath('mine'), 'utf8'), '<h1>Mine</h1>')
+  // A new change of the user's ends what could be redone...
+  assert.equal(redoing.state().canRedo, true)
+  await redoing.rename('mine', 'Renamed')
+  assert.equal(redoing.state().canRedo, false)
+  // ...and so does the agent's.
+  assert.equal(await redoing.undo(), true)
+  assert.equal(redoing.state().canRedo, true)
+  await redoing.arrange([{ id: 'mine', x: 5 }], false, false)
+  assert.equal(redoing.state().canRedo, false)
+  assert.equal(redoing.state().canUndo, false)
+  await redoing.dispose()
+
   // Frames pasted from another canvas: laid out as they were copied, right of what's there,
   // with the shared files their pages use (never over this canvas's own), as one undo step.
   const source = await board('paste-source')

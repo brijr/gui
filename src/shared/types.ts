@@ -582,6 +582,8 @@ export interface BoardState {
   thumbs: string
   /** The board's own changes ⌘Z can undo */
   canUndo: boolean
+  /** The board's own changes ⌘Z undid, which ⇧⌘Z can put back */
+  canRedo: boolean
 }
 
 /** A canvas as the start screen lists it. */
