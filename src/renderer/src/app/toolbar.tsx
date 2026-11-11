@@ -580,15 +580,13 @@ function BoardToolbar({
           >
             Canvas
           </Button>
+          {/* Its size is the caption's, over the frame in the preview. */}
           <p
             data-fit-flex=""
-            className="flex min-w-0 flex-1 items-center gap-2 text-small font-medium text-fg"
+            className="flex min-w-0 flex-1 items-center text-small font-medium text-fg"
           >
             <span className="truncate" title={open.name}>
               {open.name}
-            </span>
-            <span className="shrink-0 font-normal text-subtle tabular-nums">
-              {open.width} × {open.height}
             </span>
           </p>
           {shown('reload') && (
