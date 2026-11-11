@@ -1098,6 +1098,8 @@ export type TurnItem = (
       locations: string[]
       /** It touches files that change how the project builds or runs (config, deps, scripts) */
       sensitive: boolean
+      /** The edit it would make, when the agent sent it (shared/edit-diff.ts) */
+      diff?: EditDiff[]
       options: PermissionChoice[]
       resolved: string | null
     }
@@ -1112,6 +1114,15 @@ export type TurnItem = (
 ) & { subagent?: string }
 
 export type SubagentItem = Extract<TurnItem, { kind: 'subagent' }>
+
+/** One file of an edit an agent asks to make: the lines it removes and adds, in order. */
+export interface EditDiff {
+  /** Relative to the project, or in full outside it */
+  path: string
+  lines: { sign: '+' | '-'; text: string }[]
+  /** Changed lines past the card's cap, not kept */
+  more: number
+}
 
 export interface FileChange {
   path: string

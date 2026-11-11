@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useLayoutEffect, useState } from 'react'
 import type { ShortcutId } from '../../../shared/shortcuts'
 import {
+  type EditDiff,
   isRegion,
   type PermissionChoice,
   type Picked,
@@ -43,6 +44,7 @@ import {
   Wrench,
   X,
 } from '../lib/icons'
+import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, IconButton, PRESS, Spinner, Toggle } from '../lib/ui'
@@ -1025,6 +1027,7 @@ function Permission({
   // History saved before these fields existed lacks them.
   const toolKind = item.toolKind ?? 'other'
   const locations = item.locations ?? []
+  const diff = item.diff ?? []
   const subject = permissionSubject(toolKind, item.title, locations)
   if (item.resolved !== null || !live) return <PermissionOutcome item={item} subject={subject} />
 
@@ -1056,10 +1059,15 @@ function Permission({
           </Badge>
         )}
       </div>
-      {!asked && subject !== fileNames(locations) && (
-        <pre className="max-h-32 select-text overflow-y-auto scroll-stable whitespace-pre-wrap wrap-anywhere rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
-          {subject}
-        </pre>
+      {!asked && diff.length > 0 ? (
+        <EditPreview diff={diff} named={diff.length > 1 || locations.length === 0} />
+      ) : (
+        !asked &&
+        subject !== fileNames(locations) && (
+          <pre className="max-h-32 select-text overflow-y-auto scroll-stable whitespace-pre-wrap wrap-anywhere rounded-md bg-fill px-2 py-1.5 font-mono text-small text-fg">
+            {subject}
+          </pre>
+        )
       )}
       {item.sensitive && <p className="sr-only">{why}</p>}
       {/* One row, the default last, where the card is wide enough. Narrower, two columns that
@@ -1106,6 +1114,44 @@ function Permission({
         </div>
       </div>
     </Card>
+  )
+}
+
+/**
+ * The lines an edit would remove and add, file by file, as the result's changed files read:
+ * monospace, a colored mark, the path when there's more than one file. The text is the
+ * agent's (and the page's), so it's only ever text.
+ */
+function EditPreview({ diff, named }: { diff: EditDiff[]; named: boolean }) {
+  return (
+    <section
+      aria-label="Changes"
+      className="flex max-h-40 select-text flex-col gap-1.5 overflow-y-auto scroll-stable rounded-md bg-fill px-2 py-1.5 font-mono text-caption"
+    >
+      {diff.map((file) => (
+        <div key={file.path} className="flex flex-col">
+          {named && <PathText path={file.path} className="text-muted" />}
+          <ul className="flex flex-col">
+            {file.lines.map((line, index) => (
+              // Lines have no ids and repeat; the list never reorders.
+              // biome-ignore lint/suspicious/noArrayIndexKey: see above
+              <li key={index} className="flex min-w-0 gap-2">
+                <span
+                  className={cn('w-3 shrink-0', line.sign === '+' ? 'text-success' : 'text-danger')}
+                >
+                  <span aria-hidden="true">{line.sign === '+' ? '+' : '−'}</span>
+                  <span className="sr-only">{line.sign === '+' ? 'Added' : 'Removed'}</span>
+                </span>
+                <span className="min-w-0 whitespace-pre-wrap wrap-anywhere text-fg">
+                  {line.text}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {file.more > 0 && <p className="text-subtle">{plural(file.more, 'more line')}</p>}
+        </div>
+      ))}
+    </section>
   )
 }
 

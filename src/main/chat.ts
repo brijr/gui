@@ -13,6 +13,7 @@ import { app, BrowserWindow, dialog, type MessageBoxOptions } from 'electron'
 import { MAX_SUBAGENT_STEPS } from '../shared/bounded'
 import { type ChatTurnUpdate, TurnPublisher } from '../shared/chat-transport'
 import { invokedCommand, parseCommands, takesContext } from '../shared/commands'
+import { editDiffs } from '../shared/edit-diff'
 import {
   type AgentCommand,
   type AgentId,
@@ -2327,6 +2328,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const subagent = from ?? tool?.subagent
     if (subagent) this.subagentIn(record, subagent)
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
+    const diff = editDiffs(
+      (request.toolCall.content ?? []).flatMap((content) =>
+        content.type === 'diff' && typeof content.newText === 'string'
+          ? [{ ...content, path: this.displayPath(content.path) }]
+          : [],
+      ),
+    )
     this.pushItem(record, {
       kind: 'permission',
       id,
@@ -2339,6 +2347,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       toolKind: request.toolCall.kind ?? (tool?.kind === 'tool' ? tool.toolKind : 'other'),
       locations: (request.toolCall.locations ?? []).map((l) => this.displayPath(l.path, l.line)),
       sensitive: paths.some((rel) => rel !== null && SENSITIVE_PATH.test(rel)),
+      ...(diff.length ? { diff } : {}),
       options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
       resolved: null,
       ...(subagent ? { subagent } : {}),

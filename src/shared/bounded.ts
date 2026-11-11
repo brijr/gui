@@ -16,6 +16,14 @@ export const MAX_COPIED_FRAMES_BYTES = 32 * 1024 * 1024
 export const MAX_SUBAGENT_STEPS = 200
 /** Subagent sessions an agent session remembers, to route their updates; past it the oldest go. */
 export const MAX_SUBAGENT_SESSIONS = 500
+/**
+ * Changed lines a permission card keeps of the edit it asks about, across its files, and how
+ * much of each line. The card scrolls; the rest is counted, not kept.
+ */
+export const MAX_PERMISSION_DIFF_LINES = 120
+export const MAX_DIFF_LINE_CHARS = 300
+/** Past this many line pairs (removed × added) an edit's changed part isn't narrowed further. */
+export const MAX_DIFF_COMPARE = 400_000
 /** Output kept per terminal / dev server so the drawer can redraw after a tab switch. */
 export const MAX_OUTPUT_BYTES = 512 * 1024
 

@@ -17,7 +17,8 @@ import { expect, test } from './helpers/test'
  * are the ids Gui names itself plus one it doesn't ("turbo"). A prompt containing NOISE
  * reads a file and runs a command around a Muse `reminderChild` bookkeeping call; ASK asks
  * to run a command; LONG writes a long answer, starts a step, and then waits for Stop. FAIL
- * fails the first time with the provider's raw overloaded error, and answers the next.
+ * fails the first time with the provider's raw overloaded error, and answers the next. EDIT
+ * asks to edit package.json, with the change it would make.
  */
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
@@ -87,6 +88,19 @@ const prompt = async ({ sessionId, prompt }) => {
     await ask('session/request_permission', { sessionId, toolCall, options })
     done('build-1')
     say('The build passes.')
+  } else if (text.includes('EDIT')) {
+    const path = cwd + '/package.json'
+    const toolCall = { toolCallId: 'edit-1', title: 'Edit package.json', kind: 'edit', status: 'pending',
+      locations: [{ path }],
+      content: [{ type: 'diff', path, oldText: '{\n  "name": "app",\n  "version": "1.0.0"\n}',
+        newText: '{\n  "name": "app",\n  "version": "1.1.0",\n  "description": "<img src=x onerror=alert(1)>"\n}' }] }
+    notify(sessionId, { sessionUpdate: 'tool_call', ...toolCall })
+    const options = [
+      { optionId: 'once', name: 'Allow', kind: 'allow_once' },
+      { optionId: 'no', name: 'Reject', kind: 'reject_once' },
+    ]
+    await ask('session/request_permission', { sessionId, toolCall, options })
+    done('edit-1')
   } else if (text.includes('LONG')) {
     const lines = Array.from({ length: 60 }, (_, i) => 'Line ' + (i + 1) + ' of the answer.')
     say(lines.join('\n\n'))
@@ -273,6 +287,20 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
   await expect(chat.getByText('Recovered.')).toBeVisible()
   await expect(composer).toBeFocused()
   await expect(chat.getByRole('button', { name: 'Retry' })).toHaveCount(0)
+
+  // Asked to edit a file, the card shows the lines it would change, as text, never markup.
+  expect(await send(chat, 'EDIT Bump the version.')).toBe(true)
+  const edit = chat.getByRole('region', { name: 'Edit package.json?' })
+  await expect(edit).toBeVisible()
+  await expect(edit.getByRole('region', { name: 'Changes' }).getByRole('listitem')).toHaveText([
+    /Removed\s*"version": "1\.0\.0"$/,
+    /Added\s*"version": "1\.1\.0",$/,
+    /Added\s*"description": "<img src=x onerror=alert\(1\)>"$/,
+  ])
+  await expect(edit.locator('img')).toHaveCount(0)
+  await session.shot('permission-diff')
+  await edit.getByRole('button', { name: 'Don’t allow' }).click()
+  expect((await session.waitForTurn(4)).turn.status).toBe('done')
 })
 
 test('the transcript stays at its newest line as the queue appears; a re-logged error counts once', async ({
