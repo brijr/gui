@@ -70,8 +70,10 @@ export function boardKey(key: BoardKey, board: KeyBoard): KeyAction | null {
   if (deleting && picked) return { type: 'deleteSection', id: picked.id }
   if (deleting && ids.length) return { type: 'delete', ids }
   if (command && key.altKey && key.code === 'KeyG' && ids.length) return { type: 'addSection', ids }
-  // ⌘D is Design Mode, as everywhere in Gui (the menu's); ⌥⌘D duplicates.
-  if (command && key.altKey && key.code === 'KeyD' && ids.length) return { type: 'duplicate', ids }
+  // ⌘D duplicates, as in Figma: the board's even with nothing selected, so it never starts
+  // Design Mode from here (Return opens a frame, where ⌘D does). ⇧⌘D is the chat's.
+  if (command && !key.altKey && !key.shiftKey && key.code === 'KeyD')
+    return { type: 'duplicate', ids }
   if (command && key.shiftKey && key.code === 'KeyE' && ids.length) return { type: 'export', ids }
   // ⌘C, ⌘X and ⌘V copy, cut and paste frames (in a name's field, its text: the board never
   // hears those keys). ⇧⌘C is Design Mode's, and ⌥⇧⌘V the menu's.

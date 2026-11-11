@@ -491,7 +491,7 @@ function BoardToolbar({
               {
                 id: 'select',
                 label: 'Design Mode',
-                shortcut: 'selectElement',
+                // ⌘D duplicates on the board; it's Design Mode's once a frame is open.
                 enabled: canPick,
               } as const,
             ]),
@@ -671,7 +671,6 @@ function BoardToolbar({
               {shown('select') && (
                 <IconButton
                   label="Design mode"
-                  shortcut="selectElement"
                   icon={MousePointer2}
                   disabled={!canPick}
                   onClick={() => gui.toggleSelect()}

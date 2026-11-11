@@ -163,13 +163,15 @@ test('a canvas opens from the start screen and its frames are moved, undone, dup
     'the move undone',
   )
 
-  // ⌥⌘D on the board duplicates the selection.
+  // ⌘D on the board duplicates the selection, as in Figma, and doesn't open Design mode.
   await chrome.locator('[data-frame="desktop"]').last().click()
-  await chrome.keyboard.press('Alt+Meta+d')
+  await chrome.keyboard.press('Meta+d')
   await waitFor(
     async () => (await board(session)).frames.some((frame) => frame.id === 'desktop-copy'),
     'the copy',
   )
+  expect((await session.state()).board?.open).toBeNull()
+  expect((await session.state()).preview.selecting).toBe(false)
   // On the board too, before fitting: a frame that lands after a fit is brought into sight on
   // its own, and the others can leave it.
   await expect(chrome.locator('[data-frame="desktop-copy"]').last()).toBeVisible()

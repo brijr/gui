@@ -70,7 +70,7 @@ around it (`DeviceFrame` in `canvas.tsx`), the toolbar's canvas controls, every 
 | Button released elsewhere | The gesture ends on the next move with no buttons | |
 
 Keyboard, with the board focused (l.825): Delete/Backspace (frames, or the picked section
-alone), ⌥⌘G section, ⌥⌘D duplicate, ⇧⌘E export, ⌘A all, ⌘0 fit, ⌘= ⌘− zoom, H hand, V move,
+alone), ⌥⌘G section, ⌘D duplicate, ⇧⌘E export, ⌘A all, ⌘0 fit, ⌘= ⌘− zoom, H hand, V move,
 Enter open, Esc deselect, F2 rename (`canvasRename`), ⇧F10 or the menu key (`canvasMenu`), Tab
 and ⇧Tab through sections and frames (leaving the board past the last), arrows nudge 1px
 (⇧ 10px) and land as one change on key-up or blur, Space for the Hand. Keys with ⌘, ⌃ or ⌥

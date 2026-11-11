@@ -4178,7 +4178,7 @@ export class ProjectTab implements ChatPanelOwner {
       one('Rename', () => this.send(Events.board, { type: 'renameFrame', id })),
       {
         label: many ? `Duplicate ${ids.length} Frames` : 'Duplicate',
-        accelerator: 'Alt+CmdOrCtrl+D',
+        accelerator: 'CmdOrCtrl+D',
         registerAccelerator: false,
         click: () => void board.duplicate(ids),
       },

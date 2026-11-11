@@ -59,21 +59,22 @@ describe('keys on the board', () => {
     expect(boardKey(key('Backspace', meta), board(['a']))).toBeNull()
   })
 
-  test('⌥⌘G, ⌥⌘D and ⇧⌘E act on the selection; ⌘D is left to the menu', () => {
+  test('⌥⌘G, ⌘D and ⇧⌘E act on the selection', () => {
     const selected = board(['a', 'b'])
     expect(boardKey(key('g', { ...meta, altKey: true }), selected)).toEqual({
       type: 'addSection',
       ids: ['a', 'b'],
     })
-    expect(boardKey(key('d', { ...meta, altKey: true }), selected)).toEqual({
-      type: 'duplicate',
-      ids: ['a', 'b'],
-    })
+    // ⌘D duplicates, as in Figma; with nothing selected it's still the board's, never Design Mode.
+    expect(boardKey(key('d', meta), selected)).toEqual({ type: 'duplicate', ids: ['a', 'b'] })
+    expect(boardKey(key('d', meta), board())).toEqual({ type: 'duplicate', ids: [] })
+    // ⌥⌘D is nothing of the board's now, and ⇧⌘D is the chat's.
+    expect(boardKey(key('d', { ...meta, altKey: true }), selected)).toBeNull()
+    expect(boardKey(key('d', { ...meta, shiftKey: true }), selected)).toBeNull()
     expect(boardKey(key('e', { ...meta, shiftKey: true }), selected)).toEqual({
       type: 'export',
       ids: ['a', 'b'],
     })
-    expect(boardKey(key('d', meta), selected)).toBeNull()
     expect(boardKey(key('g', { ...meta, altKey: true }), board())).toBeNull()
   })
 

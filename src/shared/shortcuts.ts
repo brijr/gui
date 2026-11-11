@@ -491,7 +491,7 @@ export const SHORTCUTS = {
   },
   canvasDuplicate: {
     label: 'Duplicate Frames',
-    accelerator: 'Alt+CmdOrCtrl+D',
+    accelerator: 'CmdOrCtrl+D',
     menu: null,
     group: 'canvas',
     description: 'Duplicate the selected frames',
