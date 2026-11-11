@@ -706,15 +706,13 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   expect(await chat.evaluate(() => window.gui.send('ASK 4'))).toBe(true)
   const first = await waitingCard(session, 'npm run step-1')
   await waitFor(async () => (await keys()).allow && (await keys()).dontAllow, 'Allow on')
-  // The card shows its keys; Always allow has none.
+  // The card shows its keys; the agent's Always allow isn't on it.
   const card = chat.getByRole('region', { name: 'Run a command?' })
   const allow = card.getByRole('button', { name: /^Allow/ })
   await expect(allow).toHaveAttribute('aria-keyshortcuts', 'Meta+Enter')
   await expect(allow).toContainText('⌘↩')
   await expect(card.getByRole('button', { name: /^Don’t allow/ })).toContainText('⌘⌫')
-  await expect(card.getByRole('button', { name: /^Always allow/ })).not.toHaveAttribute(
-    'aria-keyshortcuts',
-  )
+  await expect(card.getByRole('button', { name: /^Always allow/ })).toHaveCount(0)
   await session.shot('permission-keys')
 
   // Agent → Allow: its Allow, not Always allow.

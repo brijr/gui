@@ -205,16 +205,16 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
   ])
   await expect(chat.getByText(/reminderChild/)).toHaveCount(0)
 
-  // The card asks a question, shows the command, and offers the agent's options right to
-  // left from the default: Allow last, and primary.
+  // The card asks a question, shows the command, and offers Don't allow, then Allow: last,
+  // and primary. The agent's "Always allow" isn't offered (Auto mode does that job).
   expect(await send(chat, 'ASK Run the build.')).toBe(true)
   const card = chat.getByRole('region', { name: 'Run a command?' })
   await expect(card).toBeVisible()
   await expect(card.getByText('npm run build', { exact: true })).toBeVisible()
   const buttons = card.getByRole('button')
   // Each named as it says; the card waiting longest shows the keys that answer it.
-  await expect(buttons).toHaveText(['Don’t allow⌘⌫', 'Always allow', 'Allow⌘↩'])
-  for (const [i, name] of ['Don’t allow', 'Always allow', 'Allow'].entries()) {
+  await expect(buttons).toHaveText(['Don’t allow⌘⌫', 'Allow⌘↩'])
+  for (const [i, name] of ['Don’t allow', 'Allow'].entries()) {
     await expect(buttons.nth(i)).toHaveAccessibleName(name)
   }
   await expect(buttons.last()).toHaveClass(/\bbg-accent\b/)

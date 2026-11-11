@@ -847,9 +847,7 @@ function StepList({
 
 const OPTION_LABELS: Record<string, string> = {
   allow_once: 'Allow',
-  allow_always: 'Always allow',
   reject_once: 'Don’t allow',
-  reject_always: 'Never allow',
 }
 
 /** What was decided, once it was: an outcome rather than the button's wording. */
@@ -872,6 +870,21 @@ const OPTION_ORDER: Record<string, number> = {
   reject_once: 1,
   allow_always: 3,
   allow_once: 4,
+}
+
+/**
+ * The options the card offers: never "Always allow" or "Never allow" beside the plain ones.
+ * What "always" covers is the agent's to decide (this command, this tool, every session), and
+ * Auto mode is how to stop being asked. One stays only as the agent's sole way to say yes (or
+ * no), in its own words.
+ */
+function shownOptions(options: PermissionChoice[]) {
+  const has = (kind: string) => options.some((option) => option.kind === kind)
+  return options.filter(
+    (option) =>
+      !(option.kind === 'allow_always' && has('allow_once')) &&
+      !(option.kind === 'reject_always' && has('reject_once')),
+  )
 }
 
 /** Past this many characters, an option won't fit half a narrow card: the options stack. */
@@ -979,7 +992,7 @@ function Permission({
   // Agents' own questions (see `answerForm` in agent.ts) come with their wording.
   const asked = toolKind === 'question'
   const question = asked ? item.title : permissionQuestion(toolKind, locations)
-  const options = [...item.options].sort(byOptionOrder)
+  const options = shownOptions(item.options).sort(byOptionOrder)
   const stacked = options.some((option) => optionLabel(option, asked).length > LONG_OPTION)
   const many = locations.length > 1
   const why = many
