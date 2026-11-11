@@ -4,7 +4,7 @@ How Gui works from the user's side: opening projects, design mode, the chat, vie
 
 ## Agents
 
-The start screen and **Settings → Agents** show your agent's state with one next step: **Install** downloads Claude Code or Codex (other agents: opens their install page), and **Sign in** runs its login in Terminal (Claude Code and Codex sign in from Gui directly); Gui re-checks when you come back. Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Gui's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
+The start screen shows the agent in use with its one next step (its **Change** opens **Settings → Agents**, which lists them all): **Install** downloads Claude Code or Codex (other agents: opens their install page), and **Sign in** runs its login in Terminal (Claude Code and Codex sign in from Gui directly); Gui re-checks when you come back. Every installed agent is on by default; switch off the ones you don't use in **Settings → Agents** (⌘,). Any other [ACP](https://agentclientprotocol.com) agent can be added there too. Custom agents live in `agents.json` in Gui's app data folder, in the shape of Zed's `agent_servers` (a pasted `{ "agent_servers": { … } }` block works too); `command` is a name on your PATH or an absolute or `~/` path:
 
 ```json
 { "My Agent": { "command": "my-agent", "args": ["--acp"], "env": {} } }

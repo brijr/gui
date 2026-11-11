@@ -1,111 +1,50 @@
-import { useState } from 'react'
 import type { AgentHealth, AgentId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { Check, ChevronRight } from '../lib/icons'
-import { List, ListRow, SectionHeader } from '../lib/surface'
+import { List, ListItem, SectionHeader } from '../lib/surface'
 import { TextButton } from '../lib/ui'
 import { AgentOffLabel, AgentStatusLabel } from '../settings/agent-status'
 import { AgentNextStep, binaryLabel } from './agent-card'
 import { AgentIcon } from './agent-icon'
 
 /**
- * Every agent the user has on, with its status: the one in use is marked, and choosing
- * another switches to it. The one in use shows its next step (install, sign in, try again)
- * under its row, except while it's ready or being checked, which its status already says.
- * Agents that aren't installed fold into one row, so the few that can work aren't lost
- * among the many that can't.
+ * The agent in use, with its status and its one next step (install, sign in, try again) under
+ * it, except while it's ready or being checked, which its status already says. Change opens
+ * Settings → Agents, where the rest are.
  */
 export function AgentList({ agents, agentId }: { agents: AgentHealth[]; agentId: AgentId }) {
-  const [showMissing, setShowMissing] = useState(false)
-  // Switched-off agents stay out, except the one in use, so the list shows what's running.
-  const shown = agents.filter((agent) => agent.enabled || agent.id === agentId)
-  const missing = shown.filter((agent) => agent.status === 'not-installed' && agent.id !== agentId)
-  const listed = showMissing ? shown : shown.filter((agent) => !missing.includes(agent))
+  const health = agents.find((agent) => agent.id === agentId)
+  if (!health) return null
+  const ready = health.enabled && health.status === 'ready'
+  const quiet = ready || (health.enabled && health.status === 'checking')
   return (
     <section aria-labelledby="agents-heading" className="flex flex-col gap-2">
       <SectionHeader
         id="agents-heading"
-        action={<TextButton onClick={() => gui.openSettings('agents')}>Settings</TextButton>}
+        action={<TextButton onClick={() => gui.openSettings('agents')}>Change</TextButton>}
       >
-        Agents
+        Agent
       </SectionHeader>
       <List aria-labelledby="agents-heading">
-        {listed.map((agent) => (
-          <AgentListRow key={agent.id} health={agent} current={agent.id === agentId} />
-        ))}
-        {missing.length > 0 && (
-          <li>
-            <ListRow
-              flush
-              aria-expanded={showMissing}
-              onClick={() => setShowMissing((open) => !open)}
-              className="text-small text-muted"
-              heading={
-                showMissing
-                  ? 'Hide agents that aren’t installed'
-                  : `${missing.length} more ${missing.length === 1 ? 'agent' : 'agents'}, not installed`
-              }
-              trailing={
-                <ChevronRight
-                  className={cn(
-                    'size-3 shrink-0 text-subtle transition-transform motion-reduce:transition-none',
-                    showMissing && 'rotate-90',
-                  )}
-                  aria-hidden="true"
-                />
-              }
-            />
-          </li>
-        )}
+        <ListItem
+          align="start"
+          heading={
+            <>
+              <AgentIcon agentId={health.id} />
+              <span className="truncate" title={health.name}>
+                {health.name}
+              </span>
+              {health.enabled ? <AgentStatusLabel health={health} /> : <AgentOffLabel />}
+            </>
+          }
+          detail={ready && health.binary ? binaryLabel(health.binary) : undefined}
+        >
+          {/* Kept mounted while hidden, so focus moves to its next control once a check ends. */}
+          <div className={cn('pt-2', quiet && 'hidden')}>
+            <AgentNextStep name={health.name} health={health} />
+          </div>
+        </ListItem>
       </List>
     </section>
-  )
-}
-
-function AgentListRow({ health, current }: { health: AgentHealth; current: boolean }) {
-  const ready = health.enabled && health.status === 'ready'
-  // The status beside the name already says Ready or Checking; the next step has nothing to add.
-  const quiet = ready || (health.enabled && health.status === 'checking')
-  return (
-    // The one in use has the selected look, its next step under it too: one tint for both,
-    // as accent-soft is translucent and would darken the row where it doubled.
-    <li className={cn(current && 'bg-accent-soft')}>
-      <ListRow
-        flush
-        selected={current}
-        className={current ? 'bg-transparent' : undefined}
-        // Named with its status ("Codex Ready"); the one in use says so.
-        aria-current={current || undefined}
-        // Choosing an agent that hasn't been checked yet checks it as it switches.
-        onClick={() => {
-          if (!current) gui.setAgent(health.id)
-        }}
-        leading={<AgentIcon agentId={health.id} />}
-        detail={current && ready && health.binary ? binaryLabel(health.binary) : undefined}
-        heading={
-          <>
-            <span className="truncate" title={health.name}>
-              {health.name}
-            </span>
-            {health.enabled ? <AgentStatusLabel health={health} /> : <AgentOffLabel />}
-          </>
-        }
-        trailing={
-          current && (
-            <span className="flex shrink-0 items-center gap-1 text-small font-medium text-accent-text">
-              <Check className="size-3.5" aria-hidden="true" />
-              In use
-            </span>
-          )
-        }
-      />
-      {/* Kept mounted while hidden, so focus moves to its next control once a check ends. */}
-      {current && (
-        <div className={cn('px-3 pb-3 pl-13', quiet && 'hidden')}>
-          <AgentNextStep name={health.name} health={health} />
-        </div>
-      )}
-    </li>
   )
 }
