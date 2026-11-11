@@ -125,11 +125,12 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   await codex.click()
   await expect(codex).toHaveAttribute('aria-checked', 'true')
 
-  // Switched back on unchecked, Pi is checked at once. Its first step, Checking, doesn't
-  // show in the menu, so the switch and that step rebuild it once; its failure shows.
-  await settingsWhere(page, 'the stand-in Pi to be found', (s) =>
-    s.agents.some((agent) => agent.id === 'pi' && agent.status === 'unknown'),
+  // Found but not checked yet, Pi is checked as the section opens: no "Check now" to press.
+  // Its first step, Checking, doesn't show in the menu; its failure shows.
+  await settingsWhere(page, "the stand-in Pi's check to fail", (s) =>
+    s.agents.some((agent) => agent.id === 'pi' && agent.status === 'error'),
   )
+  await expect(page.getByRole('button', { name: 'Check now' })).toHaveCount(0)
   const pi = page.getByRole('switch', { name: 'Pi', exact: true })
   await pi.click()
   await settingsWhere(page, 'Pi to be off', (s) =>
@@ -170,9 +171,13 @@ test('settings switches agents, edits custom agents, and manages projects', asyn
   )
   expect(await session.app.evaluate(appMenuAgents)).not.toContain('Echo')
 
-  // Chat defaults are what new windows and chats start with.
-  await page.getByLabel('Default agent').selectOption('codex')
-  // Chat position sits on the Agents page, under the default agent; there's no Chat page.
+  // Chat defaults are what new windows and chats start with: Use on a row makes it the default.
+  await expect(page.getByLabel('Default agent')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Use Codex', exact: true }).click()
+  await settingsWhere(page, 'Codex to be the default', (s) => s.defaultAgentId === 'codex')
+  await expect(page.getByRole('button', { name: 'Use Codex', exact: true })).toHaveCount(0)
+  await shot(page, 'agents-default')
+  // Chat position sits on the Agents page; there's no Chat page.
   await expect(page.getByRole('button', { name: 'Chat', exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: 'Right', exact: true }).click()
   await settingsWhere(

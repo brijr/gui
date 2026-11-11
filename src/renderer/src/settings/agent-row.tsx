@@ -5,7 +5,7 @@ import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { ListItem } from '../lib/surface'
-import { Button, Switch, TextButton } from '../lib/ui'
+import { Button, Switch } from '../lib/ui'
 import { AgentOffLabel, AgentStatusLabel } from './agent-status'
 import { useAction } from './use-action'
 
@@ -13,6 +13,8 @@ interface AgentRowProps {
   name: string
   /** Null until main reports this agent */
   health: AgentHealth | null
+  /** The agent new windows start with: that row says Default, the others offer Use */
+  defaultAgentId: AgentId
   /** Extra lines under the name */
   detail?: ReactNode
   /** Buttons shown before the switch */
@@ -21,8 +23,8 @@ interface AgentRowProps {
   error?: string | null
 }
 
-/** One agent in a settings list: name, status, sign-in, and the on/off switch. */
-export function AgentRow({ name, health, detail, actions, error }: AgentRowProps) {
+/** One agent in a settings list: name, status, sign-in, Use (or Default), and the on/off switch. */
+export function AgentRow({ name, health, defaultAgentId, detail, actions, error }: AgentRowProps) {
   const [signInError, setSignInError] = useState<string | null>(null)
   const retry = useAction()
   // A disabled agent isn't checked, so whatever status it last had would mislead.
@@ -60,10 +62,13 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
             {name}
           </label>
           {live ? <AgentStatusLabel health={live} /> : health && <AgentOffLabel />}
-          {live?.status === 'unknown' && (
-            <TextButton tone="muted" className="shrink-0" onClick={() => gui.checkAgents(live.id)}>
-              Check now
-            </TextButton>
+          {health?.id === defaultAgentId && (
+            <span
+              className="shrink-0 text-small font-medium text-accent-text"
+              title="New windows start with this agent"
+            >
+              Default
+            </span>
           )}
         </>
       }
@@ -81,6 +86,16 @@ export function AgentRow({ name, health, detail, actions, error }: AgentRowProps
           {live?.status === 'error' && (
             <Button loading={retry.pending} onClick={() => tryAgain(live)}>
               Try again
+            </Button>
+          )}
+          {live && live.id !== defaultAgentId && live.status !== 'not-installed' && (
+            <Button
+              variant="ghost"
+              title="Start new windows with this agent"
+              aria-label={`Use ${name}`}
+              onClick={() => gui.setDefaultAgent(live.id)}
+            >
+              Use
             </Button>
           )}
           {actions}

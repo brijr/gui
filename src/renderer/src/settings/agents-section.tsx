@@ -6,7 +6,7 @@ import {
   type CustomAgentEntry,
   type SettingsState,
 } from '../../../shared/types'
-import { AgentCard, InstallProgress } from '../agents/agent-card'
+import { InstallProgress } from '../agents/agent-card'
 import { gui } from '../lib/api'
 import { Disclosure, TechnicalDetails } from '../lib/disclosure'
 import { InlineError } from '../lib/field'
@@ -17,7 +17,6 @@ import { Button, Code, SegmentedControl } from '../lib/ui'
 import { AgentRow } from './agent-row'
 import { AgentStatusLabel } from './agent-status'
 import { CustomAgentForm } from './custom-agent-form'
-import { DefaultAgentSelect } from './default-agent-select'
 import { GroupAction, SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
@@ -53,23 +52,22 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
 
   const startedInstall = (id: AgentId) => setInstalling((current) => new Set(current).add(id))
 
+  // Agents found but not checked yet are checked as the section opens, once each: a check
+  // starts a session, which some agents keep in their own history.
+  const unchecked = settings.agents
+    .filter((agent) => agent.enabled && agent.status === 'unknown')
+    .map((agent) => agent.id)
+  const asked = useRef(new Set<AgentId>())
+  useEffect(() => {
+    for (const id of unchecked) {
+      if (asked.current.has(id)) continue
+      asked.current.add(id)
+      gui.checkAgents(id)
+    }
+  })
+
   return (
     <>
-      <AgentCard
-        agentId={settings.defaultAgentId}
-        health={settings.agents.find((agent) => agent.id === settings.defaultAgentId) ?? null}
-        caption="New windows start with this agent."
-        change={
-          <DefaultAgentSelect agents={settings.agents} defaultAgentId={settings.defaultAgentId} />
-        }
-      />
-
-      <SettingsGroup heading="Chat">
-        <List>
-          <ListItem heading="Chat position" trailing={<ChatPosition settings={settings} />} />
-        </List>
-      </SettingsGroup>
-
       <SettingsGroup
         heading="Installed agents"
         action={
@@ -81,7 +79,12 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
         {found.length > 0 ? (
           <List>
             {found.map((agent) => (
-              <AgentRow key={agent.id} name={agent.name} health={agent} />
+              <AgentRow
+                key={agent.id}
+                name={agent.name}
+                health={agent}
+                defaultAgentId={settings.defaultAgentId}
+              />
             ))}
           </List>
         ) : (
@@ -106,6 +109,12 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       )}
 
       <CustomAgents settings={settings} />
+
+      <SettingsGroup heading="Chat">
+        <List>
+          <ListItem heading="Chat position" trailing={<ChatPosition settings={settings} />} />
+        </List>
+      </SettingsGroup>
     </>
   )
 }
@@ -251,6 +260,7 @@ function CustomAgents({ settings }: { settings: SettingsState }) {
         key={entry.name}
         entry={entry}
         health={healthFor(entry)}
+        defaultAgentId={settings.defaultAgentId}
         home={settings.home}
         locked={locked}
         onEdit={() => {
@@ -327,12 +337,20 @@ function AgentsFileError({ message }: { message: string }) {
 interface CustomAgentRowProps {
   entry: CustomAgentEntry
   health: AgentHealth | null
+  defaultAgentId: AgentId
   home: string
   locked: boolean
   onEdit: () => void
 }
 
-function CustomAgentRow({ entry, health, home, locked, onEdit }: CustomAgentRowProps) {
+function CustomAgentRow({
+  entry,
+  health,
+  defaultAgentId,
+  home,
+  locked,
+  onEdit,
+}: CustomAgentRowProps) {
   const [confirming, setConfirming] = useState(false)
   const remove = useAction()
   const commandLine = [entry.command, ...entry.args].join(' ')
@@ -377,6 +395,7 @@ function CustomAgentRow({ entry, health, home, locked, onEdit }: CustomAgentRowP
     <AgentRow
       name={entry.name}
       health={health}
+      defaultAgentId={defaultAgentId}
       detail={detail}
       actions={actions}
       error={remove.error}

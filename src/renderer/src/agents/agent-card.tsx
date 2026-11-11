@@ -1,57 +1,11 @@
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react'
-import {
-  type AgentBinarySource,
-  type AgentHealth,
-  type AgentId,
-  agentName,
-} from '../../../shared/types'
+import type { AgentBinarySource, AgentHealth } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { TechnicalDetails } from '../lib/disclosure'
 import { readableError } from '../lib/errors'
 import { InlineError } from '../lib/field'
 import { Check, ExternalLink, TriangleAlert } from '../lib/icons'
-import { Card, GroupLabel } from '../lib/surface'
 import { Button, Progress, Spinner } from '../lib/ui'
-
-interface AgentCardProps {
-  agentId: AgentId
-  /** The agent's status; null when Gui doesn't know it (e.g. removed from agents.json) */
-  health: AgentHealth | null
-  /** The control for picking another agent (a menu on the start screen, a select in Settings) */
-  change: ReactNode
-  /**
-   * What the card says under "Your agent": the agent's name, unless `change` already shows
-   * it (Settings' select), when it says what the choice is for instead.
-   */
-  caption?: string
-}
-
-/**
- * The agent the user works with (Settings), what state it's in, and the one thing to do next:
- * install it, sign in, try again, or nothing because it's ready.
- */
-export function AgentCard({ agentId, health, change, caption }: AgentCardProps) {
-  const name = health?.name ?? agentName(agentId)
-  return (
-    <Card as="section" aria-label="Your agent" className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <GroupLabel>Your agent</GroupLabel>
-          {caption ? (
-            <p className="text-pretty text-small text-muted">{caption}</p>
-          ) : (
-            <p className="truncate font-medium" title={name}>
-              {name}
-            </p>
-          )}
-        </div>
-        {change}
-      </div>
-      {/* Keyed so a failed action's message doesn't follow the user to another agent */}
-      <AgentNextStep key={agentId} name={name} health={health} />
-    </Card>
-  )
-}
 
 interface AgentNextStepProps {
   name: string
