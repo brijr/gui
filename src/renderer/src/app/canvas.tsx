@@ -7,6 +7,7 @@ import {
   type ProjectInfo,
   type ProjectSetup,
   type ProjectTemplate,
+  type SetupConsent,
   type ViewportFrame,
   type WindowState,
   type WorkspaceApp,
@@ -223,6 +224,8 @@ function CanvasMessage({ state }: { state: WindowState }) {
   // Offered alongside whatever else the card says; the app may run without it.
   const env = setup?.env ?? null
 
+  if (setup?.consent) return <ConsentCard consent={setup.consent} name={project.name} env={env} />
+
   if (setup?.dependencies === 'installing') {
     return (
       <SetupCard
@@ -379,14 +382,13 @@ function CanvasMessage({ state }: { state: WindowState }) {
     )
   }
 
-  // Not installed yet, and the user hasn't agreed to run anything (or said "Not now").
-  // The button asks first unless the project is already trusted.
+  // Not installed yet and not running; a project still to agree to shows ConsentCard instead.
   if (setup?.dependencies === 'missing' && devServer.status === 'idle') {
     return (
       <SetupCard
         icon={Package}
-        heading="Install this project’s dependencies"
-        detail="Gui will install its dependencies and start it, which runs the project’s own scripts."
+        heading={`Install and start ${project.name}`}
+        detail="This runs the project’s install and dev scripts."
         actions={
           <Button variant="primary" onClick={() => gui.installDependencies()}>
             Install and start
@@ -415,6 +417,66 @@ function CanvasMessage({ state }: { state: WindowState }) {
   }
 
   return null
+}
+
+/**
+ * Nothing of the project runs until the user agrees here: its button is the agreement, to
+ * running its scripts and to the agent working in it (main/tab.ts `confirmScripts`). What
+ * runs is one click away, as main cleaned it up; the id sent back is what the card showed.
+ */
+function ConsentCard({
+  consent,
+  name,
+  env,
+}: {
+  consent: SetupConsent
+  name: string
+  env: EnvSetup | null
+}) {
+  const agree = () => gui.agreeToStart(consent.id)
+  if (consent.action === 'trust') {
+    return (
+      <SetupCard
+        icon={KeyRound}
+        heading={`Let your agent work in ${name}`}
+        detail="Your agent loads the project’s own settings, which can run commands on your Mac. Only continue with projects you trust."
+        actions={
+          <Button variant="primary" onClick={agree}>
+            Continue
+          </Button>
+        }
+        env={env}
+      />
+    )
+  }
+  const install = consent.action === 'install'
+  return (
+    <SetupCard
+      icon={consent.changed ? Info : install ? Package : Play}
+      heading={
+        consent.changed
+          ? `${name}’s scripts changed`
+          : install
+            ? `Install and start ${name}`
+            : `Start ${name}`
+      }
+      detail={
+        consent.changed
+          ? 'Look over what changed before you start it.'
+          : install
+            ? 'This runs the project’s install and dev scripts.'
+            : 'This runs the project’s dev script.'
+      }
+      note={consent.details}
+      noteLabel="What runs"
+      actions={
+        <Button variant="primary" onClick={agree}>
+          {install ? 'Install and start' : 'Start dev server'}
+        </Button>
+      }
+      env={env}
+    />
+  )
 }
 
 /**
@@ -471,6 +533,8 @@ interface SetupCardProps {
   detail?: string
   /** The specifics (command, last output line), behind a Details toggle for people who want them */
   note?: string
+  /** The toggle's label, "Details" unless said */
+  noteLabel?: string
   actions?: ReactNode
   /** What there is to choose from, as a List under the message */
   children?: ReactNode
@@ -490,6 +554,7 @@ function SetupCard({
   heading,
   detail,
   note,
+  noteLabel,
   actions,
   children,
   env,
@@ -502,7 +567,7 @@ function SetupCard({
       </Message>
       {children}
       <SetupRows env={env ?? null} start={start ?? null} />
-      {note && <TechnicalDetails text={note} />}
+      {note && <TechnicalDetails text={note} label={noteLabel} />}
     </Card>
   )
 }

@@ -107,6 +107,7 @@ const api: GuiApi = {
   showTabMenu: send(Send.showTabMenu),
   chooseApp: send(Send.chooseApp),
   installDependencies: send(Send.installDependencies),
+  agreeToStart: send(Send.agreeToStart),
   createEnvFile: send(Send.createEnvFile),
   openEnvFile: send(Send.openEnvFile),
 

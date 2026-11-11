@@ -15,7 +15,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { test as base, expect } from '@playwright/test'
 import type { WindowState } from '../src/shared/types'
-import { REPO_ROOT, waitFor } from './helpers/env'
+import { REPO_ROOT, sleep, waitFor } from './helpers/env'
 import { FIXTURES, type FixtureCopy, git } from './helpers/fixtures'
 import { devServerPids, killAll, pidsInDirectory } from './helpers/processes'
 import { type GuiSession, launchGui } from './helpers/session'
@@ -348,34 +348,33 @@ test('a dev script changed outside Gui asks again before it runs', async ({ open
   await waitForPreview(session)
   await session.declineConsentDialogs()
 
-  // As a `git pull` would: Gui restarts the app for the change, but asks first.
+  // As a `git pull` would: Gui restarts the app for the change, but its card asks first.
   const file = join(root, 'package.json')
   const pkg = JSON.parse(readFileSync(file, 'utf8'))
   writeFileSync(file, JSON.stringify({ ...pkg, scripts: { dev: 'bun server.js --changed' } }))
-  const [prompt] = await waitFor(async () => {
-    const prompts = await session.consentPrompts()
-    return prompts.length > 0 ? prompts : null
-  }, 'the changed script prompt')
-  expect(prompt?.message).toBe("gui-e2e-fresh's scripts changed")
-  expect(prompt?.detail).toContain('bun server.js --changed')
-  // Declined: nothing runs.
+  const consent = await session.consentCard()
+  expect(consent.changed).toBe(true)
+  expect(consent.details).toContain('bun server.js --changed')
+  await expect(session.chrome.getByText('gui-e2e-fresh’s scripts changed')).toBeVisible()
+  // Not agreed yet: nothing runs, whatever starts it.
   await waitFor(async () => (await session.state()).devServer.status === 'idle', 'the stop')
-  expect(devServerPids(root)).toEqual([])
-
-  // Agreed: it runs, and what was agreed to is kept, so it doesn't ask again.
-  await session.acceptConsentDialogs()
   await session.chrome.evaluate(() => window.gui.startDevServer())
+  await sleep(1_000)
+  expect(devServerPids(root)).toEqual([])
+  expect(await session.consentPrompts()).toEqual([])
+
+  // Agreed on the card: it runs, and what was agreed to is kept, so it doesn't ask again.
+  await session.agreeOnCard()
   await waitForPreview(session)
   const saved = JSON.parse(readFileSync(join(userData, 'trusted-scripts.json'), 'utf8'))
   expect(saved[root].starts['.']).toContain('bun server.js --changed')
-  const asked = (await session.consentPrompts()).length
   await session.chrome.evaluate(() => window.gui.restartDevServer())
   await waitFor(
     async () => (await session.state()).devServer.status !== 'running',
     'the restart to begin',
   ).catch(() => undefined)
   await waitForPreview(session)
-  expect(await session.consentPrompts()).toHaveLength(asked)
+  expect((await session.state()).setup?.consent ?? null).toBeNull()
 })
 
 test('a new dependency in package.json installs before the app restarts', async ({ open }) => {

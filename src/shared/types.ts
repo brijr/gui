@@ -177,10 +177,27 @@ export interface ProjectSetup {
   /** `installing` streams into the logs; `failed` offers a retry */
   dependencies: 'ok' | 'missing' | 'installing' | 'failed'
   /**
+   * Nothing runs until the user agrees on the setup card: an untrusted project, or one whose
+   * scripts changed since they agreed. Agreeing (`agreeToStart`) also lets the agent work in it.
+   */
+  consent?: SetupConsent | null
+  /**
    * An env example file exists but no local env file does. `target` is the file
    * `createEnvFile` writes (gitignored), `created` once it has.
    */
   env: { example: string; target: string; created: boolean } | null
+}
+
+/** What the setup card asks the user to agree to (`ProjectSetup.consent`). */
+export interface SetupConsent {
+  /** Sent back by the card's button, so it agrees to exactly what the card showed */
+  id: string
+  /** Install then start; start; or with nothing to start yet, let the agent work here */
+  action: 'install' | 'start' | 'trust'
+  /** A trusted project whose scripts changed since the user agreed to them */
+  changed: boolean
+  /** What runs, cleaned up and cut short (`promptText`), behind the card's disclosure */
+  details: string
 }
 
 export interface RecentProject {

@@ -70,11 +70,14 @@ export function Disclosure({
 /** Technical detail (exit codes, output, commands) one click away from a plain message. */
 export function TechnicalDetails({
   text,
+  label = 'Details',
   className,
   open: controlledOpen,
   onOpenChange,
 }: {
   text: string
+  /** What the toggle says */
+  label?: string
   className?: string
   /** A transcript can retain the disclosure while its virtual row is unmounted. */
   open?: boolean
@@ -87,7 +90,7 @@ export function TechnicalDetails({
   return (
     <div className={cn('flex flex-col items-start gap-1', className)}>
       <Disclosure open={open} onOpenChange={setOpen}>
-        Details
+        {label}
       </Disclosure>
       {open && (
         <pre

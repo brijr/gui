@@ -1300,6 +1300,8 @@ function registerIpc() {
   // Setup runs commands and writes files in the project: from the window's chrome only.
   onWindow(Send.chooseApp, (win, dir) => isString(dir) && win.activeTab.chooseApp(dir))
   onWindow(Send.installDependencies, (win) => win.activeTab.installDependencies())
+  // What agrees to run the project's scripts: the window's own card, never the chat or preview.
+  onWindow(Send.agreeToStart, (win, id) => isString(id) && win.activeTab.agreeToStart(id))
   onWindow(Send.createEnvFile, (win) => win.activeTab.createEnvFile())
   on(Send.openEnvFile, (tab) => tab.openEnvFile())
 }

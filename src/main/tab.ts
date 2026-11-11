@@ -70,6 +70,7 @@ import {
   type RecentProject,
   type Rect,
   type RegionContext,
+  type SetupConsent,
   type StartCommandInput,
   type TabStatus,
   type TerminalId,
@@ -178,6 +179,7 @@ import { Terminals } from './terminals'
 import { collapseText, rewriteText } from './text-edit'
 import { thumbnail } from './thumbnail'
 import {
+  agreeTo,
   askToTrust,
   isTrusted,
   promptName,
@@ -243,6 +245,11 @@ const CHROME_ESC_FREE = `(() => {
   if (!el || el === document.body) return true
   return !(el.isContentEditable || el.closest('input, textarea, select, [contenteditable]'))
 })()`
+/** What the setup card shows to agree to, before main gives it an id */
+type ShownConsent = Omit<SetupConsent, 'id'>
+/** One agreement covers the agent too: the card says so under what runs. */
+const AGENT_TOO =
+  "Your agent will work in this folder too. It loads the project's own agent settings (like .claude/settings.json), which can run commands on your Mac. Only start projects you trust."
 /** A project trusted to run a start command set in Gui, and nothing of its own yet */
 const NOTHING_AGREED: TrustedScripts = { starts: {}, installs: null }
 /** The package.json a script is in, as the trust prompt names it: the app's folder's or the root's. */
@@ -554,8 +561,13 @@ export class ProjectTab implements ChatPanelOwner {
    * trust prompt doesn't agree on Return.
    */
   private agentStarting = 0
-  /** The user said no to running what the agent's restart would have run (`agentStarting`) */
-  private agentDeclined = false
+  /**
+   * The agent's restart didn't run the project (`agentStarting`): the user said no in its
+   * sheet, or the card is still waiting on them.
+   */
+  private agentDeclined: 'declined' | 'waiting' | null = null
+  /** What the setup card asks the user to agree to now (`ProjectSetup.consent`), by its content */
+  private consent: { id: string; key: string } | null = null
   /** The start (`startKey`) the user last said no to: the agent's restart doesn't ask again */
   private declinedStart: string | null = null
   /** What the app last started from (`startSignature`), to restart it only on a real change */
@@ -1540,112 +1552,145 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   /**
-   * Opening a folder must not run its scripts until the user has seen them. Installing runs
-   * package scripts too, so it's agreed to in the same dialog. A trusted project asks again
-   * when what it runs changed since the user agreed, whoever changed it (the agent too) and
-   * whatever starts it; an install asks about install scripts they haven't seen.
+   * Opening a folder must not run its scripts until the user has seen them. Nothing pops up:
+   * the setup card shows what runs, and its button (`agreeToStart`, with the id of what it
+   * showed) is the user agreeing, to running the project and to the agent working in it.
+   * Installing runs package scripts too, so it's agreed to on the same card. A trusted
+   * project asks again when what it runs changed since the user agreed, whoever changed it
+   * (the agent too) and whatever starts it; an install asks about install scripts they
+   * haven't seen. The agent's own restart (`agentStarting`) can't agree: it asks in a sheet
+   * that doesn't agree on Return, and the card stays if the user says no.
    */
-  private async confirmScripts(project: ProjectInfo, installs: InstallTarget[]) {
-    const fromAgent = this.agentStarting > 0
+  private async confirmScripts(
+    project: ProjectInfo,
+    installs: InstallTarget[],
+    agreed: string | null,
+  ) {
     const installing = installs.length > 0
     const now = await scriptsOf(project)
-    const ask = async (options: MessageBoxOptions, scripts: TrustedScripts | null) => {
-      // The agent asked, not the user: Return mustn't be what agrees, and what the user
-      // already said no to isn't asked about again.
-      const agreed =
-        fromAgent && now.start === this.declinedStart
-          ? false
-          : await this.askToTrust(
-              project.root,
-              fromAgent ? { ...options, defaultId: 1 } : options,
-              scripts,
-            )
-      this.declinedStart = agreed ? null : now.start
-      if (!agreed && fromAgent) this.agentDeclined = true
-      return agreed
-    }
+    const ask = (consent: ShownConsent, scripts: TrustedScripts) =>
+      this.askOnCard(project, consent, scripts, agreed, now.start)
     if (await isTrusted(project.root)) {
       const saved = await trustedScripts(project.root)
       // Trusted before Gui kept what was agreed to: what it runs now is what was agreed.
       if (!saved) {
         await this.keepScripts(project.root, agreedScripts(now, true, null))
-        return true
+        return this.agreed()
       }
       const picked = !!project.appDir && getPrefs().apps[project.root] === project.appDir
       const changed = startChanged(project, now, saved, picked)
       const installsChanged = installing ? changedInstalls(saved.installs, now.installs) : []
       if (!changed && installsChanged.length === 0) {
         const agreed = agreedScripts(now, installing, saved)
-        if (JSON.stringify(agreed) === JSON.stringify(saved)) return true
-        await this.keepScripts(project.root, agreed)
-        return true
+        if (JSON.stringify(agreed) !== JSON.stringify(saved)) {
+          await this.keepScripts(project.root, agreed)
+        }
+        return this.agreed()
       }
-      return this.confirmChangedScripts(
-        project,
-        now,
-        saved,
-        changed,
-        installsChanged,
-        installs,
-        ask,
+      const changes = [
+        ...(changed
+          ? [`The dev server, ${this.startDescription(project)}:\n${this.startScript(project)}`]
+          : []),
+        ...installsChanged.map((key) => this.installScript(project, now, key)),
+      ]
+      const install = installing
+        ? `\n\nGui will install dependencies (${this.installDescription(installs)}) and start it.`
+        : ''
+      return ask(
+        {
+          action: installing ? 'install' : 'start',
+          changed: true,
+          details: `Since you last started it, ${changes.length > 1 ? 'these changed' : 'this changed'}:\n\n${changes.join('\n\n')}${install}`,
+        },
+        agreedScripts(now, installing, saved),
       )
     }
 
     // Scripts and folder names come from the project: shown cleaned up and cut short.
-    const devCommand = this.startDescription(project)
-    const script = this.startScript(project)
-    const agreed = agreedScripts(now, installing, null)
-    if (!installing) {
-      return ask(
-        {
-          message: `Start ${promptName(project.name)}?`,
-          detail: `To show your app, Gui starts its dev server, ${devCommand}:\n\n${script}\n\nGui won't ask again for this project unless its scripts change. Only start projects you trust.`,
-          buttons: ['Start Dev Server', 'Not Now'],
-        },
-        agreed,
-      )
-    }
+    const start = `Then it starts the dev server, ${this.startDescription(project)}:\n\n${this.startScript(project)}`
     const scripts = Object.keys(now.installs).map((key) => this.installScript(project, now, key))
-    const installScripts = scripts.length ? `Installing runs:\n\n${scripts.join('\n\n')}\n\n` : ''
+    const install = installing
+      ? `Gui installs dependencies (${this.installDescription(installs)}).${scripts.length ? ` Installing runs:\n\n${scripts.join('\n\n')}` : ''}\n\n`
+      : ''
     return ask(
       {
-        message: `Start ${promptName(project.name)}?`,
-        detail: `Gui will install dependencies (${this.installDescription(installs)}) and start the dev server (${devCommand}) to preview the project. ${installScripts}The dev server runs:\n\n${script}\n\nBoth run code from this project. Only start projects you trust.`,
-        buttons: ['Install and Start', 'Not Now'],
+        action: installing ? 'install' : 'start',
+        changed: false,
+        details: `${install}${installing ? start : start.replace('Then it starts', 'Gui starts')}\n\n${AGENT_TOO}`,
       },
-      agreed,
+      agreedScripts(now, installing, null),
     )
   }
 
   /**
-   * A trusted project whose scripts changed since the user agreed to them (a `git pull`, an
-   * edit outside Gui): shows what changed before it runs. Declining runs nothing, and asks
-   * again next time.
+   * With nothing to start yet (a folder with no dev script), the card asks only to let the
+   * agent work here. Agreeing keeps nothing as agreed to run: a dev script written later asks.
    */
-  private confirmChangedScripts(
+  private async confirmFolder(project: ProjectInfo, agreed: string | null) {
+    if (await isTrusted(project.root)) return this.agreed()
+    const scripts = (await trustedScripts(project.root)) ?? NOTHING_AGREED
+    const consent: ShownConsent = { action: 'trust', changed: false, details: AGENT_TOO }
+    return this.askOnCard(project, consent, scripts, agreed, null)
+  }
+
+  /**
+   * Agreed when the user pressed the card's button for exactly what it shows now. Otherwise
+   * the card shows it (the same id while it's the same), and nothing runs. The agent's
+   * restart asks in a sheet instead, once per change and not while the card already asks.
+   */
+  private async askOnCard(
     project: ProjectInfo,
-    now: CurrentScripts,
-    saved: TrustedScripts,
-    startChanged: boolean,
-    installsChanged: string[],
-    installs: InstallTarget[],
-    ask: (options: MessageBoxOptions, scripts: TrustedScripts | null) => Promise<boolean>,
+    consent: ShownConsent,
+    scripts: TrustedScripts,
+    agreed: string | null,
+    start: string | null,
   ) {
-    const changes = [
-      ...(startChanged
-        ? [`The dev server, ${this.startDescription(project)}:\n${this.startScript(project)}`]
-        : []),
-      ...installsChanged.map((key) => this.installScript(project, now, key)),
-    ]
-    const installing = installs.length > 0
-    return ask(
-      {
-        message: `${promptName(project.name)}'s scripts changed`,
-        detail: `Since you last started it, ${changes.length > 1 ? 'these changed' : 'this changed'}:\n\n${changes.join('\n\n')}\n\n${installing ? `Gui will install dependencies (${this.installDescription(installs)}) and start it. ` : ''}It runs code on your Mac. Only start projects you trust.`,
-        buttons: [installing ? 'Install and Start' : 'Start Dev Server', 'Not Now'],
-      },
-      agreedScripts(now, installing, saved),
-    )
+    const key = JSON.stringify([consent, scripts])
+    const shown = this.consent?.key === key ? this.consent : null
+    if (agreed !== null && shown?.id === agreed) {
+      await agreeTo(project.root, scripts)
+      return this.agreed()
+    }
+    const fromAgent = this.agentStarting > 0
+    // Only a trusted project's changed scripts, and once: an untrusted one waits on the card.
+    if (fromAgent && start !== null && start === this.declinedStart) {
+      this.agentDeclined = 'declined'
+    } else if (fromAgent && consent.changed && !shown) {
+      const name = promptName(project.name)
+      const yes = await this.askToTrust(
+        project.root,
+        {
+          message: `${name}'s scripts changed`,
+          detail: `Your agent is restarting your app. ${consent.details}\n\nIt runs code on your Mac. Only start projects you trust.`,
+          buttons: [
+            consent.action === 'install' ? 'Install and Start' : 'Start Dev Server',
+            'Not Now',
+          ],
+          // The agent asked, not the user: Return mustn't be what agrees.
+          defaultId: 1,
+        },
+        scripts,
+      )
+      if (yes) return this.agreed()
+      this.declinedStart = start
+      this.agentDeclined = 'declined'
+    } else if (fromAgent) {
+      this.agentDeclined ||= 'waiting'
+    }
+    if (this.disposed) return false
+    this.consent = { id: shown?.id ?? randomUUID(), key }
+    if (this.state.setup?.consent?.id !== this.consent.id) {
+      this.patchSetup({ consent: { ...consent, id: this.consent.id } })
+    }
+    return false
+  }
+
+  /** Nothing (more) to agree to: the card goes. */
+  private agreed() {
+    this.consent = null
+    this.declinedStart = null
+    if (this.state.setup?.consent) this.patchSetup({ consent: null })
+    return true
   }
 
   /**
@@ -1755,6 +1800,7 @@ export class ProjectTab implements ChatPanelOwner {
     this.opening = null
     this.stopWatchingForApp()
     this.declinedStart = null
+    this.consent = null
     this.startedSignature = null
     this.restartAfterTurn = false
     this.autoRestarts = []
@@ -1802,9 +1848,18 @@ export class ProjectTab implements ChatPanelOwner {
 
   // Dev server
 
-  /** From the UI; an untrusted project still shows its scripts and asks first. */
+  /** From the UI; an untrusted project still shows its scripts on the card and waits. */
   startDevServer() {
     void this.setUpAndStart()
+  }
+
+  /**
+   * The setup card's button: the user agrees to what it showed (`id`), which trusts the
+   * project and keeps what it runs, then it starts. A card that has changed since is shown
+   * again instead.
+   */
+  agreeToStart(id: string) {
+    if (this.consent?.id === id) void this.setUpAndStart(id)
   }
 
   stopDevServer() {
@@ -3092,7 +3147,7 @@ export class ProjectTab implements ChatPanelOwner {
    * starts the dev server. An untrusted project asks first, whether it's opening or the user
    * clicked; a trusted one asks again when its scripts changed.
    */
-  private async setUpAndStart() {
+  private async setUpAndStart(agreed: string | null = null) {
     const { project, setup } = this.state
     const devServer = this.resources.devServer
     if (!project || !devServer || setup?.apps) return
@@ -3112,8 +3167,8 @@ export class ProjectTab implements ChatPanelOwner {
         return
       }
       if (this.state.setup?.node) this.patchSetup({ node: null })
-      if (!project.devCommand) return
-      if (!(await this.confirmScripts(project, installs))) return
+      if (!project.devCommand) return void (await this.confirmFolder(project, agreed))
+      if (!(await this.confirmScripts(project, installs, agreed))) return
       if (devServer !== this.resources.devServer) return
       this.watchStartFiles(project)
       const installed = installs.length === 0 || (await this.install(devServer, project, installs))
@@ -3331,13 +3386,20 @@ export class ProjectTab implements ChatPanelOwner {
     if (devServer !== this.resources.devServer) return
     this.apps = apps
     devServer.setCwd(appRoot(project))
-    // Gui's own Node.js download goes on whatever the project says now.
+    // Gui's own Node.js download goes on whatever the project says now, and the card asking
+    // to run it stays until the project's read again (`setUpAndStart`), rather than flicker.
     const node = this.state.setup?.node ?? null
+    const consent = this.state.setup?.consent ?? null
     this.patch({
       project,
-      setup: node
-        ? settleSetup({ ...(setup ?? { apps: null, dependencies: 'ok', env: null }), node })
-        : setup,
+      setup:
+        node || consent
+          ? settleSetup({
+              ...(setup ?? { apps: null, dependencies: 'ok', env: null }),
+              node,
+              consent,
+            })
+          : setup,
     })
     // The page's error was about the old server; the canvas follows the new one.
     if (this.state.preview.error) this.patchPreview({ error: null })
@@ -3379,15 +3441,17 @@ export class ProjectTab implements ChatPanelOwner {
   private async restartForAgent() {
     if (!this.state.project) throw new Error('No project is open')
     this.agentRestartedAt = Date.now()
-    this.agentDeclined = false
+    this.agentDeclined = null
     this.agentStarting++
     try {
       await this.retryStartup()
     } finally {
       this.agentStarting--
     }
-    if (this.agentDeclined)
+    if (this.agentDeclined === 'declined')
       return "The user declined to run the project's changed scripts, so Gui didn't start the app. Don't try to start it another way; tell the user what changed and why."
+    if (this.agentDeclined === 'waiting')
+      return "Gui is waiting for the user to agree to run the project's scripts, so it didn't start the app. Don't try to start it another way; tell the user what changed and why."
     await this.waitForStart(AGENT_START_WAIT_MS)
     return this.startOutcome()
   }

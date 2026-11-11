@@ -86,11 +86,19 @@ export async function askToTrust(
       ? await dialog.showMessageBox(parent, prompt)
       : await dialog.showMessageBox(prompt)
   if (response !== 0) return false
-  // If it can't be saved, this run still goes ahead and the next one asks again.
+  await agreeTo(root, scripts)
+  return true
+}
+
+/**
+ * The user agreed (on the setup card, or in the prompt): the project is trusted from then on,
+ * and `scripts` kept as what they agreed to run. If it can't be saved, this run still goes
+ * ahead and the next one asks again.
+ */
+export async function agreeTo(root: string, scripts: TrustedScripts | null) {
   await Promise.all([trust(root), scripts && recordTrustedScripts(root, scripts)]).catch(
     (error: unknown) => console.error('[gui] failed to trust the project', error),
   )
-  return true
 }
 
 /** Script text longer than this is cut off in the trust prompt, which then says so. */

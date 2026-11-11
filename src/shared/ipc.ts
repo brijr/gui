@@ -191,6 +191,7 @@ export const Send = {
   showTabMenu: 'tabs:menu',
   chooseApp: 'setup:choose-app',
   installDependencies: 'setup:install',
+  agreeToStart: 'setup:agree',
   createEnvFile: 'setup:create-env',
   openEnvFile: 'setup:open-env',
   openSettings: 'settings:open',
@@ -495,6 +496,8 @@ export interface GuiApi {
   chooseApp(dir: string): void
   /** Installs (or retries installing) the project's dependencies */
   installDependencies(): void
+  /** The setup card's button: agrees to what `setup.consent` (this id) showed, then starts */
+  agreeToStart(id: string): void
   /** Copies the env example to `setup.env.target`, then opens it */
   createEnvFile(): void
   openEnvFile(): void

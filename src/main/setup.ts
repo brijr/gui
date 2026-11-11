@@ -67,7 +67,9 @@ export async function detectSetup(
 
 /** Null once there's nothing left to do or show. */
 export function settleSetup(setup: ProjectSetup): ProjectSetup | null {
-  return setup.apps || setup.dependencies !== 'ok' || setup.env || setup.node ? setup : null
+  return setup.apps || setup.dependencies !== 'ok' || setup.env || setup.node || setup.consent
+    ? setup
+    : null
 }
 
 function declaresDependencies(pkg: PackageJson) {

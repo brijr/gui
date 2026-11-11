@@ -53,15 +53,13 @@ test('a dev script the agent changed during a turn asks before it runs at the tu
   await installToolAgent(session)
   await session.declineConsentDialogs()
 
-  // The user watched the turn, but didn't see the script: it asks all the same.
+  // The user watched the turn, but didn't see the script: the card asks all the same.
   await ask(session, [{ write: changedPackage(session, 'vite --clearScreen false') }])
-  const [prompt] = await waitFor(async () => {
-    const prompts = await session.consentPrompts()
-    return prompts.length > 0 ? prompts : null
-  }, 'the changed script prompt')
-  expect(prompt?.message).toContain('scripts changed')
-  expect(prompt?.detail).toContain('vite --clearScreen false')
+  const consent = await session.consentCard()
+  expect(consent.changed).toBe(true)
+  expect(consent.details).toContain('vite --clearScreen false')
   await waitFor(async () => (await session.state()).devServer.status === 'idle', 'the stop')
+  expect(await session.consentPrompts()).toEqual([])
 })
 
 test("going back to the detected command asks when the project's script changed", async ({

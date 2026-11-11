@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { type AgentId, CUSTOM_AGENT_PREFIX } from '../src/shared/types'
 import { waitFor } from './helpers/env'
 import { git, gitStatus } from './helpers/fixtures'
@@ -12,7 +12,7 @@ import { expect, test } from './helpers/test'
 // the folder it was started in and quits, so no agent login or usage is needed.
 
 const MARKER: AgentId = `${CUSTOM_AGENT_PREFIX}Marker`
-const NOT_STARTED = "Not started: this project isn't trusted."
+const NOT_STARTED = 'Not started: agree to start this project first, on its card.'
 
 /**
  * Adds the marker agent to agents.json and waits for Gui to list it. Returns the folders
@@ -41,7 +41,7 @@ async function useMarker(session: GuiSession) {
 const send = (session: GuiSession) =>
   session.chat.evaluate(() => window.gui.send('Make the counter button red.'))
 
-test('an untrusted project asks before an agent starts, and declining starts none', async ({
+test('an untrusted project starts no agent until its card agrees, and asks nothing else', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite', trusted: false, open: 'recent' })
@@ -49,32 +49,29 @@ test('an untrusted project asks before an agent starts, and declining starts non
   const { root, userData } = session.fixture
   const runs = await addMarkerAgent(session)
 
-  // Opening asks about the dev script first (declined); by then the chat is set up.
+  // Opening shows the card; by then the chat is set up.
   await session.chrome.evaluate((path) => window.gui.openRecent(path), root)
-  const asked = async () => (await session.consentPrompts()).length > 0
-  await waitFor(asked, 'the dev script consent prompt', { timeout: 30_000 })
+  await session.consentCard()
   await useMarker(session)
 
+  // The first message doesn't ask a second time: it points at the card.
   expect(await send(session)).toBe(true)
   const first = await session.waitForTurn(0, 30_000)
   expect(first.turn.status).toBe('cancelled')
   expect(first.turn.error).toBeNull()
   expect(first.turn.items).toContainEqual(expect.objectContaining({ text: NOT_STARTED }))
   expect(first.meta.status).not.toBe('error')
-
-  const prompts = await session.consentPrompts()
-  expect(prompts).toHaveLength(2)
-  expect(prompts[1]?.message).toBe(`Let Marker work in ${basename(root)}?`)
-  expect(prompts[1]?.detail).toContain('.claude/settings.json')
+  expect(await session.consentPrompts()).toEqual([])
   expect(runs()).not.toContain(root)
   expect(existsSync(join(userData, 'trusted-projects.json'))).toBe(false)
   expect(gitStatus(root)).toBe('')
 
-  // Agreeing trusts the project from then on, and the agent starts in it.
-  await session.acceptConsentDialogs()
+  // The card's one agreement covers the agent too: it starts in the project from then on.
+  await session.agreeOnCard()
+  await waitFor(() => existsSync(join(userData, 'trusted-projects.json')), 'the project trusted')
   expect(await send(session)).toBe(true)
   const second = await session.waitForTurn(1, 60_000)
-  expect(await session.consentPrompts()).toHaveLength(3)
+  expect(await session.consentPrompts()).toEqual([])
   expect(runs()).toContain(root)
   const trusted: unknown = JSON.parse(readFileSync(join(userData, 'trusted-projects.json'), 'utf8'))
   expect(trusted).toEqual([root])

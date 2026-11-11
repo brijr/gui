@@ -196,8 +196,10 @@ export async function deleteCustom(name: string) {
   await refreshSettings()
 }
 
+/** Its app stops, and its card asks again before anything of it runs (the agent too). */
 export async function untrustProject(root: string) {
   await untrust(root)
+  for (const tab of allTabs()) if (tab.projectRoot === root) void tab.retryStartup()
   await refreshSettings()
 }
 

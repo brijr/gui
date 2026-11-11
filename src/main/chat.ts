@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
 import { realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, relative, resolve as resolvePath } from 'node:path'
+import { isAbsolute, relative, resolve as resolvePath } from 'node:path'
 import type {
   ContentBlock,
   McpServer,
@@ -88,7 +88,7 @@ import {
   subagentPatch,
 } from './subagents'
 import { cornerColor, thumbnail, thumbnailSize } from './thumbnail'
-import { askToTrust, isTrusted, promptName } from './trust'
+import { isTrusted } from './trust'
 
 type SessionUpdate = SessionNotification['update']
 type SubagentUpdate = Extract<SessionUpdate, { sessionUpdate: 'subagent_update' }>
@@ -1709,34 +1709,21 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /**
    * Agents load the project's own agent settings (Claude Code's .claude/settings.json,
    * OpenCode's opencode.json and plugins, and so on), which can run commands, so none works
-   * in a project the user hasn't trusted. Checked every turn: trust revoked in Settings
-   * asks again.
+   * in a project the user hasn't trusted. Nothing asks here: the setup card is where the user
+   * agrees, to running the project and to the agent working in it. Checked every turn: trust
+   * revoked in Settings stops the next one.
    */
-  private async confirmTrust() {
-    if (await isTrusted(this.root)) return true
-    if (this.disposed) return false
-    // A custom agent's name comes from agents.json, which an agent could have written.
-    const agent = promptName(this.meta.agentName)
-    return askToTrust(
-      this.root,
-      {
-        message: `Let ${agent} work in ${promptName(basename(this.root))}?`,
-        detail: `${agent} loads this project's own agent settings (for example .claude/settings.json or opencode.json), which can run commands on your Mac. Gui won't ask again for this project. Only start projects you trust.`,
-        buttons: ['Continue', 'Cancel'],
-        // It follows Return in the composer; pressing it again mustn't be what agrees.
-        defaultId: 1,
-      },
-      BrowserWindow.getFocusedWindow(),
-    )
+  private confirmTrust() {
+    return isTrusted(this.root)
   }
 
-  /** Declined: the turn ends unstarted, and an agent still running here (trust was revoked) stops. */
+  /** Untrusted: the turn ends unstarted, and an agent still running here (trust was revoked) stops. */
   private notTrusted(record: TurnRecord) {
     this.pushItem(record, {
       kind: 'notice',
       id: randomUUID(),
       tone: 'info',
-      text: "Not started: this project isn't trusted.",
+      text: 'Not started: agree to start this project first, on its card.',
     })
     if (!this.agent) return
     this.stopAgent()

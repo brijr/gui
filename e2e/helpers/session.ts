@@ -8,6 +8,7 @@ import {
   type Picked,
   type Point,
   type RegionContext,
+  type SetupConsent,
   type WindowState,
 } from '../../src/shared/types'
 import { electronExecutable, REPO_ROOT, sleep, waitFor } from './env'
@@ -421,9 +422,30 @@ export class GuiSession {
     return picked
   }
 
+  /** Waits for the setup card asking to run the project (`setup.consent`). */
+  consentCard(timeout = 30_000): Promise<SetupConsent> {
+    return waitFor(async () => (await this.state()).setup?.consent ?? null, 'the setup card', {
+      timeout,
+    })
+  }
+
+  /** Waits for the setup card asking to run the project, and presses its button: agreeing. */
+  async agreeOnCard(): Promise<SetupConsent> {
+    const consent = await this.consentCard()
+    const name =
+      consent.action === 'install'
+        ? 'Install and start'
+        : consent.action === 'trust'
+          ? 'Continue'
+          : 'Start dev server'
+    await this.chrome.getByRole('button', { name, exact: true }).click()
+    return consent
+  }
+
   /**
-   * Replaces the native "run this dev script?" sheet, which no test can click, with a
-   * recorder that answers "Not now". Install it before opening the project.
+   * Replaces native sheets, which no test can click (the agent's restart asking about a
+   * changed script, the agent's start command), with a recorder that answers "Not now".
+   * Install it before opening the project.
    */
   declineConsentDialogs(): Promise<void> {
     return this.answerConsentDialogs(false)
