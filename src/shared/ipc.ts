@@ -180,6 +180,7 @@ export const Send = {
   editQueued: 'chat:queue-edit',
   moveQueued: 'chat:queue-move',
   sendQueuedNow: 'chat:queue-send',
+  retry: 'chat:retry',
   sendQueued: 'chat:queue-send-one',
   clearQueued: 'chat:queue-clear',
   setAutoApprove: 'chat:auto-approve',
@@ -673,6 +674,8 @@ export interface GuiApi {
    * stay held), or next — moved to the front — while the agent works
    */
   sendQueued(id: string): void
+  /** Sends a failed turn's message again (`ChatMeta.retryTurnId`), with what it carried */
+  retry(turnId: string): void
   /** Auto mode on or off (see `ChatMeta.autoApprove`) */
   setAutoApprove(on: boolean): void
   /**

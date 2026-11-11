@@ -1021,6 +1021,8 @@ export interface ChatMeta {
   popped: boolean
   /** Turns the pending redo would bring back; empty when there's nothing to redo */
   redoTurnIds: string[]
+  /** The latest turn, failed, which Retry sends again with what it carried; null otherwise */
+  retryTurnId: string | null
   /**
    * The chat a new chat just took the place of, archived, so the empty chat can offer it
    * back; null once a message is sent, or when nothing was archived

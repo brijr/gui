@@ -882,6 +882,7 @@ export class ProjectTab implements ChatPanelOwner {
         tabRow: false,
         popped: false,
         redoTurnIds: [],
+        retryTurnId: null,
         archived: null,
         problems: [],
         queue: [],
@@ -3463,6 +3464,10 @@ export class ProjectTab implements ChatPanelOwner {
 
   sendQueuedNow() {
     this.resources.chat?.sendQueuedNow()
+  }
+
+  retryTurn(turnId: string) {
+    this.resources.chat?.retry(turnId)
   }
 
   sendQueued(id: string) {

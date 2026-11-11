@@ -16,7 +16,8 @@ import { expect, test } from './helpers/test'
  * Speaks ACP (ndjson JSON-RPC) on stdio. Offers a model and an effort setting whose levels
  * are the ids Gui names itself plus one it doesn't ("turbo"). A prompt containing NOISE
  * reads a file and runs a command around a Muse `reminderChild` bookkeeping call; ASK asks
- * to run a command; LONG writes a long answer, starts a step, and then waits for Stop.
+ * to run a command; LONG writes a long answer, starts a step, and then waits for Stop. FAIL
+ * fails the first time with the provider's raw overloaded error, and answers the next.
  */
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
@@ -51,6 +52,7 @@ const ask = (method, params) =>
   })
 let cwd = ''
 let stop = null
+let failed = false
 
 const prompt = async ({ sessionId, prompt }) => {
   const text = prompt.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
@@ -60,6 +62,11 @@ const prompt = async ({ sessionId, prompt }) => {
     notify(sessionId, { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed', ...extra })
   const say = (words) =>
     notify(sessionId, { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: words } })
+  if (text.includes('FAIL') && !failed) {
+    failed = true
+    throw { code: -32603, message: 'Internal error', data: { details: 'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_e2e"}' } }
+  }
+  if (text.includes('FAIL')) say('Recovered.')
   if (text.includes('NOISE')) {
     tool('reminder-1', 'reminderChild: inProgress', 'other')
     tool('read-1', 'Read src/App.tsx', 'read', { locations: [{ path: cwd + '/src/App.tsx' }] })
@@ -117,7 +124,7 @@ const handle = (message) => {
     return write({ id, result: { configOptions: configOptions() } })
   }
   if (method === 'session/prompt') {
-    prompt(params).then((result) => write({ id, result }))
+    prompt(params).then((result) => write({ id, result }), (error) => write({ id, error }))
     return
   }
   write({ id, error: { code: -32601, message: 'Method not found' } })
@@ -243,6 +250,29 @@ test('a turn reads as steps, permission cards ask in macOS order, effort levels 
   await expect(article.getByRole('list', { name: 'Steps' }).getByRole('listitem')).toHaveText([
     /^Run a command\s*npm run build\s*Allowed/,
   ])
+
+  // A known failure reads in plain words, the agent's raw error in its details, and Retry
+  // sends the same message again.
+  expect(await send(chat, 'FAIL Try the build again.')).toBe(true)
+  const { turn: failedTurn } = await session.waitForTurn(2)
+  expect(failedTurn.status).toBe('error')
+  const failure = chat.getByRole('article').nth(2)
+  await expect(
+    failure.getByText('The agent’s servers are busy. Try again in a minute.'),
+  ).toBeVisible()
+  await expect(failure.getByText(/overloaded_error/)).toHaveCount(0)
+  await failure.getByRole('button', { name: 'Details' }).click()
+  await expect(failure.getByText(/API Error: 529 .*overloaded_error/)).toBeVisible()
+  await session.shot('turn-error-retry')
+  const retry = failure.getByRole('button', { name: 'Retry' })
+  await retry.focus()
+  await chat.keyboard.press('Enter')
+  const { turn: retried } = await session.waitForTurn(3)
+  expect(retried.status).toBe('done')
+  expect(retried.prompt).toBe(failedTurn.prompt)
+  await expect(chat.getByText('Recovered.')).toBeVisible()
+  await expect(composer).toBeFocused()
+  await expect(chat.getByRole('button', { name: 'Retry' })).toHaveCount(0)
 })
 
 test('the transcript stays at its newest line as the queue appears; a re-logged error counts once', async ({

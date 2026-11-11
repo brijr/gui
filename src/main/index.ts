@@ -1259,6 +1259,7 @@ function registerIpc() {
     if (isString(id) && isNumber(index)) tab.moveQueued(id, index)
   })
   on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
+  on(Send.retry, (tab, turnId) => isString(turnId) && tab.retryTurn(turnId))
   on(Send.sendQueued, (tab, id) => isString(id) && tab.sendQueued(id))
   on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
   on(Send.setAgentSetting, (tab, settingId, value) => {

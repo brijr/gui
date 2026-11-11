@@ -79,6 +79,40 @@ export function errorDetail(error: unknown): string {
 }
 
 /**
+ * Known ways an agent's turn fails, in plain words, checked in order: a quota error can come
+ * as a 429, so the account's limit is checked before the rate limit. Matched on the agent's
+ * own text, which often carries the provider's raw JSON (`API Error: 529 {"type":"error",…}`).
+ */
+const PLAIN_ERRORS: [RegExp, string][] = [
+  [
+    /context.?(?:length|window)|prompt is too long|input is too long|too many (?:input )?tokens|maximum context/i,
+    'This chat is too long for the agent. Start a new chat to keep going.',
+  ],
+  [
+    /credit balance|billing|insufficient.?(?:quota|funds|credits?)|quota exceeded|payment required|\b402\b|usage limit/i,
+    'Your agent account is out of credit or at its usage limit. Check its plan, then try again.',
+  ],
+  [/overloaded|\b529\b/i, 'The agent’s servers are busy. Try again in a minute.'],
+  [
+    /rate.?limit|too many requests|\b429\b/i,
+    'The agent is sending too many requests. Wait a minute, then try again.',
+  ],
+  [
+    /(?:api error|status(?: code)?|http)[:\s]+5\d\d\b|internal server error|bad gateway|service unavailable|gateway time-?out|"api_error"/i,
+    'The agent’s servers had a problem. Try again in a minute.',
+  ],
+  [
+    /\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ENETUNREACH)\b|socket hang up|network error|fetch failed|connection (?:error|refused|reset)|timed? ?out\b/i,
+    'The agent couldn’t reach its servers. Check your internet connection, then try again.',
+  ],
+]
+
+/** What a failed turn's error means, in plain words; null when it isn't one Gui knows. */
+export function plainAgentError(detail: string): string | null {
+  return PLAIN_ERRORS.find(([pattern]) => pattern.test(detail))?.[1] ?? null
+}
+
+/**
  * How the agent can pick an earlier session back up, best first. session/resume continues
  * it without sending the history again; session/load replays every message, which Gui
  * (keeping its own transcript) only drops.

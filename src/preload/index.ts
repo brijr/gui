@@ -204,6 +204,7 @@ const api: GuiApi = {
   editQueued: send(Send.editQueued),
   moveQueued: send(Send.moveQueued),
   sendQueuedNow: send(Send.sendQueuedNow),
+  retry: send(Send.retry),
   sendQueued: send(Send.sendQueued),
   setAutoApprove: send(Send.setAutoApprove),
   setAgentSetting: send(Send.setAgentSetting),

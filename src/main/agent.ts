@@ -18,6 +18,7 @@ import {
   errorDetail,
   formQuestions,
   modeNoticeUpdate,
+  plainAgentError,
   resumeMethods,
 } from './agent-protocol'
 import {
@@ -668,8 +669,12 @@ export class AgentSession {
       // A login can expire mid-session (an OAuth refresh that fails): say so, with how to
       // sign in, rather than the agent's bare "Authentication required".
       if (isAuthError(error) && this.signInError) throw this.signInError(error)
-      // Agents may put the reason behind a bare "Internal error" (see errorDetail).
-      throw error instanceof acp.RequestError ? new Error(errorDetail(error)) : error
+      // Agents may put the reason behind a bare "Internal error" (see errorDetail). A known
+      // failure (busy servers, a rate limit) reads in plain words, the agent's own under them.
+      const detail = errorDetail(error)
+      const plain = plainAgentError(detail)
+      if (plain) throw new DetailedError(plain, detail)
+      throw error instanceof acp.RequestError ? new Error(detail) : error
     })
   }
 

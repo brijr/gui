@@ -323,6 +323,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * what was picked, with its crops. The meta only carries thumbnails, to keep IPC small.
    */
   private queued = new Map<string, QueuedPayload>()
+  /**
+   * What the latest turn sent, with its full images, so Retry can send it again if it fails.
+   * The next turn replaces it; one that doesn't fail lets it go.
+   */
+  private lastSent: {
+    turnId: string
+    text: string
+    fix: Fix | null
+    payload: QueuedPayload
+  } | null = null
   private readonly history: HistoryWriter
 
   constructor(
@@ -354,6 +364,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       tabRow: false,
       popped: false,
       redoTurnIds: saved?.redo?.turnIds ?? [],
+      retryTurnId: null,
       archived: null,
       problems: [],
       queue: [],
@@ -444,6 +455,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const token = {}
     this.lock = token
     this.epoch++
+    this.lastSent = null
     // Messages queued for the old chat go with it; ones sent while this runs are for the new one.
     this.clearQueue()
     const done = this.replacing.then(() => this.swap(next, token))
@@ -497,6 +509,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       modeName: null,
       modeIsUsual: false,
       redoTurnIds: next?.redo?.turnIds ?? [],
+      retryTurnId: null,
       // Offered back only from an empty chat; one brought back was opened from the list.
       archived:
         archived && !next ? { id: archived.id, agentName: agentName(archived.agentId) } : null,
@@ -837,6 +850,40 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private followUpFor(turnId: string | null): FollowUp | null {
     const turn = turnId ? this.records.find((record) => record.turn.id === turnId)?.turn : null
     return turn ? { turnId: turn.id, number: turn.index + 1, prompt: turn.prompt } : null
+  }
+
+  /**
+   * Sends the latest turn's message again after it failed, with what it carried (the pick,
+   * images, clips). Messages held after the error follow it. While the agent needs setting up,
+   * it waits at the front of the queue, as a message sent then would.
+   */
+  retry(turnId: string): boolean {
+    const sent = this.lastSent
+    if (this.disposed || this.lock || sent?.turnId !== turnId) return false
+    if (this.meta.retryTurnId !== turnId) return false
+    this.lastSent = null
+    if (needsSetup(this.meta.agent)) {
+      const { images, recordings = [], followUp, textEdit, selection } = sent.payload
+      const item: QueuedMessage = {
+        id: randomUUID(),
+        prompt: messagePrompt(sent.text, images) || sent.text,
+        context: withoutScreenshots(selection),
+        attachments: images.map(({ name, thumbnail }) => ({ name, thumbnail })),
+        recordings,
+        ...(followUp ? { followUp } : {}),
+        ...(textEdit ? { textEdit } : {}),
+      }
+      this.queued.set(item.id, sent.payload)
+      this.patchMeta({
+        retryTurnId: null,
+        queue: [item, ...this.meta.queue],
+        queuePaused: true,
+        queuePauseReason: 'setup',
+      })
+      return true
+    }
+    if (this.meta.queuePaused) this.patchMeta({ queuePaused: false, queuePauseReason: null })
+    return this.startTurn(sent.text, sent.fix, sent.payload.images, sent.payload)
   }
 
   /**
@@ -1263,6 +1310,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.disposed) return this.history.close()
     this.epoch++
     this.disposed = true
+    this.lastSent = null
     agentHealth.off('change', this.refreshModels)
     agentHealth.off('change', this.refreshAgent)
     prefsEvents.off('change', this.refreshModels)
@@ -1360,6 +1408,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.records.push(record)
     this.active = record
     this.lock = record
+    this.lastSent = {
+      turnId: record.turn.id,
+      text,
+      fix,
+      payload: { images, recordings, followUp, textEdit, selection: picked, viewport },
+    }
+    if (this.meta.retryTurnId) this.patchMeta({ retryTurnId: null })
     this.transcriptAgent ??= this.meta.agentId
     if (this.meta.archived) this.patchMeta({ archived: null })
     if (!fix && !queued && command !== 'alone') this.patchMeta({ selection: [] })
@@ -1635,7 +1690,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       record.turn.endedAt = Date.now()
       if (this.active === record) this.active = null
       if (this.lock === record) this.lock = null
+      const retryable = status === 'error' && this.lastSent?.turnId === record.turn.id
+      if (!retryable && this.lastSent?.turnId === record.turn.id) this.lastSent = null
       this.flushTurn(record)
+      if (retryable && live()) this.patchMeta({ retryTurnId: record.turn.id })
       if (live()) {
         if (this.meta.status === 'working') this.patchMeta({ status: 'ready' })
         this.emit('turnEnd', record.turn)

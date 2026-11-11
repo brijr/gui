@@ -34,6 +34,7 @@ import {
   Pencil,
   Redo2,
   Reply,
+  RotateCw,
   Search,
   Square,
   SquareTerminal,
@@ -122,6 +123,8 @@ function AgentTurn({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
     running && turn.items.some((item) => item.kind === 'permission' && item.resolved === null)
   const end = `${turn.id}:end`
   const agent = useChat((s) => s.meta?.agentName ?? 'Agent')
+  // Only while main still has what the message carried (its images too).
+  const retryable = useChat((s) => s.meta?.retryTurnId === turn.id)
   return (
     <TurnPresentationScope id={turn.id}>
       <article className="flex flex-col gap-3">
@@ -150,7 +153,28 @@ function AgentTurn({ turn, showRedo }: { turn: Turn; showRedo: boolean }) {
           {running && !waiting && !stepRunning(blocks.at(-1)) && <Working since={turn.startedAt} />}
           {turn.status === 'error' && (
             <Row rowKey={end}>
-              <Note tone="error" detail={turn.errorDetail} stateKey="error" announce={end}>
+              <Note
+                tone="error"
+                detail={turn.errorDetail}
+                stateKey="error"
+                announce={end}
+                action={
+                  retryable && (
+                    <Button
+                      size="sm"
+                      icon={RotateCw}
+                      title="Send this message again"
+                      onClick={() => {
+                        // The button goes as the message goes out: the keyboard waits in the box.
+                        focusComposer()
+                        gui.retry(turn.id)
+                      }}
+                    >
+                      Retry
+                    </Button>
+                  )
+                }
+              >
                 {turn.error}
               </Note>
             </Row>
@@ -529,10 +553,13 @@ function Note({
   detail,
   stateKey,
   announce,
+  action,
   children,
 }: {
   tone: 'info' | 'error'
   detail?: string | null
+  /** A next step, under the text and above its details */
+  action?: ReactNode
   stateKey: string
   /**
    * Its row's key, to read it out to screen readers when it appears while the user is here
@@ -554,6 +581,7 @@ function Note({
         <Icon className="mt-px size-3.5 shrink-0" aria-hidden="true" />
         <span className="min-w-0 select-text break-words">{children}</span>
       </p>
+      {action && <div className={cn('flex', NOTE_INSET)}>{action}</div>}
       {detail && (
         <TechnicalDetails
           text={detail}
