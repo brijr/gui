@@ -15,6 +15,7 @@ import {
 import { Events } from '../shared/ipc'
 import type { GuideOverlay, PickOverlayState, Point, Rect, VariationsBar } from '../shared/types'
 import { PANEL_MARGIN } from './chat-presentation'
+import { glideMs } from './input-pace'
 import type { Inspector } from './inspector'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 
@@ -27,6 +28,8 @@ const FRAME_MS = 16
 const MAX_LABELS = 300
 /** Room around the variations bar in its own overlay, for its shadow (shadow-popover) */
 const BAR_MARGIN = { x: 24, top: 16, bottom: 32 }
+/** The walkthrough's pointer gliding to each step's element: slow enough for the eye to follow */
+const STEP_GLIDE_MS = 400
 /** The variations bar floats this far in from the page's edges, as the floating chat does. */
 const BAR_INSET = PANEL_MARGIN
 /** The least room the bar keeps beside the chat (its name shortened) before it goes over it */
@@ -75,7 +78,12 @@ export class Picker {
     node: number | null
     caption: string | null
     cursor: Point | null
+    /** Where the pointer is drawn: `cursor`, or the step's element; null while it isn't */
+    shownAt: Point | null
+    /** How long its last move takes */
+    glide: number
     clicks: number
+    key: GuideOverlay['key']
     step: number
   } | null = null
   /**
@@ -179,7 +187,10 @@ export class Picker {
       caption,
       // Each step's pointer goes to its element, until an input takes it elsewhere.
       cursor: null,
+      shownAt: previous?.shownAt ?? null,
+      glide: STEP_GLIDE_MS,
       clicks: previous?.clicks ?? 0,
+      key: previous?.key ?? null,
       step: (previous?.step ?? 0) + 1,
     }
     this.area = bounds
@@ -189,11 +200,26 @@ export class Picker {
     return true
   }
 
-  /** The agent's pointer glides to `at` (the page's CSS pixels). */
-  guideCursor(at: Point) {
+  /**
+   * The agent's pointer glides to `at` (the page's CSS pixels) from where it is, over `ms` or
+   * as long as the way takes (input-pace.ts); how long that is. It fades in there when it
+   * wasn't showing.
+   */
+  guideCursor(at: Point, ms?: number) {
+    const guided = this.guided
+    if (!guided) return 0
+    guided.glide = ms ?? glideMs(guided.shownAt, at)
+    guided.cursor = at
+    guided.shownAt = at
+    this.schedule()
+    return guided.glide
+  }
+
+  /** The agent's pointer shows a key it pressed, where it is (if it's showing). */
+  guideKey(label: string) {
     const guided = this.guided
     if (!guided) return
-    guided.cursor = at
+    guided.key = { label, presses: (guided.key?.presses ?? 0) + 1 }
     this.schedule()
   }
 
@@ -410,12 +436,18 @@ export class Picker {
     const box = guided.node === null ? null : await this.inspector.box(guided.node)
     const scale = this.scale()
     const cursor = guided.cursor && viewFromViewport(viewportPointFrom(guided.cursor), scale)
+    // The next move glides from here (the overlay draws a step's pointer at its element's centre).
+    if (this.guided === guided)
+      guided.shownAt =
+        guided.cursor ?? (box && { x: box.x + box.width / 2, y: box.y + box.height / 2 })
     return {
       rect: box && this.toView(box),
       // Once its element is gone (navigation, hot reload), the caption no longer points at it.
       caption: guided.node !== null && !box ? null : guided.caption,
       cursor,
+      glide: guided.glide,
       clicks: guided.clicks,
+      key: guided.key,
       step: guided.step,
       held: this.held,
     }

@@ -221,8 +221,6 @@
   --motion-exit: 100ms;
   /* Reduced motion: the cross-fade that stands in for movement */
   --motion-fade: 150ms;
-  /* The guide's pointer gliding to what it shows next: slow enough for the eye to follow */
-  --motion-guide: 400ms;
 
   /* Behind the preview, and the start screen */
   --canvas: #ececec;

@@ -103,6 +103,7 @@ import {
   renameArchived,
   retireHistoryFile,
 } from './history'
+import { DWELL_MS } from './input-pace'
 import { Inspector } from './inspector'
 import { recordInstall } from './install-state'
 import { crashFailure, loadFailure } from './load-failure'
@@ -110,8 +111,10 @@ import { isLoopback } from './loopback'
 import { describeTurns, describeVersions } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
+import { prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
 import { getPrefs, setPrefs } from './prefs'
+import type { AgentPointer } from './preview-interactions'
 import { PreviewMorph } from './preview-morph'
 import { PreviewTools, SETTLE_MS } from './preview-tools'
 import { Problems } from './problems'
@@ -198,8 +201,6 @@ const REHIGHLIGHT_DELAY_MS = 900
 const PENDING_PICK = 'pending'
 /** How long dev_server_restart waits for the app; agents give up on a tool call after about a minute. */
 const AGENT_START_WAIT_MS = 45_000
-/** How long the walkthrough's pointer takes to glide to an input's target (the overlay's too) */
-const GUIDE_GLIDE_MS = 650
 /** The walkthrough's last step stays this long after the agent's turn ends */
 const GUIDE_LINGER_MS = 5000
 /** The longest an agent's width check waits for the preview to resize into its viewport */
@@ -1353,7 +1354,7 @@ export class ProjectTab implements ChatPanelOwner {
       restartServer: () => this.restartForAgent(),
       setStartCommand: (input) => this.setStartCommandForAgent(input),
       guide: (node, caption) => this.guideStep(this.picker, node, caption),
-      guideInput: (at, click) => this.guideInput(this.picker, at, click),
+      pointer: this.agentPointer(this.picker),
       variations: (input) => this.variations.show(input),
       // A late call from an opening since replaced mustn't touch the next project's guides.
       guides: {
@@ -2619,7 +2620,7 @@ export class ProjectTab implements ChatPanelOwner {
   private websiteHooks(): WebsiteHooks {
     return {
       guide: (picker, node, caption) => this.guideStep(picker, node, caption),
-      guideInput: (picker, at, click) => this.guideInput(picker, at, click),
+      pointer: (picker) => this.agentPointer(picker),
       navigated: (url) => {
         if (this.website?.url === url) this.patchPreview({ website: url })
       },
@@ -2658,28 +2659,41 @@ export class ProjectTab implements ChatPanelOwner {
    * and isn't picking; whether it's shown.
    */
   private guideStep(picker: Picker, node: number | null, caption: string | null) {
-    if (this.host.sheetShown) return false
+    if (!this.inSight(picker)) return false
+    this.clearGuideEnd()
+    return picker.guide(this.placement, node, caption)
+  }
+
+  /** The user can see `picker`'s page (the app's, or a website's) and isn't picking there. */
+  private inSight(picker: Picker) {
+    if (this.host.sheetShown || picker.picking) return false
     const website = this.website && !this.website.closed ? this.website : null
     // The app's page is out of sight under a website, and a website's once it closed.
     if (
       picker === this.picker ? website || !this.state.preview.visible : picker !== website?.picker
     )
       return false
-    if (this.placement.width <= 0) return false
-    this.clearGuideEnd()
-    return picker.guide(this.placement, node, caption)
+    return this.placement.width > 0
   }
 
   /**
-   * Every click, hover and keystroke the agent makes shows its pointer, so the user can follow
-   * along, walkthrough or not. Not while the page is out of sight or they're picking.
+   * The agent's pointer over `picker`'s page: every click, hover and keystroke the agent makes
+   * shows it, so the user can follow along, walkthrough or not, at a pace they can follow. Not
+   * while the page is out of sight or they're picking: then the input goes at once.
    */
-  private async guideInput(picker: Picker, at: Point, click: boolean) {
-    if (!picker.guiding && !this.guideStep(picker, null, null)) return
-    picker.guideCursor(at)
-    await new Promise((resolve) => setTimeout(resolve, GUIDE_GLIDE_MS))
-    // Once the pointer is there, as the click it shows goes through
-    if (click) picker.guideClick()
+  private agentPointer(picker: Picker): AgentPointer {
+    return {
+      paced: () => !prefersReducedMotion() && (picker.guiding || this.inSight(picker)),
+      move: async (at, { click = false, ms, passing = false } = {}) => {
+        if (!picker.guiding && !this.guideStep(picker, null, null)) return
+        // With Reduce motion it's there at once, and rests as long.
+        const glide = picker.guideCursor(at, prefersReducedMotion() ? 0 : ms)
+        await new Promise((resolve) => setTimeout(resolve, glide + (passing ? 0 : DWELL_MS)))
+        // Once the pointer is there, as the click it shows goes through
+        if (click) picker.guideClick()
+      },
+      key: (label) => picker.guideKey(label),
+    }
   }
 
   /** The variations bar's buttons and keys. */

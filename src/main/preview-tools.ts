@@ -11,7 +11,7 @@ import { base64Bytes, type DecodedImage, encodeWithin, MAX_AGENT_IMAGE_BYTES } f
 import { alignGuides, describeAlignment } from './guide-alignment'
 import type { ForcedState, Inspector, InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
-import { type BeforeInput, PreviewInteractions } from './preview-interactions'
+import { type AgentPointer, type InputPace, PreviewInteractions } from './preview-interactions'
 import { type MotionRequest, planMotion } from './preview-motion-format'
 import type { Problems } from './problems'
 import { navigationTarget } from './public-address'
@@ -120,8 +120,8 @@ export interface PageDeps {
    * False when the user can't see it: the preview is hidden, or they're picking.
    */
   guide: (node: number | null, caption: string | null) => boolean
-  /** Takes the agent's visible pointer to each input's target first */
-  guideInput: BeforeInput
+  /** The agent's pointer the user watches: each input's target first, at a pace they can follow */
+  pointer: AgentPointer
   /** Something that happened on the page since the last tool, to tell the agent once */
   notice?: () => string | null
   /**
@@ -298,40 +298,60 @@ const readingTime = (caption: string | null) =>
  */
 export class PageTools {
   readonly interactions: PreviewInteractions
+  /** The same input with no pace of its own (`input`'s `atOnce`) */
+  private readonly atOnce: PreviewInteractions
   /** How many of the agent's inputs are reaching the page now (`input`) */
   private inputs = 0
 
   constructor(protected readonly page: PageDeps) {
-    this.interactions = new PreviewInteractions(
+    const { pointer } = page
+    const pace: InputPace = {
+      paced: () => pointer.paced(),
+      move: (at, options) => this.meanwhile(() => pointer.move(at, options)),
+      key: (label) => pointer.key(label),
+      pause: (ms) => this.meanwhile(() => sleep(ms)),
+    }
+    const website = page.kind === 'website'
+    const assertLoaded = () => this.assertLoaded()
+    this.interactions = new PreviewInteractions(page.inspector, assertLoaded, pace, website)
+    this.atOnce = new PreviewInteractions(
       page.inspector,
-      () => this.assertLoaded(),
-      // While the walkthrough's pointer glides there, what reaches the page is the user's.
-      async (at, click) => {
-        this.inputs--
-        try {
-          await page.guideInput(at, click)
-        } finally {
-          this.inputs++
-        }
-        // The glide takes a moment: the page may have gone, or the project with it.
-        this.assertLoaded()
-      },
-      page.kind === 'website',
+      assertLoaded,
+      { ...pace, paced: () => false },
+      website,
     )
   }
 
   /**
    * The agent's clicks, keys, typing and scrolling (`interactions`), marked as its own while
    * they reach the page (`inputting`), so Gui doesn't take them for the user's: its Esc doesn't
-   * close a canvas frame, nor its click hide the chat.
+   * close a canvas frame, nor its click hide the chat. `atOnce`: scrolling and typing go at
+   * once even while the user watches (preview_motion films what follows the input).
    */
-  async input<T>(action: (interactions: PreviewInteractions) => Promise<T>): Promise<T> {
+  async input<T>(
+    action: (interactions: PreviewInteractions) => Promise<T>,
+    { atOnce = false } = {},
+  ): Promise<T> {
     this.inputs++
     try {
-      return await action(this.interactions)
+      return await action(atOnce ? this.atOnce : this.interactions)
     } finally {
       this.inputs--
     }
+  }
+
+  /**
+   * While the pointer glides, or between paced steps, what reaches the page is the user's.
+   * It takes a moment: the page may have gone after, or the project with it.
+   */
+  private async meanwhile(wait: () => Promise<void>) {
+    this.inputs--
+    try {
+      await wait()
+    } finally {
+      this.inputs++
+    }
+    this.assertLoaded()
   }
 
   /** The agent's input (`input`) is reaching the page right now */
@@ -988,7 +1008,7 @@ export class PreviewTools extends PageTools {
         wc: this.deps.wc,
         inspector: this.deps.inspector,
         assertLoaded: () => this.assertLoaded(),
-        input: (action) => this.input(action),
+        input: (action) => this.input(action, { atOnce: true }),
       },
       plan,
     )

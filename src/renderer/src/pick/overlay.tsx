@@ -240,6 +240,8 @@ const CAPTION_HEIGHT = 64
 const HELD_NOTE_MS = 3000
 /** Between the user's pointer and that note */
 const HELD_NOTE_OFFSET = 16
+/** How long the pointer shows a key the agent pressed */
+const KEY_SHOWN_MS = 900
 
 /**
  * The agent in the preview: its pointer gliding to each input's target, and in a walkthrough
@@ -252,6 +254,7 @@ function Guide({ guide }: { guide: GuideOverlay }) {
   useEffect(() => setAnnouncementsReady(true), [])
   // A caption on its own, with no input since, has no pointer.
   const target = guide.cursor ?? (guide.rect && center(guide.rect))
+  const pressed = usePressedKey(guide.key)
   const [heldNote, setHeldNote] = useState<Point | null>(null)
   useEffect(() => {
     if (!heldNote) return
@@ -300,8 +303,12 @@ function Guide({ guide }: { guide: GuideOverlay }) {
         <div
           aria-hidden="true"
           data-guide-pointer=""
-          className="pointer-events-none absolute top-0 left-0 transition-transform duration-(--motion-guide) ease-in-out motion-reduce:transition-none"
-          style={{ transform: `translate(${target.x}px, ${target.y}px)` }}
+          // Fades in where it first shows, then glides as long as main waits for it (`glide`).
+          className="pointer-events-none absolute top-0 left-0 transition-transform ease-in-out motion-safe:animate-fade-in motion-reduce:transition-none"
+          style={{
+            transform: `translate(${target.x}px, ${target.y}px)`,
+            transitionDuration: `${guide.glide}ms`,
+          }}
         >
           {guide.clicks > 0 && (
             <span
@@ -324,8 +331,18 @@ function Guide({ guide }: { guide: GuideOverlay }) {
               strokeLinejoin="round"
             />
           </svg>
-          <span className="absolute top-4 left-3 rounded-full bg-accent px-1.5 py-0.5 text-caption font-medium whitespace-nowrap text-knob drop-shadow-pointer select-none">
+          <span className="absolute top-4 left-3 inline-flex items-center gap-1 rounded-full bg-accent px-1.5 py-0.5 text-caption font-medium whitespace-nowrap text-knob drop-shadow-pointer select-none">
             Gui
+            {pressed && (
+              <Kbd
+                key={pressed.presses}
+                data-guide-key=""
+                tone="inherit"
+                className="h-3.5 motion-safe:animate-fade-in"
+              >
+                {pressed.label}
+              </Kbd>
+            )}
           </span>
         </div>
       )}
@@ -341,6 +358,23 @@ function Guide({ guide }: { guide: GuideOverlay }) {
       )}
     </div>
   )
+}
+
+/** The key the agent pressed last, for KEY_SHOWN_MS after each press; null otherwise. */
+function usePressedKey(key: GuideOverlay['key']) {
+  const presses = key?.presses ?? 0
+  const label = key?.label ?? ''
+  const [shown, setShown] = useState<{ label: string; presses: number } | null>(null)
+  // A key pressed before this pointer showed isn't news.
+  const seen = useRef(presses)
+  useEffect(() => {
+    if (presses === seen.current) return
+    seen.current = presses
+    setShown({ label, presses })
+    const timer = setTimeout(() => setShown(null), KEY_SHOWN_MS)
+    return () => clearTimeout(timer)
+  }, [presses, label])
+  return shown
 }
 
 /**

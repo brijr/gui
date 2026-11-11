@@ -33,7 +33,7 @@ const { describeClip } = await import('../src/main/mcp-preview-tools')
 const { logTail, LOG_LINE_MAX, LOG_TAIL_MAX } = await import('../src/main/startup')
 type Deps = ConstructorParameters<typeof PreviewTools>[0]
 
-const TARGET = { x: 10, y: 20, disabled: false, editable: false, submits: false }
+const TARGET = { x: 10, y: 20, disabled: false, editable: true, submits: false }
 
 /** A page at `url`, scrolled `scroll` px down, answering the protocol commands the tools send. */
 function page(options: {
@@ -42,6 +42,10 @@ function page(options: {
   live?: () => boolean
   scroll?: number
   onGlide?: () => void
+  /** The user watches the page: typing and the wheel take their time */
+  paced?: boolean
+  /** Each protocol command, as it's sent */
+  onCommand?: (method: string) => void
   loading?: boolean
   /** What the page says to preview_wait's check, call by call */
   present?: () => unknown
@@ -74,6 +78,7 @@ function page(options: {
       fn({ withoutHighlight: <R>(run: () => Promise<R>) => run() }),
     command: async (method: string, params?: Record<string, unknown>) => {
       sent.push({ method, params })
+      options.onCommand?.(method)
       return answers[method]?.(params) ?? {}
     },
     querySelector: async () => 7,
@@ -112,7 +117,11 @@ function page(options: {
       crop: null,
     }),
     guide: () => true,
-    guideInput: async () => options.onGlide?.(),
+    pointer: {
+      paced: () => options.paced ?? false,
+      move: async () => options.onGlide?.(),
+      key: () => undefined,
+    },
     website: { shown: () => null, takeClosedNote: () => null, close: () => undefined },
   } as unknown as Deps
   return {
@@ -121,6 +130,14 @@ function page(options: {
       sent.some(
         (c) => c.method === 'Input.dispatchMouseEvent' && c.params?.type === 'mousePressed',
       ),
+    /** What was typed, piece by piece */
+    typed: () =>
+      sent.filter((c) => c.method === 'Input.insertText').map((c) => String(c.params?.text)),
+    /** The wheel's deltas, event by event */
+    wheeled: () =>
+      sent
+        .filter((c) => c.method === 'Input.dispatchMouseEvent' && c.params?.type === 'mouseWheel')
+        .map((c) => Number(c.params?.deltaY)),
     stillLoading: (value: boolean) => {
       loading = value
     },
@@ -144,9 +161,56 @@ describe('a project switch while a tool runs', () => {
     expect(clicked()).toBe(true)
   })
 
+  test('typing the user watches stops at the piece it was on when the project closed', async () => {
+    let live = true
+    const { tools, typed } = page({
+      paced: true,
+      live: () => live,
+      onCommand: (method) => {
+        if (method === 'Input.insertText') live = false
+      },
+    })
+    await expect(
+      tools.shown().input((interactions) => interactions.type('#name', 'Ada Lovelace')),
+    ).rejects.toThrow(/project was closed/)
+    expect(typed()).toEqual(['A'])
+  })
+
   test('a call that starts after the project closed does nothing', () => {
     const { tools } = page({ live: () => false })
     expect(() => tools.shown()).toThrow(/project was closed/)
+  })
+})
+
+describe('input the user watches goes at a pace they can follow', () => {
+  test('typing goes in a few characters at a time, adding up to the text', async () => {
+    const { tools, typed } = page({ paced: true })
+    await tools.shown().input((interactions) => interactions.type('#name', 'Ada 👩🏽‍💻'))
+    expect(typed().length).toBeGreaterThan(1)
+    expect(typed().join('')).toBe('Ada 👩🏽‍💻')
+    // The emoji goes in whole.
+    expect(typed()).toContain('👩🏽‍💻')
+  })
+
+  test('unwatched, it types all at once', async () => {
+    const { tools, typed } = page({})
+    await tools.shown().input((interactions) => interactions.type('#name', 'Ada Lovelace'))
+    expect(typed()).toEqual(['Ada Lovelace'])
+  })
+
+  test('the wheel scrolls in steps that slow down and add up to the whole', async () => {
+    const { tools, wheeled } = page({ paced: true })
+    await tools.shown().input((interactions) => interactions.scroll(600))
+    const deltas = wheeled()
+    expect(deltas.length).toBeGreaterThan(5)
+    expect(deltas.reduce((sum, delta) => sum + delta, 0)).toBeCloseTo(600, 6)
+    expect(deltas[0]).toBeGreaterThan(deltas[deltas.length - 1])
+  })
+
+  test('preview_motion scrolls at once, so its film starts as the scroll lands', async () => {
+    const { tools, wheeled } = page({ paced: true })
+    await tools.shown().input((interactions) => interactions.scroll(600), { atOnce: true })
+    expect(wheeled()).toEqual([600])
   })
 })
 

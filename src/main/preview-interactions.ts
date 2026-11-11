@@ -1,3 +1,5 @@
+import type { Point } from '../shared/types'
+import { curveSamples, EASE_IN_OUT, scrollMs, typingPlan, wheelPlan } from './input-pace'
 import type { Inspector } from './inspector'
 
 export const PREVIEW_KEYS = [
@@ -17,6 +19,17 @@ export const PREVIEW_KEYS = [
   'PageDown',
 ] as const
 export type PreviewKey = (typeof PREVIEW_KEYS)[number]
+
+/** How the agent's pointer shows a key it pressed */
+const KEY_LABELS: Partial<Record<PreviewKey, string>> = {
+  Escape: 'Esc',
+  ArrowUp: '↑',
+  ArrowDown: '↓',
+  ArrowLeft: '←',
+  ArrowRight: '→',
+  PageUp: 'Page Up',
+  PageDown: 'Page Down',
+}
 
 const KEY_CODES: Record<PreviewKey, number> = {
   Enter: 13,
@@ -203,10 +216,113 @@ interface Target {
 }
 
 /**
- * Before each input, where it lands (the page's CSS pixels) and whether it clicks: during a
- * walkthrough the user's visible pointer goes there first, at a pace they can follow.
+ * The agent's pointer the user watches over the page (tab.ts, drawn by picker.ts). Points are
+ * the page's CSS pixels, in its viewport.
  */
-export type BeforeInput = (at: { x: number; y: number }, click: boolean) => Promise<void>
+export interface AgentPointer {
+  /**
+   * The user is watching the page, without Reduce motion: the page scrolls to a target, types
+   * and takes the wheel at a pace they can follow (input-pace.ts). Otherwise all at once.
+   */
+  paced(): boolean
+  /**
+   * Before an input at `at`, the pointer goes there (over `ms`, or a glide for the way) and
+   * rests a moment, unless it's `passing` through; with `click` it shows the click as the real
+   * one lands. Resolves when the input may go.
+   */
+  move(at: Point, options?: { click?: boolean; ms?: number; passing?: boolean }): Promise<void>
+  /** The pointer shows a key the agent pressed */
+  key(label: string): void
+}
+
+/** The pointer, and a pause between paced steps (the page may go meanwhile: it throws then). */
+export interface InputPace extends AgentPointer {
+  pause(ms: number): Promise<void>
+}
+
+const AT_ONCE: InputPace = {
+  paced: () => false,
+  move: async () => {},
+  key: () => {},
+  pause: async () => {},
+}
+
+/**
+ * Page JavaScript (the target is `this`): when it isn't in full view, how the page would
+ * scroll to show it, as DOM.scrollIntoViewIfNeeded does (centred, or to the nearest edge when
+ * partly in view), without the page moving yet. Measured by scrolling there at once and back in
+ * the same task, so nothing paints between. Null when it's in view, or a scroller snaps (snap
+ * points would fight a gradual scroll: that page goes there at once).
+ */
+const REVEAL_PLAN = `function () {
+  if (!this.isConnected) return null;
+  const rect = this.getBoundingClientRect();
+  let left = Math.max(0, rect.left), top = Math.max(0, rect.top);
+  let right = Math.min(innerWidth, rect.right), bottom = Math.min(innerHeight, rect.bottom);
+  const ancestors = [];
+  for (let el = this.parentElement; el; el = el.parentElement) {
+    ancestors.push({ el, x: el.scrollLeft, y: el.scrollTop });
+    if (el === document.documentElement || el === document.body) continue;
+    const style = getComputedStyle(el);
+    if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+    const box = el.getBoundingClientRect();
+    if (style.overflowX !== 'visible') { left = Math.max(left, box.left); right = Math.min(right, box.right); }
+    if (style.overflowY !== 'visible') { top = Math.max(top, box.top); bottom = Math.min(bottom, box.bottom); }
+  }
+  const whole = left <= rect.left + 1 && top <= rect.top + 1 && right >= rect.right - 1 && bottom >= rect.bottom - 1;
+  if (whole) return null;
+  const partly = right > left && bottom > top;
+  const align = partly ? 'nearest' : 'center';
+  this.scrollIntoView({ block: align, inline: align, behavior: 'instant' });
+  const moves = ancestors.filter((a) => a.el.scrollLeft !== a.x || a.el.scrollTop !== a.y).map((a) => ({
+    el: a.el, fromX: a.x, fromY: a.y, toX: a.el.scrollLeft, toY: a.el.scrollTop,
+  }));
+  if (!moves.length) return null;
+  if (moves.some((m) => getComputedStyle(m.el).scrollSnapType !== 'none')) return null;
+  const after = this.getBoundingClientRect();
+  const x = (Math.max(0, after.left) + Math.min(innerWidth, after.right)) / 2;
+  const y = (Math.max(0, after.top) + Math.min(innerHeight, after.bottom)) / 2;
+  for (const m of moves) m.el.scrollTo({ left: m.fromX, top: m.fromY, behavior: 'instant' });
+  const distance = Math.max(...moves.map((m) => Math.hypot(m.toX - m.fromX, m.toY - m.fromY)));
+  return { moves, at: { x, y }, distance };
+}`
+
+/**
+ * Page JavaScript (the plan is `this`): scrolls each scroller from where it is to where the
+ * plan has it over `ms`, along `samples` (the curve, evenly in time). On the display's
+ * frames, or a timer's while the page has none, so it always ends.
+ */
+const REVEAL_PLAY = `function (ms, samples) {
+  const last = samples.length - 1;
+  const ease = (t) => {
+    const i = Math.min(last, t * last), k = Math.floor(i);
+    return k >= last ? 1 : samples[k] + (samples[k + 1] - samples[k]) * (i - k);
+  };
+  const moves = this.moves;
+  return new Promise((resolve) => {
+    const start = performance.now();
+    let frame = 0, timer = 0;
+    const step = () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+      const t = Math.min(1, (performance.now() - start) / ms);
+      const p = ease(t);
+      for (const m of moves)
+        if (m.el.isConnected)
+          m.el.scrollTo({ left: m.fromX + (m.toX - m.fromX) * p, top: m.fromY + (m.toY - m.fromY) * p, behavior: 'instant' });
+      if (t >= 1) return resolve(true);
+      frame = requestAnimationFrame(step);
+      timer = setTimeout(step, 50);
+    };
+    step();
+  });
+}`
+
+const REVEAL_CURVE = curveSamples(EASE_IN_OUT)
+
+const FOCUSED = `function () {
+  return this === document.activeElement || (this.isContentEditable && this.contains(document.activeElement));
+}`
 
 /** Page JavaScript for `present`: true when what's asked for is on the page and visible. */
 const PRESENT = `(selector, text) => {
@@ -233,7 +349,7 @@ export class PreviewInteractions {
   constructor(
     private readonly inspector: Inspector,
     private readonly assertLoaded: () => void,
-    private readonly beforeInput: BeforeInput = async () => {},
+    private readonly pace: InputPace = AT_ONCE,
     private readonly website = false,
   ) {}
 
@@ -241,7 +357,8 @@ export class PreviewInteractions {
   async locate(selector: string) {
     return this.exclusive(async () => {
       const node = await this.uniqueNode(selector)
-      await this.cmd('DOM.scrollIntoViewIfNeeded', { backendNodeId: node }).catch(() => undefined)
+      // The walkthrough's step takes the pointer there itself.
+      await this.reveal(node, false)
       return node
     })
   }
@@ -301,7 +418,7 @@ export class PreviewInteractions {
       const target = await this.target(selector)
       if (target.disabled) throw new Error('The target is disabled')
       if (this.website && target.submits) throw new Error(NOT_SENT)
-      await this.beforeInput(target, true)
+      await this.pace.move(target, { click: true })
       await this.clickAt(target)
     })
   }
@@ -309,7 +426,7 @@ export class PreviewInteractions {
   async hover(selector: string) {
     return this.exclusive(async () => {
       const { x, y } = await this.target(selector)
-      await this.beforeInput({ x, y }, false)
+      await this.pace.move({ x, y })
       await this.cmd('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y })
     })
   }
@@ -329,18 +446,13 @@ export class PreviewInteractions {
         throw new Error(
           "Gui doesn't type into password, one-time code or payment fields on websites. Stop here and tell the user what this step asks for.",
         )
-      await this.beforeInput(target, true)
+      await this.pace.move(target, { click: true })
       await this.clickAt(target)
       // Gui keeps the chat's keyboard while the agent works. Focus the DOM field without
       // bringing the app window forward, then verify a handler didn't replace it.
       const node = await this.uniqueNode(selector)
       await this.cmd('DOM.focus', { backendNodeId: node })
-      const focused = await this.callOn<boolean>(
-        node,
-        `function () {
-        return this === document.activeElement || (this.isContentEditable && this.contains(document.activeElement));
-      }`,
-      )
+      const focused = await this.callOn<boolean>(node, FOCUSED)
       if (!focused) throw new Error('The target did not receive focus; take a fresh snapshot')
       if (replace) {
         const modifiers = process.platform === 'darwin' ? 4 : 2
@@ -359,7 +471,7 @@ export class PreviewInteractions {
           modifiers,
         })
       }
-      if (text) await this.cmd('Input.insertText', { text })
+      if (text) await this.insert(node, text)
       else if (replace) await this.key('Backspace', false)
     })
   }
@@ -369,7 +481,7 @@ export class PreviewInteractions {
       if (selector) {
         const target = await this.target(selector)
         if (target.disabled) throw new Error('The target is disabled')
-        await this.beforeInput(target, false)
+        await this.pace.move(target)
         await this.cmd('DOM.focus', { backendNodeId: await this.uniqueNode(selector) })
       }
       if (this.website && (key === 'Enter' || key === 'Space')) {
@@ -380,6 +492,7 @@ export class PreviewInteractions {
         })
         if (result.value !== false) throw new Error(NOT_SENT)
       }
+      this.pace.key(`${shift ? '⇧ ' : ''}${KEY_LABELS[key] ?? key}`)
       await this.key(key, shift)
     })
   }
@@ -389,20 +502,28 @@ export class PreviewInteractions {
       let point: { x: number; y: number }
       if (selector) {
         point = await this.target(selector)
-        await this.beforeInput(point, false)
+        await this.pace.move(point)
       } else {
         const { cssVisualViewport: viewport } = await this.cmd<{
           cssVisualViewport: { clientWidth: number; clientHeight: number }
         }>('Page.getLayoutMetrics')
         point = { x: viewport.clientWidth / 2, y: viewport.clientHeight / 2 }
       }
-      await this.cmd('Input.dispatchMouseEvent', {
-        type: 'mouseWheel',
-        x: point.x,
-        y: point.y,
-        deltaX,
-        deltaY,
-      })
+      const wheel = (delta: Point) =>
+        this.cmd('Input.dispatchMouseEvent', {
+          type: 'mouseWheel',
+          x: point.x,
+          y: point.y,
+          deltaX: delta.x,
+          deltaY: delta.y,
+        })
+      if (!this.pace.paced()) {
+        await wheel({ x: deltaX, y: deltaY })
+        return
+      }
+      // A frame apart, slowing to a stop, at the same spot: the page takes them as one scroll.
+      const { deltas, stepMs } = wheelPlan(deltaX, deltaY)
+      await this.paced(deltas.length, stepMs, (i) => wheel(deltas[i]))
     })
   }
 
@@ -437,12 +558,75 @@ export class PreviewInteractions {
 
   private async target(selector: string) {
     const node = await this.uniqueNode(selector)
-    await this.cmd('DOM.scrollIntoViewIfNeeded', { backendNodeId: node }).catch(() => undefined)
+    await this.reveal(node, true)
     const target = await this.callOn<Target>(node, TARGET)
     if (target.error) throw new Error(target.error)
     if (!Number.isFinite(target.x) || !Number.isFinite(target.y))
       throw new Error('The target has no input position')
     return target
+  }
+
+  /**
+   * `node` scrolled into view if it isn't. Watched (`pace`), the page eases there while the
+   * pointer (`point`) heads for where the target will be, so both arrive together; otherwise
+   * it's there at once. DOM.scrollIntoViewIfNeeded either way, as the last word.
+   */
+  private async reveal(node: number, point: boolean) {
+    if (this.pace.paced()) {
+      const plan = await this.objectOn(node, REVEAL_PLAN)
+      if (plan) {
+        try {
+          const { at, distance } = await this.call<{ at: Point; distance: number }>(
+            plan,
+            'function () { return { at: this.at, distance: this.distance } }',
+          )
+          const ms = scrollMs(distance)
+          // Both run to the end before anything else reaches the page.
+          const settled = await Promise.allSettled([
+            this.call(plan, REVEAL_PLAY, [ms, REVEAL_CURVE], true),
+            point ? this.pace.move(at, { ms, passing: true }) : Promise.resolve(),
+          ])
+          for (const each of settled) if (each.status === 'rejected') throw each.reason
+        } finally {
+          await this.cmd('Runtime.releaseObject', { objectId: plan }).catch(() => undefined)
+        }
+        this.assertLoaded()
+      }
+    }
+    await this.cmd('DOM.scrollIntoViewIfNeeded', { backendNodeId: node }).catch(() => undefined)
+  }
+
+  /**
+   * Types `text` into the focused `node`. Watched (`pace`), a few characters at a time at a
+   * quick typist's pace, as long as the field keeps the focus; otherwise all at once.
+   */
+  private async insert(node: number, text: string) {
+    if (!this.pace.paced()) {
+      await this.cmd('Input.insertText', { text })
+      return
+    }
+    const { chunks, stepMs } = typingPlan(text)
+    let typed = 0
+    await this.withObject(node, (field) =>
+      this.paced(chunks.length, stepMs, async (i) => {
+        // A handler may have moved the focus since the last piece: the rest would land there.
+        if (i > 0 && !(await this.call<boolean>(field, FOCUSED)))
+          throw new Error(
+            `The field lost focus after ${typed} of ${text.length} characters were typed; take a fresh snapshot`,
+          )
+        await this.cmd('Input.insertText', { text: chunks[i] })
+        typed += chunks[i].length
+      }),
+    )
+  }
+
+  /** Runs `step` `count` times, `stepMs` apart from the first, however long each takes. */
+  private async paced(count: number, stepMs: number, step: (i: number) => Promise<unknown>) {
+    const start = performance.now()
+    for (let i = 0; i < count; i++) {
+      if (i > 0) await this.pace.pause(Math.max(0, start + i * stepMs - performance.now()))
+      await step(i)
+    }
   }
 
   private async clickAt({ x, y }: { x: number; y: number }) {
@@ -495,25 +679,56 @@ export class PreviewInteractions {
     return executionContextId
   }
 
-  private async callOn<T>(backendNodeId: number, functionDeclaration: string): Promise<T> {
+  /**
+   * Runs `functionDeclaration` on the node in Gui's world, keeping the object it returns there
+   * (its id, for `call`; release it); null when it returns none.
+   */
+  private objectOn(backendNodeId: number, functionDeclaration: string) {
+    return this.withObject(backendNodeId, async (objectId) => {
+      const { result, exceptionDetails } = await this.cmd<{
+        result: { objectId?: string }
+        exceptionDetails?: unknown
+      }>('Runtime.callFunctionOn', { objectId, functionDeclaration })
+      return exceptionDetails ? null : (result.objectId ?? null)
+    })
+  }
+
+  /** `run` with the node as an object in Gui's world, released after. */
+  private async withObject<T>(backendNodeId: number, run: (objectId: string) => Promise<T>) {
     const { object } = await this.cmd<{ object: { objectId: string } }>('DOM.resolveNode', {
       backendNodeId,
       executionContextId: await this.world(),
     })
     try {
-      const { result, exceptionDetails } = await this.cmd<{
-        result: { value: T }
-        exceptionDetails?: unknown
-      }>('Runtime.callFunctionOn', {
-        objectId: object.objectId,
-        functionDeclaration,
-        returnByValue: true,
-      })
-      if (exceptionDetails) throw new Error('Could not read the target; take a fresh snapshot')
-      return result.value
+      return await run(object.objectId)
     } finally {
       await this.cmd('Runtime.releaseObject', { objectId: object.objectId }).catch(() => undefined)
     }
+  }
+
+  /** Runs `functionDeclaration` on `objectId` with `args`, for its value. */
+  private async call<T>(
+    objectId: string,
+    functionDeclaration: string,
+    args: unknown[] = [],
+    awaitPromise = false,
+  ): Promise<T> {
+    const { result, exceptionDetails } = await this.cmd<{
+      result: { value: T }
+      exceptionDetails?: unknown
+    }>('Runtime.callFunctionOn', {
+      objectId,
+      functionDeclaration,
+      arguments: args.map((value) => ({ value })),
+      returnByValue: true,
+      awaitPromise,
+    })
+    if (exceptionDetails) throw new Error('Could not read the target; take a fresh snapshot')
+    return result.value
+  }
+
+  private callOn<T>(backendNodeId: number, functionDeclaration: string): Promise<T> {
+    return this.withObject(backendNodeId, (objectId) => this.call<T>(objectId, functionDeclaration))
   }
 
   private cmd<T = unknown>(method: string, params?: Record<string, unknown>) {

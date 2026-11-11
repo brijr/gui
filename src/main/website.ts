@@ -3,6 +3,7 @@ import { bounded } from '../shared/bounded'
 import type { ElementContext } from '../shared/types'
 import { Inspector } from './inspector'
 import { Picker } from './picker'
+import type { AgentPointer } from './preview-interactions'
 import { PageTools } from './preview-tools'
 import { fenceUntrusted } from './prompt'
 import { ViewportEmulation } from './viewport'
@@ -79,8 +80,8 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
 export interface WebsiteHooks {
   /** A walkthrough step on `picker` (the website's overlay); whether the user can see it */
   guide: (picker: Picker, node: number | null, caption: string | null) => boolean
-  /** The agent's pointer goes to an input's target on `picker` first */
-  guideInput: (picker: Picker, at: { x: number; y: number }, click: boolean) => Promise<void>
+  /** The agent's pointer over `picker` (the website's overlay), which its input follows */
+  pointer: (picker: Picker) => AgentPointer
   /** The page's address changed */
   navigated: (url: string) => void
   /** Its page crashed */
@@ -153,7 +154,7 @@ export class Website {
       viewScale: () => this.emulation.scale,
       restoreViewport: () => this.emulation.restore(),
       guide: (node, caption) => hooks.guide(this.picker, node, caption),
-      guideInput: (at, click) => hooks.guideInput(this.picker, at, click),
+      pointer: hooks.pointer(this.picker),
       notice: () => {
         const notices = [this.notice, this.dialogNotice()].filter((each) => each !== null)
         this.notice = null

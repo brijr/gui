@@ -823,8 +823,12 @@ export interface GuideOverlay {
   caption: string | null
   /** Where the agent's pointer is; null before it first moves */
   cursor: Point | null
+  /** How long the pointer's move there takes, in ms (main waits as long before the input) */
+  glide: number
   /** Bumped by each click the agent makes, so the pointer shows it */
   clicks: number
+  /** The last key the agent pressed, and how many it has, so the pointer shows each */
+  key: { label: string; presses: number } | null
   /** Bumped by each step, so its caption comes in afresh */
   step: number
   /** The agent's turn is using this website: a click says so rather than reach the page */
