@@ -235,10 +235,11 @@ export function PickOverlay() {
         <>
           <Outline rect={state.hover.rect} kind="hover" />
           <Label rect={state.hover.rect}>
-            {state.hover.name && (
-              <span className="min-w-0 truncate font-medium">{state.hover.name}</span>
+            {state.hover.name && <span className="shrink-0 font-medium">{state.hover.name}</span>}
+            {state.hover.component && (
+              <span className="min-w-0 truncate opacity-75">{state.hover.component}</span>
             )}
-            <span className="shrink-0 tabular-nums">{state.hover.size}</span>
+            <span className="shrink-0 tabular-nums opacity-75">{state.hover.size}</span>
           </Label>
         </>
       )}

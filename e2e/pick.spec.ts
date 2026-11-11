@@ -170,13 +170,14 @@ test('the wheel scrolls the page while picking, and outlines follow it', async (
   })
   const overlay = await session.pickPage()
 
-  // Hovering outlines the element under the pointer and names it: its component, its size.
+  // Hovering outlines the element under the pointer and names it: what it is first, then its
+  // component and its size.
   const button = await session.viewBox('button.counter')
   const inButton = { x: button.x + button.width / 2, y: button.y + button.height / 2 }
   await session.startPicking()
   await session.overlayPointer(inButton)
   await expect(overlay.locator('[data-outline="hover"]')).toHaveCount(1)
-  await expect(overlay.locator('[data-label]')).toContainText('App')
+  await expect(overlay.locator('[data-label]')).toHaveText(/^buttonApp\d/)
   await expect(overlay.locator('[data-label]')).toContainText(
     `${Math.round(button.width)} × ${Math.round(button.height)}`,
   )

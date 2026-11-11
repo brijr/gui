@@ -363,56 +363,33 @@ function DirectEdit({
   )
 }
 
-/** What a designer calls it: up to two components, innermost last ("Hero › Button"), or the tag. */
-function componentName(componentStack: string[], tag: string) {
-  const [inner, outer] = componentStack
-  if (inner) return outer ? `${outer} › ${inner}` : inner
-  if (/^h[1-6]$/.test(tag)) return 'Heading'
-  const names: Record<string, string> = {
-    a: 'Link',
-    button: 'Button',
-    img: 'Image',
-    p: 'Paragraph',
-    span: 'Text',
-    input: 'Input',
-    textarea: 'Text field',
-    select: 'Dropdown',
-    nav: 'Navigation',
-    section: 'Section',
-    ul: 'List',
-    ol: 'List',
-    li: 'List item',
-  }
-  return names[tag] ?? 'Element'
-}
-
 function sourceLabel(source: SourceLocation | null) {
   if (!source) return null
   return `${source.file.split('/').at(-1)}:${source.line}${source.approximate ? ' (approx.)' : ''}`
 }
 
 /**
- * How a pick is named in the chat. An element: its component (`name`), its text (`detail`),
- * and its source location (`where`). An area: its size, and the component and source of what
- * it's in. `title` is the full path, for a tooltip.
+ * How a pick is named in the chat. An element: what it is (`name`: its tag, h1 or button),
+ * its text (`detail`), and quieter, its component and source location (`where`). An area:
+ * its size, and what it's in. `title` is the full path, for a tooltip.
  */
 export function pickLabel(picked: Picked) {
   if (isRegion(picked)) {
     const { rect, container } = picked
     const size = `${Math.round(rect.width)} × ${Math.round(rect.height)}`
-    const inside = container ? componentName(container.componentStack, container.tag) : null
     const source = sourceLabel(container?.source ?? null)
     return {
       name: 'Area',
       detail: size,
-      where: inside ? `in ${inside}${source ? ` · ${source}` : ''}` : null,
+      where: container ? `in ${container.tag}${source ? ` · ${source}` : ''}` : null,
       title: container?.source?.file ?? container?.selector,
     }
   }
+  const where = [picked.componentStack[0], sourceLabel(picked.source)].filter(Boolean).join(' · ')
   return {
-    name: componentName(picked.componentStack, picked.tag),
-    detail: picked.text ? picked.text.slice(0, 60) : null,
-    where: sourceLabel(picked.source),
+    name: picked.tag,
+    detail: picked.text ? `“${picked.text.slice(0, 60)}”` : null,
+    where: where || null,
     title: picked.source?.file ?? picked.selector,
   }
 }
@@ -425,9 +402,7 @@ function PickedChip({ picked }: { picked: Picked }) {
     <Badge icon={Icon} title={title} className="max-w-full">
       <span className="min-w-0 truncate font-medium text-fg">{name}</span>
       {region && detail && <span className="shrink-0 font-normal tabular-nums">{detail}</span>}
-      {!region && picked.source && where && (
-        <span className="min-w-0 truncate font-mono font-normal">{where}</span>
-      )}
+      {!region && where && <span className="min-w-0 truncate font-mono font-normal">{where}</span>}
     </Badge>
   )
 }

@@ -581,20 +581,25 @@ export class Inspector extends EventEmitter<InspectorEvents> {
   }
 
   /**
-   * What the picking label calls the element: its nearest component, else its tag (with its
-   * id). Page data, checked like a component name.
+   * What the picking label calls the element: what it is (its tag, or for a plain div or
+   * span its role) and its nearest component, if any. Page data, checked like a component name.
    */
-  async label(backendNodeId: number): Promise<string> {
+  async label(backendNodeId: number): Promise<HoverLabel> {
     const { node } = await this.cmd<{ node: { localName: string; attributes?: string[] } }>(
       'DOM.describeNode',
       { backendNodeId },
     )
     const attrs = node.attributes ?? []
-    const idAt = attrs.findIndex((name, i) => i % 2 === 0 && name === 'id')
-    const id = idAt >= 0 ? attrs[idAt + 1] : ''
-    const tag = id && COMPONENT_NAME.test(id) ? `${node.localName}#${id}` : node.localName
+    const roleAt = attrs.findIndex((name, i) => i % 2 === 0 && name === 'role')
+    const role = roleAt >= 0 ? attrs[roleAt + 1] : ''
+    // A <div role="button"> is a button to whoever looks at it; a real <button> says so itself.
+    const generic = node.localName === 'div' || node.localName === 'span'
+    const tag = generic && role && ROLE_NAME.test(role) ? role : node.localName
     const component = await this.callOn(backendNodeId, HOVER_NAME).catch(() => null)
-    return typeof component === 'string' && COMPONENT_NAME.test(component) ? component : tag
+    return {
+      tag,
+      component: typeof component === 'string' && COMPONENT_NAME.test(component) ? component : null,
+    }
   }
 
   /**
@@ -915,6 +920,16 @@ function collapseBox([top, right, bottom, left]: string[]) {
 }
 
 const COMPONENT_NAME = /^[A-Za-z_$][\w$.]{0,79}$/
+/** An ARIA role, as a label shows it */
+const ROLE_NAME = /^[a-z]{1,24}$/
+
+/** What Design mode's label calls the element under the pointer (`Inspector.label`) */
+export interface HoverLabel {
+  /** What it is: `h1`, `button`, `section` */
+  tag: string
+  /** The component that renders it, when the page says */
+  component: string | null
+}
 
 function oneLine(value: unknown, max: number) {
   return typeof value === 'string' ? value.replace(/[\s\p{Cc}]+/gu, ' ').slice(0, max) : ''

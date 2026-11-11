@@ -633,12 +633,8 @@ interface ThumbnailProps {
   title?: string
   /** sm: 36px (the picked element). md: 56px (attached images). */
   size?: 'sm' | 'md'
-  /**
-   * cover crops to fill; contain shows all of it. element (picked crops): all of it, unless
-   * it's a long strip (a heading, a nav bar) that would shrink to a line, when it fills from
-   * its start so its first words show.
-   */
-  fit?: 'cover' | 'contain' | 'element'
+  /** cover crops to fill; contain shows all of it (a picked element, whatever its shape). */
+  fit?: 'cover' | 'contain'
   /** Shows a remove button on the corner */
   onRemove?: () => void
   /** The remove button's accessible name, e.g. "Remove hero.png" */
@@ -657,8 +653,6 @@ export function Thumbnail({
   removeLabel,
   children,
 }: ThumbnailProps) {
-  const [strip, setStrip] = useState(false)
-  const contain = fit === 'contain' || (fit === 'element' && !strip)
   return (
     <div className="relative shrink-0">
       <div
@@ -672,15 +666,7 @@ export function Thumbnail({
           <img
             src={src}
             alt={alt}
-            onLoad={(event) => {
-              const { naturalWidth: width, naturalHeight: height } = event.currentTarget
-              setStrip(width > height * 3 || height > width * 3)
-            }}
-            className={cn(
-              'size-full',
-              contain ? 'object-contain' : 'object-cover',
-              fit === 'element' && 'object-left-top',
-            )}
+            className={cn('size-full', fit === 'contain' ? 'object-contain' : 'object-cover')}
           />
         ) : (
           children

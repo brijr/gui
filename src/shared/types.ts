@@ -773,7 +773,8 @@ export const primaryPick = (selection: Picked[]) => selection.find((picked) => p
  * (the preview view's): the element under the pointer and what's been picked so far.
  */
 export interface PickOverlayState {
-  hover: { rect: Rect; name: string; size: string } | null
+  /** The element under the pointer: what it is (`name`, h1), its component, and its size */
+  hover: { rect: Rect; name: string; component: string | null; size: string } | null
   picked: { id: string; rect: Rect; kind: 'element' | 'region' }[]
   /** A pick is being read */
   busy: boolean

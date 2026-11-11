@@ -573,7 +573,7 @@ function Selection({ selection }: { selection: Picked[] }) {
           >
             <div className="relative shrink-0">
               {picked.screenshot ? (
-                <Thumbnail src={picked.screenshot} size="sm" fit="element" />
+                <Thumbnail src={picked.screenshot} size="sm" fit="contain" />
               ) : (
                 <Thumbnail size="sm">
                   {isRegion(picked) ? (

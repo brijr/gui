@@ -16,7 +16,7 @@ import { Events } from '../shared/ipc'
 import type { GuideOverlay, PickOverlayState, Point, Rect, VariationsBar } from '../shared/types'
 import { PANEL_MARGIN } from './chat-presentation'
 import { glideMs } from './input-pace'
-import type { Inspector } from './inspector'
+import type { HoverLabel, Inspector } from './inspector'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 
 /** How often what's outlined is measured again while nothing moves (animations, late layout). */
@@ -65,8 +65,8 @@ export class Picker {
   private timer: NodeJS.Timeout | null = null
   private followUntil = 0
   /** The element under the pointer and its label, kept while the pointer stays on it. */
-  private hovered: { node: number; label: string | null } | null = null
-  private readonly labels = new Map<number, string>()
+  private hovered: { node: number; label: HoverLabel | null } | null = null
+  private readonly labels = new Map<number, HoverLabel>()
   /** What the overlay was last sent, to skip sending the same again. */
   private lastSent: string | null = null
   private run = 0
@@ -418,7 +418,8 @@ export class Picker {
     }
     return {
       rect: this.toView(box),
-      name: this.hovered.label ?? '',
+      name: this.hovered.label?.tag ?? '',
+      component: this.hovered.label?.component ?? null,
       size: `${Math.round(box.width)} × ${Math.round(box.height)}`,
     }
   }
