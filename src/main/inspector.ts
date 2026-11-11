@@ -14,6 +14,7 @@ import {
 } from '../shared/coords'
 import { ACCENT, FILL } from '../shared/theme'
 import type { ElementContext, Point, Rect, SourceLocation } from '../shared/types'
+import { awaitCapture } from './page-capture'
 import { normalizeSourcePath, projectRelativePath, resolveStack } from './source-resolver'
 
 const COMMAND_TIMEOUT_MS = 15_000
@@ -269,6 +270,11 @@ interface LineageNode {
 interface InspectorEvents {
   /** The debugger session closed; what it set up, such as emulation, went with it. */
   detach: []
+  /**
+   * The page may not have the emulation last sent any more (a capture cut short, a new
+   * document): whatever emulates its viewport (viewport.ts) sends it again.
+   */
+  emulationLost: []
 }
 
 /**
@@ -367,7 +373,11 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     super()
     this.dbg = wc.debugger
     this.dbg.on('detach', () => this.emit('detach'))
+    wc.on('did-navigate', this.onNavigated)
   }
+
+  /** A new document: put the viewport back, whatever a capture under the last one left. */
+  private readonly onNavigated = () => this.emit('emulationLost')
 
   /**
    * Locked so it can't land in the middle of an agent screenshot. `isCurrent` is checked
@@ -646,8 +656,18 @@ export class Inspector extends EventEmitter<InspectorEvents> {
     return this.cmd<T>(method, params)
   }
 
+  /** `Page.captureScreenshot`, for callers holding the lock; see page-capture.ts. */
+  async captureScreenshot(params: Record<string, unknown>): Promise<{ data: string }> {
+    await this.ready()
+    const sent = this.dbg.sendCommand('Page.captureScreenshot', params) as Promise<{
+      data: string
+    }>
+    return awaitCapture(this.wc, sent, COMMAND_TIMEOUT_MS, () => this.emit('emulationLost'))
+  }
+
   dispose() {
     this.removeAllListeners()
+    if (!this.wc.isDestroyed()) this.wc.off('did-navigate', this.onNavigated)
     if (this.dbg.isAttached()) this.dbg.detach()
   }
 

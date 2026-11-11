@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { placePreview, zoomed } from '../src/main/viewport'
+import { EventEmitter } from 'node:events'
+import type { Inspector } from '../src/main/inspector'
+import { placePreview, ViewportEmulation, zoomed } from '../src/main/viewport'
 import { FRAME_LABEL_HEIGHT, FRAME_MARGIN } from '../src/shared/layout'
 import { frameLabel, frameViewport, isCustomViewport, viewportSpec } from '../src/shared/types'
 
@@ -71,5 +73,64 @@ describe('a canvas frame at its own size', () => {
     expect(zoomed('1080x1080', window, 0.67, 1)).toBeNull()
     expect(zoomed('1080x1080', window, null, 1)).toBeUndefined()
     expect(zoomed('1080x1080', window, 0.5, 0)).toBeNull()
+  })
+})
+
+/** A stand-in inspector: its lock runs one section at a time; commands are recorded. */
+function standInInspector() {
+  const sent: { method: string; params?: Record<string, unknown> }[] = []
+  let tail: Promise<unknown> = Promise.resolve()
+  const inspector = Object.assign(new EventEmitter(), {
+    exclusive: <T>(fn: () => Promise<T>) => {
+      const run = tail.then(fn)
+      tail = run.catch(() => undefined)
+      return run
+    },
+    command: async (method: string, params?: Record<string, unknown>) => {
+      sent.push({ method, params })
+      return {}
+    },
+  })
+  const idle = () => new Promise((resolve) => setTimeout(resolve, 0))
+  return { inspector: inspector as unknown as Inspector, emitter: inspector, sent, idle }
+}
+
+describe("the preview's emulated viewport", () => {
+  test('sends the frame again after a capture may have left the page at its own scale', async () => {
+    const { inspector, emitter, sent, idle } = standInInspector()
+    const emulation = new ViewportEmulation(inspector)
+    const laptop = placePreview('laptop', area(1200, 800)).emulation
+    emulation.set(laptop)
+    await idle()
+    const overrides = () => sent.filter((c) => c.method === 'Emulation.setDeviceMetricsOverride')
+    expect(overrides()).toHaveLength(1)
+    // Unchanged, nothing is sent.
+    emulation.set(laptop)
+    await idle()
+    expect(overrides()).toHaveLength(1)
+    // A capture cut short by a reload left Chromium drawing the page at its clip's scale: the
+    // laptop frame goes back, though it's what was last sent.
+    emitter.emit('emulationLost')
+    await idle()
+    expect(overrides()).toHaveLength(2)
+    expect(overrides()[1]?.params).toMatchObject({
+      width: 1440,
+      height: 900,
+      scale: laptop?.scale,
+      dontSetVisibleSize: true,
+    })
+    emulation.dispose()
+  })
+
+  test('Desktop at 100% clears what a capture cut short left', async () => {
+    const { inspector, emitter, sent, idle } = standInInspector()
+    const emulation = new ViewportEmulation(inspector)
+    emulation.set(null)
+    await idle()
+    expect(sent).toHaveLength(0)
+    emitter.emit('emulationLost')
+    await idle()
+    expect(sent.map((c) => c.method)).toEqual(['Emulation.clearDeviceMetricsOverride'])
+    emulation.dispose()
   })
 })

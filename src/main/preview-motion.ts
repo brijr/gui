@@ -164,7 +164,7 @@ async function capture(
       const area = crop ?? (await visibleArea(inspector))
       const scale = Math.min(1, layout.cellWidth / (area.width * dpr))
       const sent = now()
-      const { data } = await inspector.command<{ data: string }>('Page.captureScreenshot', {
+      const { data } = await inspector.captureScreenshot({
         format: 'jpeg',
         quality: 85,
         clip: { x: area.x, y: area.y, width: area.width, height: area.height, scale },

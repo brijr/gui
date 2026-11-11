@@ -8,6 +8,7 @@ import {
 } from '../shared/coords'
 import type { ElementContext, Rect, RulerGuide, StartCommandInput } from '../shared/types'
 import { base64Bytes, type DecodedImage, encodeWithin, MAX_AGENT_IMAGE_BYTES } from './agent-image'
+import { CaptureInterrupted } from './errors'
 import { alignGuides, describeAlignment } from './guide-alignment'
 import type { ForcedState, Inspector, InspectorSession } from './inspector'
 import { isLoopback } from './loopback'
@@ -410,13 +411,22 @@ export class PageTools {
       this.assertLoaded()
     }
     const width = options.width ? Math.round(Math.min(Math.max(options.width, 240), 3840)) : null
-    const shoot = () =>
+    const once = () =>
       this.page.inspector.exclusive((session) =>
         session.withoutHighlight(() => {
           this.assertLoaded()
           return this.capture(session, options, width)
         }),
       )
+    // A reload under the capture (hot reload giving up, the agent's own preview_reload): once
+    // the new page has loaded, again.
+    const shoot = () =>
+      once().catch(async (error: unknown) => {
+        if (!(error instanceof CaptureInterrupted)) throw error
+        if (this.page.wc.isLoading()) await stoppedLoading(this.page.wc, RELOAD_TIMEOUT_MS)
+        await sleep(300)
+        return once()
+      })
     const shot = await (width && this.page.atWidth ? this.page.atWidth(width, shoot) : shoot())
     this.assertLive()
     return options.fullResolution ? shot : await withinBytes(shot)
@@ -648,7 +658,7 @@ export class PageTools {
         ? 1
         : Math.min(1, MAX_IMAGE_WIDTH / (clip.width * dpr), MAX_IMAGE_HEIGHT / (clip.height * dpr))
       const jpeg = !options.fullResolution && options.fullPage === true && !options.selector
-      const { data } = await this.cmd<{ data: string }>('Page.captureScreenshot', {
+      const { data } = await this.page.inspector.captureScreenshot({
         format: jpeg ? 'jpeg' : 'png',
         quality: jpeg ? 80 : undefined,
         clip: { ...clip, scale },

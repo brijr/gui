@@ -135,11 +135,22 @@ export class ViewportEmulation {
   private applied: Emulation | null = null
   private applying = false
   private disposed = false
+  /**
+   * Bumped when the page may have lost what `applied` says it has (inspector.ts's
+   * `emulationLost`); `sent` is the count the last send covered.
+   */
+  private lost = 0
+  private sent = 0
 
   constructor(private readonly inspector: Inspector) {
     // Closing the session (the user opening the preview's DevTools can) drops the emulation.
     inspector.on('detach', () => {
       this.applied = null
+      this.flush()
+    })
+    // A capture cut short leaves the page drawn at its clip and scale: sent again, even unchanged.
+    inspector.on('emulationLost', () => {
+      this.lost++
       this.flush()
     })
   }
@@ -171,12 +182,19 @@ export class ViewportEmulation {
     this.disposed = true
   }
 
+  /** What the page has may not be `applied`. */
+  private get doubtful() {
+    return this.sent !== this.lost
+  }
+
   private flush() {
-    if (this.applying || this.disposed || same(this.wanted, this.applied)) return
+    if (this.applying || this.disposed || (!this.doubtful && same(this.wanted, this.applied)))
+      return
     this.applying = true
     this.inspector
       .exclusive(async () => {
-        while (!this.disposed && !same(this.wanted, this.applied)) await this.send(this.wanted)
+        while (!this.disposed && (this.doubtful || !same(this.wanted, this.applied)))
+          await this.send(this.wanted)
       })
       .catch((error: unknown) => console.error('[gui] viewport emulation failed', error))
       .finally(() => {
@@ -186,6 +204,7 @@ export class ViewportEmulation {
 
   /** Unlocked: callers hold the inspector's lock. */
   private async send(emulation: Emulation | null) {
+    const lost = this.lost
     const touch = emulation?.mobile ?? false
     const touched = this.applied?.mobile ?? false
     if (emulation) {
@@ -209,5 +228,6 @@ export class ViewportEmulation {
       })
     }
     this.applied = emulation
+    this.sent = lost
   }
 }
