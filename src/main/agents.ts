@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { app, type MenuItemConstructorOptions, shell } from 'electron'
 import {
   AGENTS,
+  type AgentChoice,
   type AgentHealth,
   type AgentId,
   type AgentInfo,
@@ -517,8 +518,37 @@ export async function openCustomAgents() {
 }
 
 /**
- * Agent picker items shared by the toolbar menu and the app menu. Agents whose CLI
- * isn't installed are listed (disabled) under their own submenu.
+ * Agents switched off in Settings are hidden, and so are ones that aren't installed. The
+ * current agent stays listed even if it was switched off or uninstalled, so the selection
+ * is visible.
+ */
+const isListed = (agent: AgentHealth, current: AgentId | null) =>
+  (agent.enabled && agent.status !== 'not-installed') || agent.id === current
+
+const isCustom = (agent: AgentHealth) => agent.id.startsWith(CUSTOM_AGENT_PREFIX)
+
+/** Why an agent can't take a message yet, in a word or two beside its name; null when it can. */
+function statusNote(agent: AgentHealth) {
+  return agent.status === 'not-installed'
+    ? 'Not installed'
+    : agent.status === 'signed-out'
+      ? 'Not signed in'
+      : agent.status === 'error'
+        ? 'Unavailable'
+        : null
+}
+
+/** The agents a chat on `current` can switch to (ChatMeta.agents): built in first, then custom. */
+export function agentChoices(agents: AgentHealth[], current: AgentId | null): AgentChoice[] {
+  const listed = agents.filter((agent) => isListed(agent, current))
+  return [...listed.filter((agent) => !isCustom(agent)), ...listed.filter(isCustom)].map(
+    (agent) => ({ id: agent.id, name: agent.name, note: statusNote(agent) }),
+  )
+}
+
+/**
+ * Agent picker items for the app menu. Agents whose CLI isn't installed are listed
+ * (disabled) under their own submenu.
  */
 export function agentMenuItems(
   agents: AgentHealth[],
@@ -531,23 +561,12 @@ export function agentMenuItems(
     // A custom agent can take a built-in one's name; the id says which agent a choice picks.
     id: `agent:${agent.id}`,
     label: agent.name,
-    sublabel:
-      agent.status === 'not-installed'
-        ? 'Not installed'
-        : agent.status === 'signed-out'
-          ? 'Not signed in'
-          : agent.status === 'error'
-            ? 'Unavailable'
-            : undefined,
+    sublabel: statusNote(agent) ?? undefined,
     type: current === null ? 'normal' : 'radio',
     checked: agent.id === current,
     click: () => select(agent.id),
   })
-  // Agents switched off in Settings are hidden. The current agent stays listed even if
-  // it was switched off or uninstalled, so the selection is visible.
-  const listed = (agent: AgentHealth) =>
-    (agent.enabled && agent.status !== 'not-installed') || agent.id === current
-  const isCustom = (agent: AgentHealth) => agent.id.startsWith(CUSTOM_AGENT_PREFIX)
+  const listed = (agent: AgentHealth) => isListed(agent, current)
   const builtIn = agents.filter((agent) => listed(agent) && !isCustom(agent))
   const custom = agents.filter((agent) => listed(agent) && isCustom(agent))
   const missing = agents.filter((agent) => !listed(agent) && agent.status === 'not-installed')

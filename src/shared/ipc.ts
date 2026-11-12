@@ -105,7 +105,7 @@ export const Send = {
   devServerStop: 'devserver:stop',
   devServerRestart: 'devserver:restart',
   showDevServerMenu: 'menu:devserver',
-  showAgentMenu: 'menu:agent',
+  openAgentSettings: 'settings:open-agents',
   showChatMenu: 'menu:chat',
   showProjectMenu: 'menu:project',
   setAgent: 'agent:set',
@@ -395,11 +395,8 @@ export interface GuiApi {
   stopDevServer(): void
   restartDevServer(): void
   showDevServerMenu(): void
-  /**
-   * The agent menu, at the pointer, or with its top-left corner at `at` (CSS pixels in the
-   * calling page) to open under the control that asked for it.
-   */
-  showAgentMenu(at?: { x: number; y: number }): void
+  /** Opens Settings on its agents, from the chat's agent and model picker */
+  openAgentSettings(): void
   /**
    * The chat header's More menu, under the button: Archived Chats, Pop Out. Main does
    * Pop Out itself; Archived Chats comes back as `onChatMenuChoice`.

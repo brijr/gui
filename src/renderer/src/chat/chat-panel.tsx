@@ -31,7 +31,6 @@ import {
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import {
-  ChevronDown,
   Ellipsis,
   MessageSquare,
   PanelLeft,
@@ -42,7 +41,7 @@ import {
 import { animateFade, animateSpring, motionMs, prefersReducedMotion } from '../lib/motion'
 import { Badge, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
-import { Button, IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
+import { IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { ArchivePopover } from './archive'
 import { Composer } from './composer'
 import { Morph } from './morph'
@@ -788,8 +787,8 @@ const HOVER_ONLY =
   'flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within/chat:opacity-100 group-hover/chat:opacity-100'
 
 /**
- * The panel's title bar: the agent's name, which switches agents, the session's
- * mode, and the panel's actions. It's where the panel is dragged from, floating or docked
+ * The panel's title bar: the agent's name (who the conversation is with; the message box's
+ * picker changes it, with the model), the session's mode, and the panel's actions. It's where the panel is dragged from, floating or docked
  * (pulled off the sidebar); popped out, it drags the window.
  */
 function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }) {
@@ -852,7 +851,10 @@ function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }
       }
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        <AgentSwitcher name={meta.agentName} />
+        {/* A title, not a control: the keyboard and the pointer change it below. */}
+        <h2 title={meta.agentName} className="min-w-0 truncate text-body font-medium text-fg">
+          {meta.agentName}
+        </h2>
         {meta.modeName && !meta.modeIsUsual && (
           // Out of the title bar's drag area, or its tooltip never shows.
           <Badge title={meta.modeName} className="no-drag">
@@ -902,31 +904,6 @@ function MoreButton() {
         }}
       />
     </>
-  )
-}
-
-/**
- * The agent's name, which opens the agent menu under it: the other agents, Agent
- * Settings…, New chat. The native menu takes the keyboard from there.
- */
-function AgentSwitcher({ name }: { name: string }) {
-  return (
-    <Button
-      size="sm"
-      variant="ghost"
-      trailingIcon={ChevronDown}
-      aria-haspopup="menu"
-      aria-label={`Switch agent, ${name}`}
-      title="Switch agent"
-      onClick={(event) => {
-        const box = event.currentTarget.getBoundingClientRect()
-        gui.showAgentMenu({ x: box.left, y: box.bottom + 4 })
-      }}
-      // Pulled into the header's inset so the name lines up with the panel's text.
-      className="-ml-2 min-w-0 text-body text-fg"
-    >
-      <span className="truncate">{name}</span>
-    </Button>
   )
 }
 

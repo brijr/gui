@@ -1049,10 +1049,8 @@ function registerIpc() {
   on(Send.devServerStop, (tab) => tab.stopDevServer())
   onWindow(Send.devServerRestart, (win) => win.activeTab.restartDevServer())
   on(Send.showDevServerMenu, (tab) => tab.showDevServerMenu())
-  ipcMain.on(Send.showAgentMenu, (event, at: unknown) => {
-    const point = isPoint(at) ? at : null
-    tabFor(event)?.showAgentMenu(() => openSettings('agents'), event.sender, point)
-  })
+  // The chat's picker may open Settings on the agents, and nothing else of Settings.
+  on(Send.openAgentSettings, () => openSettings('agents'))
   ipcMain.on(Send.showChatMenu, (event, at: unknown) => {
     if (isPoint(at)) tabFor(event)?.showChatMenu(at)
   })

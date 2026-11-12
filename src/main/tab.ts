@@ -82,7 +82,7 @@ import {
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { AgentViewport, viewportForWidth } from './agent-viewport'
-import { agentMenuItems, declaresOwnPermissions } from './agents'
+import { agentChoices, declaresOwnPermissions } from './agents'
 import { isAutoApprove, setAutoApprove as saveAutoApprove } from './auto-approve'
 import { boardIdOf, listBoards, writeManifest } from './board'
 import { copyFrames, pastedFrames } from './board-clipboard'
@@ -882,6 +882,7 @@ export class ProjectTab implements ChatPanelOwner {
         error: null,
         errorDetail: null,
         agent: agentHealth.list().find((agent) => agent.id === this.state.agentId) ?? null,
+        agents: agentChoices(agentHealth.list(), this.state.agentId),
         modeName: null,
         modeIsUsual: false,
         commands: [],
@@ -3565,9 +3566,12 @@ export class ProjectTab implements ChatPanelOwner {
     return this.resources.chat?.loadCommands()
   }
 
-  /** ⇧⌘M: shows the chat and opens the composer's model picker, searching. */
+  /**
+   * ⇧⌘M: shows the chat and opens the composer's picker, on the agent's models, searching;
+   * on the agents, for an agent with no models to choose.
+   */
   chooseModel() {
-    if (!this.resources.chat?.meta.models) return shell.beep()
+    if (!this.resources.chat) return shell.beep()
     this.panel.focusChat()
     this.sendChat(Events.command, 'chooseModel')
   }
@@ -4138,32 +4142,6 @@ export class ProjectTab implements ChatPanelOwner {
       },
     ]
     Menu.buildFromTemplate(template).popup({ window: this.host.win })
-  }
-
-  /** At the pointer, or at `at` in `sender`'s page (the chat header's agent switcher). */
-  showAgentMenu(
-    openSettings: () => void,
-    sender: WebContents,
-    at: { x: number; y: number } | null,
-  ) {
-    const template: MenuItemConstructorOptions[] = [
-      ...agentMenuItems(
-        agentHealth.list(),
-        agentHealth.customError,
-        this.state.agentId,
-        (id) => this.setAgent(id),
-        openSettings,
-      ),
-      { type: 'separator' },
-      { label: 'New Chat', enabled: this.hasProject, click: () => this.newChat() },
-    ]
-    const menu = Menu.buildFromTemplate(template)
-    // From a popped-out chat, in its window.
-    const window =
-      sender === this.chatView.webContents && this.panel.popoutWindow
-        ? this.panel.popoutWindow
-        : this.host.win
-    menu.popup({ window, ...(at && this.inWindow(sender, at)) })
   }
 
   /**

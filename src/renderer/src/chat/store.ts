@@ -193,11 +193,12 @@ function attachFromMain(image: ImageAttachment) {
 }
 
 /**
- * ⇧⌘M: the composer's model picker. Main shows the chat first; the composer may still be
- * on its way (from a bubble), so its model button opens the picker once it's there.
+ * ⇧⌘M: the composer's picker (its models, or its agents for an agent with none). Main shows
+ * the chat first; the composer may still be on its way (from a bubble), so its button opens
+ * the picker once it's there.
  */
 function chooseModel() {
-  if (!useChat.getState().meta?.models) return
+  if (!useChat.getState().meta) return
   useChat.setState({ pickModel: true })
 }
 
