@@ -128,6 +128,7 @@ import {
   setChatSidebarSide,
   setCrashReports,
   setDefaultAgent,
+  setFollowUp,
   untrustProject,
   watchSettings,
 } from './settings'
@@ -920,8 +921,16 @@ function registerIpc() {
   })
   handleLegacy(
     Invoke.send,
-    (event, text: unknown, images: unknown, recordings: unknown, followUp: unknown) => {
+    (
+      event,
+      text: unknown,
+      images: unknown,
+      recordings: unknown,
+      followUp: unknown,
+      steer: unknown,
+    ) => {
       if (!isString(text)) return false
+      if (steer !== undefined && typeof steer !== 'boolean') return false
       if (followUp != null && (!isString(followUp) || followUp.length > 100)) return false
       const attached = images === undefined ? [] : images
       if (!Array.isArray(attached) || attached.length > MAX_IMAGES || !attached.every(isImage)) {
@@ -935,7 +944,10 @@ function registerIpc() {
         new Set(ids).size !== ids.length
       )
         return false
-      return tabFor(event)?.sendChatMessage(text, attached, ids, followUp ?? null) ?? false
+      return (
+        tabFor(event)?.sendChatMessage(text, attached, ids, followUp ?? null, steer === true) ??
+        false
+      )
     },
   )
   handleLegacy(Invoke.showToolbarMenu, async (event, items: unknown, at: unknown) => {
@@ -1176,6 +1188,9 @@ function registerIpc() {
     if (side === 'left' || side === 'right') setChatSidebarSide(side)
   })
   onSettings(Send.setCrashReports, (on) => typeof on === 'boolean' && setCrashReports(on))
+  onSettings(Send.setFollowUp, (behavior) => {
+    if (behavior === 'steer' || behavior === 'queue') setFollowUp(behavior)
+  })
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
   ipcMain.on(Send.reportError, (event, error: unknown) => {
     if (!isAppContents(event.sender) || !error || typeof error !== 'object') return
@@ -1268,6 +1283,7 @@ function registerIpc() {
   on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
   on(Send.retry, (tab, turnId) => isString(turnId) && tab.retryTurn(turnId))
   on(Send.sendQueued, (tab, id) => isString(id) && tab.sendQueued(id))
+  on(Send.steerQueued, (tab, id) => isString(id) && tab.steerQueued(id))
   on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
   on(Send.setAgentSetting, (tab, settingId, value) => {
     // Only a choice the composer offers right now: the chat panel renders what agents write.

@@ -245,6 +245,8 @@ const userMessage = (turnId: string) => () =>
   document.querySelector(`[data-user-message="${CSS.escape(turnId)}"]`)
 const queueItem = (id: string) => () =>
   document.querySelector(`[data-queue-item="${CSS.escape(id)}"]`)
+const steerMessage = (itemId: string) => () =>
+  document.querySelector(`[data-steer-message="${CSS.escape(itemId)}"]`)
 const permission = (itemId: string) => () =>
   document.querySelector(`[data-permission="${CSS.escape(itemId)}"]`)
 
@@ -343,9 +345,17 @@ export function noteRemoveQueued(id: string) {
   removing.add(id)
 }
 
+/** Queued messages the user sent into the reply under way: they move into it when it takes them. */
+const steeringQueued = new Set<string>()
+
+export function noteSteerQueued(id: string) {
+  steeringQueued.add(id)
+}
+
 /**
- * A queued message main just took off the queue to start its turn: the queue's update waits
- * for that turn (main sends it next) so the message can move into the transcript.
+ * A queued message main just took off the queue to start its turn, or to add to the reply
+ * under way ("Send now"): the queue's update waits for that turn (main sends it next) so the
+ * message can move into the transcript.
  */
 let starting: { meta: ChatMeta; item: QueuedMessage; timer: ReturnType<typeof setTimeout> } | null =
   null
@@ -398,9 +408,12 @@ function onMeta(meta: ChatMeta) {
   }
   // One message gone while idle, and the user didn't remove it: main took it to start its
   // turn (the next in line, or one sent from the middle of the queue).
+  // Or, going now while one runs, main added it to that turn's reply.
   const [gone] = removed
   const idle = !useChat.getState().turns.some((turn) => turn.status === 'running')
-  if (gone && removed.length === 1 && idle && !removing.has(gone.id)) {
+  const steered = gone !== undefined && steeringQueued.has(gone.id)
+  for (const item of removed) steeringQueued.delete(item.id)
+  if (gone && removed.length === 1 && (idle || steered) && !removing.has(gone.id)) {
     const timer = setTimeout(() => {
       const held = releaseStarting()
       if (held)
@@ -489,6 +502,53 @@ function onTurn(turn: Turn) {
     applyInOrder(() => upsertTurn(turn))
     return
   }
+  // A message sent now, taken into the reply: its queued row becomes the bubble in the turn.
+  const steered = starting
+    ? turn.items.find(
+        (item) =>
+          item.kind === 'steer' &&
+          item.prompt === starting?.item.prompt &&
+          !existing.items.some((old) => old.id === item.id),
+      )
+    : undefined
+  const held = steered ? releaseStarting() : null
+  if (steered && held) {
+    transition(
+      () => {
+        useChat.setState({ meta: held.meta })
+        upsertTurn(turn)
+      },
+      [
+        {
+          name: 'chat-message',
+          from: queueItem(held.item.id),
+          to: steerMessage(steered.id),
+          reflow: true,
+        },
+        ...queueMoves(useChat.getState().meta?.queue ?? [], held.meta.queue).filter(
+          (move) => move.name !== `queue-${held.item.id}`,
+        ),
+      ],
+      [steered.id],
+    )
+    return
+  }
+  // Steered from the message box: it rises into the reply, as a sent message rises into its turn.
+  const fresh = turn.items.find(
+    (item) => item.kind === 'steer' && !existing.items.some((old) => old.id === item.id),
+  )
+  const message = fresh?.kind === 'steer' ? takeSent(fresh.prompt) : null
+  if (fresh && message) {
+    transition(
+      () => {
+        upsertTurn(turn)
+        clearSent(message.prompt, message.images, message.recordings, message.followUp)
+      },
+      [{ name: 'chat-message', from: composerInput, to: steerMessage(fresh.id), reflow: true }],
+      [fresh.id],
+    )
+    return
+  }
   // A permission card answered (or expired) collapses into the line that records it.
   const answered = turn.items.filter(
     (item) =>
@@ -521,6 +581,7 @@ function onReset(snapshot: ChatSnapshot) {
   recoveryUpdates = []
   recoveryMeta = null
   releaseStarting()
+  steeringQueued.clear()
   if (sent?.fallback) clearTimeout(sent.fallback)
   sent = null
   applyInOrder(() => {

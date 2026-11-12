@@ -113,9 +113,29 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
       <SettingsGroup heading="Chat">
         <List>
           <ListItem heading="Chat position" trailing={<ChatPosition settings={settings} />} />
+          <ListItem
+            heading="Sending while the agent works"
+            detail="Steer adds your message to the reply under way, and the agent reads it at its next step. Queue holds it for after. ⌘↩ does the other."
+            trailing={<FollowUp settings={settings} />}
+          />
         </List>
       </SettingsGroup>
     </>
+  )
+}
+
+/** What Enter does while the agent works: steer its reply, or queue the message. */
+function FollowUp({ settings }: { settings: SettingsState }) {
+  return (
+    <SegmentedControl
+      label="Sending while the agent works"
+      value={settings.followUp}
+      segments={[
+        { value: 'steer', label: 'Steer' },
+        { value: 'queue', label: 'Queue' },
+      ]}
+      onChange={(behavior) => gui.setFollowUp(behavior)}
+    />
   )
 }
 

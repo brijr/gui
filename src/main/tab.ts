@@ -903,6 +903,8 @@ export class ProjectTab implements ChatPanelOwner {
         queue: [],
         queuePaused: false,
         queuePauseReason: null,
+        canSteer: false,
+        followUp: getPrefs().followUp,
         autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
         ownPermissions: declaresOwnPermissions(this.state.agentId),
         autoNoteSeen: getPrefs().autoNoteSeen,
@@ -3061,6 +3063,7 @@ export class ProjectTab implements ChatPanelOwner {
     images: ImageAttachment[],
     ids: string[] = [],
     followUp: string | null = null,
+    steer = false,
   ) {
     const recordings = this.recordings
     const chat = this.resources.chat
@@ -3068,7 +3071,7 @@ export class ProjectTab implements ChatPanelOwner {
     try {
       const clips = await recordings.attachments(ids)
       if (this.resources.chat !== chat) return false
-      const accepted = chat.send(text, images, clips, followUp)
+      const accepted = chat.send(text, images, clips, followUp, steer)
       if (accepted) recordings.retain(ids)
       // A message from outside the chat (the board's starters): the chat shows it going.
       if (accepted && this.panel.untuck()) this.layout()
@@ -3531,6 +3534,10 @@ export class ProjectTab implements ChatPanelOwner {
 
   sendQueued(id: string) {
     this.resources.chat?.sendQueued(id)
+  }
+
+  steerQueued(id: string) {
+    this.resources.chat?.steerQueued(id)
   }
 
   cancelChat() {
