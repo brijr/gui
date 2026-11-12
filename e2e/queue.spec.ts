@@ -12,29 +12,45 @@ import { expect, test } from './helpers/test'
 const QUEUE_AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Queue`
 const PROMPT_MS = 1500
 
-/** ndjson JSON-RPC over stdio: just enough ACP for Gui to start a session and prompt it. */
+/**
+ * ndjson JSON-RPC over stdio: just enough ACP for Gui to start a session and prompt it. Run
+ * with `steer`, it also takes messages into a running turn (`_session/steering`), records
+ * them as `STEER <text>`, and goes on for PROMPT_MS more.
+ */
 const AGENT_SCRIPT = `
 const fs = require('node:fs')
 const readline = require('node:readline')
 const log = process.argv[2]
+const steering = process.argv[3] === 'steer'
 const write = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n')
+const textOf = (prompt) => prompt.filter((block) => block.type === 'text').map((block) => block.text).join('\\n')
 const running = new Map()
+const finishLater = (sessionId, id) => setTimeout(() => {
+  running.delete(sessionId)
+  write({ id, result: { stopReason: 'end_turn' } })
+}, ${PROMPT_MS})
 readline.createInterface({ input: process.stdin }).on('line', (line) => {
   let message
   try { message = JSON.parse(line) } catch { return }
   const { id, method, params } = message
   if (method === 'initialize') {
-    write({ id, result: { protocolVersion: params.protocolVersion, agentCapabilities: {}, authMethods: [] } })
+    const meta = steering ? { _meta: { steering: { supported: true } } } : {}
+    write({ id, result: { protocolVersion: params.protocolVersion, agentCapabilities: {}, authMethods: [], ...meta } })
   } else if (method === 'session/new') {
     write({ id, result: { sessionId: 'queue-' + process.pid } })
   } else if (method === 'session/prompt') {
-    const text = params.prompt.filter((block) => block.type === 'text').map((block) => block.text).join('\\n')
-    fs.appendFileSync(log, JSON.stringify(text) + '\\n')
-    const timer = setTimeout(() => {
-      running.delete(params.sessionId)
-      write({ id, result: { stopReason: 'end_turn' } })
-    }, ${PROMPT_MS})
-    running.set(params.sessionId, { id, timer })
+    fs.appendFileSync(log, JSON.stringify(textOf(params.prompt)) + '\\n')
+    running.set(params.sessionId, { id, timer: finishLater(params.sessionId, id) })
+  } else if (method === '_session/steering' && steering) {
+    const turn = running.get(params.sessionId)
+    if (!turn) {
+      write({ id, result: { outcome: 'promptRequired', reason: 'noRunningTurn' } })
+      return
+    }
+    fs.appendFileSync(log, JSON.stringify('STEER ' + textOf(params.prompt)) + '\\n')
+    clearTimeout(turn.timer)
+    turn.timer = finishLater(params.sessionId, turn.id)
+    write({ id, result: { outcome: 'injected' } })
   } else if (method === 'session/cancel') {
     const turn = running.get(params.sessionId)
     if (!turn) return
@@ -47,8 +63,11 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
 })
 `
 
-/** Adds the queue agent to agents.json, selects it, and returns the prompts it has received. */
-async function useQueueAgent(session: GuiSession): Promise<() => string[]> {
+/**
+ * Adds the queue agent to agents.json, selects it, and returns the prompts it has received.
+ * `steering`: it takes messages into a running turn.
+ */
+async function useQueueAgent(session: GuiSession, steering = false): Promise<() => string[]> {
   const { base, userData } = session.fixture
   const log = join(base, 'queue-prompts.ndjson')
   const script = join(base, 'queue-agent.cjs')
@@ -57,7 +76,7 @@ async function useQueueAgent(session: GuiSession): Promise<() => string[]> {
   const agents = {
     Queue: {
       command: electronExecutable(),
-      args: [script, log],
+      args: steering ? [script, log, 'steer'] : [script, log],
       env: { ELECTRON_RUN_AS_NODE: '1' },
     },
   }
@@ -331,4 +350,101 @@ test('removing queued messages keeps focus in the queue and composer', async ({ 
   ).toBeFocused()
   await list.getByRole('button', { name: 'Remove queued message: Focus second' }).click()
   await expect(session.chat.locator('[data-composer]')).toBeFocused()
+})
+
+test('Enter steers the reply under way; ⌘↩ queues, and Send now steers from the queue', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  const recorded = await useQueueAgent(session, true)
+  const steered = (snapshot: Awaited<ReturnType<GuiSession['chatSnapshot']>>) =>
+    snapshot.turns[0]?.items.flatMap((item) => (item.kind === 'steer' ? [item.prompt] : [])) ?? []
+
+  expect(await send(session, 'STEER-A first')).toBe(true)
+  await waitFor(async () => recorded().length === 1, 'the agent to receive A')
+  await waitFor(
+    async () => (await session.chatSnapshot()).meta.canSteer,
+    'the reply to take steers',
+  )
+
+  // Enter steers: the message joins the running turn, not the queue.
+  const box = session.chat.locator('[data-composer]')
+  await box.fill('STEER-B from Enter')
+  await expect(session.chat.getByRole('button', { name: 'Steer message' })).toBeVisible()
+  await box.press('Enter')
+  await waitFor(async () => steered(await session.chatSnapshot()).length === 1, 'B to steer')
+  await expect(box).toHaveValue('')
+
+  // ⌘↩ does the other: it queues.
+  await box.fill('STEER-C queued with cmd')
+  await box.press('Meta+Enter')
+  await waitFor(
+    async () => prompts(await queued(session)).join('|') === 'STEER-C queued with cmd',
+    'C to be queued',
+  )
+
+  // Send now on its row puts it into the reply too.
+  const row = session.chat.getByRole('list', { name: 'Queued messages' }).getByRole('listitem')
+  await row.hover()
+  await row
+    .getByRole('button', { name: 'Send queued message now: STEER-C queued with cmd' })
+    .click()
+  await waitFor(async () => steered(await session.chatSnapshot()).length === 2, 'C to steer')
+  await expect(session.chat.locator('[data-steer-message]')).toHaveText([
+    'STEER-B from Enter',
+    'STEER-C queued with cmd',
+  ])
+
+  // One turn did it all: no new turn, nothing left waiting.
+  const done = await waitForIdle(session, 1)
+  expect(done.turns[0]?.status).toBe('done')
+  expect(steered(done)).toEqual(['STEER-B from Enter', 'STEER-C queued with cmd'])
+  expect(done.meta.queue).toEqual([])
+  expect(done.meta.canSteer).toBe(false)
+  const sent = recorded()
+  expect(sent).toHaveLength(3)
+  expect(sent[1]).toMatch(/^STEER .*STEER-B from Enter/s)
+  expect(sent[2]).toMatch(/^STEER .*STEER-C queued with cmd/s)
+})
+
+test('an agent that takes no message mid-reply queues them, with no Send now while it works', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  const recorded = await useQueueAgent(session)
+
+  expect(await send(session, 'PLAIN-A first')).toBe(true)
+  await waitFor(async () => recorded().length === 1, 'the agent to receive A')
+  expect((await session.chatSnapshot()).meta.canSteer).toBe(false)
+
+  // Enter queues; so does a steer the reply can't take. Nothing stops the turn.
+  const box = session.chat.locator('[data-composer]')
+  await box.fill('PLAIN-B from Enter')
+  await expect(session.chat.getByRole('button', { name: 'Queue message' })).toBeVisible()
+  await box.press('Enter')
+  expect(
+    await session.chat.evaluate(() =>
+      window.gui.send('PLAIN-C asked to steer', [], [], null, true),
+    ),
+  ).toBe(true)
+  await waitFor(
+    async () =>
+      prompts(await queued(session)).join('|') === 'PLAIN-B from Enter|PLAIN-C asked to steer',
+    'B and C to be queued',
+  )
+  const row = session.chat.getByRole('list', { name: 'Queued messages' }).getByRole('listitem')
+  await row.first().hover()
+  await expect(row.first().getByRole('button', { name: /^Send queued message now/ })).toHaveCount(0)
+
+  const after = await waitForIdle(session, 3)
+  expect(after.turns.map((turn) => [turn.prompt, turn.status])).toEqual([
+    ['PLAIN-A first', 'done'],
+    ['PLAIN-B from Enter', 'done'],
+    ['PLAIN-C asked to steer', 'done'],
+  ])
+  expect(after.meta.queue).toEqual([])
 })

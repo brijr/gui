@@ -929,6 +929,12 @@ export interface QueuedMessage {
 }
 
 /**
+ * What a message sent while the agent works does: `steer` adds it to the reply under way
+ * (the agent reads it at its next step), `queue` holds it for a turn of its own afterwards.
+ */
+export type FollowUpBehavior = 'steer' | 'queue'
+
+/**
  * Text edited in place in the preview, which the agent is asked to change in the source.
  * Both were read from the page, so they are page data: shown to the user, and sent to the
  * agent fenced (`describeTextEdit`), never as part of a message's own text.
@@ -975,6 +981,14 @@ export interface ChatMeta {
   queuePaused: boolean
   /** Why the queue is paused; null when it isn't */
   queuePauseReason: QueuePauseReason | null
+  /**
+   * A message can go into the reply under way now: the agent takes messages mid-turn (ACP
+   * `_session/steering`) and is working on a prompt. Otherwise a message sent while it
+   * works waits in the queue.
+   */
+  canSteer: boolean
+  /** What Enter does while the agent works (Settings); ⌘↩ does the other */
+  followUp: FollowUpBehavior
   /**
    * Auto mode: Gui answers the agent's permission requests itself, so the agent edits
    * files and runs commands without asking. Commands aren't confined to the project. It
@@ -1142,6 +1156,20 @@ export type TurnItem = (
       tone: 'info' | 'error'
       /** Technical detail, shown on request */
       detail?: string
+    }
+  | {
+      /**
+       * A message the user sent into the reply under way ("Send now"): the agent read it
+       * between steps and went on with it, in the same turn.
+       */
+      kind: 'steer'
+      id: string
+      prompt: string
+      /** What was picked when it was sent */
+      context: Picked[]
+      attachments?: { name: string; thumbnail: string }[]
+      followUp?: FollowUp
+      textEdit?: TextEdit
     }
 ) & { subagent?: string }
 
@@ -1335,4 +1363,6 @@ export interface SettingsState {
   home: string
   /** Gui sends a report when it fails */
   crashReports: boolean
+  /** What a message sent while the agent works does (see ChatMeta.followUp) */
+  followUp: FollowUpBehavior
 }
