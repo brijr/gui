@@ -1,5 +1,6 @@
 {
   "name": "usegui",
+  "account_id": "4976e8a5df6887f41b287a83e6b5c18f",
   "compatibility_date": "2026-10-01",
   "main": "./worker.js",
   "assets": {
