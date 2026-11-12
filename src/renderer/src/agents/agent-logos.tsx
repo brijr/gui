@@ -18,7 +18,17 @@ interface Logo {
   viewBox?: string
   /** The paths, given an id prefix unique to this copy for its gradients */
   draw(id: string): ReactNode
+  /**
+   * Its shape in one color, for a mark that painting every path alike would lose (Kiro's
+   * eyes). Without it, a colored mark's paths all take the text color.
+   */
+  flat?(id: string): ReactNode
 }
+
+const KIRO_GHOST =
+  'M7.97 16.376c-1.644 3.642 1.86 4.556 4.443 2.424.76 2.39 3.608.607 4.631-1.247 2.251-4.084 1.342-8.249 1.108-9.108-1.6-5.859-9.6-5.869-10.976.03-.323 1.033-.328 2.206-.507 3.423-.09.617-.16 1.009-.393 1.655-.139.373-.323.7-.62 1.257-.458.865-.264 2.53 2.101 1.665l.224-.1h-.01l-.001.001z'
+const KIRO_EYES =
+  'M12.722 10.985c-.656 0-.755-.785-.755-1.252 0-.423.074-.756.218-.97a.61.61 0 01.537-.283c.229 0 .428.095.567.289.159.218.243.55.243.964 0 .785-.303 1.252-.805 1.252h-.005zm2.703 0c-.656 0-.755-.785-.755-1.252 0-.423.074-.756.219-.97a.61.61 0 01.536-.283c.229 0 .428.095.567.289.159.218.243.55.243.964 0 .785-.303 1.252-.805 1.252h-.005z'
 
 const GEMINI_SPARK =
   'M20.616 10.835a14.147 14.147 0 01-4.45-3.001 14.111 14.111 0 01-3.678-6.452.503.503 0 00-.975 0 14.134 14.134 0 01-3.679 6.452 14.155 14.155 0 01-4.45 3.001c-.65.28-1.318.505-2.002.678a.502.502 0 000 .975c.684.172 1.35.397 2.002.677a14.147 14.147 0 014.45 3.001 14.112 14.112 0 013.679 6.453.502.502 0 00.975 0c.172-.685.397-1.351.677-2.003a14.145 14.145 0 013.001-4.45 14.113 14.113 0 016.453-3.678.503.503 0 000-.975 13.245 13.245 0 01-2.003-.678z'
@@ -166,14 +176,18 @@ export const AGENT_LOGOS: Record<string, Logo> = {
     viewBox: '3 3 18 18',
     draw: (_id) => (
       <>
-        <path
-          d="M7.97 16.376c-1.644 3.642 1.86 4.556 4.443 2.424.76 2.39 3.608.607 4.631-1.247 2.251-4.084 1.342-8.249 1.108-9.108-1.6-5.859-9.6-5.869-10.976.03-.323 1.033-.328 2.206-.507 3.423-.09.617-.16 1.009-.393 1.655-.139.373-.323.7-.62 1.257-.458.865-.264 2.53 2.101 1.665l.224-.1h-.01l-.001.001z"
-          fill="#9046FF"
-        />
-        <path
-          d="M12.722 10.985c-.656 0-.755-.785-.755-1.252 0-.423.074-.756.218-.97a.61.61 0 01.537-.283c.229 0 .428.095.567.289.159.218.243.55.243.964 0 .785-.303 1.252-.805 1.252h-.005zm2.703 0c-.656 0-.755-.785-.755-1.252 0-.423.074-.756.219-.97a.61.61 0 01.536-.283c.229 0 .428.095.567.289.159.218.243.55.243.964 0 .785-.303 1.252-.805 1.252h-.005z"
-          fill="#000"
-        />
+        <path d={KIRO_GHOST} fill="#9046FF" />
+        <path d={KIRO_EYES} fill="#000" />
+      </>
+    ),
+    // The eyes are holes in the ghost, so whatever is behind it shows through them.
+    flat: (id) => (
+      <>
+        <mask id={`${id}-eyes`}>
+          <rect x="3" y="3" width="18" height="18" fill="#fff" />
+          <path d={KIRO_EYES} fill="#000" />
+        </mask>
+        <path d={KIRO_GHOST} mask={`url(#${id}-eyes)`} />
       </>
     ),
   },
@@ -321,20 +335,39 @@ export const AGENT_LOGOS: Record<string, Logo> = {
   },
 }
 
-/** An agent's mark at the size of its box (`className` sets it), or null if it has none. */
-export function AgentLogo({ agentId, className }: { agentId: string; className?: string }) {
+/**
+ * An agent's mark at the size of its box (`className` sets it), or null if it has none.
+ * `flat` draws it in the text color alone, as an icon in a menu is, whatever its brand colors.
+ */
+export function AgentLogo({
+  agentId,
+  flat = false,
+  className,
+}: {
+  agentId: string
+  flat?: boolean
+  className?: string
+}) {
   const id = useId()
   const logo = Object.hasOwn(AGENT_LOGOS, agentId) ? AGENT_LOGOS[agentId] : null
   if (!logo) return null
+  const oneColor = logo.mono || flat
   return (
     <svg
       viewBox={logo.viewBox ?? '0 0 24 24'}
       aria-hidden="true"
       className={className}
-      fill={logo.mono ? 'currentColor' : undefined}
+      fill={oneColor ? 'currentColor' : undefined}
       fillRule={logo.mono ? 'evenodd' : undefined}
     >
-      {logo.draw(id)}
+      {!flat || logo.mono ? (
+        logo.draw(id)
+      ) : logo.flat ? (
+        logo.flat(id)
+      ) : (
+        // A rule beats the paths' own fill attributes (brand colors, gradients).
+        <g className="[&_path]:fill-current">{logo.draw(id)}</g>
+      )}
     </svg>
   )
 }

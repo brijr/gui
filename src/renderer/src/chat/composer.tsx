@@ -458,7 +458,7 @@ export function Composer({
             />
             <AutoToggle meta={meta} />
             <span className="ml-auto" />
-            {meta.models && <ModelButton models={meta.models} />}
+            <ModelButton meta={meta} />
             {/* While the agent works, a draft can still go out: it joins the queue. */}
             <IconButton
               type="submit"

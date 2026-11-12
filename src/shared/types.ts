@@ -77,6 +77,14 @@ export interface AgentHealth {
   models: ModelSettings | null
 }
 
+/** An agent a chat can switch to, as its picker lists it. */
+export interface AgentChoice {
+  id: AgentId
+  name: string
+  /** Why it can't take a message yet ("Not signed in"); null when nothing's known to be wrong */
+  note: string | null
+}
+
 /**
  * The agent can't take a message until the user sets it up: it isn't installed or signed in,
  * or it's being installed or signed in to right now. A chat holds messages until it's ready.
@@ -1010,6 +1018,11 @@ export interface ChatMeta {
    * `needsSetup`, messages wait in the queue (paused for 'setup') and go out once it's ready
    */
   agent: AgentHealth | null
+  /**
+   * The agents the chat can switch to, for its picker: those switched on in Settings and
+   * installed, and the chat's own whatever its state. Switching starts a new chat.
+   */
+  agents: AgentChoice[]
   /** The running session's own mode as the agent reports it (shown in the chat header) */
   modeName: string | null
   /**

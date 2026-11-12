@@ -10,10 +10,11 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { ariaShortcut, withShortcut } from '../../../shared/shortcuts'
-import type { AgentSetting, ModelSettings } from '../../../shared/types'
+import type { AgentId, AgentSetting, ChatMeta } from '../../../shared/types'
+import { AgentGlyph } from '../agents/agent-icon'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
-import { ChevronDown } from '../lib/icons'
+import { ChevronDown, ChevronLeft, ChevronRight } from '../lib/icons'
 import { motionMs, usePresence } from '../lib/motion'
 import {
   GroupLabel,
@@ -122,33 +123,53 @@ function withProviderGroups(choices: Choice[]): Choice[] {
   return choices.map((choice) => ({ ...choice, group: choice.name.split('/')[0] }))
 }
 
+/**
+ * A row of the picker's list, whichever it lists: a model, or an agent, with why that agent
+ * can't take a message yet (`note`).
+ */
+interface Entry {
+  value: string
+  /** In its row */
+  label: string
+  /** In full, for the tooltip and the search */
+  name: string
+  note: string | null
+  group: string | null
+  /** The agent it is, in the agents' list: its mark starts the row */
+  agentId?: AgentId
+}
+
 /** Every typed word appears somewhere in the name, value or group, ignoring case. */
-function matches(choice: Choice, words: string[]) {
-  const text = `${choice.name} ${choice.value} ${choice.group ?? ''}`.toLowerCase()
+function matches(entry: Entry, words: string[]) {
+  const text = `${entry.name} ${entry.value} ${entry.group ?? ''}`.toLowerCase()
   return words.every((word) => text.includes(word))
 }
 
 /**
- * Choices under their group's header, groups in the order they first appear, each row
+ * Entries under their group's header, groups in the order they first appear, each row
  * numbered in that order. Without groups there's one section and no header.
  */
-function sections(choices: Choice[], grouped: boolean) {
-  const byGroup = new Map<string | null, Choice[]>()
-  for (const choice of choices) {
-    const list = byGroup.get(choice.group)
-    if (list) list.push(choice)
-    else byGroup.set(choice.group, [choice])
+function sections(entries: Entry[], grouped: boolean) {
+  const byGroup = new Map<string | null, Entry[]>()
+  for (const entry of entries) {
+    const list = byGroup.get(entry.group)
+    if (list) list.push(entry)
+    else byGroup.set(entry.group, [entry])
   }
   let index = 0
   return [...byGroup].map(([group, list]) => ({
     group,
     label: grouped ? (group ?? 'Other') : null,
-    rows: list.map((choice) => ({ choice, index: index++ })),
+    rows: list.map((entry) => ({ entry, index: index++ })),
   }))
 }
 
-/** What the next turn runs on; opens the model picker to change it. */
-export function ModelButton({ models }: { models: ModelSettings }) {
+/**
+ * What the next turn runs on: the agent's model and effort, or the agent alone when it has
+ * no models to choose. Opens the picker, which changes the model, the effort and the agent.
+ */
+export function ModelButton({ meta }: { meta: ChatMeta }) {
+  const models = meta.models
   const [open, setOpen] = useState(false)
   const [instant, setInstant] = useState(false)
   // Kept while it closes, which it does where it was.
@@ -156,9 +177,14 @@ export function ModelButton({ models }: { models: ModelSettings }) {
   const shown = usePresence(open, motionMs('--motion-exit'))
   const button = useRef<HTMLButtonElement>(null)
   const pickerId = useId()
-  const fullName = choiceName(models.model) ?? models.model.value
-  const model = shortName(fullName)
-  const effort = models.effort && effortName(models.effort)
+  const fullName = models ? (choiceName(models.model) ?? models.model.value) : null
+  const model = fullName && shortName(fullName)
+  const effort = models?.effort ? effortName(models.effort) : null
+  const label = model
+    ? effort
+      ? `Model: ${model}, effort ${effort}`
+      : `Model: ${model}`
+    : `Agent: ${meta.agentName}`
   const pickModel = useChat((s) => s.pickModel)
 
   // ⇧⌘M (Agent → Choose Model…): open, searching.
@@ -189,8 +215,11 @@ export function ModelButton({ models }: { models: ModelSettings }) {
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? pickerId : undefined}
-        aria-label={effort ? `Model: ${model}, effort ${effort}` : `Model: ${model}`}
-        title={withShortcut(effort ? `${fullName} · ${effort}` : fullName, 'chooseModel')}
+        aria-label={label}
+        title={withShortcut(
+          [meta.agentName, fullName, effort].filter(Boolean).join(' · '),
+          'chooseModel',
+        )}
         aria-keyshortcuts={ariaShortcut('chooseModel')}
         onClick={() => {
           if (open) return close(false)
@@ -209,7 +238,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
             narrow for both (the floating chat's default width), when it's left to the
             tooltip and the picker so the model name reads whole rather than "Sonne…". */}
         <span className="flex min-w-0">
-          <span className="truncate">{model}</span>
+          <span className="truncate">{model ?? meta.agentName}</span>
           {effort && <span className="shrink-0 whitespace-pre @max-sm:hidden"> · {effort}</span>}
         </span>
       </Button>
@@ -220,7 +249,7 @@ export function ModelButton({ models }: { models: ModelSettings }) {
           id={pickerId}
           instant={instant}
           open={open}
-          models={models}
+          meta={meta}
           placement={placement}
           button={button}
           onClose={close}
@@ -235,7 +264,7 @@ interface ModelPickerProps {
   id: string
   /** False while it closes */
   open: boolean
-  models: ModelSettings
+  meta: ChatMeta
   placement: PopoverPlacement
   button: RefObject<HTMLButtonElement | null>
   /** `refocus` returns focus to the button (Esc, a pick); not after a click elsewhere. */
@@ -243,36 +272,80 @@ interface ModelPickerProps {
 }
 
 /**
- * The agent's models under their provider, searchable when the list is long, and its
- * effort levels when it has them. A model applies on pick and closes the picker; an
- * effort level applies and leaves it open.
+ * What the chat runs on, in one place. First the agent's models under their provider,
+ * searchable when the list is long, and its effort levels when it has them: a model applies
+ * on pick and closes the picker; an effort level applies and leaves it open. The row above
+ * them names the agent and opens the agents in the same picker: picking another one starts a
+ * new chat with it (this one is archived), and Agent Settings… is where they're set up.
  */
-function ModelPicker({ id, instant, open, models, placement, button, onClose }: ModelPickerProps) {
-  const { model, effort } = models
+function ModelPicker({ id, instant, open, meta, placement, button, onClose }: ModelPickerProps) {
+  const { models, agents, agentId } = meta
+  const model = models?.model ?? null
+  const effort = models?.effort ?? null
   const root = useRef<HTMLDivElement>(null)
   const searchField = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
   const listId = `${id}-list`
   const effortId = `${id}-effort`
-  const searchable = model.options.length > SEARCH_AFTER
+  const [asked, setView] = useState<'models' | 'agents'>('models')
+  // An agent with no models to choose has only the agents to show.
+  const view = model ? asked : 'agents'
+  const hasTurns = useChat((s) => s.turnIds.length > 0)
   const [query, setQuery] = useState('')
-  /** The highlighted model's value; null for the first match. */
-  const [active, setActive] = useState<string | null>(model.value)
+  const current = view === 'models' ? (model?.value ?? null) : agentId
+  /** The highlighted row's value; null for the first match. */
+  const [active, setActive] = useState<string | null>(current)
+  // Another list (the other view, or another agent's, switched to elsewhere) starts from
+  // the top: nothing typed for the last one filters it, and its current choice is the one on.
+  const listing = `${view}:${agentId}`
+  const [listed, setListed] = useState(listing)
+  if (listed !== listing) {
+    setListed(listing)
+    setQuery('')
+    setActive(current)
+  }
 
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-  const options = withProviderGroups(model.options)
-  const grouped = options.some((choice) => choice.group !== null)
+  const entries: Entry[] =
+    view === 'models'
+      ? withProviderGroups(model?.options ?? []).map((choice) => ({
+          value: choice.value,
+          label: rowName(choice),
+          name: choice.name,
+          note: null,
+          group: choice.group,
+        }))
+      : agents.map((agent) => ({
+          value: agent.id,
+          label: agent.name,
+          name: agent.name,
+          note: agent.note,
+          group: null,
+          agentId: agent.id,
+        }))
+  const searchable = entries.length > SEARCH_AFTER
+  // Without a search field there's nothing typed to go by, and nowhere to clear it.
+  const words = searchable ? query.toLowerCase().split(/\s+/).filter(Boolean) : []
+  const grouped = entries.some((entry) => entry.group !== null)
   const shown = sections(
-    options.filter((choice) => matches(choice, words)),
+    entries.filter((entry) => matches(entry, words)),
     grouped,
   )
   const rows = shown.flatMap((section) => section.rows)
   const activeIndex = Math.max(
     0,
-    rows.findIndex((row) => row.choice.value === active),
+    rows.findIndex((row) => row.entry.value === active),
   )
   const optionId = (index: number) => `${id}-option-${index}`
   const activeId = rows[activeIndex] ? optionId(activeIndex) : undefined
+  const what = view === 'models' ? 'models' : 'agents'
+
+  /** Shows the models or the agents, with the keyboard in the list again. */
+  const show = setView
+  // After the list it shows changes, as on opening: the search field or the list takes the keys.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `view` is what changed
+  useEffect(() => {
+    if (open) (searchField.current ?? list.current)?.focus()
+  }, [view])
 
   // On opening, and on opening again while it closed.
   useEffect(() => {
@@ -304,15 +377,23 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
     }
   }, [open, button, onClose])
 
-  const pick = (choice: Choice) => {
-    gui.setAgentSetting(model.id, choice.value)
+  const pick = (entry: Entry) => {
+    if (view === 'models') {
+      if (model) gui.setAgentSetting(model.id, entry.value)
+    } else if (entry.value !== agentId) {
+      gui.setAgent(entry.agentId ?? agentId)
+    } else if (model) {
+      // The agent it's on already: back to its models.
+      show('models')
+      return
+    }
     onClose(true)
   }
 
   const onSearch = (text: string) => {
     setQuery(text)
-    // The first match; with the search cleared, the current model again.
-    setActive(text.trim() ? null : model.value)
+    // The first match; with the search cleared, the current choice again.
+    setActive(text.trim() ? null : current)
   }
 
   /** ↑/↓ and Enter, from the search field or (without one) the list. */
@@ -321,11 +402,11 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
       event.preventDefault()
       const step = event.key === 'ArrowDown' ? 1 : -1
       const next = rows[Math.min(Math.max(activeIndex + step, 0), rows.length - 1)]
-      if (next) setActive(next.choice.value)
+      if (next) setActive(next.entry.value)
     } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
       event.preventDefault()
       const row = rows[activeIndex]
-      if (row) pick(row.choice)
+      if (row) pick(row.entry)
     }
   }
 
@@ -356,17 +437,17 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
     if (!button.current?.contains(next)) onClose(false)
   }
 
-  const renderRow = ({ choice, index }: (typeof rows)[number]) => {
-    const selected = choice.value === model.value
+  const renderRow = ({ entry, index }: (typeof rows)[number]) => {
+    const selected = entry.value === current
     return (
       // Focus stays on the search field (or list), which handles the keys and points at
       // the highlighted option through aria-activedescendant.
       <MenuRow
-        key={choice.value}
+        key={entry.value}
         id={optionId(index)}
         role="option"
         aria-selected={selected}
-        title={choice.name}
+        title={entry.note ? `${entry.name} · ${entry.note}` : entry.name}
         highlighted={index === activeIndex}
         selected={selected}
         // With the keyboard in the list, the row the arrows are on is ringed, so it reads
@@ -376,9 +457,17 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
           index === activeIndex &&
             'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-muted',
         )}
-        onClick={() => pick(choice)}
+        onClick={() => pick(entry)}
       >
-        {rowName(choice)}
+        {entry.agentId ? (
+          <span className="flex min-w-0 items-center gap-2">
+            <AgentGlyph agentId={entry.agentId} />
+            <span className="min-w-0 flex-1 truncate">{entry.label}</span>
+            {entry.note && <span className="shrink-0 text-subtle">{entry.note}</span>}
+          </span>
+        ) : (
+          entry.label
+        )}
       </MenuRow>
     )
   }
@@ -390,22 +479,66 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
       id={id}
       open={open}
       role="dialog"
-      aria-label="Choose a model"
+      aria-label={view === 'models' ? 'Choose a model' : 'Choose an agent'}
       onKeyDown={onKeyDown}
       onMouseDown={onMouseDown}
       onBlur={onBlur}
       placement={placement}
     >
+      {view === 'models' ? (
+        // The agent these models are: its row opens the agents, here.
+        <div className="shrink-0 border-b-hairline border-line p-1">
+          <MenuRow
+            as="button"
+            selected={false}
+            aria-label={`Agent: ${meta.agentName}. Switch agent`}
+            title="Switch agent"
+            className="w-full"
+            onClick={() => show('agents')}
+          >
+            <span className="flex min-w-0 items-center gap-2">
+              <AgentGlyph agentId={agentId} className="text-fg" />
+              <span className="min-w-0 flex-1 truncate font-medium text-fg">{meta.agentName}</span>
+              <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+            </span>
+          </MenuRow>
+        </div>
+      ) : (
+        <div className="flex shrink-0 flex-col border-b-hairline border-line p-1">
+          {model ? (
+            <MenuRow
+              as="button"
+              selected={false}
+              aria-label="Back to models"
+              className="w-full"
+              onClick={() => show('models')}
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                <ChevronLeft className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+                <span className="min-w-0 flex-1 truncate font-medium text-fg">Agent</span>
+              </span>
+            </MenuRow>
+          ) : (
+            <GroupLabel className="px-2 pt-1.5 pb-1">Agent</GroupLabel>
+          )}
+          {/* What picking another costs, said before the pick rather than after. */}
+          {hasTurns && (
+            <p className="px-2 pb-1 text-caption text-pretty text-subtle">
+              Switching starts a new chat. This one is archived.
+            </p>
+          )}
+        </div>
+      )}
       {searchable && (
         <PopoverSearch
           ref={searchField}
           role="combobox"
-          aria-label="Search models"
+          aria-label={`Search ${what}`}
           aria-controls={listId}
           aria-expanded
           aria-autocomplete="list"
           aria-activedescendant={activeId}
-          placeholder="Search models…"
+          placeholder={`Search ${what}…`}
           value={query}
           onChange={(event) => onSearch(event.target.value)}
           onKeyDown={onListKeyDown}
@@ -415,7 +548,7 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
         ref={list}
         id={listId}
         role="listbox"
-        aria-label="Models"
+        aria-label={view === 'models' ? 'Models' : 'Agents'}
         // With a search field, focus stays there; without one, the list takes it.
         tabIndex={searchable ? -1 : 0}
         aria-activedescendant={searchable ? undefined : activeId}
@@ -449,8 +582,23 @@ function ModelPicker({ id, instant, open, models, placement, button, onClose }: 
           ),
         )}
       </div>
-      {rows.length === 0 && <PopoverNote>No models match</PopoverNote>}
-      {effort && (
+      {rows.length === 0 && <PopoverNote>No {what} match</PopoverNote>}
+      {view === 'agents' && (
+        <div className="shrink-0 border-t-hairline border-line p-1">
+          <MenuRow
+            as="button"
+            selected={false}
+            className="w-full"
+            onClick={() => {
+              gui.openAgentSettings()
+              onClose(false)
+            }}
+          >
+            Agent Settings…
+          </MenuRow>
+        </div>
+      )}
+      {view === 'models' && effort && (
         <div className="flex shrink-0 flex-col gap-1.5 border-t-hairline border-line p-2">
           <GroupLabel id={effortId} className="px-1">
             Effort
