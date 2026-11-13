@@ -117,14 +117,24 @@ const editMenu = (session: GuiSession, label: 'Undo' | 'Redo') =>
 const undo = (session: GuiSession) => editMenu(session, 'Undo')
 const redo = (session: GuiSession) => editMenu(session, 'Redo')
 
-/** Runs in main: Edit › Copy, Cut or Paste as the menu's roles do it, to the app chrome. */
-const chromeEdit = (session: GuiSession, command: 'copy' | 'cut' | 'paste') =>
-  session.app.evaluate(({ webContents }, command) => {
+/**
+ * Runs in main: Edit › Copy or Paste from the app menu. macOS carries out a role's item itself,
+ * on the page that has focus (its `click()` does nothing from here, and a hidden window never
+ * has focus), so this finds the item, checks it can be chosen, and does what its role does, to
+ * the app chrome.
+ */
+const menuEdit = (session: GuiSession, label: 'Copy' | 'Paste') =>
+  session.app.evaluate(({ Menu, webContents }, label) => {
+    const edit = Menu.getApplicationMenu()?.items.find((item) => item.label === 'Edit')
+    const item = edit?.submenu?.items.find((each) => each.label === label)
+    const role = item?.role
+    if (!item?.visible || !item.enabled || (role !== 'copy' && role !== 'paste'))
+      throw new Error(`Edit › ${label} can't be chosen`)
     const chrome = webContents
       .getAllWebContents()
       .find((wc) => /\/index\.html(?:[?#]|$)/.test(wc.getURL()))
-    chrome?.[command]()
-  }, command)
+    chrome?.[role]()
+  }, label)
 
 test('a canvas opens from the start screen and its frames are moved, undone, duplicated and opened', async ({
   launch,
@@ -964,13 +974,13 @@ test('⌘C and ⌘V copy frames onto the same canvas and another, as one undo st
   })
   // Again until it lands: the click's selection reaches main, and comes back, a moment later.
   const menuCopy = await waitFor(async () => {
-    await chromeEdit(session, 'copy')
+    await menuEdit(session, 'Copy')
     return clipboard()
   }, 'the menu copy')
   expect(JSON.parse(menuCopy.text ?? '')).toMatchObject({
     frames: [{ id: 'mobile' }],
   })
-  await chromeEdit(session, 'paste')
+  await menuEdit(session, 'Paste')
   await waitFor(async () => (await board(session)).frames.length === 3, 'the menu paste')
   await undo(session)
   await waitFor(async () => (await board(session)).frames.length === 2, 'the menu paste undone')
