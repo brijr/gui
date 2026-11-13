@@ -13,6 +13,11 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["./**/*.ts", "../playwright.config.ts", "../src/preload/api.d.ts"],
+  "include": [
+    "./**/*.ts",
+    "../smoke/**/*.ts",
+    "../playwright.config.ts",
+    "../src/preload/api.d.ts"
+  ],
   "exclude": ["fixtures"]
 }

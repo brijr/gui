@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { createServer, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -55,6 +55,25 @@ interface Sdk {
 }
 
 let sdk: Promise<Sdk> | null = null
+
+/** Sees every JSON-RPC message an agent sends to the server; only dev builds set one (dev-flags.ts). */
+let observer: ((message: unknown) => void) | null = null
+
+/** Reports each message agents send Gui's MCP servers to `observe`, from now on. */
+export function observeMcpRequests(observe: (message: unknown) => void) {
+  observer = observe
+}
+
+/** The request's JSON body, or undefined when it isn't JSON. */
+async function readJson(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  } catch {
+    return undefined
+  }
+}
 
 /**
  * The MCP SDK, loaded when an agent first calls a tool (or just after the first window
@@ -160,7 +179,20 @@ export async function startMcpServer(
           void transport.close()
           void server.close()
         })
-        return server.connect(transport).then(() => transport.handleRequest(req, res))
+        if (!observer) {
+          return server.connect(transport).then(() => transport.handleRequest(req, res))
+        }
+        // The body is read here to see it, so the transport is handed it parsed.
+        const observe = observer
+        return readJson(req).then(async (body) => {
+          if (body === undefined) {
+            res.writeHead(400).end()
+            return
+          }
+          for (const message of Array.isArray(body) ? body : [body]) observe(message)
+          await server.connect(transport)
+          await transport.handleRequest(req, res, body)
+        })
       })
       .catch((error: unknown) => {
         console.error('[gui] MCP request failed', error)
