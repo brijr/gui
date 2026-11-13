@@ -14,6 +14,7 @@ export const releases: Release[] = [
     version: '0.1.0-alpha.21',
     date: '2026-11-13',
     changes: [
+      'When your agent asks you a question, you see all of it: each choice on its own line, in full, with what it means.',
       'Closed terminals give back their memory.',
       'Terminals keep about 5,000 lines of history, not a few hundred.',
       'In Design mode, a quick click elsewhere right after picking reaches your app instead of being ignored.',
