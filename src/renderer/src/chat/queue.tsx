@@ -4,19 +4,20 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Textarea } from '../lib/field'
 import {
+  ArrowUp,
   ChevronDown,
   ChevronUp,
   Clock,
+  CornerUpRight,
   GripVertical,
   ImageIcon,
   Pencil,
-  Play,
   Reply,
   X,
 } from '../lib/icons'
 import { Banner, Card } from '../lib/surface'
 import { Button, IconButton } from '../lib/ui'
-import { noteRemoveQueued } from './store'
+import { noteRemoveQueued, noteSteerQueued } from './store'
 import { isNewRow, markSeen } from './transitions'
 import { textEditLabel } from './turn-view'
 
@@ -58,7 +59,8 @@ const REVEAL_FADE = { maskImage: 'linear-gradient(to right, transparent, #000 16
  * Messages sent while the agent was busy, oldest first, just above the composer. Each
  * starts when the turn before it is done; after Stop, an error and the like they wait for
  * "Send next". While they wait they can be edited, rearranged (drag, or the move buttons),
- * sent ahead of the rest, or removed — one by one, or all at once from the header.
+ * sent now, or removed (one by one, or all at once from the header). While the agent works,
+ * "Send now" puts a message into its reply, and is only offered when the reply can take it.
  */
 export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const [dragging, setDragging] = useState<string | null>(null)
@@ -127,6 +129,7 @@ export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boo
             index={index}
             count={meta.queue.length}
             running={running}
+            canSteer={meta.canSteer}
             isDragging={dragging === item.id}
             isOver={over === item.id && dragging !== item.id}
             onDragStart={setDragging}
@@ -145,6 +148,8 @@ interface QueuedItemProps {
   index: number
   count: number
   running: boolean
+  /** The reply under way can take a message (`ChatMeta.canSteer`) */
+  canSteer: boolean
   isDragging: boolean
   isOver: boolean
   onDragStart: (id: string) => void
@@ -159,6 +164,7 @@ function QueuedItem({
   index,
   count,
   running,
+  canSteer,
   isDragging,
   isOver,
   onDragStart,
@@ -302,24 +308,22 @@ function QueuedItem({
         className={cn(REVEAL, isOver && 'bg-[image:linear-gradient(var(--hover),var(--hover))]')}
         style={REVEAL_FADE}
       >
-        <IconButton
-          className={ROW_HIT_AREA}
-          size="sm"
-          label={running ? `Send queued message next: ${name}` : `Send queued message now: ${name}`}
-          title={
-            !running
-              ? 'Send now'
-              : index === 0
-                ? 'Sends next, when the agent finishes'
-                : 'Send after the current reply'
-          }
-          icon={Play}
-          aria-disabled={running && index === 0}
-          onClick={(event) => {
-            if (!running) focusAfterQueueRemoval(event.currentTarget)
-            gui.sendQueued(item.id)
-          }}
-        />
+        {/* Idle, it starts now. While the agent works, it goes into the reply (the agent
+            reads it at its next step), when the reply can take it; otherwise it waits. */}
+        {(!running || canSteer) && (
+          <IconButton
+            className={ROW_HIT_AREA}
+            size="sm"
+            label={`Send queued message now: ${name}`}
+            title={running ? 'Send now, into the current reply' : 'Send now'}
+            icon={running ? CornerUpRight : ArrowUp}
+            onClick={(event) => {
+              focusAfterQueueRemoval(event.currentTarget)
+              if (running) noteSteerQueued(item.id)
+              gui.steerQueued(item.id)
+            }}
+          />
+        )}
         <IconButton
           ref={editButton}
           className={ROW_HIT_AREA}

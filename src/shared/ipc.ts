@@ -15,6 +15,7 @@ import type {
   ChatSummary,
   CustomAgentEntry,
   DrawerTab,
+  FollowUpBehavior,
   GuideStrips,
   ImageAttachment,
   MorphEvent,
@@ -178,6 +179,7 @@ export const Send = {
   sendQueuedNow: 'chat:queue-send',
   retry: 'chat:retry',
   sendQueued: 'chat:queue-send-one',
+  steerQueued: 'chat:queue-send-now',
   clearQueued: 'chat:queue-clear',
   setAutoApprove: 'chat:auto-approve',
   setAgentSetting: 'chat:agent-setting',
@@ -197,6 +199,7 @@ export const Send = {
   setChatDocked: 'settings:chat-docked',
   setChatSidebarSide: 'settings:chat-sidebar-side',
   setCrashReports: 'settings:crash-reports',
+  setFollowUp: 'settings:follow-up',
   reportError: 'app:report-error',
   openCustomAgentsFile: 'settings:open-agents-file',
   newBoard: 'board:new',
@@ -651,11 +654,16 @@ export interface GuiApi {
    * false only when it wasn't accepted (e.g. empty, or no project). `followUp` is the id of
    * an earlier turn the message is about.
    */
+  /**
+   * `steer`: while the agent works, the message goes into its reply when it can
+   * (`ChatMeta.canSteer`); otherwise, or without it, it waits in the queue
+   */
   send(
     text: string,
     images?: ImageAttachment[],
     recordings?: string[],
     followUp?: string | null,
+    steer?: boolean,
   ): Promise<boolean>
   /** Drops a queued message */
   removeQueued(id: string): void
@@ -675,6 +683,11 @@ export interface GuiApi {
    * stay held), or next — moved to the front — while the agent works
    */
   sendQueued(id: string): void
+  /**
+   * "Send now": idle, sends a queued message now; while the agent works, adds it to the reply
+   * under way when it can (`ChatMeta.canSteer`), else it keeps its place
+   */
+  steerQueued(id: string): void
   /** Sends a failed turn's message again (`ChatMeta.retryTurnId`), with what it carried */
   retry(turnId: string): void
   /** Auto mode on or off (see `ChatMeta.autoApprove`) */
@@ -810,6 +823,8 @@ export interface GuiApi {
   setChatDocked(docked: boolean): void
   setChatSidebarSide(side: 'left' | 'right'): void
   setCrashReports(on: boolean): void
+  /** What Enter does while the agent works: steer the reply under way, or queue the message */
+  setFollowUp(behavior: FollowUpBehavior): void
   /** An error in one of Gui's own windows, for a crash report (main decides whether to send it) */
   reportError(error: { message: string; stack?: string }): void
   /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */

@@ -6,6 +6,7 @@ import {
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
   DEFAULT_AGENT_ID,
+  type FollowUpBehavior,
   type SettingsSection,
   type SettingsState,
   type StorageKind,
@@ -122,6 +123,7 @@ async function buildState(): Promise<SettingsState> {
     openProjects: openRoots(),
     home: app.getPath('home'),
     crashReports: prefs.crashReports,
+    followUp: prefs.followUp,
   }
 }
 
@@ -163,6 +165,11 @@ export function setChatDocked(docked: boolean) {
 
 export function setCrashReports(on: boolean) {
   setPrefs({ crashReports: on })
+}
+
+/** Open chats follow it at once (ChatController listens for prefs changes). */
+export function setFollowUp(behavior: FollowUpBehavior) {
+  setPrefs({ followUp: behavior })
 }
 
 export async function saveCustom(originalName: string | null, entry: CustomAgentEntry) {

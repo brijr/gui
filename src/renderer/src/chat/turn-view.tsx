@@ -224,6 +224,48 @@ function Row({ rowKey, children }: { rowKey: string; children: ReactNode }) {
 
 function UserMessage({ turn }: { turn: Turn }) {
   return (
+    <MessageBody message={turn}>
+      <p
+        data-user-message={turn.id}
+        className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
+      >
+        {turn.prompt}
+      </p>
+    </MessageBody>
+  )
+}
+
+type SteerItem = Extract<TurnItem, { kind: 'steer' }>
+
+/**
+ * A message the user steered the reply with, where the agent read it: the user's own bubble,
+ * between the agent's steps. The agent went on from there in the same turn.
+ */
+function SteerMessage({ item }: { item: SteerItem }) {
+  return (
+    <>
+      <h3 className="sr-only">You</h3>
+      <MessageBody message={item}>
+        <p
+          data-steer-message={item.id}
+          className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
+        >
+          {item.prompt}
+        </p>
+      </MessageBody>
+    </>
+  )
+}
+
+/** What a message carries above its bubble (picks, images, clips, a follow-up, a text edit). */
+function MessageBody({
+  message: turn,
+  children,
+}: {
+  message: Pick<Turn, 'context' | 'attachments' | 'recordings' | 'followUp' | 'textEdit'>
+  children: ReactNode
+}) {
+  return (
     <div className="flex flex-col items-end gap-1.5">
       {turn.context.length > 0 && (
         <ul aria-label="Selected" className="flex max-w-7/8 flex-wrap justify-end gap-1">
@@ -258,12 +300,7 @@ function UserMessage({ turn }: { turn: Turn }) {
         </p>
       )}
       {turn.textEdit && <TextEdited edit={turn.textEdit} />}
-      <p
-        data-user-message={turn.id}
-        className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
-      >
-        {turn.prompt}
-      </p>
+      {children}
     </div>
   )
 }
@@ -507,6 +544,8 @@ function BlockView({
           {block.text}
         </Note>
       )
+    case 'steer':
+      return <SteerMessage item={block} />
   }
 }
 

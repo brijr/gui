@@ -172,8 +172,8 @@ const api: GuiApi = {
   chatBoxHeight: send(Send.chatBoxHeight),
   holdChat: send(Send.holdChat),
   chatDrafted: send(Send.chatDrafted),
-  send: (text, images, recordings, followUp) =>
-    legacyInvoke(Invoke.send, text, images, recordings, followUp),
+  send: (text, images, recordings, followUp, steer) =>
+    legacyInvoke(Invoke.send, text, images, recordings, followUp, steer),
   cancel: send(Send.cancel),
   respondPermission: send(Send.respondPermission),
   stopSubagent: send(Send.stopSubagent),
@@ -204,6 +204,7 @@ const api: GuiApi = {
   sendQueuedNow: send(Send.sendQueuedNow),
   retry: send(Send.retry),
   sendQueued: send(Send.sendQueued),
+  steerQueued: send(Send.steerQueued),
   setAutoApprove: send(Send.setAutoApprove),
   setAgentSetting: send(Send.setAgentSetting),
   loadCommands: () => legacyInvoke(Invoke.loadCommands),
@@ -233,6 +234,7 @@ const api: GuiApi = {
   setChatDocked: send(Send.setChatDocked),
   setChatSidebarSide: send(Send.setChatSidebarSide),
   setCrashReports: send(Send.setCrashReports),
+  setFollowUp: send(Send.setFollowUp),
   reportError: send(Send.reportError),
   saveCustomAgent: (originalName, entry) =>
     invokeOrThrow(Invoke.saveCustomAgent, originalName, entry),

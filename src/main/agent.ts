@@ -130,6 +130,8 @@ export interface AgentInfo {
   /** True when an earlier session was resumed, so the agent remembers prior turns */
   resumed: boolean
   supportsImages: boolean
+  /** It takes a message into a running turn (`steer`) */
+  supportsSteering: boolean
   /** Gui's preview tools were offered (the agent takes HTTP MCP servers) */
   previewTools: boolean
   modeName: string | null
@@ -256,6 +258,14 @@ function sessionGreeting(meta: Record<string, unknown> | null | undefined) {
   const piAcp = meta?.piAcp
   const text = isRecord(piAcp) ? piAcp.startupInfo : null
   return typeof text === 'string' && text ? text : null
+}
+
+/** ACP's extension for a message into the running turn; agents say they take it at initialize. */
+const STEER_METHOD = '_session/steering'
+
+function advertisesSteering(meta: Record<string, unknown> | null | undefined) {
+  const steering = meta?.steering
+  return isRecord(steering) && steering.supported === true
 }
 
 const settingValues = (setting: AgentSetting) => setting.options.map(({ value }) => value)
@@ -549,6 +559,7 @@ export class AgentSession {
       sessionId: session.sessionId,
       resumed,
       supportsImages: init.agentCapabilities?.promptCapabilities?.image === true,
+      supportsSteering: advertisesSteering(init._meta),
       previewTools: servers.length > 0,
       modeName: this.modeName,
       models: this.models,
@@ -676,6 +687,27 @@ export class AgentSession {
       if (plain) throw new DetailedError(plain, detail)
       throw error instanceof acp.RequestError ? new Error(detail) : error
     })
+  }
+
+  /**
+   * Adds `blocks` to the turn under way, as the user's words read between its steps
+   * (`_session/steering`, which Claude's and Codex's adapters offer). 'promptRequired' when
+   * no turn was under way to take them: nothing was sent, and they're still the caller's.
+   */
+  async steer(blocks: acp.ContentBlock[]): Promise<'injected' | 'promptRequired'> {
+    const { connection, sessionId } = this
+    if (!connection || !sessionId) throw new Error('Agent is not running')
+    const response = await this.untilExit(
+      connection.agent.request<{ outcome?: unknown }>(STEER_METHOD, {
+        sessionId,
+        prompt: blocks,
+        // Without it an idle session starts a turn of its own, which Gui wouldn't follow.
+        _meta: { steering: { idleBehavior: 'promptRequired' } },
+      }),
+    )
+    if (response?.outcome === 'injected') return 'injected'
+    if (response?.outcome === 'promptRequired') return 'promptRequired'
+    throw new Error(`Unexpected steering outcome: ${String(response?.outcome)}`)
   }
 
   /** Changes one of the session's settings; returns its model settings as they now stand. */

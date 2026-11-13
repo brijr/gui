@@ -5,6 +5,8 @@ export const SYMBOLS = {
   ArrowLeft: 'arrow.left',
   ArrowRight: 'arrow.right',
   ArrowUp: 'arrow.up',
+  // Steer: the message turns into the reply under way.
+  CornerUpRight: 'arrow.turn.up.right',
   ArrowDownCircle: 'arrow.down.circle',
   Bot: 'cpu',
   Brain: 'brain',
@@ -52,6 +54,8 @@ export const SYMBOLS = {
   PictureInPicture2: 'pip',
   PanelLeft: 'sidebar.left',
   Play: 'play.fill',
+  // Queue: the message joins the list waiting for the agent.
+  ListPlus: 'text.badge.plus',
   Plus: 'plus',
   Redo2: 'arrow.uturn.forward',
   Reply: 'arrowshape.turn.up.left',

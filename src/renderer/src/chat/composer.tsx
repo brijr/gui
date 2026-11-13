@@ -13,7 +13,7 @@ import {
   useState,
 } from 'react'
 import { MAX_IMAGES } from '../../../shared/bounded'
-import { shortcutText } from '../../../shared/shortcuts'
+import { matchesShortcut, shortcutText } from '../../../shared/shortcuts'
 import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
@@ -21,9 +21,11 @@ import { TechnicalDetails, useReveal } from '../lib/disclosure'
 import {
   ArrowUp,
   ChevronUp,
+  CornerUpRight,
   Crop,
   type IconComponent,
   Info,
+  ListPlus,
   MousePointer2,
   Paperclip,
   Reply,
@@ -44,6 +46,7 @@ import {
   addAttachments,
   dismissProblems,
   noteSend,
+  noteSteerQueued,
   removeAttachments,
   removeRecordings,
   setDraft,
@@ -169,11 +172,20 @@ export function Composer({
     }
   }
 
+  // While the agent works, Enter steers its reply or queues the message, as Settings says,
+  // and ⌘ does the other. Steering waits for a reply that can take it (`canSteer`).
+  const commandHeld = useCommandHeld()
+  const steers = (other: boolean) =>
+    running && meta.canSteer && (meta.followUp === 'steer') !== other
+  const buttonSteers = steers(commandHeld)
+  const hasDraft = text.trim() !== '' || attachments.length > 0 || recordings.length > 0
+
   /** A send awaiting main; main queues while busy, so a repeat Enter would queue it twice. */
   const sending = useRef(false)
 
-  // While the agent works, this queues the message (meta.queue) instead of starting a turn.
-  const submit = async (event?: FormEvent) => {
+  // While the agent works, this steers its reply (`steer`, when main can) or queues the
+  // message (meta.queue) instead of starting a turn.
+  const submit = async (event?: FormEvent, steer = false) => {
     event?.preventDefault()
     if (!canSend || sending.current) return
     const sent = attachments
@@ -196,7 +208,7 @@ export function Composer({
     try {
       // Keep the draft unless main took it (started the turn or queued it). Only what went
       // out clears: an image attached while sending stays for the next message.
-      const accepted = await gui.send(text, images, clips, about)
+      const accepted = await gui.send(text, images, clips, about, steer)
       settleSend(
         accepted,
         text,
@@ -222,7 +234,14 @@ export function Composer({
     if (commands.onKeyDown(event)) return
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
-      void submit()
+      void submit(undefined, steers(matchesShortcut(event, 'sendOther')))
+    } else if (matchesShortcut(event, 'steerQueued') && !event.nativeEvent.isComposing) {
+      event.preventDefault()
+      const next = meta.queue[0]
+      if (running && meta.canSteer && next) {
+        noteSteerQueued(next.id)
+        gui.steerQueued(next.id)
+      }
     } else if (event.key === 'Escape' && meta.selection.length > 0) {
       gui.clearSelection()
     }
@@ -408,7 +427,9 @@ export function Composer({
             aria-label={`Message ${meta.agentName}`}
             placeholder={
               running
-                ? 'Queue a message…'
+                ? meta.canSteer && meta.followUp === 'steer'
+                  ? 'Steer the agent…'
+                  : 'Queue a message…'
                 : meta.selection.length > 0 || attachments.length > 0 || recordings.length > 0
                   ? 'Describe the change…'
                   : `Ask ${meta.agentName}…`
@@ -459,17 +480,30 @@ export function Composer({
             <AutoToggle meta={meta} />
             <span className="ml-auto" />
             {meta.models && <ModelButton models={meta.models} />}
-            {/* While the agent works, a draft can still go out: it joins the queue. */}
-            <IconButton
-              type="submit"
-              className={HIT_AREA}
-              variant="primary"
-              label={running ? 'Queue message' : 'Send'}
-              shortcut="send"
-              title={canSend ? undefined : cantSend}
-              icon={ArrowUp}
-              disabled={!canSend}
-            />
+            {/* While the agent works, a draft still goes out: into its reply, or the queue.
+                With nothing written, Stop alone stays. */}
+            {(!running || hasDraft) && (
+              <IconButton
+                type="submit"
+                className={HIT_AREA}
+                variant="primary"
+                label={running ? (buttonSteers ? 'Steer message' : 'Queue message') : 'Send'}
+                shortcut="send"
+                title={
+                  !canSend
+                    ? cantSend
+                    : running && meta.canSteer
+                      ? `Click to ${meta.followUp}, ⌘-click to ${meta.followUp === 'steer' ? 'queue' : 'steer'}`
+                      : undefined
+                }
+                icon={running ? (buttonSteers ? CornerUpRight : ListPlus) : ArrowUp}
+                disabled={!canSend}
+                onClick={(event) => {
+                  event.preventDefault()
+                  void submit(undefined, steers(event.metaKey))
+                }}
+              />
+            )}
             {/* Stop stays at the end while the agent works. */}
             {running && (
               <IconButton
@@ -716,4 +750,22 @@ function AgentStatus({ meta }: { meta: ChatMeta }) {
     )
   }
   return null
+}
+
+/** ⌘ is down (it switches Steer and Queue while the agent works), for the send button's look. */
+function useCommandHeld() {
+  const [held, setHeld] = useState(false)
+  useEffect(() => {
+    const update = (event: globalThis.KeyboardEvent) => setHeld(event.metaKey)
+    const clear = () => setHeld(false)
+    window.addEventListener('keydown', update)
+    window.addEventListener('keyup', update)
+    window.addEventListener('blur', clear)
+    return () => {
+      window.removeEventListener('keydown', update)
+      window.removeEventListener('keyup', update)
+      window.removeEventListener('blur', clear)
+    }
+  }, [])
+  return held
 }
