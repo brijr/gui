@@ -1,5 +1,12 @@
 import type { Terminal } from 'ghostty-web'
-import { type RefObject, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import {
+  type RefObject,
+  useEffect,
+  useReducer,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from 'react'
 import {
   applyFindAction,
   CLOSED_FIND,
@@ -15,7 +22,8 @@ import { matchesShortcut } from '../../../shared/shortcuts'
 import type { TerminalId } from '../../../shared/types'
 import { gui } from '../lib/api'
 import { FIND_EVENT, FloatingFindBar } from './find-bar'
-import { drawOutput, mountTerminal, showMatch, terminalLines } from './terminal'
+import { mountTerminal, showMatch, terminalLines } from './terminal'
+import { drawOutput } from './terminal-output'
 
 // The drawer's terminals, apart from it so Ghostty loads only once one is first drawn.
 
@@ -52,7 +60,12 @@ function useFocus(term: { current: Terminal | null }, { focus, onFocused }: View
  * Edit → Find in a terminal (⌘F while it has the keyboard): its find bar, floating over the
  * top of the drawer. The drawer hands it the menu's commands as `FIND_EVENT` on its scope.
  */
-function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTMLElement | null>) {
+function useTerminalFind(
+  // Named as refs, so the React Compiler doesn't memoize on what's in them: a past terminal,
+  // with its Ghostty and all its memory, would be kept.
+  termRef: RefObject<Terminal | null>,
+  scopeRef: RefObject<HTMLElement | null>,
+) {
   const [find, setFind] = useState(CLOSED_FIND)
   const [result, setResult] = useState<FindResult | null>(null)
   // As they are now, for a command that comes before the next render.
@@ -64,7 +77,7 @@ function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTML
   }
   /** Searches all its lines again (output keeps coming), and shows the match `step` away. */
   const search = (query: string, step: 1 | -1 | null) => {
-    const terminal = term.current
+    const terminal = termRef.current
     if (!terminal) return
     const matches = findInLines(terminalLines(terminal), query)
     const index = stepMatch(matches, step ? shown.current : null, step ?? 1)
@@ -76,7 +89,7 @@ function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTML
   }
   // biome-ignore lint/correctness/useExhaustiveDependencies: `update` and `search` read refs.
   useEffect(() => {
-    const el = scope.current
+    const el = scopeRef.current
     if (!el) return
     const onFind = (event: Event) => {
       const was = current.current
@@ -87,7 +100,7 @@ function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTML
     }
     el.addEventListener(FIND_EVENT, onFind)
     return () => el.removeEventListener(FIND_EVENT, onFind)
-  }, [scope])
+  }, [scopeRef])
 
   if (!find.open) return null
   return (
@@ -103,7 +116,7 @@ function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTML
         shown.current = null
         if (text) search(text, null)
         else {
-          term.current?.clearSelection()
+          termRef.current?.clearSelection()
           setResult(null)
         }
       }}
@@ -114,7 +127,7 @@ function useTerminalFind(term: RefObject<Terminal | null>, scope: RefObject<HTML
       onClose={() => {
         update({ ...current.current, open: false })
         setResult(null)
-        term.current?.focus()
+        termRef.current?.focus()
       }}
     />
   )
@@ -127,33 +140,43 @@ export function LogsView(props: ViewProps) {
   const term = useRef<Terminal | null>(null)
   const dark = useDark()
   const mounted = useRef<ReturnType<typeof mountTerminal> | null>(null)
+  const [generation, remount] = useReducer(nextGeneration, 0)
+  const hadFocus = useRef(false)
 
   useEffect(() => {
     const el = host.current
     if (!el) return
-    // Made again, in the new colors, when the appearance changes.
+    // Made again, in the new colors, when the appearance changes; or when it asks to be.
     void dark
+    void generation
     const terminal = mountTerminal(el, {
       interactive: false,
       onResize: (cols, rows) => gui.resizeLogs(cols, rows),
     })
     mounted.current = terminal
     term.current = terminal.term
-    const output = drawOutput(terminal.term, { snapshot: gui.getLogs, subscribe: gui.onLogs })
+    // Made again with the keyboard in it, it keeps it.
+    if (hadFocus.current) terminal.term.focus()
+    const output = drawOutput(
+      terminal,
+      { snapshot: gui.getLogs, subscribe: gui.onLogs, ack: gui.ackOutput },
+      remount,
+    )
 
     return () => {
+      hadFocus.current = el.contains(document.activeElement)
       output.dispose()
       mounted.current = null
       term.current = null
       terminal.dispose()
     }
-  }, [dark])
+  }, [dark, generation])
   // After the terminal is made, which a tab that's new asks for in the same render.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: appearance recreates the terminal.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new terminal starts drawing.
   useEffect(() => {
     if (props.active) mounted.current?.resume()
     else mounted.current?.pause()
-  }, [props.active, dark])
+  }, [props.active, dark, generation])
   useFocus(term, props)
   const find = useTerminalFind(term, scope)
 
@@ -172,12 +195,15 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
   const term = useRef<Terminal | null>(null)
   const dark = useDark()
   const mounted = useRef<ReturnType<typeof mountTerminal> | null>(null)
+  const [generation, remount] = useReducer(nextGeneration, 0)
+  const hadFocus = useRef(false)
 
   useEffect(() => {
     const el = host.current
     if (!el) return
-    // Made again, in the new colors, when the appearance changes.
+    // Made again, in the new colors, when the appearance changes; or when it asks to be.
     void dark
+    void generation
     // ⌘K clears it, as in Terminal; the shell isn't told. ⌘⌫ deletes the line being typed, as
     // in a text field (the shell's ⌃U, as in iTerm); handled here, it never answers a waiting
     // permission card from the terminal. ⌘↩ and the rest go on to the app.
@@ -200,13 +226,20 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     })
     mounted.current = terminal
     term.current = terminal.term
-    const output = drawOutput(terminal.term, {
-      snapshot: () => gui.getTerminal(id),
-      subscribe: (cb) =>
-        gui.onTerminalData((chunk) => {
-          if (chunk.id === id) cb(chunk)
-        }),
-    })
+    // Made again with the keyboard in it, it keeps it.
+    if (hadFocus.current) terminal.term.focus()
+    const output = drawOutput(
+      terminal,
+      {
+        snapshot: () => gui.getTerminal(id),
+        subscribe: (cb) =>
+          gui.onTerminalData((chunk) => {
+            if (chunk.id === id) cb(chunk)
+          }),
+        ack: gui.ackOutput,
+      },
+      remount,
+    )
     const input = terminal.term.onData((data) => {
       // An answer to a query in old output, which starts with ESC as answers do, stays here.
       // Keys typed meanwhile still go: ⌃C, just after switching to a terminal that floods.
@@ -214,18 +247,19 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     })
 
     return () => {
+      hadFocus.current = el.contains(document.activeElement)
       output.dispose()
       input.dispose()
       mounted.current = null
       term.current = null
       terminal.dispose()
     }
-  }, [id, dark])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: appearance or id recreates the terminal.
+  }, [id, dark, generation])
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new terminal starts drawing.
   useEffect(() => {
     if (props.active) mounted.current?.resume()
     else mounted.current?.pause()
-  }, [props.active, dark, id])
+  }, [props.active, dark, id, generation])
   useFocus(term, props)
   const find = useTerminalFind(term, scope)
 
@@ -236,6 +270,8 @@ export function ShellView({ id, ...props }: ViewProps & { id: TerminalId }) {
     </div>
   )
 }
+
+const nextGeneration = (generation: number) => generation + 1
 
 /** Ghostty makes the host editable for its keys; the page's caret mustn't show in it. */
 const HOST = 'size-full caret-transparent'

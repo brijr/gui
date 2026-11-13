@@ -1,15 +1,42 @@
 import { FitAddon, Ghostty, type ITheme, Terminal } from 'ghostty-web'
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url'
 import type { TextMatch } from '../../../shared/find'
-import type { OutputChunk, Unsubscribe } from '../../../shared/ipc'
-import { gui } from '../lib/api'
-
-/** ESC c: resets the terminal, in turn with what's being drawn. */
-const RESET = '\u001bc'
 
 // Ghostty's terminal, compiled to WebAssembly: loaded once, with the module that draws the
 // drawer's terminals. It measures the mono font as it draws, so that loads first too.
-const [ghostty] = await Promise.all([Ghostty.load(wasmUrl), document.fonts.ready])
+const [wasm] = await Promise.all([
+  fetch(wasmUrl)
+    .then((response) => response.arrayBuffer())
+    .then((bytes) => WebAssembly.compile(bytes)),
+  document.fonts.ready,
+])
+
+/**
+ * Past this, a terminal is made again from main's output (`drawOutput`). Its WebAssembly
+ * memory only grows, and Ghostty 0.4 leaks in it: a few KB a line once the lines it keeps have
+ * more than about a hundred distinct colors (syntax-highlighted diffs, an agent's output). At 2 GB
+ * its pointers turn negative in JavaScript, and every write throws "offset is out of bounds".
+ * A terminal needs a few MB.
+ */
+const MAX_TERMINAL_MEMORY = 128 * 1024 * 1024
+
+/**
+ * A Ghostty of the terminal's own, so that what it leaks goes with it: one shared by every
+ * terminal the window ever made would only grow.
+ */
+function ownGhostty() {
+  const instance: WebAssembly.Instance = new WebAssembly.Instance(wasm, {
+    env: {
+      // As Ghostty.load has it: what Ghostty logs, to the console.
+      log: (at: number, length: number) => {
+        const text = new Uint8Array(memory().buffer, at, length)
+        console.log('[ghostty-vt]', new TextDecoder().decode(text))
+      },
+    },
+  })
+  const memory = () => instance.exports.memory as WebAssembly.Memory
+  return { ghostty: new Ghostty(instance), memory }
+}
 
 function cssVar(name: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -50,6 +77,28 @@ function terminalTheme(interactive: boolean): ITheme {
 
 type Keys = (event: KeyboardEvent) => void
 
+/** What a terminal's host shows, for tests and tools to read: whether it draws, and its text. */
+const hosts = new WeakMap<Element, { rendering: () => boolean; text: () => string }>()
+/**
+ * One getter for every host, reading `hosts`: V8 keeps a property's first getter in a shape
+ * other elements share, and one that closed over a terminal would keep it and its Ghostty.
+ */
+const HOST_PROPERTIES: PropertyDescriptorMap = {
+  terminalRendering: {
+    configurable: true,
+    get(this: Element) {
+      return hosts.get(this)?.rendering() ?? false
+    },
+  },
+  // Its pixels are on a canvas; this is its text.
+  terminalText: {
+    configurable: true,
+    get(this: Element) {
+      return hosts.get(this)?.text() ?? ''
+    },
+  },
+}
+
 interface TerminalOptions {
   /** A shell: takes keystrokes and shows its cursor. Otherwise read-only output. */
   interactive: boolean
@@ -68,6 +117,7 @@ export function mountTerminal(
   el: HTMLElement,
   { interactive, onResize, onCommand }: TerminalOptions,
 ) {
+  const { ghostty, memory } = ownGhostty()
   const term = new Terminal({
     ghostty,
     fontFamily: cssVar('--font-mono'),
@@ -79,7 +129,12 @@ export function mountTerminal(
   })
   const fit = new FitAddon()
   term.loadAddon(fit)
-  const releaseDocument = documentListeners(() => term.open(el))
+  // Ghostty takes the keyboard as it opens. The drawer gives it to a terminal when asked
+  // (`useFocus`); one made again (new colors, a new Ghostty) keeps it only if it had it.
+  const focus = term.focus
+  term.focus = () => {}
+  const releaseListeners = listenersAdded([document, el], () => term.open(el))
+  term.focus = focus
   // Ghostty exposes these only at runtime. Own the loop so hidden terminals keep
   // parsing output without scheduling canvas work (including indirect restarts).
   const loop = term as unknown as {
@@ -97,16 +152,8 @@ export function mountTerminal(
     if (loop.animationFrameId !== null) cancelAnimationFrame(loop.animationFrameId)
     loop.animationFrameId = null
   }
-  // What a terminal's host shows, for tests and tools to read.
-  Object.defineProperty(el, 'terminalRendering', {
-    configurable: true,
-    get: () => loop.animationFrameId !== null,
-  })
-  // Its pixels are on a canvas; this is its text.
-  Object.defineProperty(el, 'terminalText', {
-    configurable: true,
-    get: () => screenText(term),
-  })
+  hosts.set(el, { rendering: () => loop.animationFrameId !== null, text: () => screenText(term) })
+  Object.defineProperties(el, HOST_PROPERTIES)
 
   // ⌘ keys are the app's, as in Terminal. Ghostty would type them and keep them from the menu,
   // so its listener never hears them; they go on, unhandled, to the page and the menu. Not ⌘C
@@ -149,6 +196,8 @@ export function mountTerminal(
 
   return {
     term,
+    write: (data: string) => term.write(data),
+    outgrown: () => memory().buffer.byteLength > MAX_TERMINAL_MEMORY,
     pause,
     resume() {
       if (disposed) return
@@ -161,36 +210,42 @@ export function mountTerminal(
       pause()
       observer.disconnect()
       el.removeEventListener('copy', copy)
+      hosts.delete(el)
       delete (el as { terminalText?: string }).terminalText
       delete (el as { terminalRendering?: boolean }).terminalRendering
       term.dispose()
-      releaseDocument()
+      releaseListeners()
     },
   }
 }
 
-type Listener = Parameters<Document['addEventListener']>
+type Listener = Parameters<EventTarget['addEventListener']>
 
 /**
- * Runs `open`, noting the listeners it adds to the document; the returned function takes them
- * all off. Ghostty's dispose leaves one behind (its selection's mousedown), and through it the
- * page would keep every terminal ever made, canvas and all.
+ * Runs `open`, noting the listeners it adds to `targets`; the returned function takes them all
+ * off. Ghostty's dispose leaves some behind: its selection's mousedown on the document, and a
+ * beforeinput on the host, whose closure holds the terminal. Through them the page would keep
+ * every terminal ever made, canvas, Ghostty, and all its memory.
  */
-function documentListeners(open: () => void) {
-  const added: Listener[] = []
-  const add = document.addEventListener
-  document.addEventListener = function (this: Document, ...args: Listener) {
-    added.push(args)
-    add.apply(this, args)
-  } as Document['addEventListener']
+function listenersAdded(targets: EventTarget[], open: () => void) {
+  const added: [EventTarget, Listener][] = []
+  const adds = targets.map((target) => target.addEventListener)
+  targets.forEach((target, i) => {
+    target.addEventListener = function (this: EventTarget, ...args: Listener) {
+      added.push([target, args])
+      adds[i].apply(this, args)
+    }
+  })
   try {
     open()
   } finally {
-    document.addEventListener = add
+    targets.forEach((target, i) => {
+      target.addEventListener = adds[i]
+    })
   }
   return () => {
-    for (const [type, listener, options] of added.splice(0)) {
-      document.removeEventListener(type, listener, options)
+    for (const [target, [type, listener, options]] of added.splice(0)) {
+      target.removeEventListener(type, listener, options)
     }
   }
 }
@@ -245,63 +300,4 @@ function screenText(term: Terminal) {
     lines.push(buffer.getLine(y)?.translateToString(true) ?? '')
   }
   return lines.join('\n')
-}
-
-interface OutputSource {
-  /** All main keeps of the output, to draw first */
-  snapshot: () => Promise<OutputChunk>
-  /** The output as main sends it, while the view is on screen */
-  subscribe: (cb: (chunk: OutputChunk) => void) => Unsubscribe
-}
-
-/**
- * Draws a drawer view's output into `term`: main's snapshot, then what main sends, past what's
- * drawn already. Each chunk is acknowledged once drawn: main sends more as the terminal keeps
- * up, and holds a shell printing faster than that. `replaying` is true while old output draws
- * (the snapshot, or all main kept when the view missed more than that): Ghostty answers the
- * queries in it (cursor position, colors) as if just asked, and those answers mustn't reach
- * the shell.
- */
-export function drawOutput(term: Terminal, source: OutputSource) {
-  /** Drawn, or on its way to the terminal, up to here; null until the snapshot is */
-  let at: number | null = null
-  /** Sent before the snapshot came, which main sends after them on the same channel */
-  const early: OutputChunk[] = []
-  let replaying = false
-  let disposed = false
-
-  const draw = (chunk: OutputChunk, data: string, replay: boolean) => {
-    at = chunk.end
-    replaying = replay
-    // Ghostty reads it all now, answering any queries in it as it goes; its callback waits
-    // for a frame, which a hidden window never draws, and main would hold the shell meanwhile.
-    term.write(data)
-    replaying = false
-    if (!disposed) gui.ackOutput(chunk.id, chunk.end)
-  }
-  const receive = (chunk: OutputChunk) => {
-    if (at === null) {
-      early.push(chunk)
-      return
-    }
-    if (chunk.end <= at) return
-    const start = chunk.end - chunk.data.length
-    // Main had already let go of some of what this view missed: it starts over.
-    if (start > at) draw(chunk, RESET + chunk.data, true)
-    else draw(chunk, chunk.data.slice(at - start), false)
-  }
-
-  const off = source.subscribe(receive)
-  void source.snapshot().then((snapshot) => {
-    if (disposed) return
-    draw(snapshot, snapshot.data, true)
-    for (const chunk of early.splice(0)) receive(chunk)
-  })
-  return {
-    replaying: () => replaying,
-    dispose() {
-      disposed = true
-      off()
-    },
-  }
 }

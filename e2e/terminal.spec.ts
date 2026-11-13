@@ -552,21 +552,21 @@ test('a terminal made again lets go of the old one', async ({ launch }) => {
   // The dev server's output and the shell.
   await expect(session.chrome.locator(canvases)).toHaveCount(2)
   const cdp = await session.app.context().newCDPSession(session.chrome)
-  /** Canvases the page still holds after garbage collection, on the page or not. */
-  const liveCanvases = async () => {
+  /**
+   * Objects of a kind the page still holds after garbage collection, on the page or not:
+   * canvases, and the WebAssembly memory of each terminal's own Ghostty.
+   */
+  const live = async (prototype: string) => {
     await cdp.send('HeapProfiler.collectGarbage')
     // Grouped, and let go of after: what the probe holds, the page would too.
-    const objectGroup = 'canvas-probe'
-    const { result } = await cdp.send('Runtime.evaluate', {
-      expression: 'HTMLCanvasElement.prototype',
-      objectGroup,
-    })
-    if (!result.objectId) throw new Error('No canvas prototype')
+    const objectGroup = 'live-probe'
+    const { result } = await cdp.send('Runtime.evaluate', { expression: prototype, objectGroup })
+    if (!result.objectId) throw new Error(`No ${prototype}`)
     const { objects } = await cdp.send('Runtime.queryObjects', {
       prototypeObjectId: result.objectId,
       objectGroup,
     })
-    if (!objects.objectId) throw new Error('No canvases')
+    if (!objects.objectId) throw new Error(`No objects of ${prototype}`)
     const count = await cdp.send('Runtime.callFunctionOn', {
       objectId: objects.objectId,
       functionDeclaration: 'function () { return this.length }',
@@ -575,7 +575,11 @@ test('a terminal made again lets go of the old one', async ({ launch }) => {
     await cdp.send('Runtime.releaseObjectGroup', { objectGroup })
     return count.result.value as number
   }
-  const before = await liveCanvases()
+  const counts = async () => [
+    await live('HTMLCanvasElement.prototype'),
+    await live('WebAssembly.Memory.prototype'),
+  ]
+  const before = await counts()
   // Each terminal is made again, in the new colors, when the appearance changes.
   for (const colorScheme of ['dark', 'light', 'dark', 'light'] as const) {
     await session.chrome.evaluate((selector) => {
@@ -584,7 +588,7 @@ test('a terminal made again lets go of the old one', async ({ launch }) => {
     await session.chrome.emulateMedia({ colorScheme })
     await expect(session.chrome.locator(`${canvases}:not([data-old])`)).toHaveCount(2)
   }
-  expect(await liveCanvases()).toBe(before)
+  expect(await counts()).toEqual(before)
 })
 
 test('hiding the terminal with the keyboard in it gives the keyboard to the preview', async ({
