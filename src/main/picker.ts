@@ -43,6 +43,11 @@ function doubleClickMs() {
   const seconds = systemPreferences.getUserDefault('com.apple.mouse.doubleClickThreshold', 'double')
   return seconds > 0 ? Math.min(Math.max(seconds * 1000, 200), 800) : 400
 }
+/**
+ * How far around a click that picked the overlay still lies while it waits for a second click
+ * (the overlay's DRAG_THRESHOLD): a click anywhere else reaches the page, as after picking.
+ */
+const SECOND_CLICK_REACH = 4
 
 /** The variations bar (docs/variations.md): what it says. */
 export type Bar = Omit<VariationsBar, 'at' | 'room'>
@@ -111,8 +116,11 @@ export class Picker {
   private area: Rect | null = null
   /** The floating chat in the canvas's bottom-left corner, in the window: the bar sits right of it */
   private chat: Rect | null = null
-  /** The next `stop` keeps the overlay up, unseen, for a double-click's second click (`linger`) */
-  private lingerNext = false
+  /**
+   * The next `stop` keeps the overlay up, unseen, over this point (its coordinates) for a
+   * double-click's second click (`linger`)
+   */
+  private lingerNext: Point | null = null
   /** Picking ended on a click; the overlay waits for a second one until this goes off */
   private lingerTimer: NodeJS.Timeout | null = null
 
@@ -182,13 +190,14 @@ export class Picker {
   }
 
   /**
-   * Ends picking. After a click that picked (`lingerOnStop`), the overlay stays over the page
-   * for the double-click interval, drawing nothing, so a second click there edits the text
-   * (the overlay asks main); then it goes as usual.
+   * Ends picking. After a click that picked (`lingerOnStop`), the overlay stays over the spot
+   * it was on for the double-click interval, drawing nothing, so a second click there edits
+   * the text (the overlay asks main); then it goes as usual. A second click elsewhere is the
+   * page's.
    */
   stop() {
-    const linger = this.lingerNext && !this.bar && !this.guided
-    this.lingerNext = false
+    const spot = !this.bar && !this.guided ? this.lingerNext : null
+    this.lingerNext = null
     this.active = false
     this.pointer = null
     this.hovered = null
@@ -197,7 +206,14 @@ export class Picker {
     this.timer = null
     this.labels.clear()
     this.clearLinger()
-    if (linger) {
+    if (spot && this.area) {
+      const reach = SECOND_CLICK_REACH
+      this.view.setBounds({
+        x: this.area.x + spot.x - reach,
+        y: this.area.y + spot.y - reach,
+        width: reach * 2,
+        height: reach * 2,
+      })
       this.send({
         hover: null,
         picked: [],
@@ -214,9 +230,9 @@ export class Picker {
     if (this.bar) this.drawBar()
   }
 
-  /** The next `stop` comes from a click that picked: see `stop`. */
-  lingerOnStop() {
-    this.lingerNext = true
+  /** The next `stop` comes from a click that picked at `at`: see `stop`. */
+  lingerOnStop(at: Point) {
+    this.lingerNext = at
   }
 
   /** The wait for a second click is over, or it came: the overlay goes. */

@@ -177,16 +177,19 @@ export function PickOverlay() {
     )
   // The bar on its own: this overlay is only as big as it is (main/picker.ts).
   if (variations) return variations
-  // Picking just ended on a click: nothing drawn, but a second click on the same spot makes
-  // it a double-click, which edits the text there (main drops the pick the first one made).
+  // Picking just ended on a click: nothing drawn, and main has this overlay over only the spot
+  // it was on, so a second click there makes it a double-click, which edits the text (main
+  // drops the pick the first one made). A click anywhere else reaches the page.
   if (state.linger)
     return (
       <div
         aria-hidden="true"
         className="fixed inset-0"
         onPointerDown={(event) => {
-          const at = pointAt(event)
-          if (event.button === 0 && secondClick(at)) gui.editPreviewText(at)
+          const first = clicked.current
+          clicked.current = null
+          if (event.button !== 0 || !first) return
+          if (performance.now() - first.time < SECOND_CLICK_MS) gui.editPreviewText(first.at)
         }}
       />
     )

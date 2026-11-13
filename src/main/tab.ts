@@ -2456,7 +2456,7 @@ export class ProjectTab implements ChatPanelOwner {
     const click = add ? null : { before: this.resources.chat?.meta.selection ?? [], dropped: false }
     this.clickPick = click
     if (!add) {
-      this.picker.lingerOnStop()
+      this.picker.lingerOnStop(at)
       void this.setSelecting(false)
     }
     this.queuePick(async () => {

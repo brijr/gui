@@ -116,16 +116,28 @@ interface OverlayGesture {
 
 /**
  * Runs in main: real input to the pick overlay that lies over the preview while picking, at
- * points in its coordinates (the preview view's), as the user's pointer would give it.
+ * points in the preview view's coordinates, as the user's pointer would give it. While it waits
+ * for a double-click's second click it covers only the first's spot; the points are moved into
+ * its own coordinates.
  */
 function overlayGesture(
-  { webContents }: ElectronModule,
+  { BrowserWindow, WebContentsView }: ElectronModule,
   { from, to, add, clicks = 1 }: OverlayGesture,
 ) {
-  const overlay = webContents.getAllWebContents().find((wc) => wc.getURL().endsWith('/pick.html'))
-  if (!overlay) throw new Error('The pick overlay is missing')
+  const views = BrowserWindow.getAllWindows().flatMap((win) =>
+    win.contentView.children.filter((view) => view instanceof WebContentsView),
+  )
+  const overlayView = views.find((view) => view.webContents.getURL().endsWith('/pick.html'))
+  const preview = views.find((view) => /^https?:/.test(view.webContents.getURL()))
+  if (!overlayView || !preview) throw new Error('The pick overlay or the preview is missing')
+  const overlay = overlayView.webContents
+  const shown = overlayView.getBounds()
+  const page = preview.getBounds()
   const modifiers: ('shift' | 'leftbuttondown')[] = add ? ['shift'] : []
-  const at = ({ x, y }: Point) => ({ x: Math.round(x), y: Math.round(y) })
+  const at = ({ x, y }: Point) => ({
+    x: Math.round(x + page.x - shown.x),
+    y: Math.round(y + page.y - shown.y),
+  })
   // Hidden windows let only marked moves reach the overlay (src/main/window-presentation.ts).
   const marked = globalThis as { guiE2eInput?: boolean }
   marked.guiE2eInput = true

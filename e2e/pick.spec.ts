@@ -263,3 +263,56 @@ test('a click picks at once, and its chip comes without a wait', async ({ launch
   const [picked] = await selection(session)
   expect(picked && !isRegion(picked) ? picked.tag : null).toBe('button')
 })
+
+// While it waits for a double-click's second click, the overlay lies over only the spot the
+// first was on: a quick click on something else is the page's, as any click after picking is.
+test('a second click on something else within the double-click interval reaches the page', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  const heading = await session.viewBox('h1')
+  const counter = await session.viewBox('button.counter')
+  const centerOf = (box: { x: number; y: number; width: number; height: number }) => ({
+    x: box.x + box.width / 2,
+    y: box.y + box.height / 2,
+  })
+  await session.startPicking()
+  await session.overlayGesture(centerOf(heading))
+  await waitFor(async () => !(await selecting(session)), 'picking to end', { interval: 10 })
+
+  // The overlay, still waiting, in the preview view's coordinates.
+  const waiting = await session.app.evaluate(({ BrowserWindow, WebContentsView }) => {
+    const views = (BrowserWindow.getAllWindows()[0]?.contentView.children ?? []).filter(
+      (view) => view instanceof WebContentsView,
+    )
+    const overlay = views.find(
+      (view) => view.webContents.getURL().endsWith('/pick.html') && view.getVisible(),
+    )
+    const preview = views.find((view) => /^https?:/.test(view.webContents.getURL()))
+    if (!overlay || !preview) return null
+    const shown = overlay.getBounds()
+    const page = preview.getBounds()
+    return { ...shown, x: shown.x - page.x, y: shown.y - page.y }
+  })
+  if (!waiting) throw new Error('The overlay went before a second click could come')
+  const covers = (at: { x: number; y: number }) =>
+    at.x >= waiting.x &&
+    at.x < waiting.x + waiting.width &&
+    at.y >= waiting.y &&
+    at.y < waiting.y + waiting.height
+  expect(covers(centerOf(heading))).toBe(true)
+  expect(covers(centerOf(counter))).toBe(false)
+
+  // So the button takes the click, the heading stays picked, and no text edit begins.
+  const preview = await session.previewPage()
+  await preview.locator('button.counter').click()
+  await expect(preview.locator('button.counter')).toHaveText('count is 1')
+  await expect(preview.locator('[contenteditable]')).toHaveCount(0)
+  await expect
+    .poll(async () => {
+      const [picked] = await selection(session)
+      return picked && !isRegion(picked) ? picked.tag : null
+    })
+    .toBe('h1')
+})
