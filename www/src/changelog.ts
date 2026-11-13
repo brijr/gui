@@ -14,6 +14,8 @@ export const releases: Release[] = [
     version: '0.1.0-alpha.21',
     date: '2026-11-13',
     changes: [
+      'While your agent works, ⌘↩ sends a message into its reply under way instead of queueing it (Claude Code and Codex). Enter still queues; Settings → Agents can swap the two.',
+      'Pick your agent in the model picker, beside the model and effort. In a chat that has started, another agent starts a new chat; your default stays what Settings → Agents says.',
       'When your agent asks you a question, you see all of it: each choice on its own line, in full, with what it means.',
       'Closed terminals give back their memory.',
       'Terminals keep about 5,000 lines of history, not a few hundred.',
