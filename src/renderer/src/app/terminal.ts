@@ -1,5 +1,6 @@
 import { FitAddon, Ghostty, type ITheme, Terminal } from 'ghostty-web'
 import wasmUrl from 'ghostty-web/ghostty-vt.wasm?url'
+import { TERMINAL_SCROLLBACK_BYTES } from '../../../shared/bounded'
 import type { TextMatch } from '../../../shared/find'
 
 // Ghostty's terminal, compiled to WebAssembly: loaded once, with the module that draws the
@@ -124,7 +125,7 @@ export function mountTerminal(
     fontSize: Number.parseFloat(cssVar('--text-small')),
     disableStdin: !interactive,
     cursorStyle: interactive ? 'block' : 'bar',
-    scrollback: 5000,
+    scrollback: TERMINAL_SCROLLBACK_BYTES,
     theme: terminalTheme(interactive),
   })
   const fit = new FitAddon()

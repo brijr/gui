@@ -26,6 +26,12 @@ export const MAX_DIFF_LINE_CHARS = 300
 export const MAX_DIFF_COMPARE = 400_000
 /** Output kept per terminal / dev server so the drawer can redraw after a tab switch. */
 export const MAX_OUTPUT_BYTES = 512 * 1024
+/**
+ * History a drawer terminal keeps. Ghostty takes `scrollback` as bytes of its page memory,
+ * not lines; a row costs more the wider the terminal is. 16 MB is about 5,000 lines at 240
+ * columns and 10,000 at 120.
+ */
+export const TERMINAL_SCROLLBACK_BYTES = 16 * 1024 * 1024
 
 /** Longest preview recording, ms: a silent one, and one the user talks over (narrated). */
 export const MAX_RECORDING_MS = 60_000
