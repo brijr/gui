@@ -8,8 +8,19 @@ export function reportError(error: unknown) {
   globalThis.window?.gui?.reportError(report)
 }
 
+/**
+ * The browser's notes that aren't Gui failing: a ResizeObserver that changed a size as it
+ * heard of one, whose next notice waits a frame ("loop completed with undelivered
+ * notifications", or "loop limit exceeded" in older Chromium).
+ */
+export function isBrowserNoise(event: Pick<ErrorEvent, 'error' | 'message'>) {
+  return !event.error && /ResizeObserver loop/.test(event.message)
+}
+
 /** Errors nothing caught: a failed event handler, a rejected promise nothing awaited. */
 export function watchErrors() {
-  window.addEventListener('error', (event) => reportError(event.error ?? event.message))
+  window.addEventListener('error', (event) => {
+    if (!isBrowserNoise(event)) reportError(event.error ?? event.message)
+  })
   window.addEventListener('unhandledrejection', (event) => reportError(event.reason))
 }
