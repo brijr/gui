@@ -1,7 +1,6 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { FRAME_MAX, FRAME_MIN } from '../shared/board'
-import { failure, text } from './mcp-results'
+import { failure, type ToolServer, text } from './mcp-results'
 import { fenceUntrusted } from './prompt'
 
 /**
@@ -89,7 +88,7 @@ const sectionIdSchema = z
   .max(64)
   .describe('Section id, as canvas_list_frames gives it')
 
-export function registerBoardTools(server: McpServer, board: BoardTools) {
+export function registerBoardTools(server: ToolServer, board: BoardTools) {
   const run =
     <A>(task: (args: A) => Promise<string> | string) =>
     async (args: A) => {

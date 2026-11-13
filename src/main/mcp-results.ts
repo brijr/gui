@@ -1,4 +1,11 @@
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { fenceUntrusted } from './prompt'
+
+/**
+ * Where a tool module registers its tools: a server, or one that only lets some through and
+ * guards their calls (Gui's server for other agents, outside-mcp.ts).
+ */
+export type ToolServer = Pick<McpServer, 'registerTool'>
 
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error))
 

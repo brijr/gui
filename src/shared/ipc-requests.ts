@@ -59,6 +59,9 @@ export interface AllIpcRequests {
   [Invoke.resetStartCommand]: Contract<'resetStartCommand'>
   [Invoke.clearRecent]: Contract<'clearRecent'>
   [Invoke.clearStorage]: Contract<'clearStorage'>
+  [Invoke.setOutsideAgents]: Contract<'setOutsideAgents'>
+  [Invoke.newOutsideToken]: Contract<'newOutsideToken'>
+  [Invoke.copyOutsideSetup]: Contract<'copyOutsideSetup'>
   [Invoke.boardChatCover]: Contract<'boardChatCover'>
   [Invoke.getRulers]: Contract<'getRulers'>
 }

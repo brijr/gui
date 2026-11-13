@@ -113,6 +113,7 @@ import { isLoopback } from './loopback'
 import { describeTurns } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
 import { nodeRuntime } from './node-runtime'
+import type { OutsideTarget } from './outside-mcp'
 import { prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
 import { getPrefs, setPrefs } from './prefs'
@@ -1039,6 +1040,44 @@ export class ProjectTab implements ChatPanelOwner {
     }
   }
 
+  /**
+   * What Gui's tools for other agents act on while this tab is the one in front
+   * (outside-mcp.ts): this opening, for as long as it lasts. Null while nothing is open.
+   */
+  outsideTarget(): OutsideTarget | null {
+    const resources = this.resources
+    const { mcp } = resources
+    const { project, board } = this.state
+    if (this.disposed || !mcp || !project) return null
+    const generation = resources.generation
+    const live = () => !this.disposed && resources.stillCurrent(generation)
+    return {
+      kind: board ? 'canvas' : 'project',
+      name: board?.name ?? project.name,
+      root: project.root,
+      preview: () => {
+        if (!live()) return ''
+        if (resources.board) {
+          const open = resources.board.openId
+          return open
+            ? `Preview: the frame ${open} is open.`
+            : 'Preview: the board, no frame open (canvas_open_frame opens one).'
+        }
+        const status = describeServer(this.state)
+          .split('\n')[0]
+          .replace(/^Status: /, '')
+        return `Dev server: ${status}.`
+      },
+      live,
+      closed: resources.signal,
+      backends: mcp.backends,
+      // What a chat turn's end does, unless the chat's own turn is under way.
+      settled: () => {
+        if (!resources.chat?.turnRunning) this.lingerGuide()
+      },
+    }
+  }
+
   /** The agent's preview tools are sending their input to the page (see `PageTools.input`). */
   get agentInput() {
     return this.resources.previewTools?.inputting === true || this.website?.tools.inputting === true
@@ -1531,11 +1570,7 @@ export class ProjectTab implements ChatPanelOwner {
       }
       // The agent may have switched branches itself.
       void this.refreshBranch()
-      // The walkthrough's last step stays a moment to be read, then gets out of the way.
-      if (this.picker.guiding || this.website?.picker.guiding) {
-        this.clearGuideEnd()
-        this.guideEndTimer = setTimeout(() => this.endGuide(), GUIDE_LINGER_MS)
-      }
+      this.lingerGuide()
       // The agent may have just set the project up; it's left alone while it works.
       if (this.appWatcher) void this.checkForApp()
       const shown = primaryPick(turn.context)
@@ -2833,6 +2868,13 @@ export class ProjectTab implements ChatPanelOwner {
     this.clearGuideEnd()
     this.picker.endGuide()
     if (!this.website?.picker.holding) this.website?.picker.endGuide()
+  }
+
+  /** The walkthrough's last step stays a moment to be read, then gets out of the way. */
+  private lingerGuide() {
+    if (!this.picker.guiding && !this.website?.picker.guiding) return
+    this.clearGuideEnd()
+    this.guideEndTimer = setTimeout(() => this.endGuide(), GUIDE_LINGER_MS)
   }
 
   private clearGuideEnd() {

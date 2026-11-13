@@ -1,5 +1,5 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto'
-import { createServer, type IncomingMessage, type Server } from 'node:http'
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { McpServer as AcpMcpServer } from '@agentclientprotocol/sdk'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
@@ -49,7 +49,7 @@ export const ASK_FIRST_TOOLS: ReadonlySet<string> = new Set<GuiTool>([
   'canvas_screenshot_url',
 ])
 
-interface Sdk {
+export interface Sdk {
   McpServer: typeof McpServer
   StreamableHTTPServerTransport: typeof StreamableHTTPServerTransport
 }
@@ -105,10 +105,7 @@ export function preloadMcpSdk() {
 
 function buildServer(
   { McpServer }: Sdk,
-  tools: PreviewTools,
-  recordings: Recordings,
-  app: AppTools,
-  board: BoardTools | null,
+  { tools, recordings, app, board }: McpBackends,
   websites: boolean,
 ) {
   const server = new McpServer({ name: 'gui', version: '0.2.0' })
@@ -118,24 +115,93 @@ function buildServer(
   return server
 }
 
+/** What an opening's tools act on: its preview, recordings, chat and, on a canvas, board. */
+export interface McpBackends {
+  tools: PreviewTools
+  recordings: Recordings
+  app: AppTools
+  board: BoardTools | null
+}
+
 export interface RunningMcpServer {
   /**
    * Ready to pass in ACP `session/new` / `session/load`. Without `websites`, the session
    * can't open one (`previewToolNames`).
    */
   config(websites?: boolean): AcpMcpServer
+  /** The opening's tools, which Gui's server for other agents also serves (outside-mcp.ts) */
+  readonly backends: McpBackends
   close(): void
 }
 
 /** Where a session's tools are served: the same tools but preview_open_website at the second. */
 const PATHS = { websites: '/mcp', noWebsites: '/mcp/no-websites' } as const
 
+/** Whether `header` is `Bearer <token>`, compared in constant time. */
+export function bearerMatches(header: string | undefined, token: string) {
+  const expected = Buffer.from(`Bearer ${token}`)
+  const given = Buffer.from(header ?? '')
+  return given.length === expected.length && timingSafeEqual(given, expected)
+}
+
+/**
+ * Answers one authorized MCP POST, statelessly: a new McpServer (from `build`) and transport
+ * for each request, as the SDK's server holds one transport at a time and stateless calls
+ * arrive in parallel, so one shared server would cross their replies. The server listens
+ * without the SDK, so a project opening doesn't wait for it to load; the first call does, if
+ * it comes before `preloadMcpSdk` has.
+ */
+export function answerMcp(
+  req: IncomingMessage,
+  res: ServerResponse,
+  build: (sdk: Sdk) => McpServer,
+  allowedHosts: string[],
+) {
+  if (req.method !== 'POST') {
+    // Stateless server: no standalone SSE stream to resume.
+    res.writeHead(405, { Allow: 'POST' }).end()
+    return
+  }
+  loadSdk()
+    .then((loaded) => {
+      // Hung up while the SDK loaded: nothing to answer, and no `close` left to wait for.
+      if (res.destroyed) return
+      const server = build(loaded)
+      const transport = new loaded.StreamableHTTPServerTransport({
+        sessionIdGenerator: undefined,
+        enableJsonResponse: true,
+        allowedHosts,
+        enableDnsRebindingProtection: true,
+      })
+      res.on('close', () => {
+        void transport.close()
+        void server.close()
+      })
+      if (!observer) {
+        return server.connect(transport).then(() => transport.handleRequest(req, res))
+      }
+      // A POST carries the messages: its body is read here to see them, so the transport is
+      // handed it parsed.
+      const observe = observer
+      return readJson(req).then(async (body) => {
+        if (body === undefined) {
+          res.writeHead(400).end()
+          return
+        }
+        for (const message of Array.isArray(body) ? body : [body]) observe(message)
+        await server.connect(transport)
+        await transport.handleRequest(req, res, body)
+      })
+    })
+    .catch((error: unknown) => {
+      console.error('[gui] MCP request failed', error)
+      if (!res.headersSent) res.writeHead(500).end()
+    })
+}
+
 /**
  * Serves Gui's tools over MCP Streamable HTTP on loopback, stateless, behind a bearer token
  * made for this opening of the project, so only the agent sessions it starts can call them.
- * A new McpServer and transport answer each request: the SDK's server holds one transport
- * at a time, and stateless calls arrive in parallel, so one shared server would cross their
- * replies.
  */
 export async function startMcpServer(
   tools: PreviewTools,
@@ -144,61 +210,19 @@ export async function startMcpServer(
   board: BoardTools | null = null,
 ): Promise<RunningMcpServer> {
   const token = randomBytes(24).toString('hex')
-  const expected = Buffer.from(`Bearer ${token}`)
-  const authorized = (header: string | undefined) => {
-    const given = Buffer.from(header ?? '')
-    return given.length === expected.length && timingSafeEqual(given, expected)
-  }
+  const backends: McpBackends = { tools, recordings, app, board }
 
   let allowedHosts: string[] = []
   const http: Server = createServer((req, res) => {
     const websites = req.url === PATHS.websites
-    if ((!websites && req.url !== PATHS.noWebsites) || !authorized(req.headers.authorization)) {
+    if (
+      (!websites && req.url !== PATHS.noWebsites) ||
+      !bearerMatches(req.headers.authorization, token)
+    ) {
       res.writeHead(401).end()
       return
     }
-    if (req.method !== 'POST') {
-      // Stateless server: no standalone SSE stream to resume.
-      res.writeHead(405, { Allow: 'POST' }).end()
-      return
-    }
-    // The server listens without the SDK, so a project opening doesn't wait for it to load;
-    // the first call does, if it comes before `preloadMcpSdk` has.
-    loadSdk()
-      .then((loaded) => {
-        // Hung up while the SDK loaded: nothing to answer, and no `close` left to wait for.
-        if (res.destroyed) return
-        const server = buildServer(loaded, tools, recordings, app, board, websites)
-        const transport = new loaded.StreamableHTTPServerTransport({
-          sessionIdGenerator: undefined,
-          enableJsonResponse: true,
-          allowedHosts,
-          enableDnsRebindingProtection: true,
-        })
-        res.on('close', () => {
-          void transport.close()
-          void server.close()
-        })
-        if (!observer || req.method !== 'POST') {
-          return server.connect(transport).then(() => transport.handleRequest(req, res))
-        }
-        // A POST carries the messages: its body is read here to see them, so the transport is
-        // handed it parsed. A GET (an agent opening its event stream) goes on as it came.
-        const observe = observer
-        return readJson(req).then(async (body) => {
-          if (body === undefined) {
-            res.writeHead(400).end()
-            return
-          }
-          for (const message of Array.isArray(body) ? body : [body]) observe(message)
-          await server.connect(transport)
-          await transport.handleRequest(req, res, body)
-        })
-      })
-      .catch((error: unknown) => {
-        console.error('[gui] MCP request failed', error)
-        if (!res.headersSent) res.writeHead(500).end()
-      })
+    answerMcp(req, res, (loaded) => buildServer(loaded, backends, websites), allowedHosts)
   })
 
   await new Promise<void>((resolve, reject) => {
@@ -209,6 +233,7 @@ export async function startMcpServer(
   allowedHosts = [`127.0.0.1:${port}`]
 
   return {
+    backends,
     config: (websites = true) => ({
       type: 'http',
       name: MCP_SERVER_NAME,

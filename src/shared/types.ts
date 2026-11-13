@@ -1379,4 +1379,18 @@ export interface SettingsState {
   crashReports: boolean
   /** What a message sent while the agent works does (see ChatMeta.whileWorking) */
   whileWorking: WhileWorking
+  /** Agents outside Gui may use its tools (main/outside-agents.ts) */
+  outsideAgents: OutsideAgentsState
+}
+
+/** An agent the user runs outside Gui, which Settings shows how to connect. */
+export type OutsideClient = 'claude' | 'codex' | 'cursor'
+
+export interface OutsideAgentsState {
+  /** The setting: Gui serves its tools to other agents */
+  on: boolean
+  /** Where, on 127.0.0.1 */
+  port: number
+  /** Why it isn't listening while on (the port is taken); null when it is, or off */
+  error: string | null
 }

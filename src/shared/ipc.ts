@@ -18,6 +18,7 @@ import type {
   GuideStrips,
   ImageAttachment,
   MorphEvent,
+  OutsideClient,
   PanelEdge,
   PickOverlayState,
   Point,
@@ -95,6 +96,9 @@ export const Invoke = {
   resetStartCommand: 'settings:reset-start-command',
   clearRecent: 'settings:clear-recent',
   clearStorage: 'settings:clear-storage',
+  setOutsideAgents: 'settings:outside-agents',
+  newOutsideToken: 'settings:outside-token',
+  copyOutsideSetup: 'settings:outside-setup',
   boardChatCover: 'board:chat-cover',
   getRulers: 'rulers:get',
 } as const
@@ -822,6 +826,12 @@ export interface GuiApi {
   setCrashReports(on: boolean): void
   /** What Enter does while the agent works: queue the message, or steer the reply under way */
   setWhileWorking(choice: WhileWorking): void
+  /** Agents outside Gui may use its tools; resolves once it listens (or failed to: see Settings) */
+  setOutsideAgents(on: boolean): Promise<void>
+  /** A new token for other agents; the old one stops working */
+  newOutsideToken(): Promise<void>
+  /** Puts an agent's setup, token included, on the clipboard */
+  copyOutsideSetup(client: OutsideClient): Promise<void>
   /** An error in one of Gui's own windows, for a crash report (main decides whether to send it) */
   reportError(error: { message: string; stack?: string }): void
   /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */

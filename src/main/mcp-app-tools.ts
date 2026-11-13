@@ -1,7 +1,6 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import type { Turn } from '../shared/types'
-import { text, untrusted } from './mcp-results'
+import { type ToolServer, text, untrusted } from './mcp-results'
 
 /** Gui's own tools, by name, with their titles: the chat's earlier turns. Nothing here changes the project. */
 export const APP_TOOL_TITLES = {
@@ -13,7 +12,7 @@ export interface AppTools {
   turns: (limit: number) => string
 }
 
-export function registerAppTools(server: McpServer, app: AppTools) {
+export function registerAppTools(server: ToolServer, app: AppTools) {
   server.registerTool(
     'chat_turns',
     {

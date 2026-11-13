@@ -41,6 +41,7 @@ import {
   type LegacyChannel,
   type LegacyResult,
 } from '../shared/ipc-requests'
+import { OUTSIDE_CLIENTS } from '../shared/outside-setup'
 import { PreviewGuides } from '../shared/preview-guides'
 import { MAX_PREVIEW_TEXT, PreviewText } from '../shared/preview-text'
 import {
@@ -105,6 +106,13 @@ import { preloadMcpSdk } from './mcp-server'
 import { chatWillHide, terminalWillHide } from './menu-toggles'
 import { createProject, createProjectFromFrame, projectName } from './new-project'
 import { nodeRuntime } from './node-runtime'
+import {
+  copyOutsideSetup,
+  newOutsideToken,
+  setOutsideAgents,
+  startOutsideAgents,
+  stopOutsideAgents,
+} from './outside-agents'
 import { flushPrefsSync, getPrefs, prefsEvents, setPrefs } from './prefs'
 import { execFile } from './process'
 import { finishEndingSync } from './process-groups'
@@ -120,6 +128,7 @@ import {
   getSettings,
   isSettingsContents,
   openSettings,
+  refreshSettings,
   removeRecent,
   resetStartCommand,
   saveCustom,
@@ -1166,6 +1175,13 @@ function registerIpc() {
   handleSettings(Invoke.clearStorage, (_event, kind) =>
     STORAGE_KINDS.includes(kind as StorageKind) ? confirmAndClear(kind as StorageKind) : false,
   )
+  handleSettings(Invoke.setOutsideAgents, (_event, on) =>
+    typeof on === 'boolean' ? setOutsideAgents(on) : undefined,
+  )
+  handleSettings(Invoke.newOutsideToken, () => newOutsideToken())
+  handleSettings(Invoke.copyOutsideSetup, (_event, client) =>
+    OUTSIDE_CLIENTS.includes(client) ? copyOutsideSetup(client) : undefined,
+  )
   onAppUi(Send.openSettings, (section) =>
     openSettings(
       SECTIONS.includes(section as SettingsSection) ? (section as SettingsSection) : undefined,
@@ -1939,6 +1955,7 @@ function shutdown() {
   // A preference changed a moment ago may still be on its way to disk; after the windows,
   // which are the last thing that could change one.
   flushPrefsSync()
+  stopOutsideAgents()
   agentHealth.dispose()
   nodeRuntime.dispose()
   killStoppedAgents()
@@ -2017,6 +2034,8 @@ if (!app.requestSingleInstanceLock()) {
     afterFirstWindow(win.win, () => {
       startUpdates()
       preloadMcpSdk()
+      // Listens for other agents if the user turned that on (Settings → Agents).
+      startOutsideAgents(() => void refreshSettings())
     })
   })
 

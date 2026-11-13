@@ -17,6 +17,7 @@ import { Button, Code, SegmentedControl } from '../lib/ui'
 import { AgentRow } from './agent-row'
 import { AgentStatusLabel } from './agent-status'
 import { CustomAgentForm } from './custom-agent-form'
+import { OutsideAgentsSection } from './outside-agents-section'
 import { GroupAction, SettingsGroup } from './settings-group'
 import { useAction } from './use-action'
 
@@ -120,6 +121,8 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
           />
         </List>
       </SettingsGroup>
+
+      <OutsideAgentsSection settings={settings} />
     </>
   )
 }

@@ -15,6 +15,7 @@ import {
 import { agentHealth } from './agent-status'
 import { customAgentEntries, deleteCustomAgent, saveCustomAgent } from './agents'
 import { archiveStoredChat, historyFile } from './history'
+import { outsideAgentsState } from './outside-agents'
 import { getPrefs, prefsEvents, setPrefs } from './prefs'
 import {
   clearRecent as clearRecentFile,
@@ -124,6 +125,7 @@ async function buildState(): Promise<SettingsState> {
     home: app.getPath('home'),
     crashReports: prefs.crashReports,
     whileWorking: prefs.whileWorking,
+    outsideAgents: outsideAgentsState(),
   }
 }
 

@@ -1,7 +1,6 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { z } from 'zod'
 import { MAX_NARRATED_RECORDING_MS, MAX_RECORDING_FRAMES } from '../shared/bounded'
-import { failure, text, untrusted } from './mcp-results'
+import { failure, type ToolServer, text, untrusted } from './mcp-results'
 import { PREVIEW_KEYS } from './preview-interactions'
 import { motionTool } from './preview-motion-format'
 import { MAX_WAIT_MS, type PageTools, type PreviewTools } from './preview-tools'
@@ -150,7 +149,7 @@ export function describeClip(clip: {
 }
 
 export function registerPreviewTools(
-  server: McpServer,
+  server: ToolServer,
   tools: PreviewTools,
   recordings: Recordings,
   /**

@@ -243,6 +243,9 @@ const api: GuiApi = {
   resetStartCommand: (root) => legacyInvoke(Invoke.resetStartCommand, root),
   clearRecent: () => legacyInvoke(Invoke.clearRecent),
   clearStorage: (kind) => legacyInvoke(Invoke.clearStorage, kind),
+  setOutsideAgents: (on) => legacyInvoke(Invoke.setOutsideAgents, on),
+  newOutsideToken: () => legacyInvoke(Invoke.newOutsideToken),
+  copyOutsideSetup: (client) => legacyInvoke(Invoke.copyOutsideSetup, client),
 }
 
 contextBridge.exposeInMainWorld('gui', api)

@@ -50,6 +50,8 @@ export interface Prefs {
   rulers: boolean
   /** Each project's ruler guides, by project root; kept here, never in the project */
   guides: Record<string, RulerGuide[]>
+  /** Agents outside Gui may use its tools (outside-agents.ts); off until the user turns it on */
+  outsideAgents: boolean
 }
 
 const DEFAULTS: Prefs = {
@@ -68,6 +70,7 @@ const DEFAULTS: Prefs = {
   whileWorking: 'queue',
   rulers: false,
   guides: {},
+  outsideAgents: false,
 }
 /** More guides than anyone draws; keeps a damaged file from making thousands of views. */
 export const MAX_GUIDES = 50
@@ -182,6 +185,7 @@ export function getPrefs(): Prefs {
       whileWorking: parsed.whileWorking === 'steer' ? 'steer' : 'queue',
       rulers: parsed.rulers === true,
       guides: guides(parsed.guides),
+      outsideAgents: parsed.outsideAgents === true,
     }
   } catch (error) {
     // A damaged file would otherwise be replaced by defaults on the next save, losing (among
