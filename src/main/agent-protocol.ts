@@ -193,6 +193,8 @@ export function questionRequest(
   sessionId: string,
   question: FormQuestion,
   message: string | undefined,
+  /** One of several in the form: its message speaks for them all ("Please answer…"), so it isn't shown */
+  several = false,
 ): PermissionRequest {
   const said = text(message)?.trim()
   const title = (
@@ -208,7 +210,7 @@ export function questionRequest(
       title,
       kind: QUESTION_KIND,
     },
-    ...(said && said !== title ? { message: said } : {}),
+    ...(said && said !== title && !several ? { message: said } : {}),
     // Skip first, so Auto mode never answers for the user (see `flaggedCaution`).
     options: [
       { optionId: 'skip', name: 'Skip', kind: 'reject_once' },

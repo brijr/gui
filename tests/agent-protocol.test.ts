@@ -279,6 +279,10 @@ describe('questionRequest', () => {
     expect(several.message).toBe('Before I tidy up, two questions.')
     const same = questionRequest('s1', question, 'What should happen to the styleguide?')
     expect(same.message).toBeUndefined()
+    // One of several: the form's message is for them all ("Please answer the following questions.").
+    const one = questionRequest('s1', question, 'Please answer the following questions.', true)
+    expect(one.toolCall.title).toBe('What should happen to the styleguide?')
+    expect(one.message).toBeUndefined()
   })
 
   test('falls back to the field title, then plain words', () => {

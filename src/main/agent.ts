@@ -746,7 +746,7 @@ export class AgentSession {
     for (const question of questions) {
       const answer = await new Promise<string | null>((resolve) =>
         this.handlers.onPermission(
-          questionRequest(sessionId, question, request.message),
+          questionRequest(sessionId, question, request.message, questions.length > 1),
           resolve,
           from,
         ),
