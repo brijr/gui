@@ -99,18 +99,22 @@ type ChatRuns = () => Call[][]
  * with it as the chat's agent, and waits for its models. Its health check starts a
  * session too, outside the project.
  */
-async function addAgent(session: GuiSession, size: 'long' | 'short' = 'long'): Promise<ChatRuns> {
+async function addAgent(
+  session: GuiSession,
+  size: 'long' | 'short' = 'long',
+  /** A second agent of the same kind, "Other", to switch to */
+  other = false,
+): Promise<ChatRuns> {
   const { base, userData, root } = session.fixture
   const log = join(base, 'agent-calls.ndjson')
   const script = join(base, 'models-agent.cjs')
   writeFileSync(script, AGENT_SCRIPT)
-  const agents = {
-    Models: {
-      command: electronExecutable(),
-      args: [script, log, size],
-      env: { ELECTRON_RUN_AS_NODE: '1' },
-    },
+  const entry = {
+    command: electronExecutable(),
+    args: [script, log, size],
+    env: { ELECTRON_RUN_AS_NODE: '1' },
   }
+  const agents = other ? { Models: entry, Other: entry } : { Models: entry }
   writeFileSync(join(userData, 'agents.json'), JSON.stringify(agents))
   await session.chrome.evaluate(() => window.gui.checkAgents())
   const listed = async () => (await session.state()).agents.some((agent) => agent.id === AGENT)
@@ -460,4 +464,79 @@ test('a short model list has no search field and is driven from the list', async
   await expect(
     session.chat.getByRole('button', { name: 'Model: Sage, effort Medium' }),
   ).toBeFocused()
+})
+
+test('the picker also switches agents: its agent row lists them, and another one starts a new chat', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await addAgent(session, 'short', true)
+  await modelsAre(session, 'swift', 'medium')
+  const { chat } = session
+  const OTHER: AgentId = `${CUSTOM_AGENT_PREFIX}Other`
+  const agentIs = (id: AgentId) =>
+    waitFor(async () => (await session.chatSnapshot()).meta.agentId === id, `the chat on ${id}`)
+
+  // The header names the agent and no longer switches it: the picker does.
+  await expect(chat.getByRole('heading', { level: 2, name: 'Models' })).toBeVisible()
+  await expect(chat.getByRole('button', { name: /^Switch agent/ })).toHaveCount(0)
+
+  // The agent's row, above its models, opens the agents in the same picker.
+  const button = chat.getByRole('button', { name: 'Model: Swift, effort Medium' })
+  await button.click()
+  const { dialog: models } = pickerOf(session)
+  await models.getByRole('button', { name: 'Agent: Models. Switch agent' }).click()
+  const agents = chat.getByRole('dialog', { name: 'Choose an agent' })
+  const list = agents.getByRole('listbox', { name: 'Agents' })
+  // A Mac with many agents installed gets a search field, which then holds the keyboard.
+  const search = agents.getByRole('combobox', { name: 'Search agents' })
+  await expect(list).toBeVisible()
+  const keys = (await search.count()) ? search : list
+  await expect(keys).toBeFocused()
+  await expect(list.getByRole('option', { selected: true })).toHaveText('Models')
+  await expect(list.getByRole('option', { name: 'Other' })).toBeVisible()
+  await expect(agents.getByRole('button', { name: 'Agent Settings…' })).toBeVisible()
+  // Nothing to lose yet, so nothing to warn about.
+  await expect(agents.getByText('Switching starts a new chat')).toHaveCount(0)
+  await session.shot('agent-picker')
+
+  // Back to the models and in again, then another agent, from the keyboard.
+  await agents.getByRole('button', { name: 'Back to models' }).click()
+  await expect(models).toBeVisible()
+  await models.getByRole('button', { name: 'Agent: Models. Switch agent' }).click()
+  const other = list.getByRole('option', { name: 'Other' })
+  const index = await list
+    .getByRole('option')
+    .evaluateAll(
+      (options, name) => options.findIndex((option) => option.textContent === name),
+      'Other',
+    )
+  const selected = await list
+    .getByRole('option')
+    .evaluateAll((options) =>
+      options.findIndex((option) => option.getAttribute('aria-selected') === 'true'),
+    )
+  for (let step = selected; step !== index; step += Math.sign(index - selected)) {
+    await chat.keyboard.press(index > selected ? 'ArrowDown' : 'ArrowUp')
+  }
+  await expectActive(keys, other)
+  await chat.keyboard.press('Enter')
+  await expect(agents).toBeHidden()
+  await agentIs(OTHER)
+  await expect(chat.getByRole('heading', { level: 2, name: 'Other' })).toBeVisible()
+
+  // With a conversation, the agents say what switching costs; switching archives it.
+  expect(await send(session, 'Hello')).toBe(true)
+  expect((await session.waitForTurn(0)).turn.status).toBe('done')
+  await chat.getByRole('button', { name: 'Model: Swift, effort Medium' }).click()
+  await pickerOf(session).dialog.getByRole('button', { name: 'Agent: Other. Switch agent' }).click()
+  await expect(agents.getByText('Switching starts a new chat. This one is archived.')).toBeVisible()
+  await list.getByRole('option', { name: 'Models' }).click()
+  await expect(agents).toBeHidden()
+  await agentIs(AGENT)
+  await waitFor(async () => {
+    const snapshot = await session.chatSnapshot()
+    return snapshot.turns.length === 0 && snapshot.meta.archived !== null
+  }, 'a new chat, with the old one archived')
 })

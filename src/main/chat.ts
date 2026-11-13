@@ -48,7 +48,12 @@ import {
 } from './agent'
 import { AgentMissingError } from './agent-binaries'
 import { agentHealth } from './agent-status'
-import { declaresOwnPermissions, opensWebsites, type PermissionPolicy } from './agents'
+import {
+  agentChoices,
+  declaresOwnPermissions,
+  opensWebsites,
+  type PermissionPolicy,
+} from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
 import { availableModels, chosenValue, offersChoice, withChoices } from './chat-models'
 import { type EditScope, isFromHome, isOutside, projectEditPath } from './chat-paths'
@@ -416,6 +421,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       models: availableModels(agentId),
       commands: this.commandsFor(agentId),
       agent: agentHealth.list().find((agent) => agent.id === agentId) ?? null,
+      agents: agentChoices(agentHealth.list(), agentId),
       ownPermissions: declaresOwnPermissions(agentId),
     }
   }
@@ -1925,6 +1931,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const agent = agentHealth.list().find((health) => health.id === this.meta.agentId) ?? null
     const was = this.meta.agent?.status
     if (JSON.stringify(agent) !== JSON.stringify(this.meta.agent)) this.patchMeta({ agent })
+    // Installed, signed in or switched on or off in Settings since: the picker lists them so.
+    const agents = agentChoices(agentHealth.list(), this.meta.agentId)
+    if (JSON.stringify(agents) !== JSON.stringify(this.meta.agents)) this.patchMeta({ agents })
     const signedIn = (was === 'signed-out' || was === 'signing-in') && agent?.status === 'ready'
     if (signedIn && this.agent && !this.active) this.stopAgent()
     if (this.meta.queuePauseReason === 'setup' && agent?.status === 'ready') this.sendQueuedNow()

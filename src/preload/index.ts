@@ -64,7 +64,7 @@ const api: GuiApi = {
   stopDevServer: send(Send.devServerStop),
   restartDevServer: send(Send.devServerRestart),
   showDevServerMenu: send(Send.showDevServerMenu),
-  showAgentMenu: send(Send.showAgentMenu),
+  openAgentSettings: send(Send.openAgentSettings),
   showChatMenu: send(Send.showChatMenu),
   showProjectMenu: send(Send.showProjectMenu),
   newBoard: send(Send.newBoard),
