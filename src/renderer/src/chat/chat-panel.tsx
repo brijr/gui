@@ -787,9 +787,9 @@ const HOVER_ONLY =
   'flex items-center gap-0.5 opacity-0 transition-opacity group-focus-within/chat:opacity-100 group-hover/chat:opacity-100'
 
 /**
- * The panel's title bar: the agent's name (who the conversation is with; the message box's
- * picker changes it, with the model), the session's mode, and the panel's actions. It's where the panel is dragged from, floating or docked
- * (pulled off the sidebar); popped out, it drags the window.
+ * The panel's title bar: the agent's name (the message box's picker changes it, with the
+ * model), the session's mode, and the panel's actions. It's where the panel is dragged from,
+ * floating or docked (pulled off the sidebar); popped out, it drags the window.
  */
 function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }) {
   // Changing shape, its height and start follow the shape (`Sidebar`).
@@ -851,10 +851,9 @@ function Header({ meta, shaping = false }: { meta: ChatMeta; shaping?: boolean }
       }
     >
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
-        {/* A title, not a control: the keyboard and the pointer change it below. */}
-        <h2 title={meta.agentName} className="min-w-0 truncate text-body font-medium text-fg">
-          {meta.agentName}
-        </h2>
+        {/* A title, not a control, and part of the drag area (so no tooltip): the model
+            button's tooltip and picker name the agent in full. */}
+        <h2 className="min-w-0 truncate text-body font-medium text-fg">{meta.agentName}</h2>
         {meta.modeName && !meta.modeIsUsual && (
           // Out of the title bar's drag area, or its tooltip never shows.
           <Badge title={meta.modeName} className="no-drag">
