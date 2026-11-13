@@ -1296,7 +1296,10 @@ function registerIpc() {
   on(Send.stopSubagent, (tab, turnId, subagent) => {
     if (isString(turnId) && isString(subagent)) tab.stopSubagent(turnId, subagent)
   })
-  on(Send.newSession, (tab) => tab.newChat())
+  on(Send.newSession, (tab, agentId) => {
+    if (agentId === undefined) tab.newChat()
+    else if (isAgentId(agentId)) tab.newChat(agentId)
+  })
   on(Send.clearSelection, (tab) => tab.clearSelection())
   on(Send.removeSelection, (tab, id) => isString(id) && tab.removeSelection(id))
   on(Send.hoverSelection, (tab, id) => (id === null || isString(id)) && tab.hoverSelection(id))
@@ -1588,13 +1591,20 @@ async function reopenClosedTab() {
   shell.beep()
 }
 
-/** The Agent menu's agents: none checked, since the menu acts on whichever tab is active. */
+/**
+ * The Agent menu's agents: none checked, since the menu acts on whichever tab is active. One
+ * becomes the default, as Settings → Agents' Use does, and the active chat's agent too while
+ * nothing has been said in it; a chat that's started keeps its agent (and its turn running).
+ */
 function agentItems() {
   return agentMenuItems(
     agentHealth.list(),
     agentHealth.customError,
     null,
-    (id) => focusedWindow()?.activeTab.setAgent(id),
+    (id) => {
+      setDefaultAgent(id)
+      focusedWindow()?.activeTab.setAgent(id)
+    },
     () => openSettings('agents'),
   )
 }
@@ -1989,6 +1999,10 @@ if (!app.requestSingleInstanceLock()) {
     windowEvents.on('tabs', syncMenuItems)
     windowEvents.on('changed', syncMenuItems)
     prefsEvents.on('change', syncMenuItems)
+    // The start screen shows the default agent, whichever way it changes.
+    prefsEvents.on('change', () => {
+      for (const tab of allTabs()) tab.showDefaultAgent()
+    })
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })

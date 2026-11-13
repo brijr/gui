@@ -1033,8 +1033,9 @@ export interface ChatMeta {
    */
   agent: AgentHealth | null
   /**
-   * The agents the chat can switch to, for its picker: those switched on in Settings and
-   * installed, and the chat's own whatever its state. Switching starts a new chat.
+   * The agents for the chat's picker: those switched on in Settings and installed, and the
+   * chat's own whatever its state. Another one takes this chat while nothing has been said in
+   * it, and a new chat after that.
    */
   agents: AgentChoice[]
   /** The running session's own mode as the agent reports it (shown in the chat header) */

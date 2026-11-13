@@ -69,9 +69,12 @@ test('new chat and agent switches archive the chat, which can be reopened', asyn
   // It's the open chat again, and the empty one wasn't worth archiving.
   expect(await list()).toEqual([])
 
-  // Switching agents archives the chat under the agent it was with, then starts afresh.
+  // A started chat keeps its agent; another one starts a new chat, and this one is archived
+  // under the agent it was with.
   await session.chrome.evaluate(() => window.gui.setAgent('codex'))
+  await session.chat.evaluate(() => window.gui.newSession('codex'))
   await expect.poll(async () => (await session.chatSnapshot()).turns.length).toBe(0)
+  expect((await session.chatSnapshot()).meta.agentId).toBe('codex')
   const [switched] = await list()
   expect(switched).toMatchObject({ agentId: 'claude', title: 'Header work' })
 

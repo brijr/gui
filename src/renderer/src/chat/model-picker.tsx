@@ -11,7 +11,7 @@ import {
 import { createPortal } from 'react-dom'
 import { ariaShortcut, withShortcut } from '../../../shared/shortcuts'
 import type { AgentId, AgentSetting, ChatMeta } from '../../../shared/types'
-import { AgentGlyph } from '../agents/agent-icon'
+import { AgentIcon } from '../agents/agent-icon'
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { ChevronDown, ChevronLeft, ChevronRight } from '../lib/icons'
@@ -137,6 +137,10 @@ interface Entry {
   group: string | null
   /** The agent it is, in the agents' list: its mark starts the row */
   agentId?: AgentId
+  /** Shown, but can't be picked now (`title` says why) */
+  disabled?: boolean
+  /** The tooltip, when it isn't `name` */
+  title?: string
 }
 
 /** Every typed word appears somewhere in the name, value or group, ignoring case. */
@@ -275,8 +279,10 @@ interface ModelPickerProps {
  * What the chat runs on, in one place. First the agent's models under their provider,
  * searchable when the list is long, and its effort levels when it has them: a model applies
  * on pick and closes the picker; an effort level applies and leaves it open. The row above
- * them names the agent and opens the agents in the same picker: picking another one starts a
- * new chat with it (this one is archived), and Agent Settings… is where they're set up.
+ * them names the agent and opens the agents in the same picker (Esc or ← comes back). Another
+ * agent takes this chat while nothing has been said in it, and leaves the default agent as
+ * Settings has it. Once the chat has started it keeps its agent: another one starts a new chat,
+ * and not while this one is working or has messages queued. Agent Settings… sets them up.
  */
 function ModelPicker({ id, instant, open, meta, placement, button, onClose }: ModelPickerProps) {
   const { models, agents, agentId } = meta
@@ -291,6 +297,10 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
   // An agent with no models to choose has only the agents to show.
   const view = model ? asked : 'agents'
   const hasTurns = useChat((s) => s.turnIds.length > 0)
+  // Said or waiting to be said: the chat keeps its agent.
+  const started = hasTurns || meta.queue.length > 0
+  // A new chat now would cut the turn short or drop the queue.
+  const busy = meta.status === 'working' || meta.queue.length > 0
   const [query, setQuery] = useState('')
   const current = view === 'models' ? (model?.value ?? null) : agentId
   /** The highlighted row's value; null for the first match. */
@@ -314,14 +324,20 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
           note: null,
           group: choice.group,
         }))
-      : agents.map((agent) => ({
-          value: agent.id,
-          label: agent.name,
-          name: agent.name,
-          note: agent.note,
-          group: null,
-          agentId: agent.id,
-        }))
+      : agents.map((agent) => {
+          const other = started && agent.id !== agentId
+          return {
+            value: agent.id,
+            label: agent.name,
+            name: agent.name,
+            // What picking it does; while it can't be picked, the line above says why.
+            note: agent.note ?? (other && !busy ? 'New chat' : null),
+            group: null,
+            agentId: agent.id,
+            disabled: other && busy,
+            title: other ? `Start a new chat to use ${agent.name}` : undefined,
+          }
+        })
   const searchable = entries.length > SEARCH_AFTER
   // Without a search field there's nothing typed to go by, and nowhere to clear it.
   const words = searchable ? query.toLowerCase().split(/\s+/).filter(Boolean) : []
@@ -378,10 +394,13 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
   }, [open, button, onClose])
 
   const pick = (entry: Entry) => {
+    if (entry.disabled) return
     if (view === 'models') {
       if (model) gui.setAgentSetting(model.id, entry.value)
     } else if (entry.value !== agentId) {
-      gui.setAgent(entry.agentId ?? agentId)
+      const other = entry.agentId ?? agentId
+      if (started) gui.newSession(other)
+      else gui.setAgent(other)
     } else if (model) {
       // The agent it's on already: back to its models.
       show('models')
@@ -407,13 +426,19 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
       event.preventDefault()
       const row = rows[activeIndex]
       if (row) pick(row.entry)
+    } else if (event.key === 'ArrowLeft' && view === 'agents' && model && !query) {
+      // Back to the models, as the row at the top does; with text typed, ← moves the caret.
+      event.preventDefault()
+      show('models')
     }
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
       event.preventDefault()
-      onClose(true)
+      // From the agents, back to the models it came from; from there, closed.
+      if (view === 'agents' && model) show('models')
+      else onClose(true)
       return
     }
     // Typing anywhere in the picker goes to the search field.
@@ -447,13 +472,15 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
         id={optionId(index)}
         role="option"
         aria-selected={selected}
-        title={entry.note ? `${entry.name} · ${entry.note}` : entry.name}
+        aria-disabled={entry.disabled || undefined}
+        title={entry.title ?? (entry.note ? `${entry.name} · ${entry.note}` : entry.name)}
         highlighted={index === activeIndex}
         selected={selected}
         // With the keyboard in the list, the row the arrows are on is ringed, so it reads
         // apart from a row the pointer only passes over.
         className={cn(
           'hover:bg-accent-soft hover:text-accent-text hover:**:text-accent-text',
+          entry.disabled && 'opacity-50',
           index === activeIndex &&
             'group-focus-visible/list:outline-2 group-focus-visible/list:-outline-offset-2 group-focus-visible/list:outline-muted',
         )}
@@ -461,7 +488,7 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
       >
         {entry.agentId ? (
           <span className="flex min-w-0 items-center gap-2">
-            <AgentGlyph agentId={entry.agentId} />
+            <AgentIcon agentId={entry.agentId} small />
             <span className="min-w-0 flex-1 truncate">{entry.label}</span>
             {entry.note && <span className="shrink-0 text-subtle">{entry.note}</span>}
           </span>
@@ -497,7 +524,7 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
             onClick={() => show('agents')}
           >
             <span className="flex min-w-0 items-center gap-2">
-              <AgentGlyph agentId={agentId} className="text-fg" />
+              <AgentIcon agentId={agentId} small />
               <span className="min-w-0 flex-1 truncate font-medium text-fg">{meta.agentName}</span>
               <ChevronRight className="size-3 shrink-0 text-subtle" aria-hidden="true" />
             </span>
@@ -521,10 +548,12 @@ function ModelPicker({ id, instant, open, meta, placement, button, onClose }: Mo
           ) : (
             <GroupLabel className="px-2 pt-1.5 pb-1">Agent</GroupLabel>
           )}
-          {/* What picking another costs, said before the pick rather than after. */}
-          {hasTurns && (
+          {/* Why the others start a new chat, said before the pick rather than after. */}
+          {started && (
             <p className="px-2 pb-1 text-caption text-pretty text-subtle">
-              Switching starts a new chat. This one is archived.
+              {busy
+                ? 'Start a new chat to use another agent, once this one is done.'
+                : 'Start a new chat to use another agent.'}
             </p>
           )}
         </div>

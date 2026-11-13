@@ -1832,6 +1832,8 @@ export class ProjectTab implements ChatPanelOwner {
     }
     this.patch({
       project: null,
+      // The start screen shows the default agent, and the next project's chat starts on it.
+      agentId: getPrefs().agentId,
       setup: null,
       devServer: idleDevServer(),
       drawer: closedDrawer(),
@@ -3611,8 +3613,19 @@ export class ProjectTab implements ChatPanelOwner {
     return this.resources.chat?.redo()
   }
 
-  newChat() {
-    void this.resources.chat?.reset()
+  /**
+   * Archives the chat and starts an empty one, on `agentId` (the picker's other agents) or the
+   * chat's own. From the picker it waits for the agent to finish and the queue to empty, so a
+   * running turn or a queued message isn't lost.
+   */
+  newChat(agentId?: AgentId) {
+    const chat = this.resources.chat
+    if (!chat) return
+    if (agentId === undefined) return void chat.reset()
+    if (!agentHealth.has(agentId) || chat.meta.status === 'working' || chat.meta.queue.length)
+      return
+    agentHealth.ensureChecked(agentId)
+    void chat.reset(agentId)
   }
 
   /** Archives the open chat, as New chat does; false when it couldn't be. */
@@ -3649,12 +3662,27 @@ export class ProjectTab implements ChatPanelOwner {
     this.resources.chat?.setSelection([])
   }
 
+  /**
+   * The chat's own agent, from its picker: it changes this chat while nothing has been said in
+   * it, and leaves the default (Settings → Agents) alone. With no project open there's no chat,
+   * and the agent picked (the start screen's) is the default.
+   */
   setAgent(agentId: AgentId) {
     if (!agentHealth.has(agentId)) return
     agentHealth.ensureChecked(agentId)
+    const chat = this.resources.chat
+    if (chat) {
+      void chat.setAgent(agentId)
+      return
+    }
     setPrefs({ agentId })
     this.patch({ agentId })
-    void this.resources.chat?.setAgent(agentId)
+  }
+
+  /** Without a chat, the tab's agent is the default: it follows Settings. */
+  showDefaultAgent() {
+    const { agentId } = getPrefs()
+    if (!this.resources.chat && this.state.agentId !== agentId) this.patch({ agentId })
   }
 
   setChatSidebarSide(side: 'left' | 'right') {

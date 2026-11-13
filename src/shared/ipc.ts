@@ -452,6 +452,10 @@ export interface GuiApi {
   boardOpenFrame(id: string | null): void
   onBoardCommand(cb: (command: BoardCommand) => void): Unsubscribe
 
+  /**
+   * This chat's agent, while nothing has been said in it; the default stays as Settings has
+   * it. With no project open (the start screen), it's the default.
+   */
   setAgent(agentId: AgentId): void
   /** Checks one agent, or every enabled one when no id is given */
   checkAgents(agentId?: AgentId): void
@@ -698,8 +702,12 @@ export interface GuiApi {
   stopSubagent(turnId: string, subagent: string): void
   restoreTurn(turnId: string): Promise<void>
   redo(): Promise<void>
-  /** Archives this chat and starts an empty one (`ChatMeta.archived` offers it back) */
-  newSession(): void
+  /**
+   * Archives this chat and starts an empty one (`ChatMeta.archived` offers it back), on
+   * `agentId` or this chat's agent. With an agent, nothing happens while the chat is working
+   * or has messages queued.
+   */
+  newSession(agentId?: AgentId): void
   /** The project's archived chats, newest first */
   listChats(): Promise<ChatSummary[]>
   /** Reopens an archived chat, archiving this one; rejects with a message to show */

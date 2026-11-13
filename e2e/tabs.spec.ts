@@ -279,7 +279,12 @@ test('projects open as tabs, each with its own preview, chat and dev server', as
   expect((await session.app.evaluate(windowInfo))?.title).toBe('second-vite')
   expect(await session.windowCount()).toBe(1)
 
-  // Each tab has its own transcript: a turn in the second leaves the first's empty.
+  // Each tab has its own transcript: a turn in the second leaves the first's empty. Its chat
+  // starts on the default agent, so it's told to use the stand-in too.
+  await session.chrome.evaluate((id) => window.gui.setAgent(id), AGENT)
+  const onAgent = async () =>
+    (await secondChat.evaluate(() => window.gui.getChat())).meta.agentId === AGENT
+  await waitFor(onAgent, 'the second chat on the stand-in')
   const prompt = 'TABS-WORK in the second tab'
   expect(await secondChat.evaluate((text) => window.gui.send(text), prompt)).toBe(true)
   await waitFor(async () => (await turnsIn(secondChat))[0]?.status === 'done', 'its turn')
@@ -375,6 +380,12 @@ for (const colorScheme of ['light', 'dark'] as const) {
       },
       'the second project',
       { timeout: 120_000 },
+    )
+    // Its chat starts on the default agent: the stand-in, as in the first tab.
+    await session.chrome.evaluate((id) => window.gui.setAgent(id), AGENT)
+    await waitFor(
+      async () => (await secondChat.evaluate(() => window.gui.getChat())).meta.agentId === AGENT,
+      'the second chat on the stand-in',
     )
     // Ask, not Auto, so the agent's request waits for the user.
     await secondChat.evaluate(() => window.gui.setAutoApprove(false))

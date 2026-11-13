@@ -426,13 +426,30 @@ export class ChatController extends EventEmitter<ChatEvents> {
     }
   }
 
+  /**
+   * Whether anything has been said in this chat, or is waiting to be: it stays with its agent
+   * then, and another agent takes a new chat.
+   */
+  get started() {
+    return this.records.length > 0 || this.meta.queue.length > 0
+  }
+
+  /**
+   * Puts this chat on another agent, while nothing has been said in it; false once it has
+   * (another agent takes a new chat, so a running turn or a queued message is never lost).
+   */
   async setAgent(agentId: AgentId) {
-    if (agentId === this.meta.agentId) return
+    if (agentId === this.meta.agentId) return true
+    if (this.started) return false
+    // The chat it offers to bring back is still the one to offer.
+    const { archived } = this.meta
     // Switch first, so a quick second switch compares against this one and the last call wins.
     this.patchMeta(this.agentFields(agentId))
     await this.reset()
+    if (archived && !this.started && this.meta.agentId === agentId) this.patchMeta({ archived })
     // Messages held for the last agent's setup can go now if this one is ready.
     this.refreshAgent()
+    return true
   }
 
   /** What the meta says about the chat's agent, for a chat that switches to `agentId`. */
@@ -449,11 +466,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   /**
-   * Archives this chat and starts an empty one: the agent process goes, and the next message
-   * starts a fresh session. False when the chat couldn't be archived, and so was kept.
+   * Archives this chat and starts an empty one, on `agentId` or this chat's agent: the agent
+   * process goes, and the next message starts a fresh session. False when the chat couldn't
+   * be archived, and so was kept.
    */
-  reset() {
-    return this.replace(null)
+  reset(agentId?: AgentId) {
+    return this.replace(null, agentId)
   }
 
   /** Brings back an archived chat in place of this one, which is archived in turn. */
@@ -481,7 +499,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * One at a time, in the order asked: two at once would both archive the chat the first is
    * leaving, and the second would overwrite the one the first opened.
    */
-  private replace(next: SavedChat | null) {
+  private replace(next: SavedChat | null, agentId?: AgentId) {
     const token = {}
     this.lock = token
     this.epoch++
@@ -490,12 +508,12 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.endPrompting()
     // Messages queued for the old chat go with it; ones sent while this runs are for the new one.
     this.clearQueue()
-    const done = this.replacing.then(() => this.swap(next, token))
+    const done = this.replacing.then(() => this.swap(next, token, agentId))
     this.replacing = done.catch(() => undefined)
     return done
   }
 
-  private async swap(next: SavedChat | null, token: object) {
+  private async swap(next: SavedChat | null, token: object, fresh?: AgentId) {
     // Closed while it waited: the final save kept the transcript.
     if (this.disposed) return false
     const running = this.active
@@ -532,7 +550,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.load(next)
     this.schedulePersist()
     if (this.lock === token) this.lock = null
-    const agentId = next?.agentId ?? this.meta.agentId
+    const agentId = next?.agentId ?? fresh ?? this.meta.agentId
     this.patchMeta({
       ...(agentId !== this.meta.agentId ? this.agentFields(agentId) : {}),
       status: 'idle',

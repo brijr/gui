@@ -1,8 +1,13 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
-import type { Locator } from '@playwright/test'
-import { type AgentId, CUSTOM_AGENT_PREFIX, type ModelSettings } from '../src/shared/types'
+import type { Locator, Page } from '@playwright/test'
+import {
+  type AgentId,
+  CUSTOM_AGENT_PREFIX,
+  DEFAULT_AGENT_ID,
+  type ModelSettings,
+} from '../src/shared/types'
 import { electronExecutable, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
@@ -15,13 +20,16 @@ const AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Models`
 
 /**
  * Speaks ACP (ndjson JSON-RPC) on stdio. The model list is long and grouped by provider,
- * like OpenCode's ("short": three models, ungrouped); effort is flat, and refuses "max".
- * A `mode` setting stands in for the categories Gui ignores.
+ * like OpenCode's ("short": three models, ungrouped; "none": no models or effort at all);
+ * effort is flat, and refuses "max". A `mode` setting stands in for the categories Gui
+ * ignores. "signed-out" turns every session down until the user signs in. A message saying
+ * SLOW keeps its turn running until it's stopped.
  */
 const AGENT_SCRIPT = String.raw`
 const { appendFileSync } = require('node:fs')
 const [log, size] = process.argv.slice(2)
 const state = { llm: 'swift', depth: 'medium' }
+let held = null
 const PROVIDERS = {
   Anthropic: ['Claude Opus 4.1', 'Claude Opus 4', 'Claude Sonnet 4.5', 'Claude Sonnet 4',
     'Claude Haiku 4.5', 'Claude 3.7 Sonnet', 'Claude 3.5 Haiku'],
@@ -46,9 +54,10 @@ const models = () => size === 'short'
         options: names.map((name) => ({ value: slug(provider) + '/' + slug(name), name: provider + '/' + name })),
       })),
     ]
-const configOptions = () => [
-  { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask',
-    options: [{ value: 'ask', name: 'Ask' }] },
+const MODE = { id: 'mode', name: 'Mode', category: 'mode', type: 'select', currentValue: 'ask',
+  options: [{ value: 'ask', name: 'Ask' }] }
+const configOptions = () => size === 'none' ? [MODE] : [
+  MODE,
   { id: 'llm', name: 'Model', category: 'model', type: 'select', currentValue: state.llm,
     options: models() },
   { id: 'depth', name: 'Thinking', category: 'thought_level', type: 'select',
@@ -57,12 +66,21 @@ const configOptions = () => [
 ]
 const write = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
 const handle = ({ id, method, params }) => {
-  if (id === undefined) return
+  if (id === undefined) {
+    if (method === 'session/cancel' && held !== null) {
+      write({ id: held, result: { stopReason: 'cancelled' } })
+      held = null
+    }
+    return
+  }
   appendFileSync(log, JSON.stringify({ pid: process.pid, method, params }) + '\n')
   if (method === 'initialize') {
     return write({ id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } })
   }
   if (method === 'session/new') {
+    if (size === 'signed-out') {
+      return write({ id, error: { code: -32000, message: 'Authentication required' } })
+    }
     return write({ id, result: { sessionId: 'session-' + process.pid, configOptions: configOptions() } })
   }
   if (method === 'session/set_config_option') {
@@ -70,7 +88,10 @@ const handle = ({ id, method, params }) => {
     state[params.configId] = params.value
     return write({ id, result: { configOptions: configOptions() } })
   }
-  if (method === 'session/prompt') return write({ id, result: { stopReason: 'end_turn' } })
+  if (method === 'session/prompt') {
+    if (JSON.stringify(params.prompt).includes('SLOW')) return void (held = id)
+    return write({ id, result: { stopReason: 'end_turn' } })
+  }
   write({ id, error: { code: -32601, message: 'Method not found' } })
 }
 let buffer = ''
@@ -84,6 +105,8 @@ process.stdin.on('data', (chunk) => {
   }
 })
 `
+
+type Kind = 'long' | 'short' | 'none' | 'signed-out'
 
 interface Call {
   pid: number
@@ -101,27 +124,33 @@ type ChatRuns = () => Call[][]
  */
 async function addAgent(
   session: GuiSession,
-  size: 'long' | 'short' = 'long',
-  /** A second agent of the same kind, "Other", to switch to */
-  other = false,
+  size: Kind = 'long',
+  /** More agents by name, of these kinds, for the picker to list */
+  others: Record<string, Kind> = {},
 ): Promise<ChatRuns> {
   const { base, userData, root } = session.fixture
   const log = join(base, 'agent-calls.ndjson')
   const script = join(base, 'models-agent.cjs')
   writeFileSync(script, AGENT_SCRIPT)
-  const entry = {
+  const entry = (kind: Kind) => ({
     command: electronExecutable(),
-    args: [script, log, size],
+    args: [script, log, kind],
     env: { ELECTRON_RUN_AS_NODE: '1' },
-  }
-  const agents = other ? { Models: entry, Other: entry } : { Models: entry }
+  })
+  const agents = Object.fromEntries(
+    Object.entries({ Models: size, ...others }).map(([name, kind]) => [name, entry(kind)]),
+  )
   writeFileSync(join(userData, 'agents.json'), JSON.stringify(agents))
   await session.chrome.evaluate(() => window.gui.checkAgents())
   const listed = async () => (await session.state()).agents.some((agent) => agent.id === AGENT)
   await waitFor(listed, 'the agent to be listed')
   await waitFor(async () => (await session.state()).project !== null, 'the project to open')
   await session.chrome.evaluate((id) => window.gui.setAgent(id), AGENT)
-  await waitFor(async () => (await models(session))?.model.id === 'llm', "the agent's models")
+  if (size === 'none') {
+    await waitFor(async () => (await session.chatSnapshot()).meta.agentId === AGENT, 'the agent')
+  } else {
+    await waitFor(async () => (await models(session))?.model.id === 'llm', "the agent's models")
+  }
   return () => {
     if (!existsSync(log)) return []
     const calls = readFileSync(log, 'utf8')
@@ -466,17 +495,40 @@ test('a short model list has no search field and is driven from the list', async
   ).toBeFocused()
 })
 
-test('the picker also switches agents: its agent row lists them, and another one starts a new chat', async ({
+const OTHER: AgentId = `${CUSTOM_AGENT_PREFIX}Other`
+
+/** The picker on its agents, by role. */
+function agentsOf(session: GuiSession) {
+  const dialog = session.chat.getByRole('dialog', { name: 'Choose an agent' })
+  const list = dialog.getByRole('listbox', { name: 'Agents' })
+  return { dialog, list, option: (name: string) => list.getByRole('option', { name }) }
+}
+
+const agentIs = (session: GuiSession, id: AgentId) =>
+  waitFor(async () => (await session.chatSnapshot()).meta.agentId === id, `the chat on ${id}`)
+
+/** The Settings window, once it's open and its page has loaded. */
+async function settingsPage(session: GuiSession): Promise<Page> {
+  const find = () =>
+    session.app
+      .context()
+      .pages()
+      .find((page) => page.url().endsWith('/settings.html'))
+  const page = await waitFor(find, 'the Settings window', { timeout: 30_000 })
+  await page.waitForFunction(() => 'gui' in window)
+  return page
+}
+
+test('an empty chat takes another agent from the picker, which leaves the default agent alone', async ({
   launch,
 }) => {
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
-  await addAgent(session, 'short', true)
+  await addAgent(session, 'short', { Other: 'short' })
   await modelsAre(session, 'swift', 'medium')
   const { chat } = session
-  const OTHER: AgentId = `${CUSTOM_AGENT_PREFIX}Other`
-  const agentIs = (id: AgentId) =>
-    waitFor(async () => (await session.chatSnapshot()).meta.agentId === id, `the chat on ${id}`)
+  const { dialog: models } = pickerOf(session)
+  const agents = agentsOf(session)
 
   // The header names the agent and no longer switches it: the picker does.
   await expect(chat.getByRole('heading', { level: 2, name: 'Models' })).toBeVisible()
@@ -484,59 +536,162 @@ test('the picker also switches agents: its agent row lists them, and another one
 
   // The agent's row, above its models, opens the agents in the same picker.
   const button = chat.getByRole('button', { name: 'Model: Swift, effort Medium' })
+  const toAgents = () => models.getByRole('button', { name: 'Agent: Models. Switch agent' }).click()
   await button.click()
-  const { dialog: models } = pickerOf(session)
-  await models.getByRole('button', { name: 'Agent: Models. Switch agent' }).click()
-  const agents = chat.getByRole('dialog', { name: 'Choose an agent' })
-  const list = agents.getByRole('listbox', { name: 'Agents' })
+  await toAgents()
+  await expect(agents.list).toBeVisible()
   // A Mac with many agents installed gets a search field, which then holds the keyboard.
-  const search = agents.getByRole('combobox', { name: 'Search agents' })
-  await expect(list).toBeVisible()
-  const keys = (await search.count()) ? search : list
+  const search = agents.dialog.getByRole('combobox', { name: 'Search agents' })
+  const keys = (await search.count()) ? search : agents.list
   await expect(keys).toBeFocused()
-  await expect(list.getByRole('option', { selected: true })).toHaveText('Models')
-  await expect(list.getByRole('option', { name: 'Other' })).toBeVisible()
-  await expect(agents.getByRole('button', { name: 'Agent Settings…' })).toBeVisible()
-  // Nothing to lose yet, so nothing to warn about.
-  await expect(agents.getByText('Switching starts a new chat')).toHaveCount(0)
+  await expect(agents.list.getByRole('option', { selected: true })).toHaveAccessibleName('Models')
+  // Nothing said yet: any agent takes this chat, as is.
+  await expect(agents.option('Other')).toHaveAccessibleName('Other')
+  await expect(agents.dialog.getByText('Start a new chat')).toHaveCount(0)
+  await expect(agents.dialog.getByRole('button', { name: 'Agent Settings…' })).toBeVisible()
   await session.shot('agent-picker')
 
-  // Back to the models and in again, then another agent, from the keyboard.
-  await agents.getByRole('button', { name: 'Back to models' }).click()
+  // Esc and ← go back to the models; Esc there closes.
+  await chat.keyboard.press('Escape')
   await expect(models).toBeVisible()
-  await models.getByRole('button', { name: 'Agent: Models. Switch agent' }).click()
-  const other = list.getByRole('option', { name: 'Other' })
-  const index = await list
+  await expect(agents.dialog).toHaveCount(0)
+  await toAgents()
+  await expect(keys).toBeFocused()
+  await chat.keyboard.press('ArrowLeft')
+  await expect(models).toBeVisible()
+  await chat.keyboard.press('Escape')
+  await expect(models).toHaveCount(0)
+  await expect(button).toBeFocused()
+
+  // Another agent, from the keyboard.
+  await button.click()
+  await toAgents()
+  const ids = await agents.list
     .getByRole('option')
-    .evaluateAll(
-      (options, name) => options.findIndex((option) => option.textContent === name),
-      'Other',
-    )
-  const selected = await list
+    .evaluateAll((options) => options.map((option) => option.getAttribute('aria-selected')))
+  const from = ids.indexOf('true')
+  const names = await agents.list
     .getByRole('option')
     .evaluateAll((options) =>
-      options.findIndex((option) => option.getAttribute('aria-selected') === 'true'),
+      options.map((option) => option.querySelector('.truncate .truncate')?.textContent),
     )
-  for (let step = selected; step !== index; step += Math.sign(index - selected)) {
-    await chat.keyboard.press(index > selected ? 'ArrowDown' : 'ArrowUp')
+  const to = names.indexOf('Other')
+  expect(to).toBeGreaterThanOrEqual(0)
+  for (let step = from; step !== to; step += Math.sign(to - from)) {
+    await chat.keyboard.press(to > from ? 'ArrowDown' : 'ArrowUp')
   }
-  await expectActive(keys, other)
+  await expectActive(keys, agents.option('Other'))
   await chat.keyboard.press('Enter')
-  await expect(agents).toBeHidden()
-  await agentIs(OTHER)
+  await expect(agents.dialog).toHaveCount(0)
+  await agentIs(session, OTHER)
   await expect(chat.getByRole('heading', { level: 2, name: 'Other' })).toBeVisible()
+  // Nothing was said, so nothing was archived.
+  expect((await session.chatSnapshot()).meta.archived).toBeNull()
 
-  // With a conversation, the agents say what switching costs; switching archives it.
-  expect(await send(session, 'Hello')).toBe(true)
-  expect((await session.waitForTurn(0)).turn.status).toBe('done')
+  // This chat only: the default agent is still Settings' own, and Agent Settings… opens there.
   await chat.getByRole('button', { name: 'Model: Swift, effort Medium' }).click()
   await pickerOf(session).dialog.getByRole('button', { name: 'Agent: Other. Switch agent' }).click()
-  await expect(agents.getByText('Switching starts a new chat. This one is archived.')).toBeVisible()
-  await list.getByRole('option', { name: 'Models' }).click()
-  await expect(agents).toBeHidden()
-  await agentIs(AGENT)
+  await agents.dialog.getByRole('button', { name: 'Agent Settings…' }).click()
+  await expect(agents.dialog).toHaveCount(0)
+  const settings = await settingsPage(session)
+  await expect(settings.getByRole('heading', { level: 1, name: 'Agents' })).toBeVisible()
+  expect((await settings.evaluate(() => window.gui.getSettings())).defaultAgentId).toBe(
+    DEFAULT_AGENT_ID,
+  )
+})
+
+test('a started chat keeps its agent: another one starts a new chat, never while it works', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await addAgent(session, 'short', { Other: 'short' })
+  await modelsAre(session, 'swift', 'medium')
+  const { chat } = session
+  const agents = agentsOf(session)
+  const openAgents = async () => {
+    await chat.getByRole('button', { name: 'Model: Swift, effort Medium' }).click()
+    await pickerOf(session)
+      .dialog.getByRole('button', { name: 'Agent: Models. Switch agent' })
+      .click()
+    await expect(agents.list).toBeVisible()
+  }
+
+  // While a turn runs, the others say how to use them, and can't cut it short.
+  expect(await send(session, 'SLOW')).toBe(true)
+  await waitFor(async () => (await session.chatSnapshot()).meta.status === 'working', 'the turn')
+  await openAgents()
+  await expect(
+    agents.dialog.getByText('Start a new chat to use another agent, once this one is done.'),
+  ).toBeVisible()
+  const other = agents.option('Other')
+  await expect(other).toHaveAttribute('aria-disabled', 'true')
+  await expect(other).toHaveAttribute('title', 'Start a new chat to use Other')
+  // Playwright won't click a disabled option itself; a person can, to no effect.
+  await other.click({ force: true })
+  await expect(agents.dialog).toBeVisible()
+  expect((await session.chatSnapshot()).meta.agentId).toBe(AGENT)
+  await session.shot('agent-picker-started')
+  await chat.keyboard.press('Escape')
+  await chat.keyboard.press('Escape')
+  // Picking another agent for this chat is turned down too.
+  await chat.evaluate((id) => window.gui.setAgent(id), OTHER)
+  await chat.evaluate(() => window.gui.cancel())
+  await waitFor(async () => (await session.chatSnapshot()).meta.status !== 'working', 'stopped')
+  expect((await session.chatSnapshot()).meta.agentId).toBe(AGENT)
+
+  // Done: another agent starts a new chat with it, and this one is archived.
+  await openAgents()
+  await expect(agents.dialog.getByText('Start a new chat to use another agent.')).toBeVisible()
+  await expect(other).not.toHaveAttribute('aria-disabled')
+  await expect(other).toContainText('New chat')
+  await other.click()
+  await expect(agents.dialog).toHaveCount(0)
+  await agentIs(session, OTHER)
   await waitFor(async () => {
     const snapshot = await session.chatSnapshot()
     return snapshot.turns.length === 0 && snapshot.meta.archived !== null
   }, 'a new chat, with the old one archived')
+})
+
+test('an agent with no models: the button names it, the picker and ⇧⌘M open on the agents', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  await addAgent(session, 'none', { Locked: 'signed-out' })
+  const { chat } = session
+  const agents = agentsOf(session)
+  await waitFor(
+    async () =>
+      (await session.state()).agents.find((agent) => agent.id === `${CUSTOM_AGENT_PREFIX}Locked`)
+        ?.status === 'signed-out',
+    'the signed-out agent checked',
+  )
+
+  const button = chat.getByRole('button', { name: 'Agent: Models' })
+  await expect(button).toHaveText('Models')
+  await button.click()
+  await expect(agents.list).toBeVisible()
+  await expect(agents.dialog.getByRole('button', { name: 'Back to models' })).toHaveCount(0)
+  // Why one can't take a message yet, beside its name.
+  await expect(agents.option('Locked')).toContainText('Not signed in')
+  await expect(agents.option('Locked')).toHaveAttribute('title', 'Locked · Not signed in')
+  // No models to go back to: Esc closes.
+  await chat.keyboard.press('Escape')
+  await expect(agents.dialog).toHaveCount(0)
+
+  // ⇧⌘M (Agent → Choose Model…) opens it on the agents too.
+  await session.app.evaluate(({ Menu }) => {
+    const find = (items: Electron.MenuItem[]): Electron.MenuItem | undefined => {
+      for (const item of items) {
+        if (item.label === 'Choose Model…' && item.visible) return item
+        const inner = item.submenu && find(item.submenu.items)
+        if (inner) return inner
+      }
+      return undefined
+    }
+    find(Menu.getApplicationMenu()?.items ?? [])?.click()
+  })
+  await expect(agents.list).toBeVisible()
 })
