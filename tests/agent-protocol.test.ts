@@ -8,6 +8,7 @@ import {
   GEMINI_MODE_NOTICE,
   modeNoticeUpdate,
   plainAgentError,
+  questionRequest,
   resumeMethods,
 } from '../src/main/agent-protocol'
 
@@ -174,7 +175,8 @@ describe('formQuestions', () => {
     ).toEqual([
       {
         id: 'base',
-        title: 'Which branch should the pull request target?',
+        title: 'Base branch',
+        description: 'Which branch should the pull request target?',
         choices: [
           { value: 'main', name: 'main' },
           { value: 'dev', name: 'dev' },
@@ -189,6 +191,33 @@ describe('formQuestions', () => {
     ).toEqual([
       { value: 'S', name: 'S' },
       { value: 'L', name: 'L' },
+    ])
+  })
+
+  test('keeps what each choice means', () => {
+    expect(
+      formQuestions({
+        properties: {
+          q0: {
+            type: 'string',
+            title: 'Cleanup',
+            oneOf: [
+              { const: 'Remove', title: 'Remove', description: 'Delete `/dev/styleguide`' },
+              { const: 'Keep', title: 'Keep', description: '' },
+            ],
+          },
+        },
+      }),
+    ).toEqual([
+      {
+        id: 'q0',
+        title: 'Cleanup',
+        description: undefined,
+        choices: [
+          { value: 'Remove', name: 'Remove', description: 'Delete `/dev/styleguide`' },
+          { value: 'Keep', name: 'Keep' },
+        ],
+      },
     ])
   })
 
@@ -207,6 +236,60 @@ describe('formQuestions', () => {
     ).toBeNull()
     expect(formQuestions({ properties: { note: { type: 'string' } } })).toBeNull()
     expect(formQuestions(undefined)).toBeNull()
+  })
+})
+
+describe('questionRequest', () => {
+  const choices = [
+    { value: 'a', name: 'Remove the page', description: 'Delete `/dev/styleguide` for good' },
+    { value: 'b', name: 'Keep it' },
+  ]
+
+  test("a lone question in the form's message (Claude): the message is the question", () => {
+    const question = { id: 'q0', title: 'Cleanup', description: undefined, choices }
+    const request = questionRequest('s1', question, 'What should happen to the styleguide?')
+    expect(request.toolCall).toMatchObject({
+      toolCallId: 'question:q0',
+      title: 'What should happen to the styleguide?',
+      kind: 'question',
+    })
+    expect(request.message).toBeUndefined()
+    // Skip first for Auto mode; each choice keeps what it means.
+    expect(request.options as unknown[]).toEqual([
+      { optionId: 'skip', name: 'Skip', kind: 'reject_once' },
+      {
+        optionId: '0',
+        name: 'Remove the page',
+        kind: 'answer',
+        description: 'Delete `/dev/styleguide` for good',
+      },
+      { optionId: '1', name: 'Keep it', kind: 'answer' },
+    ])
+  })
+
+  test("a question of its own keeps the form's message beside it, never twice", () => {
+    const question = {
+      id: 'q1',
+      title: 'Cleanup',
+      description: 'What should happen to the styleguide?',
+      choices,
+    }
+    const several = questionRequest('s1', question, 'Before I tidy up, two questions.')
+    expect(several.toolCall.title).toBe('What should happen to the styleguide?')
+    expect(several.message).toBe('Before I tidy up, two questions.')
+    const same = questionRequest('s1', question, 'What should happen to the styleguide?')
+    expect(same.message).toBeUndefined()
+  })
+
+  test('falls back to the field title, then plain words', () => {
+    expect(
+      questionRequest('s1', { id: 'q', title: 'Size', description: undefined, choices }, '')
+        .toolCall.title,
+    ).toBe('Size')
+    expect(
+      questionRequest('s1', { id: 'q', title: undefined, description: undefined, choices }, '')
+        .toolCall.title,
+    ).toBe('The agent has a question')
   })
 })
 

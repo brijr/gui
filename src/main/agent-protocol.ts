@@ -129,10 +129,15 @@ export function resumeMethods(
 /** A question Gui can ask on its permission card: one pick from a list. */
 export interface FormQuestion {
   id: string
-  /** What the card shows as the question, when the field says */
+  /** The field's title: often a short heading ("Base branch"), sometimes the question */
   title: string | undefined
-  choices: { value: string; name: string }[]
+  /** The field's description: the question in full, when the form says it here */
+  description: string | undefined
+  /** Each choice's label, and what it means when the agent says (Claude's AskUserQuestion) */
+  choices: { value: string; name: string; description?: string }[]
 }
+
+const text = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined)
 
 /**
  * The questions in an elicitation form, or null when Gui can't ask them. Gui's card offers
@@ -155,14 +160,66 @@ export function formQuestions(requestedSchema: unknown): FormQuestion[] | null {
       if (required.has(id)) return null
       continue
     }
-    const text = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
     questions.push({
       id,
-      title: isRecord(field) ? (text(field.description) ?? text(field.title)) : undefined,
+      title: isRecord(field) ? text(field.title) : undefined,
+      description: isRecord(field) ? text(field.description) : undefined,
       choices,
     })
   }
   return questions.length ? questions : null
+}
+
+/** Not an ACP kind: the tool kind of an agent's own question, whose card shows its title as the question. */
+export const QUESTION_KIND = 'question' as acp.ToolKind
+
+/**
+ * A permission request, or one of an agent's own questions put as one (`questionRequest`):
+ * then what the form says beside the question, and what each choice means.
+ */
+export type PermissionRequest = Omit<acp.RequestPermissionRequest, 'options'> & {
+  message?: string
+  options: (acp.PermissionOption & { description?: string })[]
+}
+
+/**
+ * One of a form's questions as a request for Gui's permission card: the question in full,
+ * the form's message beside it when that says something else, and each choice with what it
+ * means. Claude's AskUserQuestion puts a lone question in the form's message and only a short
+ * heading in the field; with several, each field has its question and the message is the
+ * form's own.
+ */
+export function questionRequest(
+  sessionId: string,
+  question: FormQuestion,
+  message: string | undefined,
+): PermissionRequest {
+  const said = text(message)?.trim()
+  const title = (
+    question.description ??
+    said ??
+    question.title ??
+    'The agent has a question'
+  ).trim()
+  return {
+    sessionId,
+    toolCall: {
+      toolCallId: `question:${question.id}`,
+      title,
+      kind: QUESTION_KIND,
+    },
+    ...(said && said !== title ? { message: said } : {}),
+    // Skip first, so Auto mode never answers for the user (see `flaggedCaution`).
+    options: [
+      { optionId: 'skip', name: 'Skip', kind: 'reject_once' },
+      ...question.choices.map((choice, index) => ({
+        optionId: String(index),
+        name: choice.name,
+        kind: 'answer' as acp.PermissionOptionKind,
+        ...(choice.description ? { description: choice.description } : {}),
+      })),
+    ],
+  }
 }
 
 /** A field's choices, when it asks for a single pick from a list; otherwise null. */
@@ -175,6 +232,7 @@ function fieldChoices(field: Record<string, unknown>) {
           {
             value: option.const,
             name: typeof option.title === 'string' ? option.title : option.const,
+            ...(text(option.description) ? { description: text(option.description) } : {}),
           },
         ]
       : [],

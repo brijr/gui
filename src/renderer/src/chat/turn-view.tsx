@@ -47,7 +47,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
-import { Button, IconButton, PRESS, Spinner, Toggle } from '../lib/ui'
+import { Button, Code, IconButton, PRESS, Spinner, Toggle } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
 import { focusComposer, setFollowUp, useChat, waitingCard } from './store'
@@ -941,9 +941,8 @@ function shownOptions(options: PermissionChoice[]) {
 /** Past this many characters, an option won't fit half a narrow card: the options stack. */
 const LONG_OPTION = 24
 
-/** An agent's own question keeps its wording ("Skip", its choices), not Allow / Don't allow. */
-function optionLabel(option: PermissionChoice, asked: boolean) {
-  return (asked ? null : OPTION_LABELS[option.kind]) ?? option.name
+function optionLabel(option: PermissionChoice) {
+  return OPTION_LABELS[option.kind] ?? option.name
 }
 
 function byOptionOrder(a: PermissionChoice, b: PermissionChoice) {
@@ -1060,7 +1059,12 @@ function Permission({
   const asked = toolKind === 'question'
   const question = asked ? item.title : permissionQuestion(toolKind, locations)
   const options = shownOptions(item.options).sort(byOptionOrder)
-  const stacked = options.some((option) => optionLabel(option, asked).length > LONG_OPTION)
+  const stacked = options.some((option) => optionLabel(option).length > LONG_OPTION)
+  const respond = (optionId: string) => {
+    // The card goes once answered: the keyboard moves on to the message box.
+    focusComposer()
+    gui.respondPermission(turnId, item.id, optionId)
+  }
   const many = locations.length > 1
   const why = many
     ? 'These files control how the project builds or runs.'
@@ -1076,7 +1080,10 @@ function Permission({
       <div className="flex min-w-0 items-start gap-2">
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           {asker && <GroupLabel className="truncate">{asker}</GroupLabel>}
-          <p className="break-words font-semibold">{question}</p>
+          <p className="break-words font-semibold">{asked ? withCode(question) : question}</p>
+          {asked && item.message && (
+            <p className="break-words text-small text-muted">{withCode(item.message)}</p>
+          )}
         </div>
         {item.sensitive && (
           <Badge tone="warning" icon={TriangleAlert} title={why} className="shrink-0">
@@ -1095,50 +1102,111 @@ function Permission({
         )
       )}
       {item.sensitive && <p className="sr-only">{why}</p>}
-      {/* One row, the default last, where the card is wide enough. Narrower, two columns that
+      {asked ? (
+        <QuestionChoices options={options} keyed={keyed} respond={respond} />
+      ) : (
+        /* One row, the default last, where the card is wide enough. Narrower, two columns that
           share the width, so the default never ends up alone on a line under the others: with
           an odd count, the first one takes a line of its own instead. An agent's own wording
           can run long ("Allow search via Exa, Firecrawl, …"): then each takes a full-width
-          line, left-aligned, and wraps. */}
-      <div className="@container">
-        <div
-          className={
-            stacked ? 'flex flex-col gap-2' : 'grid grid-cols-2 gap-2 @sm:flex @sm:justify-end'
-          }
-        >
-          {options.map((option, index) => (
-            <Button
-              key={option.optionId}
-              variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
-              title={option.name}
-              shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
-              keys
-              onClick={() => {
-                // The card goes once answered: the keyboard moves on to the message box.
-                focusComposer()
-                gui.respondPermission(turnId, item.id, option.optionId)
-              }}
-              className={cn(
-                'min-w-0',
-                // `!`: Button's own fixed height would win otherwise (cn doesn't merge).
-                stacked
-                  ? 'h-auto! min-h-7 py-1 text-left'
-                  : index === 0 && options.length % 2 === 1 && 'col-span-2',
-              )}
-            >
-              <span
+          line, left-aligned, and wraps. */
+        <div className="@container">
+          <div
+            className={
+              stacked ? 'flex flex-col gap-2' : 'grid grid-cols-2 gap-2 @sm:flex @sm:justify-end'
+            }
+          >
+            {options.map((option, index) => (
+              <Button
+                key={option.optionId}
+                variant={option.kind === 'allow_once' ? 'primary' : 'secondary'}
+                title={option.name}
+                shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
+                keys
+                onClick={() => respond(option.optionId)}
                 className={cn(
                   'min-w-0',
-                  stacked ? 'flex-1 break-words whitespace-normal' : 'truncate',
+                  // `!`: Button's own fixed height would win otherwise (cn doesn't merge).
+                  stacked
+                    ? 'h-auto! min-h-7 py-1 text-left'
+                    : index === 0 && options.length % 2 === 1 && 'col-span-2',
                 )}
               >
-                {optionLabel(option, asked)}
-              </span>
-            </Button>
-          ))}
+                <span
+                  className={cn(
+                    'min-w-0',
+                    stacked ? 'flex-1 break-words whitespace-normal' : 'truncate',
+                  )}
+                >
+                  {optionLabel(option)}
+                </span>
+              </Button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
     </Card>
+  )
+}
+
+/**
+ * An agent's own question's choices, one to a line and in full, each with what it means
+ * beneath it when the agent says. Skip comes last and quieter: the choices are what to read.
+ */
+function QuestionChoices({
+  options,
+  keyed,
+  respond,
+}: {
+  options: PermissionChoice[]
+  keyed: boolean
+  respond: (optionId: string) => void
+}) {
+  const skips = options.filter((option) => option.kind.startsWith('reject'))
+  const choices = options.filter((option) => !option.kind.startsWith('reject'))
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex flex-col gap-1.5">
+        {choices.map((option) => (
+          <Button
+            key={option.optionId}
+            onClick={() => respond(option.optionId)}
+            // `!`: Button's own fixed height would win otherwise (cn doesn't merge).
+            className="h-auto! min-h-7 w-full py-1.5 text-left"
+          >
+            <span className="flex flex-col gap-0.5 break-words whitespace-normal">
+              <span>{withCode(option.name)}</span>
+              {option.description && (
+                <span className="font-normal text-caption text-muted">
+                  {withCode(option.description)}
+                </span>
+              )}
+            </span>
+          </Button>
+        ))}
+      </div>
+      {skips.map((option) => (
+        <Button
+          key={option.optionId}
+          variant="ghost"
+          shortcut={keyed ? OPTION_SHORTCUTS[option.kind] : undefined}
+          keys
+          onClick={() => respond(option.optionId)}
+          className="self-start"
+        >
+          {option.name}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
+/** An agent's words with its `backticked` spans as code; the rest stays text. */
+function withCode(text: string) {
+  return text.split(/`([^`\n]+)`/).map((part, index) =>
+    // Odd parts are the code; the list never reorders.
+    // biome-ignore lint/suspicious/noArrayIndexKey: see above
+    index % 2 ? <Code key={index}>{part}</Code> : part,
   )
 }
 

@@ -16,6 +16,8 @@ const AGENT: AgentId = `${CUSTOM_AGENT_PREFIX}Approvals`
 const BASIC = 'SCENARIO=basic Run the tests, then edit a file outside the project'
 /** Asks the questions Auto mode must still put to the user, then some it answers itself. */
 const CAREFUL = 'SCENARIO=careful Look around and tidy up'
+/** Asks a question of its own (an elicitation form), as Claude's AskUserQuestion does. */
+const ASK = 'SCENARIO=question Tidy up the dev pages'
 
 /**
  * Speaks ACP (ndjson JSON-RPC) on stdio. Each prompt sends the `session/request_permission`
@@ -56,6 +58,28 @@ const SCENARIOS = {
     { toolCallId: 'edit-in-1', title: 'edit_file', kind: 'edit', rawInput: { path: 'src/App.tsx' } },
   ],
 }
+// Four medium-length choices, each with what it means, and a message beside the question.
+const QUESTION = {
+  mode: 'form',
+  message: 'I found three pages under /dev that nothing links to.',
+  requestedSchema: {
+    type: 'object',
+    properties: {
+      cleanup: {
+        type: 'string',
+        title: 'Cleanup',
+        description: 'What should I do with the \x60/dev/styleguide\x60 page?',
+        oneOf: [
+          { const: 'shortcut', title: 'Show it under a shortcut', description: 'Keep the page, open it with Shift+Cmd+Backspace' },
+          { const: 'data', title: 'Delete the data only', description: 'Keep the page, remove the sample data it loads' },
+          { const: 'page', title: 'Remove the page and its route', description: 'Delete \x60src/pages/dev/styleguide.tsx\x60 and its entry in the router' },
+          { const: 'all', title: 'Remove everything under /dev', description: 'Delete all three pages and the dev layout' },
+        ],
+      },
+      'cleanup:other': { type: 'string', title: 'Other', description: 'Type your own answer (optional).' },
+    },
+  },
+}
 const write = (message) => {
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n')
 }
@@ -84,6 +108,11 @@ const prompt = async ({ sessionId, prompt }) => {
   const turn = turns++
   const text = prompt.filter((block) => block.type === 'text').map((block) => block.text).join('\n')
   const scenario = /SCENARIO=(\w+)/.exec(text)?.[1] ?? 'basic'
+  if (scenario === 'question') {
+    const outcome = await ask('elicitation/create', { sessionId, ...QUESTION })
+    appendFileSync(log, JSON.stringify({ turn, toolCallId: 'question', outcome }) + '\n')
+    return { stopReason: 'end_turn' }
+  }
   for (const tool of SCENARIOS[scenario]) await requestPermission(sessionId, turn, tool)
   return { stopReason: 'end_turn' }
 }
@@ -132,8 +161,8 @@ interface Outcome {
   /** Index of the turn the request belonged to */
   turn: number
   toolCallId: string
-  /** What Gui answered with: a chosen option, or cancelled */
-  outcome: { outcome: string; optionId?: string }
+  /** What Gui answered with: a chosen option, or cancelled; to a question, the form's answer */
+  outcome: { outcome: string; optionId?: string } | { action: string; content?: object }
 }
 
 interface StandIn {
@@ -437,4 +466,83 @@ test('Auto mode still asks when the agent flags a request, about outside reads a
     chose(0, 'search-1', 'allow'),
     chose(0, 'edit-in-1', 'allow'),
   ])
+})
+
+test("an agent's question shows each choice in full on its own line, with what it means, Skip last", async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.declineConsentDialogs()
+  const agent = await useAgent(session)
+  const { chat } = session
+
+  // Auto mode is on, and still leaves the question to the user.
+  expect(await send(chat, ASK)).toBe(true)
+  const asked = await openCard(session, 0, 'question')
+  expect(asked.card).toMatchObject({
+    title: 'What should I do with the `/dev/styleguide` page?',
+    message: 'I found three pages under /dev that nothing links to.',
+  })
+  const choices = [
+    ['Show it under a shortcut', 'Keep the page, open it with Shift+Cmd+Backspace'],
+    ['Delete the data only', 'Keep the page, remove the sample data it loads'],
+    [
+      'Remove the page and its route',
+      'Delete src/pages/dev/styleguide.tsx and its entry in the router',
+    ],
+    ['Remove everything under /dev', 'Delete all three pages and the dev layout'],
+  ]
+  const card = chat.locator(`section[data-permission="${asked.card.id}"]`)
+  // The question in full, its code as code, and the message beside it.
+  await expect(card.getByText('What should I do with the /dev/styleguide page?')).toBeVisible()
+  await expect(card.locator('code', { hasText: '/dev/styleguide' }).first()).toBeVisible()
+  await expect(
+    card.getByText('I found three pages under /dev that nothing links to.'),
+  ).toBeVisible()
+  await session.shot('agent-question')
+
+  // One choice to a line, as wide as the card, nothing cut off; then Skip.
+  const buttons = card.getByRole('button')
+  const shown = await buttons.evaluateAll((elements) =>
+    elements.map((element) => {
+      const box = element.getBoundingClientRect()
+      const clipped = [...element.querySelectorAll('span')].some(
+        (span) => span.scrollWidth > span.clientWidth,
+      )
+      return {
+        text: element.textContent ?? '',
+        left: box.left,
+        top: box.top,
+        width: box.width,
+        clipped,
+      }
+    }),
+  )
+  expect(shown.map((button) => button.text)).toEqual([
+    ...choices.map(([label, meaning]) => `${label}${meaning}`),
+    expect.stringMatching(/^Skip/),
+  ])
+  const rows = shown.slice(0, choices.length)
+  for (const [index, row] of rows.entries()) {
+    expect(row.clipped).toBe(false)
+    expect(row.left).toBe(rows[0]?.left)
+    expect(row.width).toBe(rows[0]?.width)
+    if (index > 0) expect(row.top).toBeGreaterThan(rows[index - 1]?.top ?? 0)
+  }
+  expect(shown.at(-1)?.top).toBeGreaterThan(rows.at(-1)?.top ?? 0)
+
+  // Answering sends the choice's value; the card keeps the answer's label.
+  await card.getByRole('button', { name: 'Remove the page and its route' }).click()
+  const done = await session.waitForTurn(0)
+  expect(done.turn.status).toBe('done')
+  expect(agent.outcomes(0)).toEqual([
+    {
+      turn: 0,
+      toolCallId: 'question',
+      outcome: { action: 'accept', content: { cleanup: 'page' } },
+    },
+  ])
+  await expect(chat.locator(`[data-permission="${asked.card.id}"]`)).toContainText(
+    'Remove the page and its route',
+  )
 })

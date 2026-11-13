@@ -18,7 +18,9 @@ import {
   errorDetail,
   formQuestions,
   modeNoticeUpdate,
+  type PermissionRequest,
   plainAgentError,
+  questionRequest,
   resumeMethods,
 } from './agent-protocol'
 import {
@@ -117,11 +119,7 @@ export type PermissionResolver = (optionId: string | null) => void
  */
 export interface AgentHandlers {
   onUpdate(update: acp.SessionNotification['update'], from: string | null): void
-  onPermission(
-    request: acp.RequestPermissionRequest,
-    resolve: PermissionResolver,
-    from: string | null,
-  ): void
+  onPermission(request: PermissionRequest, resolve: PermissionResolver, from: string | null): void
   onExit(error: DetailedError): void
 }
 
@@ -745,35 +743,18 @@ export class AgentSession {
     )
     if (!questions) return { action: 'decline' }
     const content: Record<string, string> = {}
-    for (const { id, title, choices } of questions) {
+    for (const question of questions) {
       const answer = await new Promise<string | null>((resolve) =>
         this.handlers.onPermission(
-          {
-            sessionId,
-            toolCall: {
-              toolCallId: `question:${id}`,
-              title: title || request.message,
-              // Not an ACP kind: the card shows the title as its question.
-              kind: 'question' as acp.ToolKind,
-            },
-            // Skip first, so Auto mode never answers for the user (see `flaggedCaution`).
-            options: [
-              { optionId: 'skip', name: 'Skip', kind: 'reject_once' },
-              ...choices.map((choice, index) => ({
-                optionId: String(index),
-                name: choice.name,
-                kind: 'answer' as acp.PermissionOptionKind,
-              })),
-            ],
-          },
+          questionRequest(sessionId, question, request.message),
           resolve,
           from,
         ),
       )
       if (answer === null) return { action: 'cancel' }
-      const choice = choices[Number(answer)]
+      const choice = question.choices[Number(answer)]
       if (answer === 'skip' || !choice) return { action: 'decline' }
-      content[id] = choice.value
+      content[question.id] = choice.value
     }
     return { action: 'accept', content }
   }

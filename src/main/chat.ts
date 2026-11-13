@@ -47,6 +47,7 @@ import {
   parseModelSettings,
 } from './agent'
 import { AgentMissingError } from './agent-binaries'
+import { type PermissionRequest, QUESTION_KIND } from './agent-protocol'
 import { agentHealth } from './agent-status'
 import { declaresOwnPermissions, opensWebsites, type PermissionPolicy } from './agents'
 import { autoApproval, isAutoApprove, requestPaths, SENSITIVE_PATH } from './auto-approve'
@@ -2150,7 +2151,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private onPermission(
-    request: RequestPermissionRequest,
+    request: PermissionRequest,
     resolve: PermissionResolver,
     from: string | null,
   ) {
@@ -2167,7 +2168,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** `auto`: the option Gui answers with when it doesn't ask (see `autoApproval`), or null. */
   private askPermission(
     record: TurnRecord,
-    request: RequestPermissionRequest,
+    request: PermissionRequest,
     resolve: PermissionResolver,
     auto: string | null,
     from: string | null,
@@ -2194,6 +2195,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const subagent = from ?? tool?.subagent
     if (subagent) this.subagentIn(record, subagent)
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
+    // An agent's own question (`questionRequest`) can say more than its title, and what each
+    // choice means.
+    const asked = request.toolCall.kind === QUESTION_KIND
     const diff = editDiffs(
       (request.toolCall.content ?? []).flatMap((content) =>
         content.type === 'diff' && typeof content.newText === 'string'
@@ -2214,7 +2218,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
       locations: (request.toolCall.locations ?? []).map((l) => this.displayPath(l.path, l.line)),
       sensitive: paths.some((rel) => rel !== null && SENSITIVE_PATH.test(rel)),
       ...(diff.length ? { diff } : {}),
-      options: request.options.map(({ optionId, name, kind }) => ({ optionId, name, kind })),
+      ...(asked && typeof request.message === 'string' ? { message: request.message } : {}),
+      options: request.options.map(({ optionId, name, kind, description }) => ({
+        optionId,
+        name,
+        kind,
+        ...(asked && typeof description === 'string' ? { description } : {}),
+      })),
       resolved: null,
       ...(subagent ? { subagent } : {}),
     })

@@ -1066,6 +1066,8 @@ export interface PermissionChoice {
   optionId: string
   name: string
   kind: string
+  /** What an agent's own choice means, when it says (missing in older history) */
+  description?: string
 }
 
 /**
@@ -1120,7 +1122,9 @@ export type TurnItem = (
       toolCallId?: string
       /** The agent's own description of the action, paths relative to the project */
       title: string
-      /** ACP tool kind (edit, delete, move, execute, fetch, read, …) */
+      /** More of what an agent's own question says, beside its title (missing in older history) */
+      message?: string
+      /** ACP tool kind (edit, delete, move, execute, fetch, read, …); 'question' for an agent's own */
       toolKind: string
       /** Files the action touches, relative to the project */
       locations: string[]
