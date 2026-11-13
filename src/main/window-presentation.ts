@@ -47,6 +47,18 @@ export function showWindow(win: BrowserWindow) {
   else win.show()
 }
 
+/**
+ * Shows a window without taking the keyboard or bringing Gui to the front: an agent outside
+ * Gui opened something in it while the user types in another app.
+ */
+export function showWindowInactive(win: BrowserWindow) {
+  if (hidden) {
+    win.setOpacity(0)
+    win.setIgnoreMouseEvents(true)
+  }
+  if (!win.isVisible()) win.showInactive()
+}
+
 /** Brings a window to the front with the keyboard, unless Gui runs in the background. */
 export function focusWindow(win: BrowserWindow, { steal = false } = {}) {
   if (inBackground) return

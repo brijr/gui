@@ -26,6 +26,11 @@ export class ProjectResources {
   startWatch: StartWatch | null = null
   historyFile: string | null = null
   historyRoot: string | null = null
+  /**
+   * Starts this opening's chat, for an opening that began without one (an agent outside Gui
+   * opened it, outside-open.ts): the user showing the chat runs it, once.
+   */
+  heldChat: (() => void) | null = null
   private claimedFile: string | null = null
   private disposed = false
   private completion: Promise<void> | null = null
@@ -115,6 +120,7 @@ export class ProjectResources {
     this.recordings = null
     this.mcp = null
     this.previewTools = null
+    this.heldChat = null
     this.claimedFile = null
     this.historyFile = null
     this.historyRoot = null

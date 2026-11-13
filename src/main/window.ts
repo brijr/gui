@@ -16,9 +16,14 @@ import { type ClosedTab, ClosedTabs, reopenIndex } from './closed-tabs'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
 import { ProjectTab, type TabHost } from './tab'
 import { followSurface, surfaceColor } from './theme'
-import { focusWindow, showWindow } from './window-presentation'
+import { focusWindow, showWindow, showWindowInactive } from './window-presentation'
 
-export { focusWindow, keepInBackground, showWindow } from './window-presentation'
+export {
+  focusWindow,
+  keepInBackground,
+  showWindow,
+  showWindowInactive,
+} from './window-presentation'
 
 const windows = new Set<ProjectWindow>()
 /** The window focused last, for opening a project while Gui is in the background. */
@@ -102,8 +107,11 @@ export class ProjectWindow implements TabHost {
   private closed = new ClosedTabs()
   private disposed = false
 
-  /** Opens with a start-screen tab, or with `tab`, moved here from another window. */
-  constructor(tab?: ProjectTab) {
+  /**
+   * Opens with a start-screen tab, or with `tab`, moved here from another window. `inactive`:
+   * it shows without taking the keyboard, for an agent outside Gui (outside-open.ts).
+   */
+  constructor(tab?: ProjectTab, { inactive = false }: { inactive?: boolean } = {}) {
     this.win = new BrowserWindow({
       width: 1440,
       height: 920,
@@ -146,7 +154,8 @@ export class ProjectWindow implements TabHost {
     this.win.on('restore', shownChanged)
     this.win.on('focus', shownChanged)
     this.win.once('ready-to-show', () => {
-      showWindow(this.win)
+      if (inactive) showWindowInactive(this.win)
+      else showWindow(this.win)
       // Shown by us: said now, whatever macOS reports of it (nothing, opened behind others).
       shownChanged()
     })

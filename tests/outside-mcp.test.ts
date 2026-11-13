@@ -7,6 +7,7 @@ import {
   NOTHING_OPEN,
   OUTSIDE_MCP_PORT,
   OUTSIDE_TOOL_NAMES,
+  type OutsideOpener,
   type OutsideTarget,
   type RunningOutsideServer,
   STATUS_TOOL,
@@ -34,6 +35,13 @@ interface Harness {
   target: OutsideTarget | null
   signedIn: boolean
   token: string | null
+  opener: OutsideOpener
+}
+
+/** Lists nothing and opens nothing, unless a test says otherwise. */
+const NO_OPENER: OutsideOpener = {
+  list: async () => [],
+  open: () => Promise.reject(new Error('nothing to open')),
 }
 
 const servers: RunningOutsideServer[] = []
@@ -47,6 +55,7 @@ async function start(initial: Partial<Harness> = {}) {
     target: null,
     signedIn: true,
     token: TOKEN,
+    opener: NO_OPENER,
     ...initial,
   }
   servers.push(
@@ -55,6 +64,10 @@ async function start(initial: Partial<Harness> = {}) {
       token: () => harness.token,
       signedIn: () => harness.signedIn,
       target: () => harness.target,
+      opener: {
+        list: () => harness.opener.list(),
+        open: (request) => harness.opener.open(request),
+      },
     }),
   )
   return harness
@@ -150,6 +163,8 @@ test('other agents get exactly the allowlisted tools, and nothing that runs comm
       'canvas_screenshot',
       'canvas_section',
       'dev_server_logs',
+      'gui_list',
+      'gui_open',
       'gui_status',
       'preview_back',
       'preview_click',
@@ -183,7 +198,7 @@ test('other agents get exactly the allowlisted tools, and nothing that runs comm
   }
   // Every one is a tool Gui has, but the one that says where calls go.
   for (const name of names) {
-    if (name !== STATUS_TOOL) expect(GUI_TOOL_NAMES).toContain(name as never)
+    if (!name.startsWith('gui_')) expect(GUI_TOOL_NAMES).toContain(name as never)
   }
 })
 
@@ -251,6 +266,7 @@ test('a port already taken is reported, not swapped for another', async () => {
       token: () => TOKEN,
       signedIn: () => true,
       target: () => null,
+      opener: NO_OPENER,
     }),
   ).rejects.toMatchObject({ code: 'EADDRINUSE' })
 })
@@ -340,4 +356,64 @@ test('setup for each agent carries the address and token', () => {
       gui: { url: 'http://127.0.0.1:29417/mcp', headers: { Authorization: 'Bearer TOKEN' } },
     },
   })
+})
+
+test('with nothing open, gui_list and gui_open still answer: they are the way to open something', async () => {
+  const opened = opening('Landing ideas', 'canvas')
+  const asked: unknown[] = []
+  const harness = await start({
+    opener: {
+      list: async () => [
+        { kind: 'canvas', name: 'Landing ideas', folder: '/tmp/Landing ideas', id: 'abcdefabcdef' },
+        { kind: 'project', name: 'shop', folder: '/tmp/shop' },
+      ],
+      open: async (request) => {
+        asked.push(request)
+        return opened.target
+      },
+    },
+  })
+  expect((await callTool(harness, 'canvas_list_frames')).text).toBe(NOTHING_OPEN)
+  expect(NOTHING_OPEN).toContain('gui_list')
+  expect(NOTHING_OPEN).toContain('gui_open')
+
+  const listed = await callTool(harness, 'gui_list')
+  expect(listed.isError).toBe(false)
+  const json = JSON.parse(
+    listed.text.slice(listed.text.indexOf('{'), listed.text.lastIndexOf('}') + 1),
+  )
+  expect(json.current).toBeNull()
+  expect(json.canvases).toEqual([
+    {
+      kind: 'canvas',
+      name: 'Landing ideas',
+      folder: '/tmp/Landing ideas',
+      id: 'abcdefabcdef',
+      current: false,
+    },
+  ])
+  expect(json.projects).toEqual([
+    { kind: 'project', name: 'shop', folder: '/tmp/shop', current: false },
+  ])
+
+  const open = await callTool(harness, 'gui_open', { canvas: 'abcdefabcdef' })
+  expect(open.isError).toBe(false)
+  expect(open.text).toContain('canvas “Landing ideas”')
+  expect(asked).toEqual([{ canvas: 'abcdefabcdef' }])
+
+  // One of the two, never both or neither.
+  expect((await callTool(harness, 'gui_open', {})).isError).toBe(true)
+  expect((await callTool(harness, 'gui_open', { canvas: 'a', folder: '/tmp' })).isError).toBe(true)
+
+  // Why it didn't open is the tool's error.
+  harness.opener = { ...harness.opener, open: () => Promise.reject(new Error('declined')) }
+  expect(await callTool(harness, 'gui_open', { folder: '/tmp/x' })).toEqual({
+    isError: true,
+    text: 'declined',
+  })
+
+  // Once something is open, gui_list says it's where calls go.
+  harness.target = opened.target
+  const now = await callTool(harness, 'gui_list')
+  expect(now.text).toContain('"current":{"kind":"canvas","name":"Landing ideas"')
 })

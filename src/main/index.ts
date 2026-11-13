@@ -113,6 +113,8 @@ import {
   startOutsideAgents,
   stopOutsideAgents,
 } from './outside-agents'
+import type { OutsideOpener } from './outside-mcp'
+import { openForOutside } from './outside-open'
 import { flushPrefsSync, getPrefs, prefsEvents, setPrefs } from './prefs'
 import { execFile } from './process'
 import { finishEndingSync } from './process-groups'
@@ -144,9 +146,10 @@ import {
 import { getShellEnv } from './shell-env'
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
-import type { ProjectTab } from './tab'
+import type { OpeningOptions, ProjectTab } from './tab'
 import { showToolbarMenu, toolbarMenuItems } from './toolbar-menu'
 import { prepareTranscription } from './transcribe'
+import { isTrusted } from './trust'
 import {
   checkForUpdatesByHand,
   readyUpdate,
@@ -165,6 +168,7 @@ import {
   lastFocusedWindow,
   ProjectWindow,
   shareBoards,
+  showWindowInactive,
   windowEvents,
 } from './window'
 
@@ -267,21 +271,83 @@ async function openProjectIn(target: ProjectWindow | undefined, root: string, in
     dialog.showErrorBox('Project not found', `${root} is not a folder.`)
     return
   }
-  // A monorepo app's folder opens the monorepo with that app chosen, so installs, the
-  // agent and checkpoints work from the root.
+  await openProjectInTab(root, () => tabToOpenIn(target, into))
+}
+
+/**
+ * Opens the project at `root` in the tab `place` gives, unless it's on its way into one
+ * already. A monorepo app's folder opens the monorepo with that app chosen, so installs, the
+ * agent and checkpoints work from the root.
+ */
+async function openProjectInTab(root: string, place: () => ProjectTab, options?: OpeningOptions) {
   const member = await findWorkspaceRoot(root)
   const real = member?.root ?? (await canonical(root))
   if (isOpening(real)) return
-  const tab = tabToOpenIn(target, into)
+  const tab = place()
   opening.set(real, tab)
   try {
     // The tab reads the app to run from prefs as it opens.
     if (member) setPrefs({ apps: { ...getPrefs().apps, [real]: member.appDir } })
-    await tab.openProject(real)
+    await tab.openProject(real, options)
   } finally {
     if (opening.get(real) === tab) opening.delete(real)
     syncMenuItems()
   }
+}
+
+/** A canvas in `tab`, unless it's on its way into one already. */
+async function openBoardInTab(root: string, tab: ProjectTab, options?: OpeningOptions) {
+  if (isOpening(root)) return
+  opening.set(root, tab)
+  try {
+    await tab.openBoard(root, options)
+  } finally {
+    if (opening.get(root) === tab) opening.delete(root)
+    syncMenuItems()
+  }
+}
+
+/**
+ * gui_open and gui_list, for agents outside Gui (outside-open.ts): what they open goes in the
+ * front window without a chat, and the window shows without taking the keyboard.
+ */
+const outsideOpener: OutsideOpener = {
+  list: async () => {
+    const [recent, boards] = await Promise.all([loadRecent(), listBoards()])
+    return [
+      ...boards.map((board) => ({
+        kind: 'canvas' as const,
+        name: board.name,
+        folder: boardRoot(board.id),
+        id: board.id,
+      })),
+      ...recent.map((project) => ({
+        kind: 'project' as const,
+        name: project.name,
+        folder: project.root,
+      })),
+    ]
+  },
+  open: (request) =>
+    openForOutside<ProjectTab, ProjectWindow>(request, {
+      windows: allWindows,
+      front: lastFocusedWindow,
+      newWindow: () => new ProjectWindow(undefined, { inactive: true }),
+      reveal: (win) => showWindowInactive(win.win),
+      closeTab: (win, tab) => win.closeTab(tab.id),
+      isDirectory,
+      boardRoot: (id) => (isBoardId(id) ? boardRoot(id) : null),
+      boardIdOf,
+      projectRoot: async (folder) =>
+        (await findWorkspaceRoot(folder))?.root ?? (await canonical(folder)),
+      known: async (root) =>
+        (await loadRecent()).some((project) => project.root === root) || (await isTrusted(root)),
+      opening: isOpening,
+      open: (tab, kind, path) =>
+        kind === 'canvas'
+          ? openBoardInTab(path, tab, { holdChat: true })
+          : openProjectInTab(path, () => tab, { holdChat: true }),
+    }),
 }
 
 /** Folders asked for while signed out, in order. */
@@ -1082,6 +1148,10 @@ function registerIpc() {
   onWindow(Send.newTab, (win) => win.newTab())
   onWindow(Send.selectTab, (win, id) => isString(id) && win.selectTab(id))
   onWindow(Send.closeTab, (win, id) => isString(id) && win.closeTab(id))
+  // Only from the window's own chrome, where the start screen asks.
+  onWindow(Send.answerOpenRequest, (win, id, open) => {
+    if (isString(id) && typeof open === 'boolean') win.activeTab.answerOpenRequest(id, open)
+  })
   onWindow(Send.moveTab, (win, id, index) => {
     if (isString(id) && isNumber(index)) win.moveTab(id, index)
   })
@@ -1999,6 +2069,9 @@ if (!app.requestSingleInstanceLock()) {
     registerRecordingProtocol()
     registerThumbProtocol()
     registerIpc()
+    // Listens for other agents if the user turned that on (Settings → Agents). Before any
+    // window, so turning it on in Settings always finds it set up. Listening loads nothing.
+    startOutsideAgents(() => void refreshSettings(), outsideOpener)
     accountEvents.on('change', onAccountChange)
     watchSettings()
     buildMenu()
@@ -2034,8 +2107,6 @@ if (!app.requestSingleInstanceLock()) {
     afterFirstWindow(win.win, () => {
       startUpdates()
       preloadMcpSdk()
-      // Listens for other agents if the user turned that on (Settings → Agents).
-      startOutsideAgents(() => void refreshSettings())
     })
   })
 

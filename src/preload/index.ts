@@ -104,6 +104,7 @@ const api: GuiApi = {
   newTab: send(Send.newTab),
   selectTab: send(Send.selectTab),
   closeTab: send(Send.closeTab),
+  answerOpenRequest: send(Send.answerOpenRequest),
   moveTab: send(Send.moveTab),
   showTabMenu: send(Send.showTabMenu),
   chooseApp: send(Send.chooseApp),

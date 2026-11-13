@@ -1120,7 +1120,41 @@ function EmptyState({ state }: { state: WindowState }) {
   // Gui needs an account before anything else; projects asked for meanwhile open after.
   if (!account) return null
   if (needsSignIn(account)) return <SignIn />
+  if (state.openRequest) return <OpenRequestCard request={state.openRequest} home={state.home} />
   return <StartScreen state={state} />
+}
+
+/**
+ * An agent outside Gui asks to open a folder Gui hasn't opened (main/outside-open.ts): the
+ * user says yes or no here. Opening it runs nothing yet; its start card asks for that.
+ */
+function OpenRequestCard({
+  request,
+  home,
+}: {
+  request: NonNullable<WindowState['openRequest']>
+  home: string
+}) {
+  const answer = (open: boolean) => gui.answerOpenRequest(request.id, open)
+  return (
+    <SetupCard
+      icon={FolderOpen}
+      heading="Open this folder?"
+      detail="An agent outside Gui asked to open it here. Gui asks again before it runs anything in it."
+      actions={
+        <>
+          <Button variant="primary" onClick={() => answer(true)}>
+            Open
+          </Button>
+          <Button onClick={() => answer(false)}>Don’t Open</Button>
+        </>
+      }
+    >
+      <p className="min-w-0 text-small text-muted">
+        <PathText path={request.folder} home={home} />
+      </p>
+    </SetupCard>
+  )
 }
 
 function StartScreen({ state }: { state: WindowState }) {

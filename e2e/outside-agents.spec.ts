@@ -1,12 +1,12 @@
-import { readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import { OUTSIDE_TOOL_NAMES } from '../src/main/outside-mcp'
-import type { BoardState, SettingsState } from '../src/shared/types'
+import { AGENTS, type BoardState, type SettingsState } from '../src/shared/types'
 import { waitFor } from './helpers/env'
-import type { GuiSession } from './helpers/session'
+import { type GuiSession, standInsFile } from './helpers/session'
 import { expect, test } from './helpers/test'
 
 // "Let other agents use Gui" (Settings → Agents): an agent outside Gui reaches Gui's tools at
@@ -128,4 +128,132 @@ test('other agents use the canvas in the front window once Settings lets them', 
   await toggle.click()
   await settingsWhere(settings, 'stopped', (state) => !state.outsideAgents.on)
   await expect(fetch(url, { method: 'POST' })).rejects.toThrow()
+})
+
+/** Calls Gui's tools for other agents at `url` with `token`, as an outside agent would. */
+function client(url: string, token: string) {
+  let id = 0
+  const call = async (name: string, args: Record<string, unknown> = {}) => {
+    const reply = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: ++id,
+        method: 'tools/call',
+        params: { name, arguments: args },
+      }),
+    })
+    const result = (await reply.json()).result as {
+      isError?: boolean
+      content: { text: string }[]
+    }
+    return { isError: result.isError === true, text: result.content.map((c) => c.text).join('\n') }
+  }
+  return { call }
+}
+
+test('from the start screen, another agent opens a canvas, which has no chat until the user shows it', async ({
+  launch,
+}) => {
+  const port = await freePort()
+  const session = await launch({
+    fixture: 'vite',
+    open: 'recent',
+    env: { GUI_E2E_OUTSIDE_MCP_PORT: String(port) },
+  })
+  const { base, userData } = session.fixture
+
+  // Every agent Gui could start is a stand-in that writes the folder it's started in and
+  // quits: no agent login, no usage.
+  const runs = join(base, 'agent-runs.txt')
+  const script = join(base, 'marker-agent.sh')
+  writeFileSync(script, `#!/bin/sh\npwd -P >> '${runs}'\nexit 1\n`, { mode: 0o755 })
+  writeFileSync(
+    standInsFile(session.fixture),
+    JSON.stringify(Object.fromEntries(AGENTS.map((agent) => [agent.id, { command: script }]))),
+  )
+  const started = () => (existsSync(runs) ? readFileSync(runs, 'utf8').split('\n') : [])
+
+  // A canvas made earlier, closed again: back on the start screen.
+  await session.chrome.getByRole('button', { name: /New canvas/ }).click()
+  const made = await waitFor<BoardState | null>(
+    async () => (await session.state()).board,
+    'the canvas',
+  )
+  const canvasTab = (await session.state()).activeTab
+  await session.chrome.evaluate((tab) => {
+    window.gui.newTab()
+    window.gui.closeTab(tab)
+  }, canvasTab)
+  await waitFor(async () => {
+    const state = await session.state()
+    return state.tabs.length === 1 && state.project === null
+  }, 'the start screen')
+
+  const settings = await settingsPage(session)
+  await settings.getByRole('switch', { name: 'Let other agents use Gui' }).click()
+  const url = `http://127.0.0.1:${port}/mcp`
+  await waitFor(
+    () =>
+      fetch(url, { method: 'POST' }).then(
+        (reply) => reply.status === 401,
+        () => false,
+      ),
+    'Gui listening for other agents',
+  )
+  const token = readFileSync(join(userData, 'outside-agents-token'), 'utf8').trim()
+  const { call } = client(url, token)
+
+  // Nothing open: the error says how to open something.
+  const nothing = await call('canvas_list_frames')
+  expect(nothing.isError).toBe(true)
+  expect(nothing.text).toContain('gui_open')
+
+  const listed = await call('gui_list')
+  expect(listed.isError).toBe(false)
+  expect(listed.text).toContain(`"id":"${made?.id}"`)
+  expect(listed.text).toContain('"current":null')
+
+  const opened = await call('gui_open', { canvas: made?.id })
+  expect(opened.isError).toBe(false)
+  expect(opened.text).toContain(`canvas “${made?.name}”`)
+
+  // In the start screen's tab, with no chat panel.
+  const state = await session.state()
+  expect(state.tabs).toHaveLength(1)
+  expect(state.board?.id).toBe(made?.id)
+  expect(state.chatVisible).toBe(false)
+
+  // The canvas tools act on it.
+  const frames = await call('canvas_list_frames')
+  expect(frames.isError).toBe(false)
+  expect((await call('gui_status')).text).toContain(`canvas “${made?.name}”`)
+
+  // No agent of Gui's started for it.
+  const canvasRoot = realpathSync(state.project?.root ?? '')
+  await new Promise((resolve) => setTimeout(resolve, 1500))
+  expect(started()).not.toContain(canvasRoot)
+  // The first tab, and its chat page, closed with the canvas: this tab's is the one left.
+  const chat = await waitFor(() => {
+    const pages = session.app
+      .context()
+      .pages()
+      .filter((page) => page.url().endsWith('/chat.html') && !page.isClosed())
+    return pages.length === 1 ? pages[0] : null
+  }, "the tab's chat page")
+  const snapshot = await chat.evaluate(() => window.gui.getChat())
+  expect(snapshot.meta.status).toBe('idle')
+  expect(snapshot.turns).toEqual([])
+
+  // The user shows the chat (⌘B): from then on it's a chat like any other, and the first
+  // message starts the agent (the stand-in, which quits at once) in the canvas.
+  await session.chrome.evaluate(() => window.gui.toggleChat())
+  await waitFor(async () => (await session.state()).chatVisible, 'the chat to show')
+  expect(await chat.evaluate(() => window.gui.send('Hello'))).toBe(true)
+  await waitFor(async () => started().includes(canvasRoot), 'the agent to start in the canvas')
 })

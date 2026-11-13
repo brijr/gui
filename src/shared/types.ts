@@ -578,6 +578,11 @@ export interface WindowState {
   /** Id of the tab this state is for, the one the window shows */
   activeTab: string
   /**
+   * An agent outside Gui asks to open a folder Gui hasn't opened: the start screen asks the
+   * user, naming it (main/outside-open.ts). Null otherwise.
+   */
+  openRequest: { id: string; folder: string } | null
+  /**
    * Focus mode (View → Focus Mode): the preview alone under a slim title bar. The toolbar,
    * tab strip, chat and drawer keep their state, and show again as they were when it ends.
    */

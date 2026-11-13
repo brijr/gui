@@ -189,6 +189,7 @@ export const Send = {
   newTab: 'tabs:new',
   selectTab: 'tabs:select',
   closeTab: 'tabs:close',
+  answerOpenRequest: 'tabs:answer-open',
   moveTab: 'tabs:move',
   showTabMenu: 'tabs:menu',
   chooseApp: 'setup:choose-app',
@@ -493,6 +494,8 @@ export interface GuiApi {
   selectTab(id: string): void
   /** Closes the tab, stopping its agent and dev server; the last one closes the window */
   closeTab(id: string): void
+  /** The start screen's answer to an agent outside Gui asking to open a folder (WindowState.openRequest) */
+  answerOpenRequest(id: string, open: boolean): void
   /** Moves the tab to `index` in the strip (drag to reorder) */
   moveTab(id: string, index: number): void
   /** The tab's context menu: close it, close the others, move it to a new window */

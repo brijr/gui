@@ -1,8 +1,9 @@
 import { createServer, type Server } from 'node:http'
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
+import { z } from 'zod'
 import { registerBoardTools } from './mcp-board-tools'
 import { registerPreviewTools } from './mcp-preview-tools'
-import { failure, type ToolServer, text } from './mcp-results'
+import { failure, type ToolServer, text, untrusted } from './mcp-results'
 import {
   answerMcp,
   bearerMatches,
@@ -12,6 +13,7 @@ import {
   type Sdk,
   sessionToolNames,
 } from './mcp-server'
+import type { OpenRequest } from './outside-open'
 
 // Gui's tools for agents outside Gui (Claude Code, Codex, Cursor in the user's terminal or
 // editor), the way a design app serves its canvas: one fixed address on loopback, a token the
@@ -24,6 +26,15 @@ export const OUTSIDE_MCP_PATH = '/mcp'
 
 /** Says which project or canvas the calls go to, for the agent to find its way first. */
 export const STATUS_TOOL = 'gui_status'
+/** Lists Gui's recent projects and canvases; works with nothing open. */
+export const LIST_TOOL = 'gui_list'
+/** Opens one, without a chat (outside-open.ts); works with nothing open. */
+export const OPEN_TOOL = 'gui_open'
+
+/** Gui's own tools for other agents, beside the ones its own agents have. */
+type OutsideOnly = typeof STATUS_TOOL | typeof LIST_TOOL | typeof OPEN_TOOL
+/** These answer with nothing open: they're how the agent gets something open. */
+const ANYWHERE: ReadonlySet<string> = new Set([LIST_TOOL, OPEN_TOOL])
 
 /**
  * Every tool other agents get, by name: nothing else is ever served to them, so a new tool
@@ -34,6 +45,8 @@ export const STATUS_TOOL = 'gui_status'
  */
 export const OUTSIDE_TOOL_NAMES = [
   STATUS_TOOL,
+  LIST_TOOL,
+  OPEN_TOOL,
   'preview_screenshot',
   'preview_snapshot',
   'preview_inspect',
@@ -62,7 +75,7 @@ export const OUTSIDE_TOOL_NAMES = [
   'canvas_screenshot',
   'canvas_open_frame',
   'canvas_section',
-] as const satisfies readonly (GuiTool | typeof STATUS_TOOL)[]
+] as const satisfies readonly (GuiTool | OutsideOnly)[]
 
 const OUTSIDE: ReadonlySet<string> = new Set(OUTSIDE_TOOL_NAMES)
 
@@ -87,9 +100,25 @@ export interface OutsideTarget {
 }
 
 export const NOTHING_OPEN =
-  'Open a project or canvas in Gui: nothing is open in its focused window. Then call gui_status.'
+  "Nothing is open in Gui's front window. gui_list lists Gui's projects and canvases; gui_open opens one."
 export const CLOSED_MID_CALL =
-  'The project or canvas closed in Gui while this ran. Open a project or canvas in Gui, then call gui_status.'
+  'The project or canvas closed in Gui while this ran. gui_status says what is open now; gui_open opens another.'
+
+/** A recent project or canvas, for gui_list. */
+export interface OutsidePlace {
+  kind: 'canvas' | 'project'
+  name: string
+  folder: string
+  /** A canvas's id, for gui_open */
+  id?: string
+}
+
+/** Opens what the agent asks for, and lists what it can ask for (index.ts, outside-open.ts). */
+export interface OutsideOpener {
+  list(): Promise<OutsidePlace[]>
+  /** Resolves with what the calls act on now; rejects with why it didn't open */
+  open(request: OpenRequest): Promise<OutsideTarget>
+}
 
 /** The tools that work on a canvas, and those that work in a project. */
 const AVAILABLE = {
@@ -122,6 +151,7 @@ type Callback = (...args: unknown[]) => unknown
  * closes before it answers (its work stops on its own, at its next `live` check).
  */
 function guard(name: string, target: OutsideTarget | null, callback: Callback): Callback {
+  if (ANYWHERE.has(name)) return callback
   return async (...args) => {
     if (!target) return failure(NOTHING_OPEN)
     if (!target.live()) return failure(CLOSED_MID_CALL)
@@ -176,13 +206,17 @@ export function describeTarget(target: OutsideTarget) {
   return lines.join('\n')
 }
 
-export const OUTSIDE_INSTRUCTIONS = `Gui is a Mac app for designing real interfaces. These tools act on what is open in the focused Gui window: a canvas or a project. Call gui_status first to see which, and again when the user switches.
+export const OUTSIDE_INSTRUCTIONS = `Gui is a Mac app for designing real interfaces. These tools act on what is open in the focused Gui window: a canvas or a project. Call gui_status first to see which, and again when the user switches. With nothing open, gui_list lists Gui's projects and canvases and gui_open opens one.
 A canvas is a board of frames; each frame is one HTML page (frames/<id>.html in the canvas folder). Place, size and remove frames with the canvas_ tools, and write their pages yourself.
 In a project, the preview shows the user's app from its dev server.
 The user watches the preview as you act. Screenshot (canvas_screenshot, preview_screenshot) to check your work.`
 
 /** Gui's tools for other agents, for one request: acting on `target`, or on nothing. */
-export function buildOutsideServer({ McpServer }: Sdk, target: OutsideTarget | null): McpServer {
+export function buildOutsideServer(
+  { McpServer }: Sdk,
+  target: OutsideTarget | null,
+  opener: OutsideOpener,
+): McpServer {
   const server = new McpServer(
     { name: MCP_SERVER_NAME, version: '0.2.0' },
     { instructions: OUTSIDE_INSTRUCTIONS },
@@ -199,6 +233,67 @@ export function buildOutsideServer({ McpServer }: Sdk, target: OutsideTarget | n
     },
     // The guard answers NOTHING_OPEN when there's no target.
     async () => text(target ? describeTarget(target) : NOTHING_OPEN),
+  )
+  tools.registerTool(
+    LIST_TOOL,
+    {
+      title: "List Gui's projects and canvases",
+      description:
+        "Gui's recent canvases (id, name, folder) and projects (name, folder), and which one the other tools act on now (`current`, null with nothing open). Open one with gui_open.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true },
+    },
+    async () => {
+      try {
+        const current = target?.live() ? target.root : null
+        const places = (await opener.list()).map((place) => ({
+          ...place,
+          current: place.folder === current,
+        }))
+        return untrusted(
+          'gui_list',
+          JSON.stringify({
+            current: target?.live()
+              ? { kind: target.kind, name: target.name, folder: target.root }
+              : null,
+            canvases: places.filter((place) => place.kind === 'canvas'),
+            projects: places.filter((place) => place.kind === 'project'),
+          }),
+        )
+      } catch (error) {
+        return failure(error)
+      }
+    },
+  )
+  tools.registerTool(
+    OPEN_TOOL,
+    {
+      title: 'Open a project or canvas in Gui',
+      description:
+        "Opens a canvas (by `canvas` id, or its `folder`) or a project (by its `folder`, a full path) in Gui's front window, where the user sees it, and the other tools act on it from then on. It opens without Gui's chat. A folder Gui has never opened asks the user first, in Gui, and fails if they decline. Returns what gui_status returns.",
+      inputSchema: {
+        canvas: z.string().min(1).max(64).optional().describe('Canvas id, as gui_list gives it'),
+        folder: z
+          .string()
+          .min(1)
+          .max(4096)
+          .optional()
+          .describe("A project's or canvas's folder: its full path"),
+      },
+      annotations: { readOnlyHint: false, openWorldHint: false },
+    },
+    async ({ canvas, folder }: { canvas?: string; folder?: string }) => {
+      if ((canvas === undefined) === (folder === undefined))
+        return failure(new Error('Pass `canvas` or `folder`, one of them.'))
+      try {
+        const opened = await opener.open(
+          canvas !== undefined ? { canvas } : { folder: folder ?? '' },
+        )
+        return text(describeTarget(opened))
+      } catch (error) {
+        return failure(error)
+      }
+    },
   )
   // Project descriptions (a canvas's tools say where they differ); never preview_open_website.
   registerPreviewTools(
@@ -220,6 +315,7 @@ export interface OutsideServerOptions {
   signedIn: () => boolean
   /** The opening in the focused Gui window, looked up as each call comes in */
   target: () => OutsideTarget | null
+  opener: OutsideOpener
 }
 
 export interface RunningOutsideServer {
@@ -257,7 +353,7 @@ export async function startOutsideMcpServer(
     }
     // Looked up as the call comes in, never kept: the next call finds what's focused then.
     const target = options.target()
-    answerMcp(req, res, (sdk) => buildOutsideServer(sdk, target), allowedHosts)
+    answerMcp(req, res, (sdk) => buildOutsideServer(sdk, target, options.opener), allowedHosts)
   })
 
   await new Promise<void>((resolve, reject) => {

@@ -8,6 +8,7 @@ import { mustSignIn } from './account'
 import { writeFileAtomic } from './atomic-file'
 import {
   OUTSIDE_MCP_PORT,
+  type OutsideOpener,
   type OutsideTarget,
   type RunningOutsideServer,
   startOutsideMcpServer,
@@ -38,6 +39,11 @@ let error: string | null = null
 /** Starting and stopping happen one at a time, in the order asked. */
 let queue: Promise<void> = Promise.resolve()
 let onChange: () => void = () => {}
+/** gui_open and gui_list (index.ts) */
+let opener: OutsideOpener = {
+  list: async () => [],
+  open: () => Promise.reject(new Error('Gui is still starting. Try again in a moment.')),
+}
 
 async function readToken(): Promise<string | null> {
   try {
@@ -80,6 +86,7 @@ function sync() {
         token: () => token,
         signedIn: () => !mustSignIn(),
         target: focusedTarget,
+        opener,
       })
       error = null
     } catch (failure) {
@@ -95,8 +102,9 @@ function sync() {
 }
 
 /** At launch: listens if the setting is on. `changed` refreshes Settings as its state changes. */
-export function startOutsideAgents(changed: () => void) {
+export function startOutsideAgents(changed: () => void, outsideOpener: OutsideOpener) {
   onChange = changed
+  opener = outsideOpener
   void sync()
 }
 

@@ -199,6 +199,12 @@ import { focusWindow } from './window-presentation'
 
 export type { TabHost, TabState } from './tab-host'
 
+/** How a project or canvas opens in a tab. */
+export interface OpeningOptions {
+  /** Without a chat until the user shows it: an agent outside Gui opened it (outside-open.ts) */
+  holdChat?: boolean
+}
+
 /** Wait for hot reload to apply before re-finding the element a turn edited. */
 const REHIGHLIGHT_DELAY_MS = 900
 /** The id a pick goes by in the overlay while it's read, before it has its own */
@@ -495,6 +501,10 @@ export class ProjectTab implements ChatPanelOwner {
   private rehighlightTimer: NodeJS.Timeout | null = null
   /** Ends the agent's walkthrough a little after its turn did */
   private guideEndTimer: NodeJS.Timeout | null = null
+  /** This tab's opening began without a chat, so the chat was hidden (`holdChat`) */
+  private chatHeldHidden = false
+  /** The start screen's question for an agent outside Gui (`askToOpenFolder`) */
+  private openRequest: { id: string; finish: (yes: boolean) => void } | null = null
   /** The website the agent opened in the preview, over the app (website.ts) */
   private website: Website | null = null
   private websiteOpening: Promise<Website> | null = null
@@ -604,6 +614,7 @@ export class ProjectTab implements ChatPanelOwner {
       },
       agentId: getPrefs().agentId,
       chatVisible: true,
+      openRequest: null,
       sidebarWidth: 0,
       sidebarSide: getPrefs().chatSidebarSide,
       drawer: closedDrawer(),
@@ -927,7 +938,12 @@ export class ProjectTab implements ChatPanelOwner {
     return this.state.project?.root ?? this.opening
   }
 
-  async openProject(root: string) {
+  /**
+   * Opens a project in this tab. `holdChat`: opened by an agent outside Gui (outside-open.ts),
+   * so it opens without a chat, and no agent of Gui's starts, until the user shows the chat.
+   */
+  async openProject(root: string, { holdChat = false }: OpeningOptions = {}) {
+    this.declineOpenRequest()
     const closed = this.closeProject()
     if (this.disposed) return
     this.opening = root
@@ -949,7 +965,7 @@ export class ProjectTab implements ChatPanelOwner {
       const setup = await detectSetup(project, choosing ? apps : null)
       if (!current()) return
 
-      if (!(await this.attachChat(root, file, saved, resources, current, null))) return
+      if (!(await this.attachChat(root, file, saved, resources, current, null, holdChat))) return
       const branch = await branchStatus(root)
       if (!current()) return
 
@@ -993,9 +1009,10 @@ export class ProjectTab implements ChatPanelOwner {
    * A canvas (main/board.ts) in this tab: its board, its chat, and its frames in the preview
    * one at a time. Nothing runs but the agent: no dev server, terminals or install.
    */
-  async openBoard(root: string) {
+  async openBoard(root: string, { holdChat = false }: OpeningOptions = {}) {
     const id = boardIdOf(root)
     if (!id) throw new Error('That folder is not one of Gui’s canvases.')
+    this.declineOpenRequest()
     const closed = this.closeProject()
     if (this.disposed) return
     this.opening = root
@@ -1020,7 +1037,7 @@ export class ProjectTab implements ChatPanelOwner {
         if (this.resources.board === board && board.openId === frame && this.state.preview.url)
           this.preview.webContents.reload()
       })
-      if (!(await this.attachChat(root, file, saved, resources, current, board))) return
+      if (!(await this.attachChat(root, file, saved, resources, current, board, holdChat))) return
       this.patch({
         project: boardProject(root, board.name),
         setup: null,
@@ -1390,6 +1407,7 @@ export class ProjectTab implements ChatPanelOwner {
     resources: ProjectResources,
     current: () => boolean,
     board: BoardSession | null,
+    holdChat: boolean,
   ) {
     // Every call checks `live` before and after each step that waits (PreviewTools), so one
     // still running when the user opens another project here stops rather than act on it.
@@ -1479,7 +1497,38 @@ export class ProjectTab implements ChatPanelOwner {
       return null
     })
     if (!resources.attachMcp(mcp) || !current()) return false
+    resources.attachHistory(root, file)
 
+    // Made now, or once the user shows the chat of an opening that began without one.
+    const startChat = () => {
+      if (!current()) return
+      this.startChat(root, file, saved, resources, recordings, current, board)
+    }
+    if (holdChat) {
+      resources.heldChat = startChat
+      this.chatHeldHidden = true
+      this.patch({ chatVisible: false })
+      return true
+    }
+    // The tab's last opening began without a chat: this one shows it again.
+    if (this.chatHeldHidden) {
+      this.chatHeldHidden = false
+      this.patch({ chatVisible: true })
+    }
+    startChat()
+    return true
+  }
+
+  /** The opening's chat: its checkpoints and ChatController, in this tab's chat panel. */
+  private startChat(
+    root: string,
+    file: string,
+    saved: Awaited<ReturnType<typeof loadHistory>>,
+    resources: ProjectResources,
+    recordings: Recordings,
+    current: () => boolean,
+    board: BoardSession | null,
+  ) {
     // Opening doesn't wait for the shell's environment, still loading just after launch:
     // checkpoints' git, the agent and the dev server each wait for it before they spawn.
     const store = join(app.getPath('userData'), 'checkpoints')
@@ -1502,14 +1551,53 @@ export class ProjectTab implements ChatPanelOwner {
       layout: board ? boardLayout(board, checkpoints, current) : undefined,
     })
     this.bindChat(chat)
-    this.resources.chat = chat
+    resources.chat = chat
     this.panel.untuck()
-    resources.attachHistory(root, file)
     chat.setCanSelect(this.canSelect)
     if (board) chat.setCanvasEmpty(board.frames.length === 0)
     this.patch({ agentId: chat.meta.agentId })
     this.sendChat(Events.chatReset, chat.snapshot())
-    return true
+  }
+
+  /** The chat of an opening that began without one starts: the user wants it now. */
+  private startHeldChat() {
+    const start = this.resources.heldChat
+    if (!start) return
+    this.resources.heldChat = null
+    this.chatHeldHidden = false
+    start()
+  }
+
+  /**
+   * An agent outside Gui asks to open a folder Gui hasn't opened (outside-open.ts): this
+   * start-screen tab asks the user. False when they decline, it times out, the tab opens
+   * something else or closes, or another request replaces it.
+   */
+  askToOpenFolder(folder: string, timeoutMs: number): Promise<boolean> {
+    this.declineOpenRequest()
+    const id = randomUUID()
+    return new Promise<boolean>((resolve) => {
+      const timer = setTimeout(() => this.answerOpenRequest(id, false), timeoutMs)
+      this.openRequest = {
+        id,
+        finish: (yes) => {
+          clearTimeout(timer)
+          this.openRequest = null
+          if (!this.disposed) this.patch({ openRequest: null })
+          resolve(yes)
+        },
+      }
+      this.patch({ openRequest: { id, folder } })
+    })
+  }
+
+  /** The start screen's answer to `askToOpenFolder`. */
+  answerOpenRequest(id: string, yes: boolean) {
+    if (this.openRequest?.id === id) this.openRequest.finish(yes)
+  }
+
+  private declineOpenRequest() {
+    this.openRequest?.finish(false)
   }
 
   /** What the tab does as its chat changes, turns run and permission cards come up. */
@@ -2468,6 +2556,8 @@ export class ProjectTab implements ChatPanelOwner {
       this.patchPreview({ selecting: false })
       return
     }
+    // What's picked goes to the chat: an opening without one starts it.
+    this.startHeldChat()
     // Only pick from the local app: what's picked is sent to the agent.
     const local = isLoopback(this.preview.webContents.getURL()) && !this.website
     if (!this.state.preview.visible || !this.resources.chat || !local) return
@@ -3775,6 +3865,7 @@ export class ProjectTab implements ChatPanelOwner {
   }
 
   fixProblems() {
+    this.startHeldChat()
     const sent = this.resources.chat?.fixProblems() ?? false
     if (sent) this.panel.focusChat()
     return sent
@@ -3782,6 +3873,7 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** "Fix with agent" on a start that failed: the agent gets why, and the chat comes forward. */
   fixStartup() {
+    this.startHeldChat()
     const sent = this.resources.chat?.fixStartup() ?? false
     if (!sent) return false
     if (!this.state.chatVisible) {
@@ -4514,6 +4606,8 @@ export class ProjectTab implements ChatPanelOwner {
 
   patch(patch: Partial<TabState>) {
     this.state = { ...this.state, ...patch }
+    // However the chat comes to show (⌘B, ⌘L, a pick, Fix with agent), its chat starts.
+    if (patch.chatVisible) this.startHeldChat()
     this.syncDrawerOutput()
     this.host.tabChanged(this, true)
   }
@@ -4568,6 +4662,7 @@ export class ProjectTab implements ChatPanelOwner {
   dispose() {
     if (this.disposed) return
     this.disposed = true
+    this.declineOpenRequest()
     this.agentViewport.dispose()
     this.stopListeningToChrome()
     this.clearFrameCheck()
