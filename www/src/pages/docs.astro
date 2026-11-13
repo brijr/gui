@@ -39,6 +39,7 @@ const shortcuts = [
   ['Focus mode', '⌘\\'],
   ['Show or hide the chat', '⌘B'],
   ['Go to the message box', '⌘L'],
+  ['While the agent works, send into its reply instead of the queue', '⌘↩'],
   ['Chat as a sidebar, or floating', '⇧⌘D'],
   ['Chat in its own window', '⌥⌘L'],
   ['New chat', '⇧⌘K'],
@@ -182,7 +183,15 @@ const shortcuts = [
   <p>
     Messages that you send while the agent works wait in a queue above the message box, and run
     in order. You can edit a queued message, drag it to a new place, remove it, or click{' '}
-    <strong>Send now</strong>. <strong>Stop</strong> stops the agent and pauses the queue.
+    <strong>Send next</strong>. <strong>Stop</strong> stops the agent and pauses the queue.
+  </p>
+  <p>
+    Claude Code and Codex can also take a message while they work. Press ⌘↩ to add it to the
+    reply under way, and the agent reads it at its next step. On a queued message,{' '}
+    <strong>Send now</strong> does the same. To make this what ↩ does, choose{' '}
+    <strong>Steer</strong> for <strong>Sending while the agent works</strong> in{' '}
+    <strong>Settings&nbsp;→ Agents</strong>. Then ⌘↩ queues. While the agent waits for you to
+    allow something, ⌘↩ allows.
   </p>
   <p>
     <strong>Auto</strong> and <strong>Ask</strong> set what the agent can do without you. The
