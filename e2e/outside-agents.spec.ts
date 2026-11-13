@@ -65,6 +65,15 @@ test('other agents use the canvas in the front window once Settings lets them', 
   await toggle.click()
   const on = await settingsWhere(settings, 'listening', (state) => state.outsideAgents.on)
   expect(on.outsideAgents).toEqual({ on: true, port, error: null })
+  // The setting shows at once; the server listens a moment later.
+  await waitFor(
+    () =>
+      fetch(url, { method: 'POST' }).then(
+        (reply) => reply.status === 401,
+        () => false,
+      ),
+    'Gui listening for other agents',
+  )
 
   // The token is kept owner-only in Gui's data folder, and the page never shows it.
   const tokenFile = join(session.fixture.userData, 'outside-agents-token')
