@@ -1,9 +1,10 @@
 import { EventEmitter } from 'node:events'
 import { app } from 'electron'
-import { type IPty, spawn as spawnPty } from 'node-pty'
+import type { IPty } from 'node-pty'
 import type { TerminalOutput } from '../shared/ipc'
 import type { TerminalId, TerminalInfo } from '../shared/types'
 import { Output } from './output'
+import { spawnPty } from './process'
 import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 

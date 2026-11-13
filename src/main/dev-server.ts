@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events'
-import { type IPty, spawn as spawnPty } from 'node-pty'
+import type { IPty } from 'node-pty'
 import type { OutputChunk } from '../shared/ipc'
 import type { DevServerState } from '../shared/types'
 import {
@@ -14,6 +14,7 @@ import {
 } from './app-address'
 import { Output } from './output'
 import { listenersOf, listenersOn, loopbackFor, portOpen, processGroups } from './ports'
+import { spawnPty } from './process'
 import { endProcessGroups } from './process-groups'
 import { getShellEnv } from './shell-env'
 import { isRunnerLine, looksLikeError } from './startup'
@@ -328,7 +329,9 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       cwd,
       // Turborepo streams its tasks' output rather than drawing its full-screen UI, so the
       // logs read as lines (addresses, errors) like any other dev server's.
-      env: { ...env, FORCE_COLOR: '1', BROWSER: 'none', TERM: 'xterm-256color', TURBO_UI: '0' },
+      env,
+      extra: { FORCE_COLOR: '1', TERM: 'xterm-256color', TURBO_UI: '0' },
+      browser: 'none',
     })
     this.proc = proc
     // Registered before the caller's exit handler, which has run by the time this settles.

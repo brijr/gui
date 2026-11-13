@@ -133,6 +133,10 @@ for (const file of files) {
     failures.push(
       `${name(file)} imports child_process; spawn and exec go through src/main/process.ts`,
     )
+  if (/^import (?!type )[^'"]*from ['"]node-pty['"]/m.test(contents))
+    failures.push(
+      `${name(file)} starts PTYs itself; they go through spawnPty in src/main/process.ts`,
+    )
   if (contents.includes('DOM.getNodeForLocation') && !file.endsWith(`${sep}inspector.ts`))
     failures.push(`${name(file)} looks up nodes by location; that stays in inspector.ts`)
 }

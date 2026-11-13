@@ -8,6 +8,7 @@ import {
   spawn as nodeSpawn,
   type SpawnOptions,
 } from 'node:child_process'
+import { type IPty, type IPtyForkOptions, spawn as nodeSpawnPty } from 'node-pty'
 
 export type { ChildProcess, ExecFileException, ExecFileOptions, ExecFileSyncOptions, SpawnOptions }
 
@@ -86,6 +87,20 @@ export function spawnProcess(
 ): ChildProcess {
   const { extra = {}, browser, env, ...rest } = options
   return nodeSpawn(command, args, {
+    ...rest,
+    env: childEnv(env ?? process.env, extra, { browser }),
+  })
+}
+
+export interface SpawnPtyOptions extends IPtyForkOptions {
+  extra?: Record<string, string | undefined>
+  browser?: 'none' | false
+}
+
+/** Starts `file` on a fresh PTY (terminals, dev servers) with the same env scrub as spawn. */
+export function spawnPty(file: string, args: string[], options: SpawnPtyOptions): IPty {
+  const { extra = {}, browser, env, ...rest } = options
+  return nodeSpawnPty(file, args, {
     ...rest,
     env: childEnv(env ?? process.env, extra, { browser }),
   })
