@@ -179,10 +179,11 @@ export async function startMcpServer(
           void transport.close()
           void server.close()
         })
-        if (!observer) {
+        if (!observer || req.method !== 'POST') {
           return server.connect(transport).then(() => transport.handleRequest(req, res))
         }
-        // The body is read here to see it, so the transport is handed it parsed.
+        // A POST carries the messages: its body is read here to see them, so the transport is
+        // handed it parsed. A GET (an agent opening its event stream) goes on as it came.
         const observe = observer
         return readJson(req).then(async (body) => {
           if (body === undefined) {
