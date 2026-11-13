@@ -11,6 +11,14 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.21',
+    date: '2026-11-12',
+    changes: [
+      'Fix: a terminal with a lot of colorful output, like a long diff or an agent CLI, could stop showing anything new while its command kept running. Gui now catches it and redraws the terminal with nothing lost.',
+      'Closed terminals give back their memory.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.20',
     date: '2026-11-11',
     changes: [
