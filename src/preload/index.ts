@@ -204,7 +204,6 @@ const api: GuiApi = {
   sendQueuedNow: send(Send.sendQueuedNow),
   retry: send(Send.retry),
   sendQueued: send(Send.sendQueued),
-  steerQueued: send(Send.steerQueued),
   setAutoApprove: send(Send.setAutoApprove),
   setAgentSetting: send(Send.setAgentSetting),
   loadCommands: () => legacyInvoke(Invoke.loadCommands),
@@ -234,7 +233,7 @@ const api: GuiApi = {
   setChatDocked: send(Send.setChatDocked),
   setChatSidebarSide: send(Send.setChatSidebarSide),
   setCrashReports: send(Send.setCrashReports),
-  setFollowUp: send(Send.setFollowUp),
+  setWhileWorking: send(Send.setWhileWorking),
   reportError: send(Send.reportError),
   saveCustomAgent: (originalName, entry) =>
     invokeOrThrow(Invoke.saveCustomAgent, originalName, entry),

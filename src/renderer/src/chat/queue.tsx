@@ -4,14 +4,13 @@ import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { Textarea } from '../lib/field'
 import {
-  ArrowUp,
   ChevronDown,
   ChevronUp,
   Clock,
-  CornerUpRight,
   GripVertical,
   ImageIcon,
   Pencil,
+  Play,
   Reply,
   X,
 } from '../lib/icons'
@@ -59,8 +58,9 @@ const REVEAL_FADE = { maskImage: 'linear-gradient(to right, transparent, #000 16
  * Messages sent while the agent was busy, oldest first, just above the composer. Each
  * starts when the turn before it is done; after Stop, an error and the like they wait for
  * "Send next". While they wait they can be edited, rearranged (drag, or the move buttons),
- * sent now, or removed (one by one, or all at once from the header). While the agent works,
- * "Send now" puts a message into its reply, and is only offered when the reply can take it.
+ * sent ahead of the rest, or removed — one by one, or all at once from the header. While the
+ * agent works, "Send now" puts a message into its reply when the agent can take one mid-reply;
+ * otherwise "Send next" moves it to the front.
  */
 export function QueuedMessages({ meta, running }: { meta: ChatMeta; running: boolean }) {
   const [dragging, setDragging] = useState<string | null>(null)
@@ -308,22 +308,33 @@ function QueuedItem({
         className={cn(REVEAL, isOver && 'bg-[image:linear-gradient(var(--hover),var(--hover))]')}
         style={REVEAL_FADE}
       >
-        {/* Idle, it starts now. While the agent works, it goes into the reply (the agent
-            reads it at its next step), when the reply can take it; otherwise it waits. */}
-        {(!running || canSteer) && (
-          <IconButton
-            className={ROW_HIT_AREA}
-            size="sm"
-            label={`Send queued message now: ${name}`}
-            title={running ? 'Send now, into the current reply' : 'Send now'}
-            icon={running ? CornerUpRight : ArrowUp}
-            onClick={(event) => {
-              focusAfterQueueRemoval(event.currentTarget)
-              if (running) noteSteerQueued(item.id)
-              gui.steerQueued(item.id)
-            }}
-          />
-        )}
+        {/* Idle, it starts now. While the agent works, it goes into the reply under way when
+            that can take it (the agent reads it at its next step), else it's next in line. */}
+        <IconButton
+          className={ROW_HIT_AREA}
+          size="sm"
+          label={
+            running && !canSteer
+              ? `Send queued message next: ${name}`
+              : `Send queued message now: ${name}`
+          }
+          title={
+            !running
+              ? 'Send now'
+              : canSteer
+                ? 'Send now, into the current reply'
+                : index === 0
+                  ? 'Sends next, when the agent finishes'
+                  : 'Send after the current reply'
+          }
+          icon={Play}
+          aria-disabled={running && !canSteer && index === 0}
+          onClick={(event) => {
+            if (!running || canSteer) focusAfterQueueRemoval(event.currentTarget)
+            if (running && canSteer) noteSteerQueued(item.id)
+            gui.sendQueued(item.id)
+          }}
+        />
         <IconButton
           ref={editButton}
           className={ROW_HIT_AREA}

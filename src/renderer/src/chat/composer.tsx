@@ -21,11 +21,9 @@ import { TechnicalDetails, useReveal } from '../lib/disclosure'
 import {
   ArrowUp,
   ChevronUp,
-  CornerUpRight,
   Crop,
   type IconComponent,
   Info,
-  ListPlus,
   MousePointer2,
   Paperclip,
   Reply,
@@ -46,7 +44,6 @@ import {
   addAttachments,
   dismissProblems,
   noteSend,
-  noteSteerQueued,
   removeAttachments,
   removeRecordings,
   setDraft,
@@ -172,13 +169,13 @@ export function Composer({
     }
   }
 
-  // While the agent works, Enter steers its reply or queues the message, as Settings says,
-  // and ⌘ does the other. Steering waits for a reply that can take it (`canSteer`).
-  const commandHeld = useCommandHeld()
+  // While the agent works, Enter queues the message or steers its reply, as Settings says,
+  // and ⌘↩ does the other. Steering needs a reply that can take it (`canSteer`): without
+  // one, both queue.
   const steers = (other: boolean) =>
-    running && meta.canSteer && (meta.followUp === 'steer') !== other
-  const buttonSteers = steers(commandHeld)
-  const hasDraft = text.trim() !== '' || attachments.length > 0 || recordings.length > 0
+    running && meta.canSteer && (meta.whileWorking === 'steer') !== other
+  const steering = steers(false)
+  const otherKeys = shortcutText('sendOther')
 
   /** A send awaiting main; main queues while busy, so a repeat Enter would queue it twice. */
   const sending = useRef(false)
@@ -227,21 +224,15 @@ export function Composer({
     commands: meta.commands,
     input,
     setText: setDraft,
-    send: () => void submit(),
+    send: () => void submit(undefined, steers(false)),
   })
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (commands.onKeyDown(event)) return
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
       event.preventDefault()
+      // ⌘↩ while a permission card waits is Allow: the menu, or the chat panel, takes it first.
       void submit(undefined, steers(matchesShortcut(event, 'sendOther')))
-    } else if (matchesShortcut(event, 'steerQueued') && !event.nativeEvent.isComposing) {
-      event.preventDefault()
-      const next = meta.queue[0]
-      if (running && meta.canSteer && next) {
-        noteSteerQueued(next.id)
-        gui.steerQueued(next.id)
-      }
     } else if (event.key === 'Escape' && meta.selection.length > 0) {
       gui.clearSelection()
     }
@@ -284,7 +275,7 @@ export function Composer({
     <ComposerSettled value={settled}>
       <form
         ref={formRef}
-        onSubmit={(event) => void submit(event)}
+        onSubmit={(event) => void submit(event, steers(false))}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
@@ -427,7 +418,7 @@ export function Composer({
             aria-label={`Message ${meta.agentName}`}
             placeholder={
               running
-                ? meta.canSteer && meta.followUp === 'steer'
+                ? steering
                   ? 'Steer the agent…'
                   : 'Queue a message…'
                 : meta.selection.length > 0 || attachments.length > 0 || recordings.length > 0
@@ -480,30 +471,26 @@ export function Composer({
             <AutoToggle meta={meta} />
             <span className="ml-auto" />
             {meta.models && <ModelButton models={meta.models} />}
-            {/* While the agent works, a draft still goes out: into its reply, or the queue.
-                With nothing written, Stop alone stays. */}
-            {(!running || hasDraft) && (
-              <IconButton
-                type="submit"
-                className={HIT_AREA}
-                variant="primary"
-                label={running ? (buttonSteers ? 'Steer message' : 'Queue message') : 'Send'}
-                shortcut="send"
-                title={
-                  !canSend
-                    ? cantSend
-                    : running && meta.canSteer
-                      ? `Click to ${meta.followUp}, ⌘-click to ${meta.followUp === 'steer' ? 'queue' : 'steer'}`
-                      : undefined
-                }
-                icon={running ? (buttonSteers ? CornerUpRight : ListPlus) : ArrowUp}
-                disabled={!canSend}
-                onClick={(event) => {
-                  event.preventDefault()
-                  void submit(undefined, steers(event.metaKey))
-                }}
-              />
-            )}
+            {/* While the agent works, a draft can still go out: it joins the queue, or the
+                reply under way (Settings, ⌘↩ for the other). */}
+            <IconButton
+              type="submit"
+              className={HIT_AREA}
+              variant="primary"
+              label={running ? (steering ? 'Steer message' : 'Queue message') : 'Send'}
+              shortcut="send"
+              title={
+                !canSend
+                  ? cantSend
+                  : running && meta.canSteer
+                    ? steering
+                      ? `Steer · ${otherKeys} to queue`
+                      : `Queue · ${otherKeys} to send now`
+                    : undefined
+              }
+              icon={ArrowUp}
+              disabled={!canSend}
+            />
             {/* Stop stays at the end while the agent works. */}
             {running && (
               <IconButton
@@ -750,22 +737,4 @@ function AgentStatus({ meta }: { meta: ChatMeta }) {
     )
   }
   return null
-}
-
-/** ⌘ is down (it switches Steer and Queue while the agent works), for the send button's look. */
-function useCommandHeld() {
-  const [held, setHeld] = useState(false)
-  useEffect(() => {
-    const update = (event: globalThis.KeyboardEvent) => setHeld(event.metaKey)
-    const clear = () => setHeld(false)
-    window.addEventListener('keydown', update)
-    window.addEventListener('keyup', update)
-    window.addEventListener('blur', clear)
-    return () => {
-      window.removeEventListener('keydown', update)
-      window.removeEventListener('keyup', update)
-      window.removeEventListener('blur', clear)
-    }
-  }, [])
-  return held
 }

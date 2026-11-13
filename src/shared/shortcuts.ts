@@ -304,23 +304,16 @@ export const SHORTCUTS = {
     menu: null,
     group: 'chat',
     description:
-      'Send the message; while the agent works, steer its reply or queue the message, as set in Settings (in the message box)',
+      'Send the message; while the agent works, queue it, or steer the reply if set in Settings (in the message box)',
   },
   sendOther: {
-    label: 'Steer or Queue',
-    // ⌘↩ is also Allow, which takes it while the agent waits on a question.
+    label: 'Send Now or Queue',
+    // ⌘↩ is also Allow, which takes it while a permission card waits.
     accelerator: 'CmdOrCtrl+Enter',
     menu: null,
     group: 'chat',
     description:
-      'While the agent works, do the other of Steer and Queue than Enter does (in the message box)',
-  },
-  steerQueued: {
-    label: 'Steer With Next Queued',
-    accelerator: 'Shift+CmdOrCtrl+Enter',
-    menu: null,
-    group: 'chat',
-    description: 'Send the oldest queued message into the reply under way (in the message box)',
+      'While the agent works, send the message the other way: into the reply if Enter queues, to the queue if Enter steers (in the message box)',
   },
   newLine: {
     label: 'New Line',

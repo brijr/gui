@@ -5,10 +5,10 @@ import { app } from 'electron'
 import {
   type AgentId,
   DEFAULT_AGENT_ID,
-  type FollowUpBehavior,
   isAgentId,
   type PanelCorner,
   type RulerGuide,
+  type WhileWorking,
 } from '../shared/types'
 import { asidePath } from './atomic-file'
 import { CoalescedFile, diskFile } from './coalesced-file'
@@ -44,8 +44,8 @@ export interface Prefs {
   autoNoteSeen: boolean
   /** Installed copies send a report when Gui itself fails (crash-reports.ts) */
   crashReports: boolean
-  /** What Enter does while the agent works (ChatMeta.followUp) */
-  followUp: FollowUpBehavior
+  /** What Enter does while the agent works (ChatMeta.whileWorking) */
+  whileWorking: WhileWorking
   /** The rulers and guides over the preview are showing (⇧R) */
   rulers: boolean
   /** Each project's ruler guides, by project root; kept here, never in the project */
@@ -65,7 +65,7 @@ const DEFAULTS: Prefs = {
   askRoots: [],
   autoNoteSeen: false,
   crashReports: true,
-  followUp: 'steer',
+  whileWorking: 'queue',
   rulers: false,
   guides: {},
 }
@@ -179,7 +179,7 @@ export function getPrefs(): Prefs {
       autoNoteSeen: parsed.autoNoteSeen === true,
       crashReports:
         typeof parsed.crashReports === 'boolean' ? parsed.crashReports : DEFAULTS.crashReports,
-      followUp: parsed.followUp === 'queue' ? 'queue' : 'steer',
+      whileWorking: parsed.whileWorking === 'steer' ? 'steer' : 'queue',
       rulers: parsed.rulers === true,
       guides: guides(parsed.guides),
     }

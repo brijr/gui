@@ -68,11 +68,13 @@ import { getPrefs, prefsEvents, saveAgentSetting, savedAgentSettings, setPrefs }
 import {
   buildPrompt,
   describeFollowUp,
+  describeSteeredBefore,
   PROMPT_VERSION,
   type PromptBoard,
   type PromptGuides,
   type PromptViewport,
   placeCommand,
+  steeredPrompts,
   TEXT_EDIT_PROMPT,
   TEXT_EDITED_PROMPT,
 } from './prompt'
@@ -162,6 +164,8 @@ interface TurnRecord {
   after: string | null
   cancelRequested: boolean
   settled: Promise<void>
+  /** A retry: what the user sent into the failed reply, which this one carries too */
+  steered: string[]
 }
 
 /** A message as the queue holds it: what it shows (`item`) and what it takes (`payload`). */
@@ -180,6 +184,8 @@ interface QueuedPayload {
   viewport: PromptViewport | null
   /** Set for "Fix with agent" waiting its turn: its report is written when it starts */
   fix?: 'startup'
+  /** A retry: what the user sent into the failed reply while it was under way (steering) */
+  steered?: string[]
 }
 
 interface RedoPoint {
@@ -198,7 +204,7 @@ const START_TIMEOUT_MS = 60_000
 /** A model or effort change the agent doesn't answer counts as refused. */
 const SETTING_TIMEOUT_MS = 10_000
 const PERSIST_DELAY_MS = 400
-/** How often, and how far apart, "Send now" asks an agent that hasn't started the turn yet. */
+/** How often, and how far apart, a steer asks an agent that hasn't started the turn yet. */
 const STEER_ATTEMPTS = 8
 const STEER_RETRY_MS = 250
 /** While a turn streams: often enough that a crash loses little, without rewriting the file constantly. */
@@ -387,7 +393,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       queuePaused: false,
       queuePauseReason: null,
       canSteer: false,
-      followUp: getPrefs().followUp,
+      whileWorking: getPrefs().whileWorking,
       autoApprove: isAutoApprove(root),
       autoNoteSeen: getPrefs().autoNoteSeen,
     }
@@ -558,6 +564,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         after: saved.checkpoints[turn.id]?.after ?? null,
         cancelRequested: false,
         settled: Promise.resolve(),
+        steered: [],
       })) ?? []
     this.redoPoint = saved?.redo ?? null
     this.savedVersions = saved?.versions ?? []
@@ -809,6 +816,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       after: null,
       cancelRequested: false,
       settled: Promise.resolve(),
+      steered: [],
     }
     this.lock = record
     const epoch = this.epoch
@@ -892,6 +900,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.disposed || this.lock || sent?.turnId !== turnId) return false
     if (this.meta.retryTurnId !== turnId) return false
     this.lastSent = null
+    // What the user sent into the failed reply goes again with it.
+    const failed = this.records.find((record) => record.turn.id === turnId)?.turn
+    const steered = [...(sent.payload.steered ?? []), ...(failed ? steeredPrompts(failed) : [])]
+    sent.payload = { ...sent.payload, steered }
     if (needsSetup(this.meta.agent)) {
       const { images, recordings = [], followUp, textEdit, selection } = sent.payload
       const item: QueuedMessage = {
@@ -983,8 +995,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   /**
    * Sends one queued message ahead of the rest: it starts now when nothing is running
-   * (the others stay held if the queue was paused), and otherwise moves to the front,
-   * so it runs next.
+   * (the others stay held if the queue was paused). While the agent works, it goes into the
+   * reply under way when that can take it ("Send now", `steerable`), and otherwise moves to
+   * the front, so it runs next ("Send next").
    */
   sendQueued(id: string) {
     // On its way into the reply already (`steer`): it goes one way only.
@@ -992,6 +1005,11 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const item = this.meta.queue.find((queued) => queued.id === id)
     if (!item) return
     if (this.lock) {
+      const entry = { item, payload: this.payloadOf(item) }
+      if (this.steerable(entry)) {
+        void this.steer(entry, true)
+        return
+      }
       if (this.meta.queuePaused) this.patchMeta({ queuePaused: false, queuePauseReason: null })
       this.moveQueued(id, 0)
       return
@@ -1000,22 +1018,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
       item,
       this.meta.queue.filter((queued) => queued.id !== id),
     )
-  }
-
-  /**
-   * "Send now" for a queued message: idle, it starts now; while the agent works, it goes into
-   * the reply under way, when it can (`meta.canSteer`). Otherwise it keeps its place.
-   */
-  steerQueued(id: string) {
-    if (this.disposed || this.steering.has(id)) return
-    const item = this.meta.queue.find((queued) => queued.id === id)
-    if (!item) return
-    if (!this.lock) {
-      this.sendQueued(id)
-      return
-    }
-    const entry = { item, payload: this.payloadOf(item) }
-    if (this.steerable(entry)) void this.steer(entry, true)
   }
 
   /** What a queued message takes to the agent: its full images and picks, kept apart. */
@@ -1033,11 +1035,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
 
   /**
    * The reply under way can take it: the agent takes messages mid-turn and has the turn's
-   * prompt, and it's plain words (a slash command or a recording needs a turn of its own).
+   * prompt, the user hasn't stopped that turn, and it's plain words (a slash command or a
+   * recording needs a turn of its own).
    */
   private steerable({ item, payload }: QueueEntry) {
     return (
       this.prompting?.info.supportsSteering === true &&
+      !this.prompting.record.cancelRequested &&
       !payload.fix &&
       !payload.recordings?.length &&
       !invokedCommand(item.prompt, this.meta.commands)
@@ -1048,10 +1052,13 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * Adds a message to the turn the agent is on (ACP `_session/steering`). The agent reads it
    * at its next step and goes on in the same turn, where it shows as the user's message
    * between the agent's steps. `queued`: it's waiting in the queue, which it leaves once the
-   * agent takes it. If the agent doesn't take it (the turn ended just then), a queued one
-   * keeps its place, and one from the message box waits first in line.
+   * agent takes it. One from the message box that the agent doesn't take at once joins the
+   * end of the queue while Gui asks again, so it's never out of sight; if the agent never
+   * takes it (the turn ended just then), it stays there, as a queued one keeps its place.
    */
-  private async steer({ item, payload }: QueueEntry, queued: boolean) {
+  private async steer(entry: QueueEntry, fromQueue: boolean) {
+    const { item, payload } = entry
+    let queued = fromQueue
     const prompting = this.prompting
     if (!prompting) return
     const { record, agent, info } = prompting
@@ -1082,7 +1089,14 @@ export class ChatController extends EventEmitter<ChatEvents> {
       // Just after the prompt goes, the agent may not have the turn under way yet: it
       // answers 'promptRequired', so ask again for a moment while the turn lasts.
       for (let attempt = 0; attempt < STEER_ATTEMPTS && stillPrompting(); attempt++) {
-        if (attempt > 0) await sleep(STEER_RETRY_MS)
+        if (attempt > 0) {
+          if (!queued) {
+            this.enqueueEntry(entry)
+            this.steering.add(item.id)
+            queued = true
+          }
+          await sleep(STEER_RETRY_MS)
+        }
         if (!stillPrompting()) break
         const outcome = await agent.steer(blocks).catch(() => null)
         injected = outcome === 'injected'
@@ -1094,7 +1108,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     // A reset since: the chat it was for is gone, and its queue with it.
     if (!this.live(epoch)) return
     if (!injected) {
-      if (!queued) this.enqueueEntry({ item, payload }, true)
+      if (!queued) this.enqueueEntry(entry)
       // The turn may have ended while it was on its way (the queue held back for it).
       this.drainQueue()
       return
@@ -1127,6 +1141,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const record = this.active
     if (!record) return
     record.cancelRequested = true
+    // A stopping reply takes no more messages: one sent now is queued (`steerable`).
+    this.endPrompting(record)
     this.resolvePendingPermissions(record)
     if (this.meta.status === 'starting') {
       // Nothing to cancel yet; abandoning the start makes the turn finish as cancelled.
@@ -1440,6 +1456,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       after: null,
       cancelRequested: false,
       settled: Promise.resolve(),
+      steered: queued?.steered ?? [],
     }
     this.records.push(record)
     this.active = record
@@ -1448,7 +1465,15 @@ export class ChatController extends EventEmitter<ChatEvents> {
       turnId: record.turn.id,
       text,
       fix,
-      payload: { images, recordings, followUp, textEdit, selection: picked, viewport },
+      payload: {
+        images,
+        recordings,
+        followUp,
+        textEdit,
+        selection: picked,
+        viewport,
+        steered: record.steered,
+      },
     }
     if (this.meta.retryTurnId) this.patchMeta({ retryTurnId: null })
     this.transcriptAgent ??= this.meta.agentId
@@ -1512,11 +1537,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
     return { item, payload }
   }
 
-  /** Puts `entry` in the queue: last, or `first` in line. */
-  private enqueueEntry({ item, payload }: QueueEntry, first = false) {
+  /** Puts `entry` last in the queue. */
+  private enqueueEntry({ item, payload }: QueueEntry) {
     this.queued.set(item.id, payload)
-    const queue = first ? [item, ...this.meta.queue] : [...this.meta.queue, item]
-    this.patchMeta({ queue, selection: [] })
+    this.patchMeta({ queue: [...this.meta.queue, item], selection: [] })
   }
 
   /** Starts the next queued message, unless something holds the lock or the queue is paused. */
@@ -1654,6 +1678,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
               followUp: earlier ? describeFollowUp(earlier, info.supportsImages) : [],
               textEdit: record.turn.textEdit ?? null,
             })
+      if (record.command !== 'alone') blocks.push(...describeSteeredBefore(record.steered))
       // A narrated clip's transcript may still be on its way when the message is queued.
       const sent = record.turn.recordings ?? []
       const clips = sent.length
@@ -2121,9 +2146,9 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * requests. The agent's own controls follow now between turns, else before the next prompt.
    */
   private refreshAutoApprove = () => {
-    const { autoNoteSeen, followUp } = getPrefs()
+    const { autoNoteSeen, whileWorking } = getPrefs()
     if (autoNoteSeen !== this.meta.autoNoteSeen) this.patchMeta({ autoNoteSeen })
-    if (followUp !== this.meta.followUp) this.patchMeta({ followUp })
+    if (whileWorking !== this.meta.whileWorking) this.patchMeta({ whileWorking })
     const autoApprove = isAutoApprove(this.root)
     if (autoApprove === this.meta.autoApprove) return
     this.patchMeta({ autoApprove })

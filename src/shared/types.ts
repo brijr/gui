@@ -929,10 +929,10 @@ export interface QueuedMessage {
 }
 
 /**
- * What a message sent while the agent works does: `steer` adds it to the reply under way
- * (the agent reads it at its next step), `queue` holds it for a turn of its own afterwards.
+ * What a message sent while the agent works does: `queue` holds it for a turn of its own
+ * afterwards, `steer` adds it to the reply under way (the agent reads it at its next step).
  */
-export type FollowUpBehavior = 'steer' | 'queue'
+export type WhileWorking = 'queue' | 'steer'
 
 /**
  * Text edited in place in the preview, which the agent is asked to change in the source.
@@ -988,7 +988,7 @@ export interface ChatMeta {
    */
   canSteer: boolean
   /** What Enter does while the agent works (Settings); ⌘↩ does the other */
-  followUp: FollowUpBehavior
+  whileWorking: WhileWorking
   /**
    * Auto mode: Gui answers the agent's permission requests itself, so the agent edits
    * files and runs commands without asking. Commands aren't confined to the project. It
@@ -1363,6 +1363,6 @@ export interface SettingsState {
   home: string
   /** Gui sends a report when it fails */
   crashReports: boolean
-  /** What a message sent while the agent works does (see ChatMeta.followUp) */
-  followUp: FollowUpBehavior
+  /** What a message sent while the agent works does (see ChatMeta.whileWorking) */
+  whileWorking: WhileWorking
 }

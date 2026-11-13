@@ -128,7 +128,7 @@ import {
   setChatSidebarSide,
   setCrashReports,
   setDefaultAgent,
-  setFollowUp,
+  setWhileWorking,
   untrustProject,
   watchSettings,
 } from './settings'
@@ -1188,8 +1188,8 @@ function registerIpc() {
     if (side === 'left' || side === 'right') setChatSidebarSide(side)
   })
   onSettings(Send.setCrashReports, (on) => typeof on === 'boolean' && setCrashReports(on))
-  onSettings(Send.setFollowUp, (behavior) => {
-    if (behavior === 'steer' || behavior === 'queue') setFollowUp(behavior)
+  onSettings(Send.setWhileWorking, (choice) => {
+    if (choice === 'queue' || choice === 'steer') setWhileWorking(choice)
   })
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
   ipcMain.on(Send.reportError, (event, error: unknown) => {
@@ -1283,7 +1283,6 @@ function registerIpc() {
   on(Send.sendQueuedNow, (tab) => tab.sendQueuedNow())
   on(Send.retry, (tab, turnId) => isString(turnId) && tab.retryTurn(turnId))
   on(Send.sendQueued, (tab, id) => isString(id) && tab.sendQueued(id))
-  on(Send.steerQueued, (tab, id) => isString(id) && tab.steerQueued(id))
   on(Send.setAutoApprove, (tab, on) => typeof on === 'boolean' && tab.setAutoApprove(on))
   on(Send.setAgentSetting, (tab, settingId, value) => {
     // Only a choice the composer offers right now: the chat panel renders what agents write.

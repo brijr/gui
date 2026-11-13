@@ -248,6 +248,24 @@ export function placeCommand(
     : [{ type: 'text', text: `${command}\n\n` }, ...context]
 }
 
+/** What the user sent into `turn`'s reply while it was under way, in order. */
+export function steeredPrompts(turn: Pick<Turn, 'items'>): string[] {
+  return turn.items.flatMap((item) => (item.kind === 'steer' ? [item.prompt] : []))
+}
+
+/**
+ * A retried message: what the user sent into its failed reply while it was under way goes
+ * again with it. Nothing when there was none.
+ */
+export function describeSteeredBefore(steered: string[]): ContentBlock[] {
+  if (!steered.length) return []
+  const text = [
+    'When this message was sent before, the user added this while you worked on it:',
+    ...steered.map((prompt) => quote(prompt)),
+  ].join('\n')
+  return [{ type: 'text', text }]
+}
+
 /** What the agent replied to the earlier turn is cut to this many characters. */
 const MAX_FOLLOW_UP_REPLY = 1500
 
@@ -260,6 +278,11 @@ export function describeFollowUp(turn: Turn, images: boolean): ContentBlock[] {
     `The user's message follows up on an earlier change in this chat (message ${turn.index + 1}). They asked:`,
     quote(turn.prompt),
   ]
+  // Messages they sent into that reply while it was under way (steering) are part of what they asked.
+  const steered = steeredPrompts(turn)
+  if (steered.length) {
+    lines.push('While you worked on it, they added:', ...steered.map((prompt) => quote(prompt)))
+  }
   // The agent's own words: its subagents' are steps along the way.
   const reply = turn.items
     .flatMap((item) => (item.kind === 'text' && !item.subagent ? [item.text] : []))

@@ -15,7 +15,6 @@ import type {
   ChatSummary,
   CustomAgentEntry,
   DrawerTab,
-  FollowUpBehavior,
   GuideStrips,
   ImageAttachment,
   MorphEvent,
@@ -37,6 +36,7 @@ import type {
   ToolbarMenuItem,
   VariationAction,
   Viewport,
+  WhileWorking,
   WindowState,
 } from './types'
 
@@ -179,7 +179,6 @@ export const Send = {
   sendQueuedNow: 'chat:queue-send',
   retry: 'chat:retry',
   sendQueued: 'chat:queue-send-one',
-  steerQueued: 'chat:queue-send-now',
   clearQueued: 'chat:queue-clear',
   setAutoApprove: 'chat:auto-approve',
   setAgentSetting: 'chat:agent-setting',
@@ -199,7 +198,7 @@ export const Send = {
   setChatDocked: 'settings:chat-docked',
   setChatSidebarSide: 'settings:chat-sidebar-side',
   setCrashReports: 'settings:crash-reports',
-  setFollowUp: 'settings:follow-up',
+  setWhileWorking: 'settings:while-working',
   reportError: 'app:report-error',
   openCustomAgentsFile: 'settings:open-agents-file',
   newBoard: 'board:new',
@@ -652,11 +651,8 @@ export interface GuiApi {
   /**
    * Starts a turn, or queues the message while the agent is busy (`meta.queue`). Resolves
    * false only when it wasn't accepted (e.g. empty, or no project). `followUp` is the id of
-   * an earlier turn the message is about.
-   */
-  /**
-   * `steer`: while the agent works, the message goes into its reply when it can
-   * (`ChatMeta.canSteer`); otherwise, or without it, it waits in the queue
+   * an earlier turn the message is about. `steer`: while the agent works, the message goes
+   * into its reply when it can (`ChatMeta.canSteer`); otherwise, or without it, it's queued.
    */
   send(
     text: string,
@@ -680,14 +676,10 @@ export interface GuiApi {
   sendQueuedNow(): void
   /**
    * Sends one queued message ahead of the rest: now when idle (a paused queue's others
-   * stay held), or next — moved to the front — while the agent works
+   * stay held); while the agent works, into its reply when it can (`ChatMeta.canSteer`),
+   * else next — moved to the front
    */
   sendQueued(id: string): void
-  /**
-   * "Send now": idle, sends a queued message now; while the agent works, adds it to the reply
-   * under way when it can (`ChatMeta.canSteer`), else it keeps its place
-   */
-  steerQueued(id: string): void
   /** Sends a failed turn's message again (`ChatMeta.retryTurnId`), with what it carried */
   retry(turnId: string): void
   /** Auto mode on or off (see `ChatMeta.autoApprove`) */
@@ -823,8 +815,8 @@ export interface GuiApi {
   setChatDocked(docked: boolean): void
   setChatSidebarSide(side: 'left' | 'right'): void
   setCrashReports(on: boolean): void
-  /** What Enter does while the agent works: steer the reply under way, or queue the message */
-  setFollowUp(behavior: FollowUpBehavior): void
+  /** What Enter does while the agent works: queue the message, or steer the reply under way */
+  setWhileWorking(choice: WhileWorking): void
   /** An error in one of Gui's own windows, for a crash report (main decides whether to send it) */
   reportError(error: { message: string; stack?: string }): void
   /** Adds or replaces a custom agent; rejects with a message when the entry is invalid */

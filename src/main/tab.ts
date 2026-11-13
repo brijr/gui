@@ -904,7 +904,7 @@ export class ProjectTab implements ChatPanelOwner {
         queuePaused: false,
         queuePauseReason: null,
         canSteer: false,
-        followUp: getPrefs().followUp,
+        whileWorking: getPrefs().whileWorking,
         autoApprove: this.projectRoot === null || isAutoApprove(this.projectRoot),
         ownPermissions: declaresOwnPermissions(this.state.agentId),
         autoNoteSeen: getPrefs().autoNoteSeen,
@@ -3534,10 +3534,6 @@ export class ProjectTab implements ChatPanelOwner {
 
   sendQueued(id: string) {
     this.resources.chat?.sendQueued(id)
-  }
-
-  steerQueued(id: string) {
-    this.resources.chat?.steerQueued(id)
   }
 
   cancelChat() {

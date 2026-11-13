@@ -6,11 +6,11 @@ import {
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
   DEFAULT_AGENT_ID,
-  type FollowUpBehavior,
   type SettingsSection,
   type SettingsState,
   type StorageKind,
   type StorageUsage,
+  type WhileWorking,
 } from '../shared/types'
 import { agentHealth } from './agent-status'
 import { customAgentEntries, deleteCustomAgent, saveCustomAgent } from './agents'
@@ -123,7 +123,7 @@ async function buildState(): Promise<SettingsState> {
     openProjects: openRoots(),
     home: app.getPath('home'),
     crashReports: prefs.crashReports,
-    followUp: prefs.followUp,
+    whileWorking: prefs.whileWorking,
   }
 }
 
@@ -168,8 +168,8 @@ export function setCrashReports(on: boolean) {
 }
 
 /** Open chats follow it at once (ChatController listens for prefs changes). */
-export function setFollowUp(behavior: FollowUpBehavior) {
-  setPrefs({ followUp: behavior })
+export function setWhileWorking(whileWorking: WhileWorking) {
+  setPrefs({ whileWorking })
 }
 
 export async function saveCustom(originalName: string | null, entry: CustomAgentEntry) {
