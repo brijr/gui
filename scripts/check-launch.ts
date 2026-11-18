@@ -5,10 +5,14 @@
 //
 //   xvfb-run -a bun scripts/check-launch.ts release/Gui-<version>-x86_64.AppImage
 //
+// On Windows (.github/workflows/windows.yml) it starts an installed Gui.exe and quits it by
+// closing its window, as taskkill without /F asks (Windows has no SIGTERM); that too must end
+// it with exit code 0.
+//
 // Gui gets a new, empty data folder with crash reports off, so this never reads or changes a
 // person's own Gui data and a failure here never reaches usegui.com. A DevTools port is how this
 // script sees the window's page.
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import {
   mkdtempSync,
   readdirSync,
@@ -25,9 +29,10 @@ import { setTimeout as sleep } from 'node:timers/promises'
 const START_WAIT = 120_000
 const QUIT_WAIT = 30_000
 
+const IS_WINDOWS = process.platform === 'win32'
 const app = process.argv[2]
 if (!app) {
-  console.error('usage: bun scripts/check-launch.ts <Gui AppImage>')
+  console.error('usage: bun scripts/check-launch.ts <Gui AppImage, or Gui.exe on Windows>')
   process.exit(2)
 }
 
@@ -72,8 +77,35 @@ function fail(message: string): never {
   process.exit(1)
 }
 
+/** Windows: each process's pid and command line, from PowerShell (there's no /proc). */
+function windowsProcesses() {
+  const script =
+    'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId)`t$($_.CommandLine)" }'
+  try {
+    const out = execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-NonInteractive', '-Command', script],
+      {
+        encoding: 'utf8',
+        maxBuffer: 64 * 1024 * 1024,
+      },
+    )
+    return out.split(/\r?\n/).flatMap((line) => {
+      const tab = line.indexOf('\t')
+      return tab > 0 ? [{ pid: Number(line.slice(0, tab)), args: line.slice(tab + 1) }] : []
+    })
+  } catch {
+    return []
+  }
+}
+
 /** Every process started with this data folder: Gui and its helpers, and the AppImage runtime. */
 function guiProcesses() {
+  if (IS_WINDOWS) {
+    return windowsProcesses()
+      .filter((proc) => proc.args.includes(`--user-data-dir=${data}`))
+      .map((proc) => proc.pid)
+  }
   const pids: number[] = []
   for (const entry of readdirSync('/proc')) {
     if (!/^\d+$/.test(entry)) continue
@@ -89,6 +121,12 @@ function guiProcesses() {
 
 /** Gui's main process: its `gui` executable, not a helper (`--type=…`) or the AppImage runtime. */
 function mainProcess() {
+  if (IS_WINDOWS) {
+    const main = windowsProcesses().find(
+      (proc) => proc.args.includes(`--user-data-dir=${data}`) && !proc.args.includes('--type='),
+    )
+    return main?.pid ?? null
+  }
   for (const pid of guiProcesses()) {
     try {
       const args = readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0')
@@ -178,10 +216,12 @@ console.log(`check-launch: Gui's window loaded (${page.url}).`)
 
 const main = mainProcess()
 if (main === null) fail("Couldn't find Gui's main process to quit it.")
-process.kill(main, 'SIGTERM')
+const asked = IS_WINDOWS ? 'closing its window' : 'SIGTERM'
+if (IS_WINDOWS) execFileSync('taskkill.exe', ['/PID', String(main)])
+else process.kill(main, 'SIGTERM')
 const how = await Promise.race([exited, sleep(QUIT_WAIT).then(() => null)])
-if (how === null) fail(`Gui was still running ${QUIT_WAIT / 1000} seconds after SIGTERM.`)
-if (how !== 'exit code 0') fail(`Gui ended with ${how} after SIGTERM, not exit code 0.`)
+if (how === null) fail(`Gui was still running ${QUIT_WAIT / 1000} seconds after ${asked}.`)
+if (how !== 'exit code 0') fail(`Gui ended with ${how} after ${asked}, not exit code 0.`)
 // Helpers end a moment after the main process.
 for (let i = 0; i < 20 && guiProcesses().length > 0; i++) await sleep(250)
 const left = guiProcesses()

@@ -27,7 +27,7 @@ function resolveLocal(from: string, specifier: string) {
   )
 }
 function layer(path: string) {
-  return relative(source, path).split('/')[0]
+  return relative(source, path).split(sep)[0]
 }
 function edge(from: string, specifier: string, runtime: boolean) {
   const target = resolveLocal(from, specifier)

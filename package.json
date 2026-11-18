@@ -11,9 +11,9 @@
   "type": "module",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "sh scripts/build-native.sh && electron-vite dev -w",
-    "build": "sh scripts/build-native.sh && electron-vite build",
-    "build:native": "sh scripts/build-native.sh",
+    "dev": "bun scripts/build-native.ts && electron-vite dev -w",
+    "build": "bun scripts/build-native.ts && electron-vite build",
+    "build:native": "bun scripts/build-native.ts",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tests/tsconfig.json && tsc --noEmit -p e2e/tsconfig.json",
     "lint": "biome check .",

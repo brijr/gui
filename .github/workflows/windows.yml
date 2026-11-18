@@ -1,3 +1,13 @@
+# Builds an unsigned x64 Windows installer of Gui and checks it on a Windows runner: the unit
+# checks, that the installed app starts and quits cleanly (scripts/check-launch.ts), and the
+# Windows integration checks (scripts/windows-checks.ts: finding and running commands,
+# Claude Code, Codex and Node.js set up, a terminal, a dev server and its process tree, the
+# ACP adapters). No agent gets a prompt and no secrets are used. Nothing is published; the
+# installer is kept as the run's artifact:
+#
+#   gh run download <run id> --name windows-x64
+#
+# Runs by hand (Actions → Windows → Run workflow) and on pushes to windows/** branches.
 name: Windows
 
 on:
@@ -5,8 +15,7 @@ on:
   push:
     branches: ['windows/**']
 
-permissions:
-  contents: read
+permissions: {}
 
 concurrency:
   group: windows-${{ github.ref }}
@@ -14,22 +23,85 @@ concurrency:
 
 jobs:
   build:
+    name: Build and check (x64)
     runs-on: windows-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: pwsh
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+
+      # The integration checks' batch shim runs `node`, as npm's do.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
+
       - run: bun install --frozen-lockfile
-      - run: bun scripts/windows-probe.ts
+
+      # Each check below runs even when an earlier one failed, so one run says as much as it
+      # can; the last step fails the job if any of them did.
+      - name: Check
+        id: check
         continue-on-error: true
-      - run: bun run check
+        run: bun run check
+
+      - name: Build
+        run: bun run build
+
+      - name: Package
+        run: bun x --bun electron-builder --win --x64 --publish never
+
+      - name: Install
+        id: install
+        run: |
+          Get-ChildItem release | Format-Table Name, Length
+          $setup = Get-ChildItem release -Filter 'Gui-*-x64-setup.exe' | Select-Object -First 1
+          $started = Get-Date
+          Start-Process -Wait -FilePath $setup.FullName -ArgumentList '/S'
+          "Installed in $([int]((Get-Date) - $started).TotalSeconds) s"
+          # A one-click installer may start Gui when it's done; the checks start their own.
+          Get-Process Gui -ErrorAction SilentlyContinue | Stop-Process -Force
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Gui\Gui.exe'
+          if (-not (Test-Path $exe)) { throw "Gui.exe isn't at $exe" }
+          "exe=$exe" >> $env:GITHUB_OUTPUT
+          $size = (Get-ChildItem (Split-Path $exe) -Recurse | Measure-Object Length -Sum).Sum
+          "Installer $([math]::Round($setup.Length / 1MB)) MB; installed $([math]::Round($size / 1MB)) MB"
+
+      - name: Check launch
+        id: launch
         continue-on-error: true
-      - run: bun run build
+        run: bun scripts/check-launch.ts "${{ steps.install.outputs.exe }}"
+
+      - name: Windows checks
+        id: windows
         continue-on-error: true
+        run: |
+          bun build scripts/windows-checks.ts --target=node --format=esm --external electron --external node-pty --outfile out/windows-checks/main.mjs
+          & node_modules\electron\dist\electron.exe out/windows-checks/main.mjs "${{ steps.install.outputs.exe }}" | Out-Host
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-x64
+          path: release/Gui-*-x64-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Result
+        if: always()
+        env:
+          CHECK: ${{ steps.check.outcome }}
+          LAUNCH: ${{ steps.launch.outcome }}
+          WINDOWS: ${{ steps.windows.outcome }}
+        run: |
+          "bun run check: $env:CHECK; launch: $env:LAUNCH; Windows checks: $env:WINDOWS"
+          if ($env:CHECK -ne 'success' -or $env:LAUNCH -ne 'success' -or $env:WINDOWS -ne 'success') { exit 1 }

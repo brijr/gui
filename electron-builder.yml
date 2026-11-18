@@ -36,9 +36,11 @@ files:
   # TypeScript sources some packages ship next to their JS (zod's src/ alone is ~4 MB).
   - "!**/node_modules/**/*.{ts,mts,cts,tsx}"
   # node-pty: only its JS and one native build are used at runtime: the darwin-arm64 prebuild
-  # on macOS, or on Linux the build/Release that `bun install` compiles (it has no prebuild).
+  # on macOS, on Linux the build/Release that `bun install` compiles (it has no prebuild), and
+  # the win32-x64 prebuild on Windows. mac and linux drop that one below; plain patterns there
+  # can only take files away from node_modules, never add them back.
   - "!**/node_modules/node-pty/{src,deps,third_party,scripts,typings,binding.gyp}"
-  - "!**/node_modules/node-pty/prebuilds/{win32-*,darwin-x64}"
+  - "!**/node_modules/node-pty/prebuilds/{win32-arm64,darwin-x64}"
   # The Claude Code and Codex CLIs (~530 MB) aren't shipped: Gui uses the user's own
   # install, or downloads the exact version its adapters need (src/main/agent-binaries.ts).
   - "!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**"
@@ -84,6 +86,8 @@ npmRebuild: false
 
 mac:
   category: public.app-category.developer-tools
+  files:
+    - "!**/node_modules/node-pty/prebuilds/win32-x64{,/**}"
   # On-device transcription for narrated preview recordings (scripts/build-native.sh). osx-sign
   # signs it like every other Mach-O in the bundle, with the hardened runtime.
   extraResources:
@@ -137,6 +141,8 @@ mac:
 # Gui-<version>-arm64.deb; update feeds <channel>-linux.yml (x64) and <channel>-linux-arm64.yml.
 linux:
   category: Development
+  files:
+    - "!**/node_modules/node-pty/prebuilds/win32-x64{,/**}"
   executableName: gui
   syncDesktopName: true
   icon: build/linux-icon.png
@@ -147,6 +153,26 @@ linux:
   target:
     - target: AppImage
     - target: deb
+
+# Windows (x64): an unsigned per-user installer, built by .github/workflows/windows.yml. It
+# installs into %LOCALAPPDATA%\Programs\Gui with no administrator prompt. It doesn't update
+# itself yet (src/main/updates.ts) and nothing publishes it.
+win:
+  # electron-builder makes the .ico from this 1024 px PNG.
+  icon: build/linux-icon.png
+  artifactName: ${productName}-${version}-${arch}-setup.${ext}
+  target:
+    - target: nsis
+      arch: x64
+  # node-pty: its Windows build (the top-level `files` keep it, and mac and linux drop it),
+  # without its debug symbols.
+  files:
+    - "!**/node_modules/node-pty/prebuilds/darwin-*{,/**}"
+    - "!**/node_modules/node-pty/prebuilds/win32-x64/*.pdb"
+
+nsis:
+  oneClick: true
+  perMachine: false
 
 # The AppImage's static runtime opens with the FUSE 3 every current desktop has. The default
 # (0.0.0) needs libfuse2, which Ubuntu 22.04+ doesn't install, and on arm64 also libz.so, which

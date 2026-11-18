@@ -25,7 +25,8 @@ function run(command: string, args: string[]) {
 export async function listenersOn(port: number): Promise<Listener[] | null> {
   if (IS_WINDOWS) {
     const all = await windowsListeners()
-    return all && all.filter((listener) => listener.port === port)
+    if (all === null) return null
+    return all.filter((listener) => listener.port === port)
   }
   if (!IS_MAC) return procListeners('all', { unowned: true, port })
   const out = await run('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpn'])
