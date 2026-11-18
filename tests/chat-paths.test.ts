@@ -159,7 +159,10 @@ describe('projectEditPath: a change is approved only on a plain file inside the 
     ['dangling', 'a link to nothing'],
     ['dangling/new.txt', 'a new file under a link to nothing'],
     ['hard.ts', 'a hard link: also a file somewhere else'],
-    ['pipe', 'a named pipe, not a file'],
+    // Windows keeps no named pipes among files (see beforeAll).
+    ...(process.platform === 'win32'
+      ? []
+      : [['pipe', 'a named pipe, not a file'] as [string, string]]),
     // Claude Code expands a leading `~` to the home folder, and its adapter passes a path on
     // as the agent wrote it, so `~` is never a folder in the project.
     ['~/notes.md', 'from ~: the home folder, which is outside the project'],
