@@ -21,10 +21,11 @@ export interface AgentBinary {
 export type AgentBinaries = Record<'claude' | 'codex', Record<string, AgentBinary>>
 
 const PLATFORMS = [
-  { key: 'darwin-arm64', triple: 'aarch64-apple-darwin' },
-  { key: 'darwin-x64', triple: 'x86_64-apple-darwin' },
-  { key: 'linux-arm64', triple: 'aarch64-unknown-linux-musl' },
-  { key: 'linux-x64', triple: 'x86_64-unknown-linux-musl' },
+  { key: 'darwin-arm64', triple: 'aarch64-apple-darwin', exe: '' },
+  { key: 'darwin-x64', triple: 'x86_64-apple-darwin', exe: '' },
+  { key: 'linux-arm64', triple: 'aarch64-unknown-linux-musl', exe: '' },
+  { key: 'linux-x64', triple: 'x86_64-unknown-linux-musl', exe: '' },
+  { key: 'win32-x64', triple: 'x86_64-pc-windows-msvc', exe: '.exe' },
 ]
 
 function readJson(path: string): Record<string, unknown> {
@@ -63,11 +64,11 @@ export function agentBinaries(root: string): AgentBinaries {
   const codexMin = codexRange?.replace(/^[\^~]/, '') ?? codexCli
 
   const binaries: AgentBinaries = { claude: {}, codex: {} }
-  for (const { key, triple } of PLATFORMS) {
+  for (const { key, triple, exe } of PLATFORMS) {
     const claudeDir = `@anthropic-ai/claude-agent-sdk-${key}`
     binaries.claude[key] = {
       ...lockEntry(lock, claudeDir),
-      bin: 'claude',
+      bin: `claude${exe}`,
       devDir: claudeDir,
       cliVersion: claudeCli,
       minCliVersion: claudeCli,
@@ -75,7 +76,7 @@ export function agentBinaries(root: string): AgentBinaries {
     const codexDir = `@openai/codex-${key}`
     binaries.codex[key] = {
       ...lockEntry(lock, codexDir),
-      bin: `vendor/${triple}/bin/codex`,
+      bin: `vendor/${triple}/bin/codex${exe}`,
       devDir: codexDir,
       cliVersion: codexCli,
       minCliVersion: codexMin,

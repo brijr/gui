@@ -22,7 +22,11 @@ function time(label: string, file: string, args: string[], show = 400) {
 
 console.log('platform', process.platform, process.arch, process.version)
 for (const key of Object.keys(process.env).sort())
-  if (/^(path|pathext|comspec|shell|systemroot|userprofile|homedrive|homepath|localappdata|appdata|psmodulepath|processor_architecture)$/i.test(key))
+  if (
+    /^(path|pathext|comspec|shell|systemroot|userprofile|homedrive|homepath|localappdata|appdata|psmodulepath|processor_architecture)$/i.test(
+      key,
+    )
+  )
     console.log(key, '=', process.env[key])
 
 const sys = process.env.SystemRoot ?? 'C:\\Windows'
@@ -31,17 +35,33 @@ time('netstat -ano -p TCP', `${sys}\\System32\\netstat.exe`, ['-ano', '-p', 'TCP
 time('netstat -ano -p TCPv6', `${sys}\\System32\\netstat.exe`, ['-ano', '-p', 'TCPv6'])
 time('tasklist csv', `${sys}\\System32\\tasklist.exe`, ['/FO', 'CSV', '/NH'])
 time('powershell CIM pid/ppid', ps, [
-  '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+  '-NoLogo',
+  '-NoProfile',
+  '-NonInteractive',
+  '-Command',
   'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId)" }',
 ])
 time('powershell Get-Process parent (PS5 has no .Parent)', ps, [
-  '-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '[Diagnostics.Process]::GetProcesses().Count',
+  '-NoLogo',
+  '-NoProfile',
+  '-NonInteractive',
+  '-Command',
+  '[Diagnostics.Process]::GetProcesses().Count',
 ])
 time('powershell noop', ps, ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '1'])
 time('pwsh noop', 'pwsh.exe', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', '1'])
 time('wmic', 'wmic.exe', ['process', 'get', 'ProcessId,ParentProcessId'], 200)
 time('tar --version', `${sys}\\System32\\tar.exe`, ['--version'])
-time('where git', `${sys}\\System32\\where.exe`, ['git', 'bash', 'sh', 'node', 'npm', 'pwsh', 'claude', 'codex'])
+time('where git', `${sys}\\System32\\where.exe`, [
+  'git',
+  'bash',
+  'sh',
+  'node',
+  'npm',
+  'pwsh',
+  'claude',
+  'codex',
+])
 time('cmd ver', process.env.ComSpec ?? 'cmd.exe', ['/d', '/c', 'ver'])
 
 // tar on .tgz and .zip
@@ -61,7 +81,14 @@ try {
 }
 
 // taskkill tree timing: node parent with a node child
-const parent = spawn(process.execPath, ['-e', `require('child_process').spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {stdio:'ignore'}); setInterval(()=>{},1000)`], { stdio: 'ignore', windowsHide: true })
+const parent = spawn(
+  process.execPath,
+  [
+    '-e',
+    `require('child_process').spawn(process.execPath, ['-e', 'setInterval(()=>{},1000)'], {stdio:'ignore'}); setInterval(()=>{},1000)`,
+  ],
+  { stdio: 'ignore', windowsHide: true },
+)
 await new Promise((r) => setTimeout(r, 1500))
 time('taskkill /T /F', `${sys}\\System32\\taskkill.exe`, ['/PID', String(parent.pid), '/T', '/F'])
 console.log('process.kill(-pid) on windows:')

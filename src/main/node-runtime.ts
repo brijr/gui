@@ -6,8 +6,10 @@ import { THIS_COMPUTER } from '../shared/platform'
 import type { NodeSetup, PackageManager } from '../shared/types'
 import { download } from './download'
 import { describeError } from './errors'
+import { IS_WINDOWS } from '../shared/platform'
 import { findExecutable } from './executables'
 import { NODE, nodeBinDir, nodeRoot } from './node-paths'
+import { tarPath } from './os'
 import { execFile } from './process'
 import { addToPath, getShellEnv } from './shell-env'
 
@@ -77,9 +79,11 @@ class NodeRuntime extends EventEmitter<{ change: [setup: NodeSetup] }> {
       return
     }
     const root = nodeRoot()
-    const name = `node-v${NODE.version}-${platform}`
+    // nodejs.org names Windows `win`, and ships it as a .zip.
+    const name = `node-v${NODE.version}-${platform.replace(/^win32-/, 'win-')}`
+    const ext = IS_WINDOWS ? 'zip' : 'tar.xz'
     const tag = randomBytes(6).toString('hex')
-    const archive = join(root, `.download-${tag}.tar.xz`)
+    const archive = join(root, `.download-${tag}.${ext}`)
     const staging = join(root, `.unpack-${tag}`)
     const controller = new AbortController()
     this.download = controller
@@ -91,7 +95,7 @@ class NodeRuntime extends EventEmitter<{ change: [setup: NodeSetup] }> {
         if (entry.startsWith('.')) await rm(join(root, entry), { recursive: true, force: true })
       }
       const digest = await download(
-        `https://nodejs.org/dist/v${NODE.version}/${name}.tar.xz`,
+        `https://nodejs.org/dist/v${NODE.version}/${name}.${ext}`,
         archive,
         {
           what: 'Node.js',
@@ -110,14 +114,15 @@ class NodeRuntime extends EventEmitter<{ change: [setup: NodeSetup] }> {
       await mkdir(staging)
       await new Promise<void>((resolve, reject) => {
         execFile(
-          '/usr/bin/tar',
-          ['-xJf', archive, '-C', staging, '--strip-components', '1'],
+          tarPath(),
+          [IS_WINDOWS ? '-xf' : '-xJf', archive, '-C', staging, '--strip-components', '1'],
           (error) =>
             error ? reject(new Error(`Couldn't unpack Node.js: ${error.message}`)) : resolve(),
         )
       })
-      for (const bin of ['node', 'npm', 'npx']) {
-        if (!(await isExecutable(join(staging, 'bin', bin)))) {
+      const bins = IS_WINDOWS ? ['node.exe', 'npm.cmd', 'npx.cmd'] : ['node', 'npm', 'npx']
+      for (const bin of bins) {
+        if (!(await isExecutable(join(staging, IS_WINDOWS ? '' : 'bin', bin)))) {
           throw new Error(`The Node.js download doesn't contain ${bin}.`)
         }
       }

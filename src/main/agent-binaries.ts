@@ -5,10 +5,11 @@ import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { app } from 'electron'
 import type { AgentBinaries, AgentBinary } from '../../scripts/agent-binaries'
-import { THIS_COMPUTER } from '../shared/platform'
+import { IS_WINDOWS, THIS_COMPUTER } from '../shared/platform'
 import { type AgentBinarySource, type AgentId, agentName } from '../shared/types'
 import { type DownloadProgress, download } from './download'
 import { DetailedError } from './errors'
+import { tarPath } from './os'
 import { execFile } from './process'
 import { getShellEnv } from './shell-env'
 
@@ -18,7 +19,7 @@ const REGISTRY = 'https://registry.npmjs.org'
 const VERSION_TIMEOUT_MS = 10_000
 /** Where installers put the CLIs, for when the login shell's PATH doesn't cover them. */
 const COMMON_BIN_DIRS = ['.local/bin', '.claude/local', '.npm-global/bin', '.bun/bin']
-const SYSTEM_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
+const SYSTEM_BIN_DIRS = IS_WINDOWS ? [] : ['/opt/homebrew/bin', '/usr/local/bin']
 const COMMANDS = { claude: 'claude', codex: 'codex' } as const
 
 /** The agents whose CLI Gui pins (and can download); other agents bring their own. */
@@ -142,7 +143,9 @@ async function findInstalled(id: PinnedAgentId) {
   for (const dir of dirs) {
     if (!dir || seen.has(dir)) continue
     seen.add(dir)
-    const path = join(dir, COMMANDS[id])
+    // Windows: only a real program. The adapters start the CLI themselves, and can't start
+    // a batch file (npm's claude.cmd); Gui's own copy is used then.
+    const path = join(dir, IS_WINDOWS ? `${COMMANDS[id]}.exe` : COMMANDS[id])
     if (!(await isExecutable(path))) continue
     const version = await cliVersion(path, env)
     if (version) return { path, version }
@@ -245,7 +248,7 @@ export async function installAgentBinary(
 
     await mkdir(staging)
     await new Promise<void>((resolve, reject) => {
-      execFile('/usr/bin/tar', ['-xzf', archive, '-C', staging], (error) =>
+      execFile(tarPath(), ['-xzf', archive, '-C', staging], (error) =>
         error ? reject(new Error(`Couldn't unpack ${agentName(id)}: ${error.message}`)) : resolve(),
       )
     })

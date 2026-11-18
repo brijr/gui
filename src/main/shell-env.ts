@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs'
-import { isAbsolute, join } from 'node:path'
+import { delimiter, isAbsolute } from 'node:path'
 import { app } from 'electron'
-import { nodeBinDir } from './node-paths'
+import { IS_WINDOWS } from '../shared/platform'
+import { nodeBinDir, nodeExecutable } from './node-paths'
 import { DEFAULT_SHELL } from './os'
 import { execFile, scrubInheritedEnv } from './process'
 
@@ -27,10 +28,10 @@ export function getShellEnv(): Promise<NodeJS.ProcessEnv> {
   return cached
 }
 
-async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
+/** Login-shell output: `MARKER` then the environment, NUL-separated. */
+function readLoginShell(base: NodeJS.ProcessEnv) {
   const shell = process.env.SHELL || DEFAULT_SHELL
-  const base = scrubInheritedEnv(process.env)
-  const resolved = await new Promise<string | null>((resolve) => {
+  return new Promise<string | null>((resolve) => {
     execFile(
       shell,
       ['-ilc', `printf '${MARKER}'; /usr/bin/env -0`],
@@ -38,8 +39,29 @@ async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
       (error, stdout) => resolve(error ? null : stdout),
     )
   })
+}
 
-  const env: NodeJS.ProcessEnv = { ...base }
+/**
+ * Windows: a program started from the Start menu already has the user's whole environment,
+ * and there is no login shell to ask. Its PATH is named `Path`; Gui reads and sets `PATH`,
+ * so it's renamed (process.ts keeps one spelling for children).
+ */
+function windowsEnv(base: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {}
+  let path: string | undefined
+  for (const [key, value] of Object.entries(base)) {
+    if (key.toUpperCase() === 'PATH') path ??= value
+    else env[key] = value
+  }
+  if (path !== undefined) env.PATH = path
+  return env
+}
+
+async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
+  const base = scrubInheritedEnv(process.env)
+  const resolved = IS_WINDOWS ? null : await readLoginShell(base)
+
+  const env: NodeJS.ProcessEnv = IS_WINDOWS ? windowsEnv(base) : { ...base }
   if (resolved) {
     const start = resolved.lastIndexOf(MARKER)
     for (const entry of resolved.slice(start + MARKER.length).split('\0')) {
@@ -53,14 +75,15 @@ async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
   const testPath = !app.isPackaged ? process.env.GUI_PATH : undefined
   // A relative entry (`./node_modules/.bin`, or an empty one, which means `.`) would find
   // `git` or `gh` inside whatever project a command runs in.
-  const path = new Set((testPath ?? env.PATH ?? '').split(':').filter((p) => isAbsolute(p)))
-  if (testPath === undefined) for (const p of FALLBACK_PATHS) path.add(p)
+  const path = new Set((testPath ?? env.PATH ?? '').split(delimiter).filter((p) => isAbsolute(p)))
+  if (testPath === undefined && !IS_WINDOWS) for (const p of FALLBACK_PATHS) path.add(p)
   // Gui's own Node.js, for Macs without one (node-runtime.ts). Last, so the user's wins.
-  if (existsSync(join(nodeBinDir(), 'node'))) path.add(nodeBinDir())
-  env.PATH = [...path].join(':')
+  if (existsSync(nodeExecutable())) path.add(nodeBinDir())
+  env.PATH = [...path].join(delimiter)
 
   for (const key of Object.keys(env)) {
-    if (key.startsWith('ELECTRON_') || key === 'NODE_OPTIONS') delete env[key]
+    const name = IS_WINDOWS ? key.toUpperCase() : key
+    if (name.startsWith('ELECTRON_') || name === 'NODE_OPTIONS') delete env[key]
   }
   return env
 }
@@ -71,6 +94,6 @@ async function loadShellEnv(): Promise<NodeJS.ProcessEnv> {
  */
 export async function addToPath(dir: string) {
   const env = await getShellEnv()
-  const path = (env.PATH ?? '').split(':')
-  if (!path.includes(dir)) env.PATH = [...path, dir].filter(Boolean).join(':')
+  const path = (env.PATH ?? '').split(delimiter)
+  if (!path.includes(dir)) env.PATH = [...path, dir].filter(Boolean).join(delimiter)
 }

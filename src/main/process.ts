@@ -9,6 +9,8 @@ import {
   type SpawnOptions,
 } from 'node:child_process'
 import { type IPty, type IPtyForkOptions, spawn as nodeSpawnPty } from 'node-pty'
+import { IS_WINDOWS } from '../shared/platform'
+import { batchCommandLine, comSpec, isBatchFile } from './windows-cmd'
 
 export type { ChildProcess, ExecFileException, ExecFileOptions, ExecFileSyncOptions, SpawnOptions }
 
@@ -37,9 +39,14 @@ const AGENT_MARKERS = new Set([
  */
 const AGENT_MARKER_PREFIXES = ['CLAUDE_CODE_', 'CODEX_']
 
+/** Windows matches variable names without regard to case (`Path` is `PATH`); Unix doesn't. */
+const envName = (key: string, windows = IS_WINDOWS) => (windows ? key.toUpperCase() : key)
+
 /** Session markers on inherited process.env (a parent agent). Prefixes are not re-applied after the login shell, so profile settings like CLAUDE_CODE_USE_BEDROCK still reach agents. */
-export const isInheritedAgentMarker = (key: string) =>
-  AGENT_MARKERS.has(key) || AGENT_MARKER_PREFIXES.some((prefix) => key.startsWith(prefix))
+export const isInheritedAgentMarker = (key: string, windows = IS_WINDOWS) => {
+  const name = envName(key, windows)
+  return AGENT_MARKERS.has(name) || AGENT_MARKER_PREFIXES.some((prefix) => name.startsWith(prefix))
+}
 
 /**
  * What the AppImage runtime exports for Gui itself. zsh runs every command with an exported
@@ -79,20 +86,30 @@ function scrubAppImage(env: NodeJS.ProcessEnv) {
 export function childEnv(
   base: NodeJS.ProcessEnv,
   extra: Record<string, string | undefined> = {},
-  options: { browser?: 'none' | false } = {},
+  options: { browser?: 'none' | false; windows?: boolean } = {},
 ): NodeJS.ProcessEnv {
+  const { windows = IS_WINDOWS } = options
   const env: NodeJS.ProcessEnv = {}
   for (const [key, value] of Object.entries(base)) {
     if (value === undefined) continue
-    if (AGENT_MARKERS.has(key) || key.startsWith('ELECTRON_') || key === 'NODE_OPTIONS') continue
+    const name = envName(key, windows)
+    if (AGENT_MARKERS.has(name) || name.startsWith('ELECTRON_') || name === 'NODE_OPTIONS')
+      continue
     env[key] = value
   }
   scrubAppImage(env)
-  for (const [key, value] of Object.entries(extra)) {
+  const set = (key: string, value: string | undefined) => {
+    // On Windows, `PATH` replaces `Path`: a child given both gets one of them, unpredictably.
+    if (windows) {
+      for (const other of Object.keys(env)) {
+        if (other !== key && other.toUpperCase() === key.toUpperCase()) delete env[other]
+      }
+    }
     if (value === undefined) delete env[key]
     else env[key] = value
   }
-  if (options.browser === 'none') env.BROWSER = 'none'
+  for (const [key, value] of Object.entries(extra)) set(key, value)
+  if (options.browser === 'none') set('BROWSER', 'none')
   return env
 }
 
@@ -100,11 +117,32 @@ export function childEnv(
  * Inherited process.env before the login shell runs: parent-agent session vars and the
  * AppImage's runtime env don't leak in, nor into what the shell env falls back to.
  */
-export function scrubInheritedEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function scrubInheritedEnv(env: NodeJS.ProcessEnv, windows = IS_WINDOWS): NodeJS.ProcessEnv {
   const next = { ...env }
-  for (const key of Object.keys(next)) if (isInheritedAgentMarker(key)) delete next[key]
+  for (const key of Object.keys(next)) if (isInheritedAgentMarker(key, windows)) delete next[key]
   scrubAppImage(next)
   return next
+}
+
+/**
+ * How `file` starts on Windows. A batch file (`npm.cmd`) runs through cmd.exe with its
+ * arguments escaped (windows-cmd.ts); Node won't start one directly. No console window
+ * opens for the child. `detached` is dropped: on Windows it starts the child with no console
+ * at all, so every console program it runs in turn (git, node) opens a window of its own.
+ * Process trees are stopped with taskkill (killProcessGroup), which needs no group.
+ */
+function windowsLaunch<T extends { env?: NodeJS.ProcessEnv }>(
+  file: string,
+  args: readonly string[],
+  options: T,
+): { file: string; args: readonly string[]; options: T } {
+  const launch = { ...options, windowsHide: true, detached: false }
+  if (!isBatchFile(file)) return { file, args, options: launch }
+  return {
+    file: comSpec(options.env ?? process.env),
+    args: batchCommandLine(file, args),
+    options: { ...launch, windowsVerbatimArguments: true },
+  }
 }
 
 export interface SpawnProcessOptions extends SpawnOptions {
@@ -122,10 +160,12 @@ export function spawnProcess(
   options: SpawnProcessOptions = {},
 ): ChildProcess {
   const { extra = {}, browser, env, ...rest } = options
-  return nodeSpawn(command, args, {
-    ...rest,
-    env: childEnv(env ?? process.env, extra, { browser }),
-  })
+  const spawnOptions = { ...rest, env: childEnv(env ?? process.env, extra, { browser }) }
+  if (IS_WINDOWS) {
+    const launch = windowsLaunch(command, args, spawnOptions)
+    return nodeSpawn(launch.file, launch.args, launch.options)
+  }
+  return nodeSpawn(command, args, spawnOptions)
 }
 
 export interface SpawnPtyOptions extends IPtyForkOptions {
@@ -149,25 +189,23 @@ export const execFile: typeof nodeExecFile = ((
   optionsOrCallback?: unknown,
   callback?: unknown,
 ) => {
-  if (typeof argsOrOptionsOrCallback === 'function') {
-    return nodeExecFile(file, withEnv({}), argsOrOptionsOrCallback as never)
-  }
-  if (Array.isArray(argsOrOptionsOrCallback)) {
-    if (typeof optionsOrCallback === 'function') {
-      return nodeExecFile(file, argsOrOptionsOrCallback, withEnv({}), optionsOrCallback as never)
+  let args: readonly string[] = []
+  let options: ExecFileOptions = {}
+  let done: unknown
+  if (typeof argsOrOptionsOrCallback === 'function') done = argsOrOptionsOrCallback
+  else if (Array.isArray(argsOrOptionsOrCallback)) {
+    args = argsOrOptionsOrCallback
+    if (typeof optionsOrCallback === 'function') done = optionsOrCallback
+    else {
+      options = (optionsOrCallback as ExecFileOptions | undefined) ?? {}
+      done = callback
     }
-    return nodeExecFile(
-      file,
-      argsOrOptionsOrCallback,
-      withEnv((optionsOrCallback as ExecFileOptions | undefined) ?? {}),
-      callback as never,
-    )
+  } else {
+    options = (argsOrOptionsOrCallback as ExecFileOptions | undefined) ?? {}
+    done = optionsOrCallback
   }
-  return nodeExecFile(
-    file,
-    withEnv((argsOrOptionsOrCallback as ExecFileOptions | undefined) ?? {}),
-    optionsOrCallback as never,
-  )
+  const launch = execLaunch(file, args, options)
+  return nodeExecFile(launch.file, launch.args, launch.options, done as never)
 }) as typeof nodeExecFile
 
 export const execFileSync: typeof nodeExecFileSync = ((
@@ -175,14 +213,10 @@ export const execFileSync: typeof nodeExecFileSync = ((
   argsOrOptions?: unknown,
   options?: unknown,
 ) => {
-  if (Array.isArray(argsOrOptions)) {
-    return nodeExecFileSync(
-      file,
-      argsOrOptions,
-      withEnv((options as ExecFileSyncOptions | undefined) ?? {}),
-    )
-  }
-  return nodeExecFileSync(file, withEnv((argsOrOptions as ExecFileSyncOptions | undefined) ?? {}))
+  const launch = Array.isArray(argsOrOptions)
+    ? execLaunch(file, argsOrOptions, (options as ExecFileSyncOptions | undefined) ?? {})
+    : execLaunch(file, [], (argsOrOptions as ExecFileSyncOptions | undefined) ?? {})
+  return nodeExecFileSync(launch.file, launch.args, launch.options)
 }) as typeof nodeExecFileSync
 
 /**
@@ -196,8 +230,13 @@ export function endInput(child: ChildProcess, input = '') {
   child.stdin.end(input)
 }
 
-function withEnv<T extends { env?: NodeJS.ProcessEnv }>(options: T): T {
-  return { ...options, env: childEnv(options.env ?? process.env) }
+function execLaunch<T extends { env?: NodeJS.ProcessEnv }>(
+  file: string,
+  args: readonly string[],
+  options: T,
+) {
+  const scrubbed = { ...options, env: childEnv(options.env ?? process.env) }
+  return IS_WINDOWS ? windowsLaunch(file, args, scrubbed) : { file, args, options: scrubbed }
 }
 
 /** Agent process groups sent SIGTERM and not yet past their SIGKILL grace period. */
@@ -216,6 +255,12 @@ export function unregisterLiveGroup(pid: number) {
  * once it has exited, the pid may belong to some other process.
  */
 export function killProcessGroup(pid: number, signal: NodeJS.Signals, leaderAlive: boolean) {
+  if (IS_WINDOWS) {
+    // No groups and no signals: the tree is ended at once, whatever `signal` asks. Only
+    // from a live leader, which taskkill finds the tree by; a dead one's pid may be reused.
+    if (leaderAlive) void killProcessTree(pid)
+    return
+  }
   try {
     process.kill(-pid, signal)
   } catch {
@@ -225,6 +270,36 @@ export function killProcessGroup(pid: number, signal: NodeJS.Signals, leaderAliv
     } catch {
       // already gone
     }
+  }
+}
+
+const taskkill = () => `${process.env.SystemRoot ?? 'C:\\Windows'}\\System32\\taskkill.exe`
+
+/**
+ * Windows: ends `pid` and every process descended from it (`taskkill /T /F`, which finds
+ * them by parent pid). Resolves once taskkill is done; false when `pid` wasn't running.
+ */
+export function killProcessTree(pid: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    nodeExecFile(
+      taskkill(),
+      ['/PID', String(pid), '/T', '/F'],
+      { windowsHide: true, timeout: 10_000 },
+      (error) => resolve(!error),
+    )
+  })
+}
+
+/** `killProcessTree`, blocking: for quitting, when nothing runs after. */
+export function killProcessTreeSync(pid: number) {
+  try {
+    nodeExecFileSync(taskkill(), ['/PID', String(pid), '/T', '/F'], {
+      windowsHide: true,
+      timeout: 10_000,
+      stdio: 'ignore',
+    })
+  } catch {
+    // Not running any more.
   }
 }
 
