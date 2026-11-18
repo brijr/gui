@@ -3,7 +3,7 @@ import { app } from 'electron'
 import type { IPty } from 'node-pty'
 import type { TerminalOutput } from '../shared/ipc'
 import type { TerminalId, TerminalInfo } from '../shared/types'
-import { DEFAULT_SHELL } from './os'
+import { terminalShell } from './os'
 import { Output } from './output'
 import { spawnPty } from './process'
 import { endProcessGroups } from './process-groups'
@@ -161,12 +161,13 @@ export class Terminals extends EventEmitter<TerminalsEvents> {
   private async start(shell: Shell) {
     const run = ++shell.run
     const env = await getShellEnv()
+    const launch = await terminalShell(env)
     if (this.ended || run !== shell.run || this.shells.get(shell.id) !== shell) return
 
     let proc: IPty
     try {
       // A login shell, as Terminal starts it; on a terminal, it's interactive.
-      proc = spawnPty(env.SHELL || DEFAULT_SHELL, ['-l'], {
+      proc = spawnPty(launch.file, launch.args, {
         name: 'xterm-256color',
         cols: shell.size.cols,
         rows: shell.size.rows,

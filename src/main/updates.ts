@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events'
 import { app, dialog, autoUpdater as squirrel } from 'electron'
 import type { AppUpdater } from 'electron-updater'
-import { IS_MAC } from '../shared/platform'
+import { IS_MAC, IS_WINDOWS } from '../shared/platform'
 import { track } from './analytics'
 import { officialBuild } from './official-build'
 import { updatePrompts } from './update-prompts'
@@ -17,7 +17,8 @@ let updater: Promise<AppUpdater> | null = null
 /**
  * Whether this copy can replace itself with a new version: the Mac app (Squirrel.Mac installs
  * it) and the Linux AppImage (electron-updater swaps the file; the AppImage runtime sets
- * APPIMAGE). A .deb is updated by installing the new one, so it never looks for one.
+ * APPIMAGE). A .deb is updated by installing the new one, so it never looks for one; nor,
+ * for now, does Gui for Windows.
  */
 const updatesItself = IS_MAC || Boolean(process.env.APPIMAGE)
 
@@ -120,6 +121,13 @@ export async function checkForUpdatesByHand() {
     await dialog.showMessageBox({
       message: 'Updates are off in builds from source',
       detail: 'Pull the latest main and rebuild instead.',
+    })
+    return
+  }
+  if (!updatesItself && IS_WINDOWS) {
+    await dialog.showMessageBox({
+      message: 'Gui for Windows doesn’t update itself yet',
+      detail: 'Install the newest version over this one to update it.',
     })
     return
   }

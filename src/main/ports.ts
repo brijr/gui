@@ -1,7 +1,8 @@
 import { readdir, readFile, readlink } from 'node:fs/promises'
 import { connect } from 'node:net'
-import { IS_MAC } from '../shared/platform'
+import { IS_MAC, IS_WINDOWS } from '../shared/platform'
 import { execFile } from './process'
+import { windowsGroups, windowsListeners, windowsListenersOf } from './windows-processes'
 
 export interface Listener {
   pid: number
@@ -22,6 +23,10 @@ function run(command: string, args: string[]) {
 
 /** TCP listeners on a port, or null when lsof isn't available. */
 export async function listenersOn(port: number): Promise<Listener[] | null> {
+  if (IS_WINDOWS) {
+    const all = await windowsListeners()
+    return all && all.filter((listener) => listener.port === port)
+  }
   if (!IS_MAC) return procListeners('all', { unowned: true, port })
   const out = await run('/usr/sbin/lsof', ['-nP', `-iTCP:${port}`, '-sTCP:LISTEN', '-Fpn'])
   if (out === null) return null
@@ -55,6 +60,7 @@ function parseAddress(name: string) {
  * whatever is in its process group. Null when lsof isn't available.
  */
 export async function listenersOf(root: number): Promise<PortListener[] | null> {
+  if (IS_WINDOWS) return windowsListenersOf(root)
   const table = await run('/bin/ps', ['-A', '-o', 'pid=,ppid=,pgid='])
   const pids = table === null ? [root] : descendants(table, root)
   if (!IS_MAC) return procListeners(pids, { unowned: false })
@@ -211,6 +217,7 @@ export async function processGroups(pids: number[]): Promise<Map<number, number>
   if (pids.length === 0) return groups
   const known = pids.filter((pid) => pid > 0)
   if (known.length === 0) return groups
+  if (IS_WINDOWS) return windowsGroups(known)
   const out = await run('/bin/ps', ['-o', 'pid=,pgid=', '-p', known.join(',')])
   for (const line of out?.split('\n') ?? []) {
     const [pid, pgid] = line.trim().split(/\s+/).map(Number)

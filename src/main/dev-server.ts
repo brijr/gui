@@ -12,7 +12,7 @@ import {
   RECENT_OUTPUT_MS,
   SLOW_START_MS,
 } from './app-address'
-import { DEFAULT_SHELL } from './os'
+import { commandShell } from './os'
 import { Output } from './output'
 import { listenersOf, listenersOn, loopbackFor, portOpen, processGroups } from './ports'
 import { spawnPty } from './process'
@@ -323,7 +323,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.task = task
     this.partial = ''
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
-    const proc = spawnPty(env.SHELL || DEFAULT_SHELL, ['-lc', command], {
+    const shell = commandShell(env, command)
+    const proc = spawnPty(shell.file, shell.args, {
       name: 'xterm-256color',
       cols: this.size.cols,
       rows: this.size.rows,

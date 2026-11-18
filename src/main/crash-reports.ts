@@ -49,12 +49,35 @@ export function watchAppEnding() {
 
 /** Paths name the user (/Users/name/…); the folder is replaced by ~. */
 function scrub(text: string, max: number) {
-  const home = homedir()
-  return text
-    .split(home)
-    .join('~')
+  return scrubPaths(text, homedir()).slice(0, max)
+}
+
+/** Ends a user name in a Windows path: a separator, or a character no file name has. */
+const WINDOWS_NAME = '[^\\\\/\\r\\n"\'<>|:*?]+'
+
+/**
+ * `text` with the user's home folder replaced by ~, and the name in any other user's folder
+ * (/Users/name, C:\Users\name) too. A Windows home appears as `C:\Users\name`, escaped
+ * (`C:\\Users\\name`), with slashes (`C:/Users/name`, as in file URLs) and in any case;
+ * Windows user names may have spaces.
+ */
+export function scrubPaths(text: string, home: string) {
+  let out = text.split(home).join('~')
+  if (/^[A-Za-z]:\\/.test(home)) {
+    const forward = home.replaceAll('\\', '/')
+    const variants = [home, home.replaceAll('\\', '\\\\'), forward, encodeURI(forward)]
+    for (const variant of variants) {
+      const escaped = variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      out = out.replace(new RegExp(escaped, 'gi'), '~')
+    }
+  }
+  return out
+    .replace(new RegExp(`(\\\\+)(Users|Documents and Settings)\\1${WINDOWS_NAME}`, 'gi'), '$1$2$1~')
+    .replace(
+      new RegExp(`([A-Za-z]:/+)(Users|Documents and Settings)/${WINDOWS_NAME}`, 'gi'),
+      '$1$2/~',
+    )
     .replace(/\/Users\/[^/\s]+/g, '/Users/~')
-    .slice(0, max)
 }
 
 export function errorReport(kind: CrashKind, error: unknown): CrashReport {

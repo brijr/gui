@@ -93,8 +93,7 @@ export function childEnv(
   for (const [key, value] of Object.entries(base)) {
     if (value === undefined) continue
     const name = envName(key, windows)
-    if (AGENT_MARKERS.has(name) || name.startsWith('ELECTRON_') || name === 'NODE_OPTIONS')
-      continue
+    if (AGENT_MARKERS.has(name) || name.startsWith('ELECTRON_') || name === 'NODE_OPTIONS') continue
     env[key] = value
   }
   scrubAppImage(env)
@@ -174,7 +173,7 @@ export interface SpawnPtyOptions extends IPtyForkOptions {
 }
 
 /** Starts `file` on a fresh PTY (terminals, dev servers) with the same env scrub as spawn. */
-export function spawnPty(file: string, args: string[], options: SpawnPtyOptions): IPty {
+export function spawnPty(file: string, args: string[] | string, options: SpawnPtyOptions): IPty {
   const { extra = {}, browser, env, ...rest } = options
   return nodeSpawnPty(file, args, {
     ...rest,

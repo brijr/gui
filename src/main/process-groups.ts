@@ -1,6 +1,7 @@
 import { basename } from 'node:path'
 import type { IPty } from 'node-pty'
-import { execFile, execFileSync } from './process'
+import { IS_WINDOWS } from '../shared/platform'
+import { execFile, execFileSync, killProcessTree, killProcessTreeSync } from './process'
 
 interface ProcessRow {
   pid: number
@@ -104,6 +105,7 @@ export async function endProcessGroups(
   if (procs.length === 0) return
   const job: Ending = { procs, signal, graceMs, groups: null, deadline: 0 }
   ending.add(job)
+  if (IS_WINDOWS) return endWindowsTrees(job)
   try {
     const rows = await readProcessTable()
     // Quitting finished it while `ps` ran.
@@ -130,12 +132,43 @@ export async function endProcessGroups(
 }
 
 /**
+ * Windows has neither process groups nor signals: each PTY's process and everything
+ * descended from it is ended at once (`taskkill /T /F`), whatever `signal` asks for.
+ * Resolves once they're gone.
+ */
+async function endWindowsTrees(job: Ending): Promise<void> {
+  try {
+    await Promise.all(job.procs.map((proc) => killProcessTree(proc.pid)))
+    let alive = job.procs.map((proc) => proc.pid).filter(processAlive)
+    for (let tries = 0; tries < 50 && alive.length > 0; tries++) {
+      await sleep(20)
+      alive = alive.filter(processAlive)
+    }
+  } finally {
+    ending.delete(job)
+  }
+}
+
+function processAlive(pid: number) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
  * Gui is quitting: finishes every end still under way, here and now, the way it would have
  * gone (the signal, the rest of the grace period, then SIGKILL), since nothing runs after.
  */
 export function finishEndingSync() {
   const jobs = [...ending]
   ending.clear()
+  if (IS_WINDOWS) {
+    for (const job of jobs) for (const proc of job.procs) killProcessTreeSync(proc.pid)
+    return
+  }
   const groups: number[] = []
   for (const job of jobs) {
     if (job.groups === null) {
