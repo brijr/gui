@@ -61,7 +61,8 @@ beforeAll(() => {
   symlinkSync('src/app.tsx', join(proj, 'link-file.ts'))
   symlinkSync('../outside/nowhere', join(proj, 'dangling'))
   linkSync(join(base, 'outside/secret.txt'), join(proj, 'hard.ts'))
-  execFileSync('mkfifo', [join(proj, 'pipe')])
+  // Windows keeps no named pipes among files.
+  if (process.platform !== 'win32') execFileSync('mkfifo', [join(proj, 'pipe')])
   symlinkSync('proj', join(base, 'via'))
   write(join(base, 'home/.zshrc'))
   write(join(base, 'home/.ssh/config'))

@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { homedir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { basename, join, resolve, sep } from 'node:path'
 import type { OutsideTarget } from '../src/main/outside-mcp'
 import {
   declined,
@@ -102,8 +102,9 @@ function world({
     },
     isDirectory: async (path) => folders.includes(path),
     canvasRoot: async (id) =>
-      id === FOLDER_ID ? IN_REPO : /^[a-z0-9]{12}$/.test(id) ? `${CANVASES}/${id}` : null,
-    canvasAt: async (path) => (path.startsWith(`${CANVASES}/`) || path === IN_REPO ? path : null),
+      id === FOLDER_ID ? IN_REPO : /^[a-z0-9]{12}$/.test(id) ? join(CANVASES, id) : null,
+    canvasAt: async (path) =>
+      path.startsWith(`${CANVASES}${sep}`) || path === IN_REPO ? path : null,
     projectRoot: async (folder) => folder,
     known: async (root) => known.includes(root),
     opening: () => false,

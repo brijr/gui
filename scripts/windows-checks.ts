@@ -4,7 +4,7 @@
 //
 //   bun build scripts/windows-checks.ts --target=node --format=esm --external electron \
 //     --external node-pty --outfile out/windows-checks/main.mjs
-//   node_modules\electron\dist\electron.exe out/windows-checks/main.mjs [installed Gui.exe]
+//   .\node_modules\electron\dist\electron.exe out/windows-checks/main.mjs [installed Gui.exe]
 //
 // With an installed Gui.exe, the ACP adapter and node-pty are started from that install,
 // exactly as Gui starts them; without, from this checkout. Gui's data folder is a new
