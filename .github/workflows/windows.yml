@@ -67,6 +67,31 @@ jobs:
         timeout-minutes: 20
         run: bun x --bun electron-builder --win --x64 --publish never
 
+      # app.asar holds only out/, node_modules/ and package.json: a platform `files` list in
+      # electron-builder.yml once took the whole repo too (src/, e2e/, tests/, www/…). And
+      # node-pty's Windows build is where node-pty loads it, without debug symbols or the
+      # darwin builds.
+      - name: Check package contents
+        shell: bash
+        run: |
+          resources=release/win-unpacked/resources
+          # asar lists \out\… on Windows.
+          entries=$(node node_modules/@electron/asar/bin/asar.js list "$resources/app.asar" | tr '\\' /)
+          [ -n "$entries" ] || { echo "Couldn't list app.asar." >&2; exit 1; }
+          stray=$(printf '%s\n' "$entries" | grep -Ev '^/(out|node_modules)(/|$)|^/package\.json$' || true)
+          if [ -n "$stray" ]; then
+            printf '%s\n' "$stray" | head -20 >&2
+            echo "app.asar has $(printf '%s\n' "$stray" | grep -c '') entries from outside out/, node_modules/ and package.json." >&2
+            exit 1
+          fi
+          pty=$resources/app.asar.unpacked/node_modules/node-pty/prebuilds
+          for f in pty.node conpty.node conpty_console_list.node conpty/conpty.dll conpty/OpenConsole.exe winpty.dll winpty-agent.exe; do
+            [ -f "$pty/win32-x64/$f" ] || { echo "node-pty's Windows build is missing $f." >&2; exit 1; }
+          done
+          extra=$(ls "$pty" | grep -vx win32-x64 || true; find "$pty" -name '*.pdb')
+          [ -z "$extra" ] || { echo "node-pty's prebuilds has more than its Windows build: $extra" >&2; exit 1; }
+          echo "app.asar: $(printf '%s\n' "$entries" | grep -c '') entries, all in out/, node_modules/ or package.json. node-pty's win32-x64 build is there."
+
       - name: Install
         id: install
         run: |
