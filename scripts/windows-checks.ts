@@ -147,7 +147,8 @@ await check('a .cmd shim is found on PATH and gets awkward arguments intact', as
   const env = await getShellEnv()
   const path = `${awkwardDir};${env.PATH}`
   const shim = await findExecutable('gui-shim', path)
-  assert(shim && shim.toLowerCase().endsWith('gui-shim.cmd'), `found ${shim}`)
+  assert(shim, 'not found')
+  assert(shim.toLowerCase().endsWith('gui-shim.cmd'), `found ${shim}`)
   const out = await run(shim, AWKWARD, { ...env, PATH: path })
   const got = JSON.parse(out.trim()) as string[]
   assert(JSON.stringify(got) === JSON.stringify(AWKWARD), `got ${JSON.stringify(got)}`)
@@ -166,7 +167,8 @@ await check('a .cmd shim is found on PATH and gets awkward arguments intact', as
 await check('an .exe is found on PATH and gets awkward arguments intact', async () => {
   const env = await getShellEnv()
   const node = await findExecutable('node', env.PATH)
-  assert(node && node.toLowerCase().endsWith('node.exe'), `found ${node}`)
+  assert(node, 'not found')
+  assert(node.toLowerCase().endsWith('node.exe'), `found ${node}`)
   const out = await run(node, [
     '-e',
     'console.log(JSON.stringify(process.argv.slice(1)))',
@@ -214,8 +216,10 @@ await check("Gui's Node.js is set up, and node and npm (a .cmd) run through it",
   const dir = nodeBinDir()
   const node = await findExecutable('node', dir)
   const npm = await findExecutable('npm', dir)
-  assert(node && node.endsWith('node.exe'), `node: ${node}`)
-  assert(npm && npm.endsWith('npm.cmd'), `npm: ${npm}`)
+  assert(node, 'not found')
+  assert(node.endsWith('node.exe'), `node: ${node}`)
+  assert(npm, 'not found')
+  assert(npm.endsWith('npm.cmd'), `npm: ${npm}`)
   const env = { ...(await getShellEnv()), PATH: `${dir};${process.env.SystemRoot}\\System32` }
   const nodeVersion = (await run(node, ['--version'], env)).trim()
   const npmVersion = (await run(npm, ['--version'], env)).trim()

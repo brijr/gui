@@ -8,7 +8,7 @@ import {
   statSync,
 } from 'node:fs'
 import { mkdir, readFile, realpath, rm, stat, symlink } from 'node:fs/promises'
-import { basename, dirname, join, resolve } from 'node:path'
+import { basename, delimiter, dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import {
   app,
@@ -50,7 +50,7 @@ import {
   type LegacyResult,
 } from '../shared/ipc-requests'
 import { OUTSIDE_CLIENTS } from '../shared/outside-setup'
-import { IS_MAC, REVEAL_IN_FILES } from '../shared/platform'
+import { IS_MAC, IS_WINDOWS, REVEAL_IN_FILES } from '../shared/platform'
 import { PreviewGuides } from '../shared/preview-guides'
 import { MAX_PREVIEW_TEXT, PreviewText } from '../shared/preview-text'
 import {
@@ -704,6 +704,13 @@ function runSkillCommand(action: 'setup' | 'remove') {
  * skill included, before it does either.
  */
 async function installCli() {
+  if (IS_WINDOWS) {
+    dialog.showErrorBox(
+      "Couldn't install the gui command",
+      "The gui command isn't available on Windows yet.",
+    )
+    return
+  }
   if (!IS_MAC && !app.isPackaged) {
     dialog.showErrorBox(
       "Couldn't install the gui command",
@@ -780,7 +787,7 @@ function installLinuxCli(script: string) {
 
 async function linuxPathHint() {
   const dir = dirname(CLI_LINK)
-  const path = (await getShellEnv()).PATH?.split(':') ?? []
+  const path = (await getShellEnv()).PATH?.split(delimiter) ?? []
   if (path.includes(dir)) return []
   return [
     `${dir} isn't on your PATH yet. Add it in your shell's profile, for example: export PATH="$HOME/.local/bin:$PATH"`,
@@ -801,6 +808,14 @@ function folderFromArgs(argv: readonly string[], cwd: string) {
 
 /** Removes the open-in-gui agent skill, if Gui installed it. */
 async function removeAgentSkill() {
+  // Nothing to remove: Windows can't install it yet (installCli).
+  if (IS_WINDOWS) {
+    await dialog.showMessageBox({
+      message: 'The open-in-gui agent skill',
+      detail: "The agent skill isn't available on Windows yet.",
+    })
+    return
+  }
   try {
     const detail = await runSkillCommand('remove')
     await dialog.showMessageBox({ message: 'The open-in-gui agent skill', detail })
