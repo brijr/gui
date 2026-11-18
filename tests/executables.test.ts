@@ -7,6 +7,9 @@ import { findAgentCommand } from '../src/main/executables'
 const root = mkdtempSync(join(tmpdir(), 'gui-executables-'))
 afterAll(() => rmSync(root, { recursive: true, force: true }))
 
+/** Windows finds a command by its extension (`agent` → `agent.exe`). */
+const EXE = process.platform === 'win32' ? '.exe' : ''
+
 /** A bin directory whose commands are symlinks to programs at the given paths. */
 function bin(name: string, links: Record<string, string>) {
   const dir = join(root, name, 'bin')
@@ -16,7 +19,7 @@ function bin(name: string, links: Record<string, string>) {
     mkdirSync(join(program, '..'), { recursive: true })
     writeFileSync(program, '#!/bin/sh\n')
     chmodSync(program, 0o755)
-    symlinkSync(program, join(dir, command))
+    symlinkSync(program, join(dir, `${command}${EXE}`))
   }
   return dir
 }
@@ -30,7 +33,7 @@ describe('findAgentCommand', () => {
     const dir = bin('both', { agent: CURSOR, 'cursor-agent': CURSOR })
     expect(await findAgentCommand('cursor-agent', cursor, dir)).toEqual({
       command: 'cursor-agent',
-      path: join(dir, 'cursor-agent'),
+      path: join(dir, `cursor-agent${EXE}`),
     })
   })
 
@@ -38,7 +41,7 @@ describe('findAgentCommand', () => {
     const dir = bin('agent-only', { agent: CURSOR })
     expect(await findAgentCommand('cursor-agent', cursor, dir)).toEqual({
       command: 'agent',
-      path: join(dir, 'agent'),
+      path: join(dir, `agent${EXE}`),
     })
   })
 

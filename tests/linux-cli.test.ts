@@ -14,7 +14,8 @@ beforeEach(() => rmSync(join(root, 'bin'), { recursive: true, force: true }))
 const install = (confirmReplace: () => Promise<boolean>) =>
   installLinuxLauncher({ target, executable: "/opt/Gui's/gui", script, confirmReplace })
 
-describe('installing the gui command on Linux', () => {
+// A Linux launcher with Unix permission bits; Windows has neither.
+describe.skipIf(process.platform === 'win32')('installing the gui command on Linux', () => {
   test('writes a launcher that names the executable and runs the script', async () => {
     let asked = false
     const done = await install(async () => {

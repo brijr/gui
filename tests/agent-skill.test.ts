@@ -39,7 +39,8 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(home, { recursive: true, force: true }))
 
-describe('gui skill', () => {
+// bin/gui is a POSIX shell script; the gui command isn't on Windows yet (index.ts installCli).
+describe.skipIf(process.platform === 'win32')('gui skill', () => {
   test('prints the skill with its name, trigger and marker', () => {
     const text = gui('skill')
     expect(text).toStartWith('---\nname: open-in-gui\n')

@@ -225,10 +225,16 @@ test('invalidation between the asynchronous identity check and dispatch prevents
   expect(used).toBe(false)
 })
 
-test('github.ts clones guard account/provider races and service fallback', async () => {
-  const result = await promisify(execFile)(process.execPath, [
-    join(import.meta.dirname, 'fast', 'github-credentials.ts'),
-  ])
-  expect(result.stdout).toContain('credential races and fallback passed')
-  expect(result.stderr).toBe('')
-}, 10_000)
+// Its clones run git with a POSIX askpass script; GitHub sign-in for git on Windows is a later
+// step that needs a person's review.
+test.skipIf(process.platform === 'win32')(
+  'github.ts clones guard account/provider races and service fallback',
+  async () => {
+    const result = await promisify(execFile)(process.execPath, [
+      join(import.meta.dirname, 'fast', 'github-credentials.ts'),
+    ])
+    expect(result.stdout).toContain('credential races and fallback passed')
+    expect(result.stderr).toBe('')
+  },
+  10_000,
+)

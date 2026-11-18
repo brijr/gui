@@ -49,15 +49,22 @@ jobs:
 
       # Each check below runs even when an earlier one failed, so one run says as much as it
       # can; the last step fails the job if any of them did.
+      # The runner's TEMP is its 8.3 short form (C:\Users\RUNNER~1\…), which realpathSync
+      # keeps and fs.promises.realpath expands, so tests that compare the two disagree. A
+      # person's TEMP is the long form; so is this one.
       - name: Check
         id: check
         continue-on-error: true
+        env:
+          TEMP: ${{ runner.temp }}
+          TMP: ${{ runner.temp }}
         run: bun run check
 
       - name: Build
         run: bun run build
 
       - name: Package
+        timeout-minutes: 20
         run: bun x --bun electron-builder --win --x64 --publish never
 
       - name: Install

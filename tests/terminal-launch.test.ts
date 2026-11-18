@@ -20,7 +20,9 @@ fake('working-terminal', `#!/bin/sh\nprintf '%s' "$*" > '${log}'\n`)
 const app = (command: string): TerminalApp => ({ command, args: (file) => ['-e', file] })
 const env = { PATH: bin }
 
-describe('opening a terminal for sign-in', () => {
+// The Linux terminal apps (x-terminal-emulator, gnome-terminal…); sign-in in a terminal
+// window on Windows is a later step.
+describe.skipIf(process.platform === 'win32')('opening a terminal for sign-in', () => {
   test('a terminal that fails to start or quits at once is skipped for the next one', async () => {
     const opened = await launchTerminal('/tmp/sign-in.sh', env, [
       app('missing-terminal'),

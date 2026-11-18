@@ -160,7 +160,8 @@ describe('asking what a port serves', () => {
     const port = await serve((_req, res) => res.end())
     const listeners = await listenersOf(process.pid)
     expect(listeners?.some((l) => l.port === port && l.pid === process.pid)).toBe(true)
-  })
+    // Windows reads the process table from PowerShell, which takes seconds the first time.
+  }, 20_000)
 })
 
 describe('listening addresses in /proc/net', () => {

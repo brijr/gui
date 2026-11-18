@@ -129,6 +129,8 @@ describe('symbols kept between launches', () => {
       expect((await kept(file, 'key')).images).toEqual(IMAGES)
     }
 
+    // Windows can't take away its owner's right to read a file with chmod.
+    if (process.platform === 'win32') return
     const locked = scratchFile()
     writeFileSync(locked, whole)
     chmodSync(locked, 0o000)

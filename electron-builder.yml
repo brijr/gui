@@ -158,8 +158,9 @@ linux:
 # installs into %LOCALAPPDATA%\Programs\Gui with no administrator prompt. It doesn't update
 # itself yet (src/main/updates.ts) and nothing publishes it.
 win:
-  # electron-builder makes the .ico from this 1024 px PNG.
-  icon: build/linux-icon.png
+  # build/linux-icon.png at 16 to 256 px. electron-builder can make it from the PNG, but takes
+  # most of an hour to on a CI runner.
+  icon: build/icon.ico
   artifactName: ${productName}-${version}-${arch}-setup.${ext}
   target:
     - target: nsis

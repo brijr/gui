@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import type { OutsideTarget } from '../src/main/outside-mcp'
 import {
   declined,
@@ -14,9 +14,11 @@ import {
 // window, without a chat, in the start-screen tab or a new tab there; a folder Gui has never
 // opened is the user's to agree to first, on that start screen.
 
-const CANVASES = '/data/canvases'
+/** A fixture path as this platform spells it (`D:\\data\\…` on Windows). */
+const p = (path: string) => resolve(path)
+const CANVASES = p('/data/canvases')
 /** A canvas kept in a folder of the user's, inside a project's repo */
-const IN_REPO = '/work/shop/design/landing'
+const IN_REPO = p('/work/shop/design/landing')
 const FOLDER_ID = '0123456789ab'
 
 class FakeTab {
@@ -34,7 +36,7 @@ class FakeTab {
     if (!this.root) return null
     return {
       kind: this.root.startsWith(CANVASES) || this.root === IN_REPO ? 'canvas' : 'project',
-      name: this.root.split('/').at(-1) ?? '',
+      name: basename(this.root),
       root: this.root,
       preview: () => '',
       live: () => true,
@@ -73,8 +75,8 @@ class FakeWindow {
 /** Folders that exist, and those Gui knows (recent or trusted). */
 function world({
   windows = [new FakeWindow('front')],
-  folders = ['/work/shop', '/work/new-app', `${CANVASES}/abcdefabcdef`, IN_REPO],
-  known = ['/work/shop'],
+  folders = [p('/work/shop'), p('/work/new-app'), join(CANVASES, 'abcdefabcdef'), IN_REPO],
+  known = [p('/work/shop')],
 }: {
   windows?: FakeWindow[]
   folders?: string[]
@@ -118,20 +120,20 @@ test('from the start screen, a canvas opens in that tab, which shows without tak
   const { windows, opened, open } = world()
   const target = await open({ canvas: 'abcdefabcdef' })
   expect(target.kind).toBe('canvas')
-  expect(target.root).toBe(`${CANVASES}/abcdefabcdef`)
-  expect(opened).toEqual([{ tab: 'front:1', kind: 'canvas', path: `${CANVASES}/abcdefabcdef` }])
+  expect(target.root).toBe(join(CANVASES, 'abcdefabcdef'))
+  expect(opened).toEqual([{ tab: 'front:1', kind: 'canvas', path: join(CANVASES, 'abcdefabcdef') }])
   expect(windows[0].tabs).toHaveLength(1)
   expect(windows[0].shownInactive).toBeGreaterThan(0)
 })
 
 test('with a project in the front tab, it opens in a new tab there, which becomes the front one', async () => {
   const front = new FakeWindow('front')
-  front.activeTab.root = '/work/other'
-  const { opened, open } = world({ windows: [front], folders: ['/work/shop', '/work/other'] })
-  await open({ folder: '/work/shop' })
-  expect(opened).toEqual([{ tab: 'front:2', kind: 'project', path: '/work/shop' }])
+  front.activeTab.root = p('/work/other')
+  const { opened, open } = world({ windows: [front], folders: [p('/work/shop'), p('/work/other')] })
+  await open({ folder: p('/work/shop') })
+  expect(opened).toEqual([{ tab: 'front:2', kind: 'project', path: p('/work/shop') }])
   expect(front.activeTab.name).toBe('front:2')
-  expect(front.tabs[0].root).toBe('/work/other')
+  expect(front.tabs[0].root).toBe(p('/work/other'))
 })
 
 test('with no window, a new one opens for it', async () => {
@@ -143,10 +145,10 @@ test('with no window, a new one opens for it', async () => {
 
 test('a canvas folder opens as a canvas; one already open shows its tab instead', async () => {
   const front = new FakeWindow('front')
-  front.activeTab.root = `${CANVASES}/abcdefabcdef`
+  front.activeTab.root = join(CANVASES, 'abcdefabcdef')
   front.newTab()
   const { opened, open } = world({ windows: [front] })
-  const target = await open({ folder: `${CANVASES}/abcdefabcdef` })
+  const target = await open({ folder: join(CANVASES, 'abcdefabcdef') })
   expect(target.kind).toBe('canvas')
   expect(opened).toEqual([])
   expect(front.activeTab.name).toBe('front:1')
@@ -165,22 +167,22 @@ test('a canvas in a folder of the user’s opens as a canvas, without asking, by
 
 test('a recent project opens without asking', async () => {
   const { windows, open } = world()
-  await open({ folder: '/work/shop' })
+  await open({ folder: p('/work/shop') })
   expect(windows[0].activeTab.asked).toEqual([])
 })
 
 test('a folder Gui has never opened asks the user first, naming it, then opens', async () => {
   const { windows, opened, open } = world()
   const tab = windows[0].activeTab
-  const target = await open({ folder: '/work/new-app' })
-  expect(tab.asked).toEqual([{ folder: '/work/new-app', ms: OPEN_ASK_MS }])
-  expect(target.root).toBe('/work/new-app')
-  expect(opened).toEqual([{ tab: 'front:1', kind: 'project', path: '/work/new-app' }])
+  const target = await open({ folder: p('/work/new-app') })
+  expect(tab.asked).toEqual([{ folder: p('/work/new-app'), ms: OPEN_ASK_MS }])
+  expect(target.root).toBe(p('/work/new-app'))
+  expect(opened).toEqual([{ tab: 'front:1', kind: 'project', path: p('/work/new-app') }])
 })
 
 test('declined, nothing opens, the tab made to ask goes, and the agent is told', async () => {
   const front = new FakeWindow('front')
-  front.activeTab.root = '/work/shop'
+  front.activeTab.root = p('/work/shop')
   const { opened, closed, open } = world({ windows: [front] })
   // The new tab is the one that asks; it says no.
   const newTab = front.newTab.bind(front)
@@ -189,7 +191,7 @@ test('declined, nothing opens, the tab made to ask goes, and the agent is told',
     tab.answer = false
     return tab
   }
-  await expect(open({ folder: '/work/new-app' })).rejects.toThrow(declined('/work/new-app'))
+  await expect(open({ folder: p('/work/new-app') })).rejects.toThrow(declined(p('/work/new-app')))
   expect(opened).toEqual([])
   expect(closed).toEqual(['front:2'])
   expect(front.tabs.map((tab) => tab.name)).toEqual(['front:1'])
@@ -197,14 +199,16 @@ test('declined, nothing opens, the tab made to ask goes, and the agent is told',
   // Declined on the start screen: the tab stays, as it was.
   const start = world()
   start.windows[0].activeTab.answer = false
-  await expect(start.open({ folder: '/work/new-app' })).rejects.toThrow('declined')
+  await expect(start.open({ folder: p('/work/new-app') })).rejects.toThrow('declined')
   expect(start.closed).toEqual([])
   expect(start.windows[0].tabs).toHaveLength(1)
 })
 
 test("a path that isn't an existing folder, or isn't a full path, is refused before anything", async () => {
-  const { windows, opened, open } = world({ folders: ['/work/shop', '/work/package.json'] })
-  await expect(open({ folder: '/work/missing' })).rejects.toThrow('/work/missing is not a folder.')
+  const { windows, opened, open } = world({ folders: [p('/work/shop'), p('/work/package.json')] })
+  await expect(open({ folder: p('/work/missing') })).rejects.toThrow(
+    p('/work/missing is not a folder.'),
+  )
   await expect(open({ folder: 'work/shop' })).rejects.toThrow("Give the folder's full path")
   await expect(open({ canvas: 'nope' })).rejects.toThrow('Gui has no canvas nope')
   await expect(open({ canvas: 'zzzzzzzzzzzz' })).rejects.toThrow('Gui has no canvas')
