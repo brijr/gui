@@ -646,22 +646,6 @@ export function Progress({ value, label, className }: ProgressProps) {
 }
 
 /**
- * Where content is on its way: a pulsing fill at the size of what it stands in for. Give it
- * the width and height (h-4 for a line of text, h-9 for a row).
- */
-export function Skeleton({ className }: { className?: string }) {
-  return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        'pointer-events-none block animate-pulse select-none rounded-md bg-fill motion-reduce:animate-none',
-        className,
-      )}
-    />
-  )
-}
-
-/**
  * A count or an order on the corner of something: the number of a picked element. 16px, accent,
  * like the outlines it sits on.
  */
