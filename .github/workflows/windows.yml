@@ -91,6 +91,7 @@ jobs:
       - name: Windows checks
         id: windows
         continue-on-error: true
+        timeout-minutes: 30
         run: |
           bun build scripts/windows-checks.ts --target=node --format=esm --external electron --external node-pty --outfile out/windows-checks/main.mjs
           # Electron's own path, as its package gives it, once its download is there (its install
@@ -99,6 +100,10 @@ jobs:
           $electron = node -p "require('electron')"
           & $electron out/windows-checks/main.mjs "${{ steps.install.outputs.exe }}" | Out-Host
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Windows checks log
+        if: always()
+        run: if (Test-Path out/windows-checks/log.txt) { Get-Content out/windows-checks/log.txt }
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
