@@ -1,7 +1,8 @@
 #!/bin/sh
 # Checks that a packaged Gui has every module it loads from node_modules: a dependency that
 # didn't reach the package, or a file that `files` in electron-builder.yml left out, stops here
-# and not in an agent or the updater on someone's computer. scripts/release.sh runs it on the
+# and not in an agent or the updater on someone's computer. It also checks that app.asar holds
+# nothing from the repo beyond out/, node_modules/ and package.json. scripts/release.sh runs it on the
 # built app before it uploads anything, and .github/workflows/release-linux.yml on each Linux build.
 #
 #   sh scripts/check-packaged-app.sh release/mac-arm64/Gui.app
@@ -18,6 +19,17 @@ resources="$app/Contents/Resources"
 [ -d "$resources" ] || resources="$app/resources"
 packaged="$resources/app.asar.unpacked/node_modules"
 [ -d "$packaged" ] || { echo "$packaged isn't there." >&2; exit 1; }
+
+# A `files` list in electron-builder.yml can take the whole repo into app.asar by mistake (src/,
+# e2e/, tests/, www/…), as a platform one of exclusions alone once did.
+asar_cli="$(cd "$(dirname "$0")/.." && pwd)/node_modules/@electron/asar/bin/asar.js"
+entries=$(node "$asar_cli" list "$resources/app.asar") || { echo "Couldn't list $resources/app.asar." >&2; exit 1; }
+stray=$(printf '%s\n' "$entries" | grep -Ev '^/(out|node_modules)(/|$)|^/package\.json$' || true)
+if [ -n "$stray" ]; then
+  echo "app.asar has $(printf '%s\n' "$stray" | grep -c '') entries from outside out/, node_modules/ and package.json:" >&2
+  printf '%s\n' "$stray" | head -10 | sed 's/^/  /' >&2
+  exit 1
+fi
 work=$(cd "$(mktemp -d)" && pwd -P)
 trap 'rm -rf "$work"' EXIT
 cp -R "$packaged" "$work/node_modules"
