@@ -21,9 +21,15 @@ export interface EditScope {
   protectedDirs: string[]
 }
 
-/** A relative path that climbs out of the folder it's relative to (or isn't relative at all). */
+/**
+ * A relative path that climbs out of the folder it's relative to (or isn't relative at all).
+ * Windows takes `/` for a separator too; on a Mac and Linux `..\x` is a name like any other.
+ */
 export const isOutside = (rel: string) =>
-  rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
+  rel === '..' ||
+  rel.startsWith(`..${sep}`) ||
+  (sep === '\\' && rel.startsWith('../')) ||
+  isAbsolute(rel)
 
 /** `path` relative to `dir`, or null when it isn't inside `dir` (or `dir` itself). */
 function within(dir: string, path: string) {
@@ -110,5 +116,7 @@ export async function projectEditPath(
     if (within(join(scope.home, 'Library'), real) !== null) return null
     if (within(scope.home, real)?.startsWith('.')) return null
   }
-  return rel
+  // Separated by `/` on Windows too: auto-approve.ts's SENSITIVE_PATH reads it that way, so
+  // `scripts\deploy.sh` and `src\.env` still ask.
+  return rel.split(sep).join('/')
 }

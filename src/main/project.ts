@@ -154,13 +154,14 @@ async function readProjectFile(path: string) {
 
 /**
  * `path`'s real location relative to `root`'s, symlinks resolved on both: '' for the root
- * itself, null when it's missing or outside the root.
+ * itself, null when it's missing or outside the root. Separated by `/` on Windows too, as
+ * workspace patterns and app folders are.
  */
 export async function realRelative(root: string, path: string): Promise<string | null> {
   try {
     const rel = relative(await realpath(root), await realpath(path))
     const outside = rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)
-    return outside ? null : rel
+    return outside ? null : rel.split(sep).join('/')
   } catch {
     return null
   }
