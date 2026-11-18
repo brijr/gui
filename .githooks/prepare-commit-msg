@@ -1,0 +1,24 @@
+#!/bin/sh
+# hoplite-coauthor-hook
+hook_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+state_dir="$hook_dir/.hoplite-coauthor"
+original_hook="$hook_dir/.prepare-commit-msg.hoplite-original"
+if [ -x "$original_hook" ]; then
+  if grep -Fqx '. "$(dirname "$0")/h"' "$original_hook" && [ -f "$hook_dir/h" ]; then
+    ( . "$original_hook" ) || exit $?
+  else
+    "$original_hook" "$@" || exit $?
+  fi
+fi
+if [ "$(git config --bool --get hoplite.commitCoAuthor 2>/dev/null || true)" = false ]; then
+  exit 0
+fi
+message_file="$1"
+trailer=$(cat "$state_dir/trailer")
+email=$(cat "$state_dir/email")
+if ! grep -Fqi -- "<$email>" "$message_file"; then
+  if [ -n "$(tail -c 1 "$message_file")" ]; then
+    printf '\n' >> "$message_file"
+  fi
+  git -c trailer.separators=: interpret-trailers --in-place --no-divider --where end --if-exists addIfDifferent --if-missing add --trailer "$trailer" "$message_file"
+fi
