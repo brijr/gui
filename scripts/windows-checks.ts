@@ -281,31 +281,39 @@ async function main() {
       // of its own makes the tree deeper than the shell and the server.
       const command = `node -e "require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); require('http').createServer((q, s) => s.end('<!doctype html><title>ok</title>')).listen(0, '127.0.0.1')"`
       const started = performance.now()
-      await server.start(command)
-      const url = await until('the server to be found', 60_000, () =>
-        server.state.status === 'running'
-          ? server.state.url
-          : server.state.status === 'exited'
-            ? Promise.reject(new Error(`exited: ${server.logs()}`))
-            : null,
-      )
-      const foundMs = Math.round(performance.now() - started)
-      const response = await fetch(url as string).then((r) => r.text())
-      assert(response.includes('<title>ok</title>'), `served ${response}`)
-      const shell = (server as unknown as { proc: { pid: number } | null }).proc?.pid
-      assert(shell, 'no shell pid')
-      const parents = await readParents()
-      assert(parents, 'no process table')
-      const tree = descendantsIn(parents, shell)
-      assert(tree.size >= 3, `tree ${[...tree].join(', ')}`)
-      const stopStarted = performance.now()
-      await within(15_000, 'stopping the server', server.stopAndWait())
-      const stopMs = Math.round(performance.now() - stopStarted)
-      const left = [...tree].filter(alive)
-      assert(left.length === 0, `still running: ${left.join(', ')}`)
-      assert(server.state.status === 'idle', `status ${server.state.status}`)
-      await server.dispose()
-      return `${url} found in ${foundMs} ms; ${tree.size} processes stopped in ${stopMs} ms`
+      try {
+        await server.start(command)
+        const url = await until('the server to be found', 60_000, () =>
+          server.state.status === 'running'
+            ? server.state.url
+            : server.state.status === 'exited'
+              ? Promise.reject(new Error(`exited: ${server.logs()}`))
+              : null,
+        )
+        const foundMs = Math.round(performance.now() - started)
+        // The server listens on 127.0.0.1 only; Node's fetch may try localhost's ::1 first. (A
+        // browser, Gui's preview included, tries both.)
+        const ipv4 = new URL(url as string)
+        ipv4.hostname = '127.0.0.1'
+        const response = await fetch(ipv4).then((r) => r.text())
+        assert(response.includes('<title>ok</title>'), `served ${response}`)
+        const shell = (server as unknown as { proc: { pid: number } | null }).proc?.pid
+        assert(shell, 'no shell pid')
+        const parents = await readParents()
+        assert(parents, 'no process table')
+        const tree = descendantsIn(parents, shell)
+        assert(tree.size >= 3, `tree ${[...tree].join(', ')}`)
+        const stopStarted = performance.now()
+        await within(15_000, 'stopping the server', server.stopAndWait())
+        const stopMs = Math.round(performance.now() - stopStarted)
+        const left = [...tree].filter(alive)
+        assert(left.length === 0, `still running: ${left.join(', ')}`)
+        assert(server.state.status === 'idle', `status ${server.state.status}`)
+        return `${url} found in ${foundMs} ms; ${tree.size} processes stopped in ${stopMs} ms`
+      } finally {
+        // Even when a step above failed: nothing is left running.
+        await server.dispose()
+      }
     },
   )
 
