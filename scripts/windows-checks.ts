@@ -397,10 +397,19 @@ async function main() {
             .split('\n')
             .filter((l) => l.trim() && !l.includes('"id":1'))
             .map((l) => l.slice(0, 300))
-          return `protocol ${response.result.protocolVersion} in ${ms} ms; then: ${notes.join(' | ') || 'nothing'}; stderr: ${stderr.slice(-300).trim() || 'none'}`
+          // Stopped as Gui stops an agent (agent.ts dispose), and everything it started with it.
+          const pid = child.pid
+          assert(pid, 'no adapter pid')
+          const parents = await readParents()
+          const tree = parents ? descendantsIn(parents, pid) : new Set([pid])
+          process_.killProcessGroup(pid, 'SIGTERM', child.exitCode === null)
+          await until('the adapter and what it started to end', 15_000, () =>
+            [...tree].some(alive) ? null : true,
+          )
+          return `protocol ${response.result.protocolVersion} in ${ms} ms; then: ${notes.join(' | ') || 'nothing'}; stderr: ${stderr.slice(-300).trim() || 'none'}; stopped with ${tree.size} processes`
         } finally {
           const pid = child.pid
-          if (pid) process_.killProcessGroup(pid, 'SIGTERM', child.exitCode === null)
+          if (pid && alive(pid)) await process_.killProcessTree(pid)
         }
       },
     )
@@ -437,7 +446,12 @@ async function main() {
       { flag: 'a' },
     )
   }
-  rmSync(data, { recursive: true, force: true, maxRetries: 5 })
+  try {
+    rmSync(data, { recursive: true, force: true, maxRetries: 5 })
+  } catch (error) {
+    // A temporary folder; saying so is enough.
+    log(`note: couldn't remove ${data}: ${error instanceof Error ? error.message : error}`)
+  }
   app.exit(failed.length > 0 ? 1 : 0)
 }
 

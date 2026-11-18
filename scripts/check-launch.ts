@@ -137,7 +137,8 @@ function mainProcess() {
   return null
 }
 
-const deadline = Date.now() + START_WAIT
+const started = Date.now()
+const deadline = started + START_WAIT
 async function until<T>(what: string, attempt: () => Promise<T | null> | T | null): Promise<T> {
   while (Date.now() < deadline) {
     if (ended !== null) fail(`Gui ended (${ended}) before ${what}.`)
@@ -212,7 +213,9 @@ const mounted =
   "document.readyState === 'complete' && (document.getElementById('root')?.childElementCount ?? 0) > 0"
 await until('showing its window', async () => ((await evaluate(mounted)) === true ? true : null))
 socket.close()
-console.log(`check-launch: Gui's window loaded (${page.url}).`)
+console.log(
+  `check-launch: Gui's window loaded in ${((Date.now() - started) / 1000).toFixed(1)} s (${page.url}).`,
+)
 
 const main = mainProcess()
 if (main === null) fail("Couldn't find Gui's main process to quit it.")
