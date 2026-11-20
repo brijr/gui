@@ -134,6 +134,20 @@ const inCorner = (bar: Rect, layout: Views) =>
   onBottom(bar, layout) && near(bar.x, layout.preview.x + INSET)
 const besideChat = (bar: Rect, layout: Views) =>
   onBottom(bar, layout) && near(bar.x, layout.chat.x + layout.chat.width + INSET)
+const inTopRight = (bar: Rect, { preview }: Views) =>
+  near(bar.y, preview.y + INSET) && near(bar.x + bar.width, preview.x + preview.width - INSET)
+const leftOfChat = (bar: Rect, layout: Views) =>
+  onBottom(bar, layout) && near(bar.x + bar.width, layout.chat.x - INSET)
+
+/** Presses the bar's name, moves it by `dx`, `dy` as the pointer would, and lets go. */
+async function dragBar(overlay: Page, dx: number, dy: number) {
+  const box = await label(overlay).boundingBox()
+  if (!box) throw new Error('no bar to drag')
+  await overlay.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await overlay.mouse.down()
+  await overlay.evaluate((delta) => window.gui.dragVariations(delta.dx, delta.dy), { dx, dy })
+  await overlay.mouse.up()
+}
 
 /** ← or → with the preview's page holding the keyboard. */
 function pressInPreview(session: GuiSession, key: 'Left' | 'Right') {
@@ -239,6 +253,23 @@ test('the bar sits right of a floating chat in the bottom-left corner, and moves
   // Docked as a sidebar, the chat is beside the preview: the bar goes back to the corner.
   await session.chat.evaluate(() => window.gui.toggleDock())
   await barWhere(session, overlay, 'the bar in the corner beside the sidebar', inCorner)
+})
+
+test('dragging the bar lets it go into the nearest corner, beside a floating chat there', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite' })
+  const { page, overlay } = await showVariations(session)
+  const { layout } = await barWhere(session, overlay, 'the bar in its corner', inCorner)
+
+  await dragBar(overlay, layout.preview.width * 0.7, -layout.preview.height * 0.7)
+  await barWhere(session, overlay, "the bar in the preview's top-right corner", inTopRight)
+  await overlay.getByRole('button', { name: 'Next version' }).click()
+  await expect(label(overlay)).toHaveText('2 of 3 · Quiet')
+  await expect(hero(page)).toHaveAttribute('data-gui-variant', 'quiet')
+
+  await dragBar(overlay, 0, layout.preview.height * 0.7)
+  await barWhere(session, overlay, 'the bar left of the chat in the bottom-right', leftOfChat)
 })
 
 // The bar names the version on the page: it waits for the page to show it, and when the page

@@ -137,6 +137,9 @@ export const Send = {
   endGuide: 'pick:end-guide',
   variations: 'pick:variations',
   variationsSize: 'pick:variations-size',
+  grabVariations: 'pick:variations-grab',
+  dragVariations: 'pick:variations-drag',
+  endDragVariations: 'pick:variations-drag-end',
   toggleRulers: 'rulers:toggle',
   findInPage: 'preview:find',
   stopFindInPage: 'preview:find-stop',
@@ -560,6 +563,14 @@ export interface GuiApi {
   variations(action: VariationAction): void
   /** The variations bar's size, so main fits the overlay to it */
   variationsSize(width: number, height: number): void
+  /** The pointer pressed the variations bar, to drag it; a bar still landing stops there */
+  grabVariations(): void
+  dragVariations(dx: number, dy: number): void
+  /**
+   * Lets go of the variations bar: it springs into the page's corner nearest to where a throw
+   * at `velocity` (px/s) would come to rest
+   */
+  endDragVariations(velocity?: { x: number; y: number }): void
   /** What the overlay draws (see `PickOverlayState`) */
   onPickState(cb: (state: PickOverlayState) => void): Unsubscribe
   /** Shows or hides the rulers and guides over the preview (⇧R) */

@@ -125,7 +125,7 @@ export class Variations {
     this.shown = shown
     this.render()
     await this.reveal(set, variant.id)
-    return `The preview shows ${this.label(shown, index)}, scrolled into view, with Gui's bar at the preview's bottom-left. The user flips through the versions there, then keeps one (Use this, which sends you a message) or discards them all (which undoes this message).`
+    return `The preview shows ${this.label(shown, index)}, scrolled into view, with Gui's bar in a corner of the preview. The user flips through the versions there, then keeps one (Use this, which sends you a message) or discards them all (which undoes this message).`
   }
 
   /** What the user did in the bar. */
@@ -247,7 +247,7 @@ export class Variations {
 
   /**
    * Scrolls the page to the set's element once it renders `variant` (a short wait), unless it's
-   * in full view already: centered, clear of the bar at the bottom; a version taller than the
+   * in full view already: centered, clear of the bar in its corner; a version taller than the
    * page shows its top, and stays put while it fills the page. Smooth unless the page prefers
    * reduced motion, and done once the scroll ends, so a screenshot after it sees the page at
    * rest. Scrolling never moves the focus.

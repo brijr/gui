@@ -13,12 +13,23 @@ import {
   viewRectFromViewport,
 } from '../shared/coords'
 import { Events } from '../shared/ipc'
+import { SPRINGS, type SpringConfig } from '../shared/motion'
 import { IS_MAC } from '../shared/platform'
-import type { GuideOverlay, PickOverlayState, Point, Rect, VariationsBar } from '../shared/types'
+import type {
+  GuideOverlay,
+  PanelCorner,
+  PickOverlayState,
+  Point,
+  Rect,
+  VariationsBar,
+} from '../shared/types'
 import { PANEL_MARGIN } from './chat-presentation'
 import { glideMs } from './input-pace'
 import type { HoverLabel, Inspector } from './inspector'
+import { Flight, prefersReducedMotion } from './panel-flight'
+import { getPrefs, setPrefs } from './prefs'
 import { guardAppContents, loadRenderer, PRELOAD } from './renderer'
+import { barCornerFor, barRest, clampBar } from './variations-bar'
 
 /** How often what's outlined is measured again while nothing moves (animations, late layout). */
 const IDLE_REFRESH_MS = 250
@@ -35,6 +46,8 @@ const STEP_GLIDE_MS = 400
 const BAR_INSET = PANEL_MARGIN
 /** The least room the bar keeps beside the chat (its name shortened) before it goes over it */
 const BAR_MIN_WIDTH = 240
+const BAR_THROW_SPEED = 500
+const BAR_MAX_THROW_SPEED = 8000
 
 /**
  * After a click picks, how long the overlay stays (unseen) for a second click, which makes a
@@ -108,15 +121,18 @@ export class Picker {
    */
   private held = false
   /**
-   * The variations bar, at the page's bottom-left. On its own, the overlay is only as big as
+   * The variations bar, in a corner of the page. On its own, the overlay is only as big as
    * the bar, so the page around it takes the pointer as usual.
    */
   private bar: Bar | null = null
+  private barCorner: PanelCorner = { ...getPrefs().variationsCorner }
+  private barHeld: { at: Point; room: number } | null = null
+  private barFlight: Flight | null = null
   /** The bar's size, as the overlay last measured it */
   private barSize = { width: 360, height: 36 }
   /** The page's bounds in the window, for the bar; null while it's out of sight */
   private area: Rect | null = null
-  /** The floating chat in the canvas's bottom-left corner, in the window: the bar sits right of it */
+  /** The floating chat, in the window: the bar sits beside it when they share a corner */
   private chat: Rect | null = null
   /**
    * The next `stop` keeps the overlay up, unseen, over this point (its coordinates) for a
@@ -341,13 +357,68 @@ export class Picker {
    */
   setBar(bar: Bar | null) {
     this.bar = bar
+    if (!bar) {
+      this.barHeld = null
+      this.stopBarFlight()
+    }
     if (this.shown) return this.schedule()
     this.drawBar()
   }
 
+  grabBar() {
+    const shown = this.barAt()
+    if (!shown) return
+    this.stopBarFlight()
+    this.barHeld = { at: shown.at, room: shown.room }
+  }
+
+  dragBar(dx: number, dy: number) {
+    const held = this.barHeld
+    if (!held) return
+    held.at = { x: held.at.x + dx, y: held.at.y + dy }
+    this.redraw()
+  }
+
+  endDragBar(release: Point) {
+    const { barHeld: held, area } = this
+    this.barHeld = null
+    if (!held || !area || !this.bar) return this.redraw()
+    const from = clampBar(area, this.barSize, held.at)
+    const speed = Math.hypot(release.x, release.y)
+    const cap = speed > BAR_MAX_THROW_SPEED ? BAR_MAX_THROW_SPEED / speed : 1
+    const velocity = { x: release.x * cap, y: release.y * cap }
+    this.barCorner = barCornerFor(area, this.barSize, from, velocity)
+    setPrefs({ variationsCorner: { ...this.barCorner } })
+    this.flyBar(from, velocity, speed > BAR_THROW_SPEED ? SPRINGS.thrown : SPRINGS.default)
+  }
+
+  private flyBar(from: Point, velocity: Point, config: SpringConfig) {
+    this.stopBarFlight()
+    if (prefersReducedMotion() || this.view.webContents.isDestroyed()) return this.redraw()
+    const flight: Flight = new Flight({
+      frames: this.view.webContents,
+      from,
+      velocity,
+      config,
+      target: () => (this.area ? this.restingBar(this.area).at : from),
+      frame: () => this.redraw(),
+      rest: () => {
+        if (this.barFlight === flight) this.barFlight = null
+        this.redraw()
+      },
+    })
+    this.barFlight = flight
+    this.redraw()
+  }
+
+  private stopBarFlight() {
+    this.barFlight?.stop()
+    this.barFlight = null
+  }
+
   /**
-   * Where the bar goes: the page's bottom-left, over the page at `area` (null: the page is out
-   * of sight, and so is the bar), right of `chat` when that's in the corner.
+   * Where the bar goes: its corner of the page at `area` (null: the page is out of sight, and
+   * so is the bar), beside `chat` when the floating chat is in the same spot.
    */
   placeBar(area: Rect | null, chat: Rect | null) {
     this.area = area
@@ -422,6 +493,8 @@ export class Picker {
     // A walkthrough click timed before the page went away finds nothing to show.
     this.guided = null
     this.bar = null
+    this.barHeld = null
+    this.stopBarFlight()
     this.stop()
     if (!this.view.webContents.isDestroyed()) this.view.webContents.close()
   }
@@ -539,27 +612,29 @@ export class Picker {
   }
 
   /**
-   * The bar as an overlay over the whole page draws it: floating in the page's bottom-left
-   * corner, or just right of the chat when the chat is there over it.
+   * The bar as an overlay over the whole page draws it: under the pointer while held, on its
+   * way to its corner after a throw, or resting in that corner.
    */
   private barAt(): VariationsBar | null {
-    const { bar, area, chat, barSize } = this
+    const { bar, area, barSize } = this
     if (!bar || !area) return null
-    const top = area.height - BAR_INSET - barSize.height
-    let left = BAR_INSET
-    const covered =
-      chat !== null &&
-      chat.x < area.x + left + barSize.width &&
-      chat.x + chat.width > area.x + left &&
-      chat.y < area.y + top + barSize.height &&
-      chat.y + chat.height > area.y + top
-    // Beside the chat while there's room for it; the name shortens first.
-    if (covered)
-      left = Math.max(
-        BAR_INSET,
-        Math.min(chat.x + chat.width + BAR_INSET - area.x, area.width - BAR_INSET - BAR_MIN_WIDTH),
-      )
-    return { ...bar, at: { x: left, y: top }, room: area.width - left - BAR_INSET }
+    if (this.barHeld)
+      return { ...bar, at: clampBar(area, barSize, this.barHeld.at), room: this.barHeld.room }
+    const rest = this.restingBar(area)
+    if (this.barFlight)
+      return { ...bar, at: clampBar(area, barSize, this.barFlight.point), room: rest.room }
+    return { ...bar, ...rest }
+  }
+
+  private restingBar(area: Rect) {
+    return barRest({
+      area,
+      size: this.barSize,
+      corner: this.barCorner,
+      chat: this.chat,
+      inset: BAR_INSET,
+      minWidth: BAR_MIN_WIDTH,
+    })
   }
 
   private async measureOutlined(): Promise<PickOverlayState['picked']> {
