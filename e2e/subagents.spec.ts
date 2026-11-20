@@ -215,6 +215,8 @@ test('subagents show as groups where they started, and one can be stopped alone'
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
   const calls = await useStandIn(session)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
   const chat = session.chat
 
   expect(await chat.evaluate(() => window.gui.send('Where do the button colors come from?'))).toBe(

@@ -19,7 +19,7 @@ const CANCEL_MS = 1000
  * with `steer`, it also takes messages into a running turn (`_session/steering`), records
  * them as `STEER <text>`, and goes on for PROMPT_MS more; it answers Stop only after
  * CANCEL_MS, as an agent winding down does; and a prompt with ASK-FIRST asks permission
- * (flagged, so Auto mode asks too) before it goes on, recording the answer as `ANSWER <id>`.
+ * before it goes on, recording the answer as `ANSWER <id>`.
  * A prompt with HOLD-FOR-CANCEL never finishes on its own, also after its permission answer.
  */
 const AGENT_SCRIPT = `
@@ -144,6 +144,8 @@ const received = (recorded: string[], markers: string[]) =>
 test('keep-awake follows a running agent until its turn is stopped', async ({ launch }) => {
   test.skip(process.platform !== 'darwin', 'Reads the system sleep assertion with pmset')
   const session = await launch({ fixture: 'vite', prefs: { keepAwakeMode: 'working' } })
+  await session.declineConsentDialogs()
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
   const recorded = await useQueueAgent(session)
   const held = () => holdsIdleSleep(session.app.process().pid)
   expect(held()).toBe(false)
@@ -506,6 +508,8 @@ test('Enter queues by default and ⌘↩ steers; Send now steers from the queue;
       ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('allow')?.enabled ?? null,
     )
   expect(await allowItem()).toBe(false)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
   expect(await send(session, 'ASK-FIRST then go on')).toBe(true)
   await waitFor(
     async () =>
