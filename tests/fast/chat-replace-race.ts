@@ -26,6 +26,7 @@ mock.module('electron', () => ({
   shell: { openExternal: async () => undefined, showItemInFolder: noop },
   net: { fetch: async () => new Response('{}') },
   powerMonitor: new Stub(),
+  powerSaveBlocker: {},
   autoUpdater: new Stub(),
   nativeImage: {
     createFromBuffer: () => ({}),

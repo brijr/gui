@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import type { TestInfo } from '@playwright/test'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type TurnItem } from '../src/shared/types'
-import { electronExecutable, sleep, waitFor } from './helpers/env'
+import { electronExecutable, holdsIdleSleep, sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -215,6 +215,8 @@ test('subagents show as groups where they started, and one can be stopped alone'
   const session = await launch({ fixture: 'vite' })
   await session.declineConsentDialogs()
   const calls = await useStandIn(session)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
   const chat = session.chat
 
   expect(await chat.evaluate(() => window.gui.send('Where do the button colors come from?'))).toBe(
@@ -300,4 +302,30 @@ test('subagents show as groups where they started, and one can be stopped alone'
   expect((await firstTurn(session)).styles).toMatchObject({ status: 'done', title: 'Styles' })
   await expect(routes).toContainText('Routes · Stopped')
   await expect(styles).toContainText('Styles · 2 steps')
+})
+
+test('keep-awake holds while one subagent works and another waits on a permission', async ({
+  launch,
+}) => {
+  test.skip(process.platform !== 'darwin', 'Reads the system sleep assertion with pmset')
+  const session = await launch({ fixture: 'vite', prefs: { keepAwakeMode: 'working' } })
+  await session.declineConsentDialogs()
+  await useStandIn(session)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
+  const held = () => holdsIdleSleep(session.app.process().pid)
+
+  expect(await session.chat.evaluate(() => window.gui.send('Look at the styles and routes.'))).toBe(
+    true,
+  )
+  await waitFor(async () => {
+    const { items, styles, routes } = await firstTurn(session)
+    const card = items.some((item) => item.kind === 'permission' && item.resolved === null)
+    return styles?.status === 'running' && routes?.status === 'waiting' && card
+  }, 'Styles to run while Routes asks')
+  await expect.poll(held).toBe(true)
+
+  await session.chat.evaluate(() => window.gui.cancel())
+  await session.waitForTurn(0)
+  await expect.poll(held).toBe(false)
 })

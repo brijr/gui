@@ -77,6 +77,7 @@ import {
   type SavedChat,
   type SavedQueued,
 } from './history'
+import { keepAwake } from './keep-awake'
 import type { McpSessionAccess } from './mcp-server'
 import {
   getPrefs,
@@ -291,6 +292,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Whether this transcript has had an agent session (to notice when context is lost). */
   private hadSession = false
   private active: TurnRecord | null = null
+  private waitingForSlot: TurnRecord | null = null
   /**
    * Turns, restores, redos, and resets are mutually exclusive. The holder is the
    * operation's own token, so a superseded operation can't release someone else's lock.
@@ -559,7 +561,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       await Promise.race([running.settled, sleep(RESET_SETTLE_MS)])
     }
     this.stopAgent()
-    this.active = null
+    this.setActive(null)
     // A new chat (maybe on another agent) may say it again, once its session shows it.
     this.toolReach.reset()
     this.refreshToolNotice()
@@ -1338,6 +1340,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const resolve = this.permissions.get(key)
     if (!resolve) return
     this.permissions.delete(key)
+    this.syncKeepAwake()
     resolve(optionId)
     const record = this.records.find((r) => r.turn.id === turnId)
     const item = record?.turn.items.find((i) => i.id === itemId)
@@ -1498,6 +1501,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.disposed) return this.history.close()
     this.epoch++
     this.disposed = true
+    this.syncKeepAwake()
     this.lastSent = null
     agentHealth.off('change', this.refreshModels)
     agentHealth.off('change', this.refreshAgent)
@@ -1595,7 +1599,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       steered: queued?.steered ?? [],
     }
     this.records.push(record)
-    this.active = record
+    this.setActive(record)
     this.lock = record
     this.lastSent = {
       turnId: record.turn.id,
@@ -1714,6 +1718,31 @@ export class ChatController extends EventEmitter<ChatEvents> {
     this.patchMeta({ queue: [], queuePaused: false, queuePauseReason: null })
   }
 
+  private setActive(record: TurnRecord | null) {
+    this.active = record
+    this.syncKeepAwake()
+  }
+
+  private syncKeepAwake() {
+    keepAwake.setWorking(this, !this.disposed && this.canProgress())
+  }
+
+  private canProgress() {
+    const record = this.active
+    if (!record || this.waitingForSlot === record) return false
+    if (this.permissions.size === 0) return true
+    const asking = new Set(
+      record.turn.items.flatMap((item) =>
+        item.kind === 'permission' && this.permissions.has(`${record.turn.id}:${item.id}`)
+          ? [item.subagent]
+          : [],
+      ),
+    )
+    return this.subagentsOf(record).some(
+      (item) => item.status === 'running' && !asking.has(item.id),
+    )
+  }
+
   private async runTurn(
     record: TurnRecord,
     selection: Picked[],
@@ -1765,13 +1794,22 @@ export class ChatController extends EventEmitter<ChatEvents> {
           tone: 'info',
           text: 'Waiting for the agent in another tab on this folder to finish.',
         })
+        this.waitingForSlot = record
+        this.syncKeepAwake()
       }
-      while (!free) {
-        if (stopped()) {
-          status = 'cancelled'
-          return
+      try {
+        while (!free) {
+          if (stopped()) {
+            status = 'cancelled'
+            return
+          }
+          await sleep(250)
         }
-        await sleep(250)
+      } finally {
+        if (this.waitingForSlot === record) {
+          this.waitingForSlot = null
+          this.syncKeepAwake()
+        }
       }
       record.before = await this.trySnapshot(record, `before message ${record.turn.index + 1}`)
       if (stopped()) {
@@ -1933,7 +1971,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         autoApprove: this.meta.autoApprove,
         ownPermissions: this.meta.ownPermissions,
       })
-      if (this.active === record) this.active = null
+      if (this.active === record) this.setActive(null)
       if (this.lock === record) this.lock = null
       const retryable = status === 'error' && this.lastSent?.turnId === record.turn.id
       if (!retryable && this.lastSent?.turnId === record.turn.id) this.lastSent = null
@@ -2509,6 +2547,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (update.title) item.title = update.title
     if (update.description !== undefined) item.description = update.description ?? null
     Object.assign(item, subagentPatch(update, Date.now()))
+    this.syncKeepAwake()
   }
 
   /** A task given to a subagent, or its answer, which take the place of the call that started it. */
@@ -2634,6 +2673,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolved: null,
       ...(subagent ? { subagent } : {}),
     })
+    this.syncKeepAwake()
     this.emit('attention')
   }
 

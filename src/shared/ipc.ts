@@ -17,6 +17,7 @@ import type {
   DrawerTab,
   GuideStrips,
   ImageAttachment,
+  KeepAwakeMode,
   MorphEvent,
   OutsideClient,
   PanelEdge,
@@ -211,6 +212,7 @@ export const Send = {
   setCrashReports: 'settings:crash-reports',
   setShareUsage: 'settings:share-usage',
   setWhileWorking: 'settings:while-working',
+  setKeepAwakeMode: 'settings:keep-awake-mode',
   reportError: 'app:report-error',
   openCustomAgentsFile: 'settings:open-agents-file',
   newBoard: 'board:new',
@@ -862,6 +864,7 @@ export interface GuiApi {
   setShareUsage(on: boolean): void
   /** What Enter does while the agent works: queue the message, or steer the reply under way */
   setWhileWorking(choice: WhileWorking): void
+  setKeepAwakeMode(mode: KeepAwakeMode): void
   /** Agents outside Gui may use its tools; resolves once it listens (or failed to: see Settings) */
   setOutsideAgents(on: boolean): Promise<void>
   /** A new token for other agents; the old one stops working */

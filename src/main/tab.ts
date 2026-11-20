@@ -59,6 +59,7 @@ import {
   isCustomViewport,
   isRegion,
   isTerminalId,
+  KEEP_AWAKE_MODES,
   type MorphKind,
   type NodeSetup,
   type PanelEdge,
@@ -124,7 +125,7 @@ import { nodeRuntime } from './node-runtime'
 import type { OutsideTarget } from './outside-mcp'
 import { prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
-import { getPrefs, recordRecentModel, saveAgentSetting, setPrefs } from './prefs'
+import { getPrefs, recordRecentModel, saveAgentSetting, setKeepAwakeMode, setPrefs } from './prefs'
 import type { AgentPointer } from './preview-interactions'
 import { PreviewMorph } from './preview-morph'
 import { PreviewTools, SETTLE_MS } from './preview-tools'
@@ -4545,6 +4546,16 @@ export class ProjectTab implements ChatPanelOwner {
     const choose = (choice: ChatMenuChoice) => this.sendChat(Events.chatMenuChoice, choice)
     const template: MenuItemConstructorOptions[] = [
       { label: 'Archived Chats', click: () => choose('archive') },
+      {
+        label: 'Keep Awake',
+        submenu: KEEP_AWAKE_MODES.map(({ value, menuLabel, title }) => ({
+          label: menuLabel,
+          type: 'radio',
+          checked: getPrefs().keepAwakeMode === value,
+          ...(title ? { toolTip: title } : {}),
+          click: () => setKeepAwakeMode(value),
+        })),
+      },
       { type: 'separator' },
       {
         label: this.panel.popoutWindow ? 'Back to Window' : 'Pop Out Chat',

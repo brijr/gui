@@ -24,6 +24,7 @@ export const ELECTRON_EXPORTS = {
   nativeTheme: { on: noop, shouldUseDarkColors: false },
   net: {},
   powerMonitor: { on: noop },
+  powerSaveBlocker: {},
   protocol: { registerSchemesAsPrivileged: noop, handle: noop },
   safeStorage: {},
   screen: {},

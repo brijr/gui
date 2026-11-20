@@ -242,6 +242,7 @@ const api: GuiApi = {
   setCrashReports: send(Send.setCrashReports),
   setShareUsage: send(Send.setShareUsage),
   setWhileWorking: send(Send.setWhileWorking),
+  setKeepAwakeMode: send(Send.setKeepAwakeMode),
   reportError: send(Send.reportError),
   saveCustomAgent: (originalName, entry) =>
     invokeOrThrow(Invoke.saveCustomAgent, originalName, entry),

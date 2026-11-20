@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { type AgentId, CUSTOM_AGENT_PREFIX, type QueuedMessage } from '../src/shared/types'
-import { electronExecutable, sleep, waitFor } from './helpers/env'
+import { electronExecutable, holdsIdleSleep, sleep, waitFor } from './helpers/env'
 import type { GuiSession } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -19,7 +19,8 @@ const CANCEL_MS = 1000
  * with `steer`, it also takes messages into a running turn (`_session/steering`), records
  * them as `STEER <text>`, and goes on for PROMPT_MS more; it answers Stop only after
  * CANCEL_MS, as an agent winding down does; and a prompt with ASK-FIRST asks permission
- * (flagged, so Auto mode asks too) before it goes on, recording the answer as `ANSWER <id>`.
+ * before it goes on, recording the answer as `ANSWER <id>`.
+ * A prompt with HOLD-FOR-CANCEL never finishes on its own, also after its permission answer.
  */
 const AGENT_SCRIPT = `
 const fs = require('node:fs')
@@ -43,7 +44,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
     const sessionId = id.slice(4)
     const turn = running.get(sessionId)
     fs.appendFileSync(log, JSON.stringify('ANSWER ' + (message.result?.outcome?.optionId ?? 'none')) + '\\n')
-    if (turn) turn.timer = finishLater(sessionId, turn.id)
+    if (turn && !turn.hold) turn.timer = finishLater(sessionId, turn.id)
     return
   }
   if (method === 'initialize') {
@@ -54,12 +55,14 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   } else if (method === 'session/prompt') {
     const text = textOf(params.prompt)
     fs.appendFileSync(log, JSON.stringify(text) + '\\n')
+    const hold = text.includes('HOLD-FOR-CANCEL')
     if (steering && text.includes('ASK-FIRST')) {
       const toolCall = { toolCallId: 'ask-1', title: 'rm -rf build', kind: 'execute', status: 'pending' }
       write({ method: 'session/update', params: { sessionId: params.sessionId, update: { sessionUpdate: 'tool_call', ...toolCall } } })
       write({ id: 'ask-' + params.sessionId, method: 'session/request_permission', params: { sessionId: params.sessionId, toolCall, options: [REJECT, ALLOW] } })
-      running.set(params.sessionId, { id, timer: null })
-    } else running.set(params.sessionId, { id, timer: finishLater(params.sessionId, id) })
+      running.set(params.sessionId, { id, timer: null, hold })
+    } else if (hold) running.set(params.sessionId, { id, timer: null, hold })
+    else running.set(params.sessionId, { id, timer: finishLater(params.sessionId, id) })
   } else if (method === '_session/steering' && steering) {
     const turn = running.get(params.sessionId)
     if (!turn) {
@@ -137,6 +140,58 @@ async function waitForIdle(session: GuiSession, count: number, timeout = 60_000)
 /** Which of `markers` each recorded prompt carries, in the order the agent received them. */
 const received = (recorded: string[], markers: string[]) =>
   recorded.map((text) => markers.find((marker) => text.includes(marker)) ?? '?')
+
+test('keep-awake follows a running agent until its turn is stopped', async ({ launch }) => {
+  test.skip(process.platform !== 'darwin', 'Reads the system sleep assertion with pmset')
+  const session = await launch({ fixture: 'vite', prefs: { keepAwakeMode: 'working' } })
+  await session.declineConsentDialogs()
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  const recorded = await useQueueAgent(session)
+  const held = () => holdsIdleSleep(session.app.process().pid)
+  expect(held()).toBe(false)
+
+  const marker = 'HOLD-FOR-CANCEL'
+  expect(await send(session, marker)).toBe(true)
+  await expect.poll(() => recorded().some((prompt) => prompt.includes(marker))).toBe(true)
+  await expect.poll(held).toBe(true)
+
+  await session.chat.evaluate(() => window.gui.cancel())
+  const { turns } = await waitForIdle(session, 1)
+  expect(turns[0]?.status).toBe('cancelled')
+  await expect.poll(held).toBe(false)
+})
+
+test('keep-awake lets the Mac sleep while a permission waits, and until its chat closes', async ({
+  launch,
+}) => {
+  test.skip(process.platform !== 'darwin', 'Reads the system sleep assertion with pmset')
+  const session = await launch({ fixture: 'vite', prefs: { keepAwakeMode: 'working' } })
+  await session.declineConsentDialogs()
+  await waitFor(async () => (await session.state()).project !== null, 'the project to open')
+  await useQueueAgent(session, true)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
+  const held = () => holdsIdleSleep(session.app.process().pid)
+
+  expect(await send(session, 'ASK-FIRST HOLD-FOR-CANCEL')).toBe(true)
+  const card = await waitFor(async () => {
+    const [turn] = (await session.chatSnapshot()).turns
+    const item = turn?.items.find((it) => it.kind === 'permission' && it.resolved === null)
+    return turn && item ? { turnId: turn.id, itemId: item.id } : null
+  }, 'the permission card')
+  await expect.poll(held).toBe(false)
+
+  await session.chat.evaluate(
+    ({ turnId, itemId }) => window.gui.respondPermission(turnId, itemId, 'allow'),
+    card,
+  )
+  await expect.poll(held).toBe(true)
+
+  const { activeTab } = await session.state()
+  await session.chrome.evaluate(() => window.gui.newTab())
+  await session.chrome.evaluate((id) => window.gui.closeTab(id), activeTab)
+  await expect.poll(held).toBe(false)
+})
 
 test('messages sent while the agent works run in order; Stop pauses the queue', async ({
   launch,
@@ -453,6 +508,8 @@ test('Enter queues by default and ⌘↩ steers; Send now steers from the queue;
       ({ Menu }) => Menu.getApplicationMenu()?.getMenuItemById('allow')?.enabled ?? null,
     )
   expect(await allowItem()).toBe(false)
+  await session.chat.evaluate(() => window.gui.setAutoApprove(false))
+  await waitFor(async () => !(await session.chatSnapshot()).meta.autoApprove, 'Ask mode')
   expect(await send(session, 'ASK-FIRST then go on')).toBe(true)
   await waitFor(
     async () =>

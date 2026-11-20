@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -23,6 +24,14 @@ export function electronExecutable(): string {
  */
 export const takesFocus = !process.env.CI && process.env.GUI_E2E_FOCUS !== '1'
 export const TAKES_FOCUS = 'Brings Gui to the front; set GUI_E2E_FOCUS=1 to run it locally'
+
+export function holdsIdleSleep(pid: number | undefined): boolean {
+  if (pid === undefined) throw new Error('Electron is not running')
+  const assertions = execFileSync('/usr/bin/pmset', ['-g', 'assertions'], { encoding: 'utf8' })
+  return new RegExp(
+    `pid ${pid}\\([^\\n]* (?:NoIdleSleepAssertion|PreventUserIdleSystemSleep) named:`,
+  ).test(assertions)
+}
 
 export const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms))
 

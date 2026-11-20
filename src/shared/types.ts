@@ -1450,6 +1450,25 @@ export type StorageUsage = Record<StorageKind, number | null>
 
 export type SettingsSection = 'agents' | 'projects' | 'github' | 'storage' | 'account'
 
+export type KeepAwakeMode = 'off' | 'working' | 'always'
+
+export interface KeepAwakeOption {
+  value: KeepAwakeMode
+  label: string
+  menuLabel: string
+  title?: string
+}
+
+export const KEEP_AWAKE_MODES: readonly KeepAwakeOption[] = [
+  { value: 'off', label: 'Off', menuLabel: 'Off' },
+  { value: 'working', label: 'While agents work', menuLabel: 'While Agents Work' },
+  { value: 'always', label: 'Always', menuLabel: 'Always', title: 'While Gui is open' },
+]
+
+export function isKeepAwakeMode(value: unknown): value is KeepAwakeMode {
+  return KEEP_AWAKE_MODES.some((mode) => mode.value === value)
+}
+
 export interface SettingsState {
   /** Section requested when this Settings window opened. */
   initialSection?: SettingsSection
@@ -1480,6 +1499,7 @@ export interface SettingsState {
   shareUsage: boolean
   /** What a message sent while the agent works does (see ChatMeta.whileWorking) */
   whileWorking: WhileWorking
+  keepAwakeMode: KeepAwakeMode
   /** Agents outside Gui may use its tools (main/outside-agents.ts) */
   outsideAgents: OutsideAgentsState
 }
