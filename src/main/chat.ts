@@ -292,6 +292,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Whether this transcript has had an agent session (to notice when context is lost). */
   private hadSession = false
   private active: TurnRecord | null = null
+  private waitingForSlot: TurnRecord | null = null
   /**
    * Turns, restores, redos, and resets are mutually exclusive. The holder is the
    * operation's own token, so a superseded operation can't release someone else's lock.
@@ -1723,8 +1724,23 @@ export class ChatController extends EventEmitter<ChatEvents> {
   }
 
   private syncKeepAwake() {
-    const working = !this.disposed && this.active !== null && this.permissions.size === 0
-    keepAwake.setWorking(this, working)
+    keepAwake.setWorking(this, !this.disposed && this.canProgress())
+  }
+
+  private canProgress() {
+    const record = this.active
+    if (!record || this.waitingForSlot === record) return false
+    if (this.permissions.size === 0) return true
+    const asking = new Set(
+      record.turn.items.flatMap((item) =>
+        item.kind === 'permission' && this.permissions.has(`${record.turn.id}:${item.id}`)
+          ? [item.subagent]
+          : [],
+      ),
+    )
+    return this.subagentsOf(record).some(
+      (item) => item.status === 'running' && !asking.has(item.id),
+    )
   }
 
   private async runTurn(
@@ -1778,13 +1794,22 @@ export class ChatController extends EventEmitter<ChatEvents> {
           tone: 'info',
           text: 'Waiting for the agent in another tab on this folder to finish.',
         })
+        this.waitingForSlot = record
+        this.syncKeepAwake()
       }
-      while (!free) {
-        if (stopped()) {
-          status = 'cancelled'
-          return
+      try {
+        while (!free) {
+          if (stopped()) {
+            status = 'cancelled'
+            return
+          }
+          await sleep(250)
         }
-        await sleep(250)
+      } finally {
+        if (this.waitingForSlot === record) {
+          this.waitingForSlot = null
+          this.syncKeepAwake()
+        }
       }
       record.before = await this.trySnapshot(record, `before message ${record.turn.index + 1}`)
       if (stopped()) {
@@ -2522,6 +2547,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (update.title) item.title = update.title
     if (update.description !== undefined) item.description = update.description ?? null
     Object.assign(item, subagentPatch(update, Date.now()))
+    this.syncKeepAwake()
   }
 
   /** A task given to a subagent, or its answer, which take the place of the call that started it. */
@@ -2614,7 +2640,6 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const subagent = from ?? tool?.subagent
     if (subagent) this.subagentIn(record, subagent)
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
-    this.syncKeepAwake()
     // An agent's own question (`questionRequest`) can say more than its title, and what each
     // choice means.
     const asked = request.toolCall.kind === QUESTION_KIND
@@ -2648,6 +2673,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       resolved: null,
       ...(subagent ? { subagent } : {}),
     })
+    this.syncKeepAwake()
     this.emit('attention')
   }
 
