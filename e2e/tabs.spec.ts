@@ -466,14 +466,29 @@ for (const colorScheme of ['light', 'dark'] as const) {
   })
 }
 
+const UNIT_SECONDS: Record<string, number> = { h: 3600, m: 60, s: 1 }
+
+/** The Working row's count in seconds: "Working 12s", "Working 2m 5s", "Working 1h 3m". */
+function workingSeconds(row: string | null) {
+  const count = row && /^Working (.+)$/.exec(row)?.[1]
+  if (!count) return null
+  let seconds = 0
+  for (const part of count.split(' ')) {
+    const match = /^(\d+)([hms])$/.exec(part)
+    if (!match) return null
+    seconds += Number(match[1]) * (UNIT_SECONDS[match[2] ?? ''] ?? 0)
+  }
+  return seconds
+}
+
 /**
  * Runs in a chat page: whether it's been told nobody can see it, how its spinners are playing
- * (each state once), and the Working row's count with the time it was read.
+ * (each state once), and the Working row's text with the time it was read.
  */
 function chatAtRest() {
-  const count = [...document.querySelectorAll('p')]
-    .map((row) => /^Working (\d+)s$/.exec(row.textContent ?? ''))
-    .find((match) => match !== null)
+  const working = [...document.querySelectorAll('p')]
+    .map((row) => row.textContent ?? '')
+    .find((text) => text.startsWith('Working '))
   return {
     unseen: document.documentElement.hasAttribute('data-unseen'),
     spinners: [
@@ -484,7 +499,7 @@ function chatAtRest() {
           .map((animation) => animation.playState),
       ),
     ],
-    seconds: count ? Number(count[1]) : null,
+    working: working ?? null,
     at: Date.now(),
   }
 }
@@ -498,7 +513,10 @@ test('a chat nobody can see rests, and is right the moment it is seen again', as
   const { chat, chrome } = session
   await session.expandChat()
   expect(await chat.evaluate(() => window.gui.send('TABS-LONG'))).toBe(true)
-  const rest = () => chat.evaluate(chatAtRest)
+  const rest = async () => {
+    const { working, ...state } = await chat.evaluate(chatAtRest)
+    return { ...state, seconds: workingSeconds(working) }
+  }
   const startedAt = async () => (await turnsIn(chat))[0]?.startedAt ?? Number.NaN
   /** How far the count shown is from the turn's real age, in seconds. */
   const off = async (shown: { seconds: number | null; at: number }) =>
@@ -532,10 +550,10 @@ test('a chat nobody can see rests, and is right the moment it is seen again', as
       const root = document.documentElement
       const page = window as unknown as { seenAgain?: ReturnType<typeof read> }
       const read = () => {
-        const count = [...document.querySelectorAll('p')]
-          .map((row) => /^Working (\d+)s$/.exec(row.textContent ?? ''))
-          .find((match) => match !== null)
-        return { seconds: count ? Number(count[1]) : null, at: Date.now() }
+        const working = [...document.querySelectorAll('p')]
+          .map((row) => row.textContent ?? '')
+          .find((text) => text.startsWith('Working '))
+        return { working: working ?? null, at: Date.now() }
       }
       page.seenAgain = undefined
       new MutationObserver((_records, observer) => {
@@ -548,11 +566,12 @@ test('a chat nobody can see rests, and is right the moment it is seen again', as
       }).observe(root, { attributes: true, attributeFilter: ['data-unseen'] })
     })
     await show()
-    type Shown = { seconds: number | null; at: number }
-    const again = await waitFor(
+    type Shown = { working: string | null; at: number }
+    const shown = await waitFor(
       () => chat.evaluate(() => (window as unknown as { seenAgain?: Shown }).seenAgain),
       `the chat in sight again (${label})`,
     )
+    const again = { seconds: workingSeconds(shown.working), at: shown.at }
     expect(await off(again), label).toBeLessThan(0.6)
     expect(again.seconds, label).toBeGreaterThanOrEqual((held.seconds ?? 0) + 3)
     expect(await rest(), label).toMatchObject({ unseen: false, spinners: ['running'] })
