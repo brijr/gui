@@ -260,5 +260,3 @@ export function usageQueue(options: UsageQueueOptions) {
     },
   }
 }
-
-export type UsageQueue = ReturnType<typeof usageQueue>
