@@ -68,6 +68,7 @@ import {
   isChatGrab,
   isCustomViewport,
   isDrawerTab,
+  isKeepAwakeMode,
   isPanelEdge,
   isProjectTemplate,
   isTerminalId,
@@ -119,6 +120,7 @@ import {
   noRequestArgs,
   stringRequestArgs,
 } from './ipc-handler'
+import { stopKeepAwake, watchKeepAwake } from './keep-awake'
 import { installLinuxLauncher } from './linux-cli'
 import { isLoopback } from './loopback'
 import { preloadMcpSdk } from './mcp-server'
@@ -134,7 +136,7 @@ import {
 } from './outside-agents'
 import type { OutsideOpener } from './outside-mcp'
 import { openForOutside } from './outside-open'
-import { flushPrefsSync, getPrefs, prefsEvents, setPrefs } from './prefs'
+import { flushPrefsSync, getPrefs, prefsEvents, setKeepAwakeMode, setPrefs } from './prefs'
 import { execFile } from './process'
 import { finishEndingSync } from './process-groups'
 import { findWorkspaceRoot } from './project'
@@ -1452,6 +1454,9 @@ function registerIpc() {
   onSettings(Send.setWhileWorking, (choice) => {
     if (choice === 'queue' || choice === 'steer') setWhileWorking(choice)
   })
+  onSettings(Send.setKeepAwakeMode, (mode) => {
+    if (isKeepAwakeMode(mode)) setKeepAwakeMode(mode)
+  })
   onSettings(Send.openCustomAgentsFile, () => void openCustomAgents())
   ipcMain.on(Send.reportError, (event, error: unknown) => {
     if (!isAppContents(event.sender) || !error || typeof error !== 'object') return
@@ -2228,6 +2233,7 @@ function afterFirstWindow(win: BrowserWindow, run: () => void) {
 
 /** Stops agent processes that would otherwise outlive the app. */
 function shutdown() {
+  stopKeepAwake()
   for (const win of allWindows()) win.destroy()
   // Terminals and dev servers stop in the background; nothing runs after this to finish it.
   finishEndingSync()
@@ -2283,6 +2289,7 @@ if (!app.requestSingleInstanceLock()) {
     registerRecordingProtocol()
     registerThumbProtocol()
     registerIpc()
+    watchKeepAwake()
     // Listens for other agents if the user turned that on (Settings → Agents). Before any
     // window, so turning it on in Settings always finds it set up. Listening loads nothing.
     startOutsideAgents(() => void refreshSettings(), outsideOpener)

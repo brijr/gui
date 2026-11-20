@@ -1,7 +1,9 @@
-import { realpathSync, writeFileSync } from 'node:fs'
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Page } from '@playwright/test'
 import type { SettingsState } from '../src/shared/types'
-import { waitFor } from './helpers/env'
+import { holdsIdleSleep, waitFor } from './helpers/env'
+import { chooseFromChatMenu } from './helpers/menus'
 import { type GuiSession, standInsFile } from './helpers/session'
 import { expect, test } from './helpers/test'
 
@@ -66,6 +68,51 @@ async function shot(page: Page, name: string) {
   if (process.env.GUI_E2E_SHOTS !== '1') return
   await page.screenshot({ path: test.info().outputPath(`${name}.png`) })
 }
+
+test('keep-awake mode is set from Settings and the chat menu', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.chrome.evaluate(() => window.gui.openSettings('agents'))
+  const page = await settingsPage(session)
+  const group = page.getByRole('group', { name: 'Keep awake' })
+  const off = group.getByRole('button', { name: 'Off', exact: true })
+  await expect(off).toHaveAttribute('aria-pressed', 'true')
+
+  for (const [label, mode] of [
+    ['While agents work', 'working'],
+    ['Always', 'always'],
+    ['Off', 'off'],
+  ]) {
+    const option = group.getByRole('button', { name: label, exact: true })
+    await option.click()
+    await expect(option).toHaveAttribute('aria-pressed', 'true')
+    await expect
+      .poll(() => JSON.parse(readFileSync(join(session.fixture.userData, 'prefs.json'), 'utf8')))
+      .toMatchObject({ keepAwakeMode: mode })
+    if (process.platform === 'darwin') {
+      await expect.poll(() => holdsIdleSleep(session.app.process().pid)).toBe(mode === 'always')
+    }
+  }
+  const offered = await chooseFromChatMenu(session.app, session.chat, 'While Agents Work')
+  expect(offered).toContain('Keep Awake')
+  await expect(
+    group.getByRole('button', { name: 'While agents work', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  await chooseFromChatMenu(session.app, session.chat, 'Always')
+  await expect(group.getByRole('button', { name: 'Always', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  )
+  if (process.platform === 'darwin') {
+    await expect.poll(() => holdsIdleSleep(session.app.process().pid)).toBe(true)
+  }
+  await chooseFromChatMenu(session.app, session.chat, 'Off')
+  await expect(off).toHaveAttribute('aria-pressed', 'true')
+  await shot(page, 'keep-awake-light')
+  if (process.env.GUI_E2E_SHOTS === '1') {
+    await page.emulateMedia({ colorScheme: 'dark' })
+    await shot(page, 'keep-awake-dark')
+  }
+})
 
 // No agent usage: checks only start (and never prompt) a session, Pi's is /usr/bin/true,
 // and the custom agent added here is /bin/echo, which is never run.

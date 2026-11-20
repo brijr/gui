@@ -126,6 +126,7 @@ async function buildState(): Promise<SettingsState> {
     crashReports: prefs.crashReports,
     shareUsage: prefs.shareUsage,
     whileWorking: prefs.whileWorking,
+    keepAwakeMode: prefs.keepAwakeMode,
     outsideAgents: outsideAgentsState(),
   }
 }

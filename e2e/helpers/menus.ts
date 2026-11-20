@@ -45,13 +45,22 @@ async function chooseFromMenu(
     Menu.buildFromTemplate = (template) => {
       const menu = build(template)
       const wanted = store.guiChatMenuChoice
-      if (!wanted || !menu.items.some((item) => item.label === wanted)) return menu
+      const find = (items: Electron.MenuItem[]): Electron.MenuItem | undefined => {
+        for (const item of items) {
+          if (item.label === wanted) return item
+          const nested = item.submenu && find(item.submenu.items)
+          if (nested) return nested
+        }
+        return undefined
+      }
+      const choice = wanted ? find(menu.items) : undefined
+      if (!choice) return menu
       menu.popup = (options) => {
         store.guiChatMenuChoice = null
         store.guiChatMenuItems = menu.items
           .filter((item) => item.type !== 'separator')
           .map((item) => item.label)
-        menu.items.find((item) => item.label === wanted && item.enabled)?.click()
+        if (choice.enabled) choice.click()
         options?.callback?.()
       }
       return menu

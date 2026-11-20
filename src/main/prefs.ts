@@ -8,6 +8,8 @@ import {
   currentAgentId,
   DEFAULT_AGENT_ID,
   isAgentId,
+  isKeepAwakeMode,
+  type KeepAwakeMode,
   type PanelCorner,
   type RecentModel,
   type RulerGuide,
@@ -53,6 +55,7 @@ export interface Prefs {
   shareUsage: boolean
   /** What Enter does while the agent works (ChatMeta.whileWorking) */
   whileWorking: WhileWorking
+  keepAwakeMode: KeepAwakeMode
   /** The rulers and guides over the preview are showing (⇧R) */
   rulers: boolean
   /** Each project's ruler guides, by project root; kept here, never in the project */
@@ -81,6 +84,7 @@ const DEFAULTS: Prefs = {
   crashReports: true,
   shareUsage: true,
   whileWorking: 'queue',
+  keepAwakeMode: 'off',
   rulers: false,
   guides: {},
   outsideAgents: false,
@@ -208,6 +212,9 @@ export function getPrefs(): Prefs {
         typeof parsed.crashReports === 'boolean' ? parsed.crashReports : DEFAULTS.crashReports,
       shareUsage: typeof parsed.shareUsage === 'boolean' ? parsed.shareUsage : DEFAULTS.shareUsage,
       whileWorking: parsed.whileWorking === 'steer' ? 'steer' : 'queue',
+      keepAwakeMode: isKeepAwakeMode(parsed.keepAwakeMode)
+        ? parsed.keepAwakeMode
+        : DEFAULTS.keepAwakeMode,
       rulers: parsed.rulers === true,
       guides: guides(parsed.guides),
       outsideAgents: parsed.outsideAgents === true,
@@ -265,6 +272,10 @@ export function setPrefs(patch: Partial<Prefs>) {
 /** At quit: a change the file doesn't hold yet is written before the process goes. */
 export function flushPrefsSync() {
   writer.flushSync()
+}
+
+export function setKeepAwakeMode(keepAwakeMode: KeepAwakeMode) {
+  if (getPrefs().keepAwakeMode !== keepAwakeMode) setPrefs({ keepAwakeMode })
 }
 
 export function isAgentEnabled(id: AgentId) {

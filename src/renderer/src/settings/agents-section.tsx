@@ -4,6 +4,7 @@ import {
   type AgentId,
   CUSTOM_AGENT_PREFIX,
   type CustomAgentEntry,
+  KEEP_AWAKE_MODES,
   type SettingsState,
 } from '../../../shared/types'
 import { InstallProgress } from '../agents/agent-card'
@@ -118,6 +119,23 @@ export function AgentsSection({ settings }: { settings: SettingsState }) {
             heading="Sending while the agent works"
             detail="Queue holds your message until the agent finishes. Steer adds it to the reply under way. ⌘↩ does the other for one message."
             trailing={<WhileWorking settings={settings} />}
+          />
+        </List>
+      </SettingsGroup>
+
+      <SettingsGroup heading="Power">
+        <List>
+          <ListItem
+            heading="Keep awake"
+            detail="Prevent idle sleep without keeping the display on."
+            trailing={
+              <SegmentedControl
+                label="Keep awake"
+                value={settings.keepAwakeMode}
+                segments={KEEP_AWAKE_MODES}
+                onChange={(mode) => gui.setKeepAwakeMode(mode)}
+              />
+            }
           />
         </List>
       </SettingsGroup>

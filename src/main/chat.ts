@@ -77,6 +77,7 @@ import {
   type SavedChat,
   type SavedQueued,
 } from './history'
+import { keepAwake } from './keep-awake'
 import type { McpSessionAccess } from './mcp-server'
 import {
   getPrefs,
@@ -559,7 +560,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       await Promise.race([running.settled, sleep(RESET_SETTLE_MS)])
     }
     this.stopAgent()
-    this.active = null
+    this.setActive(null)
     // A new chat (maybe on another agent) may say it again, once its session shows it.
     this.toolReach.reset()
     this.refreshToolNotice()
@@ -1338,6 +1339,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const resolve = this.permissions.get(key)
     if (!resolve) return
     this.permissions.delete(key)
+    this.syncKeepAwake()
     resolve(optionId)
     const record = this.records.find((r) => r.turn.id === turnId)
     const item = record?.turn.items.find((i) => i.id === itemId)
@@ -1498,6 +1500,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     if (this.disposed) return this.history.close()
     this.epoch++
     this.disposed = true
+    this.syncKeepAwake()
     this.lastSent = null
     agentHealth.off('change', this.refreshModels)
     agentHealth.off('change', this.refreshAgent)
@@ -1595,7 +1598,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       steered: queued?.steered ?? [],
     }
     this.records.push(record)
-    this.active = record
+    this.setActive(record)
     this.lock = record
     this.lastSent = {
       turnId: record.turn.id,
@@ -1712,6 +1715,16 @@ export class ChatController extends EventEmitter<ChatEvents> {
   private clearQueue() {
     this.queued.clear()
     this.patchMeta({ queue: [], queuePaused: false, queuePauseReason: null })
+  }
+
+  private setActive(record: TurnRecord | null) {
+    this.active = record
+    this.syncKeepAwake()
+  }
+
+  private syncKeepAwake() {
+    const working = !this.disposed && this.active !== null && this.permissions.size === 0
+    keepAwake.setWorking(this, working)
   }
 
   private async runTurn(
@@ -1933,7 +1946,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         autoApprove: this.meta.autoApprove,
         ownPermissions: this.meta.ownPermissions,
       })
-      if (this.active === record) this.active = null
+      if (this.active === record) this.setActive(null)
       if (this.lock === record) this.lock = null
       const retryable = status === 'error' && this.lastSent?.turnId === record.turn.id
       if (!retryable && this.lastSent?.turnId === record.turn.id) this.lastSent = null
@@ -2601,6 +2614,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
     const subagent = from ?? tool?.subagent
     if (subagent) this.subagentIn(record, subagent)
     this.permissions.set(`${record.turn.id}:${id}`, resolve)
+    this.syncKeepAwake()
     // An agent's own question (`questionRequest`) can say more than its title, and what each
     // choice means.
     const asked = request.toolCall.kind === QUESTION_KIND
