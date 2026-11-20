@@ -47,6 +47,7 @@ import {
 import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
+import { duration } from '../lib/time'
 import { Button, IconButton, PRESS, Spinner, Toggle, withCode } from '../lib/ui'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
@@ -762,10 +763,7 @@ function stepsDuration(tools: ToolItem[], turnEnd: number | null) {
   const starts = tools.map((tool) => tool.startedAt)
   const ends = tools.map((tool) => tool.endedAt ?? turnEnd)
   if (starts.some((at) => at === undefined) || ends.some((at) => at == null)) return null
-  const ms = Math.max(...(ends as number[])) - Math.min(...(starts as number[]))
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 1) return null
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  return duration(Math.max(...(ends as number[])) - Math.min(...(starts as number[])))
 }
 
 function ToolStatusIcon({ tool, live }: { tool: ToolItem; live: boolean }) {
@@ -1284,14 +1282,6 @@ function EditPreview({ diff, named }: { diff: EditDiff[]; named: boolean }) {
 const subagentOf = (items: TurnItem[], id: string) =>
   items.find((item): item is SubagentItem => item.kind === 'subagent' && item.id === id) ?? null
 
-/** "12s", "2m 5s"; null under a second or when it isn't known. */
-function duration(ms: number | null) {
-  if (ms === null) return null
-  const seconds = Math.round(ms / 1000)
-  if (seconds < 1) return null
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
-}
-
 function SubagentStatusIcon({ status }: { status: SubagentItem['status'] }) {
   switch (status) {
     case 'running':
@@ -1462,13 +1452,13 @@ function Elapsed({ since, className }: { since: number; className?: string }) {
 
 /** Between steps, while the agent thinks or writes. */
 function Working({ since }: { since: number }) {
-  const seconds = useSeconds(since)
+  const text = duration(useSeconds(since) * 1000) ?? '0s'
   return (
     <p className="flex h-6 items-center gap-2 text-small text-subtle">
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         <Spinner />
       </span>
-      Working <span className="tabular-nums">{seconds}s</span>
+      Working <span className="tabular-nums">{text}</span>
     </p>
   )
 }
