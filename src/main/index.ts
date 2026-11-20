@@ -1488,6 +1488,13 @@ function registerIpc() {
   on(Send.variationsSize, (tab, width, height) => {
     if (isNumber(width) && isNumber(height)) tab.variationsSize(width, height)
   })
+  on(Send.grabVariations, (tab) => tab.grabVariations())
+  on(Send.dragVariations, (tab, dx, dy) => {
+    if (isNumber(dx) && isNumber(dy)) tab.dragVariations(dx, dy)
+  })
+  on(Send.endDragVariations, (tab, velocity) =>
+    tab.endDragVariations(isPoint(velocity) ? velocity : { x: 0, y: 0 }),
+  )
   /** From a preview's own preload, in its page's top frame: the tab whose preview it is. */
   const previewTab = (event: IpcMainEvent | IpcMainInvokeEvent) =>
     event.senderFrame === event.sender.mainFrame

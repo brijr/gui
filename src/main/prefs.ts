@@ -32,6 +32,8 @@ export interface Prefs {
   chatSidebarWidth: number
   /** The canvas corner the floating chat panel was last dropped in; new tabs start there */
   chatCorner: PanelCorner
+  /** The page corner the variations bar was last dropped in; new tabs start there */
+  variationsCorner: PanelCorner
   /** The app each monorepo previews: project root → app dir relative to it */
   apps: Record<string, string>
   /** Agents switched off in Settings; everything installed is on by default */
@@ -72,6 +74,7 @@ const DEFAULTS: Prefs = {
   chatSize: { width: 360, height: 520 },
   chatSidebarWidth: 380,
   chatCorner: { x: 'left', y: 'bottom' },
+  variationsCorner: { x: 'left', y: 'bottom' },
   apps: {},
   disabledAgents: [],
   agentSettings: {},
@@ -176,11 +179,11 @@ function chatSize(value: unknown): ChatSize {
   }
 }
 
-function chatCorner(value: unknown): PanelCorner {
+function panelCorner(value: unknown, fallback: PanelCorner): PanelCorner {
   const corner = value && typeof value === 'object' ? (value as Record<string, unknown>) : {}
   return {
-    x: corner.x === 'left' || corner.x === 'right' ? corner.x : DEFAULTS.chatCorner.x,
-    y: corner.y === 'top' || corner.y === 'bottom' ? corner.y : DEFAULTS.chatCorner.y,
+    x: corner.x === 'left' || corner.x === 'right' ? corner.x : fallback.x,
+    y: corner.y === 'top' || corner.y === 'bottom' ? corner.y : fallback.y,
   }
 }
 
@@ -195,7 +198,8 @@ export function getPrefs(): Prefs {
       chatSidebarSide: parsed.chatSidebarSide === 'right' ? 'right' : 'left',
       chatSize: chatSize(parsed.chatSize),
       chatSidebarWidth: length(parsed.chatSidebarWidth, DEFAULTS.chatSidebarWidth),
-      chatCorner: chatCorner(parsed.chatCorner),
+      chatCorner: panelCorner(parsed.chatCorner, DEFAULTS.chatCorner),
+      variationsCorner: panelCorner(parsed.variationsCorner, DEFAULTS.variationsCorner),
       apps: stringRecord(parsed.apps),
       disabledAgents: Array.isArray(parsed.disabledAgents)
         ? parsed.disabledAgents.filter(isAgentId)
@@ -233,6 +237,7 @@ export function getPrefs(): Prefs {
       ...DEFAULTS,
       chatSize: { ...DEFAULTS.chatSize },
       chatCorner: { ...DEFAULTS.chatCorner },
+      variationsCorner: { ...DEFAULTS.variationsCorner },
       apps: {},
       agentSettings: {},
       recentModels: [],

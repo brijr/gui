@@ -869,13 +869,9 @@ export class ChatPanel {
     return seen
   }
 
-  /**
-   * The floating chat (panel or bubble) where it's drawn in the window, while it's
-   * anchored in the canvas's bottom-left corner; null in any other corner, docked or hidden.
-   */
-  bottomLeftRect(): Rect | null {
-    if (!this.chatShown || this.docked || this.anchor.x !== 'left' || this.anchor.y !== 'bottom')
-      return null
+  /** The floating chat (panel or bubble) where it's drawn in the window; null docked or hidden. */
+  floatingChatRect(): Rect | null {
+    if (!this.chatShown || this.docked || this.popout) return null
     const view = this.tab.chatView.getBounds()
     return {
       x: view.x + PANEL_SHADOW_MARGIN,

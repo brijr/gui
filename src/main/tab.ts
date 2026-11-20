@@ -3090,9 +3090,21 @@ export class ProjectTab implements ChatPanelOwner {
     this.picker.setBarSize(width, height)
   }
 
+  grabVariations() {
+    this.picker.grabBar()
+  }
+
+  dragVariations(dx: number, dy: number) {
+    this.picker.dragBar(dx, dy)
+  }
+
+  endDragVariations(velocity: Point) {
+    this.picker.endDragBar(velocity)
+  }
+
   /**
-   * The variations bar goes in the bottom-left of the app's page while it's in sight (a device
-   * frame's page, beside a docked chat), right of a floating chat in that corner.
+   * The variations bar goes in its corner of the app's page while it's in sight (a device
+   * frame's page, beside a docked chat), beside a floating chat in that corner.
    */
   chatPlaced() {
     this.placeBar()
@@ -3101,7 +3113,7 @@ export class ProjectTab implements ChatPanelOwner {
   private placeBar() {
     const { visible } = this.state.preview
     const shown = visible && !this.website && !this.host.sheetShown && this.placement.width > 0
-    this.picker.placeBar(shown ? this.placement : null, this.panel.bottomLeftRect())
+    this.picker.placeBar(shown ? this.placement : null, this.panel.floatingChatRect())
   }
 
   /** The user clicked the walkthrough away, or it ran its course. A held website keeps its own. */

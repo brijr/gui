@@ -1,14 +1,14 @@
 # Variations
 
-Pick an element (⌘D) and ask for options: "show me 15 ways to make this better". The agent writes each version as real code in your project, behind a small switch Gui controls, and a bar floats in the preview's bottom-left corner: **3 of 15 · Tighter hierarchy**, with ‹ › to flip, **Use this**, and ×. ← and → flip too while the bar has the keyboard; in the page they stay the page's. The page is your app, so each version is styled by your own CSS and design system, and hover and state work.
+Pick an element (⌘D) and ask for options: "show me 15 ways to make this better". The agent writes each version as real code in your project, behind a small switch Gui controls, and a bar floats in a corner of the preview, bottom-left at first: **3 of 15 · Tighter hierarchy**, with ‹ › to flip, **Use this**, and ×. ← and → flip too while the bar has the keyboard; in the page they stay the page's. The page is your app, so each version is styled by your own CSS and design system, and hover and state work.
 
 Code: `src/main/variations.ts` (the set), `src/main/picker.ts` and `src/renderer/src/pick/overlay.tsx` (the bar), `preview_variations` in `src/main/mcp-preview-tools.ts`.
 
 ## The bar and the page
 
-The bar stays in the corner while the page scrolls under it, 12px in from the preview's edges, as the floating chat sits in its corner. The preview is the page Gui shows: the canvas on Desktop, the page inside a device frame, never the docked chat beside it. When the floating chat (panel, pill or bubble) is in the bottom-left corner, the bar sits just right of it, 12px away, and moves with it; the bar's name shortens first when there's little room. While only the bar shows, its overlay is only as big as the bar, so the rest of the page takes the pointer as usual.
+The bar stays in its corner while the page scrolls under it, 12px in from the preview's edges, as the floating chat sits in its corner. The preview is the page Gui shows: the canvas on Desktop, the page inside a device frame, never the docked chat beside it. Drag the bar by its name or its edge to move it off what you want to see. When you let go, it springs into the corner nearest to where it would come to rest, so a flick throws it there. Gui keeps that corner for later sets and new tabs (`variationsCorner` in the preferences). When the floating chat (panel, pill or bubble) is in the same corner, the bar sits beside it, 12px away, toward the middle of the page, and moves with it. The bar's name shortens first when there's little room. While only the bar shows, its overlay is only as big as the bar, so the rest of the page takes the pointer as usual.
 
-When a set first shows, and after each flip (‹ ›, the keys, or the agent's `show`), Gui waits briefly for the version to render and scrolls the page to its element, unless it's already in full view. It centers it, which keeps it clear of the bar at the bottom; a version taller than the page scrolls to its top, and one that already fills the page stays put. The scroll is smooth unless the page prefers reduced motion, and never moves the focus.
+When a set first shows, and after each flip (‹ ›, the keys, or the agent's `show`), Gui waits briefly for the version to render and scrolls the page to its element, unless it's already in full view. It centers it, which keeps it clear of the bar in its corner; a version taller than the page scrolls to its top, and one that already fills the page stays put. The scroll is smooth unless the page prefers reduced motion, and never moves the focus.
 
 ## The switch
 

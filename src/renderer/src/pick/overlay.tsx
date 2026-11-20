@@ -16,6 +16,7 @@ import type {
 import { gui } from '../lib/api'
 import { cn } from '../lib/cn'
 import { ChevronLeft, ChevronRight, Undo2, X } from '../lib/icons'
+import { trackDrag } from '../lib/pointer-drag'
 import { Button, Counter, IconButton, Kbd } from '../lib/ui'
 
 /** A press that moves less than this is a click; further, a drag for an area. */
@@ -425,9 +426,9 @@ function usePressedKey(key: GuideOverlay['key']) {
 }
 
 /**
- * The versions the agent wrote of an element (preview_variations), in the preview's bottom-left
- * corner: ‹ › flip them, as do ← and → here or in the preview, and the page shows each at once,
- * never animated. Use this asks the agent to keep the one showing; × or Esc discards them all,
+ * The versions the agent wrote of an element (preview_variations), in a corner of the preview
+ * that the user can drag or throw it to: ‹ › flip them, as do ← and → here or in the preview,
+ * and the page shows each at once, never animated. Use this asks the agent to keep the one showing; × or Esc discards them all,
  * undoing the message that made them (asking first when later messages would go too). Main
  * places it and fits the overlay to it, so it reports its size.
  */
@@ -468,8 +469,17 @@ function Variations({ bar }: { bar: VariationsBar }) {
       aria-label="Versions"
       data-variations=""
       // A walkthrough's overlay ends on a click; one here is the bar's.
-      onPointerDown={(event) => event.stopPropagation()}
-      className="absolute flex w-max flex-col rounded-lg border border-line bg-overlay p-1 text-small text-fg shadow-popover"
+      onPointerDown={(event) => {
+        event.stopPropagation()
+        if (event.button !== 0 || (event.target as HTMLElement).closest('button')) return
+        gui.grabVariations()
+        trackDrag(
+          event,
+          (dx, dy) => gui.dragVariations(dx, dy),
+          (velocity) => gui.endDragVariations(velocity),
+        )
+      }}
+      className="absolute flex w-max cursor-grab touch-none select-none flex-col rounded-lg border border-line bg-overlay p-1 text-small text-fg shadow-popover active:cursor-grabbing [&_button]:cursor-default"
       style={{ left: bar.at.x, top: bar.at.y, maxWidth: bar.room }}
     >
       {asking ? (
