@@ -285,6 +285,10 @@ async function installQuietAgent(session: GuiSession, agentId: 'pi' | 'muse') {
     standInsFile(session.fixture),
     JSON.stringify({ [agentId]: { command: electronExecutable(), args: [script], env } }),
   )
+  await session.chrome.evaluate(() => window.gui.checkAgents())
+  const ready = async () =>
+    (await session.state()).agents.some((agent) => agent.id === agentId && agent.status === 'ready')
+  await waitFor(ready, 'the stand-in agent to be checked')
   await session.chrome.evaluate((id) => window.gui.setAgent(id), agentId)
   await waitFor(async () => (await session.chatSnapshot()).meta.agentId === agentId, agentId)
 }

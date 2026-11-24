@@ -72,6 +72,10 @@ export async function installToolAgent(session: GuiSession) {
       },
     }),
   )
+  await session.chrome.evaluate(() => window.gui.checkAgents())
+  const ready = async () =>
+    (await session.state()).agents.some((agent) => agent.id === 'grok' && agent.status === 'ready')
+  await waitFor(ready, 'the stand-in agent to be checked')
   await session.chrome.evaluate(() => window.gui.setAgent('grok'))
   await waitFor(
     async () => (await session.chatSnapshot()).meta.agentId === 'grok',
