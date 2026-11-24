@@ -452,6 +452,7 @@ export class Recordings {
     if (job) {
       job.discarded = true
       job.abort.abort()
+      await job.done
     }
     const draft = this.draft?.id === id ? this.draft : null
     if (draft) {
