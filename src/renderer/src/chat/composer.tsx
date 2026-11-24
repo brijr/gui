@@ -1,9 +1,7 @@
 import {
-  type ClipboardEvent,
   createContext,
   type DragEvent,
   type FormEvent,
-  type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
   type Ref,
@@ -13,6 +11,7 @@ import {
   useState,
 } from 'react'
 import { MAX_IMAGES } from '../../../shared/bounded'
+import { writtenText } from '../../../shared/image-refs'
 import { matchesShortcut, shortcutText } from '../../../shared/shortcuts'
 import { type ChatMeta, isRegion, type Picked, type Problem } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -45,17 +44,19 @@ import {
 import { AgentSetup, shouldShowAgentSetup } from './agent-setup'
 import { AutoToggle } from './auto-toggle'
 import { useCommandMenu } from './command-menu'
-import { ImageError, imageFiles, prepareImage, sentAsset } from './images'
+import { imageFiles, sentAsset } from './images'
 import { ModelButton } from './model-picker'
 import { NewChatQuestion } from './new-chat-question'
+import { PromptEditor, type PromptEditorHandle } from './prompt-editor'
 import { QueuedMessages } from './queue'
 import { RecordingClip } from './recording-clip'
 import {
-  addAttachments,
+  attachFiles,
   dismissProblems,
   noteSend,
   removeAttachments,
   removeRecordings,
+  setComposerEditor,
   setDraft,
   setFollowUp,
   setNotice,
@@ -67,6 +68,43 @@ import { NOTE_INSET, pickLabel } from './turn-view'
 const NOTICE_MS = 5000
 
 const hasFiles = (event: DragEvent) => event.dataTransfer.types.includes('Files')
+
+export function useImageDrop(canvas: boolean) {
+  const [dropping, setDropping] = useState(false)
+  const handlers = {
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      event.dataTransfer.dropEffect = 'copy'
+      setDropping(true)
+    },
+    onDragLeave: (event: DragEvent<HTMLElement>) => {
+      const next = event.relatedTarget
+      if (next instanceof Node && event.currentTarget.contains(next)) return
+      setDropping(false)
+    },
+    onDrop: (event: DragEvent<HTMLElement>) => {
+      if (!hasFiles(event)) return
+      event.preventDefault()
+      setDropping(false)
+      void attachFiles([...event.dataTransfer.files], canvas)
+    },
+  }
+  return { dropping, handlers }
+}
+
+export function ImageDropOverlay() {
+  return (
+    <div
+      aria-hidden="true"
+      style={{ background: 'linear-gradient(var(--fill), var(--fill)), var(--raised)' }}
+      className="pointer-events-none absolute inset-2 z-chrome flex items-center justify-center gap-2 rounded-lg border border-dashed border-muted px-3 text-small font-medium text-muted"
+    >
+      <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
+      Drop images to attach
+    </div>
+  )
+}
 
 interface ComposerProps {
   meta: ChatMeta
@@ -110,21 +148,23 @@ export function Composer({
   })
   const dismissed = useChat((s) => s.dismissedProblems)
   const unseenProblem = meta.problems.some((problem) => !dismissed.includes(problem.id))
-  const input = useRef<HTMLTextAreaElement>(null)
+  const input = useRef<PromptEditorHandle>(null)
   const picker = useRef<HTMLInputElement>(null)
   // What's above the box when it mounts (docking and floating remount it) was
   // already showing: only what comes after rises in.
   const [settled, setSettled] = useState(false)
   useEffect(() => setSettled(true), [])
   const setupArrives = useReveal(shouldShowAgentSetup(meta))
-  /** Images still being downscaled; a ref so overlapping pastes count each other. */
-  const processing = useRef(0)
-  const [pending, setPending] = useState(0)
-  const [dropping, setDropping] = useState(false)
+  const pending = useChat((s) => s.pendingImages)
   /** Why a file wasn't attached; quiet and short-lived. In the store, as main can set it too. */
   const notice = useChat((s) => s.notice)
 
   useEffect(() => gui.onChatFocus(() => input.current?.focus()), [])
+  useEffect(() => {
+    const editor = { insertImages: (numbers: number[]) => input.current?.insertImages(numbers) }
+    setComposerEditor(editor)
+    return () => setComposerEditor(null, editor)
+  }, [])
   const previousRecordings = useRef(recordings.length)
   useEffect(() => {
     if (recordings.length > previousRecordings.current)
@@ -145,7 +185,7 @@ export function Composer({
   // A narrated clip goes out with what was said, once it's transcribed (a second or two).
   const transcribing = recordings.some((clip) => clip.narration?.status === 'transcribing')
   const canSend =
-    (text.trim() !== '' || attachments.length > 0 || recordings.length > 0) &&
+    (writtenText(text) !== '' || attachments.length > 0 || recordings.length > 0) &&
     pending === 0 &&
     !transcribing
   /** Why Send is off, for its tooltip. */
@@ -156,29 +196,7 @@ export function Composer({
         ? 'Wait for the narration to be transcribed'
         : 'Write a message first'
 
-  /** One at a time, in order: decoding several large images at once can spike memory. */
-  const attach = async (files: Iterable<File>) => {
-    const { images, rejected } = imageFiles(files)
-    const room = Math.max(
-      0,
-      MAX_IMAGES - useChat.getState().attachments.length - processing.current,
-    )
-    const accepted = images.slice(0, room)
-    setNotice(images.length > room ? `Up to ${MAX_IMAGES} images per message.` : (rejected ?? null))
-    processing.current += accepted.length
-    setPending(processing.current)
-    for (const file of accepted) {
-      try {
-        // On a canvas, also a full-quality copy, saved to its assets/ when the message is sent.
-        addAttachments([await prepareImage(file, meta.canvas)])
-      } catch (error) {
-        setNotice(error instanceof ImageError ? error.message : `Couldn’t attach ${file.name}.`)
-      } finally {
-        processing.current -= 1
-        setPending(processing.current)
-      }
-    }
-  }
+  const attach = (files: Iterable<File>) => attachFiles(files, meta.canvas)
 
   // While the agent works, Enter queues the message or steers its reply, as Settings says,
   // and ⌘↩ does the other. Steering needs a reply that can take it (`canSteer`): without
@@ -196,6 +214,7 @@ export function Composer({
   const submit = async (event?: FormEvent, steer = false) => {
     event?.preventDefault()
     if (!canSend || sending.current) return
+    const message = writtenText(text)
     const sent = attachments
     const clips = recordings.map((clip) => clip.id)
     sending.current = true
@@ -217,7 +236,7 @@ export function Composer({
     try {
       // Keep the draft unless main took it (started the turn or queued it). Only what went
       // out clears: an image attached while sending stays for the next message.
-      const accepted = await gui.send(text, images, clips, about, steer)
+      const accepted = await gui.send(message, images, clips, about, steer)
       settleSend(
         accepted,
         text,
@@ -239,46 +258,27 @@ export function Composer({
     send: () => void submit(undefined, steers(false)),
   })
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (commands.onKeyDown(event)) return
-    if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (commands.onKeyDown(event)) return true
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault()
       // ⌘↩ while a permission card waits is Allow: the menu, or the chat panel, takes it first.
       void submit(undefined, steers(matchesShortcut(event, 'sendOther')))
-    } else if (event.key === 'Escape' && meta.selection.length > 0) {
-      gui.clearSelection()
+      return true
     }
+    if (event.key === 'Escape' && meta.selection.length > 0) gui.clearSelection()
+    return false
   }
 
-  const onPaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
-    const files = [...event.clipboardData.files]
-    if (imageFiles(files).images.length === 0) return
-    // Rich copies carry text along with the image; paste it as usual. Finder's copied
-    // file names (one per line) are the exception: they'd only clutter the message.
-    const names = new Set(files.map((file) => file.name))
-    const lines = event.clipboardData.getData('text/plain').split(/[\r\n]+/)
-    if (lines.every((line) => !line.trim() || names.has(line.trim()))) event.preventDefault()
+  const onPaste = (event: ClipboardEvent) => {
+    const files = [...(event.clipboardData?.files ?? [])]
+    if (imageFiles(files).images.length === 0) return false
     void attach(files)
-  }
-
-  const onDragOver = (event: DragEvent<HTMLFormElement>) => {
-    if (!hasFiles(event)) return
+    const names = new Set(files.map((file) => file.name))
+    const lines = (event.clipboardData?.getData('text/plain') ?? '').split(/[\r\n]+/)
+    if (!lines.every((line) => !line.trim() || names.has(line.trim()))) return false
     event.preventDefault()
-    event.dataTransfer.dropEffect = 'copy'
-    setDropping(true)
-  }
-
-  const onDragLeave = (event: DragEvent<HTMLFormElement>) => {
-    const next = event.relatedTarget
-    if (next instanceof Node && event.currentTarget.contains(next)) return
-    setDropping(false)
-  }
-
-  const onDrop = (event: DragEvent<HTMLFormElement>) => {
-    if (!hasFiles(event)) return
-    event.preventDefault()
-    setDropping(false)
-    void attach([...event.dataTransfer.files])
+    return true
   }
 
   // Room at the message box's top right for Show conversation, so nothing runs under it.
@@ -288,9 +288,6 @@ export function Composer({
       <form
         ref={formRef}
         onSubmit={(event) => void submit(event, steers(false))}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
         onPointerDown={(event) => event.target === event.currentTarget && onGrab?.(event)}
         style={maxHeight ? { maxHeight } : undefined}
         className={cn(
@@ -335,25 +332,8 @@ export function Composer({
           Popovers from the controls in it open off its edge (data-popover-anchor), not over it. */}
         <div
           data-popover-anchor=""
-          className={cn(
-            'relative rounded-lg border border-edge bg-raised focus-within:border-muted focus-within:ring-3 focus-within:ring-line-strong',
-            dropping && 'border-muted bg-fill',
-          )}
+          className="relative rounded-lg border border-edge bg-raised focus-within:border-muted focus-within:ring-3 focus-within:ring-line-strong"
         >
-          {/* Says what a drop does, over the box, until the files land or leave. */}
-          {dropping && (
-            <p
-              aria-hidden="true"
-              // Opaque so the draft stays behind the drop instruction.
-              style={{
-                background: 'linear-gradient(var(--fill), var(--fill)), var(--raised)',
-              }}
-              className="pointer-events-none absolute inset-0 z-sticky flex items-center gap-2 rounded-lg px-3 text-small font-medium text-muted"
-            >
-              <Paperclip className="size-3.5 shrink-0" aria-hidden="true" />
-              Drop images to attach
-            </p>
-          )}
           {onShowConversation && (
             // Centered on the same line as Send below it, level with the first line of text.
             <IconButton
@@ -415,19 +395,21 @@ export function Composer({
               ))}
             </fieldset>
           )}
-          <textarea
+          <PromptEditor
             ref={input}
-            // Empty, ⌘Z here undoes the agent's last change instead of typing.
-            data-undo-passthrough=""
-            // ⌘L hides the chat from here (main checks for it).
-            data-composer=""
             value={text}
-            rows={1}
-            onChange={(event) => setDraft(event.target.value)}
+            onChange={setDraft}
+            onCaret={commands.noteCaret}
             onKeyDown={onKeyDown}
             onPaste={onPaste}
-            {...commands.inputProps}
-            aria-label={`Message ${meta.agentName}`}
+            attributes={{
+              // Empty, ⌘Z here undoes the agent's last change instead of typing.
+              'data-undo-passthrough': '',
+              // ⌘L hides the chat from here (main checks for it).
+              'data-composer': '',
+              'aria-label': `Message ${meta.agentName}`,
+              ...commands.inputAttributes,
+            }}
             placeholder={
               running
                 ? steering
@@ -438,7 +420,7 @@ export function Composer({
                   : `Ask ${meta.agentName}…`
             }
             className={cn(
-              'field-sizing-content scroll-stable block max-h-40 min-h-8.5 w-full resize-none bg-transparent px-2.5 pt-1.5 pb-1 text-fg outline-none focus-visible:outline-none placeholder:text-subtle',
+              'scroll-stable block max-h-40 min-h-8.5 w-full overflow-y-auto bg-transparent px-2.5 pt-1.5 pb-1 text-fg',
               // Clear of Show conversation only where it sits: on the first line.
               onShowConversation &&
                 attachments.length + pending + recordings.length === 0 &&

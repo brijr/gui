@@ -67,7 +67,7 @@ test('a message Gui could not send stays in the message box, with a notice', asy
   await expect(session.chat.getByRole('status').filter({ hasText: 'send' })).toHaveText(
     'Gui couldn’t send that message. Try again.',
   )
-  await expect(box).toHaveValue('Make the counter button red.')
+  await expect(box).toHaveText('Make the counter button red.')
   expect((await session.chatSnapshot()).turns).toEqual([])
 })
 
@@ -109,5 +109,5 @@ test('a full reload of the preview leaves the keyboard in the message box', asyn
   await sleep(500)
   expect(await keyboard()).toEqual({ window: true, chat: true })
   await session.chat.keyboard.type('red')
-  await expect(box).toHaveValue('Make it red')
+  await expect(box).toHaveText('Make it red')
 })

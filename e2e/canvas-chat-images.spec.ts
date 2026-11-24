@@ -63,7 +63,7 @@ async function sendFromComposer(session: GuiSession, text: string): Promise<stri
   return echo.content.map((item) => item.text ?? '')
 }
 
-const ECHO = `TOOLS ${JSON.stringify([{ context: 'The user attached' }])}`
+const ECHO = `TOOLS ${JSON.stringify([{ context: '[Image ' }])}`
 
 /** The same session driven through another tab's chat (each tab has its own). */
 function withChat(session: GuiSession, chat: GuiSession['chat']): GuiSession {
@@ -90,9 +90,7 @@ test("a photo sent in a canvas's chat is saved to its assets at full quality wit
       .getByRole('list', { name: 'Attached images' })
       .getByRole('img', { name: 'Beach Photo.jpg' }),
   ).toBeVisible()
-  expect(await sendFromComposer(session, ECHO)).toEqual([
-    'The user attached a reference image to this message:',
-  ])
+  expect(await sendFromComposer(session, ECHO)).toEqual(['[Image 1] Beach Photo.jpg:'])
   expect(existsSync(join(projectRoot, 'assets'))).toBe(false)
   expect(gitStatus(projectRoot)).toBe('')
 
@@ -127,7 +125,7 @@ test("a photo sent in a canvas's chat is saved to its assets at full quality wit
   expect(readdirSync(join(root, 'assets'))).toEqual([])
 
   expect(await sendFromComposer(canvas, ECHO)).toEqual([
-    'The user attached a reference image to this message, saved as assets/beach-photo.jpg — to use it in a frame, write <img src="../assets/beach-photo.jpg">:',
+    '[Image 1] Beach Photo.jpg, saved as assets/beach-photo.jpg:',
   ])
   expect(readdirSync(join(root, 'assets'))).toEqual(['beach-photo.jpg'])
   const saved = readFileSync(join(root, 'assets', 'beach-photo.jpg'))

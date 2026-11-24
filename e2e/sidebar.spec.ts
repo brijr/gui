@@ -193,7 +193,7 @@ test('the chat pops out into a window of its own and comes back when that closes
   expect((await session.state()).sidebarWidth).toBe(0)
   expect((await session.chatSnapshot()).meta).toMatchObject({ popped: true, trafficLights: true })
   // The same page: the draft came along.
-  await expect(session.chat.getByRole('textbox', { name: /^Message / })).toHaveValue(
+  await expect(session.chat.getByRole('textbox', { name: /^Message / })).toHaveText(
     'Keep this draft',
   )
   await expect(session.chat.getByRole('button', { name: 'Show as sidebar' })).toHaveCount(0)

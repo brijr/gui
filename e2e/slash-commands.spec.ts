@@ -109,7 +109,7 @@ test('the composer lists the agent’s slash commands and sends them first', asy
   // Enter puts the command in the box and shows what it takes; the next Enter sends it
   // first, where agents read a command, with the message's context (the viewport) after.
   await box.press('Enter')
-  await expect(box).toHaveValue('/review ')
+  await expect(box).toHaveText('/review ')
   await expect(chat.getByText('branch or PR')).toBeVisible()
   await box.pressSequentially('main')
   await box.press('Enter')
@@ -123,7 +123,7 @@ test('the composer lists the agent’s slash commands and sends them first', asy
   await expect(menu.getByRole('option')).toHaveText(['/review Review changes'])
   await session.shot('slash-commands-mid-message')
   await box.press('Enter')
-  await expect(box).toHaveValue('/review the motion only')
+  await expect(box).toHaveText('/review the motion only')
   await box.fill('')
 
   // A session command goes alone, and one typed out in full that takes nothing runs on

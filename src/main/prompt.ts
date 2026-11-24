@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import type { ContentBlock } from '@agentclientprotocol/sdk'
+import { imageRef } from '../shared/image-refs'
 import {
   type ElementContext,
   type ImageAttachment,
@@ -236,30 +237,22 @@ export function describeAttachments(attachments: ImageAttachment[]): ContentBloc
     mimeType,
     data,
   })
-  const use = (file: string) => `to use it in a frame, write <img src="../${file}">`
-  const [only] = attachments
-  if (attachments.length === 1 && only) {
-    const text = only.saved
-      ? `The user attached a reference image to this message, saved as ${only.saved} — ${use(only.saved)}:`
-      : 'The user attached a reference image to this message:'
-    return [{ type: 'text', text }, image(only)]
-  }
-  const count = `${attachments.length} reference images`
-  if (!attachments.some((attached) => attached.saved)) {
-    return [
-      { type: 'text', text: `The user attached ${count} to this message:` },
-      ...attachments.map(image),
-    ]
-  }
+  const what =
+    attachments.length === 1
+      ? 'an image, labeled below'
+      : `${attachments.length} images, each labeled below in order`
+  const canvas = attachments.some((attached) => attached.saved)
+    ? ' Each one saved to the canvas is named with its file; to use one in a frame, write <img src="../assets/<file>">.'
+    : ''
   return [
     {
       type: 'text',
-      text: `The user attached ${count} to this message. Each one saved to the canvas is named with its file; to use one in a frame, write <img src="../assets/<file>">.`,
+      text: `The user attached ${what}. The message refers to an image by its label, such as ${imageRef(1)}.${canvas}`,
     },
     ...attachments.flatMap((attached, i): ContentBlock[] => [
       {
         type: 'text',
-        text: attached.saved ? `Image ${i + 1}, saved as ${attached.saved}:` : `Image ${i + 1}:`,
+        text: `${imageRef(i + 1)} ${attached.name}${attached.saved ? `, saved as ${attached.saved}` : ''}:`,
       },
       image(attached),
     ]),

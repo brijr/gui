@@ -15,6 +15,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024
 /** An image attached to the draft; `id` only keys it in the composer and isn't sent. */
 export interface DraftImage extends ImageAttachment {
   id: string
+  size?: number
   /**
    * In a canvas's chat, the full-quality copy main saves to its assets/ when the message is
    * sent. Kept as a blob until then: a draft image removed before sending leaves nothing.
@@ -26,6 +27,16 @@ export interface DraftImage extends ImageAttachment {
 export class ImageError extends Error {}
 
 const isImageFile = (file: File) => file.type.startsWith('image/')
+
+export function shortName(name: string) {
+  return name.length <= 32 ? name : `${name.slice(0, 18)}…${name.slice(-12)}`
+}
+
+export function fileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
 
 /** Image files dropped or pasted along with other content; the rest is reported, not attached. */
 export function imageFiles(files: Iterable<File>) {
@@ -78,6 +89,7 @@ export async function prepareImage(file: File, asset = false): Promise<DraftImag
     const copy = asset ? await assetCopy(bitmap, file.type).catch(() => null) : null
     return {
       id: crypto.randomUUID(),
+      size: file.size,
       name,
       mimeType,
       data,

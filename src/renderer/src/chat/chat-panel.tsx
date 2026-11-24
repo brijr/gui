@@ -44,7 +44,7 @@ import { Badge, StatusDot } from '../lib/status'
 import { PanelHeader } from '../lib/surface'
 import { IconButton, Spinner, TIGHT_HIT_AREA } from '../lib/ui'
 import { ArchivePopover } from './archive'
-import { Composer } from './composer'
+import { Composer, ImageDropOverlay, useImageDrop } from './composer'
 import { Morph } from './morph'
 import { connectShape, currentShape, subscribeShape, useShaping } from './shape'
 import { connectChat, keyedAnswer, useChat, waitingCard, whenPanelShown } from './store'
@@ -145,6 +145,7 @@ function Sidebar({
 }) {
   const card = useRef<HTMLDivElement>(null)
   const shadow = useRef<HTMLDivElement>(null)
+  const drop = useImageDrop(meta.canvas)
 
   useLayoutEffect(() => {
     const cardEl = card.current
@@ -215,7 +216,9 @@ function Sidebar({
           !meta.popped && 'border-line-strong',
           !meta.popped && (side === 'left' ? 'border-r-hairline' : 'border-l-hairline'),
         )}
+        {...drop.handlers}
       >
+        {drop.dropping && <ImageDropOverlay />}
         {!meta.popped && !shaping && (
           <ResizeHandle edge={side === 'left' ? 'right' : 'left'} docked />
         )}
@@ -296,6 +299,7 @@ function FloatingPanel({
   const latest = useRef({ seq: float.seq, panelHeight: float.panelHeight })
   latest.current = { seq: float.seq, panelHeight: float.panelHeight }
   const [hovered, setHovered] = useState(false)
+  const drop = useImageDrop(meta.canvas)
   const top = float.corner.y === 'top'
 
   const apply = useCallback(() => {
@@ -424,7 +428,9 @@ function FloatingPanel({
           // It grows from, and shrinks to, its anchored edge.
           top ? 'top-0' : 'bottom-0',
         )}
+        {...drop.handlers}
       >
+        {drop.dropping && <ImageDropOverlay />}
         <div
           ref={upper}
           inert={float.collapsed}

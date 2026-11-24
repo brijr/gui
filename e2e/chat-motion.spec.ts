@@ -221,7 +221,7 @@ test('a sent message rises from the composer, and a queued one moves into its tu
   expect(sent.before).toEqual(['chat-message:composer'])
   expect(sent.after).toEqual(['chat-message:userMessage'])
   await expect(chat.getByRole('article').getByText('Tighten the heading.')).toBeVisible()
-  await expect(chat.getByRole('textbox', { name: /^Message / })).toHaveValue('')
+  await expect(chat.getByRole('textbox', { name: /^Message / })).toHaveText('')
 
   // Sent while it works: into the queue. (Once the first move is over: one that comes while
   // another runs simply applies.)

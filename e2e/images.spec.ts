@@ -187,7 +187,86 @@ test('the composer downscales, previews and sends attached images', async ({ lau
   // Sent attachments leave the composer and show in the transcript instead.
   await expect(chat.getByRole('button', { name: 'Remove big-red.png' })).toHaveCount(0)
   await expect(chat.getByRole('img', { name: 'big-red.png' })).toBeVisible()
-  await expect(chat.getByRole('textbox')).toHaveValue('')
+  await expect(chat.getByRole('textbox')).toHaveText('')
+})
+
+test('images dropped anywhere on the chat sit in the message by name', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  const { chat } = session
+
+  const images = await Promise.all(
+    [
+      { name: 'red.png', color: '#ff0000' },
+      { name: 'blue.png', color: '#0000ff' },
+      { name: 'green.png', color: '#00ff00' },
+    ].map((image) => chat.evaluate(solidImage, { ...image, width: 40, height: 40 })),
+  )
+  const transfer = await chat.evaluateHandle((sent) => {
+    const transfer = new DataTransfer()
+    for (const { name, data } of sent) {
+      const bytes = Uint8Array.from(atob(data), (char) => char.charCodeAt(0))
+      transfer.items.add(new File([bytes], name, { type: 'image/png' }))
+    }
+    return transfer
+  }, images)
+
+  const field = chat.getByRole('textbox', { name: /^Message / })
+  const chips = field.locator('[data-image-ref]')
+  await field.fill('Compare')
+  const header = chat.locator('[data-chat-panel] header').first()
+  await header.dispatchEvent('dragover', { dataTransfer: transfer })
+  await expect(chat.getByText('Drop images to attach')).toBeVisible()
+  await header.dispatchEvent('drop', { dataTransfer: transfer })
+  await expect(chat.getByText('Drop images to attach')).toHaveCount(0)
+  await expect(chips).toHaveCount(3)
+  await expect(chips.nth(0)).toHaveAttribute('title', 'red.png')
+  await expect(chips.nth(2)).toContainText('green.png')
+  await session.shot('composer-image-chips')
+
+  await chat.getByRole('button', { name: 'Remove red.png' }).click()
+  await expect(chips).toHaveCount(2)
+  await expect(chips.nth(0)).toHaveAttribute('title', 'blue.png')
+  await expect(chips.nth(1)).toHaveAttribute('title', 'green.png')
+
+  await field.press('End')
+  await field.press('Backspace')
+  await field.press('Backspace')
+  await expect(chips).toHaveCount(1)
+  const attached = chat.getByRole('list', { name: 'Attached images' })
+  await expect(attached.getByRole('img', { name: 'green.png' })).toBeVisible()
+
+  await field.press('Enter')
+  const { turn } = await cancelWhileStarting(session, 0)
+  expect(turn.prompt).toBe('Compare [Image 1]')
+  expect(turn.attachments?.map((image) => image.name)).toEqual(['blue.png', 'green.png'])
+  const message = chat.locator(`[data-user-message="${turn.id}"]`)
+  await expect(message).toHaveText('Compare blue.png')
+  await expect(message.locator('[data-image-ref]')).toHaveAttribute('title', 'blue.png')
+  await expect(field).toHaveText('')
+})
+
+test('a message of images alone sends them with the default prompt', async ({ launch }) => {
+  const session = await launch({ fixture: 'vite' })
+  await session.waitForPreview()
+  const { chat } = session
+  const red = await chat.evaluate(solidImage, {
+    name: 'red.png',
+    width: 40,
+    height: 40,
+    color: '#ff0000',
+  })
+  await chat.locator('input[type="file"]').setInputFiles({
+    name: red.name,
+    mimeType: 'image/png',
+    buffer: Buffer.from(red.data, 'base64'),
+  })
+  const field = chat.getByRole('textbox', { name: /^Message / })
+  await expect(field.locator('[data-image-ref]')).toHaveAttribute('title', 'red.png')
+  await chat.getByRole('button', { name: 'Send' }).click()
+  const { turn } = await cancelWhileStarting(session, 0)
+  expect(turn.prompt).toBe('Use the attached image as a reference.')
+  await expect(field).toHaveText('')
 })
 
 /** Runs in the chat page: answers one permission prompt. */

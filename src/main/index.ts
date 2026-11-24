@@ -1679,7 +1679,7 @@ const EDITING_TEXT = `(() => {
   const el = document.activeElement
   if (!el) return false
   // The chat box keeps focus after sending; empty, it has no typing to undo.
-  if (el.hasAttribute('data-undo-passthrough') && el.value === '') return false
+  if (el.hasAttribute('data-undo-passthrough') && (el.value ?? el.textContent) === '') return false
   if (el.isContentEditable || el.tagName === 'TEXTAREA') return true
   return el.tagName === 'INPUT' && !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file'].includes(el.type)
 })()`

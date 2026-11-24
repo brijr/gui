@@ -1,13 +1,4 @@
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  type RefObject,
-  type SyntheticEvent,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-} from 'react'
+import { type ReactNode, type RefObject, useEffect, useId, useRef, useState } from 'react'
 import { commandLabel, commandQuery, filterCommands, insertCommand } from '../../../shared/commands'
 import type { AgentCommand } from '../../../shared/types'
 import { gui } from '../lib/api'
@@ -23,17 +14,11 @@ function awaitingInput(text: string, commands: AgentCommand[]) {
 interface CommandMenu {
   /** The menu (or the chosen command's input hint) to draw above the message box */
   element: ReactNode
-  /** Props for the message box, which keeps focus and points at the highlighted command */
-  inputProps: {
-    role?: 'combobox'
-    'aria-expanded'?: boolean
-    'aria-autocomplete'?: 'list'
-    'aria-controls'?: string
-    'aria-activedescendant'?: string
-    onSelect(event: SyntheticEvent<HTMLTextAreaElement>): void
-  }
+  /** Attributes for the message box, which keeps focus and points at the highlighted command */
+  inputAttributes: Record<string, string>
+  noteCaret(text: string, at: number): void
   /** Handles ↑/↓, Enter, Tab and Esc while the menu is open; true when it took the key */
-  onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): boolean
+  onKeyDown(event: KeyboardEvent): boolean
 }
 
 /**
@@ -51,8 +36,8 @@ export function useCommandMenu({
 }: {
   text: string
   commands: AgentCommand[]
-  /** The message box, to read and place the caret */
-  input: RefObject<HTMLTextAreaElement | null>
+  /** The message box, to place the caret */
+  input: RefObject<{ setCaret(at: number): void } | null>
   setText(text: string): void
   send(): void
 }): CommandMenu {
@@ -115,18 +100,13 @@ export function useCommandMenu({
     const next = insertCommand(text, at, command)
     setText(next.text)
     setCaret({ text: next.text, at: next.caret })
-    // After React writes the new value, which would leave the caret at the end.
-    requestAnimationFrame(() => input.current?.setSelectionRange(next.caret, next.caret))
+    requestAnimationFrame(() => input.current?.setCaret(next.caret))
   }
 
-  const onSelect = (event: SyntheticEvent<HTMLTextAreaElement>) => {
-    const box = event.currentTarget
-    const at = box.selectionStart === box.selectionEnd ? box.selectionStart : -1
-    setCaret({ text: box.value, at })
-  }
+  const noteCaret = (value: string, position: number) => setCaret({ text: value, at: position })
 
-  const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (!open || event.nativeEvent.isComposing) return false
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (!open || event.isComposing) return false
     const command = shown[activeIndex]
     if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && shown.length > 0) {
       const step = event.key === 'ArrowDown' ? 1 : -1
@@ -212,16 +192,16 @@ export function useCommandMenu({
   return {
     element,
     // A combobox only while its list shows: otherwise it's the plain message box it looks like.
-    inputProps: activeId
+    inputAttributes: activeId
       ? {
           role: 'combobox',
-          'aria-expanded': true,
+          'aria-expanded': 'true',
           'aria-autocomplete': 'list',
           'aria-controls': listId,
           'aria-activedescendant': activeId,
-          onSelect,
         }
-      : { onSelect },
+      : {},
+    noteCaret,
     onKeyDown,
   }
 }

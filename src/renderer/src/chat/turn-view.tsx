@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useLayoutEffect, useState } from 'react'
+import { imageRef, imageRefParts } from '../../../shared/image-refs'
 import type { ShortcutId } from '../../../shared/shortcuts'
 import {
   type EditDiff,
@@ -48,6 +49,7 @@ import { PathText } from '../lib/path-text'
 import { Badge } from '../lib/status'
 import { Card, GroupLabel, Thumbnail } from '../lib/surface'
 import { Button, IconButton, PRESS, Spinner, Toggle, withCode } from '../lib/ui'
+import { shortName } from './images'
 import { Markdown } from './markdown'
 import { RecordingClip } from './recording-clip'
 import { focusComposer, setFollowUp, useChat, waitingCard } from './store'
@@ -229,13 +231,38 @@ function UserMessage({ turn }: { turn: Turn }) {
         data-user-message={turn.id}
         className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
       >
-        {turn.prompt}
+        <PromptText text={turn.prompt} images={turn.attachments} />
       </p>
     </MessageBody>
   )
 }
 
 type SteerItem = Extract<TurnItem, { kind: 'steer' }>
+
+function PromptText({ text, images }: { text: string; images?: Turn['attachments'] }) {
+  if (!images?.length) return text
+  const nodes: ReactNode[] = []
+  let at = 0
+  for (const part of imageRefParts(text)) {
+    const image = typeof part === 'number' ? images[part - 1] : undefined
+    if (typeof part === 'string') nodes.push(part)
+    else if (!image) nodes.push(imageRef(part))
+    else
+      nodes.push(
+        <span
+          key={at}
+          title={image.name}
+          data-image-ref={part}
+          className="mx-0.5 inline-flex max-w-56 items-center gap-1 rounded-md border border-line bg-raised py-px pr-1.5 pl-0.5 align-bottom text-small leading-snug"
+        >
+          <img src={image.thumbnail} alt="" className="size-4 shrink-0 rounded-sm object-cover" />
+          <span className="truncate">{shortName(image.name)}</span>
+        </span>,
+      )
+    at += typeof part === 'number' ? imageRef(part).length : part.length
+  }
+  return nodes
+}
 
 /**
  * A message the user steered the reply with, where the agent read it: the user's own bubble,
@@ -250,7 +277,7 @@ function SteerMessage({ item }: { item: SteerItem }) {
           data-steer-message={item.id}
           className="max-w-7/8 whitespace-pre-wrap break-words rounded-lg bg-fill px-3 py-1.5 text-fg"
         >
-          {item.prompt}
+          <PromptText text={item.prompt} images={item.attachments} />
         </p>
       </MessageBody>
     </>

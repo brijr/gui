@@ -456,7 +456,7 @@ test('Enter queues by default and ⌘↩ steers; Send now steers from the queue;
 
   await startSteerable(session, recorded, 'STEER-A first')
   const box = session.chat.locator('[data-composer]')
-  await expect(box).toHaveAttribute('placeholder', 'Queue a message…')
+  await expect(box).toHaveAttribute('aria-placeholder', 'Queue a message…')
   await box.fill('STEER-B from Enter')
   const button = session.chat.getByRole('button', { name: 'Queue message' })
   await expect(button).toHaveAttribute('title', 'Queue · ⌘↩ to send now')
@@ -467,7 +467,7 @@ test('Enter queues by default and ⌘↩ steers; Send now steers from the queue;
     async () => prompts(await queued(session)).join('|') === 'STEER-B from Enter',
     'B to be queued',
   )
-  await expect(box).toHaveValue('')
+  await expect(box).toHaveText('')
 
   // ⌘↩ sends into the reply under way instead.
   await box.fill('STEER-C with cmd')
@@ -476,7 +476,7 @@ test('Enter queues by default and ⌘↩ steers; Send now steers from the queue;
     async () => steeredInto(await session.chatSnapshot()).join('|') === 'STEER-C with cmd',
     'C to steer',
   )
-  await expect(box).toHaveValue('')
+  await expect(box).toHaveText('')
   expect(prompts(await queued(session))).toEqual(['STEER-B from Enter'])
 
   // Send now on a queued row puts it into the reply too.
@@ -522,14 +522,14 @@ test('Enter queues by default and ⌘↩ steers; Send now steers from the queue;
   await box.fill('STEER-D held while asked')
   await box.press('Meta+Enter')
   await waitFor(async () => recorded().includes('ANSWER allow'), 'the card to be allowed')
-  await expect(box).toHaveValue('STEER-D held while asked')
+  await expect(box).toHaveText('STEER-D held while asked')
   expect(await queued(session)).toEqual([])
   expect(steeredInto(await session.chatSnapshot(), 1)).toEqual([])
   await expect.poll(allowItem).toBe(false)
 
   // The reply goes on and ends with the draft still there, never sent.
   const after = await waitForIdle(session, 2)
-  await expect(box).toHaveValue('STEER-D held while asked')
+  await expect(box).toHaveText('STEER-D held while asked')
   expect(after.meta.queue).toEqual([])
   expect(steeredInto(after, 1)).toEqual([])
   expect(recorded().filter((text) => text.includes('STEER-D'))).toEqual([])
@@ -566,7 +566,7 @@ test('with Steer chosen in Settings, Enter steers and ⌘↩ queues', async ({ l
 
   await startSteerable(session, recorded, 'SWAP-A first')
   const box = session.chat.locator('[data-composer]')
-  await expect(box).toHaveAttribute('placeholder', 'Steer the agent…')
+  await expect(box).toHaveAttribute('aria-placeholder', 'Steer the agent…')
   await box.fill('SWAP-B from Enter')
   await expect(session.chat.getByRole('button', { name: 'Steer message' })).toHaveAttribute(
     'title',
@@ -602,7 +602,7 @@ test('an agent that takes no message mid-reply always queues, and keeps Send nex
 
   // Enter queues, and so does ⌘↩: there's no reply to steer.
   const box = session.chat.locator('[data-composer]')
-  await expect(box).toHaveAttribute('placeholder', 'Queue a message…')
+  await expect(box).toHaveAttribute('aria-placeholder', 'Queue a message…')
   await box.fill('PLAIN-B from Enter')
   const button = session.chat.getByRole('button', { name: 'Queue message' })
   await expect(button).toHaveAttribute('title', 'Queue message (↩)')

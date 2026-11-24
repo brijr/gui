@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { MAX_IMAGES } from '../../../shared/bounded'
 import { applyTurnUpdate, type ChatTurnUpdate } from '../../../shared/chat-transport'
+import { dropImageRef, imageRef, writtenText } from '../../../shared/image-refs'
 import type {
   ChatFloat,
   ChatMeta,
@@ -11,7 +12,7 @@ import type {
   Turn,
 } from '../../../shared/types'
 import { gui } from '../lib/api'
-import type { DraftImage } from './images'
+import { type DraftImage, ImageError, imageFiles, prepareImage } from './images'
 import { applyInOrder, forgetSeen, type Move, markSeen, rowKeys, transition } from './transitions'
 
 interface ChatStore {
@@ -23,6 +24,7 @@ interface ChatStore {
   draft: string
   /** Images attached to the draft, already downscaled; kept here for the same reason */
   attachments: DraftImage[]
+  pendingImages: number
   recordings: RecordingAttachment[]
   /** The earlier turn the draft follows up on (its Follow up button), by id */
   followUp: string | null
@@ -51,6 +53,7 @@ export const useChat = create<ChatStore>(() => ({
   turnIds: [],
   draft: '',
   attachments: [],
+  pendingImages: 0,
   recordings: [],
   followUp: null,
   notice: null,
@@ -152,9 +155,44 @@ export function dismissProblems(ids: string[]) {
   useChat.setState({ dismissedProblems: ids })
 }
 
-export function addAttachments(images: DraftImage[]) {
+interface ComposerEditor {
+  insertImages(numbers: number[]): void
+}
+
+let composerEditor: ComposerEditor | null = null
+
+export function setComposerEditor(editor: ComposerEditor | null, leaving?: ComposerEditor) {
+  if (editor || composerEditor === leaving) composerEditor = editor
+}
+
+function attachImages(images: DraftImage[]) {
   if (images.length === 0) return
-  useChat.setState(({ attachments }) => ({ attachments: [...attachments, ...images] }))
+  const { attachments, draft } = useChat.getState()
+  useChat.setState({ attachments: [...attachments, ...images] })
+  const numbers = images.map((_, i) => attachments.length + i + 1)
+  if (composerEditor) composerEditor.insertImages(numbers)
+  else
+    setDraft(`${draft}${draft && !/\s$/.test(draft) ? ' ' : ''}${numbers.map(imageRef).join(' ')} `)
+}
+
+export async function attachFiles(files: Iterable<File>, canvas: boolean) {
+  const { images, rejected } = imageFiles(files)
+  const { attachments, pendingImages } = useChat.getState()
+  const room = Math.max(0, MAX_IMAGES - attachments.length - pendingImages)
+  const accepted = images.slice(0, room)
+  setNotice(images.length > room ? `Up to ${MAX_IMAGES} images per message.` : (rejected ?? null))
+  const settle = (change: number) =>
+    useChat.setState(({ pendingImages }) => ({ pendingImages: pendingImages + change }))
+  settle(accepted.length)
+  for (const file of accepted) {
+    try {
+      attachImages([await prepareImage(file, canvas)])
+    } catch (error) {
+      setNotice(error instanceof ImageError ? error.message : `Couldn’t attach ${file.name}.`)
+    } finally {
+      settle(-1)
+    }
+  }
 }
 
 /**
@@ -181,9 +219,13 @@ export function removeRecordings(ids: string[], discard = false) {
 }
 
 export function removeAttachments(ids: string[]) {
-  useChat.setState(({ attachments }) => ({
+  const { attachments, draft } = useChat.getState()
+  const removed = attachments.flatMap((image, i) => (ids.includes(image.id) ? [i + 1] : []))
+  if (removed.length === 0) return
+  useChat.setState({
     attachments: attachments.filter((image) => !ids.includes(image.id)),
-  }))
+    draft: removed.reduceRight(dropImageRef, draft),
+  })
 }
 
 /** An image main prepared for the draft, such as a screenshot of the preview. */
@@ -192,7 +234,9 @@ function attachFromMain(image: ImageAttachment) {
     setNotice(`Up to ${MAX_IMAGES} images per message.`)
     return
   }
-  addAttachments([{ ...image, id: crypto.randomUUID() }])
+  attachImages([
+    { ...image, id: crypto.randomUUID(), size: Math.floor((image.data.length * 3) / 4) },
+  ])
 }
 
 /**
@@ -281,7 +325,7 @@ export function noteSend(
   recordings: string[] = [],
   followUp: string | null = null,
 ) {
-  sent = { prompt: text.trim(), images, recordings, followUp, at: performance.now() }
+  sent = { prompt: writtenText(text), images, recordings, followUp, at: performance.now() }
 }
 
 /**
@@ -313,7 +357,7 @@ export function settleSend(
     return
   }
   // Already risen (or rising, its update about to apply): this only finds it done.
-  applyInOrder(() => clearSent(text.trim(), images, recordings, followUp))
+  applyInOrder(() => clearSent(writtenText(text), images, recordings, followUp))
 }
 
 /** Takes the sent message if `prompt` is it, still fresh. */
@@ -336,7 +380,7 @@ function clearSent(
   followUp: string | null,
 ) {
   const { draft } = useChat.getState()
-  if (draft.trim() === prompt) setDraft('')
+  if (writtenText(draft) === prompt) setDraft('')
   if (followUp && useChat.getState().followUp === followUp) setFollowUp(null)
   removeAttachments(images)
   removeRecordings(recordings)

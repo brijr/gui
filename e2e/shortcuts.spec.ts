@@ -568,7 +568,11 @@ test('every shortcut in the registry is in the app menu, and ⌘/ lists them all
       window.addEventListener('keydown', record, { once: true })
     })
     await field.press('Meta+d')
-    await expect(field).toHaveValue('keep this')
+    await expect
+      .poll(() =>
+        field.evaluate((el) => (el instanceof HTMLInputElement ? el.value : el.textContent)),
+      )
+      .toBe('keep this')
     expect(
       await page.evaluate(() => (window as unknown as { guiPrevented?: boolean }).guiPrevented),
     ).toBe(false)
@@ -741,7 +745,7 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   await waitingCard(session, 'npm run step-2')
   await composer.fill('scratch that')
   await composer.press('Meta+Backspace')
-  await expect(composer).toHaveValue('')
+  await expect(composer).toHaveText('')
   await sleep(300)
   expect(outcomes()).toHaveLength(1)
   await composer.press('Meta+Backspace')
@@ -755,7 +759,7 @@ test('⌘↩ and ⌘⌫ answer the waiting card once, never with Always, and not
   await composer.fill('next, the header')
   await composer.press('Meta+Enter')
   expect((await answered(outcomes, 3))[2]?.outcome.optionId).toBe('allow')
-  await expect(composer).toHaveValue('next, the header')
+  await expect(composer).toHaveText('next, the header')
   expect((await session.chatSnapshot()).meta.queue).toEqual([])
 
   // Agent → Don't Allow, from the menu (or the key outside the chat).
@@ -923,7 +927,7 @@ test('⌘1 to ⌘8 show a tab by its place and ⌘9 the last, from any page; ⌃
   const box = session.chat.getByRole('textbox')
   await box.focus()
   expect(await keysTaken(session.chat, pressed), 'the message box').toEqual(untaken)
-  await expect(box).toHaveValue('')
+  await expect(box).toHaveText('')
   const preview = await session.previewPage()
   await preview.locator('body').focus()
   expect(await keysTaken(preview, pressed), "the preview's page").toEqual(untaken)

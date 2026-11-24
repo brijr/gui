@@ -301,7 +301,7 @@ test('large revisioned Markdown updates stay responsive, retain permission/redo 
   expect(metrics.longTasks.length).toBeLessThanOrEqual(4)
   expect(metrics.longestTask).toBeLessThan(200)
   expect(inputElapsedMs).toBeLessThan(1000)
-  await expect(session.chat.locator('[data-composer]')).toHaveValue('The composer still works.')
+  await expect(session.chat.locator('[data-composer]')).toHaveText('The composer still works.')
 
   // An oversized unfinished fence switches to cheap text, then completion resolves late
   // references and the complete table/code syntax through the worker's whole-document parse.
