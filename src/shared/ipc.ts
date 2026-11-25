@@ -3,6 +3,7 @@ import type { BoardCamera, FramePreset, SharpRequest } from './board'
 import type { ChatTurnUpdate } from './chat-transport'
 import type { FindCommand, FindResult } from './find'
 import type { GitHubState } from './github'
+import type { StyleKitId } from './style-kits'
 import type { SymbolImages } from './symbols'
 import type {
   AgentId,
@@ -104,6 +105,8 @@ export const Invoke = {
   newOutsideToken: 'settings:outside-token',
   copyOutsideSetup: 'settings:outside-setup',
   boardChatCover: 'board:chat-cover',
+  boardKitInUse: 'board:kit-in-use',
+  boardUseKit: 'board:use-kit',
   boardSharpen: 'board:sharpen',
   getRulers: 'rulers:get',
 } as const
@@ -469,6 +472,10 @@ export interface GuiApi {
   boardCamera(camera: BoardCamera, board?: string): void
   /** Where the floating chat covers the window's content (CSS px), or null when it doesn't */
   boardChatCover(): Promise<Rect | null>
+  /** The style kit this canvas's assets/ carries, or null */
+  boardKitInUse(): Promise<StyleKitId | null>
+  /** Starts the empty canvas from a style kit, or takes its kit away with null; rejects with why not */
+  boardUseKit(id: StyleKitId | null): Promise<void>
   /**
    * Part of a frame of canvas `board` rendered sharper than its thumbnail, for the board
    * zoomed in: PNG bytes, or null when it couldn't be (or was cancelled with `token`)

@@ -178,6 +178,13 @@ describe('what the agent is told about text edits', () => {
       }
     }
   })
+
+  test('the canvas prompt names the kit stylesheet and allows shared files in assets/', () => {
+    const text = preamble(true, true)
+    expect(text).toContain('assets/kit-<id>.css')
+    expect(text).toContain('may link shared files in assets/')
+    expect(preamble(false, true)).toContain('assets/kit-<id>.css')
+  })
 })
 
 describe('following up on a text edit', () => {

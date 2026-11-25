@@ -91,6 +91,8 @@ const api: GuiApi = {
   renameBoard: send(Send.renameBoard),
   boardCamera: send(Send.boardCamera),
   boardChatCover: () => legacyInvoke(Invoke.boardChatCover),
+  boardKitInUse: () => legacyInvoke(Invoke.boardKitInUse),
+  boardUseKit: (id) => legacyInvoke(Invoke.boardUseKit, id),
   boardSharpen: (token, board, request) => legacyInvoke(Invoke.boardSharpen, token, board, request),
   boardSharpenCancel: send(Send.boardSharpenCancel),
   boardOpenFrame: send(Send.boardOpenFrame),

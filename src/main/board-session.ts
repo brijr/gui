@@ -39,6 +39,14 @@ import {
   pastePlaces,
 } from '../shared/board-clipboard'
 import { MAX_UNDO_BYTES } from '../shared/bounded'
+import {
+  kitBrand,
+  kitCss,
+  kitFrameHtml,
+  kitStylesheetName,
+  STYLE_KITS,
+  type StyleKitId,
+} from '../shared/style-kits'
 import type { BoardFrame, BoardState } from '../shared/types'
 import { writeFileAtomic } from './atomic-file'
 import { thumbsDir, thumbsUrl, writeManifest } from './board'
@@ -406,6 +414,54 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
   /** A new frame with its page written; the user's (undoable) or the agent's. */
   create(spec: NewFrame, user = true): Promise<BoardFrameLayout> {
     return this.mutations.run(() => this.createFrame(spec, user, !user))
+  }
+
+  /** The kit whose brand.md and stylesheet are both still exactly as shipped. */
+  async kitInUse(): Promise<StyleKitId | null> {
+    const brand = await readFile(join(this.root, 'assets', 'brand.md'), 'utf8').catch(() => null)
+    for (const kit of STYLE_KITS) {
+      if (brand !== kitBrand(kit)) continue
+      const css = await readFile(join(this.root, 'assets', kitStylesheetName(kit)), 'utf8').catch(
+        () => null,
+      )
+      if (css === kitCss(kit)) return kit.id
+    }
+    return null
+  }
+
+  /** Starts an empty canvas from a kit (or clears the shipped kit files for null); never touches a file a person wrote. */
+  async applyKit(id: StyleKitId | null): Promise<BoardFrameLayout | null> {
+    const kit = STYLE_KITS.find((k) => k.id === id)
+    if (id !== null && !kit) throw new Error('Unknown style kit.')
+    return this.mutations.run(async () => {
+      if (this.manifest.frames.length) throw new Error('Kits start an empty canvas.')
+      const dir = join(this.root, 'assets')
+      const shipped = new Set(STYLE_KITS.flatMap((k) => [kitCss(k), kitBrand(k)]))
+      const found: string[] = []
+      const names = (
+        await readdir(dir).catch((error) => {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [] as string[]
+          throw error
+        })
+      ).filter((n) => n === 'brand.md' || /^kit-.*\.css$/.test(n))
+      for (const name of names) {
+        const text = await readFile(join(dir, name), 'utf8').catch(() => null)
+        if (text === null) continue
+        if (!shipped.has(text))
+          throw new Error(`This canvas already has its own assets/${name}. Move it to use a kit.`)
+        found.push(name)
+      }
+      for (const name of found) await rm(join(dir, name), { force: true })
+      if (!kit) return null
+      await writeFileAtomic(join(dir, kitStylesheetName(kit)), kitCss(kit))
+      await writeFileAtomic(join(dir, 'brand.md'), kitBrand(kit))
+      const frame = await this.createFrame(
+        { name: `${kit.name} kit`, html: kitFrameHtml(kit), width: 1280, height: 960 },
+        true,
+      )
+      this.select([frame.id])
+      return frame
+    })
   }
 
   private async createFrame(

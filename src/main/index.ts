@@ -60,6 +60,7 @@ import {
   type ShortcutSpec,
   VIEWPORT_SHORTCUTS,
 } from '../shared/shortcuts'
+import { isStyleKitId } from '../shared/style-kits'
 import {
   type CustomAgentEntry,
   type ImageAttachment,
@@ -1109,6 +1110,12 @@ function registerIpc() {
   })
   handleLegacy(Invoke.getLogs, (event) => tabFor(event)?.logsOutput() ?? NO_OUTPUT)
   handleLegacy(Invoke.boardChatCover, (event) => tabFor(event)?.chatCover() ?? null)
+  handleLegacy(Invoke.boardKitInUse, (event) => tabFor(event)?.boardKitInUse() ?? null)
+  handleLegacy(Invoke.boardUseKit, async (event, id: unknown) => {
+    if (id !== null && !isStyleKitId(id))
+      throw new IpcRequestError('invalid_request', 'Invalid style kit.')
+    await tabFor(event)?.boardUseKit(id)
+  })
   handleLegacy(Invoke.boardSharpen, (event, token: unknown, board: unknown, request: unknown) => {
     // The board is in the window's chrome; frames' pages and chats can't ask.
     const win = windowFor(event)

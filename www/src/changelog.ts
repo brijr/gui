@@ -14,6 +14,7 @@ export const releases: Release[] = [
     version: '0.1.0-alpha.32',
     date: '2026-11-25',
     changes: [
+      'Start an empty canvas from a style kit: Neutral, Editorial, Soft or Mono. The kit’s stylesheet and rules go in the canvas’s assets with a sample frame, and the agent styles every frame from them, so editing the stylesheet restyles them all.',
       'On Linux, the dock and app menu show Gui’s icon. They showed a placeholder because the package shipped the icon at a size desktops never look up.',
     ],
   },

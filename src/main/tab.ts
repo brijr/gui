@@ -44,6 +44,7 @@ import { REVEAL_IN_FILES, YOUR_COMPUTER } from '../shared/platform'
 import { PreviewText } from '../shared/preview-text'
 import { SHORTCUTS } from '../shared/shortcuts'
 import { replyRunning } from '../shared/stop-question'
+import type { StyleKitId } from '../shared/style-kits'
 import {
   type AgentId,
   agentName,
@@ -1181,6 +1182,18 @@ export class ProjectTab implements ChatPanelOwner {
 
   boardArrange(updates: FrameArrangement[]) {
     return this.resources.board?.arrange(updates, true)
+  }
+
+  /** The style kit this canvas carries, for the empty canvas's kit picker. */
+  async boardKitInUse() {
+    return (await this.resources.board?.kitInUse()) ?? null
+  }
+
+  /** Starts the empty canvas from a style kit (null takes the shipped one away); rejects with why not. */
+  async boardUseKit(id: StyleKitId | null) {
+    const board = this.resources.board
+    if (!board) throw new Error('No canvas open.')
+    await board.applyKit(id)
   }
 
   /**

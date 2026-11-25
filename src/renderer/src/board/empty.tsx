@@ -4,6 +4,7 @@ import { InlineError } from '../lib/field'
 import { Card } from '../lib/surface'
 import { PromptButton, Spinner } from '../lib/ui'
 import { sendStarter } from './intents'
+import { KitGallery } from './kits'
 
 /** How long a sent starter waits to see the agent start before the starters come back. */
 const SENT_WAIT_MS = 10_000
@@ -81,6 +82,7 @@ export function EmptyBoard({ working }: { working: boolean }) {
           ))}
         </ul>
         {error && <InlineError>{error}</InlineError>}
+        <KitGallery disabled={busy} />
       </Card>
     </div>
   )
