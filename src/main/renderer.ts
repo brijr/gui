@@ -4,7 +4,7 @@ import { appEnding, sendCrashReport } from './crash-reports'
 import { openExternal } from './desktop-open'
 import { RendererExits } from './renderer-exits'
 
-export type RendererPage = 'index' | 'chat' | 'settings' | 'pick' | 'guides'
+export type RendererPage = 'index' | 'chat' | 'settings' | 'pick' | 'guides' | 'theme'
 
 /** Preload for Gui's own UI; the preview never gets it. */
 export const PRELOAD = join(import.meta.dirname, '../preload/index.cjs')

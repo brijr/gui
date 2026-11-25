@@ -61,6 +61,7 @@ export const OUTSIDE_TOOL_NAMES = [
   'preview_wait',
   'preview_point',
   'preview_guides',
+  'preview_theme',
   'preview_navigate',
   'preview_back',
   'preview_reload',

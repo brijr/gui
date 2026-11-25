@@ -19,6 +19,7 @@ import {
 import { type ChatTurnUpdate, TurnPublisher } from '../shared/chat-transport'
 import { invokedCommand, parseCommands, sendsContext, takesContext } from '../shared/commands'
 import { editDiffs } from '../shared/edit-diff'
+import type { ThemeSnapshot } from '../shared/theme-tokens'
 import {
   type AgentCommand,
   type AgentId,
@@ -90,6 +91,7 @@ import {
 import {
   buildPrompt,
   describeFollowUp,
+  describePalette,
   describeSteeredBefore,
   PROMPT_VERSION,
   type PromptBoard,
@@ -99,6 +101,7 @@ import {
   steeredPrompts,
   TEXT_EDIT_PROMPT,
   TEXT_EDITED_PROMPT,
+  THEME_EDITED_PROMPT,
 } from './prompt'
 import { recordingBlocks } from './recording-prompt'
 import type { Recordings } from './recordings'
@@ -132,6 +135,8 @@ interface ChatEvents {
   turnEnd: [turn: Turn]
   /** A turn that asked the agent to get the app running has ended (after `turnEnd`) */
   startupFixEnd: [turn: Turn]
+  /** The project's files were changed here: an agent turn, a write of the user's own, an undo or a redo */
+  filesChanged: []
 }
 
 export interface ChatOptions {
@@ -150,6 +155,8 @@ export interface ChatOptions {
   viewport: () => PromptViewport | null
   /** The user's guides over the preview while the rulers show them, which each prompt names */
   guides?: () => PromptGuides | null
+  /** The project's theme variables, which a session is told once and again when they change */
+  palette?: () => ThemeSnapshot | null
   /** The canvas this chat is on, as each prompt describes it; absent in a project */
   board?: () => PromptBoard | null
   /** Why the app won't start, as the agent is told it (`startupReport`) */
@@ -303,6 +310,17 @@ export class ChatController extends EventEmitter<ChatEvents> {
   /** Bumped by reset; work started in an older epoch must not touch current state. */
   private epoch = 0
   /** False after dispose or a reset that bumped `epoch`; late async work must not apply. */
+  /** The palette block while this session hasn't had it as it is now; null otherwise. */
+  private paletteToSend() {
+    const snapshot = this.options.palette?.()
+    if (!snapshot?.variables.length) return null
+    const text = describePalette(snapshot)
+    const key = text.replaceAll(/theme_[0-9a-f]{8}/g, 'theme')
+    if (key === this.lastPaletteSent) return null
+    this.lastPaletteSent = key
+    return text
+  }
+
   private live(epoch = this.epoch) {
     return !this.disposed && this.epoch === epoch
   }
@@ -325,6 +343,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * they're available, so it doesn't keep believing it can't see the preview.
    */
   private primed: 'tools' | 'plain' | null = null
+  /** The palette this session was last told, without its random tag */
+  private lastPaletteSent: string | null = null
   /** Saved session to resume; kept until an agent actually starts. */
   private resumeSessionId: string | null = null
   private persistTimer: NodeJS.Timeout | null = null
@@ -931,12 +951,39 @@ export class ChatController extends EventEmitter<ChatEvents> {
    * `write` didn't write; the caller hands the edit to the agent then.
    */
   async writeTextEdit(edit: TextEdit, file: string, write: () => Promise<boolean>) {
+    return this.writeOwnTurn(
+      'a text edit',
+      { prompt: TEXT_EDITED_PROMPT, textEdit: edit, editedFile: this.displayPath(file) },
+      write,
+    )
+  }
+
+  /**
+   * Writes theme values into the project's CSS (`write`, all or none) as a turn of the user's
+   * own, the way `writeTextEdit` does: false, with nothing recorded, when a turn, undo or redo
+   * is running here or on this folder in another tab, or `write` didn't write.
+   */
+  async writeThemeEdits(edits: NonNullable<Turn['themeEdits']>, write: () => Promise<boolean>) {
+    if (!edits.length) return false
+    return this.writeOwnTurn(
+      'a theme edit',
+      { prompt: THEME_EDITED_PROMPT, themeEdits: edits },
+      write,
+    )
+  }
+
+  /** A turn of the user's own: checkpointed around `write`, with no agent. */
+  private async writeOwnTurn(
+    what: string,
+    { prompt, ...fields }: Pick<Turn, 'prompt' | 'textEdit' | 'editedFile' | 'themeEdits'>,
+    write: () => Promise<boolean>,
+  ) {
     if (this.lock || this.disposed) return false
     const record: TurnRecord = {
       turn: {
         id: randomUUID(),
         index: this.records.length,
-        prompt: TEXT_EDITED_PROMPT,
+        prompt,
         context: [],
         items: [],
         status: 'running',
@@ -944,8 +991,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         startedAt: Date.now(),
         endedAt: null,
         changes: null,
-        textEdit: edit,
-        editedFile: this.displayPath(file),
+        ...fields,
         reverted: false,
       },
       command: null,
@@ -967,10 +1013,10 @@ export class ChatController extends EventEmitter<ChatEvents> {
       await sleep(0)
       // An agent in another tab on this folder is mid-turn: its checkpoint would take this in.
       if (!free || !this.live(epoch)) return false
-      record.before = await this.checkpoints.snapshot('before a text edit').catch(() => null)
+      record.before = await this.checkpoints.snapshot(`before ${what}`).catch(() => null)
       if (!record.before || !this.live(epoch)) return false
       if (!(await write())) return false
-      record.after = await this.checkpoints.snapshot('after a text edit').catch(() => null)
+      record.after = await this.checkpoints.snapshot(`after ${what}`).catch(() => null)
       if (record.after) record.turn.changes = await this.turnChanges(record.before, record.after)
       if (!this.live(epoch)) return true
       record.turn.status = 'done'
@@ -983,6 +1029,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.redoPoint = null
       this.patchMeta({ redoTurnIds: [] })
       this.flushTurn(record)
+      this.emit('filesChanged')
       return true
     } finally {
       slot.release()
@@ -1214,6 +1261,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       : null
     const blocks = buildPrompt({
       text: item.prompt,
+      palette: this.paletteToSend(),
       selection: payload.selection,
       viewport: payload.viewport,
       guides: this.options.guides?.() ?? null,
@@ -1419,6 +1467,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.noteLeftAlone(record, 'Undo', alone)
       // The layout the turns left (their last checkpoint), back to how it was before them.
       await this.restoreLayout(baseline?.sha ?? latest, before)
+      if (this.live(epoch)) this.emit('filesChanged')
     } finally {
       if (this.lock === token) this.lock = null
       // Messages sent while it ran waited for the files to settle.
@@ -1499,6 +1548,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       this.redoPoint = null
       this.patchMeta({ redoTurnIds: [] })
       this.schedulePersist()
+      this.emit('filesChanged')
     } finally {
       if (this.lock === token) this.lock = null
       this.drainQueue()
@@ -1849,6 +1899,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
           : buildPrompt({
               // A command is placed once everything else is in (placeCommand).
               text: record.command ? null : record.turn.prompt,
+              palette: record.command ? null : this.paletteToSend(),
               selection,
               viewport,
               guides: this.options.guides?.() ?? null,
@@ -1988,6 +2039,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       if (live()) {
         if (this.meta.status === 'working') this.patchMeta({ status: 'ready' })
         this.emit('turnEnd', record.turn)
+        if (status === 'done' && record.turn.changes?.length) this.emit('filesChanged')
         if (record.fix === 'startup') this.emit('startupFixEnd', record.turn)
         // Settled (lock released, after snapshot taken), so the next message can start. Stop,
         // an error, a declined trust prompt, or a turn the agent refused or cut short holds
@@ -2189,6 +2241,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
         if (this.primed === variant) this.primedAgent = agent
       } else {
         this.primed = null
+        this.lastPaletteSent = null
         if (this.hadSession) {
           if (record) this.pushNewSessionNotice(record)
           else this.newSessionNotice = true

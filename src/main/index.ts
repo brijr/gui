@@ -60,6 +60,7 @@ import {
   type ShortcutSpec,
   VIEWPORT_SHORTCUTS,
 } from '../shared/shortcuts'
+import type { ThemeEdit } from '../shared/theme-tokens'
 import {
   type CustomAgentEntry,
   type ImageAttachment,
@@ -855,6 +856,12 @@ const isPoint = (value: unknown): value is { x: number; y: number } =>
   isNumber((value as Record<string, unknown>).x) &&
   isNumber((value as Record<string, unknown>).y)
 
+const isThemeEdit = (value: unknown): value is ThemeEdit => {
+  if (!value || typeof value !== 'object') return false
+  const { name, mode, value: text } = value as Record<string, unknown>
+  return isString(name) && isString(mode) && isString(text) && mode.length <= 200
+}
+
 const SECTIONS: readonly SettingsSection[] = ['agents', 'projects', 'github', 'storage', 'account']
 const STORAGE_KINDS: readonly StorageKind[] = ['chats', 'checkpoints', 'previewData']
 const isRecordOfStrings = (value: unknown): value is Record<string, string> =>
@@ -1523,6 +1530,28 @@ function registerIpc() {
     if (previewTab(event)) toggleRulers()
   })
   on(Send.toggleRulers, () => toggleRulers())
+  on(Send.toggleTheme, (tab, at) => tab.toggleTheme(isPoint(at) ? at : null))
+  /** From the Theme popover's own page only: Keep writes the user's repo. */
+  const onTheme = (channel: string, handler: (tab: ProjectTab, ...args: unknown[]) => void) => {
+    ipcMain.on(channel, (event, ...args: unknown[]) => {
+      const tab = tabFor(event)
+      if (tab?.ownsThemePopover(event.sender)) handler(tab, ...args)
+    })
+  }
+  onTheme(Send.themePreview, (tab, edit) => {
+    if (isThemeEdit(edit)) tab.themePreview({ name: edit.name, mode: edit.mode, value: edit.value })
+  })
+  onTheme(Send.themeKeep, (tab) => void tab.themeKeep())
+  onTheme(Send.themeCancel, (tab) => tab.themeCancel())
+  onTheme(Send.themeMode, (tab, id) => {
+    if (id === null || (isString(id) && id.length <= 200)) tab.themeMode(id)
+  })
+  onTheme(Send.themeDrag, (tab, dx, dy) => {
+    if (isNumber(dx) && isNumber(dy)) tab.themeDrag(dx, dy)
+  })
+  onTheme(Send.themeAskAgent, (tab, name) => {
+    if (name === null || isString(name)) tab.themeAskAgent(name)
+  })
   // The preview's find bar, in the window's chrome.
   onWindow(Send.findInPage, (win, text, forward, fresh) => {
     if (!isString(text) || text.length > MAX_FIND_TEXT) return

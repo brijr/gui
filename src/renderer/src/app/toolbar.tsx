@@ -44,6 +44,7 @@ import {
   Monitor,
   MousePointer,
   MousePointer2,
+  Palette,
   Plus,
   RotateCw,
   Ruler,
@@ -99,14 +100,15 @@ const FRAME_NAME_MIN = 96
 const BOARD_GAP_MIN = 8
 
 /**
- * The order the project toolbar makes room in (toolbar-fit.ts): the viewport, Rulers and
- * Screenshot go into the "…" menu, then the project button drops the branch, then the
+ * The order the project toolbar makes room in (toolbar-fit.ts): the viewport, Rulers, Theme
+ * and Screenshot go into the "…" menu, then the project button drops the branch, then the
  * project's name, then Select. Back, Forward and Reload are the address field's own; Record and the chat
  * button always stay. Shortcuts are in the tooltips, never shown as keys here.
  */
 const PROJECT_STEPS: FitStep[] = [
   { tool: 'viewport', to: 'hidden' },
   { tool: 'rulers', to: 'hidden' },
+  { tool: 'theme', to: 'hidden' },
   { tool: 'screenshot', to: 'hidden' },
   { tool: 'branch', to: 'compact' },
   { tool: 'project', to: 'compact' },
@@ -186,6 +188,8 @@ export function Toolbar({ state }: { state: WindowState }) {
       shortcut: 'rulers',
       checked: preview.rulers,
     })
+  if (!shown('theme'))
+    tools.push({ type: 'checkbox', id: 'theme', label: 'Theme', checked: preview.theme })
   if (!shown('screenshot'))
     tools.push({
       id: 'screenshot',
@@ -231,6 +235,7 @@ export function Toolbar({ state }: { state: WindowState }) {
 
           <div className="flex shrink-0 items-center gap-1">
             {shown('rulers') && <RulersButton on={preview.rulers} />}
+            {shown('theme') && <ThemeButton on={preview.theme} />}
             {shown('select') && (
               <SelectButton unavailable={uncapturable} selecting={preview.selecting} />
             )}
@@ -245,6 +250,7 @@ export function Toolbar({ state }: { state: WindowState }) {
               onChoose={(id, button) => {
                 if (id === 'select') gui.toggleSelect()
                 else if (id === 'rulers') gui.toggleRulers()
+                else if (id === 'theme') themeUnder(button)
                 else if (id === 'screenshot') void screenshotUnder(button)
                 else chooseViewport(id)
               }}
@@ -836,6 +842,25 @@ function RulersButton({ on }: { on: boolean }) {
       onClick={() => gui.toggleRulers()}
     />
   )
+}
+
+/** The Theme popover, under its button: the project's CSS variables, edited live. */
+function ThemeButton({ on }: { on: boolean }) {
+  return (
+    <IconButton
+      label="Theme"
+      icon={Palette}
+      pressed={on}
+      className={HIT_AREA}
+      onClick={(event) => themeUnder(event.currentTarget)}
+    />
+  )
+}
+
+/** Opens the Theme popover with its corner under `button`'s right edge, or closes it. */
+function themeUnder(button: HTMLElement | null) {
+  const box = button?.getBoundingClientRect()
+  gui.toggleTheme(box && { x: box.right, y: box.bottom + MENU_GAP })
 }
 
 function SelectButton({

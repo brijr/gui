@@ -1,4 +1,5 @@
 import type { WebContents } from 'electron'
+import { MAX_THEME_TOOL_CHARS } from '../shared/bounded'
 import {
   CROP_MARGIN,
   type PageRect,
@@ -6,6 +7,7 @@ import {
   pageRectFromViewport,
   viewportRectFrom,
 } from '../shared/coords'
+import type { ThemeSnapshot } from '../shared/theme-tokens'
 import type { ElementContext, Rect, RulerGuide, StartCommandInput } from '../shared/types'
 import { base64Bytes, type DecodedImage, encodeWithin, MAX_AGENT_IMAGE_BYTES } from './agent-image'
 import { CaptureInterrupted } from './errors'
@@ -201,6 +203,8 @@ export interface PreviewToolsDeps extends Omit<PageDeps, 'kind'> {
   variations: (input: VariationsInput) => Promise<string>
   website: WebsiteHost
   guides: GuidesHost
+  /** The project's theme variables from its live preview; null before they are read */
+  theme: () => ThemeSnapshot | null
 }
 
 /** The user's ruler guides over the app's preview (guides.ts), for preview_guides. */
@@ -972,6 +976,12 @@ export class PreviewTools extends PageTools {
     return this.deps.variations(input)
   }
 
+  /** preview_theme: the project's theme variables, as the Theme panel sees them. */
+  theme() {
+    this.assertLoaded()
+    return themeText(this.deps.theme())
+  }
+
   /**
    * preview_guides: changes the user's guides as asked, then reads them with the element edges
    * that nearly line up with them. On the user's app only.
@@ -1037,4 +1047,21 @@ export class PreviewTools extends PageTools {
     this.assertLive()
     return logTail(this.deps.logs(), lines)
   }
+}
+
+/** preview_theme's answer: the snapshot as JSON, its variables cut at MAX_THEME_TOOL_CHARS. */
+export function themeText(snapshot: ThemeSnapshot | null) {
+  if (!snapshot?.variables.length) return 'This page has no CSS variables.'
+  const { variables } = snapshot
+  // Room for the "more" line.
+  let size = JSON.stringify({ ...snapshot, variables: [] }).length + 100
+  let count = 0
+  for (const variable of variables) {
+    size += JSON.stringify(variable).length + 1
+    if (size > MAX_THEME_TOOL_CHARS) break
+    count++
+  }
+  const text = JSON.stringify({ ...snapshot, variables: variables.slice(0, count) })
+  const more = variables.length - count
+  return more ? `${text}\n… ${more} more variables` : text
 }

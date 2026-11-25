@@ -1,3 +1,13 @@
+:root {
+  --brand-bg: #e2e8f0;
+  --brand-fg: #0f172a;
+  --radius: 4px;
+}
+
+.dark {
+  --brand-bg: #1e293b;
+}
+
 body {
   margin: 0;
   padding: 2rem;
@@ -7,9 +17,9 @@ body {
 .counter {
   padding: 0.5rem 1rem;
   border: 1px solid #94a3b8;
-  border-radius: 4px;
-  background-color: #e2e8f0;
-  color: #0f172a;
+  border-radius: var(--radius);
+  background-color: var(--brand-bg);
+  color: var(--brand-fg);
   font-size: 1rem;
   cursor: pointer;
 }

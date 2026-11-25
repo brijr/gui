@@ -110,6 +110,7 @@ export default defineConfig({
           settings: resolve('src/renderer/settings.html'),
           pick: resolve('src/renderer/pick.html'),
           guides: resolve('src/renderer/guides.html'),
+          theme: resolve('src/renderer/theme.html'),
         },
       },
     },

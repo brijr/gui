@@ -1,5 +1,6 @@
 import type { BoardSession } from './board-session'
 import type { ChatController } from './chat'
+import type { DesignTokens } from './design-tokens'
 import type { DevServer } from './dev-server'
 import type { RunningMcpServer } from './mcp-server'
 import type { PreviewTools } from './preview-tools'
@@ -20,6 +21,8 @@ export class ProjectResources {
   recordings: Recordings | null = null
   mcp: RunningMcpServer | null = null
   previewTools: PreviewTools | null = null
+  /** The theme read from the preview, and edits previewed in it (projects only) */
+  designTokens: DesignTokens | null = null
   /** The canvas this is, when it's one rather than a project */
   board: BoardSession | null = null
   /** Watches the files the app starts from, to restart it when they change (start-watch.ts) */
@@ -110,6 +113,7 @@ export class ProjectResources {
       mcp,
       board,
       startWatch,
+      designTokens,
       claimedFile,
       historyFile,
       historyRoot,
@@ -122,6 +126,7 @@ export class ProjectResources {
     this.recordings = null
     this.mcp = null
     this.previewTools = null
+    this.designTokens = null
     this.heldChat = null
     this.claimedFile = null
     this.historyFile = null
@@ -142,6 +147,7 @@ export class ProjectResources {
     const saved = safely(() => chat?.dispose())
     safely(() => mcp?.close())
     safely(() => startWatch?.close())
+    safely(() => designTokens?.dispose())
     const boardSaved = safely(() => board?.dispose())
     // History must remain claimed until the last save completes. Recordings also remain
     // available until chat persistence has captured its references.

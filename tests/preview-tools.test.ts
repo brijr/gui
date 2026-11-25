@@ -28,7 +28,10 @@ class FakeImage implements EncodableImage {
 }
 
 const { encodeWithin, MAX_AGENT_IMAGE_BYTES } = await import('../src/main/agent-image')
-const { changedStyles, PreviewTools, withinBytes } = await import('../src/main/preview-tools')
+const { changedStyles, PreviewTools, themeText, withinBytes } = await import(
+  '../src/main/preview-tools'
+)
+const { MAX_THEME_TOOL_CHARS } = await import('../src/shared/bounded')
 const { describeClip } = await import('../src/main/mcp-preview-tools')
 const { logTail, LOG_LINE_MAX, LOG_TAIL_MAX } = await import('../src/main/startup')
 type Deps = ConstructorParameters<typeof PreviewTools>[0]
@@ -409,4 +412,28 @@ describe("recording_timeline's header", () => {
     expect(header).toContain('1000 ms after frame 149')
     expect(header).not.toContain('Frame timestamps')
   })
+})
+
+test('preview_theme lists a big theme up to its cap and counts the rest', () => {
+  const variables = Array.from({ length: 2000 }, (_, i) => ({
+    name: `--color-${i}`,
+    kind: 'color' as const,
+    values: { default: `oklch(0.5 0.1 ${i})` },
+    resolved: { default: `oklch(0.5 0.1 ${i})` },
+    refersTo: { default: null },
+    uses: 1,
+    locked: null,
+  }))
+  const modes = [
+    { id: 'default', label: 'Default', selector: ':root', how: { kind: 'root' as const } },
+  ]
+  const text = themeText({ modes, variables, appSetsMode: [] })
+  expect(text.length).toBeLessThanOrEqual(MAX_THEME_TOOL_CHARS)
+  const [json, more] = text.split('\n')
+  const listed = JSON.parse(json).variables.length
+  expect(listed).toBeGreaterThan(0)
+  expect(more).toBe(`… ${2000 - listed} more variables`)
+  expect(themeText({ modes, variables: variables.slice(0, 3), appSetsMode: [] })).not.toContain(
+    'more',
+  )
 })

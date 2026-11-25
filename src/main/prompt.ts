@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import type { ContentBlock } from '@agentclientprotocol/sdk'
+import { MAX_PALETTE_PROMPT_CHARS } from '../shared/bounded'
 import { imageRef, withoutImageRefs } from '../shared/image-refs'
+import { foldScales, type ThemeSnapshot, type ThemeVariable } from '../shared/theme-tokens'
 import {
   type ElementContext,
   type ImageAttachment,
@@ -15,7 +17,7 @@ import {
 } from '../shared/types'
 
 /** Re-send updated guidance once when resuming a session primed by an older build. */
-export const PROMPT_VERSION = 11
+export const PROMPT_VERSION = 12
 
 const INTRO = `You are working inside Gui, a visual design tool. The user sees their app running live in a browser preview backed by its dev server with hot reload. In Gui's Design Mode they click elements (or drag out areas) in the preview and ask for interface changes.`
 
@@ -29,6 +31,7 @@ const EDITING = [
   'When an element is selected, its details are in a <selected_element_…> block. An area the user dragged out is in a <selected_area_…> block, with a screenshot of it and the element around it. When several are selected, the request is about all of them together. Source locations are a strong hint but may be approximate — confirm by reading the file.',
   'The user can lay ruler guides over the preview, like in Figma. While they show, a "Guides" line gives their positions in page pixels; when the user asks to line things up, align to those guides.',
   TEXT_EDIT,
+  "The project's theme variables are in a <theme_…> block when it has them. Use these variables for colors, sizes and fonts, never raw values; preview_theme lists them all.",
 ]
 
 /**
@@ -159,6 +162,8 @@ interface PromptOptions {
   viewport: PromptViewport | null
   /** The user's guides, while the rulers show them; null otherwise */
   guides?: PromptGuides | null
+  /** The project's theme variables (describePalette), when the session needs them */
+  palette?: string | null
   /** The canvas this chat is on; null in a project */
   board?: PromptBoard | null
   /** Only for asking the agent to fix them; otherwise they're usually unrelated noise. */
@@ -186,6 +191,7 @@ export function buildPrompt({
   selection,
   viewport,
   guides = null,
+  palette = null,
   board = null,
   problems,
   startup = null,
@@ -204,6 +210,7 @@ export function buildPrompt({
   if (board) blocks.push({ type: 'text', text: describeBoard(board) })
   if (viewport) blocks.push({ type: 'text', text: describeViewport(viewport) })
   if (guides?.guides.length) blocks.push({ type: 'text', text: describeGuides(guides) })
+  if (palette) blocks.push({ type: 'text', text: palette })
   if (selection.length > 1) {
     blocks.push({
       type: 'text',
@@ -451,6 +458,42 @@ export function describeRegion(area: RegionContext, position: PickPosition = nul
   return `<${tag}>\n${lines.join('\n')}\n</${tag}>`
 }
 
+/** The theme's variables, for a prompt: scales fold to one line, and it's cut at the cap. */
+export function describePalette({ modes, variables }: ThemeSnapshot) {
+  const [base] = modes
+  const shown = (v: ThemeVariable, id: string) => v.values[id] ?? v.resolved[id] ?? null
+  const scales = foldScales(variables.map((v) => v.name))
+  const folded = new Set(scales.flatMap((scale) => scale.names))
+  const line = (v: ThemeVariable) => {
+    const first = base ? shown(v, base.id) : null
+    const others = modes
+      .slice(1)
+      .map((mode) => [mode.label, shown(v, mode.id)] as const)
+      .filter(([, value]) => value !== null && value !== first)
+      .map(([label, value]) => `${label}: ${value}`)
+    return `${v.name}: ${first ?? '-'}${others.length ? ` (${others.join(', ')})` : ''}`
+  }
+  const lines = [
+    ...variables.filter((v) => !folded.has(v.name)).map(line),
+    ...scales.map(({ prefix, names }) => {
+      const steps = names.map((name) => name.slice(prefix.length + 1)).sort((a, b) => +a - +b)
+      return `${prefix}-${steps[0]}…${steps[steps.length - 1]} (${names.length} shades)`
+    }),
+  ]
+  const head = `Modes: ${modes.map((mode) => mode.label).join(', ')}`
+  const kept = [head]
+  let size = head.length
+  for (const text of lines) {
+    // Room for the longest "more" line and the fence around the block.
+    if (size + text.length + 1 > MAX_PALETTE_PROMPT_CHARS - 200) break
+    kept.push(text)
+    size += text.length + 1
+  }
+  const more = lines.length - (kept.length - 1)
+  if (more > 0) kept.push(`… ${more} more (preview_theme lists all)`)
+  return fenceUntrusted('theme', kept.join('\n'))
+}
+
 /**
  * Wraps app-derived text (page content, console, dev server output) so it can't fake
  * structure: a random tag it can't close and a fence longer than any backtick run in it.
@@ -473,6 +516,9 @@ export const TEXT_EDIT_PROMPT = 'Change this text.'
  * history and versions): the user's own change, with no agent turn behind it.
  */
 export const TEXT_EDITED_PROMPT = 'Edited text in the preview.'
+
+/** What theme values Gui wrote into the project's CSS itself (Keep) are called in the transcript. */
+export const THEME_EDITED_PROMPT = 'Changed the theme.'
 
 /** A text edit's old and new text, one line each, fenced as everything from the page is. */
 function fenceTextEdit({ before, after }: TextEdit) {

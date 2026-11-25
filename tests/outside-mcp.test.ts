@@ -170,6 +170,7 @@ test('other agents get exactly the allowlisted tools, and nothing that runs comm
       'preview_click',
       'preview_console',
       'preview_guides',
+      'preview_theme',
       'preview_hover',
       'preview_inspect',
       'preview_motion',

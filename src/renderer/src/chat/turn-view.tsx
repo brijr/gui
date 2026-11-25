@@ -117,6 +117,8 @@ export function TurnView({ turn, showRedo }: { turn: Turn; showRedo: boolean }) 
     return (
       <DirectEdit turn={turn} file={turn.editedFile} edit={turn.textEdit} showRedo={showRedo} />
     )
+  if (turn.themeEdits?.length)
+    return <ThemeEditLine turn={turn} edits={turn.themeEdits} showRedo={showRedo} />
   return <AgentTurn turn={turn} showRedo={showRedo} />
 }
 
@@ -369,6 +371,106 @@ function DirectEdit({
   edit: TextEdit
   showRedo: boolean
 }) {
+  const name = file.split('/').at(-1) ?? file
+  return (
+    <OwnEdit
+      turn={turn}
+      label="Text edit"
+      what="text"
+      title={`${textEditLabel(edit)} · ${file}`}
+      showRedo={showRedo}
+    >
+      <Pencil className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+      {/* Short of room, the old text gives way first: the new one is what to check. */}
+      <span className="min-w-8 shrink-[1000] truncate">“{edit.before}”</span>
+      <ArrowRight className="size-3 shrink-0 text-subtle" aria-label="changed to" />
+      <span className="min-w-0 truncate text-fg">“{edit.after}”</span>
+      <span className="shrink-0 text-subtle">· {name}</span>
+    </OwnEdit>
+  )
+}
+
+type ThemeEdits = NonNullable<Turn['themeEdits']>
+
+const themeEditName = ({ name, mode }: ThemeEdits[number]) =>
+  `${name}${mode === 'default' ? '' : ` (${mode})`}`
+
+const themeEditLabel = (edit: ThemeEdits[number]) =>
+  `${themeEditName(edit)}: ${edit.before} → ${edit.after}`
+
+/** Theme values Keep wrote into the project's CSS: one line, the details for more than one. */
+function ThemeEditLine({
+  turn,
+  edits,
+  showRedo,
+}: {
+  turn: Turn
+  edits: ThemeEdits
+  showRedo: boolean
+}) {
+  const [open, setOpen] = useTurnPresentation('result:theme-open', false)
+  const reveal = useReveal(open)
+  const files = [...new Set(edits.map((edit) => edit.file.split('/').at(-1) ?? edit.file))]
+  const [one] = edits
+  return (
+    <OwnEdit
+      turn={turn}
+      label="Theme change"
+      what="theme"
+      title={edits.map((edit) => `${themeEditLabel(edit)} · ${edit.file}`).join('\n')}
+      showRedo={showRedo}
+      details={
+        edits.length > 1 &&
+        open && (
+          <ul className={cn(reveal, 'flex flex-col gap-1 pl-4 text-small text-muted')}>
+            {edits.map((edit) => (
+              <li key={`${edit.mode} ${edit.name}`} className="truncate">
+                {themeEditLabel(edit)} <span className="text-subtle">· {edit.file}</span>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+    >
+      <Pencil className="size-3 shrink-0 text-subtle" aria-hidden="true" />
+      {edits.length === 1 ? (
+        <>
+          <span className="min-w-8 shrink-[1000] truncate">
+            {themeEditName(one)}: {one.before}
+          </span>
+          <ArrowRight className="size-3 shrink-0 text-subtle" aria-label="changed to" />
+          <span className="min-w-0 truncate text-fg">{one.after}</span>
+          <span className="shrink-0 text-subtle">· {files.join(', ')}</span>
+        </>
+      ) : (
+        <Disclosure open={open} onOpenChange={setOpen}>
+          <span className="min-w-0 truncate">
+            {edits.length} theme changes · {files.join(', ')}
+          </span>
+        </Disclosure>
+      )}
+    </OwnEdit>
+  )
+}
+
+/** A change Gui wrote itself for the user, in one line with Undo (and Redo once undone). */
+function OwnEdit({
+  turn,
+  label,
+  what,
+  title,
+  showRedo,
+  details,
+  children,
+}: {
+  turn: Turn
+  label: string
+  what: 'text' | 'theme'
+  title: string
+  showRedo: boolean
+  details?: ReactNode
+  children: ReactNode
+}) {
   const [busy, setBusy] = useTurnPresentation<'undo' | 'redo' | null>('result:busy', null)
   const [error, setError] = useTurnPresentation<string | null>('result:error', null)
   const [confirming, setConfirming] = useTurnPresentation('result:confirm', false)
@@ -381,7 +483,6 @@ function DirectEdit({
       }).length,
   )
   const asking = confirming && later > 0 && !turn.reverted
-  const name = file.split('/').at(-1) ?? file
 
   const run = async (which: 'undo' | 'redo', action: () => Promise<void>) => {
     setBusy(which)
@@ -402,21 +503,16 @@ function DirectEdit({
   return (
     <TurnPresentationScope id={turn.id}>
       <Row rowKey={`${turn.id}:edit`}>
-        <section aria-label="Text edit" data-direct-edit={turn.id} className="flex flex-col gap-2">
+        <section aria-label={label} data-direct-edit={turn.id} className="flex flex-col gap-2">
           <div className="flex min-w-0 items-center gap-2 text-small">
             <p
               className={cn(
                 'flex min-w-0 flex-1 items-center gap-1.5 text-muted',
                 turn.reverted && UNDONE,
               )}
-              title={`${textEditLabel(edit)} · ${file}`}
+              title={title}
             >
-              <Pencil className="size-3 shrink-0 text-subtle" aria-hidden="true" />
-              {/* Short of room, the old text gives way first: the new one is what to check. */}
-              <span className="min-w-8 shrink-[1000] truncate">“{edit.before}”</span>
-              <ArrowRight className="size-3 shrink-0 text-subtle" aria-label="changed to" />
-              <span className="min-w-0 truncate text-fg">“{edit.after}”</span>
-              <span className="shrink-0 text-subtle">· {name}</span>
+              {children}
             </p>
             {turn.reverted ? (
               <span className="flex shrink-0 items-center gap-2">
@@ -443,8 +539,8 @@ function DirectEdit({
                 aria-expanded={later > 0 ? asking : undefined}
                 title={
                   later > 0
-                    ? 'Put the text back, undoing later messages too'
-                    : 'Put the text back as it was'
+                    ? `Put the ${what} back, undoing later messages too`
+                    : `Put the ${what} back as it was`
                 }
                 onClick={() => (later > 0 ? setConfirming(!asking) : undo())}
               >
@@ -452,6 +548,7 @@ function DirectEdit({
               </Button>
             )}
           </div>
+          {details}
           {asking && (
             <div className="flex flex-wrap items-center gap-2">
               <p role="status" className="min-w-0 flex-1 text-small text-pretty text-muted">

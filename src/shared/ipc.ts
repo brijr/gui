@@ -4,6 +4,7 @@ import type { ChatTurnUpdate } from './chat-transport'
 import type { FindCommand, FindResult } from './find'
 import type { GitHubState } from './github'
 import type { SymbolImages } from './symbols'
+import type { ThemeEdit } from './theme-tokens'
 import type {
   AgentId,
   ChatFloat,
@@ -36,6 +37,7 @@ import type {
   StartCommandInput,
   StorageKind,
   TerminalId,
+  ThemePanelState,
   ToolbarMenuItem,
   VariationAction,
   Viewport,
@@ -142,6 +144,13 @@ export const Send = {
   dragVariations: 'pick:variations-drag',
   endDragVariations: 'pick:variations-drag-end',
   toggleRulers: 'rulers:toggle',
+  toggleTheme: 'theme:toggle',
+  themePreview: 'theme:preview',
+  themeKeep: 'theme:keep',
+  themeCancel: 'theme:cancel',
+  themeMode: 'theme:mode',
+  themeDrag: 'theme:drag',
+  themeAskAgent: 'theme:ask-agent',
   findInPage: 'preview:find',
   stopFindInPage: 'preview:find-stop',
   rulerDrag: 'rulers:drag',
@@ -280,6 +289,8 @@ export const Events = {
   pickState: 'pick:state',
   rulers: 'rulers',
   guideStrips: 'guides:strips',
+  /** What the Theme popover shows (`ThemePanelState`) */
+  themeState: 'theme:state',
   /** Edit → Find, Find Next or Find Previous, for a find bar in the chrome (`FindCommand`) */
   find: 'find',
   /** The preview's matches as Chromium finds them (`FindResult`) */
@@ -592,6 +603,25 @@ export interface GuiApi {
   guidePointer(id: string, phase: GuidePointerPhase, at: Point): void
   /** The guides' grab strips (the guides overlay) */
   onGuideStrips(cb: (strips: GuideStrips) => void): Unsubscribe
+  /**
+   * Opens the Theme popover with its top-right corner at `at` (under the toolbar's button),
+   * or closes it
+   */
+  toggleTheme(at?: Point): void
+  /** Shows a value in the preview, with the other pending edits; nothing is written yet */
+  themePreview(edit: ThemeEdit): void
+  /** Writes every pending edit into the project's CSS, or none */
+  themeKeep(): void
+  /** Drops every pending edit */
+  themeCancel(): void
+  /** Shows the preview in a theme mode; null: the page's own */
+  themeMode(id: string | null): void
+  /** The popover dragged by its header, in screen pixels */
+  themeDrag(dx: number, dy: number): void
+  /** Asks the agent to make `name` a variable Gui can edit; null: to add color variables */
+  themeAskAgent(name: string | null): void
+  /** What the Theme popover shows */
+  onThemeState(cb: (state: ThemePanelState) => void): Unsubscribe
   setCanvasRect(rect: Rect): void
   /**
    * The preview's layout morphs (`MorphEvent`): the chrome draws the device frame around the

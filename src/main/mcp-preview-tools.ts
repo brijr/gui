@@ -29,6 +29,7 @@ export const PREVIEW_TOOL_TITLES = {
   preview_point: 'Point something out in the preview',
   preview_variations: 'Show versions to choose from',
   preview_guides: 'Check alignment with guides',
+  preview_theme: 'Read the theme',
   preview_console: 'Read preview errors',
   preview_navigate: 'Open a page in the preview',
   preview_open_website: 'Open a website in the preview',
@@ -52,6 +53,7 @@ export type PreviewTool = keyof typeof PREVIEW_TOOL_TITLES
 const PROJECT_ONLY: ReadonlySet<PreviewTool> = new Set<PreviewTool>([
   'preview_variations',
   'preview_guides',
+  'preview_theme',
   'preview_open_website',
   'preview_back',
   'dev_server_logs',
@@ -391,6 +393,27 @@ export function registerPreviewTools(
         .max(100_000)
         .describe('Page CSS pixels: x for a vertical guide, y for a horizontal one'),
     })
+    server.registerTool(
+      'preview_theme',
+      {
+        title: T.preview_theme,
+        description:
+          "The theme of the user's app: its CSS variables (colors, sizes, fonts) with their value in each mode (light, dark), what each resolves to, the variable it refers to and how many places use it. Use these variables rather than raw values when you style something. The user's app only, not a website.",
+        inputSchema: {},
+        annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+      },
+      async () => {
+        try {
+          if (tools.shown().kind === 'website')
+            throw new Error(
+              "The theme is the user's app's. preview_navigate with a path on the app goes back.",
+            )
+          return untrusted('preview_theme', tools.theme())
+        } catch (error) {
+          return failure(error)
+        }
+      },
+    )
     const guides = (list: z.infer<typeof guide>[] = []) =>
       list.map(({ direction, at }) => ({ axis: direction === 'vertical' ? 'x' : 'y', at }) as const)
     server.registerTool(

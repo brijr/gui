@@ -83,14 +83,17 @@ export function historyReferences(value: unknown) {
 }
 
 /** Nothing was running when the app quit, so open permission prompts can't be answered. */
-function settleTurn(turn: Turn, before: string | null): Turn {
+function settleTurn({ themeEdits, ...turn }: Turn, before: string | null): Turn {
   const items = turn.items.map(settleItem)
   const attachments = settleAttachments(turn.attachments)
   const context = settleContext(turn.context)
   const recordings = settleRecordings(turn.recordings)
-  if (turn.status !== 'running') return { ...turn, items, attachments, context, recordings }
+  const theme = settleThemeEdits(themeEdits)
+  if (turn.status !== 'running')
+    return { ...turn, ...theme, items, attachments, context, recordings }
   return {
     ...turn,
+    ...theme,
     items,
     attachments,
     context,
@@ -100,6 +103,16 @@ function settleTurn(turn: Turn, before: string | null): Turn {
     // Its edits were never diffed, but its starting checkpoint can still undo them.
     ...(before && turn.changes === null ? { changesUnknown: true } : {}),
   }
+}
+
+/** Theme values Keep wrote, each with five strings; anything else is dropped. */
+function settleThemeEdits(value: unknown): Pick<Turn, 'themeEdits'> {
+  if (!Array.isArray(value)) return {}
+  const fields = ['name', 'mode', 'before', 'after', 'file'] as const
+  const edits = value
+    .filter((edit) => fields.every((field) => typeof edit?.[field] === 'string'))
+    .map(({ name, mode, before, after, file }) => ({ name, mode, before, after, file }))
+  return edits.length ? { themeEdits: edits } : {}
 }
 
 /** Turns saved before several things could be picked hold one element, or null. */

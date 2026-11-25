@@ -147,6 +147,11 @@ export const Reply = icon(SYMBOLS.Reply, Lucide.Reply)
 export const RotateCw = icon(SYMBOLS.RotateCw, Lucide.RotateCw)
 // Lucide's: the system's ruler is a flat bar at toolbar size, and reads as a battery.
 export const Ruler: IconComponent = Lucide.Ruler
+export const Palette: IconComponent = Lucide.Palette
+export const SquareRoundCorner: IconComponent = Lucide.SquareRoundCorner
+export const TypeIcon: IconComponent = Lucide.Type
+export const MoveHorizontal: IconComponent = Lucide.MoveHorizontal
+export const Lock: IconComponent = Lucide.Lock
 export const Search = icon(SYMBOLS.Search, Lucide.Search)
 export const Settings = icon(SYMBOLS.Settings, Lucide.Settings)
 export const Shapes = icon(SYMBOLS.Shapes, Lucide.Shapes)
