@@ -3,7 +3,7 @@ import { EventEmitter } from 'node:events'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { xdgOpen } from '../src/main/desktop-open'
+import { opener, xdgOpen } from '../src/main/desktop-open'
 import type { ChildProcess, SpawnProcessOptions } from '../src/main/process'
 
 function fakeSpawn() {
@@ -23,6 +23,17 @@ afterEach(async () => {
   Object.assign(process.env, saved)
   if (dir) await rm(dir, { recursive: true, force: true })
   dir = null
+})
+
+describe('the opener for each platform', () => {
+  test("the Mac and Windows use Electron's shell", () => {
+    expect(opener({ mac: true, windows: false })).toBe('shell')
+    expect(opener({ mac: false, windows: true })).toBe('shell')
+  })
+
+  test('Linux and the other Unixes run xdg-open themselves', () => {
+    expect(opener({ mac: false, windows: false })).toBe('xdg-open')
+  })
 })
 
 describe('xdg-open on Linux', () => {

@@ -1,4 +1,4 @@
-import { IS_MAC } from '../shared/platform'
+import { IS_MAC, IS_WINDOWS } from '../shared/platform'
 import { openPath } from './desktop-open'
 import { findExecutable } from './executables'
 import { execFile } from './process'
@@ -26,12 +26,15 @@ export async function openAsText(path: string) {
     if (!opened.ok) throw new Error(`Couldn't open ${path} in a text editor.`)
     return
   }
-  const env = await getShellEnv()
-  const desktop = await defaultTextEditor(env)
-  if (desktop) {
-    for (const launcher of ['gtk-launch', 'gtk4-launch']) {
-      const found = await findExecutable(launcher, env.PATH)
-      if (found && (await run(found, [desktop, path], env)).ok) return
+  // Windows has no xdg-mime or gtk-launch: the file's own default app, through ShellExecute.
+  if (!IS_WINDOWS) {
+    const env = await getShellEnv()
+    const desktop = await defaultTextEditor(env)
+    if (desktop) {
+      for (const launcher of ['gtk-launch', 'gtk4-launch']) {
+        const found = await findExecutable(launcher, env.PATH)
+        if (found && (await run(found, [desktop, path], env)).ok) return
+      }
     }
   }
   const error = await openPath(path)

@@ -1,7 +1,7 @@
 import { homedir } from 'node:os'
 import { dirname } from 'node:path'
 import { shell } from 'electron'
-import { IS_MAC } from '../shared/platform'
+import { IS_MAC, IS_WINDOWS } from '../shared/platform'
 import { spawnProcess } from './process'
 
 /**
@@ -9,17 +9,27 @@ import { spawnProcess } from './process'
  * and `shell.openPath` run xdg-open with Gui's process.env as it is, so the browser or editor
  * they start keeps the AppImage's ARGV0, APPDIR and mount paths, and passes them on to its own
  * terminals (zsh then runs every command as "Gui.AppImage"). There Gui runs xdg-open itself,
- * through `spawnProcess`, which drops them. On the Mac, Electron's `shell` is used as is.
+ * through `spawnProcess`, which drops them. On the Mac and Windows, Electron's `shell` is used
+ * as is (it calls the system's own LaunchServices or ShellExecute, no AppImage involved).
  */
+
+/** Which opener a platform uses. Linux, and any other Unix, gets xdg-open run by Gui. */
+export function opener(
+  platform: { mac: boolean; windows: boolean } = { mac: IS_MAC, windows: IS_WINDOWS },
+): 'shell' | 'xdg-open' {
+  return platform.mac || platform.windows ? 'shell' : 'xdg-open'
+}
 
 /** Opens a URL in the user's browser (or the app it belongs to); rejects if nothing could start. */
 export function openExternal(url: string): Promise<void> {
-  return IS_MAC ? shell.openExternal(url) : xdgOpen(url, { wait: false, cwd: homedir() })
+  return opener() === 'shell'
+    ? shell.openExternal(url)
+    : xdgOpen(url, { wait: false, cwd: homedir() })
 }
 
 /** Opens a file in its default app. Like `shell.openPath`: '' once it opened, else why not. */
 export async function openPath(path: string): Promise<string> {
-  if (IS_MAC) return shell.openPath(path)
+  if (opener() === 'shell') return shell.openPath(path)
   try {
     await xdgOpen(path, { wait: true, cwd: dirname(path) })
     return ''
