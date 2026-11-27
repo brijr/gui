@@ -1,6 +1,6 @@
 import { Database as SQLite } from 'bun:sqlite'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { AGENT_FAILURES, FRAMEWORKS } from '../src/main/analytics-queue.ts'
+import { AGENT_FAILURES, FRAMEWORKS, UPDATE_FAILURES } from '../src/main/analytics-queue.ts'
 import worker from './worker.js'
 
 const migrations = async () =>
@@ -734,6 +734,11 @@ test('the failure, turn and framework events keep only the values on their lists
       { event: 'agent_unavailable', props: { agent: 'claude', reason: 'not_installed' } },
       { event: 'update_failed', props: { stage: 'download' } },
       { event: 'update_failed', props: { stage: 'check' } },
+      { event: 'update_failed', props: { stage: 'install', reason: 'signature' } },
+      {
+        event: 'update_failed',
+        props: { stage: 'download', reason: 'net::ERR_FAILED https://secret.example/Gui.zip' },
+      },
       { event: 'dev_server_crashed', props: { reason: 'exited' } },
     ],
   })
@@ -763,8 +768,10 @@ test('the failure, turn and framework events keep only the values on their lists
     { event: 'agent_unavailable', agent: 'claude' },
     { event: 'update_failed', stage: 'download' },
     { event: 'update_failed' },
+    { event: 'update_failed', stage: 'install', reason: 'signature' },
+    { event: 'update_failed', stage: 'download' },
   ])
-  for (const leaked of ['ENOENT', 'Users', 'secret', 'npm', 'boom']) {
+  for (const leaked of ['ENOENT', 'Users', 'secret', 'npm', 'boom', 'net::']) {
     expect(JSON.stringify(events)).not.toContain(leaked)
   }
 })
@@ -950,6 +957,7 @@ test("every failure and framework the app can send is on the site's lists", asyn
   env.POSTHOG_KEY = 'phc_test'
   const reasons = [...AGENT_FAILURES, 'other']
   const frameworks = [...FRAMEWORKS, 'other', 'none', 'unknown']
+  const updates = [...UPDATE_FAILURES]
   const response = await sendUsage({
     installId: INSTALL,
     events: [
@@ -958,10 +966,18 @@ test("every failure and framework the app can send is on the site's lists", asyn
         props: { agent: 'codex', outcome: 'failed', reason },
       })),
       ...frameworks.map((framework) => ({ event: 'project_opened', props: { framework } })),
+      ...updates.map((reason) => ({
+        event: 'update_failed',
+        props: { stage: 'download', reason },
+      })),
     ],
   })
   expect(response.status).toBe(204)
   const events = await sent()
-  expect(events.slice(0, reasons.length).map((e) => e.properties.reason)).toEqual(reasons)
-  expect(events.slice(reasons.length).map((e) => e.properties.framework)).toEqual(frameworks)
+  const turns = events.slice(0, reasons.length)
+  const projects = events.slice(reasons.length, reasons.length + frameworks.length)
+  const failures = events.slice(reasons.length + frameworks.length)
+  expect(turns.map((e) => e.properties.reason)).toEqual(reasons)
+  expect(projects.map((e) => e.properties.framework)).toEqual(frameworks)
+  expect(failures.map((e) => e.properties.reason)).toEqual(updates)
 })

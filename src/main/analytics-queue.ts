@@ -54,6 +54,24 @@ export const FRAMEWORKS = [
 ] as const
 export type Framework = (typeof FRAMEWORKS)[number] | 'other' | 'none' | 'unknown'
 
+/**
+ * Why an update failed (updates.ts), from the error electron-updater or Squirrel.Mac raised:
+ * see `updateFailure` for what each one is.
+ */
+export const UPDATE_FAILURES = [
+  'offline',
+  'dropped',
+  'timeout',
+  'http',
+  'checksum',
+  'signature',
+  'disk_full',
+  'permission',
+  'read_only',
+  'other',
+] as const
+export type UpdateFailure = (typeof UPDATE_FAILURES)[number]
+
 /** Who decides what the agent may do without asking: Gui's Ask or Auto, or the agent's own settings. */
 export type TurnMode = 'ask' | 'auto' | 'own'
 
@@ -91,8 +109,8 @@ export interface UsageEvents {
   /** An installed agent's check failed; once per agent and reason each launch */
   agent_unavailable: { agent: string; reason: AgentUnavailable }
   update_installed: { from: string; to: string }
-  /** A new version was found but didn't download, or Squirrel.Mac couldn't install it */
-  update_failed: { stage: 'download' | 'install' }
+  /** A new version was found but didn't download, or Squirrel.Mac couldn't install it, and why */
+  update_failed: { stage: 'download' | 'install'; reason: UpdateFailure }
 }
 export type UsageEventName = keyof UsageEvents
 export type UsageProps<E extends UsageEventName> = UsageEvents[E] extends undefined
@@ -119,6 +137,104 @@ export function turnFailure(error: unknown): TurnFailure {
 export function agentUnavailable(error: unknown): AgentUnavailable {
   const failure = turnFailure(error)
   return failure === 'signed_out' || failure === 'too_old' ? failure : 'error'
+}
+
+/** Node's error codes (fs, sockets, DNS) and what each says about an update that failed. */
+const NODE_CODES: Record<string, UpdateFailure> = {
+  ENOTFOUND: 'offline',
+  EAI_AGAIN: 'offline',
+  ECONNREFUSED: 'offline',
+  ENETDOWN: 'offline',
+  ENETUNREACH: 'offline',
+  EHOSTUNREACH: 'offline',
+  ECONNRESET: 'dropped',
+  ECONNABORTED: 'dropped',
+  EPIPE: 'dropped',
+  ETIMEDOUT: 'timeout',
+  ESOCKETTIMEDOUT: 'timeout',
+  ENOSPC: 'disk_full',
+  EDQUOT: 'disk_full',
+  EACCES: 'permission',
+  EPERM: 'permission',
+  EROFS: 'read_only',
+  // builder-util-runtime's DigestTransform: the download's sha512 isn't the feed's.
+  ERR_CHECKSUM_MISMATCH: 'checksum',
+}
+
+/**
+ * Chromium's network errors. electron-updater downloads with Electron's `net`, whose errors
+ * carry no code, only a message naming one (`net::ERR_INTERNET_DISCONNECTED`).
+ */
+const NET_ERRORS: Record<string, UpdateFailure> = {
+  ERR_INTERNET_DISCONNECTED: 'offline',
+  ERR_NAME_NOT_RESOLVED: 'offline',
+  ERR_NAME_RESOLUTION_FAILED: 'offline',
+  ERR_ADDRESS_UNREACHABLE: 'offline',
+  ERR_CONNECTION_REFUSED: 'offline',
+  ERR_CONNECTION_FAILED: 'offline',
+  ERR_PROXY_CONNECTION_FAILED: 'offline',
+  ERR_NETWORK_CHANGED: 'dropped',
+  ERR_NETWORK_IO_SUSPENDED: 'dropped',
+  ERR_CONNECTION_RESET: 'dropped',
+  ERR_CONNECTION_CLOSED: 'dropped',
+  ERR_CONNECTION_ABORTED: 'dropped',
+  ERR_EMPTY_RESPONSE: 'dropped',
+  ERR_CONTENT_LENGTH_MISMATCH: 'dropped',
+  ERR_INCOMPLETE_CHUNKED_ENCODING: 'dropped',
+  ERR_HTTP2_PROTOCOL_ERROR: 'dropped',
+  ERR_TIMED_OUT: 'timeout',
+  ERR_CONNECTION_TIMED_OUT: 'timeout',
+  ERR_FILE_NO_SPACE: 'disk_full',
+  ERR_ACCESS_DENIED: 'permission',
+}
+
+/**
+ * Errors that carry no code, only a message. Each pattern is narrow, and none of the message
+ * is ever sent, only the name it maps to.
+ */
+const MESSAGES: [RegExp, UpdateFailure][] = [
+  // builder-util-runtime's socket timeout: `new Error("Request timed out")`.
+  [/^Request timed out$/, 'timeout'],
+  // builder-util-runtime's X-Checksum-Sha2 check: `checksum mismatch: expected …`.
+  [/^checksum mismatch\b/, 'checksum'],
+  // Squirrel.Mac (SQRLUpdater, SQRLCodeSignature) gives an NSError's description, never a
+  // code: "Code signature at URL … did not pass validation", "Could not get code signature
+  // for running application", "… code failed to satisfy specified code requirement(s)".
+  [/code signature|code requirement/i, 'signature'],
+  // "Cannot update while running on a read-only volume", or POSIX EROFS's text.
+  [/read-only (volume|file system)/i, 'read_only'],
+  // POSIX ENOSPC's text, as an NSPOSIXErrorDomain error describes it.
+  [/no space left on device/i, 'disk_full'],
+  // POSIX EACCES's and EPERM's texts.
+  [/permission denied|operation not permitted/i, 'permission'],
+]
+
+/**
+ * Why an update failed, from what electron-updater or Squirrel.Mac raised: a code where the
+ * error has one, else a narrow match on its message, else `other`. Only the name is sent.
+ *
+ * offline: the server couldn't be reached at all. dropped: the connection broke partway.
+ * timeout: it stopped answering. http: the server answered with an error status. checksum:
+ * the file that came isn't the one the feed lists. signature: Squirrel.Mac refused the new
+ * version's code signature. disk_full, permission, read_only: the file couldn't be written.
+ */
+export function updateFailure(error: unknown): UpdateFailure {
+  if (!error || typeof error !== 'object') return 'other'
+  const { code, statusCode, message } = error as {
+    code?: unknown
+    statusCode?: unknown
+    message?: unknown
+  }
+  if (typeof code === 'string') {
+    if (Object.hasOwn(NODE_CODES, code)) return NODE_CODES[code]
+    // builder-util-runtime's HttpError: `code` is `HTTP_ERROR_<status>`.
+    if (/^HTTP_ERROR_\d+$/.test(code)) return 'http'
+  }
+  if (typeof statusCode === 'number' && statusCode >= 400) return 'http'
+  if (typeof message !== 'string') return 'other'
+  const net = /\bnet::(ERR_[A-Z0-9_]+)\b/.exec(message)?.[1]
+  if (net) return Object.hasOwn(NET_ERRORS, net) ? NET_ERRORS[net] : 'other'
+  return MESSAGES.find(([pattern]) => pattern.test(message))?.[1] ?? 'other'
 }
 
 /** What a turn was like, beside how it ended. */

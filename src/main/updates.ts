@@ -3,6 +3,7 @@ import { app, dialog, autoUpdater as squirrel } from 'electron'
 import type { AppUpdater } from 'electron-updater'
 import { IS_MAC } from '../shared/platform'
 import { track } from './analytics'
+import { updateFailure } from './analytics-queue'
 import { officialBuild } from './official-build'
 import { updatePrompts } from './update-prompts'
 
@@ -68,7 +69,7 @@ function loadUpdater() {
     })
     autoUpdater.on('error', (error) => {
       // A failed check isn't counted (being offline is normal), only a download that failed.
-      if (downloading) countFailed('download')
+      if (downloading) countFailed('download', error)
       downloading = false
       failed(error)
     })
@@ -77,7 +78,7 @@ function loadUpdater() {
     // they never fire: electron-updater replaces the AppImage itself when Gui restarts.
     squirrel.on('update-downloaded', () => prompts.installReady())
     squirrel.on('error', (error) => {
-      countFailed('install')
+      countFailed('install', error)
       prompts.installFailed(error)
     })
     return autoUpdater
@@ -90,10 +91,11 @@ let downloading = false
 /** The stages usage data has counted a failure at this launch: once each. */
 const counted = new Set<'download' | 'install'>()
 
-function countFailed(stage: 'download' | 'install') {
+/** Counts a failed stage, with why as a name from a fixed list; never the error itself. */
+function countFailed(stage: 'download' | 'install', error: unknown) {
   if (counted.has(stage)) return
   counted.add(stage)
-  track('update_failed', { stage })
+  track('update_failed', { stage, reason: updateFailure(error) })
 }
 
 function failed(error: Error) {

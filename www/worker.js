@@ -431,6 +431,18 @@ const FRAMEWORKS = [
   'none',
   'unknown',
 ]
+const UPDATE_FAILURES = [
+  'offline',
+  'dropped',
+  'timeout',
+  'http',
+  'checksum',
+  'signature',
+  'disk_full',
+  'permission',
+  'read_only',
+  'other',
+]
 /** @type {Record<string, Record<string, RegExp | string[]>>} */
 const EVENTS = {
   app_opened: { version: VERSION, os: NAME, osVersion: VERSION, arch: NAME },
@@ -450,7 +462,7 @@ const EVENTS = {
   agent_connected: { agent: NAME },
   agent_unavailable: { agent: NAME, reason: ['signed_out', 'too_old', 'error'] },
   update_installed: { from: VERSION, to: VERSION },
-  update_failed: { stage: ['download', 'install'] },
+  update_failed: { stage: ['download', 'install'], reason: UPDATE_FAILURES },
 }
 /** A batch is a few kilobytes; much more isn't one. */
 const MAX_USAGE_BYTES = 64_000

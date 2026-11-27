@@ -3,8 +3,10 @@ import {
   agentUnavailable,
   turnFailure,
   turnUsage,
+  UPDATE_FAILURES,
   type UsageQueueOptions,
   type UsageReply,
+  updateFailure,
   usageAgent,
   usageQueue,
 } from '../src/main/analytics-queue'
@@ -278,5 +280,84 @@ describe('why an agent could not be used', () => {
     expect(agentUnavailable(new AgentError('old', null, 'too_old'))).toBe('too_old')
     expect(agentUnavailable(new AgentError('quit', null, 'agent_quit'))).toBe('error')
     expect(agentUnavailable(new Error("The agent didn't respond."))).toBe('error')
+  })
+})
+
+/** An error as Node or builder-util-runtime makes one: a message and a `code`. */
+function coded(message: string, code: string, extra: Record<string, unknown> = {}) {
+  return Object.assign(new Error(message), { code, ...extra })
+}
+
+describe('why an update failed', () => {
+  test('each reason, from an error like the one electron-updater or Squirrel.Mac raises', () => {
+    const cases: [unknown, string][] = [
+      // Node, through electron-updater's fs and sockets
+      [coded('getaddrinfo ENOTFOUND usegui.com', 'ENOTFOUND'), 'offline'],
+      [coded('read ECONNRESET', 'ECONNRESET'), 'dropped'],
+      [coded('connect ETIMEDOUT 1.2.3.4:443', 'ETIMEDOUT'), 'timeout'],
+      [
+        coded("ENOSPC: no space left on device, write '/Users/x/Library/Caches'", 'ENOSPC'),
+        'disk_full',
+      ],
+      [
+        coded("EACCES: permission denied, open '/Users/x/Library/Caches/gui-updater'", 'EACCES'),
+        'permission',
+      ],
+      [coded("EPERM: operation not permitted, rename '/Users/x/a'", 'EPERM'), 'permission'],
+      [coded("EROFS: read-only file system, open '/Volumes/Gui/x'", 'EROFS'), 'read_only'],
+      // builder-util-runtime
+      [coded('HTTP error: Not Found', 'HTTP_ERROR_404', { statusCode: 404 }), 'http'],
+      [{ statusCode: 503, message: 'Service unavailable' }, 'http'],
+      [
+        coded('sha512 checksum mismatch, expected abc, got def', 'ERR_CHECKSUM_MISMATCH'),
+        'checksum',
+      ],
+      [
+        new Error('checksum mismatch: expected abc but got def (X-Checksum-Sha2 header)'),
+        'checksum',
+      ],
+      [new Error('Request timed out'), 'timeout'],
+      // Electron's net (Chromium)
+      [new Error('net::ERR_INTERNET_DISCONNECTED'), 'offline'],
+      [new Error('net::ERR_NAME_NOT_RESOLVED'), 'offline'],
+      [new Error('net::ERR_NETWORK_CHANGED'), 'dropped'],
+      [new Error('net::ERR_CONNECTION_RESET'), 'dropped'],
+      [new Error('net::ERR_TIMED_OUT'), 'timeout'],
+      [new Error('net::ERR_FILE_NO_SPACE'), 'disk_full'],
+      [new Error('net::ERR_ACCESS_DENIED'), 'permission'],
+      // Squirrel.Mac, by message
+      [
+        new Error(
+          'Code signature at URL file:///Users/x/Library/Caches/com.usegui.app.ShipIt/update.abc/Gui.app/ did not pass validation: code failed to satisfy specified code requirement(s)',
+        ),
+        'signature',
+      ],
+      [new Error('Could not get code signature for running application'), 'signature'],
+      [
+        new Error(
+          'Cannot update while running on a read-only volume. The application is on a read-only volume. Please move the application and try again.',
+        ),
+        'read_only',
+      ],
+      [new Error('Failed to move bundle: Permission denied'), 'permission'],
+      [new Error('The operation couldn\u2019t be completed. No space left on device'), 'disk_full'],
+    ]
+    for (const [error, reason] of cases)
+      expect([error, updateFailure(error)]).toEqual([error, reason])
+    const named = new Set(cases.map(([, reason]) => reason))
+    expect(UPDATE_FAILURES.filter((reason) => !named.has(reason))).toEqual(['other'])
+  })
+
+  test('anything it cannot tell apart is other', () => {
+    expect(updateFailure(new Error('Something broke at /Users/x/app'))).toBe('other')
+    expect(updateFailure(new Error('net::ERR_CERT_DATE_INVALID'))).toBe('other')
+    expect(updateFailure(coded('ZIP file not provided', 'ERR_UPDATER_ZIP_FILE_NOT_FOUND'))).toBe(
+      'other',
+    )
+    expect(updateFailure(coded('x', 'ENOENT'))).toBe('other')
+    expect(updateFailure({ statusCode: 304 })).toBe('other')
+    expect(updateFailure('net::ERR_INTERNET_DISCONNECTED')).toBe('other')
+    expect(updateFailure(null)).toBe('other')
+    expect(updateFailure(undefined)).toBe('other')
   })
 })

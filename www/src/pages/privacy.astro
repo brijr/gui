@@ -6,7 +6,7 @@ import TextPage from '../components/TextPage.astro'
   title="Privacy"
   description="What Gui collects, why, and how to remove it."
   path="/privacy"
-  updated="November 18, 2026"
+  updated="November 27, 2026"
 >
   <p>
     Work In Progress LLC (“WIP”) makes Gui. This page tells you what Gui collects about you, why,
@@ -76,7 +76,9 @@ import TextPage from '../components/TextPage.astro'
     <li>Gui updates. The event contains the old version and the new version.</li>
     <li>
       Gui finds an update but cannot download it or install it. The event contains which step
-      failed.
+      failed and the reason from a fixed list: no connection, the connection stopped, the server
+      was too slow, a server error, the file did not match, the signature did not match, the disk
+      is full, no permission, a read-only disk, or other.
     </li>
   </ul>
   <p>
