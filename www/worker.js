@@ -434,8 +434,17 @@ const TURN_FAILURES = [
   'rate_limited',
   'server_error',
   'offline',
+  'no_model',
+  'bad_request',
+  'timeout',
+  'dropped',
+  'denied',
+  'tool_failed',
+  'not_installed',
   'other',
 ]
+/** Where a failed turn was (the app's analytics-queue.ts `TURN_STAGES`) */
+const TURN_STAGES = ['start', 'reply', 'tool']
 const FRAMEWORKS = [
   'next',
   'vite',
@@ -477,6 +486,7 @@ const EVENTS = {
     outcome: ['done', 'failed', 'stopped'],
     provider: NAME,
     reason: TURN_FAILURES,
+    stage: TURN_STAGES,
     picked: YES_NO,
     tools: YES_NO,
     mode: ['ask', 'auto', 'own'],

@@ -52,6 +52,7 @@ import { type PermissionRequest, parseModelSettings, QUESTION_KIND } from './age
 import { agentHealth } from './agent-status'
 import { declaresOwnPermissions, opensWebsites, type PermissionPolicy } from './agents'
 import { trackTurn } from './analytics'
+import { turnStage } from './analytics-queue'
 import {
   autoApproval,
   editApproval,
@@ -69,7 +70,7 @@ import {
 import { type EditScope, isFromHome, isOutside, projectEditPath } from './chat-paths'
 import { GUI_TOOL_LABELS, previewTool } from './chat-tools'
 import type { Checkpoints } from './checkpoints'
-import { type DetailedError, describeError } from './errors'
+import { type DetailedError, describeError, TimeoutError } from './errors'
 import {
   archiveChat,
   HistoryWriter,
@@ -271,7 +272,7 @@ const isWorking = (item: SubagentItem) => item.status === 'running' || item.stat
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms)
+    timer = setTimeout(() => reject(new TimeoutError(message, null)), ms)
   })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
@@ -1795,6 +1796,8 @@ export class ChatController extends EventEmitter<ChatEvents> {
     let slot: { ready: Promise<void>; release: () => void } | null = null
     /** What the turn failed with, for usage data's reason (analytics-queue.ts `turnFailure`) */
     let failure: unknown = null
+    /** Gui sent the prompt, for where it failed (analytics-queue.ts `turnStage`) */
+    let prompted = false
     try {
       if (!(await this.confirmTrust())) {
         status = 'cancelled'
@@ -1929,6 +1932,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       const sending = record.command
         ? placeCommand(record.turn.prompt, blocks, agent.agentId)
         : blocks
+      prompted = true
       const pending = agent.prompt(sending)
       // From now until the agent answers, a message can go into this reply.
       this.prompting = { record, agent, info }
@@ -1999,6 +2003,7 @@ export class ChatController extends EventEmitter<ChatEvents> {
       trackTurn(this.meta.agentId, status, {
         provider: this.meta.models?.provider?.value,
         error: failure,
+        stage: status === 'error' ? turnStage({ prompted, items: record.turn.items }) : undefined,
         picked: selection.length > 0,
         // As the chat shows them: a call it recognised as one of Gui's tools (chat-tools.ts).
         tools: record.turn.items.some(

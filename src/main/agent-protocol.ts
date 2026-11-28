@@ -64,46 +64,168 @@ export function errorDetail(error: unknown): string {
 }
 
 /**
- * Known ways an agent's turn fails, in plain words, checked in order: a quota error can come
- * as a 429, so the account's limit is checked before the rate limit. Matched on the agent's
- * own text, which often carries the provider's raw JSON (`API Error: 529 {"type":"error",…}`).
+ * What the user reads for each failure Gui names, in plain words. A failure without one
+ * keeps the agent's own words: they say more than Gui could (which request, which tool).
  */
-const PLAIN_ERRORS: [RegExp, AgentFailure, string][] = [
+const PLAIN_MESSAGES: Partial<Record<AgentFailure, string>> = {
+  context_too_long: 'This chat is too long for the agent. Start a new chat to keep going.',
+  no_credit:
+    'Your agent account is out of credit or at its usage limit. Check its plan, then try again.',
+  servers_busy: 'The agent’s servers are busy. Try again in a minute.',
+  rate_limited: 'The agent is sending too many requests. Wait a minute, then try again.',
+  server_error: 'The agent’s servers had a problem. Try again in a minute.',
+  offline: 'The agent couldn’t reach its servers. Check your internet connection, then try again.',
+  no_model:
+    'The agent has no model it can use. Set up a provider or pick another model in the agent, then try again.',
+  timeout: 'The agent’s servers stopped answering. Try again in a minute.',
+  dropped: 'The agent’s connection dropped partway through its answer. Try again.',
+  denied:
+    'The agent stopped because you declined what it asked to do. Say what to do instead, and it carries on.',
+}
+
+/**
+ * Known ways an agent's turn fails, checked in order on the agent's own text, which often
+ * carries the provider's raw JSON (`API Error: 529 {"type":"error",…}`): a quota error can
+ * come as a 429, so the account's limit is checked before the rate limit.
+ */
+const PLAIN_ERRORS: [RegExp, AgentFailure][] = [
   [
     /context.?(?:length|window)|prompt is too long|input is too long|too many (?:input )?tokens|maximum context/i,
     'context_too_long',
-    'This chat is too long for the agent. Start a new chat to keep going.',
   ],
   [
     /credit balance|billing|insufficient.?(?:quota|funds|credits?)|quota exceeded|payment required|\b402\b|usage limit/i,
     'no_credit',
-    'Your agent account is out of credit or at its usage limit. Check its plan, then try again.',
   ],
-  [/overloaded|\b529\b/i, 'servers_busy', 'The agent’s servers are busy. Try again in a minute.'],
-  [
-    /rate.?limit|too many requests|\b429\b/i,
-    'rate_limited',
-    'The agent is sending too many requests. Wait a minute, then try again.',
-  ],
+  [/overloaded|\b529\b/i, 'servers_busy'],
+  [/rate.?limit|too many requests|\b429\b/i, 'rate_limited'],
   [
     /(?:api error|status(?: code)?|http)[:\s]+5\d\d\b|internal server error|bad gateway|service unavailable|gateway time-?out|"api_error"/i,
     'server_error',
-    'The agent’s servers had a problem. Try again in a minute.',
   ],
   [
     /\b(?:ECONNRESET|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ETIMEDOUT|ENETUNREACH)\b|socket hang up|network error|fetch failed|connection (?:error|refused|reset)|timed? ?out\b/i,
     'offline',
-    'The agent couldn’t reach its servers. Check your internet connection, then try again.',
   ],
 ]
 
 /**
- * What a failed turn's error means, in plain words, and its name for usage data; null when it
- * isn't one Gui knows.
+ * Errors only a message tells apart, each matched from the start on one agent's own fixed
+ * text (never the provider's or the user's words, and never sent: only the name it maps to).
+ * The ACP SDK's `internalError` puts "Internal error: " before an agent's text.
  */
-export function plainAgentError(detail: string): { failure: AgentFailure; message: string } | null {
-  const known = PLAIN_ERRORS.find(([pattern]) => pattern.test(detail))
-  return known ? { failure: known[1], message: known[2] } : null
+const AGENT_MESSAGES: [RegExp, AgentFailure][] = [
+  // OpenCode 2.x's ACPCatalogNotReadyError, thrown as session/new finds no model enabled
+  // (no provider set up): "No models are available".
+  [/^(?:Internal error: )?No models are available$/, 'no_model'],
+  // claude-agent-acp's SESSION_ENDED_MESSAGE ("The Claude Agent session has ended. Please
+  // start a new session.") and its message when Claude Code's process exits under it.
+  [
+    /^(?:Internal error: )?The Claude Agent (?:session has ended|process exited unexpectedly)\b/,
+    'agent_quit',
+  ],
+]
+
+/**
+ * claude-agent-acp's `data.errorKind` on a failed turn: the Claude Agent SDK's
+ * SDKAssistantMessageError, or one of the adapter's own kinds.
+ */
+const CLAUDE_ERROR_KINDS: Record<string, AgentFailure> = {
+  authentication_failed: 'signed_out',
+  oauth_org_not_allowed: 'signed_out',
+  billing_error: 'no_credit',
+  account_on_hold: 'no_credit',
+  rate_limit: 'rate_limited',
+  overloaded: 'servers_busy',
+  server_error: 'server_error',
+  invalid_request: 'bad_request',
+  model_not_found: 'no_model',
+  // The adapter lost Claude Code's process, or is shutting down.
+  transport_lost: 'agent_quit',
+  worker_shutdown: 'agent_quit',
+  // The model's stream dropped mid-turn: the turn ended without a result.
+  no_result: 'dropped',
+  incomplete_tool_call: 'tool_failed',
+}
+
+/**
+ * codex-acp's `data.codexErrorInfo` (Codex's CodexErrorInfo): a name, or an object keyed by
+ * one (`{ responseStreamDisconnected: { httpStatusCode } }`).
+ */
+const CODEX_ERROR_INFO: Record<string, AgentFailure> = {
+  contextWindowExceeded: 'context_too_long',
+  usageLimitExceeded: 'no_credit',
+  rateLimitExceeded: 'rate_limited',
+  serverOverloaded: 'servers_busy',
+  internalServerError: 'server_error',
+  unauthorized: 'signed_out',
+  badRequest: 'bad_request',
+  httpConnectionFailed: 'offline',
+  responseStreamConnectionFailed: 'offline',
+  responseStreamDisconnected: 'dropped',
+  responseTooManyFailedAttempts: 'dropped',
+}
+
+/**
+ * OpenCode 2.x's `data.errorName` on a failed prompt (its ACPServiceFailureError carries the
+ * turn's step error type). `provider.auth` comes as ACP's auth_required instead.
+ */
+const OPENCODE_ERROR_NAMES: Record<string, AgentFailure> = {
+  'provider.rate-limit': 'rate_limited',
+  'provider.quota': 'no_credit',
+  'provider.free-limit': 'no_credit',
+  'provider.budget-limit': 'no_credit',
+  'provider.model-budget-limit': 'no_credit',
+  'provider.go-limit': 'no_credit',
+  'provider.chatgpt-limit': 'no_credit',
+  'provider.chatgpt-workspace-limit': 'no_credit',
+  'provider.transport': 'offline',
+  'provider.internal': 'server_error',
+  'provider.timeout': 'timeout',
+  'provider.invalid-request': 'bad_request',
+  'provider.unsupported-operation': 'bad_request',
+  // No provider serves the model picked, or the provider isn't one OpenCode knows.
+  'provider.no-route': 'no_model',
+  'provider.unknown': 'no_model',
+  'permission.rejected': 'denied',
+  'tool.execution': 'tool_failed',
+}
+
+const named = (table: Record<string, AgentFailure>, name: unknown) =>
+  typeof name === 'string' && Object.hasOwn(table, name) ? table[name] : null
+
+/** The failure an agent's error code names, from the `data` its ACP error carries. */
+function codedFailure(error: unknown): AgentFailure | null {
+  if (!(error instanceof acp.RequestError) || !isRecord(error.data)) return null
+  const { data } = error
+  // OpenCode's ACPInvalidModelError: -32602 with the model it couldn't find.
+  if (error.code === -32602 && typeof data.modelId === 'string') return 'no_model'
+  const info = data.codexErrorInfo
+  const codex = isRecord(info) ? Object.keys(info)[0] : info
+  return (
+    named(CLAUDE_ERROR_KINDS, data.errorKind) ??
+    named(CODEX_ERROR_INFO, codex) ??
+    named(OPENCODE_ERROR_NAMES, data.errorName)
+  )
+}
+
+/**
+ * What a failed turn's error means, and its name for usage data; null when it isn't one Gui
+ * knows. An agent's own error code wins, except the broad `bad_request`, which a known
+ * provider error in its text (a prompt too long comes as a bad request) says more about.
+ * `message` is the plain words to show, or null to keep the agent's own.
+ */
+export function agentFailure(
+  error: unknown,
+): { failure: AgentFailure; message: string | null } | null {
+  const detail = errorDetail(error)
+  const coded = codedFailure(error)
+  const failure =
+    (coded !== 'bad_request' ? coded : null) ??
+    PLAIN_ERRORS.find(([pattern]) => pattern.test(detail))?.[1] ??
+    coded ??
+    AGENT_MESSAGES.find(([pattern]) => pattern.test(detail))?.[1]
+  return failure ? { failure, message: PLAIN_MESSAGES[failure] ?? null } : null
 }
 
 /**

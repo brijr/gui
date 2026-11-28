@@ -2,11 +2,11 @@ import { describe, expect, test } from 'bun:test'
 import * as acp from '@agentclientprotocol/sdk'
 
 import {
+  agentFailure,
   displayedModes,
   errorDetail,
   formQuestions,
   mcpServersFor,
-  plainAgentError,
   questionRequest,
   resumeMethods,
 } from '../src/main/agent-protocol'
@@ -267,8 +267,10 @@ describe('questionRequest', () => {
   })
 })
 
-describe('plainAgentError', () => {
-  test('known failures read in plain words, each with its name for usage data', () => {
+describe('agentFailure', () => {
+  const plain = (raw: string) => agentFailure(new Error(raw))
+
+  test('known failures in the agent’s text read in plain words, each with its name for usage data', () => {
     const cases: [string, RegExp, AgentFailure][] = [
       [
         'API Error: 529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_1"}',
@@ -296,15 +298,123 @@ describe('plainAgentError', () => {
       ['The request timed out', /internet/, 'offline'],
       ['prompt is too long: 210000 tokens > 200000 maximum', /too long/, 'context_too_long'],
     ]
-    for (const [raw, plain, failure] of cases) {
-      expect(plainAgentError(raw)?.message).toMatch(plain)
-      expect(plainAgentError(raw)?.failure).toBe(failure)
+    for (const [raw, message, failure] of cases) {
+      expect(plain(raw)?.message).toMatch(message)
+      expect(plain(raw)?.failure).toBe(failure)
     }
   })
 
-  test('anything else keeps the agent\u2019s own words', () => {
-    expect(plainAgentError('Tool execution failed: no such file src/App.tsx')).toBeNull()
-    expect(plainAgentError('Port 5173 is in use')).toBeNull()
+  test('Claude’s errorKind (claude-agent-acp), behind "Internal error: <the CLI’s text>"', () => {
+    const claude = (errorKind: string, text: string) =>
+      agentFailure(new acp.RequestError(-32603, `Internal error: ${text}`, { errorKind }))
+    expect(
+      claude(
+        'model_not_found',
+        'API Error: 404 {"type":"error","error":{"type":"not_found_error"}}',
+      ),
+    ).toEqual({ failure: 'no_model', message: expect.stringMatching(/no model it can use/) })
+    expect(
+      claude(
+        'invalid_request',
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages.1.content.0.image.source: image exceeds 5 MB maximum"}}',
+      ),
+    ).toEqual({ failure: 'bad_request', message: null })
+    // A bad request whose text names a known failure is that failure.
+    expect(
+      claude(
+        'invalid_request',
+        'API Error: 400 {"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 210000 tokens > 200000 maximum"}}',
+      )?.failure,
+    ).toBe('context_too_long')
+    expect(
+      claude(
+        'no_result',
+        'The turn ended without a result: the agent went idle while this prompt was still in flight (e.g. the model stream dropped mid-turn). Any partial output may be incomplete; please retry.',
+      ),
+    ).toEqual({ failure: 'dropped', message: expect.stringMatching(/dropped partway/) })
+    expect(claude('incomplete_tool_call', 'The Write tool call never finished.')).toEqual({
+      failure: 'tool_failed',
+      message: null,
+    })
+    expect(claude('transport_lost', 'transport lost')?.failure).toBe('agent_quit')
+    expect(claude('billing_error', 'Credit balance is too low')?.failure).toBe('no_credit')
+    expect(claude('overloaded', 'Overloaded')?.failure).toBe('servers_busy')
+    // A kind Gui doesn't name falls back to the text.
+    expect(claude('unknown', 'Something broke')).toBeNull()
+  })
+
+  test('Codex’s codexErrorInfo (codex-acp), as a name or keyed object', () => {
+    const codex = (codexErrorInfo: unknown) =>
+      agentFailure(
+        new acp.RequestError(-32603, 'Internal error', {
+          message: 'You have hit your usage limit.',
+          codexErrorInfo,
+        }),
+      )
+    expect(codex('usageLimitExceeded')?.failure).toBe('no_credit')
+    expect(codex({ responseStreamDisconnected: { httpStatusCode: null } })).toEqual({
+      failure: 'dropped',
+      message: expect.stringMatching(/dropped partway/),
+    })
+    expect(codex({ httpConnectionFailed: { httpStatusCode: null } })?.failure).toBe('offline')
+  })
+
+  test('OpenCode’s errorName and its own fixed texts', () => {
+    const opencode = (errorName: string, text: string) =>
+      agentFailure(
+        new acp.RequestError(-32603, `Internal error: ${text}`, { service: 'session', errorName }),
+      )
+    expect(opencode('provider.no-route', 'Model not found: acme/big-model')?.failure).toBe(
+      'no_model',
+    )
+    expect(
+      opencode('permission.rejected', 'The user rejected permission to use this tool'),
+    ).toEqual({ failure: 'denied', message: expect.stringMatching(/you declined/) })
+    expect(opencode('tool.execution', 'bash exited with code 2')).toEqual({
+      failure: 'tool_failed',
+      message: null,
+    })
+    expect(opencode('provider.go-limit', 'OpenCode Go usage limit reached.')?.failure).toBe(
+      'no_credit',
+    )
+    expect(opencode('provider.timeout', 'Request timed out')?.failure).toBe('timeout')
+    // session/new with no provider set up: the SDK wraps the agent's error as `{ details }`.
+    expect(
+      agentFailure(
+        new acp.RequestError(-32603, 'Internal error', { details: 'No models are available' }),
+      ),
+    ).toEqual({ failure: 'no_model', message: expect.stringMatching(/no model it can use/) })
+    // ACPInvalidModelError, as session/set_config_option or a prompt refuses a model.
+    expect(
+      agentFailure(
+        new acp.RequestError(-32602, 'Invalid params: model not found: big-model', {
+          providerId: 'acme',
+          modelId: 'big-model',
+        }),
+      )?.failure,
+    ).toBe('no_model')
+  })
+
+  test('claude-agent-acp’s ended session reads in its own words', () => {
+    expect(
+      agentFailure(
+        new acp.RequestError(
+          -32603,
+          'Internal error: The Claude Agent session has ended. Please start a new session.',
+        ),
+      ),
+    ).toEqual({ failure: 'agent_quit', message: null })
+  })
+
+  test('anything else is null, and keeps the agent’s own words', () => {
+    expect(plain('Tool execution failed: no such file src/App.tsx')).toBeNull()
+    expect(plain('Port 5173 is in use')).toBeNull()
+    // The fixed texts match whole: the same words inside a reply aren't the agent's.
+    expect(plain('I found that No models are available in your config')).toBeNull()
+    expect(
+      agentFailure(new acp.RequestError(-32603, 'Internal error', { errorName: 'unknown' })),
+    ).toBeNull()
+    expect(agentFailure(null)).toBeNull()
   })
 })
 

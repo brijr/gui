@@ -51,6 +51,9 @@ export type BinaryStatus =
 
 /** The agent's CLI isn't on this Mac (any longer): it reads as Not installed, never as an error. */
 export class AgentMissingError extends DetailedError {
+  /** Its name for usage data (analytics-queue.ts) */
+  readonly failure = 'not_installed'
+
   constructor(message: string, detail: string | null = null) {
     super(message, detail)
   }

@@ -53,7 +53,9 @@ import TextPage from '../components/TextPage.astro'
       Gui’s own tools, and whether Ask, Auto, or the agent’s own settings decided what the agent
       can do. If the message failed, the event contains the reason from a fixed list: not signed
       in, agent too old, agent stopped, chat too long, out of credit, servers busy, too many
-      requests, server problem, no connection, or other.
+      requests, server problem, no connection, no model, request refused, too slow, connection
+      stopped, you said no, a tool failed, agent not installed, or other. It also contains where
+      the message failed: before the agent answered, while it answered, or during a tool.
     </li>
     <li>
       You open a project. The event contains the framework that starts your app, from a fixed list

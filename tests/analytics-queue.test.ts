@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   agentUnavailable,
   turnFailure,
+  turnStage,
   turnUsage,
   UPDATE_FAILURES,
   type UsageQueueOptions,
@@ -265,6 +266,18 @@ describe('what a turn sends', () => {
     expect(failed(new Error('rate limit exceeded'))).toBe('other')
     expect(failed({ failure: 'something new' })).toBe('other')
     expect(failed(null)).toBe('other')
+    // The chat's start ran out of time; AgentMissingError carries its own name.
+    expect(failed(new TimeoutError("Claude didn't start within a minute.", null))).toBe('timeout')
+    expect(failed({ failure: 'not_installed' })).toBe('not_installed')
+    expect(failed(new AgentError('no model', 'detail', 'no_model'))).toBe('no_model')
+  })
+
+  test('where it failed, only when it did', () => {
+    const at = (stage: 'start' | 'reply' | 'tool') => ({ ...plain, error: null, stage })
+    expect(turnUsage('claude', 'error', at('tool')).stage).toBe('tool')
+    expect(turnUsage('claude', 'done', at('tool'))).not.toHaveProperty('stage')
+    expect(turnUsage('claude', 'cancelled', at('reply'))).not.toHaveProperty('stage')
+    expect(turnUsage('claude', 'error', plain)).not.toHaveProperty('stage')
   })
 
   test('an agent from agents.json is custom, never its name', () => {
@@ -365,5 +378,28 @@ describe('why an update failed', () => {
     expect(updateFailure('net::ERR_INTERNET_DISCONNECTED')).toBe('other')
     expect(updateFailure(null)).toBe('other')
     expect(updateFailure(undefined)).toBe('other')
+  })
+})
+
+describe('where a turn failed', () => {
+  const notice = { kind: 'notice' }
+  test('start before the prompt went, or before the agent sent anything for it', () => {
+    expect(turnStage({ prompted: false, items: [] })).toBe('start')
+    expect(turnStage({ prompted: false, items: [{ kind: 'text' }] })).toBe('start')
+    // Gui's own notices and the user's steering aren't the agent answering.
+    expect(turnStage({ prompted: true, items: [notice, { kind: 'steer' }] })).toBe('start')
+  })
+
+  test('tool while one of its tool calls was still running, else reply', () => {
+    const tool = (status: string) => ({ kind: 'tool', status })
+    expect(turnStage({ prompted: true, items: [{ kind: 'text' }] })).toBe('reply')
+    expect(turnStage({ prompted: true, items: [tool('completed'), { kind: 'text' }] })).toBe(
+      'reply',
+    )
+    expect(turnStage({ prompted: true, items: [tool('failed'), notice] })).toBe('reply')
+    expect(turnStage({ prompted: true, items: [{ kind: 'text' }, tool('in_progress')] })).toBe(
+      'tool',
+    )
+    expect(turnStage({ prompted: true, items: [tool('pending'), notice] })).toBe('tool')
   })
 })

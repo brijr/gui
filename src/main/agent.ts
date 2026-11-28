@@ -20,13 +20,13 @@ import {
   requireAgentBinary,
 } from './agent-binaries'
 import {
+  agentFailure,
   displayedModes,
   errorDetail,
   formQuestions,
   mcpServersFor,
   type PermissionRequest,
   parseModelSettings,
-  plainAgentError,
   questionRequest,
   resumeMethods,
   selectSetting,
@@ -252,6 +252,19 @@ function signInMessage(agent: AgentDefinition, error: unknown, inApp: boolean) {
     .trim()
   const lead = detail ? detail.replace(/[.\s]*$/, '.') : `${agent.name} is not signed in.`
   return agent.signIn && !inApp && !agent.terminalSignIn ? `${lead} ${agent.signIn}` : lead
+}
+
+/**
+ * A failure Gui knows (agent-protocol.ts `agentFailure`), named for usage data: in plain
+ * words with the agent's own under them, or the agent's own words when they say more.
+ */
+function knownFailure(error: unknown): AgentError | null {
+  const known = agentFailure(error)
+  if (!known) return null
+  const detail = errorDetail(error)
+  return known.message
+    ? new AgentError(known.message, detail, known.failure)
+    : new AgentError(detail, null, known.failure)
 }
 
 /** The models each agent's sessions last reported, by agent and then by provider. */
@@ -556,12 +569,9 @@ export class AgentSession {
       }),
     ).catch((error: unknown) => {
       if (isAuthError(error)) throw this.signInError?.(error) ?? error
-      // Agents reach their servers here (Codex reads its account): a known failure, such as
-      // being offline, reads in plain words, as in a turn.
-      const detail = errorDetail(error)
-      const plain = plainAgentError(detail)
-      if (plain) throw new AgentError(plain.message, detail, plain.failure)
-      throw new Error(detail)
+      // Agents reach their servers here (Codex reads its account) and find their models
+      // (OpenCode): a known failure, such as being offline, reads as it does in a turn.
+      throw knownFailure(error) ?? new Error(errorDetail(error))
     })
     // The session starts in the mode the user's own agent config picks. Gui then sets the
     // agent's own controls to the project's Ask or Auto (`applyPermissions`; Grok's went in
@@ -699,10 +709,9 @@ export class AgentSession {
       if (isAuthError(error) && this.signInError) throw this.signInError(error)
       // Agents may put the reason behind a bare "Internal error" (see errorDetail). A known
       // failure (busy servers, a rate limit) reads in plain words, the agent's own under them.
-      const detail = errorDetail(error)
-      const plain = plainAgentError(detail)
-      if (plain) throw new AgentError(plain.message, detail, plain.failure)
-      throw error instanceof acp.RequestError ? new Error(detail) : error
+      const known = error instanceof DetailedError ? null : knownFailure(error)
+      if (known) throw known
+      throw error instanceof acp.RequestError ? new Error(errorDetail(error)) : error
     })
   }
 

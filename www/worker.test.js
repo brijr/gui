@@ -4,6 +4,7 @@ import {
   AGENT_FAILURES,
   AGENT_UNAVAILABLE,
   FRAMEWORKS,
+  TURN_STAGES,
   UPDATE_FAILURES,
 } from '../src/main/analytics-queue.ts'
 import worker from './worker.js'
@@ -995,6 +996,38 @@ test("every failure and framework the app can send is on the site's lists", asyn
   expect(turns.map((e) => e.properties.reason)).toEqual(reasons)
   expect(projects.map((e) => e.properties.framework)).toEqual(frameworks)
   expect(failures.map((e) => e.properties.reason)).toEqual(updates)
+})
+
+test("every stage a failed turn can name is on the site's list; one off it is dropped", async () => {
+  posthog()
+  env.POSTHOG_KEY = 'phc_test'
+  const turn = (stage) => ({
+    event: 'turn_finished',
+    props: { agent: 'codex', outcome: 'failed', reason: 'other', stage },
+  })
+  const response = await sendUsage({
+    installId: INSTALL,
+    events: [...TURN_STAGES.map(turn), turn('/Users/someone/project')],
+  })
+  expect(response.status).toBe(204)
+  const events = await sent()
+  expect(events.map((e) => e.properties.stage)).toEqual([...TURN_STAGES, undefined])
+  expect(events.at(-1)?.properties.reason).toBe('other')
+})
+
+test('a failed turn from an older Gui, without stage or reason, is still kept', async () => {
+  posthog()
+  env.POSTHOG_KEY = 'phc_test'
+  const response = await sendUsage({
+    installId: INSTALL,
+    events: [{ event: 'turn_finished', props: { agent: 'claude', outcome: 'failed' } }],
+  })
+  expect(response.status).toBe(204)
+  const [event] = await sent()
+  expect(event.event).toBe('turn_finished')
+  expect(event.properties).toMatchObject({ agent: 'claude', outcome: 'failed' })
+  expect(event.properties).not.toHaveProperty('reason')
+  expect(event.properties).not.toHaveProperty('stage')
 })
 
 test("every reason an agent was unavailable is on the site's list, with whether it's in use", async () => {

@@ -3,9 +3,17 @@ import { AGENTS, type AgentId, type TurnStatus } from '../shared/types'
 import { TimeoutError } from './errors'
 
 /**
- * Why an agent failed, as Gui already tells it apart (errors.ts `AgentError`, agent.ts):
- * signed out, a CLI too old for Gui, the agent's process quit, or one of the known turn
- * errors (agent-protocol.ts `PLAIN_ERRORS`).
+ * Why an agent failed, as Gui tells it apart (errors.ts `AgentError`, agent.ts, and
+ * agent-protocol.ts `agentFailure`, which reads the agents' own error codes first): signed
+ * out, a CLI too old for Gui, the agent's process quit, a known provider error, or:
+ *
+ * no_model: the agent has no model it can use (none set up, or the one picked isn't there).
+ * bad_request: the agent's servers refused the request as one they can't take.
+ * timeout: the agent didn't start in time, or its servers stopped answering.
+ * dropped: the connection to the agent's servers broke partway through the answer.
+ * denied: the user declined what the agent asked to do, and the agent ended the turn.
+ * tool_failed: a tool the agent ran failed, and the agent ended the turn.
+ * not_installed: the agent wasn't there to start.
  */
 export const AGENT_FAILURES = [
   'signed_out',
@@ -17,11 +25,25 @@ export const AGENT_FAILURES = [
   'rate_limited',
   'server_error',
   'offline',
+  'no_model',
+  'bad_request',
+  'timeout',
+  'dropped',
+  'denied',
+  'tool_failed',
+  'not_installed',
 ] as const
 export type AgentFailure = (typeof AGENT_FAILURES)[number]
 
 /** Why a turn failed: one of AGENT_FAILURES, or `other` for an error Gui doesn't tell apart. */
 export type TurnFailure = AgentFailure | 'other'
+
+/**
+ * Where a failed turn was (`turnStage`): `start` before the agent answered at all, `tool`
+ * while one of its tool calls was running, `reply` while it was answering otherwise.
+ */
+export const TURN_STAGES = ['start', 'reply', 'tool'] as const
+export type TurnStage = (typeof TURN_STAGES)[number]
 
 /**
  * Why an installed agent couldn't be used, as its check found (agent-status.ts): not signed
@@ -101,7 +123,7 @@ export interface UsageEvents {
   app_opened: { version: string; os: string; osVersion: string; arch: string }
   /**
    * `agent`: a built-in agent's id, or `custom`; `provider`: its model provider, if it has one;
-   * `reason`: why it failed, only when it did; `picked`: the message carried a picked element;
+   * `reason` and `stage`: why and where it failed, only when it did; `picked`: the message carried a picked element;
    * `tools`: the agent called Gui's own tools; `mode`: who decided what it may do.
    */
   turn_finished: {
@@ -109,6 +131,7 @@ export interface UsageEvents {
     outcome: 'done' | 'failed' | 'stopped'
     provider?: string
     reason?: TurnFailure
+    stage?: TurnStage
     picked: YesNo
     tools: YesNo
     mode: TurnMode
@@ -141,8 +164,12 @@ export function usageAgent(id: AgentId) {
 /** A provider setting's value is a short name (`codex`, `grok`); anything else isn't sent. */
 const PROVIDER = /^[a-z][\w-]{0,39}$/i
 
-/** Why a turn failed, from the error it ended with: an AgentFailure it carries, else `other`. */
+/**
+ * Why a turn failed, from the error it ended with: an AgentFailure it carries, `timeout` for
+ * something Gui ran out of time waiting on, else `other`.
+ */
 export function turnFailure(error: unknown): TurnFailure {
+  if (error instanceof TimeoutError) return 'timeout'
   const failure = (error as { failure?: unknown } | null)?.failure
   return (AGENT_FAILURES as readonly unknown[]).includes(failure)
     ? (failure as AgentFailure)
@@ -151,7 +178,6 @@ export function turnFailure(error: unknown): TurnFailure {
 
 /** Why an agent's check failed, from its error: one of AGENT_UNAVAILABLE, else `error`. */
 export function agentUnavailable(error: unknown): AgentUnavailable {
-  if (error instanceof TimeoutError) return 'timeout'
   const failure = turnFailure(error)
   return (AGENT_UNAVAILABLE as readonly string[]).includes(failure)
     ? (failure as AgentUnavailable)
@@ -256,12 +282,36 @@ export function updateFailure(error: unknown): UpdateFailure {
   return MESSAGES.find(([pattern]) => pattern.test(message))?.[1] ?? 'other'
 }
 
+/** What Gui knows of a turn as it fails: whether the prompt went, and what the agent sent. */
+export interface TurnProgress {
+  /** Gui sent the prompt (session/prompt) */
+  prompted: boolean
+  /** The turn's items so far, the agent's and Gui's notices */
+  items: readonly { kind: string; status?: string }[]
+}
+
+/**
+ * Where a turn failed: `start` before the agent sent anything for it (Gui never sent the
+ * prompt, or the agent failed it straight away), `tool` with one of its tool calls still
+ * running, else `reply`. Gui's own notices and the user's steering aren't the agent's.
+ */
+export function turnStage({ prompted, items }: TurnProgress): TurnStage {
+  const answered = items.filter((item) => item.kind !== 'notice' && item.kind !== 'steer')
+  if (!prompted || answered.length === 0) return 'start'
+  const running = answered.some(
+    (item) => item.kind === 'tool' && (item.status === 'pending' || item.status === 'in_progress'),
+  )
+  return running ? 'tool' : 'reply'
+}
+
 /** What a turn was like, beside how it ended. */
 export interface TurnUsage {
   /** The agent's model provider setting, if it has one */
   provider?: string
   /** The error it failed with */
   error?: unknown
+  /** Where it failed (`turnStage`), when it did */
+  stage?: TurnStage
   /** It carried an element picked in the preview */
   picked: boolean
   /** The agent called one of Gui's own tools */
@@ -283,6 +333,7 @@ export function turnUsage(
     outcome,
     ...(provider && PROVIDER.test(provider) ? { provider } : {}),
     ...(outcome === 'failed' ? { reason: turnFailure(turn.error) } : {}),
+    ...(outcome === 'failed' && turn.stage ? { stage: turn.stage } : {}),
     picked: turn.picked ? 'yes' : 'no',
     tools: turn.tools ? 'yes' : 'no',
     mode: turn.ownPermissions ? 'own' : turn.autoApprove ? 'auto' : 'ask',
