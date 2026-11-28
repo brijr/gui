@@ -15,6 +15,12 @@ export const releases: Release[] = [
     date: '2026-11-28',
     changes: [
       'When an update’s download fails, Gui tries again after a minute, then after 5 and 15, instead of waiting four hours. It also checks for updates when your computer wakes.',
+      'A project that needs a newer Node.js than your computer has runs on Gui’s own, so a new project starts even where Node.js is old.',
+      'When a start command ends before your app came up, Gui shows the failed-start card with Fix, instead of only Restart.',
+      'If your login shell is slow to answer, Gui reads it again in the background, then finds your agents and tools without a restart.',
+      'An agent whose version Gui can’t read says so and offers Try again, instead of asking you to update it.',
+      'A page in the preview opens a browser tab only right after you click or press a key in it.',
+      'Checkpoints never run a program named in the config of a repository inside your project.',
       'New Website and Dashboard projects start from a plain, minimal page in the style of usegui.com: one light typeface, near-black on off-white, hairline rules, in light and dark. The old starters had a purple accent, pill buttons and cards.',
       'When an update fails, Gui’s usage data says why, as one name from a fixed list such as no connection or a full disk. It never contains the error itself. The Privacy page lists every reason.',
     ],
