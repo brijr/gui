@@ -3,6 +3,7 @@ import {
   boardBounds,
   cleanSections,
   exportPaths,
+  exportScale,
   FRAME_GAP,
   FRAME_MAX,
   FRAME_MIN,
@@ -276,10 +277,25 @@ test('an export names files for their frames, in a folder per section when there
     { id: 'a', path: 'summer-sale.png' },
     { id: 'b', path: 'summer-sale-2.png' },
   ])
+  expect(exportPaths(['a', 'b'], frames, sections, 'pdf').map((f) => f.path)).toEqual([
+    'summer-sale.pdf',
+    'summer-sale-2.pdf',
+  ])
+  expect(exportPaths(['a'], frames, sections, 'png', '@3x').map((f) => f.path)).toEqual([
+    'summer-sale@3x.png',
+  ])
   expect(exportPaths(['a', 'b', 'c', 'd'], frames, sections)).toEqual([
     { id: 'a', path: 'feed-ads/summer-sale.png' },
     { id: 'b', path: 'feed-ads/summer-sale-2.png' },
     { id: 'c', path: 'stories/story.png' },
     { id: 'd', path: 'loose.png' },
   ])
+})
+
+test('exports keep to the pixels of the largest frame at 2×', () => {
+  expect(exportScale(1440, 900, 3)).toBe(3)
+  expect(exportScale(4000, 4000, 3)).toBe(2)
+  expect(exportScale(1440, 4000, 3)).toBe(3)
+  expect(exportScale(4000, 9000, 3)).toBe(2) // height counts only up to FRAME_MAX
+  expect(exportScale(4000, 4000, 1)).toBe(1)
 })

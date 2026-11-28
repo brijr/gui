@@ -10,7 +10,7 @@ import { type BoardCaptureRenderer, UnresponsiveFrameError } from './board-captu
 
 const LOAD_TIMEOUT_MS = 8000
 const READY_TIMEOUT_MS = 1500
-/** A tall frame exported at 2x is a large image to read back. */
+/** A tall frame exported at 2x is a large image to read back; a capture at 3x is given half as long again. */
 const CAPTURE_TIMEOUT_MS = 5000
 /**
  * While a page loads it's asked every PROBE_EVERY_MS to run a line of script; one that can't
@@ -128,10 +128,32 @@ export class OffscreenBoardRenderer implements BoardCaptureRenderer {
     return this.withPage(frame, url, scale, signal, maxHeight, async (wc, width, height) => {
       const image = await settleWithin(
         wc.capturePage({ x: 0, y: 0, width, height }),
-        CAPTURE_TIMEOUT_MS,
+        (CAPTURE_TIMEOUT_MS * Math.max(2, scale)) / 2,
         signal,
       )
       return image && !image.isEmpty() ? image : null
+    })
+  }
+
+  pdf(
+    frame: BoardFrameLayout,
+    url: string,
+    signal: AbortSignal,
+    maxHeight: number,
+  ): Promise<Buffer | null> {
+    return this.withPage(frame, url, 1, signal, maxHeight, async (wc, width, height) => {
+      // pageSize is in inches; CSS is 96 px per inch.
+      const bytes = await settleWithin(
+        wc.printToPDF({
+          pageSize: { width: width / 96, height: height / 96 },
+          margins: { top: 0, bottom: 0, left: 0, right: 0 },
+          printBackground: true,
+          pageRanges: '1', // rounding the page size can spill a blank second page
+        }),
+        CAPTURE_TIMEOUT_MS,
+        signal,
+      )
+      return bytes?.length ? bytes : null
     })
   }
 

@@ -24,6 +24,7 @@ import {
   BOARD_MANIFEST,
   type BoardCamera,
   exportPaths,
+  exportScale,
   FRAME_PRESETS,
   FRAMES_DIR,
   type FramePreset,
@@ -245,6 +246,17 @@ const AGENT_LOG_LINES = 60
 const APP_CHECK_DELAY_MS = 500
 /** Frames export at this device scale factor: as sharp as on a Retina display. */
 const FRAME_EXPORT_SCALE = 2
+type FrameExport = { kind: 'png'; scale: 1 | 2 | 3 } | { kind: 'pdf' }
+const DEFAULT_EXPORT: FrameExport = { kind: 'png', scale: FRAME_EXPORT_SCALE }
+/** 1× and 3× files carry their scale so they don't overwrite the 2× one. */
+const exportSuffix = (format: FrameExport) =>
+  format.kind === 'png' && format.scale !== FRAME_EXPORT_SCALE ? `@${format.scale}x` : ''
+const exportBytes = async (board: BoardSession, id: string, format: FrameExport) => {
+  if (format.kind === 'pdf') return board.pdf(id)
+  const frame = board.frame(id)
+  const scale = frame ? exportScale(frame.width, frame.height, format.scale) : format.scale
+  return (await board.screenshot(id, scale)).toPNG()
+}
 /**
  * A frame's page that hasn't committed (stuck behind a page that hung) or still hasn't loaded
  * this long after it was opened is checked: if its process doesn't answer, Gui stops it.
@@ -4756,10 +4768,8 @@ export class ProjectTab implements ChatPanelOwner {
       ),
       one('Copy as PNG', () => this.copyFrameImage(id)),
       {
-        label: many ? `Export ${ids.length} Frames as PNG…` : 'Export as PNG…',
-        accelerator: 'Shift+CmdOrCtrl+E',
-        registerAccelerator: false,
-        click: () => void this.exportFrames(ids),
+        label: 'Export',
+        submenu: this.exportSubmenu(ids, many ? `Export ${ids.length} Frames` : undefined),
       },
       one('Save as HTML…', () => this.exportFrame(id, 'html')),
       { type: 'separator' },
@@ -4790,8 +4800,11 @@ export class ProjectTab implements ChatPanelOwner {
       { label: 'Rename', click: () => this.send(Events.board, { type: 'renameSection', id }) },
       { label: 'Select Frames', click: () => board.select(section.frames) },
       {
-        label: count > 1 ? `Export ${count} Frames as PNG…` : 'Export as PNG…',
-        click: () => void this.exportFrames(section.frames),
+        label: 'Export',
+        submenu: this.exportSubmenu(
+          section.frames,
+          count > 1 ? `Export ${count} Frames` : undefined,
+        ),
       },
       { type: 'separator' },
       { label: 'Delete Section', click: () => void board.removeSection(id) },
@@ -4806,37 +4819,54 @@ export class ProjectTab implements ChatPanelOwner {
     })
   }
 
+  private exportSubmenu(ids: string[], title?: string): MenuItemConstructorOptions[] {
+    const formats: [string, FrameExport][] = [
+      ['PNG 1×', { kind: 'png', scale: 1 }],
+      ['PNG 2×', { kind: 'png', scale: 2 }],
+      ['PNG 3×', { kind: 'png', scale: 3 }],
+      ['PDF', { kind: 'pdf' }],
+    ]
+    return [
+      ...(title ? [{ label: title, enabled: false }, { type: 'separator' as const }] : []),
+      ...formats.map(([label, format]) => ({
+        label,
+        ...(label === 'PNG 2×'
+          ? { accelerator: 'Shift+CmdOrCtrl+E', registerAccelerator: false }
+          : {}),
+        click: () => void this.exportFrames(ids, format),
+      })),
+    ]
+  }
+
   /** Saves a frame's page where the user picks. */
-  private async exportFrame(id: string, kind: 'html' | 'png') {
+  private async exportFrame(id: string, format: 'html' | FrameExport) {
+    const ext = format === 'html' ? 'html' : format.kind
+    const suffix = format === 'html' ? '' : exportSuffix(format)
     const board = this.resources.board
     const frame = board?.frame(id)
     if (!board || !frame) return
     const { canceled, filePath } = await dialog.showSaveDialog(this.host.win, {
-      defaultPath: `${frameId(frame.name, new Set())}.${kind}`,
-      filters: [
-        kind === 'html'
-          ? { name: 'HTML', extensions: ['html'] }
-          : { name: 'PNG', extensions: ['png'] },
-      ],
+      defaultPath: `${frameId(frame.name, new Set())}${suffix}.${ext}`,
+      filters: [{ name: ext.toUpperCase(), extensions: [ext] }],
     })
     if (canceled || !filePath) return
     try {
-      if (kind === 'html') await writeFile(filePath, await readFile(board.framePath(id)))
-      else await writeFile(filePath, (await board.screenshot(id, FRAME_EXPORT_SCALE)).toPNG())
+      if (format === 'html') await writeFile(filePath, await readFile(board.framePath(id)))
+      else await writeFile(filePath, await exportBytes(board, id, format))
     } catch (error) {
       frameError(error)
     }
   }
 
   /**
-   * Frames as PNGs at twice their size, sharp on a Retina display: one where the user picks,
+   * Frames as PNGs (2× by default, sharp on a Retina display) or PDFs: one where the user picks,
    * or several into the folder they pick, each named for its frame.
    */
-  async exportFrames(ids: string[]) {
+  async exportFrames(ids: string[], format: FrameExport = DEFAULT_EXPORT) {
     const board = this.resources.board
     const found = ids.filter((id) => board?.has(id))
     if (!board || !found.length) return
-    if (found.length === 1) return this.exportFrame(found[0], 'png')
+    if (found.length === 1) return this.exportFrame(found[0], format)
     const { canceled, filePaths } = await dialog.showOpenDialog(this.host.win, {
       title: `Export ${found.length} Frames`,
       buttonLabel: 'Export',
@@ -4844,7 +4874,13 @@ export class ProjectTab implements ChatPanelOwner {
     })
     const dir = filePaths[0]
     if (canceled || !dir) return
-    const files = exportPaths(found, board.frames, board.sections)
+    const files = exportPaths(
+      found,
+      board.frames,
+      board.sections,
+      format.kind,
+      exportSuffix(format),
+    )
     // Each frame renders in turn, a second or so apiece: the Dock icon shows how far it is.
     const win = this.host.win
     try {
@@ -4852,7 +4888,7 @@ export class ProjectTab implements ChatPanelOwner {
         if (!win.isDestroyed()) win.setProgressBar(i / files.length)
         const file = join(dir, ...path.split('/'))
         await mkdir(dirname(file), { recursive: true })
-        await writeFile(file, (await board.screenshot(id, FRAME_EXPORT_SCALE)).toPNG())
+        await writeFile(file, await exportBytes(board, id, format))
       }
       shell.showItemInFolder(join(dir, files[0].path.split('/')[0]))
     } catch (error) {

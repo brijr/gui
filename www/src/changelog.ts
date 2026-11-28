@@ -11,6 +11,13 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.33',
+    date: '2026-11-26',
+    changes: [
+      'Export frames as PNG at 1×, 2× or 3×, or as PDF, from a frame’s or section’s right-click menu.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.32',
     date: '2026-11-25',
     changes: [

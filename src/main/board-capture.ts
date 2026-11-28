@@ -63,6 +63,16 @@ export interface BoardCaptureRenderer {
     signal: AbortSignal,
     maxHeight: number,
   ): Promise<Buffer | null>
+  /**
+   * The page as one PDF page the size of the frame's page (top `maxHeight` CSS pixels at most),
+   * no margins; null as `render`.
+   */
+  pdf(
+    frame: BoardFrameLayout,
+    url: string,
+    signal: AbortSignal,
+    maxHeight: number,
+  ): Promise<Buffer | null>
   dispose(): void
 }
 
@@ -317,6 +327,18 @@ export class BoardCaptures {
     const image = await job.done
     if (!image) throw new Error(`Couldn't render frame ${id}.`)
     return image
+  }
+
+  async pdf(id: string): Promise<Buffer> {
+    if (this.disposed) throw new Error('Canvas closed')
+    const job = this.queue.schedule(CAPTURE_PRIORITY.interactive, async (signal) => {
+      const frame = this.host.frame(id)
+      return frame ? this.renderer.pdf(frame, this.host.url(id), signal, FRAME_MAX) : null
+    })
+    this.track(job)
+    const bytes = await job.done
+    if (!bytes) throw new Error(`Couldn't render frame ${id}.`)
+    return bytes
   }
 
   /**

@@ -486,6 +486,17 @@ export function regroupSections(
   return cleanSections(next, frames)
 }
 
+/** The most pixels an export renders: the largest frame at 2×. */
+const EXPORT_MAX_PIXELS = FRAME_MAX * FRAME_MAX * 4
+
+/** The scale to export at: the one asked for, or the largest below it that stays in EXPORT_MAX_PIXELS (not under 1). */
+export function exportScale(width: number, height: number, scale: number): number {
+  const area = width * Math.min(height, FRAME_MAX)
+  let fit = scale
+  while (fit > 1 && area * fit * fit > EXPORT_MAX_PIXELS) fit--
+  return fit
+}
+
 /**
  * Where each frame goes in an export folder, named for it: `summer-sale.png`. Frames from
  * more than one section go in a folder per section, and frames in none at the top.
@@ -495,6 +506,7 @@ export function exportPaths(
   frames: readonly BoardFrameLayout[],
   sections: readonly BoardSection[],
   extension = 'png',
+  suffix = '',
 ): { id: string; path: string }[] {
   const chosen = frames.filter((frame) => ids.includes(frame.id))
   const groups = new Set(chosen.map((frame) => sectionOf(sections, frame.id)?.id ?? null))
@@ -517,7 +529,7 @@ export function exportPaths(
     names.add(name)
     return {
       id: frame.id,
-      path: folder ? `${folder}/${name}.${extension}` : `${name}.${extension}`,
+      path: folder ? `${folder}/${name}${suffix}.${extension}` : `${name}${suffix}.${extension}`,
     }
   })
 }

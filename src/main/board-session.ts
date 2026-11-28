@@ -1128,6 +1128,10 @@ export class BoardSession extends EventEmitter<BoardSessionEvents> {
     return this.captures.screenshot(id, scale)
   }
 
+  pdf(id: string): Promise<Buffer> {
+    return this.captures.pdf(id)
+  }
+
   dispose(): Promise<void> {
     if (this.completion) return this.completion
     this.disposed = true

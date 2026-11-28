@@ -43,7 +43,7 @@ const image = (text: string, width = 400): NativeImage =>
   }) as unknown as NativeImage
 
 /** A renderer for thumbnails; its sharp regions are null unless a test gives them. */
-type TestRenderer = Omit<BoardCaptureRenderer, 'region'> & Partial<BoardCaptureRenderer>
+type TestRenderer = Omit<BoardCaptureRenderer, 'region' | 'pdf'> & Partial<BoardCaptureRenderer>
 
 async function fixture(ids = ['a', 'b']) {
   const base = await mkdtemp(join(tmpdir(), 'gui-capture-test-'))
@@ -67,7 +67,7 @@ async function fixture(ids = ['a', 'b']) {
         url: (id) => `http://board/frames/${id}.html`,
         changed: (id) => changed.push(id),
       },
-      { region: async () => null, ...renderer },
+      { region: async () => null, pdf: async () => null, ...renderer },
       queue,
     )
     owners.push(owner)
@@ -405,4 +405,24 @@ test('a thumbnail wider than the middle copy has one; a frame narrowed since los
   await until(() => renders === 1)
   await again.thumbnail('a')
   expect(await readFile(join(f.thumbs, 'a.mid.jpg'), 'utf8')).toBe('a@1440')
+})
+
+test("pdf returns the renderer's bytes", async () => {
+  const f = await fixture()
+  const owner = f.create({
+    render: async () => null,
+    pdf: async () => Buffer.from('%PDF'),
+    dispose: () => undefined,
+  })
+  expect(await owner.pdf('a')).toEqual(Buffer.from('%PDF'))
+})
+
+test("pdf throws when the frame couldn't be rendered", async () => {
+  const f = await fixture()
+  const owner = f.create({
+    render: async () => null,
+    pdf: async () => null,
+    dispose: () => undefined,
+  })
+  await expect(owner.pdf('a')).rejects.toThrow("Couldn't render frame a.")
 })
