@@ -21,7 +21,7 @@ Do not publish from an agent session. Do not put certificates or notary password
 8. Uploads: the zip first. Then the blockmap and the DMG, as `Gui-<version>-arm64.dmg` and `Gui-<channel>-arm64.dmg`; a stable release also as `Gui-arm64.dmg`, which `usegui.com/download` serves in place of the alpha's once it exists. Every `release/*-mac.yml` goes last and is read back from the site before anything is tagged.
 9. Before running it, add the release to the top of `www/src/changelog.ts` (the site's /changelog): the version the script will release, today's date, and a few plain bullets of what a user would notice. The script stops before building if that entry is missing, and after pushing the tag it creates a GitHub Release with those bullets as its notes (`--prerelease` for alphas). Deploy the site (`cd www && bun run deploy`) so /changelog shows it.
 10. Last, it sets the version and the stapled DMG's sha256 in `Casks/gui.rb` in `github.com/brijr/homebrew-gui` (the Homebrew tap behind `brew install --cask brijr/gui/gui`), through `gh api`. The release is out by then, so if the tap isn't there or GitHub refuses, it only prints both values to set by hand.
-11. CI `release-dry-run` only packs when `CSC_LINK` is set; without secrets it checks `electron-builder.yml` and that `scripts/release.sh` parses.
+11. CI `release-dry-run` gets no signing secrets: it checks `electron-builder.yml` and that `scripts/release.sh` parses. Run `sh scripts/release-dry-run.sh` on the Mac to pack a signed directory build without publishing.
 
 ## Linux
 

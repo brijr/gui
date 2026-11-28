@@ -39,7 +39,7 @@ fi
 
 if [ "$has_cert" -eq 0 ]; then
   echo "No signing certificate in this environment; skipping electron-builder."
-  echo "Add CSC_LINK (and CSC_KEY_PASSWORD) to GitHub Actions to exercise signing."
+  echo "Run this on a Mac with the Developer ID certificate to exercise signing."
   exit 0
 fi
 
