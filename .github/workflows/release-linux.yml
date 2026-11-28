@@ -139,9 +139,16 @@ jobs:
             dist/*.AppImage
             dist/*.deb
 
+      # The Release's copies are named as usegui.com/download names them, without the version
+      # (Gui-x86_64.AppImage): an AppImage with a version in its name renames itself when it
+      # updates, which breaks a launcher that points at the old name.
       - name: Checksums
-        working-directory: dist
-        run: sha256sum -- *.AppImage *.deb | tee SHA256SUMS
+        run: |
+          mkdir attach
+          for file in dist/*.AppImage dist/*.deb; do
+            cp "$file" "attach/Gui-${file#"dist/Gui-${TAG#v}-"}"
+          done
+          cd attach && sha256sum -- *.AppImage *.deb | tee SHA256SUMS
 
       - name: Publish to usegui.com
         env:
@@ -153,4 +160,4 @@ jobs:
       - name: Attach to the GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$TAG" dist/*.AppImage dist/*.deb dist/SHA256SUMS --clobber --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$TAG" attach/* --clobber --repo "$GITHUB_REPOSITORY"
