@@ -610,6 +610,11 @@ export class ProjectTab implements ChatPanelOwner {
   /** Getting the app going again from the top (`retryStartup`), so it runs once at a time */
   private retrying: Promise<void> | null = null
   /**
+   * The last start stopped because its package manager wasn't on the PATH: tried again when
+   * the login shell's PATH arrives (`shellEnvArrived`).
+   */
+  private missingCommand = false
+  /**
    * The agent's dev_server_restart (or set_start_command) is getting the app going: its
    * trust prompt doesn't agree on Return.
    */
@@ -3589,6 +3594,7 @@ export class ProjectTab implements ChatPanelOwner {
     void developerTools.gitAvailable()
     if (this.settingUp === devServer || setup?.dependencies === 'installing') return
     this.settingUp = devServer
+    this.missingCommand = false
     try {
       const installs = project.devCommand ? await this.installsFor(project) : []
       if (devServer !== this.resources.devServer) return
@@ -3621,6 +3627,7 @@ export class ProjectTab implements ChatPanelOwner {
       const missing = tool && (await missingPackageManager(tool, await getShellEnv()))
       if (devServer !== this.resources.devServer) return
       if (missing) {
+        this.missingCommand = true
         this.countStartFailure('command_missing')
         return devServer.fail(missing)
       }
@@ -3655,6 +3662,21 @@ export class ProjectTab implements ChatPanelOwner {
     return 'installing'
   }
 
+  /**
+   * The login shell's environment arrived after a fallback PATH stood in (shell-env.ts): a
+   * start that stopped for want of Node.js or its package manager tries again. Nothing that's
+   * running or starting is touched.
+   */
+  shellEnvArrived() {
+    if (this.disposed) return
+    const { setup, devServer } = this.state
+    const nodeMissing = setup?.node?.status === 'missing'
+    if (!nodeMissing && !this.missingCommand) return
+    if (devServer.status === 'running' || devServer.status === 'starting') return
+    this.missingCommand = false
+    void (nodeMissing ? this.setUpAndStart() : this.retryStartup())
+  }
+
   /** What to install before starting: after a failed install, all of it again. */
   private async installsFor(project: ProjectInfo) {
     if (this.state.setup?.dependencies === 'failed') return installTargets(project)
@@ -3675,6 +3697,7 @@ export class ProjectTab implements ChatPanelOwner {
       if (missing) {
         devServer.print(missing)
         this.patchSetup({ dependencies: 'failed' })
+        this.missingCommand = true
         this.countStartFailure('command_missing')
         return false
       }

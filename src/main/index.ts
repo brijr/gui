@@ -168,7 +168,7 @@ import {
   untrustProject,
   watchSettings,
 } from './settings'
-import { getShellEnv } from './shell-env'
+import { getShellEnv, onShellEnvArrived } from './shell-env'
 import { PREVIEW_PARTITION } from './storage'
 import { getSymbols } from './symbols'
 import { systemName } from './system-name'
@@ -2321,6 +2321,13 @@ if (!app.requestSingleInstanceLock()) {
     agentHealth.on('change', onAgentHealth)
     // Pick up agents installed (or added to agents.json) while Gui was in the background.
     app.on('browser-window-focus', () => void agentHealth.onAppFocus())
+    // The login shell answered late (shell-env.ts): agents shown as not installed, git, and
+    // projects that couldn't find Node.js or their package manager look again on its PATH.
+    onShellEnvArrived(() => {
+      void agentHealth.onAppFocus()
+      void developerTools.recheck()
+      for (const tab of allTabs()) tab.shellEnvArrived()
+    })
     app.on('browser-window-focus', () => void developerTools.recheck())
     // Auto Mode and Move Tab follow the window and project the menu acts on.
     app.on('browser-window-focus', syncMenuItems)
