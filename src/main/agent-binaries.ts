@@ -96,10 +96,11 @@ export function meetsVersion(version: string, floor: string) {
 }
 
 /**
- * Codex may use any CLI at or above the adapter's minimum; the agent health check
- * verifies startup. Claude stays on the SDK's minor line.
+ * Whether Gui may run the user's own CLI: at or above the floor set by hand in
+ * scripts/agent-binaries.ts. Codex has no ceiling; the agent health check verifies it starts.
+ * Claude Code must also be on the SDK's major.minor line (2.1): a newer line reads as too new.
  */
-function compatible(id: PinnedAgentId, version: string, spec: AgentBinary) {
+export function compatible(id: PinnedAgentId, version: string, spec: AgentBinary) {
   if (id === 'codex') return meetsVersion(version, spec.minCliVersion)
   const have = parseVersion(version)
   const min = parseVersion(spec.minCliVersion)
@@ -108,7 +109,7 @@ function compatible(id: PinnedAgentId, version: string, spec: AgentBinary) {
   return have[0] === line[0] && have[1] === line[1] && have[2] >= min[2]
 }
 
-function mismatch(version: string, spec: AgentBinary): 'older' | 'newer' {
+export function mismatch(version: string, spec: AgentBinary): 'older' | 'newer' {
   const have = parseVersion(version) ?? [0, 0, 0]
   const min = parseVersion(spec.minCliVersion) ?? [0, 0, 0]
   for (let i = 0; i < 3; i++) {
