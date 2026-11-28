@@ -370,13 +370,23 @@ test('a /download that resumes part way through is sent the rest and is not coun
   expect(await counted()).toEqual([])
 })
 
-test('a /download asked for in parts is counted once, for the part from the first byte', async () => {
+test('a /download asked for in parts is counted once, for the range from the first byte to the end', async () => {
   files['Gui-arm64.dmg'] = 'newest dmg'
-  expect((await get('/download', { range: 'bytes=0-4' })).status).toBe(206)
+  expect((await get('/download', { range: 'bytes=0-' })).status).toBe(206)
   expect((await get('/download', { range: 'bytes=5-' })).status).toBe(206)
   expect((await get('/download', { range: 'bytes=50-' })).status).toBe(416)
   expect(await counted()).toEqual([{ file: 'Gui-arm64.dmg' }])
 })
+
+for (const range of ['bytes=0-0', 'bytes=0-4', 'bytes=0-9', 'bytes=-10', 'bytes=0-4,5-']) {
+  test(`a /download of ${range} is still sent but is not counted`, async () => {
+    files['Gui-arm64.dmg'] = 'newest dmg'
+    const response = await get('/download', { range })
+    expect(response.ok).toBe(true)
+    await response.arrayBuffer()
+    expect(await counted()).toEqual([])
+  })
+}
 
 const MAC =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/142.0 Safari/537.36'
@@ -922,15 +932,15 @@ test('the update feed is served when counting it fails, and counts nothing witho
   expect(await sent()).toEqual([])
 })
 
-/** @param {Record<string, string>} fields */
-const signUp = (fields) => {
+/** @param {Record<string, string>} fields A form, and the address it comes from as `ip`. */
+const signUp = ({ ip, ...fields }) => {
   const body = new FormData()
   for (const [key, value] of Object.entries(fields)) body.set(key, value)
   return worker.fetch(
     new Request('https://usegui.com/waitlist', {
       method: 'POST',
       body,
-      headers: { accept: 'application/json' },
+      headers: { accept: 'application/json', ...(ip ? { 'cf-connecting-ip': ip } : {}) },
     }),
     env,
     ctx,
@@ -1023,4 +1033,167 @@ test('agent_unavailable from an older Gui, without current, is still kept', asyn
     { event: 'agent_unavailable', agent: 'cursor', reason: 'error', current: undefined },
     { event: 'agent_unavailable', agent: 'muse', reason: 'timeout', current: undefined },
   ])
+})
+
+/**
+ * A rate limit like Cloudflare's: `limit` per key, each call counting its delta, decided on the
+ * count before the call, and a refused call not counted. Every call is kept in `calls`.
+ */
+function limiter(limit) {
+  const counts = new Map()
+  const calls = /** @type {{ key: string, delta?: number }[]} */ ([])
+  return {
+    calls,
+    async limit(/** @type {{ key: string, delta?: number }} */ options) {
+      calls.push(options)
+      const count = counts.get(options.key) ?? 0
+      if (count >= limit) return { success: false }
+      counts.set(options.key, count + (options.delta ?? 1))
+      return { success: true }
+    },
+  }
+}
+
+/** @param {string} body @param {Record<string, string>} [headers] */
+const report = (body, headers = {}) =>
+  worker.fetch(
+    new Request('https://usegui.com/crash', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body,
+    }),
+    env,
+    ctx,
+  )
+const CRASH = JSON.stringify({
+  kind: 'main',
+  message: 'boom',
+  stack: 'Error: boom\n    at x',
+  version: '0.1.0-alpha.32',
+  os: '26.1',
+  arch: 'arm64',
+})
+const crashes = () => db.query('SELECT message FROM crashes').all()
+
+test('/crash keeps a report, then refuses an address past its limit with a bare 429', async () => {
+  env.CRASH_LIMITER = limiter(2)
+  expect((await report(CRASH, { 'cf-connecting-ip': '203.0.113.7' })).status).toBe(204)
+  expect((await report(CRASH, { 'cf-connecting-ip': '203.0.113.7' })).status).toBe(204)
+  const refused = await report(CRASH, { 'cf-connecting-ip': '203.0.113.7' })
+  expect(refused.status).toBe(429)
+  expect(await refused.text()).toBe('')
+  // Another address has its own limit.
+  expect((await report(CRASH, { 'cf-connecting-ip': '198.51.100.1' })).status).toBe(204)
+  expect(crashes()).toHaveLength(3)
+  expect(env.CRASH_LIMITER.calls[0].key).toBe('crash:203.0.113.7')
+})
+
+test('/crash refuses a body that says it is too large before reading it', async () => {
+  env.CRASH_LIMITER = limiter(100)
+  const response = await report(CRASH, { 'content-length': '20000' })
+  expect(response.status).toBe(413)
+  expect(env.CRASH_LIMITER.calls).toEqual([])
+  expect((await report('x'.repeat(16_001))).status).toBe(413)
+  expect(crashes()).toEqual([])
+})
+
+test('/crash keeps at most 2000 reports a day and removes none it kept', async () => {
+  const now = Math.floor(Date.now() / 1000)
+  const insert = db.prepare(
+    "INSERT INTO crashes (kind, message, version, created_at) VALUES ('main', ?, 'v', ?)",
+  )
+  db.transaction(() => {
+    insert.run('old', now - 2 * 86_400)
+    for (let i = 0; i < 1999; i++) insert.run('today', now - 60)
+  })()
+  expect((await report(CRASH)).status).toBe(204)
+  const refused = await report(CRASH)
+  expect(refused.status).toBe(429)
+  expect(await refused.text()).toBe('')
+  expect(db.query('SELECT COUNT(*) AS n FROM crashes').get()).toEqual({ n: 2001 })
+  expect(db.query("SELECT COUNT(*) AS n FROM crashes WHERE message = 'old'").get()).toEqual({
+    n: 1,
+  })
+})
+
+test('/waitlist refuses an address past its limit with a bare 429 and keeps nothing', async () => {
+  env.WAITLIST_LIMITER = limiter(1)
+  expect((await signUp({ email: 'a@example.invalid', platform: 'windows' })).status).toBe(200)
+  const refused = await signUp({ email: 'b@example.invalid', platform: 'windows' })
+  expect(refused.status).toBe(429)
+  expect(await refused.text()).toBe('')
+  expect(db.query('SELECT email FROM waitlist').all()).toEqual([{ email: 'a@example.invalid' }])
+})
+
+const batchOf = (/** @type {number} */ n) => ({
+  installId: INSTALL,
+  events: Array.from({ length: n }, () => ({ event: 'canvas_created', at: Date.now() })),
+})
+
+test('/t/v1 counts events toward the limit, and past it says 429 and sends nothing on', async () => {
+  posthog()
+  env.POSTHOG_KEY = 'phc_test'
+  env.USAGE_LIMITER = limiter(600)
+  const ip = { 'cf-connecting-ip': '203.0.113.7' }
+  // A whole queue of 500 at once goes through, as does the batch that crosses the limit.
+  for (let i = 0; i < 5; i++) expect((await sendUsage(batchOf(100), ip)).status).toBe(204)
+  expect((await sendUsage(batchOf(100), ip)).status).toBe(204)
+  expect(env.USAGE_LIMITER.calls.map((call) => call.delta)).toEqual([100, 100, 100, 100, 100, 100])
+  expect((await sent()).length).toBe(600)
+  forwarded = []
+  const refused = await sendUsage(batchOf(1), ip)
+  expect(refused.status).toBe(429)
+  expect(await refused.text()).toBe('')
+  expect(await sent()).toEqual([])
+  // A refused batch is never counted, and a batch of more than 100 counts as the 100 kept.
+  expect((await sendUsage(batchOf(250), { 'cf-connecting-ip': '198.51.100.1' })).status).toBe(204)
+  expect(env.USAGE_LIMITER.calls.at(-1)).toEqual({ key: 'usage:198.51.100.1', delta: 100 })
+})
+
+test('an IPv6 address is limited by its /64, however it is written', async () => {
+  env.WAITLIST_LIMITER = limiter(100)
+  for (const ip of ['2001:db8:0:1::1', '2001:0DB8:0000:0001:ffff::9', '2001:db8::1', '::1']) {
+    await signUp({ email: 'a@example.invalid', platform: 'windows', ip })
+  }
+  const keys = env.WAITLIST_LIMITER.calls.map((call) => call.key)
+  expect(keys).toEqual([
+    'waitlist:2001:db8:0:1::/64',
+    'waitlist:2001:db8:0:1::/64',
+    'waitlist:2001:db8:0:0::/64',
+    'waitlist:0:0:0:0::/64',
+  ])
+})
+
+test('a limiter that fails lets the request through', async () => {
+  env.CRASH_LIMITER = {
+    async limit() {
+      throw new Error('limiter down')
+    },
+  }
+  const error = console.error
+  console.error = () => {}
+  try {
+    expect((await report(CRASH)).status).toBe(204)
+  } finally {
+    console.error = error
+  }
+})
+
+test('downloads and update checks past the count limit are still sent, just not counted', async () => {
+  posthog()
+  env.POSTHOG_KEY = 'phc_test'
+  env.COUNT_LIMITER = limiter(1)
+  files['Gui-arm64.dmg'] = 'newest dmg'
+  const ip = { 'cf-connecting-ip': '203.0.113.7' }
+  for (let i = 0; i < 3; i++) {
+    const download = await get('/download', ip)
+    expect(await download.text()).toBe('newest dmg')
+    const feed = await get('/releases/alpha-mac.yml', ip)
+    expect(await feed.text()).toBe('version: 0.1.0-alpha.15')
+  }
+  expect(await counted()).toEqual([{ file: 'Gui-arm64.dmg' }])
+  expect((await sent()).map((/** @type {any} */ e) => e.event)).toEqual(['update_check'])
+  // Separate counts for each, so checks never use up the download count.
+  expect(env.COUNT_LIMITER.calls.map((call) => call.key)).toContain('download:203.0.113.7')
+  expect(env.COUNT_LIMITER.calls.map((call) => call.key)).toContain('update_check:203.0.113.7')
 })

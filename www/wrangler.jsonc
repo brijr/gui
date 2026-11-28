@@ -26,6 +26,27 @@
   // ANALYTICS is the kill switch: "on" keeps them, "off" stops every copy of the app from
   // sending until it next launches, and a comma list of event names drops just those.
   "vars": { "ANALYTICS": "on" },
+  // Limits on what one address (an IPv4 address, or an IPv6 /64) can send, per minute and per
+  // Cloudflare location; they are approximate. A refused POST is answered 429 and nothing else.
+  // The namespace IDs are this account's own numbers and need nothing made first.
+  "ratelimits": [
+    // /t/v1, counted in events: an install sends at most 500 (its whole queue) every 5 minutes.
+    {
+      "name": "USAGE_LIMITER",
+      "namespace_id": "7001001",
+      "simple": { "limit": 600, "period": 60 }
+    },
+    // /crash: an install sends at most 20 reports a launch.
+    { "name": "CRASH_LIMITER", "namespace_id": "7001002", "simple": { "limit": 30, "period": 60 } },
+    // /waitlist: a person signs up once.
+    {
+      "name": "WAITLIST_LIMITER",
+      "namespace_id": "7001003",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    // Download and update-feed counts. Past this an address is still sent the file, just not counted.
+    { "name": "COUNT_LIMITER", "namespace_id": "7001004", "simple": { "limit": 10, "period": 60 } }
+  ],
   "routes": [
     { "pattern": "usegui.com", "custom_domain": true },
     { "pattern": "www.usegui.com", "custom_domain": true }

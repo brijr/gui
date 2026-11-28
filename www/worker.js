@@ -11,7 +11,9 @@
 // passes the ones it knows on to PostHog, so where they are kept can change here without a
 // new app; update feed requests are counted the same way. Everything else is the static site in dist/ (with dist/404.html
 // for pages that don't exist); its videos are sent in parts too, and /install.sh, the Linux
-// install script, is sent as plain text.
+// install script, is sent as plain text. /crash, /waitlist and /t/v1 refuse an address that
+// sends more than the limits in wrangler.jsonc allow; downloads and feed requests past a limit
+// are still sent, just not counted.
 
 /**
  * What /download serves: the newest stable release's DMG. Until a stable release has uploaded
@@ -48,6 +50,7 @@ const LINUX_DOWNLOADS = new Set([
  *   run(): Promise<{ meta: { changes: number } }>
  * }} D1Statement
  * @typedef {{ prepare(sql: string): D1Statement }} D1Database
+ * @typedef {{ limit(options: { key: string, delta?: number }): Promise<{ success: boolean }> }} RateLimit
  * @typedef {{
  *   ASSETS: { fetch: typeof fetch }
  *   RELEASES: R2Bucket
@@ -55,6 +58,10 @@ const LINUX_DOWNLOADS = new Set([
  *   POSTHOG_KEY?: string
  *   POSTHOG_HOST?: string
  *   ANALYTICS?: string
+ *   USAGE_LIMITER?: RateLimit
+ *   CRASH_LIMITER?: RateLimit
+ *   WAITLIST_LIMITER?: RateLimit
+ *   COUNT_LIMITER?: RateLimit
  * }} Env
  * @typedef {{ waitUntil(promise: Promise<unknown>): void }} Context
  */
@@ -245,17 +252,20 @@ function unsatisfiable(/** @type {number} */ size) {
 const BOT = /bot|crawl|spider|slurp|preview|facebookexternalhit|headless/i
 
 /**
- * A person's GET from the first byte: not a HEAD, not a resumed download asking for the rest,
- * and not a crawler or link preview.
+ * A person's GET for the whole file: no Range, or one from the first byte to the end. Not a
+ * HEAD, not a part of the file (a resumed download asking for the rest, or a few bytes), and
+ * not a crawler or link preview.
  */
 function startsDownload(/** @type {Request} */ request) {
   if (request.method !== 'GET' || BOT.test(request.headers.get('user-agent') ?? '')) return false
   const range = request.headers.get('range')
-  return !range || /^bytes=0-/.test(range)
+  return range === null || /^bytes=0-$/i.test(range.trim())
 }
 
 /** @param {Request} request @param {Env} env @param {string} file The DMG that was sent. */
 async function countDownload(request, env, file) {
+  // One address counts a few downloads a minute at most; past that it is still sent the file.
+  if (!(await underLimit(env.COUNT_LIMITER, 'download', request))) return
   // Only the referring site, not the full address, so no query strings are kept.
   const referrer = URL.parse(request.headers.get('referer') ?? '')?.hostname ?? null
   try {
@@ -327,6 +337,7 @@ const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * @param {Request} request @param {Env} env
  */
 async function waitlist(request, env) {
+  if (!(await underLimit(env.WAITLIST_LIMITER, 'waitlist', request))) return tooMany()
   const json = request.headers.get('accept')?.includes('application/json')
   const form = await request.formData().catch(() => null)
   const email = String(form?.get('email') ?? '').trim()
@@ -352,9 +363,16 @@ async function waitlist(request, env) {
 /** The app's report is a few kilobytes; anything much larger isn't one. */
 const MAX_CRASH = 16_000
 const CRASH_KINDS = new Set(['main', 'rejection', 'renderer', 'window', 'process'])
+/**
+ * The most reports kept in a day, from everyone. The busiest real day so far kept 164; past
+ * this, reports are refused until the day's count falls, and none already kept are removed.
+ */
+const MAX_CRASHES_PER_DAY = 2000
 
 /** Keeps a crash report from Gui. @param {Request} request @param {Env} env */
 async function crash(request, env) {
+  if (tooLarge(request, MAX_CRASH)) return new Response(null, { status: 413 })
+  if (!(await underLimit(env.CRASH_LIMITER, 'crash', request))) return tooMany()
   const text = await request.text()
   if (text.length > MAX_CRASH) return new Response(null, { status: 413 })
   /** @type {Record<string, unknown> | null} */
@@ -373,8 +391,11 @@ async function crash(request, env) {
   if (!kind || !CRASH_KINDS.has(kind) || !message || !version) {
     return new Response(null, { status: 400 })
   }
-  await env.DB.prepare(
-    'INSERT INTO crashes (kind, message, stack, version, os, arch, country, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  const time = now()
+  const { meta } = await env.DB.prepare(
+    `INSERT INTO crashes (kind, message, stack, version, os, arch, country, created_at)
+     SELECT ?, ?, ?, ?, ?, ?, ?, ?
+     WHERE (SELECT COUNT(*) FROM crashes WHERE created_at > ?) < ?`,
   )
     .bind(
       kind,
@@ -384,9 +405,12 @@ async function crash(request, env) {
       field('os', 40),
       field('arch', 20),
       country(request),
-      now(),
+      time,
+      time - 86_400,
+      MAX_CRASHES_PER_DAY,
     )
     .run()
+  if (meta.changes === 0) return tooMany()
   return new Response(null, { status: 204 })
 }
 
@@ -496,6 +520,7 @@ function usageSwitch(env) {
 async function usage(request, env, ctx) {
   const { off, dropped } = usageSwitch(env)
   if (off) return Response.json({ stop: true })
+  if (tooLarge(request, MAX_USAGE_BYTES)) return new Response(null, { status: 413 })
   const text = await request.text()
   if (text.length > MAX_USAGE_BYTES) return new Response(null, { status: 413 })
   /** @type {any} */
@@ -514,6 +539,9 @@ async function usage(request, env, ctx) {
   ) {
     return new Response(null, { status: 400 })
   }
+  // Counted by events, not requests: a batch of 100 is 100 toward the address's limit.
+  const delta = Math.max(1, Math.min(batch.events.length, MAX_USAGE_EVENTS))
+  if (!(await underLimit(env.USAGE_LIMITER, 'usage', request, delta))) return tooMany()
   const place = country(request)
   const events = []
   for (const raw of batch.events.slice(0, MAX_USAGE_EVENTS)) {
@@ -609,10 +637,59 @@ function countUpdateCheck(request, env, ctx, feed) {
       version,
       country: country(request),
     })
-    ctx.waitUntil(forward(env, [event]))
+    // One address counts a few checks a minute at most. The feed is sent either way.
+    const counted = async () => {
+      if (await underLimit(env.COUNT_LIMITER, 'update_check', request)) await forward(env, [event])
+    }
+    ctx.waitUntil(counted())
   } catch (error) {
     console.error('update check count failed', error)
   }
+}
+
+/**
+ * Whether the client is still under `limiter`, one of the rate limits in wrangler.jsonc, for
+ * `name`. Clients are told apart by IP address, and an IPv6 address by its /64, which one
+ * home or office is given whole. Each call counts `delta` toward the limit. Without the
+ * binding (local development), or if the limiter fails, the request goes through.
+ * @param {RateLimit | undefined} limiter @param {string} name @param {Request} request
+ * @param {number} [delta]
+ */
+async function underLimit(limiter, name, request, delta = 1) {
+  if (!limiter) return true
+  const key = `${name}:${client(request)}`
+  try {
+    const { success } = await limiter.limit(delta === 1 ? { key } : { key, delta })
+    return success
+  } catch (error) {
+    console.error('rate limit failed', error)
+    return true
+  }
+}
+
+/** The client's address as rate limits count it: an IPv4 address, or an IPv6 /64. */
+function client(/** @type {Request} */ request) {
+  const ip = (request.headers.get('cf-connecting-ip') ?? '').trim().toLowerCase()
+  if (!ip.includes(':')) return ip || 'unknown'
+  const [head, tail] = ip.split('::')
+  const left = head ? head.split(':') : []
+  const right = tail ? tail.split(':') : []
+  const zeros = tail === undefined ? 0 : Math.max(0, 8 - left.length - right.length)
+  const groups = [...left, ...Array(zeros).fill('0'), ...right]
+  return `${groups
+    .slice(0, 4)
+    .map((group) => group.replace(/^0+(?=.)/, ''))
+    .join(':')}::/64`
+}
+
+/** A request that says its body is larger than `max` bytes, refused before it is read. */
+function tooLarge(/** @type {Request} */ request, /** @type {number} */ max) {
+  return Number(request.headers.get('content-length') ?? 0) > max
+}
+
+/** A client past its limit: nothing else is said. */
+function tooMany() {
+  return new Response(null, { status: 429 })
 }
 
 /** The two-letter country Cloudflare gives each request, if any. */
