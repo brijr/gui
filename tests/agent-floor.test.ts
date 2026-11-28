@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { agentBinaries } from '../scripts/agent-binaries'
-import { compatible, mismatch } from '../src/main/agent-binaries'
+import { compatible, mismatch, missingMessage } from '../src/main/agent-binaries'
 
 // Gui runs the user's own Claude Code or Codex when it is at or above a floor set by hand in
 // scripts/agent-binaries.ts (not the exact version Gui pins), and offers its own copy otherwise.
@@ -51,4 +51,38 @@ test('a pre-release counts as its version; output without one is never accepted'
   expect(compatible('codex', '', codex)).toBe(false)
   expect(compatible('claude', 'claude: command not found', claude)).toBe(false)
   expect(compatible('claude', '2.1', claude)).toBe(false)
+})
+
+test('too old: says both versions, the update command, and that Gui can install its own', () => {
+  const found = (version: string) => ({ path: '/x', version })
+  expect(
+    missingMessage('claude', {
+      kind: 'missing',
+      found: found('2.1.290'),
+      mismatch: 'older',
+      needed: '2.1.296',
+    }),
+  ).toBe(
+    'Gui needs Claude Code 2.1.296 or newer (yours is 2.1.290). Run `claude update` in a terminal, then check again, or let Gui install its own copy.',
+  )
+  expect(
+    missingMessage('codex', {
+      kind: 'missing',
+      found: found('0.160.0'),
+      mismatch: 'older',
+      needed: '0.164.0',
+    }),
+  ).toBe(
+    'Gui needs Codex 0.164.0 or newer (yours is 0.160.0). Run `codex update` in a terminal, then check again, or let Gui install its own copy.',
+  )
+  expect(
+    missingMessage('claude', {
+      kind: 'missing',
+      found: found('2.2.0'),
+      mismatch: 'newer',
+      needed: '2.1.296',
+    }),
+  ).toBe(
+    'Gui needs its own copy of Claude Code: yours (2.2.0) is newer than it supports. Yours stays as it is.',
+  )
 })

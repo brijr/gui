@@ -118,6 +118,8 @@ function AgentNextStepContent({ name, health, onSetUp }: AgentNextStepProps) {
             <Button variant="primary" onClick={install}>
               Install {name}
             </Button>
+            {/* Their own CLI is too old: after they update it, this reads its version again */}
+            {health.install === 'update' && checkAgain}
           </Step>
         )
       }

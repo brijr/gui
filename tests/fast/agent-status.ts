@@ -27,6 +27,20 @@ class AgentAuthError extends Error {
 }
 /** Agents whose check finds the user isn't signed in */
 const signedOut = new Set<AgentId>()
+/** The user's own Codex is below Gui's floor, until they update it */
+let codexTooOld = false
+/** What `agentBinary` found, until `forgetBinaries` (as in agent-binaries.ts) */
+const binaries = new Map<AgentId, unknown>()
+function findBinary(id: AgentId) {
+  return id === 'codex' && codexTooOld
+    ? {
+        kind: 'missing',
+        found: { path: '/x/codex', version: '0.160.0' },
+        mismatch: 'older',
+        needed: '0.164.0',
+      }
+    : { kind: 'ready', binary: { path: '', version: '1', source: 'own' } }
+}
 /** Holds the scan for installed agents open, to act while launch is still getting to the checks. */
 let scanning: Promise<void> = Promise.resolve()
 
@@ -72,8 +86,11 @@ mock.module('../../src/main/agent', () => ({
 }))
 mock.module('../../src/main/agent-binaries', () => ({
   AgentMissingError,
-  agentBinary: async () => ({ kind: 'ready', binary: { path: '', version: '1', source: 'own' } }),
-  forgetBinaries: () => undefined,
+  agentBinary: async (id: AgentId) => {
+    if (!binaries.has(id)) binaries.set(id, findBinary(id))
+    return binaries.get(id)
+  },
+  forgetBinaries: (id?: AgentId) => (id ? binaries.delete(id) : binaries.clear()),
   installAgentBinary: async () => undefined,
   missingMessage: () => '',
   pinnedAgent: (id: AgentId) => (id === 'claude' || id === 'codex' ? id : null),
@@ -113,6 +130,8 @@ beforeEach(() => {
   lists.clear()
   checks.most = 0
   scanning = Promise.resolve()
+  codexTooOld = false
+  binaries.clear()
 })
 afterEach(() => {
   // A store left listening would answer the next test's switches too.
@@ -336,4 +355,26 @@ test('a check that fails doesn’t count, so the next launch checks again', asyn
   gone.clear()
   await launchAt(T + HOUR)
   expect(started).toContain('opencode')
+})
+
+test('a too-old Codex the user updates is used on their return to Gui, or on Check again', async () => {
+  setPrefs({ disabledAgents: [] })
+  codexTooOld = true
+  store = new AgentHealthStore()
+  await store.checkOnLaunch('claude')
+  expect(statusOf('codex')).toBe('not-installed')
+  expect(store.list().find((agent) => agent.id === 'codex')?.install).toBe('update')
+
+  // They ran `codex update` in a terminal and came back to Gui.
+  codexTooOld = false
+  await store.onAppFocus()
+  expect(statusOf('codex')).toBe('ready')
+
+  // Check again reads the version again too.
+  codexTooOld = true
+  await store.checkAll()
+  expect(statusOf('codex')).toBe('not-installed')
+  codexTooOld = false
+  await store.checkAll()
+  expect(statusOf('codex')).toBe('ready')
 })

@@ -61,7 +61,12 @@ mock.module('../../src/main/agent-binaries', () => ({
   AgentMissingError,
   agentBinary: async (id: string) =>
     id === 'codex'
-      ? { kind: 'missing', found: { path: '/x/codex', version: '0.160.0' }, mismatch: 'older' }
+      ? {
+          kind: 'missing',
+          found: { path: '/x/codex', version: '0.160.0' },
+          mismatch: 'older',
+          needed: '0.164.0',
+        }
       : { kind: 'ready', binary: { path: '', version: '2.1.330', source: 'yours' } },
   forgetBinaries: () => undefined,
   installAgentBinary: async () => undefined,

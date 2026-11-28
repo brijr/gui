@@ -24,6 +24,11 @@ export const VERSION_TIMEOUT_MS = 30_000
 const COMMON_BIN_DIRS = ['.local/bin', '.claude/local', '.npm-global/bin', '.bun/bin']
 const SYSTEM_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
 const COMMANDS = { claude: 'claude', codex: 'codex' } as const
+/**
+ * How the user updates their own CLI. `codex update` finds how Codex was installed (npm, bun,
+ * Homebrew or the standalone installer) and runs that one's update.
+ */
+const UPDATE_COMMANDS = { claude: 'claude update', codex: 'codex update' } as const
 
 /** The agents whose CLI Gui pins (and can download); other agents bring their own. */
 export type PinnedAgentId = keyof typeof COMMANDS
@@ -47,6 +52,8 @@ export type BinaryStatus =
       found: { path: string; version: string } | null
       /** Whether `found` is older or newer than the versions Gui's adapter supports */
       mismatch: 'older' | 'newer' | null
+      /** The oldest version Gui accepts */
+      needed: string
     }
 
 /** The agent's CLI isn't on this Mac (any longer): it reads as Not installed, never as an error. */
@@ -205,7 +212,12 @@ async function resolve(id: PinnedAgentId): Promise<BinaryStatus> {
       return { kind: 'ready', binary: { path: dev, version: spec.cliVersion, source: 'bundled' } }
     }
   }
-  return { kind: 'missing', found, mismatch: found ? mismatch(found.version, spec) : null }
+  return {
+    kind: 'missing',
+    found,
+    mismatch: found ? mismatch(found.version, spec) : null,
+    needed: spec.minCliVersion,
+  }
 }
 
 const resolutions = new Map<PinnedAgentId, Promise<BinaryStatus>>()
@@ -239,8 +251,11 @@ export function missingMessage(
 ) {
   const name = agentName(id)
   if (!status.found) return `${name} isn't installed yet. Gui can set it up for you.`
-  const age = status.mismatch === 'newer' ? 'newer' : 'older'
-  return `Gui needs its own copy of ${name}: yours (${status.found.version}) is ${age} than it supports. Yours stays as it is.`
+  const yours = status.found.version
+  if (status.mismatch === 'newer') {
+    return `Gui needs its own copy of ${name}: yours (${yours}) is newer than it supports. Yours stays as it is.`
+  }
+  return `Gui needs ${name} ${status.needed} or newer (yours is ${yours}). Run \`${UPDATE_COMMANDS[id]}\` in a terminal, then check again, or let Gui install its own copy.`
 }
 
 export type InstallProgress = DownloadProgress
