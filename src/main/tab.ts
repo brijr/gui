@@ -105,6 +105,7 @@ import { Checkpoints } from './checkpoints'
 import { openExternal } from './desktop-open'
 import { DevServer } from './dev-server'
 import { type DeveloperToolsStatus, developerTools } from './developer-tools'
+import { ExternalOpens, USER_GESTURES } from './external-opens'
 import { Guides } from './guides'
 import {
   chatReferences,
@@ -564,6 +565,8 @@ export class ProjectTab implements ChatPanelOwner {
   private loadFailed = false
   /** The view that had the keyboard when the preview's page started loading (`keepKeyboard`). */
   private keyboardBeforeLoad: WebContents | null = null
+  /** The user's clicks and keys in the preview, which a page needs to open a browser tab. */
+  private readonly externalOpens = new ExternalOpens()
   /** The page the preview last committed (`did-navigate`), so a canvas knows which frame shows. */
   private committedUrl: string | null = null
   /**
@@ -2619,6 +2622,7 @@ export class ProjectTab implements ChatPanelOwner {
     wc.on('input-event', (_event, input) => {
       // The agent's own clicks and keys (preview_click and the rest) aren't the user's.
       if (this.agentInput) return
+      if (USER_GESTURES.has(input.type)) this.externalOpens.userInput()
       if (input.type === 'mouseDown') this.keyboardBeforeLoad = null
       // Using the app: the floating chat can get out of its way.
       if (input.type === 'mouseDown' || input.type === 'keyDown') this.panel.leftChat(true)
@@ -2711,7 +2715,9 @@ export class ProjectTab implements ChatPanelOwner {
     wc.setWindowOpenHandler(({ url }) => {
       const origin = this.devOrigin()
       if (origin && originOf(url) === origin) void this.loadPreview(url)
-      else if (/^https?:/.test(url)) openExternal(url).catch(() => undefined)
+      // In the browser only right after the user's click or key, as a pop-up rule would.
+      else if (/^https?:/.test(url) && this.externalOpens.take())
+        openExternal(url).catch(() => undefined)
       return { action: 'deny' }
     })
     // Navigating off-site is allowed (OAuth round-trips), but never to app protocols.
