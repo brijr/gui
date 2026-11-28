@@ -29,9 +29,12 @@ const jwt = (claims: Record<string, unknown>) =>
   `${encode({ alg: 'none' })}.${encode({ exp: Math.floor(Date.now() / 1000) + 600, ...claims })}.sig`
 const migrations = async () =>
   Promise.all(
-    ['0001_accounts.sql', '0002_gui_accounts.sql', '0003_workos.sql'].map((name) =>
-      Bun.file(new URL(`./migrations/${name}`, import.meta.url)).text(),
-    ),
+    [
+      '0001_accounts.sql',
+      '0002_gui_accounts.sql',
+      '0003_workos.sql',
+      '0004_pending_connection.sql',
+    ].map((name) => Bun.file(new URL(`./migrations/${name}`, import.meta.url)).text()),
   )
 
 beforeEach(async () => {
@@ -522,6 +525,109 @@ test('a GitHub user already in another account cannot be linked to this one', as
   const response = await browse(`/callback/github?code=c&state=${state}`)
   expect(response.status).toBe(409)
   expect(await response.text()).toContain('another Gui account')
+  expect((await call('/repositories', session)).status).toBe(403)
+  expect(db.query('SELECT pending_connection FROM auth_attempts').all()).toEqual([
+    { pending_connection: null },
+  ])
+})
+
+/** Starts connecting GitHub for `session` and has a browser finish GitHub's consent. */
+async function linkInBrowser(session: string) {
+  const link = await start(session)
+  const state = await providerState(link.id, 'github')
+  const response = await browse(`/callback/github?code=c&state=${state}`)
+  expect(response.status).toBe(303)
+  const code = new URL(response.headers.get('Location') ?? '').searchParams.get('code') ?? ''
+  return { ...link, code }
+}
+const count = (table: string) =>
+  (db.query(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n
+
+test('GitHub finished in a browser connects nothing until the Gui that asked trades its code', async () => {
+  const { session } = await signIn()
+  // Someone else's GitHub finishes the consent; the Gui that started it never hears back.
+  secondAccount = true
+  await linkInBrowser(session)
+  expect(await (await call('/account', session)).json()).toMatchObject({ profile: null })
+  expect((await call('/repositories', session)).status).toBe(403)
+  expect(count('users')).toBe(0)
+  expect(db.query("SELECT count(*) AS n FROM identities WHERE provider = 'github'").get()).toEqual({
+    n: 0,
+  })
+})
+
+test('a waiting GitHub connection is encrypted, short-lived, and gone once used', async () => {
+  const { session } = await signIn()
+  const link = await linkInBrowser(session)
+  const row = db.query('SELECT * FROM auth_attempts').get() as {
+    pending_connection: string | null
+    expires_at: number
+  }
+  expect(row.pending_connection).toMatch(/^[a-f\d]+:[a-f\d]+$/)
+  const stored = JSON.stringify(row)
+  for (const secret of ['provider-secret', 'refresh-secret', 'tester', 'test@example.com'])
+    expect(stored).not.toContain(secret)
+  expect(row.expires_at).toBeLessThanOrEqual(Math.floor(Date.now() / 1000) + 120)
+  const token = await call('/auth/token', link.attempt, 'POST', { code: link.code })
+  expect(await token.json()).toEqual({ session: null })
+  expect((await call('/auth/token', link.attempt, 'POST', { code: link.code })).status).toBe(401)
+  expect(count('auth_attempts')).toBe(0)
+  expect(await (await call('/account', session)).json()).toMatchObject({
+    profile: { login: 'tester' },
+  })
+  const user = db
+    .query('SELECT github_token, refresh_token, token_expires_at FROM users')
+    .get() as {
+    github_token: string
+    refresh_token: string
+    token_expires_at: number
+  }
+  expect(JSON.stringify(user)).not.toContain('secret')
+  expect(user.token_expires_at).toBeGreaterThan(Math.floor(Date.now() / 1000) + 28000)
+  expect((await call('/repositories', session)).status).toBe(200)
+})
+
+test('an expired GitHub connection saves nothing, and its tokens are swept', async () => {
+  const { session } = await signIn()
+  const link = await linkInBrowser(session)
+  db.exec('UPDATE auth_attempts SET expires_at = 0')
+  expect((await call('/auth/token', link.attempt, 'POST', { code: link.code })).status).toBe(401)
+  expect(count('users')).toBe(0)
+  await worker.scheduled(undefined, env)
+  expect(count('auth_attempts')).toBe(0)
+  // Starting another sign-in sweeps too.
+  await linkInBrowser(session)
+  db.exec('UPDATE auth_attempts SET expires_at = 0')
+  await start(session)
+  expect(
+    db.query('SELECT count(*) AS n FROM auth_attempts WHERE pending_connection IS NOT NULL').get(),
+  ).toEqual({ n: 0 })
+  expect((await call('/repositories', session)).status).toBe(403)
+})
+
+test('a link the browser finished before the deploy still completes for Gui', async () => {
+  const { session } = await signIn()
+  const link = await linkInBrowser(session)
+  // The worker before this one saved the connection in the callback and kept nothing here.
+  db.exec('UPDATE auth_attempts SET pending_connection = NULL')
+  const token = await call('/auth/token', link.attempt, 'POST', { code: link.code })
+  expect(await token.json()).toEqual({ session: null })
+  expect(count('users')).toBe(0)
+})
+
+test('a GitHub user claimed by another account before Gui confirms is refused to Gui', async () => {
+  workosUser = { ...workosUser, id: 'user_9', email: 'someone@example.com' }
+  const { session } = await signIn()
+  const link = await linkInBrowser(session)
+  // The same GitHub user signs in to Gui on its own in the meantime.
+  await login()
+  const response = await call('/auth/token', link.attempt, 'POST', { code: link.code })
+  expect(response.status).toBe(409)
+  expect(await response.json()).toEqual({
+    error: 'This sign-in already belongs to another Gui account.',
+  })
+  expect(count('auth_attempts')).toBe(0)
+  expect(await (await call('/account', session)).json()).toMatchObject({ profile: null })
   expect((await call('/repositories', session)).status).toBe(403)
 })
 

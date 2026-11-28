@@ -8,6 +8,8 @@
   "routes": [{ "pattern": "accounts.usegui.com", "custom_domain": true }],
   "workers_dev": true,
   "preview_urls": false,
+  // Sweeps expired sign-ins (and the GitHub tokens one may hold until Gui confirms) and sessions.
+  "triggers": { "crons": ["*/10 * * * *"] },
   "ratelimits": [
     { "name": "LOGIN_LIMITER", "namespace_id": "5204419", "simple": { "limit": 10, "period": 60 } }
   ],

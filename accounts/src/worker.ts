@@ -58,7 +58,17 @@ interface Attempt {
   provider: string | null
   account_id: string | null
   exchange_hash: string | null
+  /** A GitHub connection waiting for this Gui to trade its code: an encrypted `PendingConnection`. */
+  pending_connection: string | null
   expires_at: number
+}
+/** What connecting GitHub needs to save once Gui confirms; `expiresAt` is in seconds. */
+interface PendingConnection {
+  user: { id: number; login: string; name: string | null }
+  email: string | null
+  accessToken: string
+  refreshToken: string | null
+  expiresAt: number
 }
 /**
  * Who signed in, as WorkOS (or GitHub, for Gui's device flow and connecting GitHub) vouches
@@ -93,6 +103,8 @@ const hash = async (value: string) =>
   hex(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value)))
 const SESSION_SECONDS = 180 * 86400
 const ATTEMPT_SECONDS = 15 * 60
+/** How long Gui has to trade the one-time code once the browser comes back. */
+const EXCHANGE_SECONDS = 2 * 60
 function json(value: unknown, status = 200) {
   return Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } })
 }
@@ -437,6 +449,23 @@ async function saveConnection(
   ])
 }
 
+/** Saves a GitHub connection the Gui that asked for it has confirmed. */
+async function connectPending(env: Env, accountId: string, sealed: string) {
+  const pending = JSON.parse(await decrypt(env, sealed)) as PendingConnection
+  const identity: Identity = {
+    provider: 'github',
+    subject: String(pending.user.id),
+    email: pending.email,
+    name: pending.user.name ?? pending.user.login,
+  }
+  await accountFor(env, identity, accountId)
+  await saveConnection(env, accountId, pending.user, pending.email, {
+    access_token: pending.accessToken,
+    ...(pending.refreshToken ? { refresh_token: pending.refreshToken } : {}),
+    expires_in: Math.max(0, pending.expiresAt - now()),
+  })
+}
+
 async function newSession(env: Env, accountId: string) {
   const token = random()
   await env.DB.prepare('INSERT INTO sessions (token_hash, account_id, expires_at) VALUES (?, ?, ?)')
@@ -476,13 +505,28 @@ const failed = (message: string, status = 400) =>
     status,
   )
 
-/** Sends the browser back to the Gui that started this sign-in, with a one-time code. */
-async function finish(env: Env, attempt: Attempt, accountId: string) {
+/**
+ * Sends the browser back to the Gui that started this sign-in, with a one-time code. A GitHub
+ * connection waits, encrypted, with the attempt until that Gui trades the code.
+ */
+async function finish(
+  env: Env,
+  attempt: Attempt,
+  accountId: string,
+  pending: PendingConnection | null = null,
+) {
   const exchange = random()
   const done = await env.DB.prepare(
-    'UPDATE auth_attempts SET account_id = ?, exchange_hash = ? WHERE token_hash = ? AND expires_at > ?',
+    'UPDATE auth_attempts SET account_id = ?, exchange_hash = ?, pending_connection = ?, expires_at = MIN(expires_at, ?) WHERE token_hash = ? AND expires_at > ?',
   )
-    .bind(accountId, await hash(exchange), attempt.token_hash, now())
+    .bind(
+      accountId,
+      await hash(exchange),
+      pending && (await encrypt(env, JSON.stringify(pending))),
+      now() + EXCHANGE_SECONDS,
+      attempt.token_hash,
+      now(),
+    )
     .run()
   if (!done.meta.changes) return failed('This sign-in expired.')
   return new Response(null, {
@@ -619,6 +663,15 @@ async function limited(env: Env, request: Request) {
     throw new HttpError(429, 'Too many sign-in attempts. Try again in a minute.')
 }
 
+/** Removes what has expired: sign-ins in progress (with any GitHub tokens they hold) and sessions. */
+async function sweep(env: Env) {
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM auth_attempts WHERE expires_at <= ?').bind(now()),
+    env.DB.prepare('DELETE FROM login_attempts WHERE expires_at <= ?').bind(now()),
+    env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now()),
+  ])
+}
+
 /** The sign-in routes: Gui starts an attempt, the browser finishes it, Gui collects a session. */
 async function signInRoute(
   request: Request,
@@ -641,11 +694,7 @@ async function signInRoute(
     // With a session, this connects GitHub to the signed-in account.
     const linkTo = bearerToken(request) ? (await session(request, env)).account.id : null
     await limited(env, request)
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM auth_attempts WHERE expires_at <= ?').bind(now()),
-      env.DB.prepare('DELETE FROM login_attempts WHERE expires_at <= ?').bind(now()),
-      env.DB.prepare('DELETE FROM sessions WHERE expires_at <= ?').bind(now()),
-    ])
+    await sweep(env)
     const attempt = random()
     const publicId = hex(crypto.getRandomValues(new Uint8Array(16)).buffer)
     const expiresAt = now() + ATTEMPT_SECONDS
@@ -706,15 +755,24 @@ async function signInRoute(
       })
       if (!data.access_token) throw new HttpError(401, 'GitHub sign-in was denied or expired.')
       const { user, email, identity } = await gitHubIdentity(data.access_token)
-      const accountId = await accountFor(env, identity, attempt.link_account_id)
-      await saveConnection(
-        env,
-        accountId,
-        user,
-        email,
-        data as ProviderToken & { access_token: string },
+      const linkTo = attempt.link_account_id
+      if (!linkTo) return failed('GitHub only connects to a signed-in Gui.')
+      // Said here too, so the browser shows it; /auth/token checks again before saving.
+      const owner = await env.DB.prepare(
+        'SELECT account_id FROM identities WHERE provider = ? AND subject = ?',
       )
-      return await finish(env, attempt, accountId)
+        .bind(identity.provider, identity.subject)
+        .first<{ account_id: string }>()
+      if (owner && owner.account_id !== linkTo)
+        throw new HttpError(409, 'This sign-in already belongs to another Gui account.')
+      // Nothing is saved to the account until the Gui that started this trades its code.
+      return await finish(env, attempt, linkTo, {
+        user: { id: user.id, login: user.login, name: user.name },
+        email,
+        accessToken: data.access_token,
+        refreshToken: data.refresh_token ?? null,
+        expiresAt: now() + (data.expires_in ?? 28800),
+      })
     } catch (error) {
       if (error instanceof HttpError) return failed(error.message, error.status)
       throw error
@@ -734,7 +792,12 @@ async function signInRoute(
       .bind(attempt.token_hash)
       .run()
     if (!consumed.meta.changes) throw new HttpError(401, 'Sign-in did not finish. Try again.')
-    if (attempt.link_account_id) return json({ session: null })
+    if (attempt.link_account_id) {
+      // Attempts the browser finished before connections waited here were saved then.
+      if (attempt.pending_connection)
+        await connectPending(env, attempt.link_account_id, attempt.pending_connection)
+      return json({ session: null })
+    }
     return json({ session: await newSession(env, attempt.account_id) })
   }
 
@@ -980,5 +1043,9 @@ export default {
         ? json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, error.status)
         : json({ error: 'The account service could not complete this request. Try again.' }, 500)
     }
+  },
+  /** Every ten minutes, so an abandoned sign-in's GitHub tokens never outlast it by more. */
+  async scheduled(_controller: unknown, env: Env): Promise<void> {
+    await sweep(env)
   },
 }
