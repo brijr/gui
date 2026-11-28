@@ -8,6 +8,8 @@ export interface UpdatePromptsOptions {
   updater: {
     /** Null when the check failed, which `failed` has already been told. */
     check(): Promise<UpdateCheck | null>
+    /** The version downloading or being handed to Squirrel.Mac, which a check would only interrupt */
+    downloading(): string | null
     quitAndInstall(): void | Promise<void>
   }
   dialog: {
@@ -128,10 +130,21 @@ export function updatePrompts(options: UpdatePromptsOptions) {
     },
 
     /**
-     * Gui → Check for Updates…: says when Gui is up to date or the check failed. A new version
-     * downloads quietly and is offered (`offer`) when it's ready, like a background check's.
+     * Gui → Check for Updates…: says when Gui is up to date, the check failed, or a version is
+     * still downloading. A new version downloads quietly and is offered (`offer`) when it's
+     * ready, like a background check's.
      */
     async checkByHand() {
+      const downloading = updater.downloading()
+      if (downloading) {
+        // Handing the offered version to Squirrel.Mac: Restart to Update is already there.
+        if (downloading === ready) return
+        await dialog.showMessageBox({
+          message: `Gui is downloading version ${downloading}`,
+          detail: 'You can restart to update once it’s ready.',
+        })
+        return
+      }
       checkingByHand = true
       const result = await updater.check()
       // `failed` has said why.

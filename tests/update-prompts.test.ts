@@ -26,16 +26,21 @@ function setup({ inApplications = true } = {}) {
   const state = {
     /** What the next check finds; an Error fails it the way electron-updater does. */
     found: null as UpdateCheck | Error | null,
+    checks: 0,
+    /** The version downloading or being handed to Squirrel.Mac */
+    downloading: null as string | null,
     quits: 0,
     quitError: null as Error | null,
   }
   const prompts = updatePrompts({
     updater: {
       async check() {
+        state.checks++
         if (!(state.found instanceof Error)) return state.found
         prompts.failed(state.found)
         return null
       },
+      downloading: () => state.downloading,
       quitAndInstall() {
         state.quits++
         if (state.quitError) throw state.quitError
@@ -113,6 +118,37 @@ describe('Check for Updates… by hand', () => {
     prompts.downloaded('1.1.0')
     expect(shown).toEqual([])
     expect(offered).toEqual(['1.1.0'])
+  })
+
+  test('while a version downloads says so, and does not check', async () => {
+    const { prompts, shown, state } = setup()
+    state.downloading = '1.1.0'
+    await prompts.checkByHand()
+    expect(state.checks).toBe(0)
+    expect(shown).toEqual([
+      {
+        message: 'Gui is downloading version 1.1.0',
+        detail: 'You can restart to update once it’s ready.',
+      },
+    ])
+  })
+
+  test('while a newer version downloads says so too', async () => {
+    const { prompts, shown, state } = setup()
+    prompts.downloaded('1.1.0')
+    state.downloading = '1.2.0'
+    await prompts.checkByHand()
+    expect(state.checks).toBe(0)
+    expect(shown.map((box) => box.message)).toEqual(['Gui is downloading version 1.2.0'])
+  })
+
+  test('while the offered version goes to Squirrel.Mac asks nothing and does not check', async () => {
+    const { prompts, shown, state } = setup()
+    prompts.downloaded('1.1.0')
+    state.downloading = '1.1.0'
+    await prompts.checkByHand()
+    expect(state.checks).toBe(0)
+    expect(shown).toEqual([])
   })
 
   test('that fails says why, once, and nothing else', async () => {
