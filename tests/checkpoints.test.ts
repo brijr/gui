@@ -751,6 +751,45 @@ describe.skipIf(!gitRuns)('a folder inside the project with a repository of its 
     })
     expect(empty.map((dir) => fingerprint(join(dir, '.git')))).toEqual(own)
   })
+
+  // A repository's own config can name programs git runs on its files: a file monitor
+  // (core.fsmonitor) and filters (filter.<name>.clean, picked by its .gitattributes). A
+  // checkpoint runs none of a nested repository's, and still records its new commit.
+  test('no program its config names runs, and its new commit is recorded', async () => {
+    const root = project('nested-config', { 'src/app.ts': 'old\n', 'vendor/lib/x.ts': 'old\n' })
+    const lib = join(root, 'vendor/lib')
+    put(lib, '.gitattributes', '* filter=watch\n')
+    ownRepo(lib)
+    const points = new Checkpoints(root, store, env)
+    await turn(points, root, { 'src/app.ts': 'first\n' })
+
+    // A commit in it since, then the programs, then a change there git has to look at.
+    put(lib, 'x.ts', 'committed\n')
+    commit(lib)
+    const marker = join(base, 'nested-config-ran')
+    const program = (name: string, body: string) => {
+      put(base, name, `#!/bin/sh\necho "${name} $*" >> '${marker}'\n${body}\n`)
+      chmodSync(join(base, name), 0o755)
+      return join(base, name)
+    }
+    git(lib, 'config', 'core.fsmonitor', program('fsmonitor.sh', 'exit 1'))
+    git(lib, 'config', 'filter.watch.clean', program('clean.sh', 'cat'))
+    put(lib, 'x.ts', 'uncommitted\n')
+    const own = fingerprint(join(lib, '.git'))
+
+    const ran = await turn(points, root, { 'src/app.ts': 'second\n' })
+    expect(existsSync(marker)).toBe(false)
+    expect(fingerprint(join(lib, '.git'))).toBe(own)
+    const shadow = `--git-dir=${join(store, shadowRepoName(root))}`
+    const link = git(root, shadow, 'ls-tree', ran.after, 'vendor/lib')
+    expect(link).toBe(`160000 commit ${git(lib, 'rev-parse', 'HEAD')}\tvendor/lib`)
+    expect(recorded(root, ran.after)).toEqual(['src/app.ts', 'vendor/lib'])
+
+    // The programs do work: git run in that repository itself runs both.
+    git(lib, 'status', '--porcelain')
+    expect(readFileSync(marker, 'utf8')).toContain('fsmonitor.sh')
+    expect(readFileSync(marker, 'utf8')).toContain('clean.sh')
+  })
 })
 
 describe.skipIf(!gitRuns)('one store per project folder', () => {

@@ -103,6 +103,8 @@ interface GitOptions {
   literal?: boolean
   /** Written to git's stdin */
   input?: string
+  /** Another repository to read from instead of the shadow one: a nested one's `.git` */
+  gitDir?: string
 }
 
 export interface CheckpointOptions {
@@ -150,13 +152,15 @@ export class Checkpoints {
     return this.enqueue(async () => {
       const repo = await this.ready()
       const { secrets, large, noCommit } = await this.leftOut(repo)
-      const excluded = [...secrets, ...large, ...noCommit].map(
+      const links = await this.links(repo)
+      const excluded = [...secrets, ...large, ...noCommit, ...links].map(
         (path) => `:(exclude,literal)${path}`,
       )
       await this.git(repo, ['add', '-A', '--pathspec-from-file=-', '--pathspec-file-nul'], {
         literal: false,
         input: ['.', ...excluded].join('\0'),
       })
+      await this.updateLinks(repo, links)
       // Kept by an older Gui, or before the project stopped ignoring them: drop them from here on.
       for (const batch of chunk(secrets)) {
         await this.git(repo, [
@@ -423,6 +427,50 @@ export class Checkpoints {
   }
 
   /**
+   * The folders the last snapshot recorded as a link to a repository of their own. `add`
+   * would run `git status` inside each one to see whether it changed, and that repository's
+   * own config can name a program status runs (a filter for its files), so `updateLinks`
+   * records them instead.
+   */
+  private async links(repo: Repo): Promise<string[]> {
+    const entries = splitNul(await this.git(repo, ['ls-files', '-z', '--stage']))
+    return entries
+      .filter((entry) => entry.startsWith(LINK))
+      .map((entry) => entry.slice(entry.indexOf('\t') + 1))
+  }
+
+  /**
+   * Records each of `links` as `add -A` would, without running git inside it: a link to the
+   * commit its repository has checked out, read from its refs alone. A repository with no
+   * commit yet keeps the link it had. A folder with no repository any more (deleted, or
+   * replaced by files) has nothing in it for git to run, so `add` takes it as usual.
+   */
+  private async updateLinks(repo: Repo, links: string[]) {
+    const gone: string[] = []
+    for (const link of links) {
+      const gitDir = join(repo.root, link, '.git')
+      const held = await lstat(gitDir).then(
+        () => true,
+        () => false,
+      )
+      if (!held) {
+        gone.push(link)
+        continue
+      }
+      const head = await this.git(repo, ['rev-parse', '--verify', '--quiet', 'HEAD^{commit}'], {
+        workTree: false,
+        gitDir,
+      }).then(
+        (out) => out.trim(),
+        () => '',
+      )
+      if (!SHA_RE.test(head)) continue
+      await this.git(repo, ['update-index', '--add', '--cacheinfo', `160000,${head},${link}`])
+    }
+    for (const batch of chunk(gone)) await this.git(repo, ['add', '-A', '--', ...batch])
+  }
+
+  /**
    * Now and then (a week apart, when the project opens), drops checkpoints none of its saved
    * chats refer to and the git objects only they kept, which would otherwise grow without end.
    */
@@ -537,9 +585,9 @@ export class Checkpoints {
   private async git(
     repo: Repo,
     args: string[],
-    { workTree = true, literal = true, input }: GitOptions = {},
+    { workTree = true, literal = true, input, gitDir = repo.gitDir }: GitOptions = {},
   ): Promise<string> {
-    const argv = [`--git-dir=${repo.gitDir}`]
+    const argv = [`--git-dir=${gitDir}`]
     if (workTree) argv.push(`--work-tree=${repo.root}`)
     if (literal) argv.push('--literal-pathspecs')
     argv.push(
@@ -551,6 +599,14 @@ export class Checkpoints {
       'core.autocrlf=false',
       '-c',
       'commit.gpgsign=false',
+      // Set here as well as in the shadow repo's config, because settings given here also
+      // reach any git that git itself starts: none runs a program a repository's config names
+      // to watch files, and no hooks run. (Nothing here runs git inside a nested repository;
+      // see `links`.)
+      '-c',
+      'core.fsmonitor=false',
+      '-c',
+      `core.hooksPath=${join(repo.gitDir, 'no-hooks')}`,
       ...args,
     )
     const options = { cwd: repo.root, env: await this.env, maxBuffer: MAX_BUFFER }
