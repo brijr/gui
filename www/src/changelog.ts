@@ -11,6 +11,14 @@ export interface Release {
 
 export const releases: Release[] = [
   {
+    version: '0.1.0-alpha.33',
+    date: '2026-11-28',
+    changes: [
+      'New Website and Dashboard projects start from a plain, minimal page in the style of usegui.com: one light typeface, near-black on off-white, hairline rules, in light and dark. The old starters had a purple accent, pill buttons and cards.',
+      'When an update fails, Gui’s usage data says why, as one name from a fixed list such as no connection or a full disk. It never contains the error itself. The Privacy page lists every reason.',
+    ],
+  },
+  {
     version: '0.1.0-alpha.32',
     date: '2026-11-25',
     changes: [
