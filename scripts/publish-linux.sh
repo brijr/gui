@@ -54,8 +54,13 @@ done
 # The Mac release publishes its feed before it tags a version, so a Linux build follows the
 # Mac's newest release on its channel and never another: re-running an older tag would put
 # copies already updated past it back on that version.
-curl -fsS --max-time 60 "$site/$channel-mac.yml" | grep -qxF "version: $version" ||
-  fail "$site/$channel-mac.yml doesn't name $version, so the Linux builds of $version aren't published. Linux follows the newest Mac release on its channel."
+# Asked again before the /download copies and the feeds: a newer release may have published while
+# this one uploaded.
+newest_mac() {
+  curl -fsS --max-time 60 "$site/$channel-mac.yml" | grep -qxF "version: $version" ||
+    fail "$site/$channel-mac.yml doesn't name $version, so the Linux builds of $version aren't published. Linux follows the newest Mac release on its channel."
+}
+newest_mac
 
 # One PUT per file (R2 takes up to 5 GiB that way), signed with SigV4. curl can't hash a body it
 # streams from a file, so the payload is sent unsigned; TLS still covers it. The credentials go to
@@ -85,6 +90,7 @@ ranged=$(curl -s -o /dev/null -w '%{http_code}' -r 0-0 --max-filesize 1024 --max
 [ "$ranged" = 206 ] ||
   fail "usegui.com/releases answers a Range request with $ranged, not 206, so an update would download the whole AppImage many times. Only the versioned files are uploaded."
 
+newest_mac
 # The copies usegui.com/download serves: each channel's newest, and for a stable release the
 # newest of all (Gui-x86_64.AppImage), which /download prefers once it exists.
 for file in $files; do
@@ -96,6 +102,7 @@ for file in $files; do
 done
 
 # Last, so installed copies only see the version once its files are there.
+newest_mac
 for feed in $feeds; do
   put "$(basename "$feed")" "$feed" text/yaml
 done

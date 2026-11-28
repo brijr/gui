@@ -22,8 +22,9 @@ on:
 
 permissions: {}
 
+# One publish at a time for every tag, so an older tag can't write the feeds after a newer one.
 concurrency:
-  group: release-linux-${{ github.event.release.tag_name || inputs.tag }}
+  group: release-linux
   cancel-in-progress: false
 
 env:
