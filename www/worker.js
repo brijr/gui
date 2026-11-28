@@ -443,6 +443,8 @@ const UPDATE_FAILURES = [
   'read_only',
   'other',
 ]
+/** Why an installed agent couldn't be used (the app's analytics-queue.ts `AGENT_UNAVAILABLE`) */
+const AGENT_UNAVAILABLE = ['signed_out', 'too_old', 'agent_quit', 'offline', 'timeout', 'error']
 /** @type {Record<string, Record<string, RegExp | string[]>>} */
 const EVENTS = {
   app_opened: { version: VERSION, os: NAME, osVersion: VERSION, arch: NAME },
@@ -460,7 +462,11 @@ const EVENTS = {
   preview_opened: {},
   app_start_failed: { reason: ['install_failed', 'command_missing', 'exited', 'other'] },
   agent_connected: { agent: NAME },
-  agent_unavailable: { agent: NAME, reason: ['signed_out', 'too_old', 'error'] },
+  agent_unavailable: {
+    agent: NAME,
+    reason: AGENT_UNAVAILABLE,
+    current: YES_NO,
+  },
   update_installed: { from: VERSION, to: VERSION },
   update_failed: { stage: ['download', 'install'], reason: UPDATE_FAILURES },
 }

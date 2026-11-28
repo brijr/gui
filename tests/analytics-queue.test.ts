@@ -10,7 +10,7 @@ import {
   usageAgent,
   usageQueue,
 } from '../src/main/analytics-queue'
-import { AgentError, DetailedError } from '../src/main/errors'
+import { AgentError, DetailedError, TimeoutError } from '../src/main/errors'
 import { MAX_QUEUED_USAGE_EVENTS, USAGE_BATCH } from '../src/shared/bounded'
 
 const INSTALL = '0f8e2a4c-5b1d-4e7f-9a3b-6c2d8e0f1a2b'
@@ -274,11 +274,17 @@ describe('what a turn sends', () => {
 })
 
 describe('why an agent could not be used', () => {
-  test('signed out and too old are named; anything else is error', () => {
+  test('the reasons Gui tells apart are named; anything else is error', () => {
     expect(turnFailure({ failure: 'signed_out' })).toBe('signed_out')
     expect(agentUnavailable({ failure: 'signed_out' })).toBe('signed_out')
     expect(agentUnavailable(new AgentError('old', null, 'too_old'))).toBe('too_old')
-    expect(agentUnavailable(new AgentError('quit', null, 'agent_quit'))).toBe('error')
+    expect(
+      agentUnavailable(new AgentError('Cursor stopped unexpectedly.', null, 'agent_quit')),
+    ).toBe('agent_quit')
+    expect(agentUnavailable(new AgentError('offline', null, 'offline'))).toBe('offline')
+    expect(agentUnavailable(new TimeoutError("The agent didn't respond.", null))).toBe('timeout')
+    expect(agentUnavailable(new AgentError('busy', null, 'servers_busy'))).toBe('error')
+    expect(agentUnavailable(new DetailedError('unreadable version', null))).toBe('error')
     expect(agentUnavailable(new Error("The agent didn't respond."))).toBe('error')
   })
 })

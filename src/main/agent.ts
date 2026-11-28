@@ -14,9 +14,9 @@ import {
 } from '../shared/types'
 import {
   AgentMissingError,
-  cliVersion,
   meetsVersion,
   pinnedAgent,
+  readCliVersion,
   requireAgentBinary,
 } from './agent-binaries'
 import {
@@ -37,7 +37,7 @@ import {
   type PermissionPolicy,
   resolveAgent,
 } from './agents'
-import { AgentError, type DetailedError } from './errors'
+import { AgentError, DetailedError, TimeoutError } from './errors'
 import { type CommandFallback, findAgentCommand } from './executables'
 import {
   type DeclaredControls,
@@ -104,22 +104,28 @@ async function requireExecutable(
 }
 
 /**
- * Refuses a CLI older than `minVersion`, or one whose version can't be read, before it's
- * started: an older one may not have the command Gui runs, and take its arguments as
- * something else (an older `muse` reads `acp` as a prompt).
+ * Refuses a CLI older than `minVersion` before it's started: an older one may not have the
+ * command Gui runs, and take its arguments as something else (an older `muse` reads `acp` as a
+ * prompt). A version Gui couldn't read isn't one that's too old: the check failed, and trying
+ * again reads it again.
  */
-async function requireVersion(
-  agent: AgentDefinition,
+export async function requireVersion(
+  agent: Pick<AgentDefinition, 'name'>,
   path: string,
   minVersion: { version: string; update: string },
   env: NodeJS.ProcessEnv,
 ) {
-  const version = await cliVersion(path, env)
-  if (version && meetsVersion(version, minVersion.version)) return
-  const have = version ? ` (yours is ${version})` : ''
+  const read = await readCliVersion(path, env)
+  if (read.version === null) {
+    const message = `Gui couldn't read ${agent.name}'s version, so it didn't start it. It may still be setting itself up. Try again in a moment.`
+    throw read.timedOut
+      ? new TimeoutError(message, read.detail)
+      : new DetailedError(message, read.detail)
+  }
+  if (meetsVersion(read.version, minVersion.version)) return
   throw new AgentError(
-    `Gui needs ${agent.name} ${minVersion.version} or newer${have}. Update it by running \`${minVersion.update}\` in a terminal, then try again.`,
-    version ? null : `\`${path} --version\` didn't print a version.`,
+    `Gui needs ${agent.name} ${minVersion.version} or newer (yours is ${read.version}). Update it by running \`${minVersion.update}\` in a terminal, then try again.`,
+    null,
     'too_old',
   )
 }
@@ -549,8 +555,13 @@ export class AgentSession {
         _meta: meta,
       }),
     ).catch((error: unknown) => {
-      if (!isAuthError(error)) throw new Error(errorDetail(error))
-      throw this.signInError?.(error) ?? error
+      if (isAuthError(error)) throw this.signInError?.(error) ?? error
+      // Agents reach their servers here (Codex reads its account): a known failure, such as
+      // being offline, reads in plain words, as in a turn.
+      const detail = errorDetail(error)
+      const plain = plainAgentError(detail)
+      if (plain) throw new AgentError(plain.message, detail, plain.failure)
+      throw new Error(detail)
     })
     // The session starts in the mode the user's own agent config picks. Gui then sets the
     // agent's own controls to the project's Ask or Auto (`applyPermissions`; Grok's went in

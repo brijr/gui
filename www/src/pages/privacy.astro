@@ -6,7 +6,7 @@ import TextPage from '../components/TextPage.astro'
   title="Privacy"
   description="What Gui collects, why, and how to remove it."
   path="/privacy"
-  updated="November 27, 2026"
+  updated="November 28, 2026"
 >
   <p>
     Work In Progress LLC (“WIP”) makes Gui. This page tells you what Gui collects about you, why,
@@ -69,9 +69,10 @@ import TextPage from '../components/TextPage.astro'
     </li>
     <li>You connect an agent, when you install it or sign in to it. The event contains the agent.</li>
     <li>
-      Gui cannot use an agent that you installed. The event contains the agent and the reason:
-      not signed in, too old, or error. Gui sends each agent and reason one time each time that Gui
-      opens.
+      Gui cannot use an agent that you installed. The event contains the agent, whether it is the
+      agent that you are using, and the reason from a fixed list: not signed in, too old, the agent
+      stopped, no connection, the check took too long, or error. Gui sends each agent and reason one
+      time each time that Gui opens, and one more time if you then start to use that agent.
     </li>
     <li>Gui updates. The event contains the old version and the new version.</li>
     <li>

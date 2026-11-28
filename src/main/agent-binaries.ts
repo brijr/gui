@@ -15,7 +15,11 @@ import { getShellEnv } from './shell-env'
 declare const __GUI_AGENT_BINARIES__: AgentBinaries
 
 const REGISTRY = 'https://registry.npmjs.org'
-const VERSION_TIMEOUT_MS = 10_000
+/**
+ * A first `--version` can be slow: Muse's launcher downloads its binary on a first run, agy and
+ * muse update themselves when run, and macOS scans a new binary before it first runs.
+ */
+export const VERSION_TIMEOUT_MS = 30_000
 /** Where installers put the CLIs, for when the login shell's PATH doesn't cover them. */
 const COMMON_BIN_DIRS = ['.local/bin', '.claude/local', '.npm-global/bin', '.bun/bin']
 const SYSTEM_BIN_DIRS = ['/opt/homebrew/bin', '/usr/local/bin']
@@ -119,14 +123,44 @@ async function isExecutable(path: string) {
   }
 }
 
-/** The version a CLI's `--version` prints, as `x.y.z`; null when it prints none. */
-export function cliVersion(path: string, env: NodeJS.ProcessEnv) {
-  return new Promise<string | null>((resolve) => {
-    execFile(path, ['--version'], { timeout: VERSION_TIMEOUT_MS, env }, (error, stdout) => {
-      const version = error ? null : parseVersion(stdout)
-      resolve(version ? version.join('.') : null)
+/** What a CLI's `--version` gave: its version as `x.y.z`, or why Gui couldn't read one. */
+export type VersionRead = { version: string } | { version: null; timedOut: boolean; detail: string }
+
+/**
+ * Runs a CLI's `--version`. A version it prints counts even when it then exits with an error
+ * (one that also checks for updates, say); `timedOut` when it didn't finish in time.
+ */
+export function readCliVersion(
+  path: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs = VERSION_TIMEOUT_MS,
+): Promise<VersionRead> {
+  return new Promise((resolve) => {
+    execFile(path, ['--version'], { timeout: timeoutMs, env }, (error, stdout) => {
+      const version = parseVersion(String(stdout ?? ''))
+      if (version) return resolve({ version: version.join('.') })
+      const command = `\`${path} --version\``
+      if (error?.killed) {
+        const seconds = Math.round(timeoutMs / 1000)
+        return resolve({
+          version: null,
+          timedOut: true,
+          detail: `${command} didn't finish within ${seconds} seconds.`,
+        })
+      }
+      const code = typeof error?.code === 'number' ? ` (it exited with code ${error.code})` : ''
+      resolve({
+        version: null,
+        timedOut: false,
+        detail: `${command} didn't print a version${code}.`,
+      })
     })
   })
+}
+
+/** The version a CLI's `--version` prints, as `x.y.z`; null when Gui couldn't read one. */
+export async function cliVersion(path: string, env: NodeJS.ProcessEnv) {
+  return (await readCliVersion(path, env)).version
 }
 
 /** The user's own install: first on their login-shell PATH, then where installers put it. */

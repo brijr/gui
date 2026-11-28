@@ -2340,6 +2340,9 @@ if (!app.requestSingleInstanceLock()) {
     // A session the service no longer knows (signed out elsewhere, deleted) asks for sign-in
     // again. Offline, Gui stays signed in.
     if (accountState().signedIn) void getAccount().catch(() => undefined)
+    // In use: the default new chats start on, or an open tab's chat's own agent.
+    agentHealth.inUse = (id) =>
+      getPrefs().agentId === id || allTabs().some((tab) => tab.state.agentId === id)
     // Know up front whether the likely agents are ready or need sign-in; costs no usage.
     const launchChecks = agentHealth.checkOnLaunch(getPrefs().agentId)
     const initial = !app.isPackaged ? process.env.GUI_OPEN : undefined

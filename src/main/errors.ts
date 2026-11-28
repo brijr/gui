@@ -24,6 +24,9 @@ export class AgentError extends DetailedError {
   }
 }
 
+/** Something Gui waited on ran out of time: an agent's check, or reading its version. */
+export class TimeoutError extends DetailedError {}
+
 export function describeError(error: unknown): { message: string; detail: string | null } {
   if (error instanceof DetailedError) return { message: error.message, detail: error.detail }
   return { message: error instanceof Error ? error.message : String(error), detail: null }

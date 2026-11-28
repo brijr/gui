@@ -26,7 +26,7 @@ import { track } from './analytics'
 import { type AgentUnavailable, agentUnavailable, usageAgent } from './analytics-queue'
 import { diskFile } from './coalesced-file'
 import { openExternal } from './desktop-open'
-import { describeError } from './errors'
+import { describeError, TimeoutError } from './errors'
 import { ModelCache } from './model-cache'
 import { getPrefs, isAgentEnabled, prefsEvents, savedAgentSettings } from './prefs'
 import type { ChildProcess } from './process'
@@ -82,7 +82,7 @@ const noopHandlers = {
 function withTimeout<T>(promise: Promise<T>, ms: number, message: string) {
   let timer: NodeJS.Timeout | undefined
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms)
+    timer = setTimeout(() => reject(new TimeoutError(message, null)), ms)
   })
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer))
 }
@@ -108,18 +108,6 @@ const unchecked = (
   models: null,
 })
 
-/** Each agent's reasons it couldn't be used that usage data has counted this launch */
-const unavailable = new Set<string>()
-
-/** An installed agent's check failed: counted once per agent and reason each launch. */
-function countUnavailable(id: AgentId, reason: AgentUnavailable) {
-  const agent = usageAgent(id)
-  const key = `${agent}:${reason}`
-  if (unavailable.has(key)) return
-  unavailable.add(key)
-  track('agent_unavailable', { agent, reason })
-}
-
 /**
  * Every agent Gui knows (built in and from agents.json), whether it's installed, and
  * whether it can start a session, checked by actually starting one in an empty folder.
@@ -142,6 +130,8 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
   private downloads = new Set<AbortController>()
   private lastProgress = new Map<AgentId, number>()
   private disposed = false
+  /** Each agent's reasons it couldn't be used that usage data has counted this launch */
+  private unavailable = new Set<string>()
   /** Agents whose sign-in can run in Terminal, from the catalog */
   private terminalSignIns = new Map<AgentId, NonNullable<AgentDefinition['terminalSignIn']>>()
   /** Signing in in Terminal right now; checked again when the user comes back to Gui */
@@ -151,6 +141,12 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
     () => join(app.getPath('userData'), 'agent-models.json'),
     diskFile(() => join(app.getPath('userData'), 'agent-models.json')),
   )
+
+  /**
+   * Whether `id` is the agent in use: the one a chat would run with. index.ts adds the open
+   * tabs' chats; until then (and in tests), the default agent new chats start on.
+   */
+  inUse: (id: AgentId) => boolean = (id) => getPrefs().agentId === id
 
   /** `now` is the clock the background checks go by. */
   constructor(private readonly now: () => number = Date.now) {
@@ -534,7 +530,7 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
         const binary = await agentBinary(pinned)
         if (binary.kind === 'missing') {
           // The user's own CLI is too old for Gui: it can't be used until Gui's copy is set up.
-          if (binary.mismatch === 'older') countUnavailable(id, 'too_old')
+          if (binary.mismatch === 'older') this.countUnavailable(id, 'too_old')
           this.methods.delete(id)
           this.set(id, {
             status: 'not-installed',
@@ -551,7 +547,7 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
           binary: { source: binary.binary.source, version: binary.binary.version },
         })
       } catch (error) {
-        countUnavailable(id, agentUnavailable(error))
+        this.countUnavailable(id, agentUnavailable(error))
         const { message, detail } = describeError(error)
         this.set(id, { status: 'error', message, detail, models: null })
         return
@@ -581,7 +577,7 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
       })
       if (connecting) track('agent_connected', { agent: usageAgent(id) })
     } catch (error) {
-      if (!(error instanceof AgentMissingError)) countUnavailable(id, agentUnavailable(error))
+      if (!(error instanceof AgentMissingError)) this.countUnavailable(id, agentUnavailable(error))
       if (error instanceof AgentAuthError) {
         this.signedOut(id, error)
       } else if (error instanceof AgentMissingError && !pinned) {
@@ -643,6 +639,20 @@ export class AgentHealthStore extends EventEmitter<{ change: [health: AgentHealt
       signIn,
       models: null,
     })
+  }
+
+  /**
+   * An installed agent's check failed: counted once per agent and reason each launch, with
+   * whether it was the agent in use. Counted once more if it first failed while merely
+   * installed and fails the same way once it's the agent in use, since only that blocks anyone.
+   */
+  private countUnavailable(id: AgentId, reason: AgentUnavailable) {
+    const agent = usageAgent(id)
+    const current = this.inUse(id) ? 'yes' : 'no'
+    const key = `${agent}:${reason}`
+    if (this.unavailable.has(`${key}:yes`) || this.unavailable.has(`${key}:${current}`)) return
+    this.unavailable.add(`${key}:${current}`)
+    track('agent_unavailable', { agent, reason, current })
   }
 
   private setProgress(id: AgentId, progress: InstallProgress) {

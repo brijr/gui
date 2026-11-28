@@ -1,5 +1,6 @@
 import { bounded, MAX_QUEUED_USAGE_EVENTS, USAGE_BATCH } from '../shared/bounded'
 import { AGENTS, type AgentId, type TurnStatus } from '../shared/types'
+import { TimeoutError } from './errors'
 
 /**
  * Why an agent failed, as Gui already tells it apart (errors.ts `AgentError`, agent.ts):
@@ -22,8 +23,20 @@ export type AgentFailure = (typeof AGENT_FAILURES)[number]
 /** Why a turn failed: one of AGENT_FAILURES, or `other` for an error Gui doesn't tell apart. */
 export type TurnFailure = AgentFailure | 'other'
 
-/** Why an installed agent couldn't be used, as its check found (agent-status.ts). */
-export type AgentUnavailable = 'signed_out' | 'too_old' | 'error'
+/**
+ * Why an installed agent couldn't be used, as its check found (agent-status.ts): not signed
+ * in, a CLI too old for Gui, its process quit as it started, it couldn't reach its servers,
+ * the check (or reading its version) ran out of time, or `error` for anything else.
+ */
+export const AGENT_UNAVAILABLE = [
+  'signed_out',
+  'too_old',
+  'agent_quit',
+  'offline',
+  'timeout',
+  'error',
+] as const
+export type AgentUnavailable = (typeof AGENT_UNAVAILABLE)[number]
 
 /**
  * Why the user's app didn't come up (tab.ts): its dependencies didn't install, the package
@@ -106,8 +119,11 @@ export interface UsageEvents {
   /** The user's app didn't start; once per reason each time a project is opened */
   app_start_failed: { reason: AppStartFailure }
   agent_connected: { agent: string }
-  /** An installed agent's check failed; once per agent and reason each launch */
-  agent_unavailable: { agent: string; reason: AgentUnavailable }
+  /**
+   * An installed agent's check failed; once per agent and reason each launch. `current`: it
+   * was the agent in use (agent-status.ts `inUse`), not one merely installed.
+   */
+  agent_unavailable: { agent: string; reason: AgentUnavailable; current: YesNo }
   update_installed: { from: string; to: string }
   /** A new version was found but didn't download, or Squirrel.Mac couldn't install it, and why */
   update_failed: { stage: 'download' | 'install'; reason: UpdateFailure }
@@ -133,10 +149,13 @@ export function turnFailure(error: unknown): TurnFailure {
     : 'other'
 }
 
-/** Why an agent's check failed, from its error: signed out, too old, or anything else. */
+/** Why an agent's check failed, from its error: one of AGENT_UNAVAILABLE, else `error`. */
 export function agentUnavailable(error: unknown): AgentUnavailable {
+  if (error instanceof TimeoutError) return 'timeout'
   const failure = turnFailure(error)
-  return failure === 'signed_out' || failure === 'too_old' ? failure : 'error'
+  return (AGENT_UNAVAILABLE as readonly string[]).includes(failure)
+    ? (failure as AgentUnavailable)
+    : 'error'
 }
 
 /** Node's error codes (fs, sockets, DNS) and what each says about an update that failed. */

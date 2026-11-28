@@ -1,6 +1,11 @@
 import { Database as SQLite } from 'bun:sqlite'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
-import { AGENT_FAILURES, FRAMEWORKS, UPDATE_FAILURES } from '../src/main/analytics-queue.ts'
+import {
+  AGENT_FAILURES,
+  AGENT_UNAVAILABLE,
+  FRAMEWORKS,
+  UPDATE_FAILURES,
+} from '../src/main/analytics-queue.ts'
 import worker from './worker.js'
 
 const migrations = async () =>
@@ -980,4 +985,42 @@ test("every failure and framework the app can send is on the site's lists", asyn
   expect(turns.map((e) => e.properties.reason)).toEqual(reasons)
   expect(projects.map((e) => e.properties.framework)).toEqual(frameworks)
   expect(failures.map((e) => e.properties.reason)).toEqual(updates)
+})
+
+test("every reason an agent was unavailable is on the site's list, with whether it's in use", async () => {
+  posthog()
+  env.POSTHOG_KEY = 'phc_test'
+  const events = AGENT_UNAVAILABLE.flatMap((reason) =>
+    ['yes', 'no'].map((current) => ({
+      event: 'agent_unavailable',
+      props: { agent: 'codex', reason, current },
+    })),
+  )
+  const response = await sendUsage({ installId: INSTALL, events })
+  expect(response.status).toBe(204)
+  const kept = (await sent()).map((e) => [e.properties.reason, e.properties.current])
+  expect(kept).toEqual(events.map((e) => [e.props.reason, e.props.current]))
+})
+
+test('agent_unavailable from an older Gui, without current, is still kept', async () => {
+  posthog()
+  env.POSTHOG_KEY = 'phc_test'
+  const response = await sendUsage({
+    installId: INSTALL,
+    events: [
+      { event: 'agent_unavailable', props: { agent: 'cursor', reason: 'error' } },
+      { event: 'agent_unavailable', props: { agent: 'muse', reason: 'timeout', current: 'maybe' } },
+    ],
+  })
+  expect(response.status).toBe(204)
+  const kept = (await sent()).map(({ event, properties: { agent, reason, current } }) => ({
+    event,
+    agent,
+    reason,
+    current,
+  }))
+  expect(kept).toEqual([
+    { event: 'agent_unavailable', agent: 'cursor', reason: 'error', current: undefined },
+    { event: 'agent_unavailable', agent: 'muse', reason: 'timeout', current: undefined },
+  ])
 })
