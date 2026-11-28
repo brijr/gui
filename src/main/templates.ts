@@ -14,7 +14,11 @@ const PACKAGE_JSON = `${JSON.stringify(
     private: true,
     type: 'module',
     scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
-    dependencies: { react: '^19.3.0', 'react-dom': '^19.3.0' },
+    dependencies: {
+      '@fontsource-variable/inter-tight': '^5.3.0',
+      react: '^19.3.0',
+      'react-dom': '^19.3.0',
+    },
     devDependencies: {
       '@tailwindcss/vite': '^4.3.3',
       '@vitejs/plugin-react': '^6.1.2',
@@ -35,7 +39,11 @@ export default defineConfig({
 })
 `
 
-const MAIN = `import { StrictMode } from 'react'
+// The font comes from a package, so it is there offline once installed and the same on Mac and
+// Linux. Its stylesheet splits the font by script; the browser loads only the Latin file for
+// English text.
+const MAIN = `import '@fontsource-variable/inter-tight'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 import './index.css'
@@ -47,7 +55,95 @@ createRoot(document.getElementById('root')).render(
 )
 `
 
+/**
+ * The look of usegui.com: one light typeface, near-black on near-white, a muted grey and
+ * hairline rules, and nothing else. Named tokens, so the agent changes a colour in one place.
+ */
 const CSS = `@import 'tailwindcss';
+
+@theme {
+  --color-background: #fafafa;
+  --color-foreground: #111;
+  --color-muted: #6b6b6b;
+  --color-rule: rgb(0 0 0 / 0.1);
+
+  --font-sans: 'Inter Tight Variable', ui-sans-serif, system-ui, sans-serif;
+
+  --text-title: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  --text-title--line-height: 1.08;
+  --text-title--letter-spacing: -0.035em;
+  --text-title--font-weight: 250;
+  --text-section: 1.5rem;
+  --text-section--line-height: 1.15;
+  --text-section--letter-spacing: -0.03em;
+
+  --container-column: 40rem;
+  --container-page: 68rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #161616;
+    --color-foreground: #f2f2f2;
+    --color-muted: #b3b3b3;
+    --color-rule: rgb(255 255 255 / 0.12);
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    font-weight: 300;
+    font-size: 1.125rem;
+    line-height: 1.45;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+  }
+  @media (max-width: 30rem) {
+    body {
+      font-size: 1.0625rem;
+    }
+  }
+  /* Light text on dark reads heavier without it; dark text on light gets too thin with it. */
+  @media (prefers-color-scheme: dark) {
+    body {
+      -webkit-font-smoothing: antialiased;
+    }
+  }
+  h1,
+  h2,
+  h3 {
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+  p,
+  li {
+    text-wrap: pretty;
+  }
+  a {
+    text-decoration: underline;
+    text-decoration-color: var(--color-muted);
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.15em;
+    transition: text-decoration-color 120ms ease-out;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    a:hover {
+      text-decoration-color: currentColor;
+    }
+  }
+  a:focus-visible {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
 `
 
 const GITIGNORE = `node_modules
@@ -73,194 +169,130 @@ const indexHtml = (name: string) => `<!doctype html>
 
 const websiteApp = (name: string) => `const name = ${JSON.stringify(name)}
 
-const features = [
-  {
-    title: 'Fast to start',
-    text: 'Everything you need for a first version, ready the moment you open it.',
-  },
-  {
-    title: 'Easy to change',
-    text: 'Point at any part of the page in Gui and describe what you want instead.',
-  },
-  {
-    title: 'Real code',
-    text: 'React and Tailwind under the hood, ready to ship when you are.',
-  },
+const notes = [
+  'What this is, in a few words.',
+  'Who it is for.',
+  'How to start.',
 ]
 
 export default function App() {
   return (
-    <div className="min-h-screen bg-white text-zinc-900">
-      <header className="mx-auto flex max-w-5xl items-center justify-between px-6 py-5">
-        <span className="font-semibold">{name}</span>
-        <nav className="flex items-center gap-6 text-sm text-zinc-600">
-          <a href="#features" className="hover:text-zinc-900">
-            Features
-          </a>
-          <a href="#contact" className="hover:text-zinc-900">
-            Contact
-          </a>
-          <a
-            href="#contact"
-            className="rounded-full bg-zinc-900 px-4 py-2 font-medium text-white hover:bg-zinc-700"
-          >
-            Get started
-          </a>
-        </nav>
-      </header>
+    <main className="mx-auto max-w-page px-6 py-24">
+      <div className="max-w-column">
+        <p className="font-normal">{name}</p>
 
-      <main>
-        <section className="mx-auto max-w-5xl px-6 pt-20 pb-24">
-          <p className="text-sm font-medium text-indigo-600">Introducing {name}</p>
-          <h1 className="mt-3 max-w-2xl text-5xl font-semibold tracking-tight text-balance">
-            A clear headline that says what you do
-          </h1>
-          <p className="mt-5 max-w-xl text-lg text-pretty text-zinc-600">
-            One or two sentences on who it's for and why it matters. Replace this with your own
-            story.
-          </p>
-          <div className="mt-8 flex gap-3">
-            <a
-              href="#contact"
-              className="rounded-full bg-indigo-600 px-5 py-3 font-medium text-white hover:bg-indigo-500"
-            >
-              Get started
-            </a>
-            <a
-              href="#features"
-              className="rounded-full px-5 py-3 font-medium text-zinc-700 ring-1 ring-zinc-200 hover:bg-zinc-50"
-            >
-              Learn more
-            </a>
-          </div>
-        </section>
-
-        <section id="features" className="border-t border-zinc-100 bg-zinc-50">
-          <div className="mx-auto grid max-w-5xl gap-6 px-6 py-20 sm:grid-cols-3">
-            {features.map((feature) => (
-              <div key={feature.title} className="rounded-2xl bg-white p-6 ring-1 ring-zinc-200">
-                <h2 className="font-semibold">{feature.title}</h2>
-                <p className="mt-2 text-sm text-zinc-600">{feature.text}</p>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section id="contact" className="mx-auto max-w-5xl px-6 py-20">
-          <h2 className="text-2xl font-semibold">Ready when you are</h2>
-          <p className="mt-2 text-zinc-600">Tell people how to reach you or sign up.</p>
-        </section>
-      </main>
-
-      <footer className="border-t border-zinc-100">
-        <p className="mx-auto max-w-5xl px-6 py-8 text-sm text-zinc-500">
-          © {new Date().getFullYear()} {name}
+        <h1 className="mt-12 text-title">A short line that says what this is.</h1>
+        <p className="mt-4 text-muted">
+          This page is a placeholder. Select any part of it in Gui and say what it should be.
         </p>
-      </footer>
-    </div>
+        <p className="mt-6 flex flex-wrap gap-x-6 gap-y-2">
+          <a href="mailto:hello@example.com">Get in touch</a>
+          <a href="#notes">Read more</a>
+        </p>
+
+        <section id="notes" className="mt-24">
+          <h2 className="text-section font-normal">What to put here</h2>
+          <ul className="mt-4 border-b border-rule">
+            {notes.map((note) => (
+              <li key={note} className="border-t border-rule py-2">
+                {note}
+              </li>
+            ))}
+          </ul>
+        </section>
+      </div>
+    </main>
   )
 }
 `
 
 const dashboardApp = (name: string) => `const name = ${JSON.stringify(name)}
 
+const nav = ['Overview', 'Orders', 'Customers', 'Settings']
+
 const stats = [
   { label: 'Revenue', value: '$48,210', change: '+12%' },
   { label: 'Orders', value: '1,284', change: '+8%' },
   { label: 'Customers', value: '932', change: '+3%' },
-  { label: 'Refunds', value: '14', change: '-2%' },
+  { label: 'Refunds', value: '14', change: '−2%' },
 ]
 
 const weeks = [32, 45, 38, 52, 61, 48, 70, 66, 74, 81, 77, 90]
 
 const orders = [
-  { id: '#1042', customer: 'Ava Thompson', status: 'Paid', total: '$129.00' },
-  { id: '#1041', customer: 'Noah Kim', status: 'Pending', total: '$64.50' },
-  { id: '#1040', customer: 'Mia Patel', status: 'Paid', total: '$310.00' },
-  { id: '#1039', customer: 'Leo Garcia', status: 'Refunded', total: '$42.00' },
+  { id: '1042', customer: 'Ava Thompson', status: 'Paid', total: '$129.00' },
+  { id: '1041', customer: 'Noah Kim', status: 'Pending', total: '$64.50' },
+  { id: '1040', customer: 'Mia Patel', status: 'Paid', total: '$310.00' },
+  { id: '1039', customer: 'Leo Garcia', status: 'Refunded', total: '$42.00' },
+  { id: '1038', customer: 'Ella Novak', status: 'Paid', total: '$88.20' },
 ]
-
-const nav = ['Overview', 'Orders', 'Customers', 'Products', 'Settings']
 
 export default function App() {
   return (
-    <div className="flex min-h-screen bg-zinc-50 text-zinc-900">
-      <aside className="hidden w-56 shrink-0 border-r border-zinc-200 bg-white p-4 md:block">
-        <p className="px-2 font-semibold">{name}</p>
-        <nav className="mt-6 flex flex-col gap-1 text-sm">
+    <div className="mx-auto max-w-page px-6 py-12 md:py-16">
+      <header className="flex flex-wrap items-baseline gap-x-6 gap-y-2">
+        <p className="mr-auto font-normal">{name}</p>
+        <nav className="flex flex-wrap gap-x-6 gap-y-2">
           {nav.map((item, i) => (
             <a
               key={item}
               href="#"
-              className={
-                i === 0
-                  ? 'rounded-md bg-zinc-100 px-2 py-1.5 font-medium'
-                  : 'rounded-md px-2 py-1.5 text-zinc-600 hover:bg-zinc-50'
-              }
+              aria-current={i === 0 ? 'page' : undefined}
+              className={i === 0 ? 'no-underline' : 'text-muted no-underline hover:text-foreground'}
             >
               {item}
             </a>
           ))}
         </nav>
-      </aside>
+      </header>
 
-      <main className="flex-1 p-6 md:p-8">
-        <h1 className="text-2xl font-semibold">Overview</h1>
-        <p className="mt-1 text-sm text-zinc-500">The last 12 weeks</p>
+      <main className="mt-16">
+        <h1 className="text-title">Overview</h1>
+        <p className="mt-2 text-muted">The last 12 weeks</p>
 
-        <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <dl className="mt-12 grid grid-cols-2 gap-x-6 gap-y-8 lg:grid-cols-4">
           {stats.map((stat) => (
-            <div key={stat.label} className="rounded-xl bg-white p-4 ring-1 ring-zinc-200">
-              <p className="text-sm text-zinc-500">{stat.label}</p>
-              <p className="mt-1 text-2xl font-semibold tabular-nums">{stat.value}</p>
-              <p
-                className={
-                  stat.change.startsWith('-')
-                    ? 'mt-1 text-sm text-rose-600'
-                    : 'mt-1 text-sm text-emerald-600'
-                }
-              >
-                {stat.change}
-              </p>
+            <div key={stat.label} className="border-t border-rule pt-3">
+              <dt className="text-muted">{stat.label}</dt>
+              <dd className="mt-1 text-section tabular-nums">{stat.value}</dd>
+              <dd className="mt-1 text-muted tabular-nums">{stat.change}</dd>
             </div>
           ))}
-        </div>
+        </dl>
 
-        <section className="mt-6 rounded-xl bg-white p-4 ring-1 ring-zinc-200">
-          <h2 className="font-medium">Revenue by week</h2>
-          <div className="mt-4 flex h-40 items-end gap-2">
+        <section className="mt-16">
+          <h2 className="text-section font-normal">Revenue by week</h2>
+          <div className="mt-6 flex h-40 items-end gap-1.5 border-b border-rule sm:gap-3">
             {weeks.map((value, i) => (
-              <div
-                key={i}
-                className="flex-1 rounded-t bg-indigo-500"
-                style={{ height: \`\${value}%\` }}
-              />
+              <div key={i} className="flex-1 bg-muted/30" style={{ height: \`\${value}%\` }} />
             ))}
           </div>
         </section>
 
-        <section className="mt-6 overflow-hidden rounded-xl bg-white ring-1 ring-zinc-200">
-          <h2 className="p-4 font-medium">Recent orders</h2>
-          <table className="w-full text-left text-sm">
-            <thead className="border-y border-zinc-100 bg-zinc-50 text-zinc-500">
-              <tr>
-                <th className="px-4 py-2 font-medium">Order</th>
-                <th className="px-4 py-2 font-medium">Customer</th>
-                <th className="px-4 py-2 font-medium">Status</th>
-                <th className="px-4 py-2 text-right font-medium">Total</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {orders.map((order) => (
-                <tr key={order.id}>
-                  <td className="px-4 py-2 font-medium">{order.id}</td>
-                  <td className="px-4 py-2">{order.customer}</td>
-                  <td className="px-4 py-2 text-zinc-600">{order.status}</td>
-                  <td className="px-4 py-2 text-right tabular-nums">{order.total}</td>
+        <section className="mt-16">
+          <h2 className="text-section font-normal">Recent orders</h2>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-left whitespace-nowrap tabular-nums">
+              <thead className="text-muted">
+                <tr className="border-b border-rule">
+                  <th className="hidden py-2 pr-6 font-normal sm:table-cell">Order</th>
+                  <th className="py-2 pr-6 font-normal">Customer</th>
+                  <th className="py-2 pr-6 font-normal">Status</th>
+                  <th className="py-2 text-right font-normal">Total</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {orders.map((order) => (
+                  <tr key={order.id} className="border-b border-rule">
+                    <td className="hidden py-2 pr-6 text-muted sm:table-cell">{order.id}</td>
+                    <td className="py-2 pr-6">{order.customer}</td>
+                    <td className="py-2 pr-6">{order.status}</td>
+                    <td className="py-2 text-right">{order.total}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
     </div>
