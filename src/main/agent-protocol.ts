@@ -76,7 +76,7 @@ const PLAIN_MESSAGES: Partial<Record<AgentFailure, string>> = {
   server_error: 'The agent’s servers had a problem. Try again in a minute.',
   offline: 'The agent couldn’t reach its servers. Check your internet connection, then try again.',
   no_model:
-    'The agent has no model it can use. Set up a provider or pick another model in the agent, then try again.',
+    'The agent has no model it can use. Pick another model, or set up a provider for the agent, then try again.',
   timeout: 'The agent’s servers stopped answering. Try again in a minute.',
   dropped: 'The agent’s connection dropped partway through its answer. Try again.',
   denied:
