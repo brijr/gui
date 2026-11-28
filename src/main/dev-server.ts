@@ -38,6 +38,16 @@ const stripAnsi = (text: string) => text.replace(ANSI, '')
 
 let lastLogsId = 0
 
+/**
+ * `command` with `GUI_PATH_FIRST` put first on its PATH once the login shell's profile has
+ * run (a profile can set PATH again). The folder goes through the env rather than the text,
+ * so it needs no quoting; sh, bash and zsh read this line alike, and so does fish 3, which
+ * joins a quoted PATH with colons.
+ */
+export function withPathFirst(command: string, dir: string | null) {
+  return dir ? `export PATH="$GUI_PATH_FIRST:$PATH"; ${command}` : command
+}
+
 function normalizeUrl(raw: string) {
   try {
     const url = new URL(raw.replace(/[).,;]+$/, ''))
@@ -102,6 +112,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   private wakeFind = () => {}
   /** When the starting server last printed anything (or was started) */
   private lastOutput = 0
+  /** See `setPathFirst` */
+  private pathFirst: string | null = null
 
   /** `cwd` is where the dev script runs: the project root, or a monorepo app's folder. */
   constructor(private cwd: string) {
@@ -115,6 +127,15 @@ export class DevServer extends EventEmitter<DevServerEvents> {
   /** Takes effect on the next start. */
   setCwd(cwd: string) {
     this.cwd = cwd
+  }
+
+  /**
+   * A `bin` folder to put first on the PATH of what runs from now on (installs and the
+   * server), after the login shell's profile: Gui's Node.js for a project the user's is too
+   * old for. Null runs everything with the PATH as it is.
+   */
+  setPathFirst(dir: string | null) {
+    this.pathFirst = dir
   }
 
   /** The origins of the local addresses this run printed, in order (see `printed`). */
@@ -323,17 +344,26 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     this.task = task
     this.partial = ''
     this.write(`\r\n${ESC}[2m$ ${command}${ESC}[0m\r\n`)
-    const proc = spawnPty(env.SHELL || DEFAULT_SHELL, ['-lc', command], {
-      name: 'xterm-256color',
-      cols: this.size.cols,
-      rows: this.size.rows,
-      cwd,
-      // Turborepo streams its tasks' output rather than drawing its full-screen UI, so the
-      // logs read as lines (addresses, errors) like any other dev server's.
-      env,
-      extra: { FORCE_COLOR: '1', TERM: 'xterm-256color', TURBO_UI: '0' },
-      browser: 'none',
-    })
+    const proc = spawnPty(
+      env.SHELL || DEFAULT_SHELL,
+      ['-lc', withPathFirst(command, this.pathFirst)],
+      {
+        name: 'xterm-256color',
+        cols: this.size.cols,
+        rows: this.size.rows,
+        cwd,
+        // Turborepo streams its tasks' output rather than drawing its full-screen UI, so the
+        // logs read as lines (addresses, errors) like any other dev server's.
+        env,
+        extra: {
+          FORCE_COLOR: '1',
+          TERM: 'xterm-256color',
+          TURBO_UI: '0',
+          GUI_PATH_FIRST: this.pathFirst ?? undefined,
+        },
+        browser: 'none',
+      },
+    )
     this.proc = proc
     // Registered before the caller's exit handler, which has run by the time this settles.
     this.exited = new Promise((resolve) => proc.onExit(() => resolve()))

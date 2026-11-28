@@ -210,6 +210,11 @@ export interface NodeSetup {
   /** Bytes so far and total (null when unknown) while downloading */
   progress: { received: number; total: number | null } | null
   error: string | null
+  /**
+   * On a project's copy: the Mac has Node.js, but older than the project needs (its
+   * `engines`), so Gui sets up its own for it. `needs` is the oldest version it allows.
+   */
+  newer?: { needs: string; has: string } | null
 }
 
 export interface ProjectSetup {

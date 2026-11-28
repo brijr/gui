@@ -485,8 +485,9 @@ function ConsentCard({
 }
 
 /**
- * The project needs Node.js and the Mac has none: Gui downloads its own, then installs and
- * starts the project as usual. Nothing outside Gui changes.
+ * The project needs Node.js and the Mac has none, or only one older than the project needs
+ * (`node.newer`, downloaded without asking): Gui downloads its own, then installs and starts
+ * the project as usual. Nothing outside Gui changes.
  */
 function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
   if (node.status === 'installing' || node.status === 'ready') {
@@ -498,6 +499,23 @@ function NodeCard({ node }: { node: NonNullable<ProjectSetup['node']> }) {
       >
         <InstallProgress name="Node.js" progress={node.progress} />
       </SetupCard>
+    )
+  }
+  if (node.status === 'failed' && node.newer) {
+    const { needs, has } = node.newer
+    return (
+      <SetupCard
+        icon={TriangleAlert}
+        tone="danger"
+        heading="Your app needs a newer Node.js"
+        detail={`It needs Node.js ${needs} or newer, and this Mac has ${has}. Gui couldn’t download its own. Try again, or install a newer Node.js from nodejs.org.`}
+        note={node.error ?? undefined}
+        actions={
+          <Button variant="primary" onClick={() => gui.installNode()}>
+            Try again
+          </Button>
+        }
+      />
     )
   }
   if (node.status === 'failed') {

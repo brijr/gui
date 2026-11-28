@@ -123,7 +123,9 @@ import { crashFailure, loadFailure } from './load-failure'
 import { isLoopback } from './loopback'
 import { describeTurns } from './mcp-app-tools'
 import { startMcpServer } from './mcp-server'
+import { NODE } from './node-paths'
 import { nodeRuntime } from './node-runtime'
+import { nodeRanges, nodeVersionIn, oldestAllowed, wantsGuiNode } from './node-version'
 import type { OutsideTarget } from './outside-mcp'
 import { prefersReducedMotion } from './panel-flight'
 import { type Outlined, Picker } from './picker'
@@ -3596,6 +3598,12 @@ export class ProjectTab implements ChatPanelOwner {
         if (devServer === this.resources.devServer) this.patchSetup({ node: nodeRuntime.state })
         return
       }
+      // The user's Node.js may be older than the project says it needs: then it runs on Gui's.
+      const pathFirst = needsNode(project, installs)
+        ? await this.guiNodeFor(project, devServer)
+        : null
+      if (devServer !== this.resources.devServer || pathFirst === 'installing') return
+      devServer.setPathFirst(pathFirst)
       if (this.state.setup?.node) this.patchSetup({ node: null })
       if (!project.devCommand) return void (await this.confirmFolder(project, agreed))
       if (!(await this.confirmScripts(project, installs, agreed))) return
@@ -3619,6 +3627,31 @@ export class ProjectTab implements ChatPanelOwner {
     } finally {
       if (this.settingUp === devServer) this.settingUp = null
     }
+  }
+
+  /**
+   * Gui's Node.js `bin` folder when the project states the Node.js it needs (`engines.node`),
+   * the user's doesn't meet it and Gui's does (`wantsGuiNode`); null to run it as it is.
+   * 'installing' when Gui's isn't there yet: it downloads, with its card, and once it's
+   * ready the project is set up again (`onNodeRuntime`).
+   */
+  private async guiNodeFor(
+    project: ProjectInfo,
+    devServer: DevServer,
+  ): Promise<string | null | 'installing'> {
+    const ranges = await nodeRanges(project.root, project.appDir)
+    if (ranges.length === 0) return null
+    const has = await nodeVersionIn(appRoot(project), await getShellEnv())
+    if (has === null || !wantsGuiNode(ranges, has, NODE.version)) return null
+    console.log(
+      `[gui] the project needs Node.js ${ranges.join(' and ')}, the Mac has ${has}: using Gui's ${NODE.version}`,
+    )
+    const bin = await nodeRuntime.installedBin()
+    if (bin || devServer !== this.resources.devServer) return bin
+    void nodeRuntime.install()
+    const newer = { needs: oldestAllowed(ranges) ?? ranges.join(' and '), has }
+    this.patchSetup({ node: { ...nodeRuntime.state, newer } })
+    return 'installing'
   }
 
   /** What to install before starting: after a failed install, all of it again. */
@@ -3778,8 +3811,9 @@ export class ProjectTab implements ChatPanelOwner {
 
   /** Gui's Node.js download moved on: follow it while waiting on it, and go on once it's in. */
   private onNodeRuntime = (node: NodeSetup) => {
-    if (!this.state.setup?.node) return
-    if (node.status !== 'ready') return this.patchSetup({ node })
+    const shown = this.state.setup?.node
+    if (!shown) return
+    if (node.status !== 'ready') return this.patchSetup({ node: { ...node, newer: shown.newer } })
     this.patchSetup({ node: null })
     void this.setUpAndStart()
   }

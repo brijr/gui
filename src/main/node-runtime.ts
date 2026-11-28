@@ -52,6 +52,11 @@ class NodeRuntime extends EventEmitter<{ change: [setup: NodeSetup] }> {
     return (await findExecutable('node', env.PATH)) === null
   }
 
+  /** The `bin` folder of Gui's Node.js once it's installed; null before. */
+  async installedBin() {
+    return (await isExecutable(join(nodeBinDir(), 'node'))) ? nodeBinDir() : null
+  }
+
   /** Downloads and unpacks Gui's Node.js; one at a time, a second call joins the first. */
   install() {
     this.installing ??= this.run().finally(() => {

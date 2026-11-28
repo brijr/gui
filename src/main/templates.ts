@@ -14,6 +14,8 @@ const PACKAGE_JSON = `${JSON.stringify(
     private: true,
     type: 'module',
     scripts: { dev: 'vite', build: 'vite build', preview: 'vite preview' },
+    // Vite's own: on an older Node.js, Gui runs the project with its own (node-version.ts).
+    engines: { node: '^20.19.0 || >=22.12.0' },
     dependencies: {
       '@fontsource-variable/inter-tight': '^5.3.0',
       react: '^19.3.0',
