@@ -81,6 +81,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     lastLine: '',
     errorLine: '',
     slow: false,
+    cameUp: false,
   }
   /** This run's first line that reads like an error, and its last that isn't the runner's */
   private cause = { first: '', last: '' }
@@ -177,6 +178,7 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       lastLine: '',
       errorLine: '',
       slow: false,
+      cameUp: false,
     })
     if (this.slowTimer) clearTimeout(this.slowTimer)
     this.slowTimer = setTimeout(() => {
@@ -211,7 +213,13 @@ export class DevServer extends EventEmitter<DevServerEvents> {
       this.update(
         this.stopping
           ? { status: 'idle', url: null, exitCode: null }
-          : { status: 'exited', url: null, exitCode, errorLine: exitCode ? this.causeLine() : '' },
+          : {
+              status: 'exited',
+              url: null,
+              exitCode,
+              // Before the app came up, a clean exit is a failed start too: say why.
+              errorLine: exitCode || !this.state.cameUp ? this.causeLine() : '',
+            },
       )
     })
   }
@@ -572,7 +580,8 @@ export class DevServer extends EventEmitter<DevServerEvents> {
     const slow =
       (patch.status ?? this.state.status) === 'starting' && (patch.slow ?? this.state.slow)
     const wasStarting = this.state.status === 'starting'
-    this.state = { ...this.state, ...patch, slow }
+    const cameUp = patch.status === 'running' || (patch.cameUp ?? this.state.cameUp)
+    this.state = { ...this.state, ...patch, slow, cameUp }
     // It exited or was found: `findApp` has nothing left to wait for.
     if (wasStarting && this.state.status !== 'starting') this.wakeFind()
     this.emit('change', this.state)

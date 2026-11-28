@@ -274,7 +274,14 @@ function CanvasMessage({ state }: { state: WindowState }) {
         role={preview.visible ? undefined : failed ? 'alert' : 'status'}
         detail={
           failed ? (
-            <Cause line={devServer.errorLine} fallback="It quit with an error." />
+            <Cause
+              line={devServer.errorLine}
+              fallback={
+                devServer.exitCode === 0
+                  ? 'It quit before your app came up.'
+                  : 'It quit with an error.'
+              }
+            />
           ) : stoppedOutside(state) ? (
             'Something outside Gui stopped it.'
           ) : (

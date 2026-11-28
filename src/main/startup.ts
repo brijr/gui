@@ -79,9 +79,12 @@ export function startupFailure({ project, setup, devServer, preview }: StartupSt
   if (setup?.node && setup.node.status === 'failed') return "Gui couldn't set up Node.js."
   if (setup?.dependencies === 'failed') return 'Installing dependencies failed.'
   if (devServer.status === 'exited') {
-    return devServer.exitCode === 0
+    if (devServer.exitCode !== 0) {
+      return `The dev server quit with an error (exit code ${devServer.exitCode ?? 'unknown'}).`
+    }
+    return devServer.cameUp
       ? 'The dev server exited (code 0): it stopped on its own, without an error.'
-      : `The dev server quit with an error (exit code ${devServer.exitCode ?? 'unknown'}).`
+      : 'The dev server exited (code 0) before the app came up: its command ended without starting a server that Gui could reach.'
   }
   if (devServer.status === 'starting' && devServer.slow) {
     return devServer.url

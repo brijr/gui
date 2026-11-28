@@ -292,6 +292,11 @@ export interface DevServerState {
   errorLine: string
   /** Still starting well after most apps are up (no reachable address yet) */
   slow: boolean
+  /**
+   * This run's app came up (Gui found it at its address). An exit before that is a failed
+   * start, whatever its exit code.
+   */
+  cameUp: boolean
 }
 
 /** One of a project's terminals: the user's own shell, in the drawer under the canvas */

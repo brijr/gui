@@ -13,12 +13,14 @@ export function stoppedOutside({ devServer }: WindowState) {
 }
 
 /**
- * The dev server quit on its own with an error, or never started; a clean exit isn't a crash,
- * and nor is being stopped from outside.
+ * The dev server quit on its own with an error, or before the app ever came up in this run
+ * (a failed start, whatever its exit code), or never started. A clean exit once the app was
+ * up isn't a crash, and nor is being stopped from outside.
  */
 export function crashed(state: WindowState) {
   const { devServer } = state
-  return devServer.status === 'exited' && devServer.exitCode !== 0 && !stoppedOutside(state)
+  if (devServer.status !== 'exited' || stoppedOutside(state)) return false
+  return devServer.exitCode !== 0 || !devServer.cameUp
 }
 
 /**

@@ -302,6 +302,7 @@ const idleDevServer = (): DevServerState => ({
   lastLine: '',
   errorLine: '',
   slow: false,
+  cameUp: false,
 })
 
 const closedDrawer = (): DrawerState => ({ open: false, tab: null, terminals: [] })
@@ -792,7 +793,7 @@ export class ProjectTab implements ChatPanelOwner {
     if (this.resources.chat?.awaitingPermission) return 'attention'
     if (this.resources.chat?.turnRunning) return 'working'
     const { devServer, setup } = this.state
-    const crashed = devServer.status === 'exited' && devServer.exitCode !== 0
+    const crashed = devServer.status === 'exited' && (devServer.exitCode !== 0 || !devServer.cameUp)
     const failed = this.resources.chat?.meta.status === 'error' || setup?.dependencies === 'failed'
     return crashed || failed ? 'error' : 'idle'
   }

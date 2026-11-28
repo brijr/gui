@@ -230,6 +230,32 @@ test('the start tab offers project actions; a project fills the toolbar, without
   await session.shot('running')
 })
 
+test('a start command that exits cleanly before the app came up is a failed start, with a fix', async ({
+  launch,
+}) => {
+  const session = await launch({ fixture: 'vite', open: 'recent' })
+  const { root } = session.fixture
+  // Exits 0 without ever serving anything.
+  const pkg = join(root, 'package.json')
+  writeFileSync(
+    pkg,
+    readFileSync(pkg, 'utf8').replace('"dev": "vite"', '"dev": "echo Error: nothing to serve"'),
+  )
+  await session.chrome.evaluate((path) => window.gui.openRecent(path), root)
+  const state = await waitFor(async () => {
+    const state = await session.state()
+    return state.devServer.status === 'exited' ? state : null
+  }, 'the start command to exit')
+  expect(state.devServer.exitCode).toBe(0)
+  expect(state.devServer.cameUp).toBe(false)
+  await expect(serverStatus(session)).toHaveAccessibleName('Dev server: Stopped with an error')
+  const canvas = session.chrome.getByRole('main')
+  await expect(canvas.getByText('Your app stopped', { exact: true })).toBeVisible()
+  await expect(canvas).toContainText('nothing to serve')
+  await expect(canvas).not.toContainText('without an error')
+  await expect(canvas.getByRole('button', { name: /^Fix with / })).toBeVisible()
+})
+
 test('logs open in the drawer from the status menu and ⌘J; a crash dims the page under a card that offers them', async ({
   launch,
 }) => {
